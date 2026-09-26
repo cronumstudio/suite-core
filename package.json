@@ -1,6 +1,6 @@
 {
   "name": "suite-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Code shared by the Cronum Studio suite of self-hosted apps: built-in OAuth for their MCP servers.",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "test": "node test/oauth.test.js"
+    "test": "node test/oauth.test.js && node test/workos.test.js"
   },
   "dependencies": {}
 }

@@ -15,6 +15,8 @@ connect AI clients the same way; that shared part lives here, once.
 | File | What it does |
 | --- | --- |
 | `oauth.js` | Built-in OAuth 2.1 authorization server for an app's MCP endpoint, so Claude or ChatGPT connect by pasting the URL |
+| `workos.js` | WorkOS AuthKit client: web sign-in with PKCE, sign-out, and verification of the JWTs AuthKit issues for the MCP |
+| `workos-accounts.js` | Accounts with WorkOS: the `/auth/login` and `/auth/callback` routes, the MCP metadata, and how a WorkOS account becomes a user of the app |
 
 ## Using it in an app
 
@@ -98,6 +100,53 @@ uses the classes `oauth__text`, `oauth__note`, `oauth__warning`, `oauth__error`,
 `oauth__form`, `oauth__actions`, `field`, `btn` and `btn--primary`.
 
 What it implements and why is explained at the top of `oauth.js`.
+
+## `workos.js` and `workos-accounts.js`
+
+For a hosted service, people sign up and sign in on WorkOS AuthKit (sign-up, 2FA, Google,
+recovery) and AuthKit is also the authorization server for the MCP. The app keeps its session
+cookie and a `users` row per person, with the WorkOS id next to it.
+
+```js
+import { createWorkosClient, workosConfigFromEnv, WorkosUnavailable } from './suite/workos.js';
+import { createWorkosAccounts } from './suite/workos-accounts.js';
+
+const config = workosConfigFromEnv();   // AUTH_PROVIDER, WORKOS_API_KEY, WORKOS_CLIENT_ID,
+                                        // WORKOS_AUTHKIT_DOMAIN, WORKOS_MCP_AUDIENCE, WORKOS_API_URL
+const workos = createWorkosClient(config);
+if (config.enabled && workos.missingConfig().length) process.exit(1);   // say which ones
+
+const accounts = createWorkosAccounts({
+  baseUrl: process.env.BASE_URL,
+  appName: 'Next',
+  workos,
+  adminEmail: process.env.ADMIN_EMAIL,  // this verified email administers
+  secureCookies: true,
+  stateCookie: 'next_auth',             // holds state and PKCE verifier, Path=/auth
+  users: {
+    byWorkosId(id), unlinkedByEmail(email), firstUnlinkedAdmin(),   // → user | null
+    link(userId, { workosId, email }), setEmail(userId, email),
+    usernameTaken(name),                                             // → boolean
+    create({ username, displayName, role, email, workosId }),        // → user
+  },
+  sessions: { open(res, userId, { workosSessionId }) },
+});
+```
+
+Then, in the app:
+
+- `await accounts.handle(req, res, url)` before other routes: `/auth/login` (`?signup=1` for
+  the sign-up screen), `/auth/callback` and the `/.well-known/…` metadata. A failed return goes
+  to `/?auth_error=failed` or `/?auth_error=unavailable`.
+- On the MCP endpoint: `await accounts.userFromToken(token)` and `accounts.challenge(hadToken)`
+  for the `401`. `WorkosUnavailable` means the token couldn't be checked: answer `503`, not `401`.
+- On sign-out, keep the AuthKit session id stored with the app's session and send the browser to
+  `accounts.signOutUrl(id)`.
+- Close password sign-in and password changes while `config.enabled`.
+
+Account policy: an existing user is linked only through a **verified** email; `adminEmail`
+takes over the first admin not yet linked; anyone else gets a new account, also when their first
+contact is connecting an AI client. The users table needs a unique index on the WorkOS id.
 
 ## Tests
 
