@@ -1,0 +1,2 @@
+# Unix line endings, always: apps run this code in Linux containers.
+* text=auto eol=lf
