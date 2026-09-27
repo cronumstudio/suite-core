@@ -31,6 +31,9 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec`, nested transactions, `app_meta` |
 | `migrate.js` | Numbered migrations per scope (`suite`, `app`), each in its own transaction; refuses gaps and newer databases |
 | `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`) |
+| `sessions.js` | Browser sessions that live while used (with a maximum), rotated at sign-in, listed and closed per device; the session secret, never an example value |
+| `rate-limit.js` | The brute-force brake kept in the database: per account, per address, for tokens and client registrations |
+| `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
 
 ## Using it in an app
 

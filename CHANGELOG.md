@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.5.0 — 2026-09-28
+
+- `sessions.js`: sessions that live while they are used (`idleDays`) and never longer than
+  `maxDays`; signing in closes the browser's previous session; each notes its device and can be
+  listed and closed on its own; `closeAllOf()` for password changes; `resolveSessionSecret()`
+  takes SESSION_SECRET or generates and keeps one, ignoring example values. Tokens are hashed as
+  the apps already did, so nobody is signed out by the move.
+- `rate-limit.js`: failures kept in `login_attempts` over 15 minutes, per account, per address,
+  for tokens (failures only) and client registrations; buckets stored as keyed hashes.
+- `schema.js`: `SUITE_MIGRATIONS`, run after the app's own. Number 1 brings a `sessions` table
+  from the apps' older shape (`token`, `workos_sid`, dates by `datetime('now')`) to the suite's.
+- `http.js`: `clientIp()` and `proxyHops()` count trusted proxies from the end of
+  `X-Forwarded-For` (TRUST_PROXY=true is one; a number, that many).
+
 ## 0.4.0 — 2026-09-28
 
 - `crypto.js`: passwords in the scrypt format every app already stores (old hashes verify as

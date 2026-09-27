@@ -59,10 +59,10 @@ suite-core/
   migrate.js            done   numbered migrations with scopes (suite, app)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes
   accounts.js                  users, identities, passwords, sign-in, profile, admin of users
-  sessions.js                  browser sessions: sliding, rotated, revocable
+  sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js                    API tokens (manual MCP tokens) with scopes
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
-  rate-limit.js                brute-force brake persisted in the database
+  rate-limit.js         done   brute-force brake persisted in the database
   organizations.js             organizations, memberships, roles, invitations
   entitlements.js              features, plans and grants; can() / limit() / require()
   billing.js                   provider interface; Stripe adapter later
@@ -597,7 +597,7 @@ first, then Tasks, then the rest.
 | `workos.js`, `workos-accounts.js` | done (v0.2.0) | used by Next; Tasks next |
 | Architecture and conventions | done (this document) | keep it in step with the code |
 | `http.js`, `db.js`, `migrate.js`, `crypto.js` | done (v0.4.0) | adopted by Next; Tasks and the rest next |
-| `sessions.js`, `rate-limit.js`, `principal.js` | next | secret handling from Tasks, the rest from Focus |
+| `sessions.js`, `rate-limit.js` | done (v0.5.0) | adopted by Next; `principal.js` comes with the MCP transport |
 | `mcp.js` | next | from the transport of Next and Tasks, with plan checks |
 | `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
 | `accounts.js`, `tokens.js`, `organizations.js` | planned | with the adoption migrations of §6 |
