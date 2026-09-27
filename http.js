@@ -107,14 +107,31 @@ export async function readJson(req, { limit = MAX_BODY, requireType = true } = {
 }
 
 /**
- * The client's address. `X-Forwarded-For` is only believed behind a proxy
- * the install says it trusts: otherwise anyone could pick their own address
- * and walk around the brute-force brake.
+ * How many proxies in front of the app are trusted: TRUST_PROXY=true is one
+ * (the NAS or VPS reverse proxy), a number says how many (Cloudflare in front
+ * of it makes two); empty or false, none.
  */
-export function clientIp(req, { trustProxy = process.env.TRUST_PROXY === 'true' } = {}) {
-  if (trustProxy) {
-    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    if (forwarded) return forwarded;
+export function proxyHops(value) {
+  if (value === true) return 1;
+  if (value == null || value === false) return 0;
+  const text = String(value).trim().toLowerCase();
+  if (text === 'true') return 1;
+  const n = Number(text);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+/**
+ * The client's address. `X-Forwarded-For` is only believed as far as the
+ * trusted proxies go: each one appends the address it saw, so the real client
+ * is the entry that many places from the end. The first entry is whatever the
+ * client chose to send — believing it would let anyone pick their address and
+ * walk around the brute-force brake.
+ */
+export function clientIp(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
+  const hops = proxyHops(trustProxy);
+  if (hops) {
+    const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (chain.length) return chain[Math.max(0, chain.length - hops)];
   }
   return req.socket?.remoteAddress || '';
 }

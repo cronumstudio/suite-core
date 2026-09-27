@@ -193,10 +193,14 @@ test('cookies and text fields', () => {
   assert.throws(() => str(5, { field: 'name' }), (e) => e.code === 'field_invalid');
 });
 
-test('client address: X-Forwarded-For only behind a trusted proxy', () => {
-  const req = { headers: { 'x-forwarded-for': '203.0.113.9, 10.0.0.1' }, socket: { remoteAddress: '10.0.0.2' } };
-  assert.equal(clientIp(req, { trustProxy: false }), '10.0.0.2');
-  assert.equal(clientIp(req, { trustProxy: true }), '203.0.113.9');
+test('client address: X-Forwarded-For only as far as the trusted proxies go', () => {
+  // The client sent a made-up first entry; the reverse proxy appended the address it saw.
+  const req = { headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }, socket: { remoteAddress: '10.0.0.2' } };
+  assert.equal(clientIp(req, { trustProxy: false }), '10.0.0.2', 'no trusted proxy: the socket');
+  assert.equal(clientIp(req, { trustProxy: undefined }), '10.0.0.2');
+  assert.equal(clientIp(req, { trustProxy: 'true' }), '203.0.113.9', 'one proxy: the entry it appended');
+  assert.equal(clientIp(req, { trustProxy: '2' }), '6.6.6.6', 'two proxies (say Cloudflare and the NAS)');
+  assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.2' } }, { trustProxy: true }), '10.0.0.2');
 });
 
 test('cross-site requests on the session cookie are refused', () => {
