@@ -27,6 +27,10 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `workos.js` | WorkOS AuthKit client: web sign-in with PKCE, sign-out, and verification of the JWTs AuthKit issues for the MCP |
 | `workos-accounts.js` | Accounts with WorkOS: the `/auth/login` and `/auth/callback` routes, the MCP metadata, and how a WorkOS account becomes a user of the app |
 | `i18n.js` | Translations: the suite's own texts (`i18n/<lang>.json`), language negotiation, and `t()` with placeholders, plurals and a fallback to English |
+| `crypto.js` | Passwords in the scrypt format every app stores, token hashes, HMAC, constant-time comparison |
+| `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec`, nested transactions, `app_meta` |
+| `migrate.js` | Numbered migrations per scope (`suite`, `app`), each in its own transaction; refuses gaps and newer databases |
+| `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`) |
 
 ## Using it in an app
 

@@ -54,10 +54,10 @@ suite-core/
   workos-accounts.js    done   /auth routes and how a WorkOS account becomes a user
   config.js                    loads and validates suite.config.js + environment overrides
   app.js                       createApp(): wires the modules below in the dispatch order (§11)
-  http.js                      router, HttpError, body parsing, security headers, CSRF, static files
-  db.js                        openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
-  migrate.js                   numbered migrations with scopes (suite, app)
-  crypto.js                    scrypt, HMAC, random tokens, token hashes
+  http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
+  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
+  migrate.js            done   numbered migrations with scopes (suite, app)
+  crypto.js             done   scrypt, HMAC, random tokens, token hashes
   accounts.js                  users, identities, passwords, sign-in, profile, admin of users
   sessions.js                  browser sessions: sliding, rotated, revocable
   tokens.js                    API tokens (manual MCP tokens) with scopes
@@ -68,7 +68,7 @@ suite-core/
   billing.js                   provider interface; Stripe adapter later
   mcp.js                       Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js                      SSE hub with audiences, event ids and replay
-  i18n.js                      catalogs, language negotiation, t() on the server
+  i18n.js               done   catalogs, language negotiation, t() on the server
   push.js                      Web Push (VAPID, RFC 8291), subscriptions per device and language
   uploads.js                   file storage checked by content, trash and orphan sweep
   mail.js                      outgoing mail through a provider (log in development)
@@ -596,7 +596,7 @@ first, then Tasks, then the rest.
 | `oauth.js` | done (v0.1.0) | used by Next; Tasks next |
 | `workos.js`, `workos-accounts.js` | done (v0.2.0) | used by Next; Tasks next |
 | Architecture and conventions | done (this document) | keep it in step with the code |
-| `http.js`, `db.js`, `migrate.js`, `crypto.js` | next | built from Focus, adopted by Next |
+| `http.js`, `db.js`, `migrate.js`, `crypto.js` | done (v0.4.0) | adopted by Next; Tasks and the rest next |
 | `sessions.js`, `rate-limit.js`, `principal.js` | next | secret handling from Tasks, the rest from Focus |
 | `mcp.js` | next | from the transport of Next and Tasks, with plan checks |
 | `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
