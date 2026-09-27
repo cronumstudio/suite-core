@@ -1,8 +1,8 @@
 # suite-core
 
-Code shared by the self-hosted apps of the Cronum Studio suite (Next, Tasks, Projects, Focus).
-Each app is independent and can be installed on its own, but they all sign people in and
-connect AI clients the same way; that shared part lives here, once.
+The platform shared by the self-hosted apps of the Cronum Studio suite (Tasks, Projects, Next,
+Focus, Tracker). Each app is independent and can be installed on its own, but they all sign people
+in, connect AI clients, translate, sync and charge the same way; that shared part lives here, once.
 
 - **Zero dependencies.** Plain Node 24 (`node:crypto`, `node:dns`, `node:net`) and native ES
   modules, like the apps. No build.
@@ -10,7 +10,16 @@ connect AI clients the same way; that shared part lives here, once.
   users, sessions, texts, page layout— is passed in when a module is created.
 - **Included as a git submodule** in each app, usually at `server/suite/`.
 
+| Document | What it says |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | The target design: modules, configuration file, data model, accounts, organizations, plans, billing, and the order in which it is built |
+| [CONVENTIONS.md](CONVENTIONS.md) | The rules every repository of the suite follows: language, code, commits, versions, configuration, ports, tests |
+| [CHANGELOG.md](CHANGELOG.md) | What each version changed |
+
 ## Modules
+
+Today's modules are below; the planned ones, and their order, are in the architecture.
+
 
 | File | What it does |
 | --- | --- |

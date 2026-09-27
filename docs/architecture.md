@@ -1,0 +1,608 @@
+# suite-core architecture
+
+The target design of the platform shared by the Cronum Studio apps, agreed on 2026-09-27.
+Modules marked **done** exist today; the rest is the plan, in the order of section 20. When code
+and this document disagree, fix one of them in the same change.
+
+## 1. Goals and constraints
+
+- **One platform, many apps.** Tasks, Projects, Next, Focus and Tracker keep their own domain
+  (lists, Gantt charts, progress logs, routines, GPS routes) and share everything that is the same
+  everywhere: HTTP, accounts, sessions, tokens, OAuth for the MCP, the MCP transport, live updates,
+  translations, plans, billing, administration. Show Lab (IDEAA Lab) takes the conventions only.
+- **Same image, two ways to run it.** Every app can be downloaded and self-hosted for free
+  (AGPL-3.0), and the same image runs as a paid hosted service. The difference is configuration,
+  never a fork: local accounts and everything allowed by default; WorkOS accounts and paid plans
+  when the environment says so.
+- **Zero dependencies, no build.** `node:*` modules on the server, native ES modules in the
+  browser, no bundler, no transpiler. `npm install` downloads nothing.
+- **Nothing app-specific in here.** suite-core imports nothing from an app. What is the app's own
+  (its tables, its texts, its page, its permissions over its records) is handed in when a module
+  is created.
+- **Adopted module by module.** No big-bang rewrite: every module can be used on its own through
+  adapters, and each new one lands first in Next (small, English, well tested), then in Tasks
+  (real users and the hosted version), then in the rest.
+
+## 2. Where each piece comes from
+
+Each shared piece takes the best version the apps already had:
+
+| Piece | Taken from | Why that one |
+| --- | --- | --- |
+| Conventions (English, error codes, aliases, commits, versions) | Next | Already all English, API answers codes, old names kept as aliases |
+| HTTP kernel, database, migrations | Focus | Factories with injected dependencies, numbered migrations, strict request parsing |
+| Principal and access checks | Focus | One resolver for every credential, one place that decides access |
+| Sessions, secrets, brute-force brake | Focus + Tasks | Sliding sessions with rotation; secret generated when missing; brake persisted |
+| OAuth for the MCP, WorkOS | Tasks (**done** here) | Proven in production and on the hosted version |
+| MCP transport | Tasks / Next | The same code in three apps today |
+| Live updates | Tasks + Focus | SSE hub of Tasks with the event ids and replay designed in Focus |
+| Translations | Focus + Next | One `t()` for server and browser, CLDR plurals, parity and lint tools |
+| Push, uploads | Tasks | Web Push without dependencies (RFC 8291/8292); uploads checked by content |
+| Plans | Tasks | `planes.js`: catalog, per-user plan, barriers already placed |
+| Web kit | Tasks, Next, Focus | `el()`, API client, theme, service worker, update notice, offline outbox |
+
+## 3. Repository layout
+
+suite-core is a git submodule mounted in each app at `server/suite`. Server modules sit at its
+root so apps import them as `./suite/<module>.js`; browser code lives in `web/` and is served by the
+app at `/suite/`.
+
+```
+suite-core/
+  oauth.js              done   OAuth 2.1 authorization server for the MCP endpoint
+  workos.js             done   WorkOS AuthKit client (sign-in with PKCE, JWT verification)
+  workos-accounts.js    done   /auth routes and how a WorkOS account becomes a user
+  config.js                    loads and validates suite.config.js + environment overrides
+  app.js                       createApp(): wires the modules below in the dispatch order (§11)
+  http.js                      router, HttpError, body parsing, security headers, CSRF, static files
+  db.js                        openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
+  migrate.js                   numbered migrations with scopes (suite, app)
+  crypto.js                    scrypt, HMAC, random tokens, token hashes
+  accounts.js                  users, identities, passwords, sign-in, profile, admin of users
+  sessions.js                  browser sessions: sliding, rotated, revocable
+  tokens.js                    API tokens (manual MCP tokens) with scopes
+  principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
+  rate-limit.js                brute-force brake persisted in the database
+  organizations.js             organizations, memberships, roles, invitations
+  entitlements.js              features, plans and grants; can() / limit() / require()
+  billing.js                   provider interface; Stripe adapter later
+  mcp.js                       Streamable HTTP transport, tool registry, prompts, legacy aliases
+  live.js                      SSE hub with audiences, event ids and replay
+  i18n.js                      catalogs, language negotiation, t() on the server
+  push.js                      Web Push (VAPID, RFC 8291), subscriptions per device and language
+  uploads.js                   file storage checked by content, trash and orphan sweep
+  mail.js                      outgoing mail through a provider (log in development)
+  audit.js                     who did what and when, never the content
+  i18n/                        the suite's own texts: en.json, es.json, fr.json, de.json
+  web/                         browser kit (§15), served at /suite/
+  tools/                       i18n lint and parity, conformance tests for apps
+  test/                        suite-core's own tests (node:test)
+  docs/                        this document and the module guides
+```
+
+## 4. How an app uses it
+
+An app is its domain plus two files that describe it to the suite: `suite.config.js` (what the
+product is: modules, languages, features, plans) and its environment (where and how this install
+runs: URLs, secrets, providers). Once every module exists, an app's entry point looks like this:
+
+```js
+// server/index.js
+import config from '../suite.config.js';
+import { createApp } from './suite/app.js';
+import { openDatabase } from './suite/db.js';
+import { migrations } from './migrations.js';          // the app's own, numbered
+import { routes } from './api.js';                      // the app's REST routes
+import { tools, prompts, instructions } from './mcp-tools.js';
+
+const db = openDatabase();                              // DATA_DIR/<app id>.db
+const app = await createApp({
+  config, db, migrations, routes,
+  mcp: { tools, prompts, instructions },
+  publicDir: new URL('../public/', import.meta.url),
+});
+await app.listen();
+```
+
+Until then an app uses modules one by one, as Next does with `oauth.js`: it creates the module
+with adapters to its own database, users and sessions (`server/oauth.js` in Next is the model).
+
+## 5. The configuration file
+
+`suite.config.js` sits at the root of the app and is committed: it is the product definition, the
+same for every install. suite-core validates it on start and refuses to start with a message that
+says what is wrong — a misspelled feature must never leave a barrier open.
+
+```js
+export default {
+  app: {
+    id: 'tasks',                  // [a-z0-9-]; prefixes cookies, the database file and feature keys
+    name: 'Tasks',                // shown on the consent screen, in the MCP server info, in mail
+    port: 3456,                   // default for PORT (see the port registry in CONVENTIONS.md)
+    languages: ['en', 'es'],      // English first: it is the fallback
+  },
+
+  // Everything is off unless listed here, so an app only carries what it uses.
+  modules: {
+    accounts: true, oauth: true, mcp: true, live: true, admin: true,
+    push: true, uploads: true, organizations: false, billing: false,
+  },
+
+  accounts: {
+    signup: 'admin',              // admin: only the admin creates accounts | invite | open
+    minPasswordLength: 10,
+  },
+  sessions: { idleDays: 30, maxDays: 365 },
+
+  organizations: {                // only with modules.organizations
+    mode: 'optional',             // optional: personal use and groups | required: every user in one
+    label: 'household',           // how the interface names them (a translation key suffix)
+    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'monitor' in Tracker
+  },
+
+  // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
+  // namespaced by the app id (tasks.attachments). Anything not listed cannot be limited.
+  features: {
+    'lists.max':   { type: 'limit', default: null },   // null = no cap
+    sharing:       { type: 'flag',  default: true },
+    attachments:   { type: 'flag',  default: true },
+    'storage.mb':  { type: 'limit', default: null },
+    mcp:           { type: 'flag',  default: true },
+  },
+
+  // The catalog. Without it there is one implicit plan with every default: free and unlimited.
+  plans: {
+    free: { name: 'plans.free', features: { 'lists.max': 5, attachments: false } },
+    pro:  { name: 'plans.pro',  features: {} },
+  },
+  defaultPlan: 'free',
+};
+```
+
+Environment variables configure the install, never the product: `BASE_URL`, `PORT`, `HOST_PORT`,
+`DATA_DIR`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`, `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`,
+`ADMIN_EMAIL`, `AUTH_PROVIDER` (`local` | `workos` | `oidc`), `WORKOS_*`, `MCP_OAUTH`, `VAPID_*`,
+`BILLING_PROVIDER`, `STRIPE_*`, `MAIL_PROVIDER`, `MAIL_*`. Two product settings may be overridden
+per install for hosted deployments: `PLANS` (JSON, same shape as `plans`) and `DEFAULT_PLAN`.
+Old variable names keep working as aliases, with a warning (`RECARGA_EN_CALIENTE`, `PORT_HOST`…).
+
+## 6. Data model
+
+One SQLite file per app (`DATA_DIR/<app id>.db`), WAL mode, foreign keys on. The suite owns the
+tables below; the app owns the rest and references `users(id)` or `organizations(id)`.
+
+Conventions: integer ids; timestamps as ISO 8601 UTC with milliseconds and `Z`
+(`strftime('%Y-%m-%dT%H:%M:%fZ','now')`), which sort as text; JSON in `TEXT` columns; secrets only
+as hashes. Columns an app adds to a suite table carry the app id as prefix.
+
+```sql
+CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- session secret, VAPID keys…
+
+CREATE TABLE schema_migrations (
+  scope      TEXT NOT NULL,              -- 'suite' | 'app'
+  version    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY (scope, version)
+);
+
+-- A person who can sign in. Profile basics only; what is the app's own lives in its tables.
+CREATE TABLE users (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  username          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  display_name      TEXT NOT NULL,
+  email             TEXT,                -- only ever a verified address
+  email_verified_at TEXT,
+  password_hash     TEXT,                -- scrypt$N$r$p$salt$hash; NULL when signing in elsewhere
+  role              TEXT NOT NULL DEFAULT 'user',       -- instance role: 'admin' | 'user'
+  locale            TEXT,                -- NULL: negotiated from the browser
+  theme             TEXT NOT NULL DEFAULT 'system',
+  prefs             TEXT NOT NULL DEFAULT '{}',
+  created_at        TEXT NOT NULL,
+  last_login_at     TEXT,
+  disabled_at       TEXT
+);
+
+-- How someone signs in besides a password: one row per provider account.
+CREATE TABLE user_identities (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,           -- 'workos' | 'oidc:<issuer>'
+  subject       TEXT NOT NULL,           -- the provider's id for that person
+  email         TEXT,
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT,
+  UNIQUE (provider, subject)
+);
+
+CREATE TABLE sessions (
+  token_hash          TEXT PRIMARY KEY,  -- HMAC(token, session secret); the cookie holds the token
+  user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at          TEXT NOT NULL,
+  last_used_at        TEXT NOT NULL,
+  expires_at          TEXT NOT NULL,     -- sliding: last use + idleDays
+  absolute_expires_at TEXT NOT NULL,     -- created + maxDays, never extended
+  user_agent          TEXT,
+  ip                  TEXT,
+  idp_session_id      TEXT               -- the AuthKit / OIDC session, closed on sign-out
+);
+
+-- Manual tokens for MCP clients that cannot do OAuth, and for scripts.
+CREATE TABLE api_tokens (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,     -- sha256; the value is shown once
+  prefix       TEXT NOT NULL,
+  scopes       TEXT NOT NULL DEFAULT '["mcp"]',
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  expires_at   TEXT
+);
+
+-- oauth_clients, oauth_grants, oauth_tokens: see OAUTH_SCHEMA in oauth.js (done).
+
+CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX ix_login_attempts ON login_attempts (bucket, at);
+
+-- Groups that share data, roles and a subscription: a household, a school, a team.
+CREATE TABLE organizations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug        TEXT NOT NULL UNIQUE,
+  name        TEXT NOT NULL,
+  kind        TEXT,                      -- free text for the app: 'household', 'school'…
+  settings    TEXT NOT NULL DEFAULT '{}',
+  branding    TEXT NOT NULL DEFAULT '{}',  -- logo, colors: Tracker's schools
+  created_at  TEXT NOT NULL,
+  archived_at TEXT
+);
+
+CREATE TABLE memberships (
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role            TEXT NOT NULL,         -- owner | admin | member | the app's own roles
+  invited_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  joined_at       TEXT NOT NULL,
+  PRIMARY KEY (organization_id, user_id)
+);
+
+CREATE TABLE invitations (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  email           TEXT,
+  role            TEXT NOT NULL,
+  token_hash      TEXT NOT NULL UNIQUE,
+  invited_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TEXT NOT NULL,
+  expires_at      TEXT NOT NULL,
+  accepted_at     TEXT,
+  revoked_at      TEXT
+);
+
+-- What someone is entitled to. One row per plan or single feature granted to a user or an
+-- organization, from a source, for a window. Subscriptions, one-off and lifetime purchases,
+-- trials, gifts and seats are all rows here.
+CREATE TABLE entitlement_grants (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_type TEXT NOT NULL,            -- 'user' | 'organization'
+  subject_id   INTEGER NOT NULL,
+  plan         TEXT,                     -- a plan id…
+  feature      TEXT,                     -- …or one feature
+  value        TEXT,                     -- JSON value for that feature
+  quantity     INTEGER,                  -- seats, credits
+  source       TEXT NOT NULL,            -- 'admin' | 'stripe' | 'license' | 'promo' | 'remote'
+  external_ref TEXT,                     -- subscription or order id at the provider
+  starts_at    TEXT NOT NULL,
+  ends_at      TEXT,                     -- NULL: no end (lifetime, or until revoked)
+  revoked_at   TEXT,
+  created_at   TEXT NOT NULL,
+  note         TEXT,
+  CHECK ((plan IS NULL) <> (feature IS NULL))
+);
+CREATE INDEX ix_grants_subject ON entitlement_grants (subject_type, subject_id);
+
+CREATE TABLE billing_customers (
+  subject_type TEXT NOT NULL,
+  subject_id   INTEGER NOT NULL,
+  provider     TEXT NOT NULL,            -- 'stripe'
+  customer_id  TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  PRIMARY KEY (subject_type, subject_id, provider)
+);
+
+CREATE TABLE push_subscriptions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint     TEXT NOT NULL UNIQUE,
+  p256dh       TEXT NOT NULL,
+  auth         TEXT NOT NULL,
+  locale       TEXT,                     -- the notification is written in the device's language
+  user_agent   TEXT,
+  created_at   TEXT NOT NULL,
+  last_ok_at   TEXT,
+  failures     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE audit_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  at              TEXT NOT NULL,
+  actor_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  action          TEXT NOT NULL,         -- 'auth.login', 'admin.user.create', 'billing.grant'…
+  target_type     TEXT,
+  target_id       TEXT,
+  ip              TEXT,
+  meta            TEXT NOT NULL DEFAULT '{}'   -- never content: no titles, notes or passwords
+);
+```
+
+**Migrations.** `migrate(db, list, { scope })` applies numbered, immutable migrations in one
+transaction each and records them in `schema_migrations`; the suite's run under scope `suite`, the
+app's under `app`. A migration that is wrong is fixed by a new one. Tests run every migration twice
+on the same database: the second run must change nothing.
+
+**Adopting an existing database.** Tasks, Projects and Next grew their schema with
+`CREATE TABLE IF NOT EXISTS` and `ensureColumn`. Their first app migration is a *baseline*: the
+current schema, idempotent, so an existing database passes through it untouched and a new one is
+created whole. The suite's first migrations then adapt what already exists to the tables above:
+`mcp_tokens` becomes `api_tokens`; `users.workos_user_id` becomes a `user_identities` row;
+`sessions.token` / `workos_sid` become `token_hash` / `idp_session_id`; `users.plan` and
+`plan_expires_at` become an `entitlement_grants` row with source `admin`; timestamps written by
+`datetime('now')` are rewritten as ISO 8601 with `Z`. Password hashes need nothing: every app
+already stores `scrypt$N$r$p$salt$hash`. Focus's `accounts` + `persons` map to `users` + its own
+`persons` table, which keeps the profiles that have no account (children).
+
+## 7. Identity and access
+
+**Principal.** One resolver turns whatever credential a request carries into the same shape, and
+everything else consumes that shape:
+
+```js
+{ user, kind: 'session' | 'token' | 'oauth' | 'idp' | 'device', scopes, credentialId }
+```
+
+It looks, in order, at the session cookie, then `Authorization: Bearer` (a manual API token, then
+a built-in OAuth access token, then an AuthKit JWT), then a device token (Focus kiosks and ESP32,
+Tracker's native emitter). There is no second path for any client.
+
+**Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
+limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).
+Permissions over the app's records (shared lists, project members, guardianships, assigned routes)
+stay in the app and are decided from the principal. A resource someone may not see answers 404, not
+403; 403 is for a resource they see but an action they may not take.
+
+**Sessions** are sliding (`idleDays` since last use) with an absolute end (`maxDays`), rotated on
+sign-in and on any change of privilege. Changing one's password closes every other session.
+`SESSION_SECRET` comes from the environment; without it — or with a value from an example — one is
+generated on the first start and kept in `app_meta`.
+
+**CSRF.** An unsafe request (not GET, HEAD or OPTIONS) that carries the session cookie must come
+from the app's own origin (`Origin`, else `Sec-Fetch-Site: same-origin`). Requests without the
+cookie — bearer tokens, the OAuth endpoints — are not subject to it. `readJson` requires
+`Content-Type: application/json`.
+
+**Brute-force brake.** Fixed 15-minute windows, persisted in `login_attempts`: 10 failures per
+account (the real protection) and 60 per IP (high on purpose: a household behind one proxy shares
+it). `X-Forwarded-For` is trusted only with `TRUST_PROXY=true`. For tokens only failures count, so
+a valid client is never locked out by a neighbour.
+
+**Sign-in providers.** `local` (default): usernames and passwords, accounts created by the admin,
+by invitation or by open sign-up as `accounts.signup` says. `workos`: AuthKit handles sign-up, 2FA,
+Google and recovery, and is the authorization server for the MCP; an existing user is linked only
+through a verified email, and `ADMIN_EMAIL` takes over the first admin. `oidc` (planned): any
+OpenID Connect provider, so a self-hoster with Authentik or Keycloak gets single sign-on across the
+apps — which replaces the identity bridge once planned between Projects and Tasks.
+
+## 8. Entitlements: plans and permissions
+
+The app never asks whether someone pays. It asks what they may do, and the answer comes from one
+place:
+
+```js
+entitlements.can(user, 'attachments', { organization })        // → boolean
+entitlements.limit(user, 'lists.max', { organization })        // → number | null (no cap)
+entitlements.require(user, 'lists.max', { current: 4 })        // throws 402 plan_limit
+entitlements.of(user, { organization })                        // → { plan, features, ends }
+```
+
+**Resolution.** Start from the default plan's values. Add every active grant of the user and of
+the organization in context (`starts_at <= now < ends_at`, not revoked): a plan grant brings its
+plan's values, a feature grant its single value. When sources disagree, the most generous wins:
+`true` beats `false` for flags, and for limits `null` (no cap) beats any number and a larger number
+beats a smaller one. The instance admin gets every feature. A plan that disappears from the catalog
+counts as the default plan: nobody is left with nothing, and nothing is ever deleted when someone
+drops to a smaller plan — they just cannot add more.
+
+**Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
+transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
+browser reads `GET /api/me/entitlements` to hide or lock what is not included. The error is
+`402 { error: 'plan_limit', feature, limit, plan }`.
+
+**One subscription or several — without deciding now.** Inside an app, feature keys are short
+(`attachments`). Across apps they are namespaced by the app id (`tasks.attachments`,
+`next.projects.max`). A paid *product* is only a list of grants, possibly across apps, so "Tasks
+Pro" and "the whole suite" are two products on the same mechanism, and either can come first. Each
+app only reads the grants for its own features.
+
+**Where grants come from.** From the admin panel (`source: 'admin'`) today; from a billing webhook
+tomorrow (`stripe`); from a license key for self-hosters who pay for support (`license`); from a
+central service for the hosted suite (`remote`). Enforcement always reads the local table, so an app
+never depends on another service being up to answer `can()`.
+
+## 9. Billing (skeleton, off by default)
+
+`billing.js` defines a provider interface and nothing runs until `BILLING_PROVIDER` is set:
+
+```js
+{
+  checkoutUrl({ subject, product, returnUrl }),   // hosted checkout page
+  portalUrl({ subject, returnUrl }),              // manage or cancel
+  handleWebhook(req),                             // verify signature → grants
+}
+```
+
+The Stripe adapter (planned) maps prices to products and turns `customer.subscription.*` events
+into grants whose `ends_at` is the end of the paid period, so a failed renewal lapses on its own;
+one-off purchases become grants without an end. `billing_customers` keeps the Stripe customer of
+each user or organization. For the hosted suite, a private service (working name *Cronum Accounts*)
+may hold products, customers and subscriptions for every app and push grants to each one through a
+signed endpoint; the apps would not change, only the source of their grants.
+
+## 10. Organizations
+
+An organization answers "whose is this and who pays": a group of people who share data, roles and
+a subscription. The module is off by default. With `mode: 'optional'` people use the app on their
+own and may create or join groups (a family in Tasks, a team in Projects); with `mode: 'required'`
+every user belongs to one (the schools of Tracker). The suite provides the tables, the roles,
+invitations by link or email, an organization switcher in the web kit and organization-level
+grants: a plan bought for a household covers its members, and a grant's `quantity` caps the number
+of members (seats). Which records belong to an organization instead of a person is the app's
+decision, made in its own tables.
+
+## 11. HTTP layer and dispatch order
+
+`http.js` provides the router (`:params`, 405 with `Allow`), `HttpError(status, code, extra)`,
+`readJson` (size limit, content type), `sendJson`, static files with ETag and revalidation, the
+security headers and the CSRF check. `createApp` dispatches every request in this order, which the
+apps learned the hard way:
+
+1. Security headers on every response.
+2. `/health`, `/version`, `/js/app-version.js` (the fingerprint the PWA compares to offer a reload).
+3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
+   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it.
+4. `/mcp`.
+5. The suite's API: `/api/auth/*`, `/api/me/*`, `/api/admin/*`, `/api/orgs/*`, `/api/events`,
+   `/api/push/*`, `/api/billing/*`.
+6. The app's API routes.
+7. `/suite/*` (the web kit) and `/i18n/<lang>.json` (suite and app catalogs merged).
+8. The app's static files, then the SPA fallback for paths without an extension.
+
+The common API is the same in every app: sign-in (`POST /api/auth/login`, `POST /api/auth/logout`,
+`GET /api/auth/config`), the profile (`GET/PATCH /api/me`, `POST /api/me/password`, sessions,
+tokens, connected apps, entitlements), administration (users, plans and grants, organizations,
+audit) and the live channel. Errors are codes, never sentences (see CONVENTIONS.md).
+
+## 12. Live updates
+
+`live.js` keeps one SSE channel per browser tab (`GET /api/events`): `retry:`, a heartbeat every
+25 s, `X-Accel-Buffering: no`, exempt from the request timeout. The app publishes
+`live.publish({ type, audience, data })`, where `audience` is a list of user ids or an organization.
+Every event carries an `id:`; a short ring buffer lets a client that reconnects with `Last-Event-ID`
+receive what it missed, and a gap larger than the buffer (or a restart) sends `event: resync`, after
+which the client reloads what it shows. Events may carry the new state (Focus's run contract) or
+just say what changed (Tasks' lists): the app chooses.
+
+## 13. MCP
+
+`mcp.js` is the Streamable HTTP transport the three apps already share: JSON-RPC 2.0 on `/mcp`,
+protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, SSE answers when the client only accepts
+them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` when AuthKit cannot
+be reached, and the token brake. The app hands in its tools, prompts and instructions:
+
+```js
+{ name, title, description, inputSchema, feature?, legacyNames?, handler(principal, args) }
+```
+
+`feature` makes the transport check the plan before calling the tool. `legacyNames` and legacy
+parameter names keep clients with a cached schema working after a rename (as Next did when it moved
+to English). Tool descriptions and results are in English; the instructions ask the assistant to
+answer in the user's language.
+
+## 14. Translations
+
+One implementation for server and browser (`t()` from Focus): flat dotted keys that describe place
+and role (`settings.password.change`), CLDR plurals (`{ one, other }`), `{placeholders}` formatted
+with `Intl`, a fallback to English key by key, and a pseudo-locale for testing layouts. The suite
+ships its own catalogs (`i18n/<lang>.json`: sign-in, settings, admin, consent screen, errors) under
+the `suite.` prefix; the app adds its own; the server merges both at `/i18n/<lang>.json`, and the
+service worker caches them. The language is negotiated in the same order everywhere: the user's
+choice, then `Accept-Language` / `navigator.languages`, then English. `tools/i18n.mjs` fails the
+tests when a key is missing in a language, when placeholders differ, or when a visible string is
+written in the code instead of a catalog. Content people write is never translated.
+
+## 15. Web kit
+
+Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-src 'self'`):
+
+- `el(tag, props, children)`: every node through `textContent` and `setAttribute`; HTML is never
+  assembled from strings. That is the whole XSS defence.
+- `api.js`: fetch with JSON, error codes turned into sentences by `t()`, offline detected apart
+  from server errors, `Idempotency-Key` on writes.
+- `theme.js` (classic script, applied before the first paint), `i18n.js`, `live.js` (the SSE client
+  with reconnection), `update.js` (the new-version notice), `outbox.js` (writes queued offline,
+  replayed with their idempotency keys), toasts and dialogs.
+- Screens: sign-in; settings (profile, language, theme, password, sessions, MCP tokens, connected
+  apps, plan, notifications); the admin panel, drawn from the app's configuration (users, roles,
+  organizations, plans and grants, audit); a source-code link, which the AGPL asks modified
+  versions to offer.
+- `tokens.css` with the design tokens of the Cronum style guide, so every app shares one look and
+  each one keeps its accent.
+- `sw-core.js`, imported by each app's service worker: shell caching, network-first for code and
+  catalogs, never caching `/api`, `/mcp`, `/auth`, `/oauth`, `/version`.
+
+## 16. Push, uploads, mail and audit
+
+- **Push** (from Tasks): VAPID keys generated on the first start and kept in `app_meta` unless
+  `VAPID_*` are set; one subscription per device with its language; failed endpoints pruned; the
+  app composes the messages (Tasks batches other people's changes, Projects sends a daily summary).
+- **Uploads** (from Tasks): the file travels as the raw request body; the type is decided by its
+  first bytes (images and PDF; never SVG); files live under `DATA_DIR/uploads` and are never served
+  as static files; soft delete with a trash, purge after N days, and an orphan sweep that refuses to
+  run when the database looks restored without its files. The app keeps its own table linking files
+  to its records and decides who may see them. Storage per user or organization can be a plan limit.
+- **Mail**: providers behind one interface, `log` in development (prints the message), and HTTP
+  APIs or SMTP later. It carries invitations, password resets and security notices for local
+  accounts; with WorkOS, AuthKit sends its own.
+- **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
+  changes, billing events. Who, when, what and from where; never titles, notes or passwords.
+
+## 17. Security baseline
+
+Every app gets these from the suite and the conformance tests check them:
+
+- CSP without inline scripts or `eval`, `frame-ancestors 'none'`, `nosniff`, a strict referrer
+  policy, a permissions policy that switches off what is not used, HSTS over HTTPS.
+- Passwords with scrypt in a self-describing format; session tokens stored as HMAC, API and OAuth
+  tokens as hashes; nothing secret in URLs except where a client cannot send headers.
+- No secret or password known in advance: generated when missing, example values ignored.
+- CSRF by origin; brute-force brake persisted; `TRUST_PROXY` explicit.
+- The container starts as root only to fix `/data`, then drops privileges; the code mounted
+  read-only in development setups.
+- Logs record who changed what, never what they wrote.
+
+## 18. Testing
+
+- suite-core tests itself with `node:test` (built in): every module against an in-memory database,
+  with fake adapters where it talks to an app.
+- `tools/conformance.js` runs against a running app and checks the platform behaviour it inherits:
+  headers, `/health` and `/version`, sign-in and sign-out, the brute-force brake, CSRF, the MCP
+  `401` challenge, JSON 404 on discovery paths, translations complete. Each app's smoke test calls
+  it, then tests its own domain.
+
+## 19. Versions and adoption
+
+suite-core follows semantic versioning with git tags (`v0.x.y` while the API settles; a minor
+version may break, a patch never does) and a `CHANGELOG.md`. Apps pin a tag through the submodule
+pointer; updating is `git -C server/suite checkout vX.Y.Z`, committing the pointer and running the
+app's tests. A change is always made in suite-core (from any app's `server/suite`, which is a
+checkout of it), tested, tagged, and then picked up by each app. Every new module lands in Next
+first, then Tasks, then the rest.
+
+## 20. Module status and order
+
+| Module | Status | Next step |
+| --- | --- | --- |
+| `oauth.js` | done (v0.1.0) | used by Next; Tasks next |
+| `workos.js`, `workos-accounts.js` | done (v0.2.0) | used by Next; Tasks next |
+| Architecture and conventions | done (this document) | keep it in step with the code |
+| `http.js`, `db.js`, `migrate.js`, `crypto.js` | next | built from Focus, adopted by Next |
+| `sessions.js`, `rate-limit.js`, `principal.js` | next | secret handling from Tasks, the rest from Focus |
+| `mcp.js` | next | from the transport of Next and Tasks, with plan checks |
+| `i18n.js` + `tools/i18n.mjs` | next | from Focus; Next's catalogs flattened |
+| `accounts.js`, `tokens.js`, `organizations.js` | planned | with the adoption migrations of §6 |
+| `entitlements.js` | planned | from `planes.js` of Tasks |
+| `app.js`, `config.js` | planned | once the modules above exist |
+| `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
+| Web kit and admin panel | planned | with the Cronum style guide |
+| `billing.js` | planned | interface first; Stripe when a price is decided |
+| `mail.js`, `audit.js`, OIDC | planned | with the admin panel |
