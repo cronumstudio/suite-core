@@ -50,6 +50,46 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+/**
+ * The `users` that `createWorkosAccounts` needs, made on the suite's accounts
+ * and identities (accounts.js), so an app doesn't write its own. Links an
+ * older version kept in `users.workos_user_id` are adopted the first time
+ * they are asked for, and such accounts are never taken as unlinked.
+ *
+ * @param {object} accounts   from createAccounts()
+ * @param {object} [options.database]   to read the old column, when there is one
+ */
+export function workosUsers(accounts, { database = null } = {}) {
+  const PROVIDER = 'workos';
+  const legacy = Boolean(database?.columnsOf('users').includes('workos_user_id'));
+  const unlinked = (user) => (user && (!legacy || user.workos_user_id == null) ? user : null);
+
+  function byWorkosId(id) {
+    const user = accounts.byIdentity(PROVIDER, id);
+    if (user || !legacy) return user;
+    const old = database.get('SELECT id FROM users WHERE workos_user_id = ?', String(id));
+    if (!old) return null;
+    try {
+      accounts.linkIdentity(old.id, PROVIDER, id);
+    } catch {
+      // Adopted by another request in the meantime.
+    }
+    return accounts.byIdentity(PROVIDER, id);
+  }
+
+  return {
+    byWorkosId,
+    unlinkedByEmail: (email) => unlinked(accounts.unlinkedByEmail(PROVIDER, email)),
+    firstUnlinkedAdmin: () => unlinked(accounts.firstUnlinkedAdmin(PROVIDER)),
+    link: (userId, { workosId, email }) => accounts.linkIdentity(userId, PROVIDER, workosId, { email }),
+    setEmail: (userId, email) => accounts.setVerifiedEmail(userId, email),
+    usernameTaken: (name) => Boolean(accounts.byUsername(name)),
+    create: ({ username, displayName, role, email, workosId }) =>
+      accounts.create({ username, displayName, role, identity: { provider: PROVIDER, subject: workosId, email } }),
+    signedIn: (user, account) => accounts.usedIdentity(PROVIDER, account.id),
+  };
+}
+
 /** A free username from an email: ana.perez, ana.perez2… */
 function freeUsername(seed, taken) {
   let base = String(seed).split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 30);
@@ -69,7 +109,9 @@ function freeUsername(seed, taken) {
  *   byWorkosId(id), unlinkedByEmail(email), firstUnlinkedAdmin() → user | null;
  *   link(userId, { workosId, email }); setEmail(userId, email); usernameTaken(name) → bool;
  *   create({ username, displayName, role, email, workosId }) → user (throws on a duplicate
- *   workosId, which the unique index of the app's table should enforce)
+ *   workosId, which the unique index of the app's table should enforce);
+ *   optionally signedIn(user, account) after a web sign-in.
+ *   `workosUsers(accounts)` makes all of them on the suite's accounts.
  * @param {object} options.sessions
  *   open(res, userId, { workosSessionId }) opens the app's browser session
  * @param {boolean} [options.secureCookies]
@@ -200,6 +242,7 @@ export function createWorkosAccounts({
           redirect(res, '/?auth_error=disabled');
           return true;
         }
+        users.signedIn?.(user, account);
         sessions.open(res, user.id, { workosSessionId: sessionId });
         redirect(res, '/');
       } catch (err) {

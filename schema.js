@@ -17,9 +17,10 @@
 import { sessionsSchema } from './sessions.js';
 import { rateLimitSchema } from './rate-limit.js';
 import { entitlementsSchema } from './entitlements.js';
-import { usersSchema } from './accounts.js';
+import { usersSchema, identitiesSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
+import { tokensSchema } from './tokens.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -29,4 +30,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 5, name: 'organizations', up: organizationsSchema },
   // After organizations: its entries point at them.
   { version: 6, name: 'audit-log', up: auditSchema },
+  { version: 7, name: 'user-identities', up: identitiesSchema },
+  { version: 8, name: 'api-tokens', up: tokensSchema },
 ]);

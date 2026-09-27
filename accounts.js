@@ -53,6 +53,31 @@ export function usersSchema(d) {
   }
 }
 
+/**
+ * The accounts people have elsewhere and sign in with: WorkOS, an OIDC
+ * provider, Google… one row per provider and account, instead of a column per
+ * provider in `users`. The WorkOS links the apps kept in `users.workos_user_id`
+ * are copied over; the column stays, unused.
+ */
+export function identitiesSchema(d) {
+  d.exec(`CREATE TABLE IF NOT EXISTS user_identities (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider     TEXT NOT NULL,
+    subject      TEXT NOT NULL,
+    email        TEXT,
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    UNIQUE (provider, subject)
+  );
+  CREATE INDEX IF NOT EXISTS ix_identities_user ON user_identities (user_id)`);
+  if (d.columnsOf('users').includes('workos_user_id')) {
+    d.exec(`INSERT OR IGNORE INTO user_identities (user_id, provider, subject, email, created_at)
+      SELECT id, 'workos', workos_user_id, email, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      FROM users WHERE workos_user_id IS NOT NULL`);
+  }
+}
+
 /** A date as ISO, also when it comes in SQLite's `YYYY-MM-DD HH:MM:SS` (UTC). */
 const isoOf = (value) => (typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.test(value)
   ? `${value.replace(' ', 'T')}${value.endsWith('Z') ? '' : 'Z'}` : value ?? null);
@@ -80,6 +105,10 @@ export function createAccounts({
 }) {
   const created = [onCreate];
   const removed = [onRemove];
+  // An app's own table may say `password_hash NOT NULL` (Tasks): there an
+  // account without a password stores `!`, which no password ever matches.
+  const noPassword = database.all('PRAGMA table_info(users)')
+    .some((c) => c.name === 'password_hash' && c.notnull) ? '!' : null;
   const byId = (id) => database.get('SELECT * FROM users WHERE id = ?', id) || null;
   const byUsername = (name) => database.get('SELECT * FROM users WHERE username = ?', String(name || '').trim()) || null;
   const mustExist = (id) => {
@@ -121,17 +150,22 @@ export function createAccounts({
     return role;
   }
 
-  /** Creates an account. Without a password it can only sign in elsewhere (WorkOS, OIDC). */
-  function create({ username, displayName, password = null, role = 'user', email = null, locale = null }) {
+  /**
+   * Creates an account. Without a password it can only sign in elsewhere; with
+   * `identity: { provider, subject, email }` it is linked to that account in
+   * the same transaction, and the provider's email is taken as verified.
+   */
+  function create({ username, displayName, password = null, role = 'user', email = null, locale = null, identity = null }) {
     const name = String(username || '').trim();
     if (!USERNAME.test(name)) throw badRequest('field_invalid', { field: 'username' });
     if (byUsername(name)) throw conflict('username_taken');
     if (password != null) checkPassword(password);
     const row = {
-      username: name, display_name: checkName(displayName ?? name), email: checkEmail(email),
-      password_hash: password == null ? null : hashPassword(password), role: checkRole(role),
+      username: name, display_name: checkName(displayName ?? name), email: checkEmail(email ?? identity?.email),
+      password_hash: password == null ? noPassword : hashPassword(password), role: checkRole(role),
       locale, created_at: iso(clock()),
     };
+    if (identity?.email && row.email === checkEmail(identity.email)) row.email_verified_at = row.created_at;
     return database.tx(() => {
       const extra = extraColumns(row) || {};
       const columns = [...Object.keys(row), ...Object.keys(extra)];
@@ -139,10 +173,64 @@ export function createAccounts({
         `INSERT INTO users (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
         ...Object.values(row), ...Object.values(extra),
       );
+      if (identity) insertIdentity(lastInsertRowid, identity.provider, identity.subject, row.email_verified_at ? row.email : null);
       const user = byId(lastInsertRowid);
       for (const hook of created) hook(user);
       return user;
     });
+  }
+
+  /* ----------------------------- identities ----------------------------- */
+
+  /** The account linked to someone's account at a provider, or null. */
+  const byIdentity = (provider, subject) => database.get(`SELECT u.* FROM user_identities i
+    JOIN users u ON u.id = i.user_id WHERE i.provider = ? AND i.subject = ?`, provider, String(subject)) || null;
+
+  /**
+   * Links an account to one at a provider. A provider's account belongs to one
+   * account only: linking it twice fails on the table's unique key, which is
+   * what settles two sign-ins racing to create the same person.
+   */
+  const insertIdentity = (userId, provider, subject, email) => database.run(`INSERT INTO user_identities
+    (user_id, provider, subject, email, created_at) VALUES (?, ?, ?, ?, ?)`, userId, provider, String(subject), email, iso(clock()));
+
+  function linkIdentity(userId, provider, subject, { email = null } = {}) {
+    database.tx(() => {
+      insertIdentity(userId, provider, subject, email);
+      if (email) setVerifiedEmail(userId, email);
+    });
+  }
+
+  const unlinkIdentity = (userId, provider) => database.run(
+    'DELETE FROM user_identities WHERE user_id = ? AND provider = ?', userId, provider).changes > 0;
+
+  const identitiesOf = (userId) => database.all(`SELECT provider, subject, email, created_at, last_used_at
+    FROM user_identities WHERE user_id = ? ORDER BY provider`, userId);
+
+  /** Notes a sign-in through a provider, on the identity and the account. */
+  function usedIdentity(provider, subject) {
+    const now = iso(clock());
+    database.run('UPDATE user_identities SET last_used_at = ? WHERE provider = ? AND subject = ?', now, provider, String(subject));
+    database.run(`UPDATE users SET last_login_at = ? WHERE id =
+      (SELECT user_id FROM user_identities WHERE provider = ? AND subject = ?)`, now, provider, String(subject));
+  }
+
+  /** An account with that email not linked to the provider yet: someone who had one before it. */
+  const unlinkedByEmail = (provider, email) => database.get(`SELECT * FROM users u
+    WHERE u.email = ? COLLATE NOCASE AND NOT EXISTS
+      (SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = ?)
+    ORDER BY u.id LIMIT 1`, String(email || '').trim().toLowerCase(), provider) || null;
+
+  /** The oldest administrator not linked to the provider: whose account the admin email takes over. */
+  const firstUnlinkedAdmin = (provider) => database.get(`SELECT * FROM users u
+    WHERE u.role = 'admin' AND NOT EXISTS
+      (SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = ?)
+    ORDER BY u.id LIMIT 1`, provider) || null;
+
+  /** An email a provider vouches for: stored as verified. */
+  function setVerifiedEmail(userId, email) {
+    const clean = checkEmail(email);
+    database.run('UPDATE users SET email = ?, email_verified_at = ? WHERE id = ?', clean, clean ? iso(clock()) : null, userId);
   }
 
   /** Changes what the admin (or the person) may change. `disabled: true` also ends their sessions. */
@@ -183,7 +271,7 @@ export function createAccounts({
    */
   function verify(username, password) {
     const user = byUsername(username);
-    if (!user?.password_hash || user.disabled_at) {
+    if (!user?.password_hash || user.password_hash === '!' || user.disabled_at) {
       // Same work either way: the time taken doesn't say whether the account exists.
       verifyPassword(String(password || ''), 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
       return null;
@@ -213,6 +301,8 @@ export function createAccounts({
 
   return {
     create, update, setPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
+    byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
+    setVerifiedEmail,
     whenCreated: (hook) => { created.push(hook); },
     whenRemoved: (hook) => { removed.push(hook); },
   };

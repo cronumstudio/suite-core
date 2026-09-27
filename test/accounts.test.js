@@ -16,6 +16,7 @@ import { createAccounts } from '../accounts.js';
 import { createSessions } from '../sessions.js';
 import { createAudit } from '../audit.js';
 import { hashPassword } from '../crypto.js';
+import { workosUsers } from '../workos-accounts.js';
 
 const quiet = { log: () => {} };
 const plain = (rows) => rows.map((row) => ({ ...row }));
@@ -187,4 +188,71 @@ test('the audit log: who, what, from where, never content; newest first, paged',
 
   now += 400 * 24 * 3600 * 1000;
   assert.equal(audit.purge(365), 3);
+});
+
+test('identities: one row per provider and account, taken over from the old column', (t) => {
+  const database = setup(t, (d) => {
+    // Next's table with a WorkOS link kept the old way.
+    d.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      display_name TEXT NOT NULL, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user', email TEXT,
+      workos_user_id TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+    d.run(`INSERT INTO users (username, display_name, role, email, workos_user_id)
+      VALUES ('ada', 'Ada', 'admin', 'ada@example.com', 'user_01ADA'), ('bob', 'Bob', 'user', 'bob@example.com', NULL)`);
+  });
+  const accounts = createAccounts({ database });
+  assert.equal(accounts.byIdentity('workos', 'user_01ADA')?.username, 'ada', 'copied by the migration');
+  assert.deepEqual(accounts.identitiesOf(1).map((i) => i.provider), ['workos']);
+
+  // Bob had an account before the provider: found by his email, then linked.
+  assert.equal(accounts.unlinkedByEmail('workos', 'BOB@example.com')?.username, 'bob');
+  accounts.linkIdentity(2, 'workos', 'user_02BOB', { email: 'bob@example.com' });
+  assert.equal(accounts.unlinkedByEmail('workos', 'bob@example.com'), null);
+  assert.ok(accounts.byId(2).email_verified_at, 'the provider vouches for the email');
+  assert.throws(() => accounts.linkIdentity(1, 'workos', 'user_02BOB'), /UNIQUE/, 'one account per provider account');
+
+  // Someone new, created and linked at once.
+  const eve = accounts.create({ username: 'eve', displayName: 'Eve', identity: { provider: 'oidc', subject: 'abc', email: 'Eve@Example.com' } });
+  assert.equal(eve.email, 'eve@example.com');
+  assert.ok(eve.email_verified_at);
+  assert.equal(accounts.byIdentity('oidc', 'abc').id, eve.id);
+  accounts.usedIdentity('oidc', 'abc');
+  assert.ok(accounts.byId(eve.id).last_login_at);
+  assert.ok(accounts.identitiesOf(eve.id)[0].last_used_at);
+
+  assert.equal(accounts.unlinkIdentity(eve.id, 'oidc'), true);
+  assert.equal(accounts.byIdentity('oidc', 'abc'), null);
+  accounts.remove(2);
+  assert.equal(accounts.byIdentity('workos', 'user_02BOB'), null, 'identities go with their account');
+});
+
+test('the WorkOS users on the suite: links from an older version adopted, never taken as unlinked', (t) => {
+  const database = setup(t, (d) => {
+    d.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      display_name TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', email TEXT,
+      workos_user_id TEXT, mcp_token TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+    d.run(`INSERT INTO users (username, display_name, password_hash, role, email, mcp_token)
+      VALUES ('root', 'Root', '!', 'admin', NULL, 'h1')`);
+  });
+  // Tasks: password_hash NOT NULL and a column of its own that must be set.
+  let n = 1;
+  const accounts = createAccounts({ database, extraColumns: () => ({ mcp_token: `h${++n}` }) });
+  const users = workosUsers(accounts, { database });
+
+  // A link made by the old code after the migration ran: adopted when asked for.
+  database.run("UPDATE users SET workos_user_id = 'user_ROOT' WHERE id = 1");
+  assert.equal(users.firstUnlinkedAdmin(), null, 'already linked the old way');
+  assert.equal(users.byWorkosId('user_ROOT')?.username, 'root');
+  assert.equal(accounts.byIdentity('workos', 'user_ROOT')?.id, 1);
+
+  const ada = users.create({ username: 'ada', displayName: 'Ada', role: 'user', email: 'ada@example.com', workosId: 'user_ADA' });
+  assert.equal(ada.password_hash, '!', 'no password, where the table wants one');
+  assert.equal(ada.mcp_token, 'h2');
+  assert.equal(users.byWorkosId('user_ADA').id, ada.id);
+  assert.equal(accounts.verify('ada', '!'), null);
+  assert.throws(() => users.create({ username: 'ada2', displayName: 'Ada', role: 'user', email: null, workosId: 'user_ADA' }), /UNIQUE/);
+  assert.equal(accounts.byUsername('ada2'), null, 'the losing race leaves nothing behind');
+
+  users.signedIn(ada, { id: 'user_ADA' });
+  assert.ok(accounts.byId(ada.id).last_login_at);
+  assert.equal(users.usernameTaken('ADA'), true);
 });

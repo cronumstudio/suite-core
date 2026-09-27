@@ -58,9 +58,9 @@ suite-core/
   db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
   migrate.js            done   numbered migrations with scopes (suite, app)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes
-  accounts.js           done   users, passwords, sign-in, the admin's rules; hooks for the app
+  accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
   sessions.js           done   browser sessions: sliding, rotated, revocable
-  tokens.js                    API tokens (manual MCP tokens) with scopes
+  tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats
@@ -73,7 +73,7 @@ suite-core/
   uploads.js                   file storage checked by content, trash and orphan sweep
   mail.js                      outgoing mail through a provider (log in development)
   audit.js              done   who did what and when, never the content
-  api.js                done   the common routes: /api/admin/* and /api/orgs/*
+  api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
   i18n/                        the suite's own texts: en.json, es.json, fr.json, de.json
   web/                         browser kit (§15), served at /suite/
   tools/                       i18n lint and parity, conformance tests for apps
@@ -601,7 +601,8 @@ first, then Tasks, then the rest.
 | `sessions.js`, `rate-limit.js` | done (v0.5.0) | adopted by Next; `principal.js` comes with the MCP transport |
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
 | `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
-| `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off); `tokens.js` and the profile routes next |
+| `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
+| Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next; OIDC and sign-up modes (closed, invitation, open) next |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js` | planned | once the modules above exist |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |

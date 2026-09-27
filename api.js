@@ -1,6 +1,8 @@
 /**
  * The suite's REST routes, the same in every app:
  *
+ * · `/api/me/…` for each person: where they are signed in, their plan, their
+ *   API tokens, the apps they connected and their password.
  * · `/api/admin/…` for the instance admin: accounts, plans and grants,
  *   organizations and the audit log. The admin panel of the web kit is drawn
  *   on these, and so is anything that manages an install from outside.
@@ -10,10 +12,133 @@
  * receive its request context: `{ req, res, params, query, user, sessionToken }`.
  * Every change is recorded in the audit log, without content.
  */
-import { sendJson, readJson, badRequest, notFound, forbidden, unauthorized, int, idOrNull } from './http.js';
+import { sendJson, readJson, badRequest, notFound, forbidden, unauthorized, int, idOrNull, str } from './http.js';
+import { verifyPassword } from './crypto.js';
 
 const idOf = (value, field = 'id') => int(value, { field, min: 1 });
 const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
+
+/**
+ * Each person's own routes. Every dependency is optional: an app without
+ * plans or OAuth simply doesn't get those routes.
+ *
+ * @param {object} router
+ * @param {object} deps
+ * @param {object} [deps.accounts]      from createAccounts(), for the password
+ * @param {object} [deps.sessions]      from createSessions()
+ * @param {object} [deps.tokens]        from createTokens()
+ * @param {object} [deps.entitlements]  from createEntitlements()
+ * @param {object} [deps.oauth]         from createOAuthServer(), for connected apps
+ * @param {object} [deps.audit]         from createAudit()
+ * @param {boolean} [deps.localPasswords]  false when accounts sign in elsewhere (WorkOS)
+ * @param {object} [deps.alsoAt]        older paths an app keeps answering:
+ *   `{ tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' }`
+ */
+export function registerProfileApi(router, {
+  accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
+  localPasswords = true, alsoAt = {},
+}) {
+  const requireUser = (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    return ctx.user;
+  };
+  const record = (ctx, action, targetType, targetId, meta) =>
+    audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
+  const at = (path, legacy, add) => [path, ...(legacy ? [legacy] : [])].forEach(add);
+
+  if (sessions) {
+    /** Where the person is signed in: device, address and last use; `current` is this browser. */
+    router.get('/api/me/sessions', (ctx) => {
+      const user = requireUser(ctx);
+      sendJson(ctx.res, 200, sessions.list(user.id, ctx.sessionToken));
+    });
+
+    /** Signs one of those devices out. */
+    router.delete('/api/me/sessions/:key', (ctx) => {
+      const user = requireUser(ctx);
+      if (!sessions.revoke(user.id, ctx.params.key)) throw notFound('session_not_found');
+      record(ctx, 'auth.session.revoke', 'session', null);
+      sendJson(ctx.res, 200, { ok: true });
+    });
+  }
+
+  if (entitlements) {
+    /** The person's plan and what it allows; the other plans only when there is a choice. */
+    router.get('/api/me/entitlements', (ctx) => {
+      const user = requireUser(ctx);
+      const { plans, several } = entitlements.describe();
+      sendJson(ctx.res, 200, {
+        ...entitlements.of(user),
+        plans: several ? plans.map(({ id, name }) => ({ id, name })) : [],
+      });
+    });
+  }
+
+  if (tokens) {
+    at('/api/me/tokens', alsoAt.tokens, (path) => {
+      router.get(path, (ctx) => {
+        const user = requireUser(ctx);
+        sendJson(ctx.res, 200, tokens.list(user.id));
+      });
+      router.post(path, async (ctx) => {
+        const user = requireUser(ctx);
+        const body = await readJson(ctx.req);
+        const { token, row } = tokens.create(user.id, {
+          name: str(body.name ?? 'MCP', { field: 'name', max: 60, min: 1 }),
+          scopes: body.scopes ?? ['mcp'], expiresAt: body.expires_at ?? null,
+        });
+        record(ctx, 'token.create', 'token', row.id, { scopes: row.scopes });
+        // The value travels once, here. After that only its hash remains.
+        sendJson(ctx.res, 201, { ...row, token });
+      });
+      router.delete(`${path}/:id`, (ctx) => {
+        const user = requireUser(ctx);
+        const id = idOf(ctx.params.id);
+        if (!tokens.revoke(user.id, id)) throw notFound('token_not_found');
+        record(ctx, 'token.revoke', 'token', id);
+        sendJson(ctx.res, 200, { ok: true });
+      });
+    });
+  }
+
+  if (oauth) {
+    /** Apps connected through the built-in OAuth (Claude, ChatGPT…); `enabled` says whether pasting the URL is enough. */
+    at('/api/me/apps', alsoAt.apps, (path) => {
+      router.get(path, (ctx) => {
+        const user = requireUser(ctx);
+        sendJson(ctx.res, 200, { enabled: oauth.enabled, grants: oauth.enabled ? oauth.grantsOf(user.id) : [] });
+      });
+      router.delete(`${path}/:id`, (ctx) => {
+        const user = requireUser(ctx);
+        const id = idOf(ctx.params.id);
+        if (!oauth.revokeGrant(id, user.id)) throw notFound('app_not_found');
+        record(ctx, 'oauth.grant.revoke', 'oauth_grant', id);
+        sendJson(ctx.res, 200, { ok: true });
+      });
+    });
+  }
+
+  if (accounts && sessions) {
+    /**
+     * A new password, given the current one (an account without a password,
+     * made by the admin or elsewhere, sets its first). Every session ends and
+     * this browser gets a new one.
+     */
+    router.post('/api/me/password', async (ctx) => {
+      const user = requireUser(ctx);
+      if (!localPasswords) throw badRequest('passwords_managed_elsewhere');
+      const body = await readJson(ctx.req);
+      const hasOne = Boolean(user.password_hash && user.password_hash !== '!');
+      if (hasOne && !verifyPassword(String(body.current_password ?? ''), user.password_hash)) {
+        throw forbidden('wrong_password');
+      }
+      accounts.setPassword(user.id, body.password);
+      sessions.open(user.id, { req: ctx.req, res: ctx.res });
+      record(ctx, 'auth.password', 'user', user.id);
+      sendJson(ctx.res, 200, { ok: true });
+    });
+  }
+}
 
 /**
  * @param {object} router
@@ -33,7 +158,8 @@ export function registerAdminApi(router, { accounts, entitlements = null, organi
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
   const withPlan = (user) => {
-    const view = accounts.publicUser(user);
+    // Where the account signs in besides its password (workos, oidc…).
+    const view = { ...accounts.publicUser(user), providers: accounts.identitiesOf(user.id).map((i) => i.provider) };
     if (!entitlements) return view;
     const { plan, ends, unlimited } = entitlements.of(user);
     return { ...view, plan, plan_ends: ends, unlimited };

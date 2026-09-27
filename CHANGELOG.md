@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.9.0 — 2026-09-28
+
+- `accounts.js`: identities — the accounts people have at WorkOS, an OIDC provider or Google,
+  one row per provider and account in `user_identities` instead of a column per provider.
+  `byIdentity()`, `linkIdentity()` (a provider's account belongs to one account only),
+  `unlinkIdentity()`, `identitiesOf()`, `usedIdentity()`, `unlinkedByEmail()`,
+  `firstUnlinkedAdmin()`, `setVerifiedEmail()`, and `create({ identity })` to create and link at
+  once. An app table whose `password_hash` is `NOT NULL` (Tasks) gets `!` for accounts without a
+  password.
+- `workos-accounts.js`: `workosUsers(accounts)`, the users the WorkOS routes need made on the
+  suite's accounts and identities; links kept in `users.workos_user_id` by an older version are
+  adopted when asked for. An optional `users.signedIn()` notes each web sign-in.
+- `tokens.js`: API tokens — the apps' `mcp_tokens` become `api_tokens` with the same rows and
+  hashes, so no connector stops working; scopes (`mcp`, `read`, `write`), optional expiry, a cap
+  per person, and `authenticate()`, which refuses expired tokens, missing scopes and disabled
+  accounts, noting the last use at most once a minute.
+- `api.js`: `registerProfileApi()` — `/api/me/sessions`, `/api/me/entitlements`,
+  `/api/me/tokens`, `/api/me/apps` and `POST /api/me/password`, answering like Next always did
+  and, through `alsoAt`, at the paths an app already had. The admin's user list says which
+  providers each account signs in with.
+- `schema.js`: migrations 7 (`user_identities`, taking over `users.workos_user_id`) and 8
+  (`api_tokens`, taking over `mcp_tokens`).
+
 ## 0.8.1 — 2026-09-28
 
 - A disabled account stays out everywhere: `workos-accounts.js` sends it back with

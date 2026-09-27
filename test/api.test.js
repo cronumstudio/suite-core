@@ -19,7 +19,8 @@ import { createSessions } from '../sessions.js';
 import { createEntitlements } from '../entitlements.js';
 import { createOrganizations } from '../organizations.js';
 import { createAudit } from '../audit.js';
-import { registerAdminApi, registerOrganizationsApi } from '../api.js';
+import { registerAdminApi, registerOrganizationsApi, registerProfileApi } from '../api.js';
+import { createTokens } from '../tokens.js';
 
 async function start(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-api-'));
@@ -43,6 +44,11 @@ async function start(t) {
   const router = createRouter();
   registerAdminApi(router, { accounts, entitlements, organizations, sessions, audit });
   registerOrganizationsApi(router, { organizations, audit, baseUrl: 'https://app.example/' });
+  const tokens = createTokens({ database });
+  // Connected apps: a stand-in for the OAuth server with one grant per person.
+  const grants = new Map();
+  const oauth = { enabled: true, grantsOf: (id) => grants.get(id) || [], revokeGrant: (grant, id) => grant === 1 && grants.delete(id) };
+  registerProfileApi(router, { accounts, sessions, tokens, entitlements, oauth, audit, alsoAt: { tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' } });
 
   // Who is asking comes in a header: signing in is not what is tested here.
   const server = http.createServer(async (req, res) => {
@@ -75,7 +81,7 @@ async function start(t) {
     return { status: res.status, body: await res.json() };
   };
   const root = accounts.create({ username: 'root', password: 'correct horse', role: 'admin' });
-  return { call, root: root.id, accounts, sessions, entitlements, organizations, audit, database };
+  return { call, root: root.id, accounts, sessions, entitlements, organizations, audit, database, tokens, grants };
 }
 
 test('only the admin reaches /api/admin', async (t) => {
@@ -203,4 +209,54 @@ test('people’s own groups: create, invite, join, roles, leave', async (t) => {
   assert.deepEqual(audit.list({ action: 'org.' }).map((e) => e.action).reverse(),
     ['org.create', 'org.invite', 'org.join', 'org.invite', 'org.join', 'org.member.role', 'org.leave', 'org.invite']);
   assert.equal(audit.list({ action: 'org.join' })[0].organization_id, home.id);
+});
+
+test('each person’s own: sessions, plan, tokens, connected apps and password', async (t) => {
+  const { call, accounts, sessions, tokens, grants, audit } = await start(t);
+  const ada = accounts.create({ username: 'ada', password: 'correct horse' }).id;
+  const bob = accounts.create({ username: 'bob' }).id;
+  assert.equal((await call('GET', '/api/me/sessions')).status, 401);
+
+  const here = sessions.open(ada, { req: { headers: { 'user-agent': 'Laptop' }, socket: {} } });
+  sessions.open(ada, { req: { headers: { 'user-agent': 'Phone' }, socket: {} } });
+  const listed = await call('GET', '/api/me/sessions', { as: ada, session: here });
+  assert.equal(listed.body.length, 2);
+  const phone = listed.body.find((s) => !s.current);
+  assert.deepEqual((await call('DELETE', `/api/me/sessions/${phone.key}`, { as: ada })).body, { ok: true });
+  assert.equal((await call('DELETE', `/api/me/sessions/${phone.key}`, { as: ada })).body.error, 'session_not_found');
+
+  const plan = await call('GET', '/api/me/entitlements', { as: ada });
+  assert.equal(plan.body.plan.id, 'free');
+  assert.deepEqual(plan.body.plans.map((p) => p.id), ['free', 'pro'], 'there is a choice');
+
+  // Tokens, at the suite's path and at the one the app always had.
+  const made = await call('POST', '/api/mcp-tokens', { as: ada, body: { name: 'Claude' } });
+  assert.equal(made.status, 201);
+  assert.match(made.body.token, /^mcp_/);
+  assert.equal(made.body.token_hash, undefined);
+  assert.equal(tokens.authenticate(made.body.token).id, ada);
+  assert.deepEqual((await call('GET', '/api/me/tokens', { as: ada })).body.map((r) => r.name), ['Claude']);
+  assert.deepEqual((await call('GET', '/api/me/tokens', { as: bob })).body, []);
+  assert.equal((await call('DELETE', `/api/me/tokens/${made.body.id}`, { as: bob })).body.error, 'token_not_found');
+  assert.deepEqual((await call('DELETE', `/api/mcp-tokens/${made.body.id}`, { as: ada })).body, { ok: true });
+  assert.equal(tokens.authenticate(made.body.token), null);
+
+  grants.set(ada, [{ id: 1, client_name: 'Claude' }]);
+  assert.deepEqual((await call('GET', '/api/oauth-grants', { as: ada })).body, { enabled: true, grants: [{ id: 1, client_name: 'Claude' }] });
+  assert.equal((await call('DELETE', '/api/me/apps/2', { as: ada })).body.error, 'app_not_found');
+  assert.deepEqual((await call('DELETE', '/api/me/apps/1', { as: ada })).body, { ok: true });
+
+  // The password: the current one first; every session ends and this browser gets a new one.
+  assert.equal((await call('POST', '/api/me/password', { as: ada, body: { current_password: 'wrong', password: 'a much better one' } })).body.error, 'wrong_password');
+  assert.equal((await call('POST', '/api/me/password', { as: ada, body: { current_password: 'correct horse', password: 'short' } })).body.error, 'field_too_short');
+  const changed = await call('POST', '/api/me/password', { as: ada, body: { current_password: 'correct horse', password: 'a much better one' } });
+  assert.deepEqual(changed.body, { ok: true });
+  assert.equal(sessions.alive(here), null);
+  assert.equal(sessions.list(ada, null).length, 1, 'the new one');
+  assert.ok(accounts.verify('ada', 'a much better one'));
+  // Someone without a password sets their first without a current one.
+  assert.deepEqual((await call('POST', '/api/me/password', { as: bob, body: { password: 'bob’s first one' } })).body, { ok: true });
+
+  assert.deepEqual(audit.list({ actorId: ada }).map((e) => e.action).reverse(),
+    ['auth.session.revoke', 'token.create', 'token.revoke', 'oauth.grant.revoke', 'auth.password']);
 });
