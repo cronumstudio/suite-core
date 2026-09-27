@@ -36,6 +36,10 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
 | `mcp.js` | The MCP transport (Streamable HTTP, JSON-RPC): the app hands in its tools, prompts and instructions, how a token becomes a principal, and its plan check per tool |
 | `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, and `can()` / `limit()` / `require()` |
+| `accounts.js` | The people who can sign in: the `users` table in the suite's shape, creation with the app's own columns, sign-in that refuses disabled accounts and redoes old hashes, and rules that hold whoever calls (never without an administrator; disabling or a new password ends sessions) |
+| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, and a hand-over when someone's account goes |
+| `audit.js` | Who did what, when and from where — never what anybody wrote |
+| `api.js` | The common REST routes on the app's router: `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
 
 ## Using it in an app
 

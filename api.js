@@ -1,0 +1,276 @@
+/**
+ * The suite's REST routes, the same in every app:
+ *
+ * · `/api/admin/…` for the instance admin: accounts, plans and grants,
+ *   organizations and the audit log. The admin panel of the web kit is drawn
+ *   on these, and so is anything that manages an install from outside.
+ * · `/api/orgs/…` for people: their groups, members, roles and invitations.
+ *
+ * They are registered on the app's router (`createRouter()` of http.js) and
+ * receive its request context: `{ req, res, params, query, user, sessionToken }`.
+ * Every change is recorded in the audit log, without content.
+ */
+import { sendJson, readJson, badRequest, notFound, forbidden, unauthorized, int, idOrNull } from './http.js';
+
+const idOf = (value, field = 'id') => int(value, { field, min: 1 });
+const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
+
+/**
+ * @param {object} router
+ * @param {object} deps
+ * @param {object} deps.accounts        from createAccounts()
+ * @param {object} [deps.entitlements]  from createEntitlements()
+ * @param {object} [deps.organizations] from createOrganizations()
+ * @param {object} [deps.sessions]      from createSessions()
+ * @param {object} [deps.audit]         from createAudit()
+ */
+export function registerAdminApi(router, { accounts, entitlements = null, organizations = null, sessions = null, audit = null }) {
+  const requireAdmin = (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    if (ctx.user.role !== 'admin') throw forbidden('admin_only');
+    return ctx.user;
+  };
+  const record = (ctx, action, targetType, targetId, meta) =>
+    audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
+  const withPlan = (user) => {
+    const view = accounts.publicUser(user);
+    if (!entitlements) return view;
+    const { plan, ends, unlimited } = entitlements.of(user);
+    return { ...view, plan, plan_ends: ends, unlimited };
+  };
+
+  router.get('/api/admin/users', (ctx) => {
+    requireAdmin(ctx);
+    sendJson(ctx.res, 200, { users: accounts.list().map(withPlan) });
+  });
+
+  router.post('/api/admin/users', async (ctx) => {
+    requireAdmin(ctx);
+    const body = await readJson(ctx.req);
+    const user = accounts.create({
+      username: body.username, displayName: body.display_name, password: body.password ?? null,
+      role: body.role ?? 'user', email: body.email ?? null, locale: body.locale ?? null,
+    });
+    record(ctx, 'admin.user.create', 'user', user.id, { role: user.role });
+    sendJson(ctx.res, 201, withPlan(user));
+  });
+
+  router.patch('/api/admin/users/:id', async (ctx) => {
+    requireAdmin(ctx);
+    const id = idOf(ctx.params.id);
+    const body = await readJson(ctx.req);
+    if (id === ctx.user.id && (body.disabled === true || (body.role && body.role !== 'admin'))) {
+      throw badRequest('not_on_yourself');
+    }
+    const user = accounts.update(id, {
+      displayName: body.display_name, email: body.email, role: body.role, locale: body.locale, disabled: body.disabled,
+    });
+    if (body.password !== undefined) {
+      accounts.setPassword(id, body.password, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
+    }
+    record(ctx, 'admin.user.update', 'user', id, {
+      fields: Object.keys(body).filter((k) => k !== 'password'), password: body.password !== undefined,
+    });
+    sendJson(ctx.res, 200, withPlan(accounts.byId(user.id)));
+  });
+
+  router.delete('/api/admin/users/:id', (ctx) => {
+    requireAdmin(ctx);
+    const id = idOf(ctx.params.id);
+    if (id === ctx.user.id) throw badRequest('not_on_yourself');
+    accounts.remove(id);
+    record(ctx, 'admin.user.remove', 'user', id);
+    sendJson(ctx.res, 200, { ok: true });
+  });
+
+  /** Signs someone out everywhere (a lost phone, a departure). */
+  router.delete('/api/admin/users/:id/sessions', (ctx) => {
+    requireAdmin(ctx);
+    const id = idOf(ctx.params.id);
+    if (!accounts.byId(id)) throw notFound('user_not_found');
+    const closed = sessions ? sessions.closeAllOf(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null }) : 0;
+    record(ctx, 'admin.user.signout', 'user', id, { closed });
+    sendJson(ctx.res, 200, { ok: true, closed });
+  });
+
+  if (entitlements) {
+    router.get('/api/admin/plans', (ctx) => {
+      requireAdmin(ctx);
+      sendJson(ctx.res, 200, entitlements.describe());
+    });
+
+    /** The admin's way to set someone's plan; `plan: null` returns them to the default one. */
+    router.put('/api/admin/users/:id/plan', async (ctx) => {
+      requireAdmin(ctx);
+      const id = idOf(ctx.params.id);
+      if (!accounts.byId(id)) throw notFound('user_not_found');
+      const body = await readJson(ctx.req);
+      entitlements.setPlan(id, body.plan ?? null, { endsAt: body.ends_at ?? null, note: body.note ?? null });
+      record(ctx, 'admin.plan.set', 'user', id, { plan: body.plan ?? null, ends_at: body.ends_at ?? null });
+      sendJson(ctx.res, 200, withPlan(accounts.byId(id)));
+    });
+
+    router.get('/api/admin/users/:id/grants', (ctx) => {
+      requireAdmin(ctx);
+      sendJson(ctx.res, 200, { grants: entitlements.grantsOf('user', idOf(ctx.params.id)) });
+    });
+
+    router.post('/api/admin/grants', async (ctx) => {
+      requireAdmin(ctx);
+      const body = await readJson(ctx.req);
+      const subjectType = body.subject_type === 'organization' ? 'organization' : 'user';
+      const subjectId = idOf(body.subject_id, 'subject_id');
+      if (subjectType === 'user' && !accounts.byId(subjectId)) throw notFound('user_not_found');
+      if (subjectType === 'organization' && !organizations?.get(subjectId)) throw notFound('organization_not_found');
+      // A plan or a single feature, never both.
+      if (!body.plan === !body.feature) throw badRequest('field_invalid', { field: body.plan ? 'feature' : 'plan' });
+      const id = entitlements.grant({
+        subjectType, subjectId, plan: body.plan || null, feature: body.feature || null, value: body.value,
+        quantity: countOrNull(body.quantity, 'quantity'), source: 'admin',
+        startsAt: body.starts_at ?? null, endsAt: body.ends_at ?? null, note: body.note ?? null,
+      });
+      record(ctx, 'admin.grant.add', subjectType, subjectId, { grant: id, plan: body.plan || null, feature: body.feature || null });
+      sendJson(ctx.res, 201, { id });
+    });
+
+    router.delete('/api/admin/grants/:id', (ctx) => {
+      requireAdmin(ctx);
+      const id = idOf(ctx.params.id);
+      if (!entitlements.revoke({ id })) throw notFound('grant_not_found');
+      record(ctx, 'admin.grant.revoke', 'grant', id);
+      sendJson(ctx.res, 200, { ok: true });
+    });
+  }
+
+  if (organizations) {
+    router.get('/api/admin/organizations', (ctx) => {
+      requireAdmin(ctx);
+      sendJson(ctx.res, 200, { organizations: organizations.list() });
+    });
+  }
+
+  if (audit) {
+    router.get('/api/admin/audit', (ctx) => {
+      requireAdmin(ctx);
+      const q = ctx.query || new URLSearchParams();
+      sendJson(ctx.res, 200, {
+        entries: audit.list({
+          limit: q.get('limit') ?? 100, before: idOrNull(q.get('before'), 'before'),
+          actorId: idOrNull(q.get('actor'), 'actor'), action: q.get('action') || null,
+        }),
+      });
+    });
+  }
+}
+
+/**
+ * People's own groups. `baseUrl` builds invitation links:
+ * `${baseUrl}/?invitation=<token>`, which the web kit accepts after sign-in.
+ */
+export function registerOrganizationsApi(router, { organizations, audit = null, baseUrl = '' }) {
+  const requireUser = (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    return ctx.user;
+  };
+  const record = (ctx, action, organizationId, targetType, targetId, meta) =>
+    audit?.record({ action, actor: ctx.user, req: ctx.req, organizationId, targetType, targetId, meta });
+
+  router.get('/api/orgs', (ctx) => {
+    const user = requireUser(ctx);
+    sendJson(ctx.res, 200, { organizations: organizations.ofUser(user.id) });
+  });
+
+  router.post('/api/orgs', async (ctx) => {
+    const user = requireUser(ctx);
+    const body = await readJson(ctx.req);
+    const organization = organizations.create({ name: body.name, kind: body.kind ?? null, ownerId: user.id });
+    record(ctx, 'org.create', organization.id, 'organization', organization.id);
+    sendJson(ctx.res, 201, { ...organization, role: 'owner' });
+  });
+
+  router.get('/api/orgs/:id', (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    const role = organizations.requireRole(id, user.id, 'member');
+    sendJson(ctx.res, 200, { ...organizations.get(id), role, members: organizations.membersOf(id) });
+  });
+
+  router.patch('/api/orgs/:id', async (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    organizations.requireRole(id, user.id, 'admin');
+    const body = await readJson(ctx.req);
+    const organization = organizations.update(id, { name: body.name, settings: body.settings, branding: body.branding });
+    record(ctx, 'org.update', id, 'organization', id, { fields: Object.keys(body) });
+    sendJson(ctx.res, 200, organization);
+  });
+
+  router.post('/api/orgs/:id/invitations', async (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    const myRole = organizations.requireRole(id, user.id, 'admin');
+    const body = await readJson(ctx.req);
+    const role = body.role ?? 'member';
+    if (role === 'owner' && myRole !== 'owner') throw forbidden('organization_role');
+    const { token, invitation } = organizations.invite(id, { role, email: body.email ?? null, invitedBy: user.id });
+    record(ctx, 'org.invite', id, 'invitation', invitation.id, { role });
+    sendJson(ctx.res, 201, {
+      id: invitation.id, role, expires_at: invitation.expires_at, token,
+      url: `${String(baseUrl).replace(/\/$/, '')}/?invitation=${encodeURIComponent(token)}`,
+    });
+  });
+
+  router.get('/api/orgs/:id/invitations', (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    organizations.requireRole(id, user.id, 'admin');
+    sendJson(ctx.res, 200, { invitations: organizations.invitationsOf(id) });
+  });
+
+  router.delete('/api/orgs/:id/invitations/:invitation', (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    organizations.requireRole(id, user.id, 'admin');
+    if (!organizations.revokeInvitation(id, idOf(ctx.params.invitation, 'invitation'))) throw notFound('invitation_invalid');
+    record(ctx, 'org.invitation.revoke', id, 'invitation', ctx.params.invitation);
+    sendJson(ctx.res, 200, { ok: true });
+  });
+
+  router.post('/api/orgs/join', async (ctx) => {
+    const user = requireUser(ctx);
+    const body = await readJson(ctx.req);
+    const organization = organizations.accept(body.token, user.id);
+    record(ctx, 'org.join', organization.id, 'user', user.id);
+    sendJson(ctx.res, 200, { ...organization, role: organizations.roleOf(organization.id, user.id) });
+  });
+
+  router.patch('/api/orgs/:id/members/:user', async (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    const myRole = organizations.requireRole(id, user.id, 'admin');
+    const target = idOf(ctx.params.user, 'user');
+    const body = await readJson(ctx.req);
+    const theirs = organizations.roleOf(id, target);
+    // Only owners make or unmake owners; an admin can't touch an owner.
+    if ((body.role === 'owner' || theirs === 'owner') && myRole !== 'owner') throw forbidden('organization_role');
+    organizations.setRole(id, target, body.role);
+    record(ctx, 'org.member.role', id, 'user', target, { role: body.role });
+    sendJson(ctx.res, 200, { members: organizations.membersOf(id) });
+  });
+
+  router.delete('/api/orgs/:id/members/:user', (ctx) => {
+    const user = requireUser(ctx);
+    const id = idOf(ctx.params.id);
+    const target = idOf(ctx.params.user, 'user');
+    // Anyone may leave; removing someone else takes an admin, and an owner takes an owner.
+    if (target !== user.id) {
+      const myRole = organizations.requireRole(id, user.id, 'admin');
+      if (organizations.roleOf(id, target) === 'owner' && myRole !== 'owner') throw forbidden('organization_role');
+    } else {
+      organizations.requireRole(id, user.id, 'member');
+    }
+    organizations.removeMember(id, target);
+    record(ctx, target === user.id ? 'org.leave' : 'org.member.remove', id, 'user', target);
+    sendJson(ctx.res, 200, { ok: true });
+  });
+}

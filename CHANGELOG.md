@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.8.0 — 2026-09-28
+
+- `accounts.js`: the people who can sign in. `usersSchema()` creates `users` in the suite's shape
+  or completes an app's own (email, verification, locale, theme, prefs, last sign-in, disabled),
+  leaving the app's columns alone and turning `datetime('now')` dates into ISO. `createAccounts()`
+  creates accounts (with the app's columns through `extraColumns`), updates, disables, sets
+  passwords, verifies sign-ins (a disabled account never signs in; an old hash is redone) and
+  removes them. It never leaves the install without an administrator; disabling someone or giving
+  them a new password ends their other sessions. `whenCreated()` / `whenRemoved()` hook the app
+  in, inside the same transaction.
+- `organizations.js`: groups that share data, roles and a plan. Memberships with roles in order of
+  power (`owner`, `admin`, `member`, and the app's own as members), the last owner kept, invitation
+  links kept as hashes (once, before they expire, unless revoked), seats through `seatsOf`, and
+  `forgetUser()`, which hands a departing owner's groups to their oldest admin or member, or
+  archives them.
+- `audit.js`: the audit log — who, what, when, from which address, with small facts and never
+  content; listed newest first with paging and filters, purged after a year.
+- `api.js`: `registerAdminApi()` (`/api/admin/users`, sessions, plans, grants, organizations,
+  audit) and `registerOrganizationsApi()` (`/api/orgs`: create, invite, join, roles, leave), each
+  change recorded in the audit log.
+- `entitlements.js`: `seatsOf()`, the seats of an organization from its grants' quantity.
+- `schema.js`: migrations 4 (`users`), 5 (`organizations`, `memberships`, `invitations`) and 6
+  (`audit_log`). Every table is created whether the app uses its module or not.
+
 ## 0.7.0 — 2026-09-28
 
 - `entitlements.js`: what each person may do. The app declares the features it can limit (flags

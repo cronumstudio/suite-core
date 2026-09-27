@@ -298,6 +298,19 @@ export function createEntitlements({
     });
   }
 
+  /**
+   * The seats of an organization: the largest quantity among its active grants
+   * (a subscription bought per seat), or null when none sets one.
+   * Made to be handed to `createOrganizations({ seatsOf })`.
+   */
+  function seatsOf(organizationId) {
+    const now = iso(clock());
+    const row = database.get(`SELECT MAX(quantity) AS seats FROM entitlement_grants
+      WHERE subject_type = 'organization' AND subject_id = ? AND quantity IS NOT NULL
+      AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?) AND revoked_at IS NULL`, organizationId, now, now);
+    return row?.seats == null ? null : Number(row.seats);
+  }
+
   /** The grants of a user or an organization, newest first, for the admin panel. */
   const grantsOf = (subjectType, subjectId) => database.all(`SELECT * FROM entitlement_grants
     WHERE subject_type = ? AND subject_id = ? ORDER BY id DESC`, subjectType, subjectId);
@@ -310,7 +323,7 @@ export function createEntitlements({
     several: planIds.length > 1,
   });
 
-  return { errors, of, can, limit, require, allows, grant, revoke, setPlan, grantsOf, describe };
+  return { errors, of, can, limit, require, allows, grant, revoke, setPlan, seatsOf, grantsOf, describe };
 }
 
 /**

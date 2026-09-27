@@ -9,13 +9,24 @@
  * so that each step here finds the tables the app already had and brings them
  * to the suite's shape, instead of creating them next to the old ones. On a new
  * database they create the tables whole.
+ *
+ * Every table is created whether the app uses its module or not (an app without
+ * organizations just leaves theirs empty): switching a module on later is then
+ * a setting, never a migration.
  */
 import { sessionsSchema } from './sessions.js';
 import { rateLimitSchema } from './rate-limit.js';
 import { entitlementsSchema } from './entitlements.js';
+import { usersSchema } from './accounts.js';
+import { organizationsSchema } from './organizations.js';
+import { auditSchema } from './audit.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
   { version: 2, name: 'login-attempts', up: rateLimitSchema },
   { version: 3, name: 'entitlement-grants', up: entitlementsSchema },
+  { version: 4, name: 'users', up: usersSchema },
+  { version: 5, name: 'organizations', up: organizationsSchema },
+  // After organizations: its entries point at them.
+  { version: 6, name: 'audit-log', up: auditSchema },
 ]);

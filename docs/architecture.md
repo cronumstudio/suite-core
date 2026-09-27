@@ -58,12 +58,12 @@ suite-core/
   db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
   migrate.js            done   numbered migrations with scopes (suite, app)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes
-  accounts.js                  users, identities, passwords, sign-in, profile, admin of users
+  accounts.js           done   users, passwords, sign-in, the admin's rules; hooks for the app
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js                    API tokens (manual MCP tokens) with scopes
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
   rate-limit.js         done   brute-force brake persisted in the database
-  organizations.js             organizations, memberships, roles, invitations
+  organizations.js      done   organizations, memberships, roles, invitations, seats
   entitlements.js       done   features, plans and grants; can() / limit() / require()
   billing.js                   provider interface; Stripe adapter later
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
@@ -72,7 +72,8 @@ suite-core/
   push.js                      Web Push (VAPID, RFC 8291), subscriptions per device and language
   uploads.js                   file storage checked by content, trash and orphan sweep
   mail.js                      outgoing mail through a provider (log in development)
-  audit.js                     who did what and when, never the content
+  audit.js              done   who did what and when, never the content
+  api.js                done   the common routes: /api/admin/* and /api/orgs/*
   i18n/                        the suite's own texts: en.json, es.json, fr.json, de.json
   web/                         browser kit (§15), served at /suite/
   tools/                       i18n lint and parity, conformance tests for apps
@@ -600,10 +601,10 @@ first, then Tasks, then the rest.
 | `sessions.js`, `rate-limit.js` | done (v0.5.0) | adopted by Next; `principal.js` comes with the MCP transport |
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
 | `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
-| `accounts.js`, `tokens.js`, `organizations.js` | planned | with the adoption migrations of §6 |
+| `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off); `tokens.js` and the profile routes next |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js` | planned | once the modules above exist |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
-| Web kit and admin panel | planned | with the Cronum style guide |
+| Web kit and admin panel | planned | with the Cronum style guide; drawn on `/api/admin/*` |
 | `billing.js` | planned | interface first; Stripe when a price is decided |
-| `mail.js`, `audit.js`, OIDC | planned | with the admin panel |
+| `mail.js`, OIDC | planned | with the admin panel |
