@@ -89,9 +89,10 @@ export function readBody(req, { limit = MAX_BODY } = {}) {
 /**
  * A JSON object from the body; an empty body is `{}`. With `requireType`
  * (the default) the request must say `Content-Type: application/json`: a
- * cross-site form can't, which is one more wall against CSRF.
+ * cross-site form can't, which is one more wall against CSRF. Arrays are
+ * refused unless `allowArray` (JSON-RPC batches).
  */
-export async function readJson(req, { limit = MAX_BODY, requireType = true } = {}) {
+export async function readJson(req, { limit = MAX_BODY, requireType = true, allowArray = false } = {}) {
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const raw = await readBody(req, { limit });
   if (!raw.length) return {};
@@ -102,7 +103,7 @@ export async function readJson(req, { limit = MAX_BODY, requireType = true } = {
   } catch {
     throw badRequest('invalid_json');
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw badRequest('invalid_json');
+  if (!parsed || typeof parsed !== 'object' || (Array.isArray(parsed) && !allowArray)) throw badRequest('invalid_json');
   return parsed;
 }
 
