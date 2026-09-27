@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.7.0 — 2026-09-28
+
+- `entitlements.js`: what each person may do. The app declares the features it can limit (flags
+  and limits, with labels and old names); the plan catalog comes from the app or from PLANS and
+  is validated on start. Grants give a plan or one feature to a user or an organization, from a
+  source (admin, stripe, license, promo, remote), for a window, with a quantity: subscriptions,
+  one-off and lifetime purchases, trials, gifts and seats are all grants. The most generous
+  source wins; the instance admin is never limited. `can()`, `limit()`, `require()` (402
+  `plan_feature` / `plan_limit`), `allows()` for MCP tools, `grant()`, `revoke()`, `setPlan()`,
+  and `importUserPlans()` for the per-user plan columns of Tasks.
+- `schema.js`: migration 3 creates `entitlement_grants`.
+
 ## 0.6.0 — 2026-09-28
 
 - `mcp.js`: the Streamable HTTP / JSON-RPC transport every app shared a copy of — 401 with the

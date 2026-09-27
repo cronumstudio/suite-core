@@ -64,7 +64,7 @@ suite-core/
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js             organizations, memberships, roles, invitations
-  entitlements.js              features, plans and grants; can() / limit() / require()
+  entitlements.js       done   features, plans and grants; can() / limit() / require()
   billing.js                   provider interface; Stripe adapter later
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js                      SSE hub with audiences, event ids and replay
@@ -601,7 +601,7 @@ first, then Tasks, then the rest.
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
 | `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
 | `accounts.js`, `tokens.js`, `organizations.js` | planned | with the adoption migrations of §6 |
-| `entitlements.js` | planned | from `planes.js` of Tasks |
+| `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js` | planned | once the modules above exist |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | planned | with the Cronum style guide |

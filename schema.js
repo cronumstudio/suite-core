@@ -12,8 +12,10 @@
  */
 import { sessionsSchema } from './sessions.js';
 import { rateLimitSchema } from './rate-limit.js';
+import { entitlementsSchema } from './entitlements.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
   { version: 2, name: 'login-attempts', up: rateLimitSchema },
+  { version: 3, name: 'entitlement-grants', up: entitlementsSchema },
 ]);
