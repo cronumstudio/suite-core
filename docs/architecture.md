@@ -65,7 +65,7 @@ suite-core/
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats
   entitlements.js       done   features, plans and grants; can() / limit() / require()
-  billing.js                   provider interface; Stripe adapter later
+  billing.js            done   payments turned into grants: provider interface, signed webhooks; Stripe later
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js                      SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -310,6 +310,27 @@ CREATE TABLE billing_customers (
   created_at   TEXT NOT NULL,
   PRIMARY KEY (subject_type, subject_id, provider)
 );
+CREATE TABLE billing_subscriptions (     -- the latest known state of each subscription
+  provider     TEXT NOT NULL,
+  ref          TEXT NOT NULL,            -- the subscription at the provider
+  subject_type TEXT NOT NULL,
+  subject_id   INTEGER NOT NULL,
+  product      TEXT NOT NULL,
+  status       TEXT NOT NULL,            -- active | trialing | past_due | canceled…
+  quantity     INTEGER,
+  period_end   TEXT,
+  occurred_at  TEXT NOT NULL,            -- of the event it came from: older ones are ignored
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (provider, ref)
+);
+CREATE TABLE billing_events (            -- each webhook event applied once
+  provider    TEXT NOT NULL,
+  event_id    TEXT NOT NULL,
+  type        TEXT NOT NULL,
+  outcome     TEXT NOT NULL,             -- granted | extended | changed | revoked | kept | stale…
+  received_at TEXT NOT NULL,
+  PRIMARY KEY (provider, event_id)
+);
 
 CREATE TABLE push_subscriptions (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -432,22 +453,47 @@ never depends on another service being up to answer `can()`.
 
 ## 9. Billing (skeleton, off by default)
 
-`billing.js` defines a provider interface and nothing runs until `BILLING_PROVIDER` is set:
+`billing.js` (**done**, v0.10.0) turns payments into grants, and nothing runs until the app hands
+in a provider (`BILLING_PROVIDER`). The suite never takes money itself: the provider hosts checkout
+and the customer portal and reports through a signed webhook. A provider adapter is:
 
 ```js
 {
-  checkoutUrl({ subject, product, returnUrl }),   // hosted checkout page
-  portalUrl({ subject, returnUrl }),              // manage or cancel
-  handleWebhook(req),                             // verify signature → grants
+  id: 'stripe',
+  checkoutUrl({ subject, customer, product, price, email, returnUrl }),  // hosted checkout page
+  portalUrl({ customer, returnUrl }),                                    // manage or cancel
+  parseWebhook({ headers, body }),       // verify the signature → normalized events
 }
 ```
 
-The Stripe adapter (planned) maps prices to products and turns `customer.subscription.*` events
-into grants whose `ends_at` is the end of the paid period, so a failed renewal lapses on its own;
-one-off purchases become grants without an end. `billing_customers` keeps the Stripe customer of
-each user or organization. For the hosted suite, a private service (working name *Cronum Accounts*)
-may hold products, customers and subscriptions for every app and push grants to each one through a
-signed endpoint; the apps would not change, only the source of their grants.
+Whatever the provider calls them, events arrive normalized as
+`{ id, type: 'subscription' | 'purchase' | 'refund', occurredAt, subject?, customer?, ref, product?,
+status?, periodEnd?, quantity? }` and become grants with `source` = the provider and
+`external_ref` = the subscription or order:
+
+- A subscription that is `active` or `trialing` holds its plan until the end of the paid period
+  plus `graceDays` (3), so a failed renewal lapses on its own; a renewal moves that end on the same
+  grant. `past_due` changes nothing; `canceled` or `ended` ends it now. A change of product or of
+  seats (`quantity`) replaces the grant.
+- A one-off purchase grants its plan for good, or for the product's `days` (a pass); a refund
+  ends it.
+- Each event is applied once (`billing_events`), and a subscription event older than the state
+  already known (`billing_subscriptions`) is ignored: providers retry and reorder.
+
+Products live in the app's configuration, each tied to a plan of the catalog and checked on start:
+`{ 'pro-monthly': { plan: 'pro', kind: 'subscription', price: 'price_…' }, 'pro-lifetime':
+{ plan: 'pro', kind: 'once' }, 'family-yearly': { plan: 'family', kind: 'subscription', for:
+'organization' } }`. `billing_customers` keeps each user's or organization's customer at the
+provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
+`/api/billing/portal` (for a person, or for a group by one of its admins),
+`GET /api/billing/subscriptions` and `POST /api/billing/webhook`.
+
+`signedProvider()` speaks these normalized events directly, signed with a shared secret
+(`t=…,v1=…`, HMAC-SHA256, the scheme Stripe uses, five minutes of tolerance). It is what the tests
+use and what a private service of the hosted suite (working name *Cronum Accounts*) would send: that
+service would hold products, customers and subscriptions for every app, with WorkOS and the real
+payment provider, and push each app its grants; the apps would not change. The Stripe adapter (or a
+merchant of record such as Paddle, which also settles EU VAT) comes when a price is decided.
 
 ## 10. Organizations
 
@@ -607,5 +653,5 @@ first, then Tasks, then the rest.
 | `app.js`, `config.js` | planned | once the modules above exist |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | planned | with the Cronum style guide; drawn on `/api/admin/*` |
-| `billing.js` | planned | interface first; Stripe when a price is decided |
+| `billing.js` | done (v0.10.0: interface, signed provider, grants) | a real adapter (Stripe or a merchant of record) when a price is decided; Next keeps it off |
 | `mail.js`, OIDC | planned | with the admin panel |

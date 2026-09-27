@@ -21,6 +21,7 @@ import { usersSchema, identitiesSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
+import { billingSchema } from './billing.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -32,4 +33,5 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 6, name: 'audit-log', up: auditSchema },
   { version: 7, name: 'user-identities', up: identitiesSchema },
   { version: 8, name: 'api-tokens', up: tokensSchema },
+  { version: 9, name: 'billing', up: billingSchema },
 ]);

@@ -3,6 +3,22 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.10.0 — 2026-09-28
+
+- `billing.js`: payments turned into grants, off unless the app hands in a provider. A provider
+  adapter hosts checkout and the portal and reports through a signed webhook; its events arrive
+  normalized (subscription, purchase, refund). An active or trialing subscription holds its plan
+  until the end of the paid period plus three days of grace and is extended in place on renewal;
+  past due changes nothing, so an unpaid renewal lapses on its own; canceled ends it. A change of
+  product or seats replaces the grant. One-off purchases grant a plan for good or for some days;
+  refunds end them. Each event is applied once and older subscription events are ignored.
+  Products are tied to plans and checked on start. `registerBillingApi()` serves
+  `/api/billing/products`, `checkout`, `portal`, `subscriptions` and `webhook`; a group pays
+  through one of its admins. `signedProvider()` speaks the normalized events signed with a shared
+  secret (the scheme Stripe uses): what the tests use and what a central accounts service would
+  send. `signPayload()` / `verifySignature()`.
+- `schema.js`: migration 9 (`billing_customers`, `billing_subscriptions`, `billing_events`).
+
 ## 0.9.0 — 2026-09-28
 
 - `accounts.js`: identities — the accounts people have at WorkOS, an OIDC provider or Google,
