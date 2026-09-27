@@ -26,6 +26,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `oauth.js` | Built-in OAuth 2.1 authorization server for an app's MCP endpoint, so Claude or ChatGPT connect by pasting the URL |
 | `workos.js` | WorkOS AuthKit client: web sign-in with PKCE, sign-out, and verification of the JWTs AuthKit issues for the MCP |
 | `workos-accounts.js` | Accounts with WorkOS: the `/auth/login` and `/auth/callback` routes, the MCP metadata, and how a WorkOS account becomes a user of the app |
+| `i18n.js` | Translations: the suite's own texts (`i18n/<lang>.json`), language negotiation, and `t()` with placeholders, plurals and a fallback to English |
 
 ## Using it in an app
 
@@ -87,7 +88,7 @@ export const oauth = createOAuthServer({
     checkLogin(req, name), loginFailed(req, name), loginSucceeded(req, name),
     allowRegistration(req),             // → { allowed, retryAfter? } for dynamic registration
   },
-  texts: (req, user) => ({ lang, t }),  // t(key, vars) with {placeholders}
+  texts: (req, user) => ({ lang, t }),  // optional: the suite's own texts by default (below)
   page: ({ lang, title, body }) => html,
 });
 ```
@@ -101,10 +102,24 @@ Then, in the app:
 - In the app's settings: `oauth.grantsOf(userId)` and `oauth.revokeGrant(grantId, userId)`.
 - `oauth.forgetUser(userId)` when an account is deleted, and `oauth.purge()` every hour.
 
-The consent and error screens use these text keys, which the app provides in every language:
-`oauth.connectTitle`, `wants`, `unverified`, `returnTo`, `loopback`, `signedInAs`, `username`,
-`password`, `allow`, `signInAndAllow`, `cancel`, `cannotConnect`, `goBack`, `badCredentials`,
-`tooManyAttempts` and `oauth.error.<code>` for every code of `OAuthScreenError`. Their markup
+The consent and error screens bring their own texts, in every language of the suite (`i18n/`),
+and speak the user's language (their choice, else the browser's, else English). An app that wants
+its own words passes `texts`; to change only some keys — usually `oauth.wants`, which says what
+the assistant will be able to do — it builds them with `createTexts` from `i18n.js`:
+
+```js
+import { createTexts } from './suite/i18n.js';
+
+texts: createTexts({ catalogs: {
+  en: { 'oauth.wants': '{client} wants to use your lists: see them, add and change tasks.' },
+  es: { 'oauth.wants': '{client} quiere usar tus listas: verlas, añadir y cambiar tareas.' },
+} }),
+```
+
+The keys are `oauth.connectTitle`, `wants`, `unverified`, `returnTo`, `loopback`, `signedInAs`,
+`username`, `password`, `allow`, `signInAndAllow`, `cancel`, `cannotConnect`, `goBack`,
+`badCredentials`, `tooManyAttempts` and `oauth.error.<code>` for every code of
+`OAuthScreenError`. Their markup
 uses the classes `oauth__text`, `oauth__note`, `oauth__warning`, `oauth__error`,
 `oauth__form`, `oauth__actions`, `field`, `btn` and `btn--primary`.
 

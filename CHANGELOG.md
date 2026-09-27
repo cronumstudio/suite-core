@@ -3,10 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## Unreleased
+## 0.3.0 — 2026-09-28
 
+- `i18n.js`: the suite's own texts in English, Spanish, French and German (`i18n/`), language
+  negotiation and a `t()` with placeholders, plurals and a fallback to English, key by key.
+- `oauth.js`: `texts` is optional. Without it the consent and error screens use the suite's texts
+  in the user's or the browser's language; `createTexts({ catalogs })` overrides some keys.
 - `docs/architecture.md`: the target design of the platform and the order in which it is built.
 - `CONVENTIONS.md`: the rules every repository of the suite follows.
+- Tests run with `node --test`.
 
 ## 0.2.1 — 2026-09-27
 

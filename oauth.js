@@ -25,6 +25,7 @@
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { createTexts } from './i18n.js';
 
 /** Tables the app has to create (they are plain SQLite and idempotent). */
 export const OAUTH_SCHEMA = `
@@ -210,12 +211,14 @@ function privateIp(ip) {
  * @param {object} options.limits
  *   checkLogin(req, name), loginFailed(req, name), loginSucceeded(req, name),
  *   allowRegistration(req) → {allowed, retryAfter?}
- * @param {(req, user) => {lang: string, t: Function}} options.texts
+ * @param {(req, user) => {lang: string, t: Function}} [options.texts]
+ *   the screens' texts; by default the suite's own (i18n/), in the user's or
+ *   the browser's language. `createTexts({ catalogs })` overrides some keys.
  * @param {({lang, title, body}) => string} options.page  full HTML around a body
  */
 export function createOAuthServer({
   baseUrl, appName, enabled = true, allowPrivateCimd = false,
-  db, users, sessions, limits, texts, page, log = console.log,
+  db, users, sessions, limits, texts = createTexts(), page, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const ISSUER = BASE_URL;

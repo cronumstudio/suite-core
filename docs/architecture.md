@@ -513,9 +513,10 @@ answer in the user's language.
 One implementation for server and browser (`t()` from Focus): flat dotted keys that describe place
 and role (`settings.password.change`), CLDR plurals (`{ one, other }`), `{placeholders}` formatted
 with `Intl`, a fallback to English key by key, and a pseudo-locale for testing layouts. The suite
-ships its own catalogs (`i18n/<lang>.json`: sign-in, settings, admin, consent screen, errors) under
-the `suite.` prefix; the app adds its own; the server merges both at `/i18n/<lang>.json`, and the
-service worker caches them. The language is negotiated in the same order everywhere: the user's
+ships its own catalogs (`i18n/<lang>.json`: the consent screen today — **done** in v0.3.0 — and
+sign-in, settings, admin and errors as those modules arrive), with keys prefixed by the module
+that uses them (`oauth.allow`); the app adds its own and may override any suite key; the server
+merges both at `/i18n/<lang>.json`, and the service worker caches them. The language is negotiated in the same order everywhere: the user's
 choice, then `Accept-Language` / `navigator.languages`, then English. `tools/i18n.mjs` fails the
 tests when a key is missing in a language, when placeholders differ, or when a visible string is
 written in the code instead of a catalog. Content people write is never translated.
@@ -598,7 +599,7 @@ first, then Tasks, then the rest.
 | `http.js`, `db.js`, `migrate.js`, `crypto.js` | next | built from Focus, adopted by Next |
 | `sessions.js`, `rate-limit.js`, `principal.js` | next | secret handling from Tasks, the rest from Focus |
 | `mcp.js` | next | from the transport of Next and Tasks, with plan checks |
-| `i18n.js` + `tools/i18n.mjs` | next | from Focus; Next's catalogs flattened |
+| `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
 | `accounts.js`, `tokens.js`, `organizations.js` | planned | with the adoption migrations of §6 |
 | `entitlements.js` | planned | from `planes.js` of Tasks |
 | `app.js`, `config.js` | planned | once the modules above exist |

@@ -206,6 +206,40 @@ try {
   check('An http client_id is not a document: it is an unknown client',
     byHttp.status === 400 && (await byHttp.text()).includes('[oauth.error.client_unknown]'));
 
+  console.log('\nThe suite’s own texts');
+  const plain = createOAuthServer({
+    baseUrl: base, appName: 'Test app', db: adapter,
+    users: { fromRequest: () => null, handle: (u) => `@${u.username}` },
+    sessions: { tokenFrom: () => null, sign: (v) => v },
+    limits: {},
+    page: ({ lang, title, body }) => `<!doctype html><html lang="${lang}"><title>${title}</title>${body}</html>`,
+    log: () => {},
+  });
+  const screenIn = async (acceptLanguage, clientId = client.client_id) => {
+    let status = 0;
+    let body = '';
+    const res = {
+      setHeader() {},
+      writeHead(code) { status = code; },
+      end(text) { body = String(text || ''); },
+    };
+    const url = new URL(`${base}/oauth/authorize?${form({ ...params, client_id: clientId })}`);
+    await plain.handle({ method: 'GET', headers: { 'accept-language': acceptLanguage }, url: url.pathname + url.search },
+      res, url);
+    return { status, body };
+  };
+  const inSpanish = await screenIn('es-ES,es;q=0.9,en;q=0.5');
+  check('Without texts of its own, the consent screen speaks the browser’s language',
+    inSpanish.status === 200 && inSpanish.body.includes('lang="es"')
+    && inSpanish.body.includes('Conectar con Test app') && inSpanish.body.includes('Entrar y permitir'));
+  const inFrench = await screenIn('fr-CH');
+  check('…in any language of the suite', inFrench.body.includes('Se connecter à Test app'));
+  const unknownLanguage = await screenIn('pt-BR');
+  check('…and in English when it has none of them', unknownLanguage.body.includes('Connect to Test app'));
+  const errorInGerman = await screenIn('de', 'oc_nobody');
+  check('The error screen too', errorInGerman.status === 400
+    && errorInGerman.body.includes('Diese Anwendung ist hier nicht registriert.'));
+
   console.log('\nSwitched off');
   const off = createOAuthServer({ ...{ baseUrl: base, appName: 'x', db: adapter }, enabled: false,
     users: {}, sessions: {}, limits: {}, texts, page: () => '' });
