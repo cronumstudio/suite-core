@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## Unreleased
+
+- `billing.js`: an event without a valid end of period names the field `period_end`, in the
+  suite's snake_case like every other field.
+
 ## 0.10.0 — 2026-09-28
 
 - `billing.js`: payments turned into grants, off unless the app hands in a provider. A provider

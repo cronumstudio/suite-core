@@ -215,7 +215,7 @@ export function createBilling({
 
     if (SUBSCRIPTION_KEEPS.has(event.status)) {
       const end = Date.parse(event.periodEnd);
-      if (Number.isNaN(end)) throw badRequest('field_invalid', { field: 'periodEnd' });
+      if (Number.isNaN(end)) throw badRequest('field_invalid', { field: 'period_end' });
       return holdPlan(subject, product, event.ref, iso(end + graceDays * DAY), event.quantity);
     }
     if (SUBSCRIPTION_ENDS.has(event.status)) {
