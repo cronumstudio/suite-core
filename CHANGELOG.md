@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.6.0 — 2026-09-28
+
+- `mcp.js`: the Streamable HTTP / JSON-RPC transport every app shared a copy of — 401 with the
+  resource metadata, 503 when tokens can't be checked, the token brake, batches, SSE answers,
+  OPTIONS, GET and DELETE. Tools may declare a `feature` and `allows(principal, tool)` decides
+  before they run; renamed tools and parameters keep working through `legacyTools` and
+  `legacyParams`.
+- `http.js`: `readJson()` accepts arrays with `allowArray` (JSON-RPC batches).
+
 ## 0.5.0 — 2026-09-28
 
 - `sessions.js`: sessions that live while they are used (`idleDays`) and never longer than

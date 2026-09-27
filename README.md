@@ -34,6 +34,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `sessions.js` | Browser sessions that live while used (with a maximum), rotated at sign-in, listed and closed per device; the session secret, never an example value |
 | `rate-limit.js` | The brute-force brake kept in the database: per account, per address, for tokens and client registrations |
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
+| `mcp.js` | The MCP transport (Streamable HTTP, JSON-RPC): the app hands in its tools, prompts and instructions, how a token becomes a principal, and its plan check per tool |
 
 ## Using it in an app
 
