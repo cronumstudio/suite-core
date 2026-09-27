@@ -156,3 +156,13 @@ npm test
 
 Runs the whole OAuth dance against an in-memory database, with fake users and sessions, and no
 app around it.
+
+## License
+
+Copyright (C) 2026 Cronum Studio.
+
+Released under the GNU Affero General Public License, version 3 only (AGPL-3.0-only): see
+[LICENSE](LICENSE). You may use, study, change and self-host it freely; if you offer a modified
+version to other people over a network, you must make its source code available to them too.
+
+Versions up to v0.2.0 were published under the MIT license.

@@ -1,9 +1,9 @@
 {
   "name": "suite-core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Code shared by the Cronum Studio suite of self-hosted apps: built-in OAuth for their MCP servers.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
