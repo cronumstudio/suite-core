@@ -153,6 +153,15 @@ try {
     check(`A token ${name} is no one`, (await accounts.userFromToken(token)) === null);
   }
   check('Keys are cached, not fetched on every request', jwksHits <= 2, `${jwksHits}`);
+  const bobUser = USERS.find((u) => u.workos_user_id === 'user_bob');
+  bobUser.disabled_at = '2026-05-01T10:00:00.000Z';
+  check('A disabled account’s token is no one', (await accounts.userFromToken(tokenOf('user_bob'))) === null);
+  const openedBefore = opened.length;
+  const disabledSignIn = await signIn('user_bob');
+  check('A disabled account doesn’t sign in on the web', /auth_error=disabled/.test(disabledSignIn.back.headers.get('location'))
+    && opened.length === openedBefore);
+  bobUser.disabled_at = null;
+  check('Enabled again, it is someone again', (await accounts.userFromToken(tokenOf('user_bob')))?.username === 'bob');
   const strict = createWorkosClient({ apiUrl: AUTHKIT, apiKey: 'sk_test', clientId: 'c', authkitDomain: AUTHKIT, mcpAudience: `${base}/mcp` });
   check('With an audience set, a token for another app is refused',
     (await strict.verifyToken(tokenOf('user_bob', { aud: 'https://other/mcp' }))) === null

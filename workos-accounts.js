@@ -149,10 +149,13 @@ export function createWorkosAccounts({
   async function userFromToken(token) {
     const data = await workos.verifyToken(token);
     if (!data) return null;
-    const known = users.byWorkosId(data.sub);
-    if (known) return known;
-    const account = await workos.account(data.sub);
-    return account ? localUser(account) : null;
+    let user = users.byWorkosId(data.sub);
+    if (!user) {
+      const account = await workos.account(data.sub);
+      user = account ? localUser(account) : null;
+    }
+    // An account the admin disabled is no one, whatever AuthKit says.
+    return user && !user.disabled_at ? user : null;
   }
 
   /** The MCP's 401 header: where the metadata is, so the client opens AuthKit. */
@@ -191,6 +194,12 @@ export function createWorkosAccounts({
       try {
         const { account, sessionId } = await workos.exchangeCode({ code, verifier });
         const user = localUser(account);
+        // An account the admin disabled stays out, whatever AuthKit says.
+        if (user.disabled_at) {
+          log(`[workos] user #${user.id} is disabled: not signed in`);
+          redirect(res, '/?auth_error=disabled');
+          return true;
+        }
         sessions.open(res, user.id, { workosSessionId: sessionId });
         redirect(res, '/');
       } catch (err) {

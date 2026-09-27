@@ -194,6 +194,11 @@ try {
   const grants = oauth.grantsOf(1);
   check('The app can list a user’s grants', grants.length === 1 && grants[0].redirect_host === 'client.example',
     JSON.stringify(grants));
+  USERS[0].disabled_at = '2026-05-01T10:00:00.000Z';
+  const whileDisabled = (await mcp(t2.access_token)).status;
+  USERS[0].disabled_at = null;
+  check('A disabled account’s tokens open nothing until it is enabled again',
+    whileDisabled === 401 && (await mcp(t2.access_token)).status === 200);
   check('Revoking one takes its access away', oauth.revokeGrant(grants[0].id, 1)
     && (await mcp(t2.access_token)).status === 401);
   check('Another user can’t revoke it', oauth.revokeGrant(grants[0].id, 2) === false);

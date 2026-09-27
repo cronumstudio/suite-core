@@ -791,7 +791,8 @@ ${user
     );
     if (!row) return null;
     const user = users.byId(row.user_id);
-    if (!user) return null;
+    // An account the admin disabled keeps its grants, unused, until it comes back.
+    if (!user || user.disabled_at) return null;
     db.run("UPDATE oauth_grants SET last_used_at = datetime('now') WHERE id = ?", row.grant_id);
     return user;
   }
