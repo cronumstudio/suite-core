@@ -74,7 +74,8 @@ suite-core/
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js                      Web Push (VAPID, RFC 8291), subscriptions per device and language
   uploads.js                   file storage checked by content, trash and orphan sweep
-  mail.js                      outgoing mail through a provider (log in development)
+  mail.js               done   outgoing mail: SMTP without dependencies, or the log
+  account-mail.js       done   confirming emails, new passwords, invitations, open sign-up
   audit.js              done   who did what and when, never the content
   api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
   i18n/                        the suite's own texts: en.json, es.json, fr.json, de.json
@@ -142,7 +143,7 @@ export default {
   modules: { oauth: true, mcp: true, admin: true, organizations: false, billing: false },
 
   accounts: {
-    signup: 'admin',              // only the admin creates accounts; invite | open come with mail.js
+    signup: 'admin',              // admin: only the admin | invite: by email | open: anyone (SIGNUP overrides)
     minPasswordLength: 10,
   },
   sessions: { idleDays: 30, maxDays: 365 },   // cookieName: '<app id>_sid' unless given
@@ -183,9 +184,9 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote` so far) with `BILLING_SECRET` and `BILLING_URL`; later `VAPID_*`,
-`STRIPE_*`, `MAIL_PROVIDER`, `MAIL_*`. Two product settings may be overridden
-per install for hosted deployments: `PLANS` (JSON, same shape as `plans`) and `DEFAULT_PLAN`.
+`BILLING_PROVIDER` (`remote` so far) with `BILLING_SECRET` and `BILLING_URL`, `MAIL_PROVIDER` (`log` |
+`smtp`) with `MAIL_*`; later `VAPID_*` and `STRIPE_*`. Three product settings may be overridden
+per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 Old variable names keep working as aliases, with a warning (`RECARGA_EN_CALIENTE`, `PORT_HOST`…).
 
 ## 6. Data model
@@ -630,9 +631,17 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
   as static files; soft delete with a trash, purge after N days, and an orphan sweep that refuses to
   run when the database looks restored without its files. The app keeps its own table linking files
   to its records and decides who may see them. Storage per user or organization can be a plan limit.
-- **Mail**: providers behind one interface, `log` in development (prints the message), and HTTP
-  APIs or SMTP later. It carries invitations, password resets and security notices for local
-  accounts; with WorkOS, AuthKit sends its own.
+- **Mail** (**done**, v0.14.0): `mail.js` sends through SMTP (`MAIL_PROVIDER=smtp`, `MAIL_HOST`,
+  `MAIL_PORT`, `MAIL_SECURE` tls | starttls | none, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`) with a
+  client of its own —no dependencies, STARTTLS required unless told otherwise, AUTH PLAIN or LOGIN,
+  headers that can't be broken into— or, by default, writes the message in the server's log, so an
+  install without a mail server can still pass a link on. `account-mail.js` carries what local
+  accounts need: a link to confirm an email (48 h), a new password when the old one is forgotten
+  (1 h, once, every other session closed; the answer is the same whether the account exists), the
+  admin's invitations (7 days; the link is also returned, to pass on by hand) and open sign-up.
+  Every link is a single-use token kept as a hash; the brake limits requests per address and links
+  per inbox. The texts are the suite's, in each person's language. With WorkOS or OIDC the provider
+  sends its own.
 - **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
   changes, billing events. Who, when, what and from where; never titles, notes or passwords.
 
@@ -681,10 +690,10 @@ first, then Tasks, then the rest.
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity) | the browser's `t()` in the web kit; the lint of strings written in the code |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
-| `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc; sign-up by invitation or open comes with `mail.js` |
+| `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
+| `mail.js`, `account-mail.js` | done (v0.14.0) | sign-up by invitation or open, confirmation and new passwords; the screens in each app and the web kit |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | planned | with the Cronum style guide; drawn on `/api/admin/*` |
 | `billing.js` | done (v0.10.0: interface, signed provider, grants) | a real adapter (Stripe or a merchant of record) when a price is decided; Next keeps it off |
-| `mail.js`, OIDC | planned | with the admin panel |

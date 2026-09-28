@@ -96,5 +96,17 @@
   "fields.feature": "Función",
   "fields.starts_at": "Inicio",
   "fields.ends_at": "Fin",
-  "fields.before": "Posición"
+  "fields.before": "Posición",
+  "mail.verify.subject": "Confirma tu email en {app}",
+  "mail.verify.body": "Hola, {name}:\n\nPara confirmar que {email} es tuyo, abre este enlace:\n\n{link}\n\nFunciona durante 48 horas. Si no lo has pedido tú, puedes ignorar este mensaje.\n\n{app}",
+  "mail.reset.subject": "Una contraseña nueva para {app}",
+  "mail.reset.body": "Hola, {name}:\n\nAlguien —esperamos que tú— ha pedido una contraseña nueva para la cuenta «{username}» de {app}. Para elegirla, abre este enlace:\n\n{link}\n\nFunciona durante una hora y una sola vez. Si no has sido tú, ignora este mensaje: tu contraseña sigue siendo la misma.\n\n{app}",
+  "mail.invite.subject": "{inviter} te invita a {app}",
+  "mail.invite.body": "Hola:\n\n{inviter} te ha invitado a {app}. Para crear tu cuenta, abre este enlace:\n\n{link}\n\nFunciona durante 7 días.\n\n{app}",
+  "errors.link_invalid": "Ese enlace ya no vale: ya se usó, o lo sustituyó uno más reciente.",
+  "errors.link_expired": "Ese enlace ha caducado. Pide uno nuevo.",
+  "errors.signup_closed": "Aquí las cuentas solo se crean por invitación.",
+  "errors.no_email": "La cuenta no tiene un email que confirmar.",
+  "errors.already_verified": "Ese email ya está confirmado.",
+  "fields.login": "Usuario o email"
 }

@@ -96,5 +96,17 @@
   "fields.feature": "Fonction",
   "fields.starts_at": "Début",
   "fields.ends_at": "Fin",
-  "fields.before": "Position"
+  "fields.before": "Position",
+  "mail.verify.subject": "Confirmez votre e-mail pour {app}",
+  "mail.verify.body": "Bonjour {name},\n\nPour confirmer que {email} est bien à vous, ouvrez ce lien :\n\n{link}\n\nIl fonctionne pendant 48 heures. Si vous ne l’avez pas demandé, vous pouvez ignorer ce message.\n\n{app}",
+  "mail.reset.subject": "Un nouveau mot de passe pour {app}",
+  "mail.reset.body": "Bonjour {name},\n\nQuelqu’un —vous, espérons-le— a demandé un nouveau mot de passe pour le compte « {username} » de {app}. Pour le choisir, ouvrez ce lien :\n\n{link}\n\nIl fonctionne pendant une heure et une seule fois. Si ce n’était pas vous, ignorez ce message : votre mot de passe reste le même.\n\n{app}",
+  "mail.invite.subject": "{inviter} vous invite sur {app}",
+  "mail.invite.body": "Bonjour,\n\n{inviter} vous a invité sur {app}. Pour créer votre compte, ouvrez ce lien :\n\n{link}\n\nIl fonctionne pendant 7 jours.\n\n{app}",
+  "errors.link_invalid": "Ce lien n’est plus valable : il a déjà servi, ou un plus récent l’a remplacé.",
+  "errors.link_expired": "Ce lien a expiré. Demandez-en un nouveau.",
+  "errors.signup_closed": "Ici, les comptes ne se créent que sur invitation.",
+  "errors.no_email": "Le compte n’a pas d’e-mail à confirmer.",
+  "errors.already_verified": "Cet e-mail est déjà confirmé.",
+  "fields.login": "Nom d’utilisateur ou e-mail"
 }

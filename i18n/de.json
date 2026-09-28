@@ -96,5 +96,17 @@
   "fields.feature": "Funktion",
   "fields.starts_at": "Beginn",
   "fields.ends_at": "Ende",
-  "fields.before": "Position"
+  "fields.before": "Position",
+  "mail.verify.subject": "Bestätige deine E-Mail-Adresse für {app}",
+  "mail.verify.body": "Hallo {name},\n\num zu bestätigen, dass {email} dir gehört, öffne diesen Link:\n\n{link}\n\nEr funktioniert 48 Stunden lang. Wenn du das nicht angefordert hast, kannst du diese Nachricht ignorieren.\n\n{app}",
+  "mail.reset.subject": "Ein neues Passwort für {app}",
+  "mail.reset.body": "Hallo {name},\n\njemand – hoffentlich du – hat ein neues Passwort für das {app}-Konto „{username}“ angefordert. Um eines zu wählen, öffne diesen Link:\n\n{link}\n\nEr funktioniert eine Stunde lang und nur einmal. Wenn du es nicht warst, ignoriere diese Nachricht: Dein Passwort bleibt, wie es ist.\n\n{app}",
+  "mail.invite.subject": "{inviter} lädt dich zu {app} ein",
+  "mail.invite.body": "Hallo,\n\n{inviter} hat dich zu {app} eingeladen. Um dein Konto zu erstellen, öffne diesen Link:\n\n{link}\n\nEr funktioniert 7 Tage lang.\n\n{app}",
+  "errors.link_invalid": "Dieser Link gilt nicht mehr: Er wurde schon benutzt oder durch einen neueren ersetzt.",
+  "errors.link_expired": "Dieser Link ist abgelaufen. Fordere einen neuen an.",
+  "errors.signup_closed": "Konten werden hier nur auf Einladung erstellt.",
+  "errors.no_email": "Das Konto hat keine E-Mail-Adresse zum Bestätigen.",
+  "errors.already_verified": "Diese E-Mail-Adresse ist schon bestätigt.",
+  "fields.login": "Benutzername oder E-Mail"
 }

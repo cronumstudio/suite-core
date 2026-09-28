@@ -41,10 +41,13 @@ import { createBilling, signedProvider, registerBillingApi } from './billing.js'
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers } from './workos-accounts.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
+import { createMailer } from './mail.js';
+import { createAccountMail } from './account-mail.js';
+import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { createMcpServer } from './mcp.js';
 import {
-  registerAuthApi, registerProfileApi, registerAdminApi, registerOrganizationsApi,
+  registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi,
 } from './api.js';
 import {
   HttpError, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin,
@@ -234,6 +237,14 @@ export function createSuite({
   }) : null;
   if (oauth) accounts.whenRemoved((userId) => oauth.forgetUser(userId));
 
+  // Mail: an SMTP server, or the server's log until one is set.
+  const mailer = createMailer(install.mail, { log });
+  const accountMail = createAccountMail({
+    database, accounts, mailer, texts: hooks.texts || createTexts(), baseUrl: install.baseUrl,
+    appName: config.app.name, limiter, audit, signup: config.accounts.signup,
+    localPasswords: install.authProvider === 'local', roles: config.accounts.roles, log,
+  });
+
   /**
    * The first administrator of an install with local accounts, if there is
    * nobody yet. Without ADMIN_PASSWORD (or with an example one, or one too
@@ -260,6 +271,8 @@ export function createSuite({
     const generated = given ? null : randomToken(12);
     const user = accounts.create({
       username, password: given || generated, displayName: install.admin.displayName || username, role: 'admin',
+      // With it, a forgotten password can be recovered by mail.
+      email: install.admin.email || null,
     });
     log(`${tag} admin user created: "${username}"`);
     if (generated) {
@@ -284,6 +297,7 @@ export function createSuite({
     limiter.purge();
     audit.purge(365);
     tokens.purge();
+    accountMail.purge();
   }
 
   /**
@@ -296,7 +310,7 @@ export function createSuite({
 
   return {
     config, database, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing,
-    workos, oidc, idp, oauth, ensureAdmin, purge, authenticateToken,
+    workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
   };
 }
 
@@ -321,6 +335,7 @@ export function createApp({
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing, workos, idp, oauth,
+    accountMail,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
@@ -329,7 +344,10 @@ export function createApp({
   /* --------------------------- the suite's routes --------------------------- */
 
   const api = createRouter();
-  registerAuthApi(api, { accounts, sessions, limiter, audit, idp, serializeUser: serialize });
+  registerAuthApi(api, { accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup });
+  if (install.authProvider === 'local') {
+    registerAccountMailApi(api, { accountMail, sessions, serializeUser: serialize, admin: config.modules.admin });
+  }
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit,
     localPasswords: install.authProvider === 'local', alsoAt: profile.alsoAt || {},

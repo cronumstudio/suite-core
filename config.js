@@ -16,6 +16,7 @@ import path from 'node:path';
 import { LANGUAGES } from './i18n.js';
 import { workosConfigFromEnv } from './workos.js';
 import { oidcConfigFromEnv } from './oidc.js';
+import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -80,12 +81,15 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
 
   const ac = isObject(p.accounts) ? p.accounts : {};
   const accounts = {
-    signup: ac.signup ?? 'admin',
+    // Who may create an account: only the admin, whoever the admin invites by
+    // email, or anyone. An install may say otherwise with SIGNUP.
+    signup: env.SIGNUP || ac.signup || 'admin',
     minPasswordLength: ac.minPasswordLength ?? 10,
     roles: Array.isArray(ac.roles) ? [...ac.roles] : ['admin', 'user'],
   };
-  // Invitations and open sign-up come with the mail module (email verification).
-  if (accounts.signup !== 'admin') errors.push(`accounts.signup: only "admin" is available so far, not "${accounts.signup}"`);
+  if (!['admin', 'invite', 'open'].includes(accounts.signup)) {
+    errors.push(`${env.SIGNUP ? 'SIGNUP' : 'accounts.signup'} "${accounts.signup}": use admin, invite or open`);
+  }
   if (!wholeNumber(accounts.minPasswordLength, 6, 128)) errors.push('accounts.minPasswordLength: a whole number from 6 to 128');
   if (!accounts.roles.includes('admin')) errors.push('accounts.roles must include "admin"');
 
@@ -113,9 +117,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (!/^[a-z]{2,10}_$/.test(tokens.prefix)) errors.push('tokens.prefix: a few lowercase letters and _ ("mcp_")');
 
   const rl = isObject(p.rateLimits) ? p.rateLimits : {};
-  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, ...rl };
+  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, ...rl };
   for (const [key, value] of Object.entries(rateLimits)) {
-    if (!['account', 'ip', 'token', 'registration'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
+    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
     else if (!wholeNumber(value, 1, 100000)) errors.push(`rateLimits.${key} must be a whole number`);
   }
 
@@ -146,6 +150,12 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     const missing = ['OIDC_ISSUER', 'OIDC_CLIENT_ID'].filter((name) => !env[name]);
     if (missing.length) errors.push(`AUTH_PROVIDER=oidc, but these are missing: ${missing.join(', ')}`);
     else if (!/^https?:\/\/[^/\s]+/.test(oidc.issuer)) errors.push(`OIDC_ISSUER "${env.OIDC_ISSUER}" is not an http(s) address`);
+  }
+
+  const mail = mailConfigFromEnv(env);
+  errors.push(...mailConfigErrors(mail));
+  if (accounts.signup !== 'admin' && mail.provider === 'log') {
+    warnings.push(`Sign-up is "${accounts.signup}" but MAIL_PROVIDER is log: confirmation and invitation links only reach the server's log`);
   }
 
   let billing = null;
@@ -182,6 +192,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     plansJson: env.PLANS,
     defaultPlan: env.DEFAULT_PLAN,
     billing,
+    mail,
     hotReload: (env.HOT_RELOAD ?? env.RECARGA_EN_CALIENTE) === 'true',
   };
 

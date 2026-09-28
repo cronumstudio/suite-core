@@ -31,10 +31,14 @@ const countOrNull = (value, field) => (value == null ? null : int(value, { field
  * @param {object} deps.accounts, deps.sessions, deps.limiter   the suite's
  * @param {Function} deps.serializeUser   the account as the browser sees it
  */
-export function registerAuthApi(router, { accounts, sessions, limiter, audit = null, idp = null, serializeUser }) {
+export function registerAuthApi(router, {
+  accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin',
+}) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
-    sendJson(ctx.res, 200, { provider: idp?.id ?? 'local', name: idp?.name ?? null });
+    // `signup`: who may create an account here (admin | invite | open); with a
+    // provider, whoever it lets in.
+    sendJson(ctx.res, 200, { provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup });
   });
 
   router.post('/api/auth/login', async (ctx) => {
@@ -67,6 +71,84 @@ export function registerAuthApi(router, { accounts, sessions, limiter, audit = n
 
   router.get('/api/auth/me', (ctx) => {
     sendJson(ctx.res, 200, { user: serializeUser(ctx.user) });
+  });
+}
+
+/**
+ * What accounts do by mail (account-mail.js): a new password when the old one
+ * is forgotten, confirming an email, signing up with an invitation or, when
+ * the install leaves it open, without one; and the admin's invitations. The
+ * links in the messages come back to the app's page (/?reset=…, /?verify=…,
+ * /?signup=…), which posts the token here.
+ */
+export function registerAccountMailApi(router, { accountMail, sessions, serializeUser, admin = true }) {
+  const requireUser = (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    return ctx.user;
+  };
+
+  /** Always the same answer: it never says whether an account exists. */
+  router.post('/api/auth/forgot', async (ctx) => {
+    const body = await readJson(ctx.req);
+    await accountMail.requestReset(body.login ?? body.username ?? body.email, { req: ctx.req });
+    sendJson(ctx.res, 200, { ok: true });
+  });
+
+  /** A new password from a link: every other session ends and this browser is signed in. */
+  router.post('/api/auth/reset', async (ctx) => {
+    const body = await readJson(ctx.req);
+    const user = accountMail.resetPassword(body.token, body.password, { req: ctx.req });
+    sessions.open(user.id, { req: ctx.req, res: ctx.res });
+    sendJson(ctx.res, 200, { user: serializeUser(user) });
+  });
+
+  router.post('/api/auth/verify', async (ctx) => {
+    const body = await readJson(ctx.req);
+    const user = accountMail.verifyEmail(body.token, { req: ctx.req });
+    sendJson(ctx.res, 200, { ok: true, ...(ctx.user?.id === user.id ? { user: serializeUser(user) } : {}) });
+  });
+
+  /** Sends the person a new link to confirm their email. */
+  router.post('/api/me/email/verify', async (ctx) => {
+    const user = requireUser(ctx);
+    await accountMail.sendVerification(user, { req: ctx.req });
+    sendJson(ctx.res, 200, { ok: true });
+  });
+
+  /** A new account, with an invitation's token or, when sign-up is open, without; signed in right away. */
+  router.post('/api/auth/signup', async (ctx) => {
+    const body = await readJson(ctx.req);
+    const user = await accountMail.signUp({
+      token: body.token ?? null, username: body.username, displayName: body.display_name ?? null,
+      email: body.email ?? null, password: body.password, locale: body.locale ?? null,
+    }, { req: ctx.req });
+    sessions.open(user.id, { req: ctx.req, res: ctx.res });
+    sendJson(ctx.res, 201, { user: serializeUser(user) });
+  });
+
+  if (!admin) return;
+  const requireAdmin = (ctx) => {
+    const user = requireUser(ctx);
+    if (user.role !== 'admin') throw forbidden('admin_only');
+    return user;
+  };
+
+  router.get('/api/admin/invitations', (ctx) => {
+    requireAdmin(ctx);
+    sendJson(ctx.res, 200, { invitations: accountMail.invitations() });
+  });
+
+  router.post('/api/admin/invitations', async (ctx) => {
+    const admin = requireAdmin(ctx);
+    const body = await readJson(ctx.req);
+    const invitation = await accountMail.invite({ email: body.email, role: body.role ?? 'user', by: admin, req: ctx.req });
+    sendJson(ctx.res, 201, invitation);
+  });
+
+  router.delete('/api/admin/invitations/:id', (ctx) => {
+    requireAdmin(ctx);
+    if (!accountMail.revokeInvitation(idOf(ctx.params.id))) throw notFound('invitation_invalid');
+    sendJson(ctx.res, 200, { ok: true });
   });
 }
 

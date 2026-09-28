@@ -96,5 +96,17 @@
   "fields.feature": "Feature",
   "fields.starts_at": "Start",
   "fields.ends_at": "End",
-  "fields.before": "Position"
+  "fields.before": "Position",
+  "mail.verify.subject": "Confirm your email for {app}",
+  "mail.verify.body": "Hello {name},\n\nTo confirm that {email} is yours, open this link:\n\n{link}\n\nIt works for 48 hours. If you didn’t ask for it, you can ignore this message.\n\n{app}",
+  "mail.reset.subject": "A new password for {app}",
+  "mail.reset.body": "Hello {name},\n\nSomeone —hopefully you— asked for a new password for the {app} account “{username}”. To choose one, open this link:\n\n{link}\n\nIt works for one hour and only once. If it wasn’t you, ignore this message: your password stays as it is.\n\n{app}",
+  "mail.invite.subject": "{inviter} invites you to {app}",
+  "mail.invite.body": "Hello,\n\n{inviter} has invited you to {app}. To create your account, open this link:\n\n{link}\n\nIt works for 7 days.\n\n{app}",
+  "errors.link_invalid": "That link is no longer valid: it was already used, or a newer one replaced it.",
+  "errors.link_expired": "That link has expired. Ask for a new one.",
+  "errors.signup_closed": "Accounts here are created by invitation only.",
+  "errors.no_email": "The account has no email to confirm.",
+  "errors.already_verified": "That email is already confirmed.",
+  "fields.login": "Username or email"
 }

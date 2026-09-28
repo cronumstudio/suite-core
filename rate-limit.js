@@ -20,7 +20,12 @@
 import { hmac, sha256 } from './crypto.js';
 import { clientIp } from './http.js';
 
-export const DEFAULT_LIMITS = Object.freeze({ account: 10, ip: 60, token: 30, registration: 30 });
+export const DEFAULT_LIMITS = Object.freeze({
+  account: 10, ip: 60, token: 30, registration: 30,
+  // Mail anyone can make the app send (a reset link), per address and per recipient,
+  // and accounts anyone can create (open sign-up), per address.
+  mail: 10, mailTo: 3, signup: 5,
+});
 
 export function rateLimitSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
@@ -31,7 +36,7 @@ export function rateLimitSchema(d) {
  * @param {object} options
  * @param {object} options.database  the suite's database handle
  * @param {string} [options.secret]  keys the bucket hashes (the session secret)
- * @param {object} [options.limits]  { account, ip, token, registration }
+ * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup }
  * @param {number} [options.windowMs]
  * @param {*} [options.trustProxy]   see proxyHops() in http.js
  */
@@ -101,6 +106,28 @@ export function createRateLimiter({
     allowRegistration(req) {
       const bucket = key('registration', ipOf(req));
       const refused = blocked(bucket, max.registration);
+      if (refused) return refused;
+      add(bucket);
+      return { allowed: true };
+    },
+
+    /**
+     * Something a stranger can make happen that costs someone else —an email
+     * sent, an account created—, per address. Counted when allowed. `kind` is
+     * 'mail' or 'signup'.
+     */
+    allow(kind, req) {
+      const bucket = key(kind, ipOf(req));
+      const refused = blocked(bucket, max[kind] ?? 10);
+      if (refused) return refused;
+      add(bucket);
+      return { allowed: true };
+    },
+
+    /** The same per recipient ('mail' → mailTo): nobody can bury an inbox in links. */
+    allowTo(kind, target) {
+      const bucket = key(`${kind}To`, accountOf(target));
+      const refused = blocked(bucket, max[`${kind}To`] ?? 3);
       if (refused) return refused;
       add(bucket);
       return { allowed: true };

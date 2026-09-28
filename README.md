@@ -26,6 +26,8 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `oauth.js` | Built-in OAuth 2.1 authorization server for an app's MCP endpoint, so Claude or ChatGPT connect by pasting the URL |
 | `workos.js` | WorkOS AuthKit client: web sign-in with PKCE, sign-out, and verification of the JWTs AuthKit issues for the MCP |
 | `oidc.js` | Sign-in with any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google…): PKCE, state and nonce, the ID token checked, the person linked to their account by a verified email or created, and the provider's sign-out |
+| `mail.js` | Outgoing mail: an SMTP client with no dependencies (TLS or STARTTLS, AUTH PLAIN or LOGIN, headers that can't be broken into), or the server's log by default |
+| `account-mail.js` | What local accounts do by mail: confirming an email, a new password when the old one is forgotten, the admin's invitations and open sign-up — single-use links kept as hashes, a brake per address and per inbox |
 | `jwt.js` | JWTs signed by a provider, checked against its published keys (RS256, ES256) with caching, issuer, audience, dates and nonce; shared by WorkOS and OIDC |
 | `workos-accounts.js` | Accounts with WorkOS: the `/auth/login` and `/auth/callback` routes, the MCP metadata, and how a WorkOS account becomes a user of the app |
 | `i18n.js` | Translations: the suite's own texts (`i18n/<lang>.json`: its screens, and the sentence of every error and field it sends), language negotiation, `t()` with placeholders, plurals and a fallback to English, and `mergeCatalogs()` for what the browser gets |
@@ -47,7 +49,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `config.js` | The app's configuration: `suite.config.js` (the product) and the environment (the install), checked as a whole — anything unknown or wrong stops the start, saying what |
 | `app.js` | `createSuite()` wires every module from the configuration (database and migrations, sessions, accounts, tokens, audit, brake, plans, organizations, billing, WorkOS, OAuth); `createApp()` serves the suite's routes, the MCP endpoint, the app's routes and static files, in the order the apps learned, with clean-ups, hot reload and an orderly shutdown |
 | `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
-| `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out), `/api/me/*` (sessions, plan, tokens, connected apps, password), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
+| `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
 
 ## Using it in an app
 

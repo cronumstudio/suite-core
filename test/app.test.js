@@ -45,11 +45,11 @@ test('the configuration: defaults, the environment, and every mistake named', ()
 
   const wrong = resolveConfig({
     app: { id: 'Demo App', languages: ['es', 'xx'] }, modules: { organisations: true, mcp: 'yes' },
-    accounts: { signup: 'open', minPasswordLength: 4 }, sessions: { cookieName: 'Demo SID' }, plan: {},
+    accounts: { signup: 'public', minPasswordLength: 4 }, sessions: { cookieName: 'Demo SID' }, plan: {},
   }, { AUTH_PROVIDER: 'workos', BILLING_PROVIDER: 'stripe', PORT: 'eighty' });
   const said = wrong.errors.join('\n');
   for (const piece of ['"plan" is not a setting', 'app.id', 'xx not among', 'English goes first',
-    'modules.organisations is not a module', 'modules.mcp must be true or false', 'only "admin" is available',
+    'modules.organisations is not a module', 'modules.mcp must be true or false', 'accounts.signup "public": use admin, invite or open',
     'minPasswordLength', 'sessions.cookieName', 'PORT "eighty"', 'these are missing: WORKOS_API_KEY',
     'BILLING_PROVIDER is set, but this app has modules.billing off']) {
     assert.ok(said.includes(piece), `names: ${piece}\n${said}`);

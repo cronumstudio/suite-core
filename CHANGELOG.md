@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.14.0 — 2026-09-28
+
+- `mail.js`: outgoing mail. `MAIL_PROVIDER=smtp` sends through an SMTP server with a client of
+  its own (no dependencies): implicit TLS or STARTTLS —required unless `MAIL_SECURE=none`—,
+  AUTH PLAIN or LOGIN, UTF-8 messages in base64 with an optional HTML part, headers that can't
+  be broken into. The default, `log`, writes the message in the server's log.
+- `account-mail.js`: a link to confirm an email (48 h), a new password when the old one is
+  forgotten (1 h, once; every other session ends; the same answer whether the account exists),
+  the admin's invitations (7 days; the link is also returned) and open sign-up. Single-use tokens
+  kept as hashes in `account_tokens` (suite migration 11).
+- `api.js`: `registerAccountMailApi()` — `POST /api/auth/forgot`, `/api/auth/reset`,
+  `/api/auth/verify`, `/api/auth/signup`, `/api/me/email/verify` and `/api/admin/invitations`;
+  `/api/auth/config` says who may sign up.
+- `config.js`: `accounts.signup` takes `admin`, `invite` or `open`, and `SIGNUP` overrides it per
+  install; `MAIL_*` are checked.
+- `rate-limit.js`: `allow(kind, req)` and `allowTo(kind, target)`, for mail (10 per address, 3
+  per inbox) and sign-ups (5 per address) in the window.
+- `app.js`: the first administrator gets `ADMIN_EMAIL`, so a forgotten password can be recovered.
+- `i18n/`: the messages, and the errors and fields they bring.
+
 ## 0.13.0 — 2026-09-28
 
 - `oidc.js`: sign-in with any OpenID Connect provider (AUTH_PROVIDER=oidc, `OIDC_ISSUER`,
