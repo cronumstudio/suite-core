@@ -286,18 +286,31 @@ export function createAccounts({
     });
   }
 
-  /** Changes what the admin (or the person) may change. `disabled: true` also ends their sessions. */
+  /**
+   * Changes what the admin (or the person) may change. `disabled: true` also
+   * ends their sessions; `emailVerified` is the admin's alone: it confirms the
+   * email by hand, or takes that back.
+   */
   function update(id, fields = {}) {
     const user = mustExist(id);
     return database.tx(() => {
       const sets = [];
       const params = [];
       if (fields.displayName !== undefined) { sets.push('display_name = ?'); params.push(checkName(fields.displayName)); }
+      let email = user.email ?? null;
+      let verifiedAt = user.email_verified_at ?? null;
       if (fields.email !== undefined) {
-        const email = checkEmail(fields.email);
+        const given = checkEmail(fields.email);
         // Only another address has to be confirmed again.
-        if (email !== (user.email ?? null)) { sets.push('email = ?', 'email_verified_at = NULL'); params.push(email); }
+        if (given !== email) { email = given; verifiedAt = null; sets.push('email = ?'); params.push(email); }
       }
+      // An administrator vouches for an address (without a mail server there
+      // is no other way to confirm it), or takes that back.
+      if (fields.emailVerified !== undefined) {
+        if (fields.emailVerified && !email) throw badRequest('field_required', { field: 'email' });
+        verifiedAt = fields.emailVerified ? verifiedAt || iso(clock()) : null;
+      }
+      if (verifiedAt !== (user.email_verified_at ?? null)) { sets.push('email_verified_at = ?'); params.push(verifiedAt); }
       if (fields.locale !== undefined) { sets.push('locale = ?'); params.push(fields.locale || null); }
       if (fields.role !== undefined && fields.role !== user.role) {
         checkRole(fields.role);

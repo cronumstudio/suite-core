@@ -131,7 +131,7 @@ test('invitations: the admin invites, the person creates their own account, once
   assert.equal(invited.status, 201);
   assert.equal(invited.data.email, 'carol@example.com');
   assert.match(invited.data.url, /^https:\/\/demo\.example\/\?signup=ai_/);
-  assert.equal(invited.data.sent, true);
+  assert.equal(invited.data.sent, false, 'the log provider sends nothing: the admin passes the link on');
   const [message] = mails(mark);
   assert.equal(message.to, 'carol@example.com');
   assert.match(message.text, /admin invites you to Demo|admin has invited you to Demo/);
@@ -163,6 +163,7 @@ test('open sign-up: anyone, with an email to confirm, and a brake', async (t) =>
   const created = await erin('POST', '/api/auth/signup', { username: 'erin', display_name: 'Erin', email: 'erin@example.com', password: 'erin-password' });
   assert.equal(created.status, 201);
   assert.equal((await erin('GET', '/api/auth/me')).data.user.username, 'erin', 'signed in right away');
+  assert.ok(created.data.user.last_login_at, 'which counts as signing in');
   const [message] = mails(mark);
   assert.equal(message.to, 'erin@example.com');
   assert.match(message.text, /\?verify=ev_/);
@@ -173,4 +174,34 @@ test('open sign-up: anyone, with an email to confirm, and a brake', async (t) =>
     status = (await browser()('POST', '/api/auth/signup', { username: `bot${i}`, email: `bot${i}@example.com`, password: 'bot-password' })).status;
   }
   assert.equal(status, 429, 'five accounts per address in the window');
+});
+
+test('without a mail server, the screens are told so and an admin confirms emails by hand', async (t) => {
+  const { suite, browser } = await start(t);
+  const admin = browser();
+  await admin('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const config = (await browser()('GET', '/api/auth/config')).data;
+  assert.equal(config.mail, false, 'only the log: no screen should promise a link');
+  assert.equal(config.password_min, 8, 'the forms learn the shortest password');
+
+  const dora = suite.accounts.create({ username: 'dora', password: 'dora-password', email: 'dora@example.com' });
+  const patch = async (fields) => (await admin('PATCH', `/api/admin/users/${dora.id}`, fields)).data;
+  assert.equal((await patch({ email_verified: true })).email_verified, true);
+  assert.equal((await patch({ email: 'DORA@example.com' })).email_verified, true, 'the same address stays confirmed');
+  assert.equal((await patch({ email: 'dora@other.example' })).email_verified, false, 'another one has to be confirmed');
+  assert.equal((await patch({ email: 'dora@third.example', email_verified: true })).email_verified, true, 'or is vouched for at once');
+  assert.equal((await patch({ email_verified: false })).email_verified, false, 'and it can be taken back');
+  assert.equal((await patch({ email_verified: 'yes' })).error, 'field_invalid');
+  const eli = suite.accounts.create({ username: 'eli', password: 'eli-password' });
+  assert.equal((await admin('PATCH', `/api/admin/users/${eli.id}`, { email_verified: true })).data.error, 'field_required',
+    'there is nothing to confirm without an email');
+
+  const doraBrowser = browser();
+  await doraBrowser('POST', '/api/auth/login', { username: 'dora', password: 'dora-password' });
+  assert.equal((await doraBrowser('PATCH', `/api/admin/users/${dora.id}`, { email_verified: true })).data.error, 'admin_only');
+});
+
+test('with a mail server, the screens are told mail goes out', async (t) => {
+  const { browser } = await start(t, { MAIL_PROVIDER: 'smtp', MAIL_HOST: 'smtp.example', MAIL_FROM: 'Demo <demo@example.com>' });
+  assert.equal((await browser()('GET', '/api/auth/config')).data.mail, true);
 });

@@ -656,7 +656,10 @@ keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js
   admin's invitations (7 days; the link is also returned, to pass on by hand) and open sign-up.
   Every link is a single-use token kept as a hash; the brake limits requests per address and links
   per inbox. The texts are the suite's, in each person's language. With WorkOS or OIDC the provider
-  sends its own.
+  sends its own. Without a mail server nothing pretends otherwise (v0.16.0): `/api/auth/config`
+  says `mail: false`, so screens don't promise a link that won't arrive; an invitation comes back
+  `sent: false` with its link; and the admin can confirm an email by hand (`email_verified` on
+  `PATCH /api/admin/users/:id`), which is the only way to confirm one there.
 - **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
   changes, billing events. Who, when, what and from where; never titles, notes or passwords.
 

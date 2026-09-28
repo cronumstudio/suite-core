@@ -217,12 +217,19 @@ function userDialog(user) {
   const role = el('select', { disabled: self }, ['user', 'admin'].map((r) => el('option', { value: r, text: t(`admin.roles.${r}`) })));
   role.value = user.role;
   const disabled = el('input', { type: 'checkbox', checked: user.disabled, disabled: self });
+  // The admin may vouch for an address: without a mail server there is no other way.
+  const verified = el('input', { type: 'checkbox', checked: Boolean(user.email_verified) });
+  email.addEventListener('input', () => {
+    verified.checked = email.value.trim().toLowerCase() === (user.email || '') && Boolean(user.email_verified);
+  });
   const profile = el('div', { class: 'kit-section' },
     el('h3', { text: t('admin.users.profile') }),
     el('div', { class: 'kit-grid' },
       field(t('fields.display_name'), name),
       field(t('fields.email'), email, user.email && !user.email_verified ? t('admin.users.unconfirmed') : null),
       field(t('fields.role'), role)),
+    local() ? el('label', { class: 'kit-check' }, verified, el('span', { text: t('admin.users.emailVerified') })) : null,
+    local() && state.config.mail === false ? el('p', { class: 'kit-hint', text: t('admin.users.confirmByHand') }) : null,
     el('label', { class: 'kit-check' }, disabled, el('span', { text: t('admin.users.disabled') })),
     self ? el('p', { class: 'kit-hint', text: t('admin.users.notOnYourself') }) : null,
     el('div', { class: 'kit-row' },
@@ -232,6 +239,7 @@ function userDialog(user) {
           try {
             await api.patch(`/api/admin/users/${user.id}`, {
               display_name: name.value.trim(), email: email.value.trim() || null,
+              ...(local() ? { email_verified: verified.checked && Boolean(email.value.trim()) } : {}),
               ...(self ? {} : { role: role.value, disabled: disabled.checked }),
             });
             toast(t('admin.saved'));
@@ -405,6 +413,7 @@ async function renderInvitations(main) {
   main.append(
     el('h2', { text: t('admin.invitations.title') }),
     el('p', { class: 'kit-lead', text: t('admin.invitations.lead', { signup: t(`admin.signup.${state.config.signup || 'admin'}`) }) }),
+    state.config.mail === false ? el('p', { class: 'kit-notice', text: t('admin.mail.off') }) : null,
     el('div', { class: 'kit-toolbar' },
       field(t('fields.email'), email), field(t('fields.role'), role),
       el('button', {
@@ -420,7 +429,11 @@ async function renderInvitations(main) {
               },
             });
             clear(result).append(el('div', { class: 'kit-notice' },
-              el('p', { text: invitation.sent ? t('admin.invitations.sent', { email: invitation.email }) : t('admin.invitations.notSent', { email: invitation.email }) }),
+              el('p', {
+                text: invitation.sent ? t('admin.invitations.sent', { email: invitation.email })
+                  : state.config.mail === false ? t('admin.invitations.noMail', { email: invitation.email })
+                    : t('admin.invitations.notSent', { email: invitation.email }),
+              }),
               el('div', { class: 'kit-copy' }, el('code', { class: 'kit-mono', text: invitation.url }), copy)));
             paintList().catch(fail);
           } catch (err) { fail(err); }

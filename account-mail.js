@@ -179,7 +179,9 @@ export function createAccountMail({
     if (!roles.includes(role)) throw badRequest('field_invalid', { field: 'role', options: roles });
     const { id, token, expiresAt } = issue('invite', { email: address, role, createdBy: by?.id ?? null });
     const url = link('signup', token);
-    let sent = true;
+    // With the log provider the message only reaches the server's log: it is
+    // not "sent", and the admin passes the link on.
+    let sent = mailer.provider !== 'log';
     try {
       await send(address, 'invite', { inviter: by?.display_name || appName, link: url }, { req, user: by });
     } catch (err) {

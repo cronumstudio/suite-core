@@ -338,7 +338,7 @@ export function createApp({
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing, workos, idp, oauth,
-    accountMail,
+    mailer, accountMail,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
@@ -349,13 +349,14 @@ export function createApp({
   const api = createRouter();
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
+    mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled) },
     },
   });
   if (install.authProvider === 'local') {
-    registerAccountMailApi(api, { accountMail, sessions, serializeUser: serialize, admin: config.modules.admin });
+    registerAccountMailApi(api, { accountMail, sessions, accounts, serializeUser: serialize, admin: config.modules.admin });
   }
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit,

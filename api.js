@@ -32,18 +32,25 @@ const countOrNull = (value, field) => (value == null ? null : int(value, { field
  * @param {Function} deps.serializeUser   the account as the browser sees it
  * @param {string} [deps.signup]          who may create an account: admin | invite | open
  * @param {object} [deps.app]             { id, name, languages, modules }, told to the browser
+ * @param {boolean} [deps.mail]           whether mail leaves the server (false: only its log)
+ * @param {number} [deps.passwordMin]     the shortest password accepted
  */
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
+  mail = true, passwordMin = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
     // `signup`: who may create an account here (admin | invite | open); with a
     // provider, whoever it lets in.
+    // `mail`: false when messages only reach the server's log, so screens don't
+    // promise a link that will never arrive.
+    // `password_min`: for the forms; null when passwords are the provider's.
     // `app`: which app this is, the languages it speaks and the modules it has on,
     // for the suite's own pages (the admin panel).
     sendJson(ctx.res, 200, {
-      provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup, ...(app ? { app } : {}),
+      provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
+      mail: Boolean(mail), password_min: idp ? null : passwordMin, ...(app ? { app } : {}),
     });
   });
 
@@ -87,7 +94,13 @@ export function registerAuthApi(router, {
  * links in the messages come back to the app's page (/?reset=…, /?verify=…,
  * /?signup=…), which posts the token here.
  */
-export function registerAccountMailApi(router, { accountMail, sessions, serializeUser, admin = true }) {
+export function registerAccountMailApi(router, { accountMail, sessions, serializeUser, accounts = null, admin = true }) {
+  /** Opens a session for someone who just came in through a link: a sign-in, for the admin panel. */
+  const signIn = (ctx, user) => {
+    sessions.open(user.id, { req: ctx.req, res: ctx.res });
+    accounts?.signedIn(user.id);
+    return accounts?.byId(user.id) ?? user;
+  };
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
@@ -104,8 +117,7 @@ export function registerAccountMailApi(router, { accountMail, sessions, serializ
   router.post('/api/auth/reset', async (ctx) => {
     const body = await readJson(ctx.req);
     const user = accountMail.resetPassword(body.token, body.password, { req: ctx.req });
-    sessions.open(user.id, { req: ctx.req, res: ctx.res });
-    sendJson(ctx.res, 200, { user: serializeUser(user) });
+    sendJson(ctx.res, 200, { user: serializeUser(signIn(ctx, user)) });
   });
 
   router.post('/api/auth/verify', async (ctx) => {
@@ -128,8 +140,7 @@ export function registerAccountMailApi(router, { accountMail, sessions, serializ
       token: body.token ?? null, username: body.username, displayName: body.display_name ?? null,
       email: body.email ?? null, password: body.password, locale: body.locale ?? null,
     }, { req: ctx.req });
-    sessions.open(user.id, { req: ctx.req, res: ctx.res });
-    sendJson(ctx.res, 201, { user: serializeUser(user) });
+    sendJson(ctx.res, 201, { user: serializeUser(signIn(ctx, user)) });
   });
 
   if (!admin) return;
@@ -328,8 +339,12 @@ export function registerAdminApi(router, { accounts, entitlements = null, organi
     if (id === ctx.user.id && (body.disabled === true || (body.role && body.role !== 'admin'))) {
       throw badRequest('not_on_yourself');
     }
+    if (body.email_verified !== undefined && typeof body.email_verified !== 'boolean') {
+      throw badRequest('field_invalid', { field: 'email_verified' });
+    }
     const user = accounts.update(id, {
       displayName: body.display_name, email: body.email, role: body.role, locale: body.locale, disabled: body.disabled,
+      emailVerified: body.email_verified,
     });
     if (body.password !== undefined) {
       accounts.setPassword(id, body.password, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });

@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.16.0 — 2026-09-28
+
+- `api.js`: `/api/auth/config` also says whether mail leaves the server (`mail`: false with
+  `MAIL_PROVIDER=log`) and the shortest password accepted (`password_min`, null with an identity
+  provider), so screens stop promising links that won't arrive and forms check the same length
+  as the server.
+- `account-mail.js`: an invitation made without a mail server comes back `sent: false`; its link
+  is returned as before, to pass on by hand.
+- `accounts.js` and `PATCH /api/admin/users/:id`: `email_verified` lets an administrator confirm
+  an email by hand, or take that back; changing the address and confirming it can go together.
+- `web/admin.js`: "Email confirmed" in each account, a notice in Invitations when the install
+  sends no mail, and the invitation's text says so instead of "sent".
+- `api.js`: signing up, and a new password from a link, count as signing in: the admin panel no
+  longer shows "Never" for someone who came in that way.
+- `i18n/`: `fields.email_verified`, `admin.users.emailVerified`, `admin.users.confirmByHand`,
+  `admin.mail.off`, `admin.invitations.noMail`; an invitation's date reads "Created" (it may not
+  have been sent), and "admin" sign-up reads "only people you add or invite get in".
+
 ## 0.15.0 — 2026-09-28
 
 - `web/`: the web kit, served by `createApp` at `/suite/` with no build. `dom.js` (`el()`, `$`,
