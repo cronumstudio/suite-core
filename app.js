@@ -49,6 +49,7 @@ import {
   HttpError, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin,
 } from './http.js';
 import { watchCode } from './watcher.js';
+import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
 
 const HOUR = 3600 * 1000;
 
@@ -291,10 +292,11 @@ const DISCOVERY_PATHS = ['/.well-known', '/register', '/authorize', '/token', '/
  * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
  * @param {string} [options.watchRoot]    the folder hot reload watches (the server's, by default)
+ * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
-  version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log,
+  version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing, workos, oauth,
@@ -377,6 +379,35 @@ export function createApp({
     };
     versionCache = { value, at: Date.now() };
     return value;
+  }
+
+  /* ------------------------------ translations ----------------------------- */
+
+  /**
+   * The catalog the browser loads for a language: the suite's texts (errors,
+   * fields, its screens) with the app's over them, in the app's own shape.
+   * Rebuilt when the app's file changes: the public folder is edited live.
+   */
+  const catalogDir = i18nDir || (publicDir ? path.join(publicDir, 'i18n') : null);
+  const catalogs = new Map();
+  function catalogFor(lang) {
+    const file = catalogDir ? path.join(catalogDir, `${lang}.json`) : null;
+    let mtime = -1;
+    try { if (file) mtime = fs.statSync(file).mtimeMs; } catch { /* the app has none for it */ }
+    const cached = catalogs.get(lang);
+    if (cached && cached.mtime === mtime) return cached;
+    let own = {};
+    if (mtime >= 0) {
+      try {
+        own = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (err) {
+        console.error(`${tag} ${file} is not valid JSON: ${err.message}`);
+      }
+    }
+    const body = JSON.stringify(mergeCatalogs(SUITE_CATALOGS[lang] || {}, own));
+    const entry = { mtime, body, etag: `W/"${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"` };
+    catalogs.set(lang, entry);
+    return entry;
   }
 
   /* -------------------------------- dispatch ------------------------------- */
@@ -473,6 +504,23 @@ export function createApp({
 
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         sendText(res, 405, 'Method Not Allowed');
+        return;
+      }
+      const wanted = /^\/i18n\/([a-z]{2})\.json$/.exec(pathname)?.[1];
+      if (wanted && config.app.languages.includes(wanted)) {
+        const { body, etag } = catalogFor(wanted);
+        if (req.headers['if-none-match'] === etag) {
+          res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': Buffer.byteLength(body),
+          'Cache-Control': 'no-cache',
+          ETag: etag,
+        });
+        res.end(req.method === 'HEAD' ? undefined : body);
         return;
       }
       if (publicDir) {

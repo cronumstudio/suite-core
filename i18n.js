@@ -32,6 +32,37 @@ export function flatten(catalog, prefix = '', out = {}) {
   return out;
 }
 
+/** Dotted keys as a nested catalog. A key that would be both a text and a section stays dotted. */
+export function unflatten(flat) {
+  const out = {};
+  for (const [key, value] of Object.entries(flat || {})) {
+    const parts = key.split('.');
+    let node = out;
+    let clash = false;
+    for (const part of parts.slice(0, -1)) {
+      if (node[part] === undefined) node[part] = {};
+      else if (typeof node[part] !== 'object' || isPlural(node[part])) { clash = true; break; }
+      node = node[part];
+    }
+    if (clash || (node[parts.at(-1)] && typeof node[parts.at(-1)] === 'object' && !isPlural(node[parts.at(-1)]))) out[key] = value;
+    else node[parts.at(-1)] = value;
+  }
+  return out;
+}
+
+/** Whether a catalog is written nested ({ "errors": { … } }) rather than with dotted keys. */
+export const isNested = (catalog) => Object.values(catalog || {})
+  .some((value) => value && typeof value === 'object' && !isPlural(value));
+
+/**
+ * The catalog a browser gets: the suite's texts with the app's over them, in
+ * the app's own shape (nested or dotted), so its t() finds both the same way.
+ */
+export function mergeCatalogs(suite, app) {
+  const merged = { ...flatten(suite), ...flatten(app) };
+  return app && isNested(app) ? unflatten(merged) : merged;
+}
+
 /** `<dir>/<lang>.json` for every language, flattened; a missing file is an empty catalog. */
 export function loadCatalogs(dir, languages = LANGUAGES) {
   const catalogs = {};

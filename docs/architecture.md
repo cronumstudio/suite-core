@@ -77,7 +77,7 @@ suite-core/
   api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
   i18n/                        the suite's own texts: en.json, es.json, fr.json, de.json
   web/                         browser kit (§15), served at /suite/
-  tools/                       i18n lint and parity, conformance tests for apps
+  tools/                done   i18n.mjs: catalog parity and keys in use; conformance tests for apps later
   test/                        suite-core's own tests (node:test)
   docs/                        this document and the module guides
 ```
@@ -579,13 +579,17 @@ answer in the user's language.
 One implementation for server and browser (`t()` from Focus): flat dotted keys that describe place
 and role (`settings.password.change`), CLDR plurals (`{ one, other }`), `{placeholders}` formatted
 with `Intl`, a fallback to English key by key, and a pseudo-locale for testing layouts. The suite
-ships its own catalogs (`i18n/<lang>.json`: the consent screen today — **done** in v0.3.0 — and
-sign-in, settings, admin and errors as those modules arrive), with keys prefixed by the module
-that uses them (`oauth.allow`); the app adds its own and may override any suite key; the server
-merges both at `/i18n/<lang>.json`, and the service worker caches them. The language is negotiated in the same order everywhere: the user's
-choice, then `Accept-Language` / `navigator.languages`, then English. `tools/i18n.mjs` fails the
-tests when a key is missing in a language, when placeholders differ, or when a visible string is
-written in the code instead of a catalog. Content people write is never translated.
+ships its own catalogs (`i18n/<lang>.json`): the consent screen (**done** in v0.3.0) and, since
+v0.12.0, the sentence of every error code and the name of every field its modules send
+(`errors.username_taken`, `fields.email`), once for every app. Keys are prefixed by what uses
+them (`oauth.allow`). The app keeps its own texts in `public/i18n/<lang>.json`, nested or dotted,
+and may override any suite key; `createApp` serves both merged at `/i18n/<lang>.json`, in the
+app's own shape (**done**, v0.12.0), and the service worker fetches them network-first. The
+language is negotiated in the same order everywhere: the user's choice, then `Accept-Language` /
+`navigator.languages`, then English. `tools/i18n.mjs` (**done**, from Focus) checks the merged
+catalogs: the same keys in every language, the same placeholders, each language's plural forms,
+nothing left as `TODO`, and no key used in the code that no catalog defines; the check of visible
+strings written in the code comes with the web kit. Content people write is never translated.
 
 ## 15. Web kit
 
@@ -665,7 +669,7 @@ first, then Tasks, then the rest.
 | `http.js`, `db.js`, `migrate.js`, `crypto.js` | done (v0.4.0) | adopted by Next; Tasks and the rest next |
 | `sessions.js`, `rate-limit.js` | done (v0.5.0) | adopted by Next; `principal.js` comes with the MCP transport |
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
-| `i18n.js` + `tools/i18n.mjs` | started (v0.3.0: suite texts, negotiation, t()) | browser side and lint tools from Focus; Next's catalogs flattened |
+| `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity) | the browser's `t()` in the web kit; the lint of strings written in the code |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next; OIDC and sign-up modes (closed, invitation, open) next |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |

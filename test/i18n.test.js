@@ -7,8 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  LANGUAGES, SUITE_CATALOGS, flatten, negotiate, translator, createTexts,
+  LANGUAGES, SUITE_CATALOGS, flatten, unflatten, mergeCatalogs, negotiate, translator, createTexts,
 } from '../i18n.js';
+import { parity, catalogsOf } from '../tools/i18n.mjs';
 
 test('negotiation follows the order and the q values', () => {
   assert.equal(negotiate('es-ES,es;q=0.9,en;q=0.8'), 'es');
@@ -69,4 +70,35 @@ test('every language of the suite has every key, with the same placeholders', ()
       assert.equal(markers(value), markers(english[key]), `${lang}: ${key} placeholders`);
     }
   }
+});
+
+test('an app’s catalog merged over the suite’s: the app’s texts win, its shape is kept', () => {
+  const nested = { errors: { not_found: 'Gone.' }, count: { steps: { one: '{n} step', other: '{n} steps' } } };
+  const merged = mergeCatalogs(SUITE_CATALOGS.en, nested);
+  assert.equal(merged.errors.not_found, 'Gone.', 'the app’s own wording');
+  assert.equal(merged.errors.username_taken, 'That username is already taken.', 'the suite’s, for what the app doesn’t say');
+  assert.equal(merged.oauth.allow, 'Allow');
+  assert.deepEqual(merged.count.steps, { one: '{n} step', other: '{n} steps' }, 'plurals stay whole');
+  const dotted = mergeCatalogs(SUITE_CATALOGS.en, { 'errors.not_found': 'Gone.' });
+  assert.equal(dotted['errors.not_found'], 'Gone.');
+  assert.equal(dotted['fields.email'], 'Email', 'a dotted catalog stays dotted');
+  assert.deepEqual(unflatten({ a: 'x', 'a.b': 'y', 'c.d': 'z' }), { a: 'x', 'a.b': 'y', c: { d: 'z' } },
+    'a key that is both a text and a section stays dotted');
+});
+
+test('parity: the suite’s catalogs agree, and what differs is named', () => {
+  assert.deepEqual(parity(catalogsOf()), []);
+  const problems = parity({
+    en: { 'a.b': 'Hello {name}', 'c.d': { one: '{n} step', other: '{n} steps', '=0': 'No steps' }, 'e.f': 'Done' },
+    es: { 'a.b': 'Hola', 'c.d': { one: '{n} paso', other: '{n} pasos' }, 'e.f': 'TODO', 'g.h': 'Extra' },
+    de: { 'a.b': 'Hallo {name}', 'c.d': { other: '{n} Schritte' }, 'e.f': 'Erledigt' },
+  });
+  assert.deepEqual(problems, [
+    'es: not in English g.h',
+    'es: a.b: placeholders none instead of {name}',
+    'es: c.d: the exact form =0 is missing',
+    'es: e.f: not translated',
+    'de: c.d: plural forms one missing',
+    'de: c.d: the exact form =0 is missing',
+  ]);
 });

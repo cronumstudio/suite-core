@@ -77,6 +77,8 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   const publicDir = path.join(dir, 'public');
   fs.mkdirSync(publicDir);
   fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
+  fs.mkdirSync(path.join(publicDir, 'i18n'));
+  fs.writeFileSync(path.join(publicDir, 'i18n', 'en.json'), JSON.stringify({ errors: { not_found: 'Gone.' }, notes: { title: 'Notes' } }));
   const lines = [];
   const suite = createSuite({
     config: PRODUCT,
@@ -172,6 +174,16 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.equal(unauthenticated.status, 401);
   assert.match(unauthenticated.headers.get('www-authenticate'), /resource_metadata=/, 'the built-in OAuth is offered');
   assert.equal((await call('GET', '/.well-known/oauth-authorization-server')).status, 200);
+
+  // The catalogs: the suite's texts with the app's over them, in the app's shape.
+  const catalog = await call('GET', '/i18n/en.json');
+  assert.equal(catalog.data.errors.not_found, 'Gone.');
+  assert.equal(catalog.data.errors.username_taken, 'That username is already taken.');
+  assert.equal(catalog.data.notes.title, 'Notes');
+  const again = await fetch(`${base}/i18n/en.json`, { headers: { 'If-None-Match': catalog.headers.get('etag') } });
+  assert.equal(again.status, 304);
+  assert.equal((await call('GET', '/i18n/es.json')).data['errors.not_found'], 'No encontrado.', 'no file of its own: the suite’s');
+  assert.equal((await call('GET', '/i18n/fr.json')).status, 404, 'not a language of this app');
 
   // Static files, the SPA's paths, and discovery paths that are not served.
   assert.match((await call('GET', '/')).data, /<title>Demo<\/title>/);

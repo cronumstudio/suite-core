@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.12.0 — 2026-09-28
+
+- `i18n/`: the sentence of every error code and the name of every field the suite's modules
+  send, in English, Spanish, French and German — written once here instead of in every app.
+- `i18n.js`: `mergeCatalogs()`, `unflatten()` and `isNested()`: an app's catalog over the
+  suite's, in the app's own shape (nested or dotted).
+- `app.js`: `createApp` serves `/i18n/<lang>.json` for the app's languages, merged and with an
+  ETag, rebuilt when the app's file changes.
+- `tools/i18n.mjs`, from Focus: `parity` (the same keys, placeholders and plural forms in every
+  language, nothing left as TODO) and `used` (keys in the code that no catalog defines), on the
+  suite's catalogs or an app's merged over them.
+
 ## 0.11.0 — 2026-09-28
 
 - `config.js`: `resolveConfig(product, env)` — the product definition (`server/suite.config.js`:
