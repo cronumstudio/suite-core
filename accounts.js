@@ -233,6 +233,58 @@ export function createAccounts({
     database.run('UPDATE users SET email = ?, email_verified_at = ? WHERE id = ?', clean, clean ? iso(clock()) : null, userId);
   }
 
+  /** A free username from a seed (an email, a provider's username): ana.perez, ana.perez2… */
+  function freeUsername(seed) {
+    let base = String(seed || '').split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 28);
+    if (base.length < 2) base = 'user';
+    let name = base;
+    for (let n = 2; byUsername(name); n++) name = `${base}${n}`;
+    return name;
+  }
+
+  /**
+   * The account of someone who signed in at a provider (an OIDC one, Google…),
+   * created if there is none yet:
+   *   · already linked: that account, its email refreshed when the provider vouches for a new one;
+   *   · a verified email of an account not linked to the provider: that account, now linked
+   *     (someone who had an account before the provider). Only a verified email: otherwise
+   *     signing up there with someone else's address would be enough to take their data;
+   *   · the admin email, verified, with nobody linked yet: the oldest administrator;
+   *   · otherwise a new account, an administrator when it is the admin email.
+   * A disabled account is returned as it is: whoever calls keeps it out.
+   */
+  function fromIdentity({ provider, subject, email = null, emailVerified = false, displayName = null, username = null },
+    { adminEmail = '' } = {}) {
+    let verified = null;
+    if (emailVerified && email) {
+      try { verified = checkEmail(email); } catch { verified = null; }
+    }
+    const admin = String(adminEmail || '').trim().toLowerCase();
+    return database.tx(() => {
+      let user = byIdentity(provider, subject);
+      if (user) {
+        if (verified && verified !== user.email) setVerifiedEmail(user.id, verified);
+      } else {
+        const previous = verified
+          ? unlinkedByEmail(provider, verified) || (verified === admin ? firstUnlinkedAdmin(provider) : null)
+          : null;
+        if (previous) {
+          linkIdentity(previous.id, provider, subject, { email: verified });
+          user = previous;
+        } else {
+          const name = freeUsername(username || verified || 'user');
+          user = create({
+            username: name, displayName: String(displayName || name).trim().slice(0, 80) || name,
+            role: verified && verified === admin ? 'admin' : 'user',
+            identity: { provider, subject, email: verified },
+          });
+        }
+      }
+      usedIdentity(provider, subject);
+      return byId(user.id);
+    });
+  }
+
   /** Changes what the admin (or the person) may change. `disabled: true` also ends their sessions. */
   function update(id, fields = {}) {
     const user = mustExist(id);
@@ -302,7 +354,7 @@ export function createAccounts({
   return {
     create, update, setPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
     byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
-    setVerifiedEmail,
+    setVerifiedEmail, fromIdentity, freeUsername,
     whenCreated: (hook) => { created.push(hook); },
     whenRemoved: (hook) => { removed.push(hook); },
   };

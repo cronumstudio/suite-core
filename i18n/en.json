@@ -10,6 +10,7 @@
   "oauth.password": "Password",
   "oauth.allow": "Allow",
   "oauth.signInAndAllow": "Sign in and allow",
+  "oauth.signInWith": "Sign in with {provider}",
   "oauth.cancel": "Cancel",
   "oauth.cannotConnect": "Can’t connect",
   "oauth.goBack": "Go back to the application that brought you here and try again.",

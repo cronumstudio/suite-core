@@ -52,6 +52,8 @@ suite-core/
   oauth.js              done   OAuth 2.1 authorization server for the MCP endpoint
   workos.js             done   WorkOS AuthKit client (sign-in with PKCE, JWT verification)
   workos-accounts.js    done   /auth routes and how a WorkOS account becomes a user
+  oidc.js               done   sign-in with any OpenID Connect provider (Authentik, Keycloak, Google…)
+  jwt.js                done   JWTs checked against a provider's published keys (RS256, ES256)
   config.js             done   loads and validates suite.config.js + the environment
   app.js                done   createSuite() wires the modules; createApp() dispatches in the order of §11
   watcher.js            done   hot reload by polling, for code mounted over SMB
@@ -180,7 +182,7 @@ export default {
 Environment variables configure the install, never the product (`config.js` reads them):
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
-(`local` | `workos`; `oidc` later), `WORKOS_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
+(`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
 `BILLING_PROVIDER` (`remote` so far) with `BILLING_SECRET` and `BILLING_URL`; later `VAPID_*`,
 `STRIPE_*`, `MAIL_PROVIDER`, `MAIL_*`. Two product settings may be overridden
 per install for hosted deployments: `PLANS` (JSON, same shape as `plans`) and `DEFAULT_PLAN`.
@@ -430,9 +432,16 @@ a valid client is never locked out by a neighbour.
 **Sign-in providers.** `local` (default): usernames and passwords, accounts created by the admin,
 by invitation or by open sign-up as `accounts.signup` says. `workos`: AuthKit handles sign-up, 2FA,
 Google and recovery, and is the authorization server for the MCP; an existing user is linked only
-through a verified email, and `ADMIN_EMAIL` takes over the first admin. `oidc` (planned): any
-OpenID Connect provider, so a self-hoster with Authentik or Keycloak gets single sign-on across the
-apps — which replaces the identity bridge once planned between Projects and Tasks.
+through a verified email, and `ADMIN_EMAIL` takes over the first admin. `oidc` (**done**, v0.13.0):
+any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google, Entra), so a self-hoster gets
+single sign-on across the apps — which replaces the identity bridge once planned between Projects
+and Tasks. `oidc.js` signs in with PKCE, a state and a nonce, checks the ID token against the
+provider's keys (`jwt.js`, shared with WorkOS: RS256 or ES256, issuer, audience, dates, nonce), and
+turns the person into an account with `accounts.fromIdentity()`: linked by a verified email, the
+admin email taking over the first administrator, or created. AI clients keep the app's own OAuth,
+whose consent screen sends whoever isn't signed in to the provider and back. The variables are
+`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (empty for a public client), `OIDC_SCOPES`
+and `OIDC_NAME` (the button: "Sign in with Authentik").
 
 ## 8. Entitlements: plans and permissions
 
@@ -671,7 +680,8 @@ first, then Tasks, then the rest.
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity) | the browser's `t()` in the web kit; the lint of strings written in the code |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
-| Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next; OIDC and sign-up modes (closed, invitation, open) next |
+| Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
+| `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc; sign-up by invitation or open comes with `mail.js` |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |

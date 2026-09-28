@@ -40,6 +40,7 @@ import { createOrganizations } from './organizations.js';
 import { createBilling, signedProvider, registerBillingApi } from './billing.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers } from './workos-accounts.js';
+import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createOAuthServer } from './oauth.js';
 import { createMcpServer } from './mcp.js';
 import {
@@ -185,6 +186,24 @@ export function createSuite({
     log,
   }) : null;
 
+  const oidc = install.authProvider === 'oidc' ? createOidcAccounts({
+    baseUrl: install.baseUrl,
+    oidc: createOidcClient(install.oidc),
+    accounts,
+    adminEmail: install.admin.email,
+    secureCookies: install.secureCookies,
+    stateCookie: `${config.app.id.replace(/-/g, '_')}_oidc`,
+    sessions: {
+      open: (res, userId, { idpSessionId }) => {
+        sessions.open(userId, { res, idpSessionId });
+        audit.record({ action: 'auth.login', actor: userId, meta: { provider: 'oidc' } });
+      },
+    },
+    log,
+  }) : null;
+  /** Where people sign in when it isn't here with a password. */
+  const idp = workos || oidc;
+
   const oauth = config.modules.oauth ? createOAuthServer({
     baseUrl: install.baseUrl,
     appName: config.app.name,
@@ -209,6 +228,8 @@ export function createSuite({
     },
     ...(hooks.texts ? { texts: hooks.texts } : {}),
     page: hooks.oauthPage || plainPage(config.app.name),
+    // With OIDC, whoever isn't signed in goes to the provider and comes back.
+    externalSignIn: oidc ? { name: oidc.name, url: oidc.signInUrl } : null,
     log,
   }) : null;
   if (oauth) accounts.whenRemoved((userId) => oauth.forgetUser(userId));
@@ -275,7 +296,7 @@ export function createSuite({
 
   return {
     config, database, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing,
-    workos, oauth, ensureAdmin, purge, authenticateToken,
+    workos, oidc, idp, oauth, ensureAdmin, purge, authenticateToken,
   };
 }
 
@@ -299,7 +320,7 @@ export function createApp({
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log,
 }) {
   const {
-    config, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing, workos, oauth,
+    config, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing, workos, idp, oauth,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
@@ -308,7 +329,7 @@ export function createApp({
   /* --------------------------- the suite's routes --------------------------- */
 
   const api = createRouter();
-  registerAuthApi(api, { accounts, sessions, limiter, audit, workos, serializeUser: serialize });
+  registerAuthApi(api, { accounts, sessions, limiter, audit, idp, serializeUser: serialize });
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit,
     localPasswords: install.authProvider === 'local', alsoAt: profile.alsoAt || {},
@@ -492,7 +513,7 @@ export function createApp({
         return;
       }
 
-      if (workos && await workos.handle(req, res, url)) return;
+      if (idp && await idp.handle(req, res, url)) return;
       if (oauth && await oauth.handle(req, res, url)) return;
 
       // Discovery paths this install doesn't serve answer a clean JSON 404,

@@ -10,6 +10,7 @@
   "oauth.password": "Contraseña",
   "oauth.allow": "Permitir",
   "oauth.signInAndAllow": "Entrar y permitir",
+  "oauth.signInWith": "Entrar con {provider}",
   "oauth.cancel": "Cancelar",
   "oauth.cannotConnect": "No se puede conectar",
   "oauth.goBack": "Vuelve a la aplicación que te trajo aquí e inténtalo de nuevo.",

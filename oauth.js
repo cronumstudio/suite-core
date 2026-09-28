@@ -215,10 +215,13 @@ function privateIp(ip) {
  *   the screens' texts; by default the suite's own (i18n/), in the user's or
  *   the browser's language. `createTexts({ catalogs })` overrides some keys.
  * @param {({lang, title, body}) => string} options.page  full HTML around a body
+ * @param {object} [options.externalSignIn]  when people sign in elsewhere (an OIDC provider):
+ *   { name, url(returnTo) }. The consent screen then offers "Sign in with <name>", which comes
+ *   back to the same request, instead of asking for a username and a password.
  */
 export function createOAuthServer({
   baseUrl, appName, enabled = true, allowPrivateCimd = false,
-  db, users, sessions, limits, texts = createTexts(), page, log = console.log,
+  db, users, sessions, limits, texts = createTexts(), page, externalSignIn = null, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const ISSUER = BASE_URL;
@@ -487,6 +490,9 @@ export function createOAuthServer({
     });
   }
 
+  /** The authorization request again, to come back to it after signing in elsewhere. */
+  const requestQuery = (p) => new URLSearchParams(REQUEST_FIELDS.filter((k) => p.get(k) != null).map((k) => [k, p.get(k)])).toString();
+
   function consentScreen(req, res, p, { client, redirect }, { user = null, error = null } = {}) {
     const { lang, t } = texts(req, user);
     const target = parseUrl(redirect);
@@ -513,12 +519,14 @@ ${hidden}
 ${user
     ? `<input type="hidden" name="csrf" value="${escapeHtml(csrfFor(req, p))}">
 <p class="oauth__text">${htmlText(t, 'oauth.signedInAs', { user: strong(users.handle(user)) })}</p>`
-    : `<label class="field"><span>${htmlText(t, 'oauth.username')}</span>
+    : externalSignIn ? '' : `<label class="field"><span>${htmlText(t, 'oauth.username')}</span>
 <input name="username" autocomplete="username" required autocapitalize="none" spellcheck="false"></label>
 <label class="field"><span>${htmlText(t, 'oauth.password')}</span>
 <input name="password" type="password" autocomplete="current-password" required></label>`}
 <div class="oauth__actions">
-<button class="btn btn--primary" type="submit" name="decision" value="allow">${htmlText(t, user ? 'oauth.allow' : 'oauth.signInAndAllow')}</button>
+${!user && externalSignIn
+    ? `<a class="btn btn--primary" href="${escapeHtml(externalSignIn.url(`/oauth/authorize?${requestQuery(p)}`))}">${htmlText(t, 'oauth.signInWith', { provider: externalSignIn.name })}</a>`
+    : `<button class="btn btn--primary" type="submit" name="decision" value="allow">${htmlText(t, user ? 'oauth.allow' : 'oauth.signInAndAllow')}</button>`}
 <button class="btn" type="submit" name="decision" value="cancel" formnovalidate>${htmlText(t, 'oauth.cancel')}</button>
 </div>
 </form>`,
@@ -562,6 +570,10 @@ ${user
         errorScreen(req, res, 'request_expired');
         return;
       }
+    } else if (externalSignIn) {
+      // Signing in happens at the provider: back to the screen, with its link.
+      consentScreen(req, res, p, checked);
+      return;
     } else {
       const name = p.get('username') || '';
       if (!limits.checkLogin(req, name).allowed) {

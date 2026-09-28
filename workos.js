@@ -17,6 +17,7 @@
  * done by WorkOS. Here a signature is verified and the browser is redirected.
  */
 import crypto from 'node:crypto';
+import { createKeySet, decodeJwt, verifyJwt } from './jwt.js';
 
 const withScheme = (url) => (url && !/^https?:\/\//.test(url) ? `https://${url}` : url);
 const noSlash = (url) => String(url || '').replace(/\/+$/, '');
@@ -25,8 +26,6 @@ const noSlash = (url) => String(url || '').replace(/\/+$/, '');
 export class WorkosUnavailable extends Error {}
 
 const TIMEOUT_MS = 8000;              // Claude gives up at 10 s: better to fail first
-const KEYS_TTL_MS = 3600 * 1000;
-const KEYS_RETRY_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_S = 30;              // clocks that don't tick exactly together
 
 /** Configuration from the usual environment variables. */
@@ -145,75 +144,26 @@ export function createWorkosClient({
   /* ----------------------------- MCP tokens ----------------------------- */
 
   /** What a JWT says, without checking its signature. Only for what already comes from WorkOS. */
-  function claims(jwt) {
-    try {
-      return JSON.parse(Buffer.from(String(jwt).split('.')[1], 'base64url').toString('utf8'));
-    } catch {
-      return null;
-    }
-  }
+  const claims = (jwt) => decodeJwt(jwt)?.payload ?? null;
+
+  /** AuthKit's public keys (jwt.js keeps them an hour and refetches on an unknown one, at most every five minutes). */
+  const keys = createKeySet({
+    load: async () => {
+      const { ok, status, body } = await request(`${AUTHKIT}/oauth2/jwks`);
+      if (!ok || !Array.isArray(body?.keys)) throw new WorkosUnavailable(`AuthKit JWKS: ${status}`);
+      return body.keys;
+    },
+  });
 
   /**
-   * AuthKit's public keys, by `kid`. Kept an hour; an unknown key forces a new
-   * fetch —that is how a rotation is picked up— but at most every five
-   * minutes, so a made-up token can't be used to hammer WorkOS through here.
-   */
-  const keys = { byKid: new Map(), at: 0, loading: null };
-
-  async function loadKeys() {
-    const { ok, status, body } = await request(`${AUTHKIT}/oauth2/jwks`);
-    if (!ok || !Array.isArray(body?.keys)) throw new WorkosUnavailable(`AuthKit JWKS: ${status}`);
-    const byKid = new Map();
-    for (const jwk of body.keys) {
-      if (jwk.kty !== 'RSA' || !jwk.kid || (jwk.use && jwk.use !== 'sig')) continue;
-      try { byKid.set(jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' })); } catch { /* odd key: out */ }
-    }
-    keys.byKid = byKid;
-    keys.at = Date.now();
-  }
-
-  async function keyFor(kid) {
-    const age = Date.now() - keys.at;
-    if (keys.byKid.has(kid) && age < KEYS_TTL_MS) return keys.byKid.get(kid);
-    if (keys.at && age < KEYS_RETRY_MS) return keys.byKid.get(kid) || null;
-    keys.loading ??= loadKeys().finally(() => { keys.loading = null; });
-    await keys.loading;
-    return keys.byKid.get(kid) || null;
-  }
-
-  /**
-   * Checks an access token issued by AuthKit for the MCP.
+   * Checks an access token issued by AuthKit for the MCP: RS256 with one of its
+   * keys, its issuer, in date and, when set, for this app's audience.
    * @returns {object|null} its claims if valid; null if not.
    * @throws {WorkosUnavailable} if the keys can't be fetched.
    */
-  async function verifyToken(token) {
-    const parts = String(token || '').split('.');
-    if (parts.length !== 3) return null;
-    let header;
-    let data;
-    try {
-      header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
-      data = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    } catch {
-      return null;
-    }
-    // RS256 only: neither `none`, nor HS256 with the public key as the secret.
-    if (header?.alg !== 'RS256' || !header.kid) return null;
-    const key = await keyFor(header.kid);
-    if (!key) return null;
-    const valid = crypto.verify(
-      'RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), key, Buffer.from(parts[2], 'base64url'),
-    );
-    if (!valid) return null;
-
-    const now = Math.floor(Date.now() / 1000);
-    if (noSlash(data.iss) !== AUTHKIT) return null;
-    if (typeof data.exp !== 'number' || data.exp < now - CLOCK_SKEW_S) return null;
-    if (typeof data.nbf === 'number' && data.nbf > now + CLOCK_SKEW_S) return null;
-    if (mcpAudience && ![].concat(data.aud ?? []).includes(mcpAudience)) return null;
-    if (!data.sub) return null;
-    return data;
-  }
+  const verifyToken = (token) => verifyJwt(token, {
+    keys, issuer: AUTHKIT, audience: mcpAudience || null, algorithms: ['RS256'], clockSkew: CLOCK_SKEW_S,
+  });
 
   /* ------------------------------ metadata ------------------------------ */
 

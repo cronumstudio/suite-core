@@ -10,6 +10,7 @@
   "oauth.password": "Passwort",
   "oauth.allow": "Erlauben",
   "oauth.signInAndAllow": "Anmelden und erlauben",
+  "oauth.signInWith": "Mit {provider} anmelden",
   "oauth.cancel": "Abbrechen",
   "oauth.cannotConnect": "Verbindung nicht möglich",
   "oauth.goBack": "Kehre zu der Anwendung zurück, die dich hierher gebracht hat, und versuche es erneut.",

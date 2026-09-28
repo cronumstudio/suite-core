@@ -10,6 +10,7 @@
   "oauth.password": "Mot de passe",
   "oauth.allow": "Autoriser",
   "oauth.signInAndAllow": "Se connecter et autoriser",
+  "oauth.signInWith": "Se connecter avec {provider}",
   "oauth.cancel": "Annuler",
   "oauth.cannotConnect": "Connexion impossible",
   "oauth.goBack": "Revenez à l’application qui vous a amené ici et réessayez.",

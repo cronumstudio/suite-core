@@ -15,6 +15,7 @@
 import path from 'node:path';
 import { LANGUAGES } from './i18n.js';
 import { workosConfigFromEnv } from './workos.js';
+import { oidcConfigFromEnv } from './oidc.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -130,7 +131,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const dataDir = env.DATA_DIR || path.join(cwd, 'data');
 
   let authProvider = env.AUTH_PROVIDER || 'local';
-  if (!['local', 'workos'].includes(authProvider)) {
+  if (!['local', 'workos', 'oidc'].includes(authProvider)) {
     warnings.push(`AUTH_PROVIDER="${authProvider}" is not known: local accounts are used`);
     authProvider = 'local';
   }
@@ -139,6 +140,12 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     const missing = ['WORKOS_API_KEY', 'WORKOS_CLIENT_ID', 'WORKOS_AUTHKIT_DOMAIN'].filter((name) => !env[name]);
     // With WorkOS half set up nobody could sign in, not even the administrator.
     if (missing.length) errors.push(`AUTH_PROVIDER=workos, but these are missing: ${missing.join(', ')}`);
+  }
+  const oidc = oidcConfigFromEnv({ ...env, AUTH_PROVIDER: authProvider });
+  if (authProvider === 'oidc') {
+    const missing = ['OIDC_ISSUER', 'OIDC_CLIENT_ID'].filter((name) => !env[name]);
+    if (missing.length) errors.push(`AUTH_PROVIDER=oidc, but these are missing: ${missing.join(', ')}`);
+    else if (!/^https?:\/\/[^/\s]+/.test(oidc.issuer)) errors.push(`OIDC_ISSUER "${env.OIDC_ISSUER}" is not an http(s) address`);
   }
 
   let billing = null;
@@ -167,7 +174,10 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     },
     authProvider,
     workos,
-    mcpOAuth: modules.oauth && authProvider === 'local' && env.MCP_OAUTH !== 'off',
+    oidc,
+    // With WorkOS, AuthKit is the authorization server for the MCP; with local
+    // accounts or OIDC, the app's own is, and OIDC signs people in on its screen.
+    mcpOAuth: modules.oauth && authProvider !== 'workos' && env.MCP_OAUTH !== 'off',
     cimdAllowPrivateHosts: env.CIMD_ALLOW_PRIVATE_HOSTS === 'true',
     plansJson: env.PLANS,
     defaultPlan: env.DEFAULT_PLAN,

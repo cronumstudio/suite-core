@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.13.0 — 2026-09-28
+
+- `oidc.js`: sign-in with any OpenID Connect provider (AUTH_PROVIDER=oidc, `OIDC_ISSUER`,
+  `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_SCOPES`, `OIDC_NAME`): discovery, PKCE, state
+  and nonce, the code exchanged with client_secret_basic or _post, the ID token checked, userinfo
+  when the token leaves the email out, a return path kept within the app, and the provider's
+  sign-out. The identity is `oidc:<issuer host>`, so moving to another provider links people
+  again by their email.
+- `jwt.js`: JWT checks shared by WorkOS and OIDC — keys from the JWKS kept an hour and refetched
+  on an unknown one at most every five minutes, RS256 and ES256 only, issuer, audience, dates,
+  nonce. `workos.js` now uses it.
+- `accounts.js`: `fromIdentity()` — the account of someone who signed in at a provider: linked,
+  linked now by a verified email, the admin email taking over the first administrator, or
+  created; `freeUsername()`.
+- `oauth.js`: `externalSignIn` — with it, the consent screen offers "Sign in with <provider>"
+  and comes back to the same request, instead of asking for a password.
+- `api.js`: the auth routes take any identity provider (`idp`); `/api/auth/config` also says its
+  name, and signing out returns its sign-out address when it has one.
+- `config.js` and `app.js`: AUTH_PROVIDER=oidc, checked like WorkOS; the built-in OAuth stays on
+  with it.
+- `i18n/`: `oauth.signInWith`.
+
 ## 0.12.0 — 2026-09-28
 
 - `i18n/`: the sentence of every error code and the name of every field the suite's modules

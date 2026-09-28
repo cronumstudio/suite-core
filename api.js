@@ -22,22 +22,23 @@ const countOrNull = (value, field) => (value == null ? null : int(value, { field
 
 /**
  * Signing in and out with a username and password, and who is signed in.
- * With WorkOS (`workos` given) accounts are AuthKit's: people sign in on its
- * page (/auth/login), and signing out here also returns AuthKit's sign-out
- * address, or the next "Sign in" would get straight in without asking.
+ * With an identity provider (`idp`: WorkOS, OIDC) accounts are the
+ * provider's: people sign in on its page (/auth/login), and signing out here
+ * also returns the provider's sign-out address, or the next "Sign in" would
+ * get straight in without asking.
  *
  * @param {object} deps
  * @param {object} deps.accounts, deps.sessions, deps.limiter   the suite's
  * @param {Function} deps.serializeUser   the account as the browser sees it
  */
-export function registerAuthApi(router, { accounts, sessions, limiter, audit = null, workos = null, serializeUser }) {
+export function registerAuthApi(router, { accounts, sessions, limiter, audit = null, idp = null, serializeUser }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
-    sendJson(ctx.res, 200, { provider: workos ? 'workos' : 'local' });
+    sendJson(ctx.res, 200, { provider: idp?.id ?? 'local', name: idp?.name ?? null });
   });
 
   router.post('/api/auth/login', async (ctx) => {
-    if (workos) throw badRequest('password_login_disabled');
+    if (idp) throw badRequest('password_login_disabled');
     const body = await readJson(ctx.req);
     const username = String(body.username || '').trim();
     const allowed = limiter.checkLogin(ctx.req, username);
@@ -56,14 +57,12 @@ export function registerAuthApi(router, { accounts, sessions, limiter, audit = n
     sendJson(ctx.res, 200, { user: serializeUser(user) });
   });
 
-  router.post('/api/auth/logout', (ctx) => {
+  router.post('/api/auth/logout', async (ctx) => {
     const idpSession = sessions.close(ctx.sessionToken);
     sessions.clearCookie(ctx.res);
     if (ctx.user) audit?.record({ action: 'auth.logout', actor: ctx.user, req: ctx.req });
-    sendJson(ctx.res, 200, {
-      ok: true,
-      ...(idpSession && workos ? { logout_url: workos.signOutUrl(idpSession) } : {}),
-    });
+    const logoutUrl = idpSession && idp ? await idp.signOutUrl(idpSession) : null;
+    sendJson(ctx.res, 200, { ok: true, ...(logoutUrl ? { logout_url: logoutUrl } : {}) });
   });
 
   router.get('/api/auth/me', (ctx) => {
