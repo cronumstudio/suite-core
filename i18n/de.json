@@ -109,6 +109,7 @@
   "errors.signup_closed": "Konten werden hier nur auf Einladung erstellt.",
   "errors.no_email": "Das Konto hat keine E-Mail-Adresse zum Bestätigen.",
   "errors.already_verified": "Diese E-Mail-Adresse ist schon bestätigt.",
+  "errors.mail_failed": "Die E-Mail konnte nicht gesendet werden. Wer diese Installation verwaltet, sieht den Grund im Serverprotokoll.",
   "fields.login": "Benutzername oder E-Mail",
   "errors.generic": "Etwas ist schiefgegangen. Versuche es erneut.",
   "errors.offline": "Der Server ist nicht erreichbar.",

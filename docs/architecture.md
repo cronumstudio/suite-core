@@ -659,7 +659,11 @@ keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js
   sends its own. Without a mail server nothing pretends otherwise (v0.16.0): `/api/auth/config`
   says `mail: false`, so screens don't promise a link that won't arrive; an invitation comes back
   `sent: false` with its link; and the admin can confirm an email by hand (`email_verified` on
-  `PATCH /api/admin/users/:id`), which is the only way to confirm one there.
+  `PATCH /api/admin/users/:id`), which is the only way to confirm one there. With a mail server
+  (v0.17.0), the app checks it once at the start —it answers, encrypts, takes the account— and
+  says so in the log (`[mail] SMTP ready` or why not); a message that fails later is logged with
+  its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
+  changes.
 - **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
   changes, billing events. Who, when, what and from where; never titles, notes or passwords.
 

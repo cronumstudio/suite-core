@@ -109,6 +109,7 @@
   "errors.signup_closed": "Ici, les comptes ne se créent que sur invitation.",
   "errors.no_email": "Le compte n’a pas d’e-mail à confirmer.",
   "errors.already_verified": "Cet e-mail est déjà confirmé.",
+  "errors.mail_failed": "L’e-mail n’a pas pu être envoyé. La personne qui administre cette installation peut en voir la raison dans le journal du serveur.",
   "fields.login": "Nom d’utilisateur ou e-mail",
   "errors.generic": "Quelque chose a échoué. Réessayez.",
   "errors.offline": "Le serveur est injoignable.",

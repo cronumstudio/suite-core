@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import {
-  buildMessage, parseAddress, createMailer, mailConfigErrors, mailConfigFromEnv, sendSmtp, MailError,
+  buildMessage, parseAddress, createMailer, mailConfigErrors, mailConfigFromEnv, sendSmtp, checkSmtp, MailError,
 } from '../mail.js';
 
 test('addresses and messages: encoded where needed, never broken into', () => {
@@ -138,4 +138,15 @@ test('SMTP: sign-in with LOGIN, and every refusal said', async (t) => {
 
   await assert.rejects(createMailer({ provider: 'smtp', host: '127.0.0.1', port: 9, secure: 'none', from: 'a@example.com' })
     .send({ to: 'b@example.com', subject: 's', text: 't' }), MailError);
+});
+
+test('SMTP: checking the server and the account without sending anything', async (t) => {
+  const server = await fakeSmtp(t);
+  const config = { provider: 'smtp', host: '127.0.0.1', port: server.port, secure: 'none', user: 'next', password: 'right', from: 'Next <next@example.com>' };
+  assert.deepEqual(await createMailer(config).verify(), { provider: 'smtp', host: '127.0.0.1', port: server.port });
+  await checkSmtp(config);
+  assert.equal(server.received.length, 0, 'nothing sent');
+  await assert.rejects(createMailer({ ...config, password: 'wrong' }).verify(), /535 5\.7\.8 Bad credentials/);
+  await assert.rejects(createMailer({ ...config, port: 9 }).verify(), MailError);
+  assert.deepEqual(await createMailer({ provider: 'log' }).verify(), { provider: 'log' }, 'the log can always take a message');
 });

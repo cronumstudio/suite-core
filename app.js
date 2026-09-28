@@ -626,6 +626,14 @@ export function createApp({
       server.listen(install.port, install.host, () => {
         log(`${tag} listening on http://${install.host}:${server.address().port}`);
         log(`${tag} public URL: ${install.baseUrl}`);
+        // Whether mail can go out, said once at the start: a wrong MAIL_* shows
+        // up here instead of in the first message that never arrives.
+        if (suite.mailer?.provider === 'smtp') {
+          suite.mailer.verify().then(
+            () => log(`[mail] SMTP ready: ${install.mail.host}:${install.mail.port} (${install.mail.secure})`),
+            (err) => log(`[mail] SMTP check failed, nothing will be sent until MAIL_* are fixed: ${err.message}`),
+          );
+        }
         if (install.hotReload) {
           timers.push(watchCode({ root: watchRoot || path.dirname(path.resolve(process.argv[1] || '.')), log }));
         }

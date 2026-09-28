@@ -129,6 +129,8 @@ export function proxyHops(value) {
  * walk around the brute-force brake.
  */
 export function clientIp(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
+  // Without a request (a script run by whoever runs the install) there is no address.
+  if (!req) return '';
   const hops = proxyHops(trustProxy);
   if (hops) {
     const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);

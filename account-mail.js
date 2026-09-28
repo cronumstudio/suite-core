@@ -86,10 +86,20 @@ export function createAccountMail({
   }
   const used = (id) => database.run('UPDATE account_tokens SET used_at = ? WHERE id = ?', iso(clock()), id);
 
+  /**
+   * Sends one of the suite's messages. When the mail server fails, the reason
+   * goes to the log (whoever runs the install can read it) and the request
+   * gets `mail_failed`: a person can't fix it, but knows it wasn't sent.
+   */
   async function send(to, key, vars, { req = null, user = null } = {}) {
     const { t } = texts(req, user);
     const all = { app: appName, ...vars };
-    await mailer.send({ to, subject: t(`mail.${key}.subject`, all), text: t(`mail.${key}.body`, all) });
+    try {
+      await mailer.send({ to, subject: t(`mail.${key}.subject`, all), text: t(`mail.${key}.body`, all) });
+    } catch (err) {
+      log(`[mail] to ${to}: not sent (${key}): ${err.message}`);
+      throw new HttpError(502, 'mail_failed');
+    }
   }
 
   /* ----------------------------- confirming ---------------------------- */
@@ -145,8 +155,8 @@ export function createAccountMail({
           name: user.display_name, username: user.username, link: link('reset', token),
         }, { req, user });
         audit?.record({ action: 'account.reset.sent', actor: user, req });
-      } catch (err) {
-        log(`[mail] the new-password link for user #${user.id} could not be sent: ${err.message}`);
+      } catch {
+        // Logged by send(); the answer stays the same, or it would tell who has an account.
       }
     }
   }
@@ -184,9 +194,8 @@ export function createAccountMail({
     let sent = mailer.provider !== 'log';
     try {
       await send(address, 'invite', { inviter: by?.display_name || appName, link: url }, { req, user: by });
-    } catch (err) {
-      sent = false;
-      log(`[mail] the invitation to ${address} could not be sent: ${err.message}`);
+    } catch {
+      sent = false;   // logged by send(); the link is returned to pass on by hand
     }
     audit?.record({ action: 'admin.invite', actor: by, req, targetType: 'invitation', targetId: id, meta: { role } });
     return { id, email: address, role, url, expires_at: expiresAt, sent };
@@ -225,7 +234,8 @@ export function createAccountMail({
     try {
       await sendVerification(user, { req });
     } catch (err) {
-      log(`[mail] the confirmation for user #${user.id} could not be sent: ${err.message}`);
+      // A failed send was logged by send(); anything else (the brake) is said here.
+      if (err.code !== 'mail_failed') log(`[mail] the confirmation for user #${user.id} was not sent: ${err.message}`);
     }
     return user;
   }

@@ -199,8 +199,8 @@ async function openSocket({ host, port, secure }, timeoutMs) {
 const capabilities = (answer) => new Set(answer.lines.slice(1).map((l) => l.toUpperCase()));
 const authMethods = (caps) => new Set([...caps].filter((c) => c.startsWith('AUTH')).flatMap((c) => c.slice(5).split(/\s+/)));
 
-/** Sends one message through an SMTP server. */
-export async function sendSmtp(config, { from, to, message, timeoutMs = TIMEOUT_MS, helo = 'localhost' }) {
+/** Connects, says hello, encrypts and signs in: what sending and checking share. */
+async function openSession(config, { timeoutMs, helo }) {
   const socket = await openSocket(config, timeoutMs);
   const smtp = conversation(socket, timeoutMs);
   try {
@@ -225,6 +225,30 @@ export async function sendSmtp(config, { from, to, message, timeoutMs = TIMEOUT_
         throw new MailError('The mail server offers no sign-in this client knows (PLAIN, LOGIN)');
       }
     }
+    return smtp;
+  } catch (err) {
+    smtp.destroy();
+    throw err;
+  }
+}
+
+/**
+ * Checks an SMTP server without sending anything: it answers, encrypts as
+ * told, and takes the account. Throws a MailError that says what failed.
+ */
+export async function checkSmtp(config, { timeoutMs = TIMEOUT_MS, helo = 'localhost' } = {}) {
+  const smtp = await openSession(config, { timeoutMs, helo });
+  try {
+    await smtp.command('QUIT', [221]).catch(() => {});
+  } finally {
+    smtp.destroy();
+  }
+}
+
+/** Sends one message through an SMTP server. */
+export async function sendSmtp(config, { from, to, message, timeoutMs = TIMEOUT_MS, helo = 'localhost' }) {
+  const smtp = await openSession(config, { timeoutMs, helo });
+  try {
     await smtp.command(`MAIL FROM:<${parseAddress(from).address}>`, [250]);
     await smtp.command(`RCPT TO:<${parseAddress(to).address}>`, [250, 251]);
     await smtp.command('DATA', [354]);
@@ -242,9 +266,9 @@ export async function sendSmtp(config, { from, to, message, timeoutMs = TIMEOUT_
 
 /**
  * @param {object} config   from mailConfigFromEnv()
- * @returns {{ provider, send({ to, subject, text, html? }) → Promise }}
+ * @returns {{ provider, send({ to, subject, text, html? }) → Promise, verify() → Promise }}
  */
-export function createMailer(config, { log = console.log, send = sendSmtp } = {}) {
+export function createMailer(config, { log = console.log, send = sendSmtp, check = checkSmtp } = {}) {
   const errors = mailConfigErrors(config);
   if (errors.length) throw new MailError(errors.join('; '));
   const from = config.from || 'no-reply@localhost';
@@ -260,5 +284,12 @@ export function createMailer(config, { log = console.log, send = sendSmtp } = {}
     return send(config, { from, to, message, helo: domain });
   }
 
-  return { provider: config.provider, from, send: deliver };
+  /** Whether mail can go out now: the SMTP server answers and takes the account. The log always can. */
+  async function verify() {
+    if (config.provider === 'log') return { provider: 'log' };
+    await check(config, { helo: domain });
+    return { provider: 'smtp', host: config.host, port: config.port };
+  }
+
+  return { provider: config.provider, from, send: deliver, verify };
 }

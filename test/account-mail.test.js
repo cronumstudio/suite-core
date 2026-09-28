@@ -20,7 +20,7 @@ async function start(t, env = {}) {
       ADMIN_PASSWORD: 'root-password', ADMIN_EMAIL: 'root@example.com', ...env },
     log: (line) => lines.push(line), exitOnError: false,
   });
-  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const app = createApp({ suite, handleSignals: false, log: (line) => lines.push(line) });
   const server = await app.listen();
   t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -204,4 +204,30 @@ test('without a mail server, the screens are told so and an admin confirms email
 test('with a mail server, the screens are told mail goes out', async (t) => {
   const { browser } = await start(t, { MAIL_PROVIDER: 'smtp', MAIL_HOST: 'smtp.example', MAIL_FROM: 'Demo <demo@example.com>' });
   assert.equal((await browser()('GET', '/api/auth/config')).data.mail, true);
+});
+
+test('a mail server that fails: said at the start, logged with its reason, and answered as mail_failed', async (t) => {
+  // Nothing listens on port 9: every connection is refused.
+  const { suite, lines, browser } = await start(t, {
+    MAIL_PROVIDER: 'smtp', MAIL_HOST: '127.0.0.1', MAIL_PORT: '9', MAIL_SECURE: 'none', MAIL_FROM: 'Demo <demo@example.com>',
+  });
+  for (let i = 0; i < 50 && !lines.some((l) => l.startsWith('[mail] SMTP check failed')); i++) await new Promise((r) => setTimeout(r, 40));
+  assert.ok(lines.some((l) => l.startsWith('[mail] SMTP check failed')), 'the start says mail will not go out');
+
+  suite.accounts.create({ username: 'gil', password: 'gil-password', email: 'gil@example.com' });
+  const gil = browser();
+  await gil('POST', '/api/auth/login', { username: 'gil', password: 'gil-password' });
+  const mark = lines.length;
+  const resend = await gil('POST', '/api/me/email/verify');
+  assert.equal(resend.status, 502);
+  assert.equal(resend.data.error, 'mail_failed');
+  assert.ok(lines.slice(mark).some((l) => /^\[mail\] to gil@example\.com: not sent \(verify\): /.test(l)), 'the reason is in the log');
+
+  assert.deepEqual((await browser()('POST', '/api/auth/forgot', { login: 'gil' })).data, { ok: true },
+    'a forgotten password still answers the same: the failure must not tell who has an account');
+  const admin = browser();
+  await admin('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const invited = await admin('POST', '/api/admin/invitations', { email: 'hal@example.com' });
+  assert.equal(invited.status, 201);
+  assert.equal(invited.data.sent, false, 'the invitation exists; its link is passed on by hand');
 });

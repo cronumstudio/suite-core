@@ -109,6 +109,7 @@
   "errors.signup_closed": "Accounts here are created by invitation only.",
   "errors.no_email": "The account has no email to confirm.",
   "errors.already_verified": "That email is already confirmed.",
+  "errors.mail_failed": "The email could not be sent. Whoever runs this installation can see why in the server log.",
   "fields.login": "Username or email",
   "errors.generic": "Something went wrong. Try again.",
   "errors.offline": "The server can’t be reached.",

@@ -109,6 +109,7 @@
   "errors.signup_closed": "Aquí las cuentas solo se crean por invitación.",
   "errors.no_email": "La cuenta no tiene un email que confirmar.",
   "errors.already_verified": "Ese email ya está confirmado.",
+  "errors.mail_failed": "No se ha podido enviar el correo. Quien administra esta instalación puede ver el motivo en el registro del servidor.",
   "fields.login": "Usuario o email",
   "errors.generic": "Algo ha fallado. Inténtalo de nuevo.",
   "errors.offline": "No se puede contactar con el servidor.",

@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.17.0 — 2026-09-28
+
+- `mail.js`: `checkSmtp()` and `mailer.verify()` check an SMTP server without sending anything:
+  it answers, encrypts as told and takes the account; a MailError says what failed.
+- `app.js`: with `MAIL_PROVIDER=smtp`, the app checks the mail server once it listens and logs
+  `[mail] SMTP ready: host:port (security)` or why nothing will be sent.
+- `account-mail.js`: a message the server can't send is logged with its reason and the request
+  gets `mail_failed` (502) instead of an internal error. Asking for a new password still answers
+  the same, whatever happens, so it can't tell who has an account; an invitation comes back
+  `sent: false`.
+- `http.js`: `clientIp()` without a request (a script run on the server) is an empty address
+  instead of an error, so account-mail can be used from scripts.
+- `i18n/`: `errors.mail_failed`.
+
 ## 0.16.0 — 2026-09-28
 
 - `api.js`: `/api/auth/config` also says whether mail leaves the server (`mail`: false with
