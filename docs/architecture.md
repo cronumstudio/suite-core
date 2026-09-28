@@ -78,8 +78,8 @@ suite-core/
   account-mail.js       done   confirming emails, new passwords, invitations, open sign-up
   audit.js              done   who did what and when, never the content
   api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
-  i18n/                        the suite's own texts: en.json, es.json, fr.json, de.json
-  web/                         browser kit (§15), served at /suite/
+  i18n/                 done   the suite's own texts: en.json, es.json, fr.json, de.json
+  web/                  begun  browser kit (§15), served at /suite/; the admin panel at /admin
   tools/                done   i18n.mjs: catalog parity and keys in use; conformance tests for apps later
   test/                        suite-core's own tests (node:test)
   docs/                        this document and the module guides
@@ -550,7 +550,8 @@ apps learned the hard way:
 5. The suite's API: `/api/auth/*`, `/api/me/*`, `/api/admin/*`, `/api/orgs/*`, `/api/events`,
    `/api/push/*`, `/api/billing/*`.
 6. The app's API routes.
-7. `/suite/*` (the web kit) and `/i18n/<lang>.json` (suite and app catalogs merged).
+7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
+   `/i18n/<lang>.json` (suite and app catalogs merged).
 8. The app's static files, then the SPA fallback for paths without an extension.
 
 The common API is the same in every app: sign-in (`POST /api/auth/login`, `POST /api/auth/logout`,
@@ -621,6 +622,20 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
 - `sw-core.js`, imported by each app's service worker: shell caching, network-first for code and
   catalogs, never caching `/api`, `/mcp`, `/auth`, `/oauth`, `/version`.
 
+**Today (v0.15.0).** `dom.js` (`el`, `$`, `$$`, `clear`), `i18n.js` (`t()` with placeholders and
+plural forms, exact ones such as `=0` included; flat or nested catalogs; `pickLanguage()`, dates),
+`api.js` (`ApiError`, `SessionExpired`, `Offline`, `errorMessage()`), `ui.js` (toasts, fields,
+dialogs on the native `<dialog>`, confirmations), `theme.js` and `kit.css` (light and dark). On
+them, the admin panel: `/admin` serves `web/admin.html`, which has no inline script or text. It
+asks `/api/auth/config` which app this is, its languages and the modules it has on, shows itself
+in the person's language with the app's name, and only to an administrator: accounts (create,
+role, plan, extras granted per feature with an end date, a new password, signing out everywhere,
+disabling, removal), invitations with the link to pass on, what each plan allows, organizations
+when that module is on, and the activity log, filtered and paged. A feature is named by the app's
+`features.<key>` text when it has one, else by its label in the configuration.
+Still to come: `live.js`, `update.js`, `outbox.js`, the sign-in and settings screens (each app
+keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js`.
+
 ## 16. Push, uploads, mail and audit
 
 - **Push** (from Tasks): VAPID keys generated on the first start and kept in `app_meta` unless
@@ -687,13 +702,13 @@ first, then Tasks, then the rest.
 | `http.js`, `db.js`, `migrate.js`, `crypto.js` | done (v0.4.0) | adopted by Next; Tasks and the rest next |
 | `sessions.js`, `rate-limit.js` | done (v0.5.0) | adopted by Next; `principal.js` comes with the MCP transport |
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
-| `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity) | the browser's `t()` in the web kit; the lint of strings written in the code |
+| `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser) | the lint of strings written in the code |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
-| `mail.js`, `account-mail.js` | done (v0.14.0) | sign-up by invitation or open, confirmation and new passwords; the screens in each app and the web kit |
+| `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
-| Web kit and admin panel | planned | with the Cronum style guide; drawn on `/api/admin/*` |
+| Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
 | `billing.js` | done (v0.10.0: interface, signed provider, grants) | a real adapter (Stripe or a merchant of record) when a price is decided; Next keeps it off |

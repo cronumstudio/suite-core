@@ -25,6 +25,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveConfig } from './config.js';
 import { openDatabase } from './db.js';
 import { migrate } from './migrate.js';
@@ -56,6 +57,8 @@ import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
 
 const HOUR = 3600 * 1000;
+/** The suite's browser code, served at /suite/. */
+const WEB_DIR = fileURLToPath(new URL('./web/', import.meta.url));
 
 /** A configuration that can't run: what createSuite throws when it isn't told to exit. */
 export class SuiteConfigError extends Error {
@@ -344,7 +347,13 @@ export function createApp({
   /* --------------------------- the suite's routes --------------------------- */
 
   const api = createRouter();
-  registerAuthApi(api, { accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup });
+  registerAuthApi(api, {
+    accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
+    app: {
+      id: config.app.id, name: config.app.name, languages: config.app.languages,
+      modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled) },
+    },
+  });
   if (install.authProvider === 'local') {
     registerAccountMailApi(api, { accountMail, sessions, serializeUser: serialize, admin: config.modules.admin });
   }
@@ -543,6 +552,12 @@ export function createApp({
 
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         sendText(res, 405, 'Method Not Allowed');
+        return;
+      }
+      // The suite's browser code (the web kit) and its admin panel.
+      if (pathname.startsWith('/suite/') && serveStatic(WEB_DIR, pathname.slice('/suite'.length), res)) return;
+      if (config.modules.admin && (pathname === '/admin' || pathname === '/admin/')) {
+        serveStatic(WEB_DIR, '/admin.html', res);
         return;
       }
       const wanted = /^\/i18n\/([a-z]{2})\.json$/.exec(pathname)?.[1];

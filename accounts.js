@@ -120,6 +120,7 @@ export function createAccounts({
   /** What may be shown about an account: never its hash. */
   const publicUser = (user) => user && ({
     id: user.id, username: user.username, display_name: user.display_name, email: user.email ?? null,
+    email_verified: Boolean(user.email_verified_at),
     role: user.role, locale: user.locale ?? null, theme: user.theme ?? 'system',
     created_at: isoOf(user.created_at), last_login_at: isoOf(user.last_login_at),
     disabled: Boolean(user.disabled_at), has_password: Boolean(user.password_hash && user.password_hash !== '!'),

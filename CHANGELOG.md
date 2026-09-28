@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.15.0 — 2026-09-28
+
+- `web/`: the web kit, served by `createApp` at `/suite/` with no build. `dom.js` (`el()`, `$`,
+  `$$`, `append`, `clear`: nodes made with `textContent` and attributes, never HTML strings),
+  `i18n.js` (`t()` in the browser with placeholders and plural forms, exact ones like `=0`
+  included; flat or nested catalogs; `pickLanguage()`, dates in the person's language), `api.js`
+  (JSON requests; `ApiError`, `SessionExpired` and `Offline`; `errorMessage()` turns a code into
+  its sentence), `ui.js` (toasts, fields, dialogs on the native `<dialog>`, confirmations),
+  `theme.js` (the saved or the system theme, before the first paint) and `kit.css` (light and
+  dark).
+- `web/admin.html`, `web/admin.js`: the admin panel at `/admin`, when `modules.admin` is on.
+  Accounts (create; name, email, role, plan; extras granted per feature, with an end date and a
+  note; a new password; signing out everywhere; disabling; removal), invitations with the link to
+  pass on, what each plan allows, organizations when that module is on, and the activity log with
+  filters and paging. In the person's language and with the app's name, only for an
+  administrator, and with no inline script, so the CSP stays `script-src 'self'`. A feature is
+  named by the app's `features.<key>` text when there is one.
+- `api.js`: `/api/auth/config` also says which app this is (`app`: id, name, languages, and the
+  modules that are on).
+- `accounts.js`: an account says whether its email is confirmed (`email_verified`).
+- `i18n/`: the admin panel's texts, `errors.generic` and `errors.offline`.
+
 ## 0.14.1 — 2026-09-28
 
 - `accounts.js`: saving the same email again (in other capitals or with spaces) keeps it

@@ -113,7 +113,10 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
     return { status: res.status, data: await res.json().catch(() => null) };
   };
 
-  assert.deepEqual((await api('GET', '/api/auth/config')).data, { provider: 'oidc', name: 'Authentik', signup: null });
+  assert.deepEqual((await api('GET', '/api/auth/config')).data, {
+    provider: 'oidc', name: 'Authentik', signup: null,
+    app: { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false } },
+  });
   assert.equal((await api('POST', '/api/auth/login', null, { username: 'x', password: 'y' })).data.error, 'password_login_disabled');
 
   // Going to the provider: PKCE, a state and a nonce.

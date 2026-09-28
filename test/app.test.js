@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveConfig } from '../config.js';
@@ -184,6 +185,27 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.equal(again.status, 304);
   assert.equal((await call('GET', '/i18n/es.json')).data['errors.not_found'], 'No encontrado.', 'no file of its own: the suite’s');
   assert.equal((await call('GET', '/i18n/fr.json')).status, 404, 'not a language of this app');
+
+  // The suite's pages: the admin panel and the web kit it is made of.
+  const panel = await call('GET', '/admin');
+  assert.equal(panel.status, 200);
+  assert.match(panel.headers.get('content-type'), /text\/html/);
+  assert.match(panel.data, /<script type="module" src="\/suite\/admin\.js"><\/script>/);
+  assert.doesNotMatch(panel.data.replace(/<script[^>]*src="[^"]+"[^>]*><\/script>/g, ''), /<script/,
+    'no inline script: the CSP allows none');
+  const kit = await fetch(`${base}/suite/admin.js`);
+  assert.equal(kit.status, 200);
+  assert.match(kit.headers.get('content-type'), /text\/javascript/);
+  // fetch() would tidy "../" away before sending: a raw request keeps it.
+  const escape = await new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: server.address().port, path: '/suite/..%2Fpackage.json' }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    }).on('error', reject);
+  });
+  assert.equal(escape, 404, 'never outside the kit');
+  assert.deepEqual((await call('GET', '/api/auth/config')).data.app,
+    { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false } });
 
   // Static files, the SPA's paths, and discovery paths that are not served.
   assert.match((await call('GET', '/')).data, /<title>Demo<\/title>/);

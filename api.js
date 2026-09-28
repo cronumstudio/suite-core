@@ -30,15 +30,21 @@ const countOrNull = (value, field) => (value == null ? null : int(value, { field
  * @param {object} deps
  * @param {object} deps.accounts, deps.sessions, deps.limiter   the suite's
  * @param {Function} deps.serializeUser   the account as the browser sees it
+ * @param {string} [deps.signup]          who may create an account: admin | invite | open
+ * @param {object} [deps.app]             { id, name, languages, modules }, told to the browser
  */
 export function registerAuthApi(router, {
-  accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin',
+  accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
     // `signup`: who may create an account here (admin | invite | open); with a
     // provider, whoever it lets in.
-    sendJson(ctx.res, 200, { provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup });
+    // `app`: which app this is, the languages it speaks and the modules it has on,
+    // for the suite's own pages (the admin panel).
+    sendJson(ctx.res, 200, {
+      provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup, ...(app ? { app } : {}),
+    });
   });
 
   router.post('/api/auth/login', async (ctx) => {
