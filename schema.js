@@ -22,6 +22,7 @@ import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
 import { billingSchema } from './billing.js';
+import { OAUTH_SCHEMA } from './oauth.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -34,4 +35,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 7, name: 'user-identities', up: identitiesSchema },
   { version: 8, name: 'api-tokens', up: tokensSchema },
   { version: 9, name: 'billing', up: billingSchema },
+  // The built-in OAuth's tables; Next and Tasks had them in their own baseline already.
+  { version: 10, name: 'oauth', up: (d) => d.exec(OAUTH_SCHEMA) },
 ]);

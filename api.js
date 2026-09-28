@@ -12,11 +12,64 @@
  * receive its request context: `{ req, res, params, query, user, sessionToken }`.
  * Every change is recorded in the audit log, without content.
  */
-import { sendJson, readJson, badRequest, notFound, forbidden, unauthorized, int, idOrNull, str } from './http.js';
+import {
+  HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, int, idOrNull, str,
+} from './http.js';
 import { verifyPassword } from './crypto.js';
 
 const idOf = (value, field = 'id') => int(value, { field, min: 1 });
 const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
+
+/**
+ * Signing in and out with a username and password, and who is signed in.
+ * With WorkOS (`workos` given) accounts are AuthKit's: people sign in on its
+ * page (/auth/login), and signing out here also returns AuthKit's sign-out
+ * address, or the next "Sign in" would get straight in without asking.
+ *
+ * @param {object} deps
+ * @param {object} deps.accounts, deps.sessions, deps.limiter   the suite's
+ * @param {Function} deps.serializeUser   the account as the browser sees it
+ */
+export function registerAuthApi(router, { accounts, sessions, limiter, audit = null, workos = null, serializeUser }) {
+  /** Before signing in: the sign-in screen has to know what to show. */
+  router.get('/api/auth/config', (ctx) => {
+    sendJson(ctx.res, 200, { provider: workos ? 'workos' : 'local' });
+  });
+
+  router.post('/api/auth/login', async (ctx) => {
+    if (workos) throw badRequest('password_login_disabled');
+    const body = await readJson(ctx.req);
+    const username = String(body.username || '').trim();
+    const allowed = limiter.checkLogin(ctx.req, username);
+    if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
+    const user = accounts.verify(username, body.password);
+    if (!user) {
+      limiter.loginFailed(ctx.req, username);
+      // Not which username: a password typed in the wrong box would end up here.
+      audit?.record({ action: 'auth.login_failed', req: ctx.req });
+      throw new HttpError(401, 'bad_credentials');
+    }
+    limiter.loginSucceeded(ctx.req, username);
+    // With the request, the browser's previous session is closed and the device noted.
+    sessions.open(user.id, { req: ctx.req, res: ctx.res });
+    audit?.record({ action: 'auth.login', actor: user, req: ctx.req });
+    sendJson(ctx.res, 200, { user: serializeUser(user) });
+  });
+
+  router.post('/api/auth/logout', (ctx) => {
+    const idpSession = sessions.close(ctx.sessionToken);
+    sessions.clearCookie(ctx.res);
+    if (ctx.user) audit?.record({ action: 'auth.logout', actor: ctx.user, req: ctx.req });
+    sendJson(ctx.res, 200, {
+      ok: true,
+      ...(idpSession && workos ? { logout_url: workos.signOutUrl(idpSession) } : {}),
+    });
+  });
+
+  router.get('/api/auth/me', (ctx) => {
+    sendJson(ctx.res, 200, { user: serializeUser(ctx.user) });
+  });
+}
 
 /**
  * Each person's own routes. Every dependency is optional: an app without

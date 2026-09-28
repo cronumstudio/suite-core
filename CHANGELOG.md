@@ -3,8 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## Unreleased
+## 0.11.0 — 2026-09-28
 
+- `config.js`: `resolveConfig(product, env)` — the product definition (`server/suite.config.js`:
+  app, modules, accounts, sessions, organizations, tokens, rate limits, features, plans,
+  products, the default of TRUST_PROXY) and the install's environment (BASE_URL, PORT, DATA_DIR,
+  secrets, AUTH_PROVIDER and WorkOS, MCP_OAUTH, PLANS, BILLING_PROVIDER, HOT_RELOAD…), checked as a
+  whole. Unknown settings, modules or languages, WorkOS half set up and billing without its module
+  are errors; old variable names and an unknown AUTH_PROVIDER are warnings.
+- `app.js`: `createSuite()` opens the database, runs the app's migrations and the suite's, and
+  creates sessions, accounts, API tokens, the audit log, the brake, plans and, as configured,
+  organizations, billing, WorkOS and the built-in OAuth (whose look the app hands in); it refuses
+  to start on any error, saying what is wrong. It also creates the first administrator
+  (`ensureAdmin()`), cleans up (`purge()`) and resolves MCP tokens of every kind.
+  `createApp()` serves in the suite's order: security headers, the cross-site check, `/health`,
+  `/version`, `/js/app-version.js`, `/mcp` and `/mcp-info`, the suite's routes and then the app's
+  (405 with `Allow`), WorkOS and OAuth, a JSON 404 for discovery paths, static files and the SPA
+  fallback; with periodic clean-ups, hot reload and an orderly shutdown.
+- `watcher.js`: hot reload by polling, walking the whole server folder, the submodule and its
+  texts included.
+- `api.js`: `registerAuthApi()` — `/api/auth/config`, `login` (with the brake and the audit
+  log), `logout` (with AuthKit's sign-out address) and `me`.
+- `schema.js`: migration 10 creates the built-in OAuth's tables for apps that didn't have them.
 - `billing.js`: an event without a valid end of period names the field `period_end`, in the
   suite's snake_case like every other field.
 

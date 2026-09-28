@@ -41,7 +41,10 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `tokens.js` | API tokens for the MCP and scripts: shown once and kept as hashes, with scopes and optional expiry; takes over the apps' `mcp_tokens` without breaking a connector |
 | `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, and a hand-over when someone's account goes |
 | `audit.js` | Who did what, when and from where — never what anybody wrote |
-| `api.js` | The common REST routes on the app's router: `/api/me/*` (sessions, plan, tokens, connected apps, password), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
+| `config.js` | The app's configuration: `suite.config.js` (the product) and the environment (the install), checked as a whole — anything unknown or wrong stops the start, saying what |
+| `app.js` | `createSuite()` wires every module from the configuration (database and migrations, sessions, accounts, tokens, audit, brake, plans, organizations, billing, WorkOS, OAuth); `createApp()` serves the suite's routes, the MCP endpoint, the app's routes and static files, in the order the apps learned, with clean-ups, hot reload and an orderly shutdown |
+| `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
+| `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out), `/api/me/*` (sessions, plan, tokens, connected apps, password), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
 
 ## Using it in an app
 

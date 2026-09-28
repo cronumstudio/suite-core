@@ -52,8 +52,9 @@ suite-core/
   oauth.js              done   OAuth 2.1 authorization server for the MCP endpoint
   workos.js             done   WorkOS AuthKit client (sign-in with PKCE, JWT verification)
   workos-accounts.js    done   /auth routes and how a WorkOS account becomes a user
-  config.js                    loads and validates suite.config.js + environment overrides
-  app.js                       createApp(): wires the modules below in the dispatch order (§11)
+  config.js             done   loads and validates suite.config.js + the environment
+  app.js                done   createSuite() wires the modules; createApp() dispatches in the order of §11
+  watcher.js            done   hot reload by polling, for code mounted over SMB
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
   db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
   migrate.js            done   numbered migrations with scopes (suite, app)
@@ -83,62 +84,72 @@ suite-core/
 
 ## 4. How an app uses it
 
-An app is its domain plus two files that describe it to the suite: `suite.config.js` (what the
-product is: modules, languages, features, plans) and its environment (where and how this install
-runs: URLs, secrets, providers). Once every module exists, an app's entry point looks like this:
+An app is its domain plus two things that describe it to the suite: `server/suite.config.js`
+(what the product is: modules, languages, features, plans, products) and its environment (where
+and how this install runs: URLs, secrets, providers). Two files of the app wire it (**done**,
+v0.11.0; Next is the model):
 
 ```js
-// server/index.js
-import config from '../suite.config.js';
-import { createApp } from './suite/app.js';
-import { openDatabase } from './suite/db.js';
-import { migrations } from './migrations.js';          // the app's own, numbered
-import { routes } from './api.js';                      // the app's REST routes
-import { tools, prompts, instructions } from './mcp-tools.js';
+// server/platform.js — the services, created once, for the rest of the server to import
+import product from './suite.config.js';
+import { createSuite } from './suite/app.js';
+import { MIGRATIONS } from './migrations.js';          // the app's own, numbered
+import { textsFor } from './i18n.js';
+import { oauthPage } from './oauth-page.js';
 
-const db = openDatabase();                              // DATA_DIR/<app id>.db
-const app = await createApp({
-  config, db, migrations, routes,
-  mcp: { tools, prompts, instructions },
-  publicDir: new URL('../public/', import.meta.url),
+export const suite = createSuite({
+  config: product, migrations: MIGRATIONS,
+  hooks: { texts: textsFor, oauthPage },               // how the OAuth consent screen looks
 });
-await app.listen();
+
+// server/index.js — the server
+import { suite } from './platform.js';
+import { createApp } from './suite/app.js';
+import { api, serializeUser } from './api.js';          // the app's own routes
+import { mcp } from './mcp.js';                         // { instructions, tools, prompts… }
+
+createApp({ suite, publicDir, routes: api, mcp, serializeUser, version: APP_VERSION }).listen();
 ```
 
-Until then an app uses modules one by one, as Next does with `oauth.js`: it creates the module
-with adapters to its own database, users and sessions (`server/oauth.js` in Next is the model).
+`createSuite` opens `DATA_DIR/<app id>.db`, runs the app's migrations and then the suite's, and
+creates every service the configuration asks for; the app's modules import them from
+`platform.js` (`suite.database`, `suite.accounts`, `suite.entitlements`…). `createApp`
+registers the suite's routes before the app's, the MCP endpoint with the app's tools, and serves
+the app's static files; it also creates the first administrator, runs the periodic clean-ups,
+watches the code with `HOT_RELOAD=true` and shuts down in order. An app can still use a module on
+its own, with adapters to its own tables, while it moves over.
 
 ## 5. The configuration file
 
-`suite.config.js` sits at the root of the app and is committed: it is the product definition, the
-same for every install. suite-core validates it on start and refuses to start with a message that
+`suite.config.js` sits in the app's `server/` folder (the one installs like the NAS mount live, so no
+container has to be recreated for it) and is committed: it is the product definition, the same
+for every install. suite-core validates it on start and refuses to start with a message that
 says what is wrong — a misspelled feature must never leave a barrier open.
 
 ```js
 export default {
   app: {
-    id: 'tasks',                  // [a-z0-9-]; prefixes cookies, the database file and feature keys
+    id: 'tasks',                  // [a-z0-9-]; names the cookie (tasks_sid), the database file and feature keys
     name: 'Tasks',                // shown on the consent screen, in the MCP server info, in mail
     port: 3456,                   // default for PORT (see the port registry in CONVENTIONS.md)
     languages: ['en', 'es'],      // English first: it is the fallback
   },
 
-  // Everything is off unless listed here, so an app only carries what it uses.
-  modules: {
-    accounts: true, oauth: true, mcp: true, live: true, admin: true,
-    push: true, uploads: true, organizations: false, billing: false,
-  },
+  // Anything not listed keeps its default; a key that is not a module is an error.
+  // Live updates, push and uploads join this list when they move into the suite.
+  modules: { oauth: true, mcp: true, admin: true, organizations: false, billing: false },
 
   accounts: {
-    signup: 'admin',              // admin: only the admin creates accounts | invite | open
+    signup: 'admin',              // only the admin creates accounts; invite | open come with mail.js
     minPasswordLength: 10,
   },
-  sessions: { idleDays: 30, maxDays: 365 },
+  sessions: { idleDays: 30, maxDays: 365 },   // cookieName: '<app id>_sid' unless given
+  tokens: { prefix: 'mcp_' },     // how the app's API tokens start
+  trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
-    mode: 'optional',             // optional: personal use and groups | required: every user in one
-    label: 'household',           // how the interface names them (a translation key suffix)
     roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'monitor' in Tracker
+    invitationDays: 7,
   },
 
   // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
@@ -157,13 +168,21 @@ export default {
     pro:  { name: 'plans.pro',  features: {} },
   },
   defaultPlan: 'free',
+
+  // What can be bought, with modules.billing and a BILLING_PROVIDER (section 9).
+  products: {
+    'pro-monthly':  { plan: 'pro', kind: 'subscription' },
+    'pro-lifetime': { plan: 'pro', kind: 'once' },
+  },
 };
 ```
 
-Environment variables configure the install, never the product: `BASE_URL`, `PORT`, `HOST_PORT`,
-`DATA_DIR`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`, `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`,
-`ADMIN_EMAIL`, `AUTH_PROVIDER` (`local` | `workos` | `oidc`), `WORKOS_*`, `MCP_OAUTH`, `VAPID_*`,
-`BILLING_PROVIDER`, `STRIPE_*`, `MAIL_PROVIDER`, `MAIL_*`. Two product settings may be overridden
+Environment variables configure the install, never the product (`config.js` reads them):
+`BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
+`SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
+(`local` | `workos`; `oidc` later), `WORKOS_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
+`BILLING_PROVIDER` (`remote` so far) with `BILLING_SECRET` and `BILLING_URL`; later `VAPID_*`,
+`STRIPE_*`, `MAIL_PROVIDER`, `MAIL_*`. Two product settings may be overridden
 per install for hosted deployments: `PLANS` (JSON, same shape as `plans`) and `DEFAULT_PLAN`.
 Old variable names keep working as aliases, with a warning (`RECARGA_EN_CALIENTE`, `PORT_HOST`…).
 
@@ -650,7 +669,7 @@ first, then Tasks, then the rest.
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next; OIDC and sign-up modes (closed, invitation, open) next |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
-| `app.js`, `config.js` | planned | once the modules above exist |
+| `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | planned | with the Cronum style guide; drawn on `/api/admin/*` |
 | `billing.js` | done (v0.10.0: interface, signed provider, grants) | a real adapter (Stripe or a merchant of record) when a price is decided; Next keeps it off |
