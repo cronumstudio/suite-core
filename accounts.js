@@ -292,7 +292,11 @@ export function createAccounts({
       const sets = [];
       const params = [];
       if (fields.displayName !== undefined) { sets.push('display_name = ?'); params.push(checkName(fields.displayName)); }
-      if (fields.email !== undefined) { sets.push('email = ?', 'email_verified_at = NULL'); params.push(checkEmail(fields.email)); }
+      if (fields.email !== undefined) {
+        const email = checkEmail(fields.email);
+        // Only another address has to be confirmed again.
+        if (email !== (user.email ?? null)) { sets.push('email = ?', 'email_verified_at = NULL'); params.push(email); }
+      }
       if (fields.locale !== undefined) { sets.push('locale = ?'); params.push(fields.locale || null); }
       if (fields.role !== undefined && fields.role !== user.role) {
         checkRole(fields.role);

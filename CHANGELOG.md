@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.14.1 — 2026-09-28
+
+- `accounts.js`: saving the same email again (in other capitals or with spaces) keeps it
+  confirmed; only another address has to be confirmed again.
+
 ## 0.14.0 — 2026-09-28
 
 - `mail.js`: outgoing mail. `MAIL_PROVIDER=smtp` sends through an SMTP server with a client of

@@ -256,3 +256,17 @@ test('the WorkOS users on the suite: links from an older version adopted, never 
   assert.ok(accounts.byId(ada.id).last_login_at);
   assert.equal(users.usernameTaken('ADA'), true);
 });
+
+test('the same email again stays confirmed; another one has to be confirmed', (t) => {
+  const database = setup(t);
+  const accounts = createAccounts({ database });
+  const ada = accounts.create({ username: 'ada', email: 'ada@example.com' });
+  accounts.setVerifiedEmail(ada.id, 'ada@example.com');
+  accounts.update(ada.id, { email: ' ADA@example.com ' });
+  assert.ok(accounts.byId(ada.id).email_verified_at, 'the same address, written differently');
+  accounts.update(ada.id, { email: 'ada@work.example' });
+  assert.equal(accounts.byId(ada.id).email_verified_at, null);
+  assert.equal(accounts.byId(ada.id).email, 'ada@work.example');
+  accounts.update(ada.id, { email: null });
+  assert.equal(accounts.byId(ada.id).email, null);
+});
