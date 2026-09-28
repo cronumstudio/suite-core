@@ -62,6 +62,22 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.match(billing.errors.join(), /BILLING_SECRET/);
 });
 
+test('the first administrator never gets a password from an example', (t) => {
+  for (const example of ['change-this-password', 'cambia-esta-clave']) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-admin-'));
+    const lines = [];
+    const suite = createSuite({
+      config: PRODUCT, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: example, BASE_URL: 'http://127.0.0.1' },
+      log: (line) => lines.push(line), exitOnError: false,
+    });
+    t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+    suite.ensureAdmin();
+    assert.ok(lines.some((l) => l.includes('ADMIN_PASSWORD holds an example value')), example);
+    assert.equal(suite.accounts.verify('admin', example), null, `${example} does not open the account`);
+    assert.ok(lines.some((l) => l.includes('a random password was')), 'a random one is printed instead');
+  }
+});
+
 test('a configuration that can’t run doesn’t start, and says why', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-app-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

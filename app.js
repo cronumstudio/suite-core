@@ -91,7 +91,11 @@ ${body}
 </html>`;
 
 /** Passwords from examples and old defaults: known to anyone, so never used. */
-const EXAMPLE_PASSWORDS = new Set(['change-this-password', 'changeme', 'change-me']);
+const EXAMPLE_PASSWORDS = new Set([
+  'change-this-password', 'changeme', 'change-me',
+  // The ones the apps' own .env.example files carried before the suite.
+  'cambia-esta-clave', 'cambia-esto',
+]);
 
 /**
  * @param {object} options

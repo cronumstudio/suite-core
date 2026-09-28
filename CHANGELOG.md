@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.17.1 — 2026-09-29
+
+- `app.js`: the first administrator never gets a password from an example: the values the apps'
+  own `.env.example` files carried before the suite (`cambia-esta-clave`, `cambia-esto`) count as
+  not set too, and a random one is printed instead.
+
 ## 0.17.0 — 2026-09-28
 
 - `mail.js`: `checkSmtp()` and `mailer.verify()` check an SMTP server without sending anything:
