@@ -22,7 +22,7 @@
  * A provider adapter is:
  *   {
  *     id: 'stripe',
- *     checkoutUrl({ subject, customer, product, price, email, returnUrl }) → Promise<url>,
+ *     checkoutUrl({ subject, customer, product, price, kind, email, returnUrl }) → Promise<url>,
  *     portalUrl({ customer, returnUrl }) → Promise<url>,
  *     parseWebhook({ headers, body }) → Promise<event | event[] | null>   (throws on a bad signature)
  *   }
@@ -153,6 +153,8 @@ export function createBilling({
     if (!spec || !planIds.has(spec.plan)) { errors.push(`Product "${key}": plan "${spec?.plan}" is not in the catalog`); continue; }
     if (!['subscription', 'once'].includes(spec.kind)) { errors.push(`Product "${key}": kind must be "subscription" or "once"`); continue; }
     if (spec.days != null && !(Number.isInteger(spec.days) && spec.days > 0)) errors.push(`Product "${key}": days must be a whole number above 0`);
+    // Stripe sells prices: each product says which one (price_…).
+    if (provider?.needsPrice && !spec.price) errors.push(`Product "${key}": ${provider.id} needs its price (price_…)`);
     catalog[key] = { key, plan: spec.plan, kind: spec.kind, days: spec.days ?? null, for: spec.for === 'organization' ? 'organization' : 'user', price: spec.price ?? null, name: spec.name ?? null };
   }
   const enabled = Boolean(provider) && !errors.length;
@@ -288,7 +290,9 @@ export function createBilling({
       AND subject_type = ? AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, subject.type, subject.id)) {
       throw new HttpError(409, 'already_subscribed');
     }
-    return provider.checkoutUrl({ subject, customer: customerOf(subject), product: product.key, price: product.price, email, returnUrl });
+    return provider.checkoutUrl({
+      subject, customer: customerOf(subject), product: product.key, price: product.price, kind: product.kind, email, returnUrl,
+    });
   }
 
   async function portalUrl(subject, { returnUrl }) {

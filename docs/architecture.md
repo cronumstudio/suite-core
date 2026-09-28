@@ -68,7 +68,8 @@ suite-core/
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats
   entitlements.js       done   features, plans and grants; can() / limit() / require()
-  billing.js            done   payments turned into grants: provider interface, signed webhooks; Stripe later
+  billing.js            done   payments turned into grants: provider interface, signed webhooks
+  stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js                      SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -521,8 +522,20 @@ provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkou
 (`t=…,v1=…`, HMAC-SHA256, the scheme Stripe uses, five minutes of tolerance). It is what the tests
 use and what a private service of the hosted suite (working name *Cronum Accounts*) would send: that
 service would hold products, customers and subscriptions for every app, with WorkOS and the real
-payment provider, and push each app its grants; the apps would not change. The Stripe adapter (or a
-merchant of record such as Paddle, which also settles EU VAT) comes when a price is decided.
+payment provider, and push each app its grants; the apps would not change.
+
+**Stripe** (`stripe.js`, **done**, v0.18.0; the provider chosen on 2026-09-28, with Stripe Tax for
+EU VAT). `BILLING_PROVIDER=stripe`, `STRIPE_SECRET_KEY` (sk_… or a restricted rk_…) and
+`STRIPE_WEBHOOK_SECRET` (whsec_…, the endpoint's signing secret), checked on start; every product
+needs its `price` (price_…). No SDK: Checkout Sessions and Customer Portal sessions are two
+form-encoded calls. What goes to Stripe says who pays and for what —`metadata.subject`
+("user:12", "organization:3") and `metadata.product` on the session, the subscription and the
+payment—, so the webhooks say it back without the app keeping any state; a subscription changed
+in the portal is recognised by its price. `customer.subscription.created/updated/deleted` become
+subscription events (the period end read from the subscription or, in newer API versions, from its
+item), `checkout.session.completed` and `.async_payment_succeeded` of a paid one-off payment
+become purchases, and a full `charge.refunded` a refund; everything else is acknowledged and
+ignored. The webhook to set in Stripe's dashboard is `BASE_URL/api/billing/webhook`.
 
 ## 10. Organizations
 
@@ -718,4 +731,4 @@ first, then Tasks, then the rest.
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
-| `billing.js` | done (v0.10.0: interface, signed provider, grants) | a real adapter (Stripe or a merchant of record) when a price is decided; Next keeps it off |
+| `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |

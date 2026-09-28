@@ -161,9 +161,24 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   let billing = null;
   if (env.BILLING_PROVIDER) {
     if (!modules.billing) errors.push('BILLING_PROVIDER is set, but this app has modules.billing off');
-    else if (env.BILLING_PROVIDER !== 'remote') errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": only "remote" is available so far`);
-    else if (!env.BILLING_SECRET || env.BILLING_SECRET.length < 16) errors.push('BILLING_PROVIDER=remote needs BILLING_SECRET (16 characters or more)');
-    else billing = { provider: 'remote', secret: env.BILLING_SECRET, url: String(env.BILLING_URL || '').replace(/\/+$/, '') };
+    else if (env.BILLING_PROVIDER === 'remote') {
+      if (!env.BILLING_SECRET || env.BILLING_SECRET.length < 16) errors.push('BILLING_PROVIDER=remote needs BILLING_SECRET (16 characters or more)');
+      else billing = { provider: 'remote', secret: env.BILLING_SECRET, url: String(env.BILLING_URL || '').replace(/\/+$/, '') };
+    } else if (env.BILLING_PROVIDER === 'stripe') {
+      const missing = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'].filter((name) => !env[name]);
+      if (missing.length) errors.push(`BILLING_PROVIDER=stripe needs ${missing.join(' and ')}`);
+      else if (!/^(sk|rk)_(test|live)_\S+$/.test(env.STRIPE_SECRET_KEY)) errors.push('STRIPE_SECRET_KEY must be a Stripe secret key (sk_test_…, sk_live_…) or a restricted one (rk_…)');
+      else if (!/^whsec_\S+$/.test(env.STRIPE_WEBHOOK_SECRET)) errors.push('STRIPE_WEBHOOK_SECRET must be the webhook endpoint\'s signing secret (whsec_…)');
+      else {
+        billing = {
+          provider: 'stripe', secretKey: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+          apiBase: String(env.STRIPE_API_BASE || 'https://api.stripe.com').replace(/\/+$/, ''),
+        };
+        if (env.STRIPE_SECRET_KEY.includes('_live_') && !baseUrl.startsWith('https://')) {
+          warnings.push('STRIPE_SECRET_KEY is a live key but BASE_URL is not https: Stripe will not reach the webhook');
+        }
+      }
+    } else errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": use stripe or remote`);
   }
 
   const install = {

@@ -39,6 +39,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import { createBilling, signedProvider, registerBillingApi } from './billing.js';
+import { stripeProvider } from './stripe.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers } from './workos-accounts.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
@@ -164,9 +165,14 @@ export function createSuite({
     accounts.whenRemoved((userId) => organizations.forgetUser(userId));
   }
 
+  const billingProvider = !install.billing ? null
+    : install.billing.provider === 'stripe' ? stripeProvider({
+      secretKey: install.billing.secretKey, webhookSecret: install.billing.webhookSecret,
+      apiBase: install.billing.apiBase, products: config.products, log,
+    })
+      : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
   const billing = config.modules.billing ? createBilling({
-    database, entitlements, products: config.products, audit, log,
-    provider: install.billing ? signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url }) : null,
+    database, entitlements, products: config.products, audit, log, provider: billingProvider,
   }) : null;
 
   // A misspelled catalog could leave a barrier open, or charge for nothing.

@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.18.0 — 2026-09-29
+
+- `stripe.js`: Stripe as billing's provider (`BILLING_PROVIDER=stripe`, `STRIPE_SECRET_KEY`,
+  `STRIPE_WEBHOOK_SECRET`). Hosted Checkout —a subscription or a one-off payment, for a person or
+  a group— and the Customer Portal, with plain `fetch` and no SDK; the `Stripe-Signature`
+  header checked (several v1 while a secret rolls, five minutes of tolerance); subscription,
+  paid one-off payment and full refund events turned into the suite's, with who pays and what
+  carried in the metadata and a portal change recognised by its price. What Stripe refuses goes to
+  the log and the request gets `billing_provider_error`.
+- `billing.js`: the adapter is told the product's kind; a provider that sells prices
+  (`needsPrice`) refuses a product without its `price`.
+- `config.js`: `BILLING_PROVIDER` takes `stripe` or `remote`; the Stripe keys are checked on start,
+  and a live key without an https BASE_URL is warned about.
+
 ## 0.17.1 — 2026-09-29
 
 - `app.js`: the first administrator never gets a password from an example: the values the apps'
