@@ -50,6 +50,7 @@ import { createOAuthServer } from './oauth.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createPush, vapidKeys } from './push.js';
+import { createUploads } from './uploads.js';
 import { createMcpServer } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
@@ -281,6 +282,10 @@ export function createSuite({
   const push = config.modules.push ? createPush({
     database, vapid: vapidKeys(database, install.push, { log: (line) => log(`${tag} ${line}`) }), log,
   }) : null;
+  // Files people attach, with modules.uploads: stored, served and swept here; the app keeps its table.
+  const uploads = config.modules.uploads
+    ? createUploads({ dir: path.join(install.dataDir, 'uploads'), log: (line) => log(line) })
+    : null;
   // The screens' texts (the OAuth consent, mail, a test notice): the app's hook, or the suite's.
   const texts = hooks.texts || createTexts();
 
@@ -356,7 +361,7 @@ export function createSuite({
     || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
 
   return {
-    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements,
+    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
   };
 }

@@ -31,6 +31,8 @@ export const MODULES = Object.freeze({
   live: false,
   // Web Push (push.js) and its routes at /api/push/*; off by default for the same reason.
   push: false,
+  // Files people attach (uploads.js), under DATA_DIR/uploads: the app's routes use suite.uploads.
+  uploads: false,
 });
 
 const PRODUCT_KEYS = new Set([

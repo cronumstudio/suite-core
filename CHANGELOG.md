@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.24.0 — 2026-09-29
+
+- `uploads.js`: the attachments of Tasks, for every app (`suite.uploads` with `modules.uploads`).
+  `store(req, { folder, name })` streams the raw request body to
+  `DATA_DIR/uploads/<folder>/<random>-<name>`, deciding the type by the first bytes (JPG, PNG, GIF,
+  WebP, PDF; never SVG) before anything touches the disk, written as `.partial` until complete;
+  `serve()` sends a file once the app checked who may see it (`nosniff`, `private, no-cache`,
+  ETag, the name in UTF-8, a read error cuts the download instead of the process); `remove()`,
+  `resolve()` (never outside the folder) and `sweep(livePaths)`, which refuses when the database
+  knows no file or more than half the folder would go. Names are the same on every server.
+- `i18n/`: `file_type`, `file_too_large`, `file_empty`, `upload_cut`, `file_missing`.
+
 ## 0.23.0 — 2026-09-29
 
 - `push.js`: Web Push from Tasks, with no dependencies: the message encrypted for each device

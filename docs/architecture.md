@@ -74,7 +74,7 @@ suite-core/
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language
-  uploads.js                   file storage checked by content, trash and orphan sweep
+  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
   account-mail.js       done   confirming emails, new passwords, invitations, open sign-up
   two-factor.js         done   two-step verification: TOTP codes, recovery codes, the challenge
@@ -692,11 +692,15 @@ keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js
   `/api/push/test`; the app composes the real messages and chooses who gets them
   (`suite.push.sendTo(userIds, payload | (subscription) => payload)`), as Tasks batches other
   people's changes to a shared list.
-- **Uploads** (from Tasks): the file travels as the raw request body; the type is decided by its
-  first bytes (images and PDF; never SVG); files live under `DATA_DIR/uploads` and are never served
-  as static files; soft delete with a trash, purge after N days, and an orphan sweep that refuses to
-  run when the database looks restored without its files. The app keeps its own table linking files
-  to its records and decides who may see them. Storage per user or organization can be a plan limit.
+- **Uploads** (**done**, v0.24.0, from Tasks, `suite.uploads` with `modules.uploads`): the file
+  travels as the raw request body and is streamed to `DATA_DIR/uploads/<folder>/<random>-<name>`
+  (written as `.partial` and renamed at the end); the type is decided by its first bytes (images
+  and PDF; never SVG) before anything touches the disk; files are never served as static files:
+  `serve()` answers after the app checked who may see it, with the type we say, `nosniff`,
+  `private, no-cache` and a read error that cuts the download instead of the process. The orphan
+  sweep takes loose files over a day old and refuses when the database knows none or more than half
+  the folder would go. The app keeps its own table linking files to its records, its limits and its
+  trash (Tasks' `task_files`). Storage per user or organization can be a plan limit.
 - **Mail** (**done**, v0.14.0): `mail.js` sends through SMTP (`MAIL_PROVIDER=smtp`, `MAIL_HOST`,
   `MAIL_PORT`, `MAIL_SECURE` tls | starttls | none, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`) with a
   client of its own —no dependencies, STARTTLS required unless told otherwise, AUTH PLAIN or LOGIN,
@@ -770,6 +774,6 @@ first, then Tasks, then the rest.
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
-| `uploads.js` | planned | from Tasks |
+| `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
 | Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
 | `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |
