@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.23.0 — 2026-09-29
+
+- `push.js`: Web Push from Tasks, with no dependencies: the message encrypted for each device
+  (RFC 8291, aes128gcm) and signed with VAPID (RFC 8292). The install's keys come from
+  `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` or are generated on the first start and kept in the
+  database; a wrong or half pair is warned about and the install's own are used. One subscription
+  per device with its language, in Tasks' own table (its subscriptions survive), endpoints checked
+  before the server visits them, gone ones and ones failing three times pruned.
+  `sendTo(userIds, payload)` takes a payload or a function of each device (its language).
+- `config.js`: `modules.push` (off by default) and `VAPID_SUBJECT` (else `mailto:ADMIN_EMAIL`, or
+  the app's https address).
+- `api.js`: `/api/push/config`, `/api/push/subscribe` (POST, DELETE), `/api/push/devices` and
+  `/api/push/test` (a test notice to every device of the person, in their language).
+- Suite migration 13 (`push-subscriptions`). `i18n/`: `push.test` and the names of the fields.
+
 ## 0.22.0 — 2026-09-29
 
 - `app.js`: an account that changes tells the person's open tabs, with `event: account` on the

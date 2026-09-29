@@ -49,9 +49,10 @@ import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
+import { createPush, vapidKeys } from './push.js';
 import { createMcpServer } from './mcp.js';
 import {
-  registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi,
+  registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
 } from './api.js';
 import {
   HttpError, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
@@ -276,10 +277,17 @@ export function createSuite({
   }) : null;
   if (oauth) accounts.whenRemoved((userId) => oauth.forgetUser(userId));
 
+  // Web Push, with modules.push: the install's VAPID keys (the environment's, or the database's).
+  const push = config.modules.push ? createPush({
+    database, vapid: vapidKeys(database, install.push, { log: (line) => log(`${tag} ${line}`) }), log,
+  }) : null;
+  // The screens' texts (the OAuth consent, mail, a test notice): the app's hook, or the suite's.
+  const texts = hooks.texts || createTexts();
+
   // Mail: an SMTP server, or the server's log until one is set.
   const mailer = createMailer(install.mail, { log });
   const accountMail = createAccountMail({
-    database, accounts, mailer, texts: hooks.texts || createTexts(), baseUrl: install.baseUrl,
+    database, accounts, mailer, texts, baseUrl: install.baseUrl,
     appName: config.app.name, limiter, audit, signup: config.accounts.signup,
     localPasswords: install.authProvider === 'local', roles: config.accounts.roles, log,
   });
@@ -348,8 +356,8 @@ export function createSuite({
     || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
 
   return {
-    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, entitlements, organizations,
-    billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
+    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements,
+    organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
   };
 }
 
@@ -373,8 +381,8 @@ export function createApp({
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log,
 }) {
   const {
-    config, sessions, accounts, tokens, audit, limiter, twoFactor, live, entitlements, organizations, billing, workos,
-    idp, oauth, mailer, accountMail,
+    config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
+    billing, workos, idp, oauth, mailer, accountMail,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
@@ -402,6 +410,7 @@ export function createApp({
   });
   if (config.modules.admin) registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
+  if (push) registerPushApi(api, { push, texts, appName: config.app.name });
   if (config.modules.live) {
     /** The live channel of this tab: notices of what changed for this person (live.js). */
     api.get('/api/events', (ctx) => {

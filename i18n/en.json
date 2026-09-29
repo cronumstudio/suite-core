@@ -119,6 +119,9 @@
   "errors.mail_failed": "The email could not be sent. Whoever runs this installation can see why in the server log.",
   "fields.login": "Username or email",
   "fields.code": "Code",
+  "fields.endpoint": "Notification service address",
+  "fields.p256dh": "Device key",
+  "fields.auth": "Device secret",
   "errors.generic": "Something went wrong. Try again.",
   "errors.offline": "The server can’t be reached.",
   "errors.code_invalid": "That code isn’t right. Use the one your app shows now, or one of your recovery codes.",
@@ -308,5 +311,6 @@
   "admin.actions.auth_two_factor_enable": "Turned on two-step verification",
   "admin.actions.auth_two_factor_disable": "Turned off two-step verification",
   "admin.actions.auth_two_factor_recovery_codes": "Made new recovery codes",
-  "admin.actions.admin_user_two_factor_off": "Turned off someone’s two-step verification"
+  "admin.actions.admin_user_two_factor_off": "Turned off someone’s two-step verification",
+  "push.test": "Notifications work. This is a test message."
 }

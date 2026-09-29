@@ -119,6 +119,9 @@
   "errors.mail_failed": "No se ha podido enviar el correo. Quien administra esta instalación puede ver el motivo en el registro del servidor.",
   "fields.login": "Usuario o email",
   "fields.code": "Código",
+  "fields.endpoint": "Dirección del servicio de avisos",
+  "fields.p256dh": "Clave del dispositivo",
+  "fields.auth": "Secreto del dispositivo",
   "errors.generic": "Algo ha fallado. Inténtalo de nuevo.",
   "errors.offline": "No se puede contactar con el servidor.",
   "errors.code_invalid": "Ese código no es correcto. Usa el que muestra ahora tu aplicación o uno de tus códigos de recuperación.",
@@ -308,5 +311,6 @@
   "admin.actions.auth_two_factor_enable": "Activó la verificación en dos pasos",
   "admin.actions.auth_two_factor_disable": "Desactivó la verificación en dos pasos",
   "admin.actions.auth_two_factor_recovery_codes": "Generó códigos de recuperación nuevos",
-  "admin.actions.admin_user_two_factor_off": "Quitó la verificación en dos pasos a alguien"
+  "admin.actions.admin_user_two_factor_off": "Quitó la verificación en dos pasos a alguien",
+  "push.test": "Los avisos funcionan. Este es un mensaje de prueba."
 }

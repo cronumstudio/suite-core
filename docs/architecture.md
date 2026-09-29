@@ -73,7 +73,7 @@ suite-core/
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
-  push.js                      Web Push (VAPID, RFC 8291), subscriptions per device and language
+  push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language
   uploads.js                   file storage checked by content, trash and orphan sweep
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
   account-mail.js       done   confirming emails, new passwords, invitations, open sign-up
@@ -682,9 +682,16 @@ keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js
 
 ## 16. Push, uploads, mail and audit
 
-- **Push** (from Tasks): VAPID keys generated on the first start and kept in `app_meta` unless
-  `VAPID_*` are set; one subscription per device with its language; failed endpoints pruned; the
-  app composes the messages (Tasks batches other people's changes, Projects sends a daily summary).
+- **Push** (**done**, v0.23.0, from Tasks, with `modules.push`): VAPID keys generated on the first
+  start and kept in `app_meta` unless `VAPID_*` are set (a wrong or half pair is warned about and the
+  install's own keys are used: notifications never stop an app); one subscription per device with
+  its language, in Tasks' own `push_subscriptions` table so its subscriptions survive the move;
+  endpoints checked before the server ever visits them (https, port 443, no IP literals, no names
+  of a home network); gone ones (404, 410) and ones that fail three times pruned. The routes are
+  `/api/push/config`, `/api/push/subscribe` (POST, DELETE), `/api/push/devices` and
+  `/api/push/test`; the app composes the real messages and chooses who gets them
+  (`suite.push.sendTo(userIds, payload | (subscription) => payload)`), as Tasks batches other
+  people's changes to a shared list.
 - **Uploads** (from Tasks): the file travels as the raw request body; the type is decided by its
   first bytes (images and PDF; never SVG); files live under `DATA_DIR/uploads` and are never served
   as static files; soft delete with a trash, purge after N days, and an orphan sweep that refuses to
@@ -762,6 +769,7 @@ first, then Tasks, then the rest.
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
-| `push.js`, `uploads.js` | planned | from Tasks |
+| `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
+| `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
 | `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |

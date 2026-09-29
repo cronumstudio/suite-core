@@ -119,6 +119,9 @@
   "errors.mail_failed": "Die E-Mail konnte nicht gesendet werden. Wer diese Installation verwaltet, sieht den Grund im Serverprotokoll.",
   "fields.login": "Benutzername oder E-Mail",
   "fields.code": "Code",
+  "fields.endpoint": "Adresse des Benachrichtigungsdienstes",
+  "fields.p256dh": "Geräteschlüssel",
+  "fields.auth": "Gerätegeheimnis",
   "errors.generic": "Etwas ist schiefgegangen. Versuche es erneut.",
   "errors.offline": "Der Server ist nicht erreichbar.",
   "errors.code_invalid": "Dieser Code stimmt nicht. Nimm den, den deine App gerade anzeigt, oder einen deiner Wiederherstellungscodes.",
@@ -308,5 +311,6 @@
   "admin.actions.auth_two_factor_enable": "Hat die Bestätigung in zwei Schritten eingeschaltet",
   "admin.actions.auth_two_factor_disable": "Hat die Bestätigung in zwei Schritten ausgeschaltet",
   "admin.actions.auth_two_factor_recovery_codes": "Hat neue Wiederherstellungscodes erstellt",
-  "admin.actions.admin_user_two_factor_off": "Hat bei jemandem die Bestätigung in zwei Schritten ausgeschaltet"
+  "admin.actions.admin_user_two_factor_off": "Hat bei jemandem die Bestätigung in zwei Schritten ausgeschaltet",
+  "push.test": "Benachrichtigungen funktionieren. Dies ist eine Testnachricht."
 }

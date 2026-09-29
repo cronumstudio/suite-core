@@ -17,6 +17,7 @@ import { LANGUAGES } from './i18n.js';
 import { workosConfigFromEnv } from './workos.js';
 import { oidcConfigFromEnv } from './oidc.js';
 import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
+import { vapidKeyErrors } from './push.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -28,6 +29,8 @@ export const MODULES = Object.freeze({
   // The live channel at GET /api/events (live.js). Off by default: an app that
   // still serves its own there would lose it silently when it moves up.
   live: false,
+  // Web Push (push.js) and its routes at /api/push/*; off by default for the same reason.
+  push: false,
 });
 
 const PRODUCT_KEYS = new Set([
@@ -157,6 +160,27 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
 
   const mail = mailConfigFromEnv(env);
   errors.push(...mailConfigErrors(mail));
+
+  // Web Push: the install's VAPID keys, both or neither (without them the app
+  // generates a pair on its first start and keeps it in the database).
+  const push = {
+    publicKey: env.VAPID_PUBLIC_KEY || null,
+    privateKey: env.VAPID_PRIVATE_KEY || null,
+    // Who push services write to if something goes wrong: an email, or the app's address.
+    subject: env.VAPID_SUBJECT
+      || (env.ADMIN_EMAIL ? `mailto:${env.ADMIN_EMAIL}` : baseUrl.startsWith('https://') ? baseUrl : 'mailto:admin@localhost'),
+  };
+  // A mistake here doesn't stop the app (notifications are an extra): it is
+  // said, and the install's own keys, generated and kept, are used instead.
+  const vapidProblem = Boolean(push.publicKey) !== Boolean(push.privateKey)
+    ? 'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY go together: set both or neither'
+    : push.publicKey ? vapidKeyErrors(push) : null;
+  if (vapidProblem) {
+    warnings.push(`${vapidProblem}. Notifications use keys generated for this install instead.`);
+    push.publicKey = null;
+    push.privateKey = null;
+  }
+  if (!/^(mailto:|https:)/.test(push.subject)) warnings.push('VAPID_SUBJECT should be a mailto: or https: address');
   if (accounts.signup !== 'admin' && mail.provider === 'log') {
     warnings.push(`Sign-up is "${accounts.signup}" but MAIL_PROVIDER is log: confirmation and invitation links only reach the server's log`);
   }
@@ -211,6 +235,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     defaultPlan: env.DEFAULT_PLAN,
     billing,
     mail,
+    push,
     hotReload: (env.HOT_RELOAD ?? env.RECARGA_EN_CALIENTE) === 'true',
   };
 

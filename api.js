@@ -126,6 +126,66 @@ export function registerAuthApi(router, {
 }
 
 /**
+ * Web Push (push.js): a person's devices. The config the page needs to
+ * subscribe (the VAPID public key), registering and forgetting a device, the
+ * list for Settings and a test notice to every device of the person, in their
+ * language. What each real notice says, and to whom, is the app's.
+ */
+export function registerPushApi(router, { push, texts, appName }) {
+  const requireUser = (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    return ctx.user;
+  };
+
+  router.get('/api/push/config', (ctx) => {
+    requireUser(ctx);
+    sendJson(ctx.res, 200, { enabled: true, public_key: push.publicKey });
+  });
+
+  /** Registers (or updates) the device that just gave permission. */
+  router.post('/api/push/subscribe', async (ctx) => {
+    const user = requireUser(ctx);
+    const body = await readJson(ctx.req);
+    const devices = push.subscribe(user.id, {
+      endpoint: str(body.endpoint, { field: 'endpoint', max: 1000, min: 20 }),
+      p256dh: body.p256dh ?? body.keys?.p256dh,
+      auth: body.auth ?? body.keys?.auth,
+      label: body.label ?? null,
+      lang: body.lang ?? null,
+    });
+    sendJson(ctx.res, 201, { ok: true, devices });
+  });
+
+  /** Forgets this device (`?endpoint=`), or all of the person's without it. */
+  router.delete('/api/push/subscribe', (ctx) => {
+    const user = requireUser(ctx);
+    push.unsubscribe(user.id, ctx.query.get('endpoint') || null);
+    sendJson(ctx.res, 200, { ok: true });
+  });
+
+  router.get('/api/push/devices', (ctx) => {
+    const user = requireUser(ctx);
+    sendJson(ctx.res, 200, push.devices(user.id));
+  });
+
+  /** A test notice to every device of the person. → { sent, gone, failed } */
+  router.post('/api/push/test', async (ctx) => {
+    const user = requireUser(ctx);
+    const subscriptions = push.subscriptionsOf([user.id]);
+    if (!subscriptions.length) {
+      sendJson(ctx.res, 200, { sent: 0, gone: 0, failed: 0, no_devices: true });
+      return;
+    }
+    const result = await push.deliver(subscriptions, (sub) => {
+      // The person's language, else the device's.
+      const { t } = texts({ headers: { 'accept-language': sub.lang || '' } }, user);
+      return { title: `✅ ${appName}`, body: t('push.test'), tag: 'test' };
+    });
+    sendJson(ctx.res, 200, result);
+  });
+}
+
+/**
  * What accounts do by mail (account-mail.js): a new password when the old one
  * is forgotten, confirming an email, signing up with an invitation or, when
  * the install leaves it open, without one; and the admin's invitations. The

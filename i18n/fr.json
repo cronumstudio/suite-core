@@ -119,6 +119,9 @@
   "errors.mail_failed": "L’e-mail n’a pas pu être envoyé. La personne qui administre cette installation peut en voir la raison dans le journal du serveur.",
   "fields.login": "Nom d’utilisateur ou e-mail",
   "fields.code": "Code",
+  "fields.endpoint": "Adresse du service de notifications",
+  "fields.p256dh": "Clé de l’appareil",
+  "fields.auth": "Secret de l’appareil",
   "errors.generic": "Quelque chose a échoué. Réessayez.",
   "errors.offline": "Le serveur est injoignable.",
   "errors.code_invalid": "Ce code n’est pas bon. Utilisez celui que votre application affiche maintenant, ou l’un de vos codes de secours.",
@@ -308,5 +311,6 @@
   "admin.actions.auth_two_factor_enable": "A activé la validation en deux étapes",
   "admin.actions.auth_two_factor_disable": "A désactivé la validation en deux étapes",
   "admin.actions.auth_two_factor_recovery_codes": "A créé de nouveaux codes de secours",
-  "admin.actions.admin_user_two_factor_off": "A désactivé la validation en deux étapes de quelqu’un"
+  "admin.actions.admin_user_two_factor_off": "A désactivé la validation en deux étapes de quelqu’un",
+  "push.test": "Les notifications fonctionnent. Ceci est un message de test."
 }
