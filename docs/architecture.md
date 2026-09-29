@@ -71,7 +71,7 @@ suite-core/
   billing.js            done   payments turned into grants: provider interface, signed webhooks
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
-  live.js                      SSE hub with audiences, event ids and replay
+  live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js                      Web Push (VAPID, RFC 8291), subscriptions per device and language
   uploads.js                   file storage checked by content, trash and orphan sweep
@@ -594,12 +594,16 @@ audit) and the live channel. Errors are codes, never sentences (see CONVENTIONS.
 
 ## 12. Live updates
 
-`live.js` keeps one SSE channel per browser tab (`GET /api/events`): `retry:`, a heartbeat every
-25 s, `X-Accel-Buffering: no`, exempt from the request timeout. The app publishes
-`live.publish({ type, audience, data })`, where `audience` is a list of user ids or an organization.
-Every event carries an `id:`; a short ring buffer lets a client that reconnects with `Last-Event-ID`
-receive what it missed, and a gap larger than the buffer (or a restart) sends `event: resync`, after
-which the client reloads what it shows. Events may carry the new state (Focus's run contract) or
+`live.js` (**done**, v0.21.0) keeps one SSE channel per browser tab (`GET /api/events`, served by
+`createApp` when the app turns on `modules.live`; off by default, so an app that still serves its
+own route there doesn't lose it on moving up): `retry:`, a heartbeat every 25 s,
+`X-Accel-Buffering: no`, exempt from the socket timeout, and `hello` on opening. The app publishes
+`suite.live.publish({ audience, data, event })`: `audience` is a list of user ids (null: everyone
+connected; the app works out who can see what changed, as Tasks does with a list's shares),
+`event` is `change` unless it says otherwise. Every event carries an id, `<run>.<n>`; the last 256
+are remembered, so a tab that reconnects with `Last-Event-ID` (EventSource sends it by itself)
+gets what it missed, and one that missed more, or comes from another run of the server, gets
+`event: resync` and reloads what it shows. Events may carry the new state (Focus's run contract) or
 just say what changed (Tasks' lists): the app chooses.
 
 ## 13. MCP
@@ -752,6 +756,7 @@ first, then Tasks, then the rest.
 | `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
-| `live.js`, `push.js`, `uploads.js` | planned | from Tasks |
+| `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
+| `push.js`, `uploads.js` | planned | from Tasks |
 | Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
 | `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |

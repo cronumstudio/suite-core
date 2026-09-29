@@ -48,12 +48,13 @@ import { createAccountMail } from './account-mail.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { createTwoFactor } from './two-factor.js';
+import { createLive } from './live.js';
 import { createMcpServer } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi,
 } from './api.js';
 import {
-  HttpError, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin,
+  HttpError, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
 } from './http.js';
 import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
@@ -151,6 +152,8 @@ export function createSuite({
     limits: config.rateLimits,
     trustProxy: install.trustProxy,
   });
+  // Notices for the open tabs (GET /api/events, with modules.live): the app publishes what changed.
+  const live = createLive();
   // A code from an app after the password; with a provider, the second step is the provider's.
   const twoFactor = install.authProvider === 'local'
     ? createTwoFactor({ database, sign: sessions.sign, issuer: config.app.name, limiter })
@@ -340,8 +343,8 @@ export function createSuite({
     || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
 
   return {
-    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, entitlements, organizations, billing,
-    workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
+    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, entitlements, organizations,
+    billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
   };
 }
 
@@ -365,8 +368,8 @@ export function createApp({
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log,
 }) {
   const {
-    config, sessions, accounts, tokens, audit, limiter, twoFactor, entitlements, organizations, billing, workos, idp,
-    oauth, mailer, accountMail,
+    config, sessions, accounts, tokens, audit, limiter, twoFactor, live, entitlements, organizations, billing, workos,
+    idp, oauth, mailer, accountMail,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
@@ -394,6 +397,13 @@ export function createApp({
   });
   if (config.modules.admin) registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
+  if (config.modules.live) {
+    /** The live channel of this tab: notices of what changed for this person (live.js). */
+    api.get('/api/events', (ctx) => {
+      if (!ctx.user) throw unauthorized();
+      live.subscribe(ctx.req, ctx.res, ctx.user);
+    });
+  }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
 
   let appApi = routes;
@@ -674,6 +684,8 @@ export function createApp({
 
   function close() {
     for (const timer of timers) clearInterval(timer);
+    // Open tabs would keep the server from closing.
+    live.close();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 

@@ -25,6 +25,9 @@ export const MODULES = Object.freeze({
   admin: true,            // /api/admin/*
   organizations: false,   // groups with members, roles and a shared plan
   billing: false,         // payments, when an install also sets BILLING_PROVIDER
+  // The live channel at GET /api/events (live.js). Off by default: an app that
+  // still serves its own there would lose it silently when it moves up.
+  live: false,
 });
 
 const PRODUCT_KEYS = new Set([

@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.21.0 — 2026-09-29
+
+- `live.js`: the live channel Next, Tasks and Projects each had, once. One SSE stream per tab
+  (`retry`, a heartbeat every 25 s, `X-Accel-Buffering: no`, `hello` on opening);
+  `suite.live.publish({ audience, data, event })` sends a notice to the user ids in `audience`
+  (everyone connected without one). New: every event has an id (`<run>.<n>`) and the last 256 are
+  remembered, so a tab that reconnects with `Last-Event-ID` gets what it missed; when that is not
+  possible (too much missed, another run of the server) it gets `event: resync`.
+- `config.js`: `modules.live`, off by default. With it on, `createApp()` serves
+  `GET /api/events` for whoever is signed in and closes the open tabs on shutdown; off, the app
+  keeps that path for itself, so an app with its own channel doesn't lose it on moving up.
+
 ## 0.20.1 — 2026-09-29
 
 - `i18n/`: `errors.billing_provider_error` and `errors.billing_provider_unavailable`, which

@@ -41,6 +41,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `rate-limit.js` | The brute-force brake kept in the database: per account, per address, the second step's codes per account, tokens and client registrations |
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
 | `mcp.js` | The MCP transport (Streamable HTTP, JSON-RPC): the app hands in its tools, prompts and instructions, how a token becomes a principal, and its plan check per tool |
+| `live.js` | Notices for the open tabs over Server-Sent Events (`GET /api/events` with `modules.live`): `publish({ audience, data })` to the people it concerns, heartbeats, and ids so a tab that reconnects gets what it missed, or `resync` |
 | `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, and `can()` / `limit()` / `require()` |
 | `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans, subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order |
 | `stripe.js` | Stripe as billing's provider (`BILLING_PROVIDER=stripe`): hosted Checkout and Customer Portal with plain `fetch`, the `Stripe-Signature` checked, and its subscription, payment and refund events turned into grants — no SDK |
