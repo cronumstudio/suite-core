@@ -75,6 +75,8 @@ suite-core/
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes
+  zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
+  portability.js        done   copies of someone's data and of the whole install, and importing them
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
   account-mail.js       done   confirming emails, new passwords, invitations, open sign-up
   two-factor.js         done   two-step verification: TOTP codes, recovery codes, the challenge
@@ -82,7 +84,8 @@ suite-core/
   api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
   i18n/                 done   the suite's own texts: en.json, es.json, fr.json, de.json
   web/                  begun  browser kit (§15), served at /suite/; the admin panel at /admin
-  tools/                done   i18n.mjs: catalog parity and keys in use; conformance tests for apps later
+  tools/                done   i18n.mjs: catalog parity and keys in use; data-cli.js: copies from the
+                               command line; conformance tests for apps later
   test/                        suite-core's own tests (node:test)
   docs/                        this document and the module guides
 ```
@@ -380,6 +383,19 @@ CREATE TABLE audit_log (
   ip              TEXT,
   meta            TEXT NOT NULL DEFAULT '{}'   -- never content: no titles, notes or passwords
 );
+
+-- Copies imported here (portability.js): the same one is never applied twice.
+CREATE TABLE data_imports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  export_id   TEXT NOT NULL,             -- the copy's id, from its manifest
+  scope       TEXT NOT NULL,             -- 'account' | 'install': what the copy holds
+  target      TEXT NOT NULL,             -- 'install', or 'user:<id>' for someone's own import
+  imported_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  app_version TEXT,
+  counts      TEXT NOT NULL DEFAULT '{}',
+  imported_at TEXT NOT NULL,
+  UNIQUE (export_id, target)
+);
 ```
 
 **Migrations.** `migrate(db, list, { scope })` applies numbered, immutable migrations in one
@@ -579,7 +595,8 @@ apps learned the hard way:
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
    does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it.
 4. `/mcp`.
-5. The suite's API: `/api/auth/*`, `/api/me/*`, `/api/admin/*`, `/api/orgs/*`, `/api/events`,
+5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
+   `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
    `/api/push/*`, `/api/billing/*`.
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
@@ -720,7 +737,36 @@ keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js
   its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
   changes.
 - **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
-  changes, billing events. Who, when, what and from where; never titles, notes or passwords.
+  changes, billing events, copies exported and imported. Who, when, what and from where; never
+  titles, notes or passwords.
+- **Copies of the data** (**done**, v0.25.0, `portability.js` on `zip.js`, when the app hands
+  `createApp` its `portable` declaration): someone's own copy (`GET /api/me/export`, the GDPR's
+  portability) and the whole install's for the admin (`GET /api/admin/export`), as a zip anyone can
+  open —`manifest.json` (format, id, app, version, the schema's migration numbers, scope, date,
+  counts, what was left out), `data/<table>.json` with the rows as they are, `suite/grants.json`
+  with the plans the admin gave, `files/<path>` with the attachments byte for byte—. The app
+  declares its tables in creation order, which column points at which table or at `users`, and
+  which column is a file; the suite does the rest. A row belongs to a copy when every NOT NULL
+  reference points at something in it; optional ones pointing outside are emptied, so a person's
+  copy takes their lists with everything in them and leaves what they share with other people,
+  counted. Importing is two steps: the upload (`POST /api/me/import`, `/api/admin/import`) waits a
+  day in `DATA_DIR/imports` for its owner and answers what it would do; applying it (`POST
+  …/import/:id`) reads and checks the attachments into a staging folder, then one transaction
+  creates the accounts (without the app's welcome content), empties the accounts to "replace",
+  writes every row with a new id and every reference translated —references to a later table or
+  the same one are set at the end, so they must allow NULL—, the profiles and the record in
+  `data_imports`; only after the commit are the files moved into place. A person's copy goes into
+  the account that imports it; a whole install's goes account by account where the admin says:
+  the account here with the same email by default, a new one (which WorkOS or OIDC link on that
+  person's first sign-in by that email), or none. An existing account takes the copy's
+  preferences and keeps who it is (username, email, role). Never travel: passwords, second steps,
+  sessions, API tokens, OAuth grants, push subscriptions, the audit log, identities at providers.
+  The file is untrusted input: columns this install doesn't have, values that aren't plain, a
+  duplicate id, an unknown table, a newer schema or another app's copy are refused; references
+  outside the file go nowhere; attachments must be images or PDF by their first bytes; sizes have
+  ceilings (entries inflated no further than they declare); in someone's own import no other
+  account or role is touched and the plan's limits hold. `tools/data-cli.js` does the same from
+  the command line, which is how a whole install moves without a browser or a proxy's upload limit.
 
 ## 17. Security baseline
 
@@ -775,5 +821,6 @@ first, then Tasks, then the rest.
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
+| `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud |
 | Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
 | `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |

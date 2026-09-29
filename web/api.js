@@ -18,14 +18,16 @@ export class ApiError extends Error {
 export class SessionExpired extends ApiError {}
 export class Offline extends Error {}
 
-async function request(method, path, body) {
+async function request(method, path, body, { file = false } = {}) {
   let res;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      // A file goes as the raw body, as the suite's uploads expect: no multipart.
+      headers: file ? { 'Content-Type': body.type || 'application/octet-stream' }
+        : body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: file ? body : body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
     throw new Offline();
@@ -43,6 +45,8 @@ export const api = {
   put: (path, body = {}) => request('PUT', path, body),
   patch: (path, body = {}) => request('PATCH', path, body),
   delete: (path) => request('DELETE', path),
+  /** Sends a File or Blob as the body of a POST. */
+  upload: (path, file) => request('POST', path, file, { file: true }),
 };
 
 /** What went wrong, as a sentence: errors.<code>, with the field named in the language. */

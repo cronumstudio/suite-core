@@ -43,6 +43,9 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `mcp.js` | The MCP transport (Streamable HTTP, JSON-RPC): the app hands in its tools, prompts and instructions, how a token becomes a principal, and its plan check per tool |
 | `push.js` | Web Push with no dependencies (RFC 8291 encryption, RFC 8292 VAPID signature): the install's keys, one subscription per device with its language, endpoints checked before the server visits them, gone ones pruned, and `/api/push/*` with `modules.push` |
 | `uploads.js` | Files people attach: the type by the first bytes (images, PDF, never SVG), streamed to `DATA_DIR/uploads` without ever leaving half a file, served with headers that keep them from running on the app's domain, and an orphan sweep that refuses when the database looks wrong |
+| `zip.js` | Zip archives with no dependencies (`node:zlib`): written to any stream an entry at a time, ZIP64 past 4 GB or 65,535 entries; read through the central directory with every entry capped at the size it declares and checked against its CRC |
+| `portability.js` | Copies of the data: someone's own ("Download my data" / "Import data") and the whole install's for the admin, as a zip anyone can open, imported into another install with new ids, every reference translated, accounts mapped by email, created or left out, shares, numbers, dates and attachments kept, and a copy that isn't trusted |
+| `tools/data-cli.js` | The same copies from the command line (each app's `scripts/data.js`): the whole install out, and in with emails, accounts left out and "replace" given as options |
 | `live.js` | Notices for the open tabs over Server-Sent Events (`GET /api/events` with `modules.live`): `publish({ audience, data })` to the people it concerns, heartbeats, and ids so a tab that reconnects gets what it missed, or `resync` |
 | `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, and `can()` / `limit()` / `require()` |
 | `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans, subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order |
@@ -211,6 +214,48 @@ Then, in the app:
 Account policy: an existing user is linked only through a **verified** email; `adminEmail`
 takes over the first admin not yet linked; anyone else gets a new account, also when their first
 contact is connecting an AI client. The users table needs a unique index on the WorkOS id.
+
+## `portability.js`: copies of the data
+
+An app says what its data is, and `createApp({ …, portable })` gives people Settings → "Download
+my data" / "Import data" (`/api/me/export`, `/api/me/import`), the admin a copy of the whole
+install and its import (`/admin` → Data, `/api/admin/export`, `/api/admin/import`), and the app
+a command line with `tools/data-cli.js`.
+
+```js
+export const DATA = {
+  tables: {                                   // in the order their rows are created
+    list_groups: { refs: { user_id: 'users' } },
+    lists: { refs: { owner_id: 'users', group_id: 'list_groups' } },
+    tasks: { refs: { list_id: 'lists', parent_id: 'tasks', created_by: 'users' } },
+    task_files: { refs: { task_id: 'tasks', user_id: 'users' },
+                  file: { path: 'path', folder: 'user_id', feature: 'attachments' } },
+  },
+  users: { columns: ['avatar_color'], prefs: (prefs, { ids, current }) => ({ … }) },
+  check({ user, counts, replaced }) { … },   // the plan's limits, for someone's own import
+};
+```
+
+- A row belongs to someone's copy when every NOT NULL reference points at something in it; an
+  optional one pointing outside is emptied. So a person's copy takes their lists with everything
+  in them and leaves what is shared with other people, counted in the manifest (`left_out`).
+- References to a later table or the same one (a tree, Next's branches and entries) must allow
+  NULL: they are set once every row exists. Every table needs a NOT NULL reference to `users` or
+  to an earlier table.
+- Importing gives every row a new id and translates every reference; accounts go where the
+  admin says (the one here with the same email, a new one, or none), and an existing one takes
+  the copy's preferences but keeps its username, email and role. `prefs` translates the ids the
+  app keeps in its preferences. Passwords, second steps, sessions, tokens, OAuth grants and push
+  subscriptions never travel.
+- A copy is not trusted: only columns this install has, plain values, references inside the
+  file, attachments that are images or PDF by their first bytes, size ceilings, one apply per copy
+  (`data_imports`).
+
+```bash
+node scripts/data.js export copy.zip [--account ana]
+node scripts/data.js import copy.zip --email martin=it@example.com --skip tests          # what it would do
+node scripts/data.js import copy.zip --email martin=it@example.com --skip tests --apply  # doing it
+```
 
 ## Tests
 

@@ -51,6 +51,7 @@ import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createPush, vapidKeys } from './push.js';
 import { createUploads } from './uploads.js';
+import { createPortability, registerPortabilityApi } from './portability.js';
 import { createMcpServer } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
@@ -360,9 +361,21 @@ export function createSuite({
   const authenticateToken = async (token) => tokens.authenticate(token, { scope: 'mcp' })
     || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
 
+  /**
+   * Copies of an account or of the install (portability.js), from what the
+   * app says its data is. createApp makes it when it is given `portable`; a
+   * script of the app (its command line) makes it the same way.
+   */
+  const portabilityFor = (declaration, { version = null } = {}) => createPortability({
+    database, accounts, uploads, entitlements, live, audit,
+    app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
+    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
+  });
+
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
+    portabilityFor,
   };
 }
 
@@ -380,10 +393,12 @@ const DISCOVERY_PATHS = ['/.well-known', '/register', '/authorize', '/token', '/
  * @param {string} [options.version]      the app's version, for /health and the MCP
  * @param {string} [options.watchRoot]    the folder hot reload watches (the server's, by default)
  * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
+ * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
+ *   download and import their data, and the admin the whole install
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
-  version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log,
+  version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -395,13 +410,16 @@ export function createApp({
 
   /* --------------------------- the suite's routes --------------------------- */
 
+  // Copies of accounts and of the install, when the app says what its data is.
+  const portability = portable ? suite.portabilityFor(portable, { version }) : null;
+
   const api = createRouter();
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
-      modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled) },
+      modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
     },
   });
   if (install.authProvider === 'local') {
@@ -424,6 +442,7 @@ export function createApp({
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
+  if (portability) registerPortabilityApi(api, { portability, audit, log });
 
   let appApi = routes;
   if (typeof routes === 'function') {
@@ -667,7 +686,8 @@ export function createApp({
   function listen() {
     suite.ensureAdmin();
     suite.purge();
-    timers.push(setInterval(() => suite.purge(), 6 * HOUR).unref());
+    portability?.purge();
+    timers.push(setInterval(() => { suite.purge(); portability?.purge(); }, 6 * HOUR).unref());
     if (oauth) {
       oauth.purge();
       timers.push(setInterval(() => oauth.purge(), HOUR).unref());
@@ -708,5 +728,5 @@ export function createApp({
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
-  return { server, api, mcp: mcpServer, handle, listen, close };
+  return { server, api, mcp: mcpServer, portability, handle, listen, close };
 }

@@ -1,8 +1,8 @@
 /**
  * The admin panel of every app of the suite, at /admin: accounts, their plans
- * and grants, invitations, the plan catalog, groups and the audit log, drawn
- * on /api/admin/*. The server decides who may do what; this page only shows
- * what it answers, and says what it refuses.
+ * and grants, invitations, the plan catalog, groups, copies of the data and
+ * the audit log, drawn on /api/admin/*. The server decides who may do what;
+ * this page only shows what it answers, and says what it refuses.
  */
 import { $, el, clear } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
@@ -10,13 +10,14 @@ import { t, loadLanguage, pickLanguage, formatDateTime, formatDate } from './i18
 import { toast, field, openDialog, confirmDialog } from './ui.js';
 
 const root = $('#admin');
-const state = { config: null, me: null, catalog: null, organizations: false, invitations: false };
+const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false };
 
 const TABS = [
   ['users', 'admin.tabs.users'],
   ['invitations', 'admin.tabs.invitations'],
   ['plans', 'admin.tabs.plans'],
   ['organizations', 'admin.tabs.organizations'],
+  ['data', 'admin.tabs.data'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -103,6 +104,8 @@ async function start() {
   state.catalog = await api.get('/api/admin/plans').catch(() => null);
   state.organizations = Boolean(state.config.app?.modules?.organizations);
   state.invitations = local();
+  // Copies of the data, when the app says what its data is.
+  state.data = Boolean(state.config.app?.modules?.data);
 
   const app = state.config.app || {};
   clear(root).append(
@@ -124,11 +127,12 @@ async function start() {
 
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
-    && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog));
+    && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data));
 }
 
 const VIEWS = {
-  users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations, audit: renderAudit,
+  users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
+  data: renderData, audit: renderAudit,
 };
 
 function show() {
@@ -506,10 +510,188 @@ async function renderOrganizations(main) {
   );
 }
 
+/* ----------------------------------- data ---------------------------------- */
+
+const sum = (counts, skip = []) => Object.entries(counts || {}).filter(([k]) => !skip.includes(k)).reduce((a, [, b]) => a + b, 0);
+
+/**
+ * Rows in words: the app's own for its tables when it has them
+ * (`data.tables.lists`: "{n} lists"), and plain records for the rest.
+ * The attachments' tables are left to the count of files (`skip`).
+ */
+function rowsText(counts = {}, skip = []) {
+  const parts = [];
+  let other = 0;
+  for (const [table, n] of Object.entries(counts)) {
+    if (skip.includes(table)) continue;
+    const key = `data.tables.${table}`;
+    const text = t(key, { n });
+    if (text === key) other += n;
+    else parts.push(text);
+  }
+  if (other || !parts.length) parts.push(t('admin.data.rowsCount', { n: other }));
+  return parts.join(', ');
+}
+
+async function renderData(main) {
+  const app = state.config.app || {};
+  const file = el('input', { type: 'file', accept: '.zip,application/zip' });
+  const upload = el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.data.upload'), disabled: true });
+  const result = el('div', {});
+  const reset = () => { file.value = ''; upload.disabled = true; };
+  file.addEventListener('change', () => { upload.disabled = !file.files?.length; });
+  upload.addEventListener('click', async () => {
+    const chosen = file.files?.[0];
+    if (!chosen) return;
+    upload.disabled = true;
+    upload.textContent = t('admin.data.uploading');
+    try {
+      paintPlan(result, await api.upload('/api/admin/import', chosen), reset);
+    } catch (err) {
+      fail(err);
+    } finally {
+      upload.textContent = t('admin.data.upload');
+      upload.disabled = !file.files?.length;
+    }
+  });
+
+  main.append(
+    el('h2', { text: t('admin.data.exportTitle') }),
+    el('p', { class: 'kit-lead', text: t('admin.data.exportLead') }),
+    el('div', { class: 'kit-toolbar' },
+      // A plain link: the browser streams the zip to disk, however big it is.
+      el('a', { class: 'kit-btn kit-btn--primary', href: '/api/admin/export', download: '', text: t('admin.data.exportButton') })),
+    el('p', { class: 'kit-hint', text: t('admin.data.exportWarning') }),
+    el('h2', { text: t('admin.data.importTitle'), style: 'margin-top: 28px' }),
+    el('p', { class: 'kit-lead', text: t('admin.data.importLead', { app: app.name || '' }) }),
+    el('div', { class: 'kit-toolbar' }, field(t('admin.data.file'), file), upload),
+    result,
+  );
+}
+
+/** What importing the copy would do: where each of its accounts goes, and doing it. */
+function paintPlan(box, plan, reset) {
+  const copy = plan.copy;
+  const date = formatDateTime(copy.created_at);
+  const version = copy.app?.version || '';
+  const appName = copy.app?.name || state.config.app?.name || '';
+  const decisions = [];
+  const idp = state.config.provider !== 'local';
+
+  const rows = plan.accounts.map((account) => {
+    const { source, choice } = account;
+    const target = el('select', { 'aria-label': t('admin.data.goesTo') },
+      el('option', { value: 'create', text: t('admin.data.newAccount') }),
+      el('option', { value: 'skip', text: t('admin.data.skip') }),
+      plan.targets.map((u) => el('option', { value: String(u.id), text: `${u.display_name} (@${u.username})` })));
+    target.value = choice.action === 'map' ? String(choice.user_id) : choice.action;
+    const username = el('input', {
+      value: choice.username || source.username, maxlength: '32', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false',
+    });
+    const email = el('input', { type: 'email', value: choice.email ?? '', autocomplete: 'off' });
+    const replace = el('input', { type: 'checkbox', checked: Boolean(choice.replace) });
+    // Aligned at the top: a hint under one field mustn't stretch the one beside it.
+    const options = el('div', { class: 'kit-grid', style: 'align-items: start; margin-top: 8px' });
+    const paint = () => {
+      clear(options);
+      if (target.value === 'create') {
+        options.append(
+          field(t('fields.username'), username),
+          field(t('fields.email'), email, idp ? t('admin.data.linkHint', { provider: state.config.name }) : t('admin.data.newLocalHint')));
+      } else if (target.value !== 'skip') {
+        const here = plan.targets.find((u) => String(u.id) === target.value);
+        options.append(sum(here?.owns)
+          ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('admin.data.replace', { rows: rowsText(here.owns) }) }))
+          : el('p', { class: 'kit-hint', text: t('admin.data.nothingOwned') }));
+      }
+    };
+    target.addEventListener('change', () => { replace.checked = false; paint(); });
+    paint();
+    decisions.push(() => {
+      if (target.value === 'skip') return { source: source.id, skip: true };
+      if (target.value === 'create') {
+        return { source: source.id, create: { username: username.value.trim() || null, email: email.value.trim() || null } };
+      }
+      return { source: source.id, user_id: Number(target.value), replace: replace.checked };
+    });
+    return el('tr', {},
+      el('td', {},
+        el('strong', { text: source.display_name }),
+        el('small', { text: `@${source.username} · ${source.email || t('admin.data.noEmail')}` }),
+        source.role === 'admin' ? el('span', { class: 'kit-badge kit-badge--accent', text: t('admin.roles.admin') }) : null,
+        source.disabled ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.disabledBadge') }) : null,
+        el('small', { text: rowsText(account.rows) })),
+      el('td', {}, el('div', { class: 'kit-field' }, target), options));
+  });
+
+  const apply = el('button', {
+    type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.data.apply'), disabled: Boolean(copy.applied_at),
+    onClick: async () => {
+      const accounts = decisions.map((decide) => decide());
+      if (accounts.some((a) => a.replace) && !(await confirmDialog(t('admin.data.confirmReplace')))) return;
+      apply.disabled = true;
+      apply.textContent = t('admin.data.applying');
+      try {
+        paintDone(box, await api.post(`/api/admin/import/${plan.import_id}`, { accounts }));
+        reset();
+      } catch (err) {
+        fail(err);
+        apply.disabled = false;
+        apply.textContent = t('admin.data.apply');
+      }
+    },
+  });
+  const discard = el('button', {
+    type: 'button', class: 'kit-btn', text: t('admin.data.discard'),
+    onClick: async () => {
+      try { await api.delete(`/api/admin/import/${plan.import_id}`); } catch { /* it expires by itself */ }
+      clear(box);
+      reset();
+      toast(t('admin.data.discarded'));
+    },
+  });
+
+  clear(box).append(
+    el('div', { class: 'kit-notice' },
+      el('p', {
+        text: copy.scope === 'install'
+          ? t('admin.data.copyInstall', { app: appName, version, date })
+          : t('admin.data.copyAccount', { name: plan.accounts[0]?.source.display_name || '', app: appName, version, date }),
+      }),
+      copy.source?.base_url ? el('p', { class: 'kit-hint', text: t('admin.data.from', { url: copy.source.base_url }) }) : null,
+      el('p', { text: `${t('admin.data.accountsCount', { n: plan.accounts.length })} · ${rowsText(copy.tables, copy.file_tables)} · ${t('admin.data.filesCount', { n: copy.files?.count ?? 0 })}` }),
+      copy.applied_at ? el('p', { class: 'kit-badge kit-badge--warn', text: t('admin.data.alreadyApplied', { date: formatDateTime(copy.applied_at) }) }) : null),
+    el('h3', { text: t('admin.data.accounts') }),
+    table([t('admin.data.inCopy'), t('admin.data.goesTo')], rows),
+    el('div', { class: 'kit-row' }, apply, discard),
+  );
+}
+
+/** What the import did, and what it left out. */
+function paintDone(box, done) {
+  const files = done.left_out?.files || {};
+  const created = done.accounts.filter((a) => a.created);
+  const leftOut = done.left_out?.tables || {};
+  clear(box).append(el('div', { class: 'kit-notice' },
+    el('p', {
+      text: t('admin.data.done', {
+        accounts: t('admin.data.accountsCount', { n: done.accounts.length }),
+        rows: rowsText(done.imported.tables, done.file_tables), files: t('admin.data.filesCount', { n: done.imported.files }),
+      }),
+    }),
+    created.length ? el('p', { class: 'kit-hint', text: t('admin.data.created', { names: created.map((a) => `@${a.username}`).join(', ') }) }) : null,
+    sum(leftOut, done.file_tables) ? el('p', { class: 'kit-hint', text: t('admin.data.leftOutRows', { rows: rowsText(leftOut, done.file_tables) }) }) : null,
+    files.missing || files.refused || files.too_large ? el('p', {
+      class: 'kit-hint',
+      text: t('admin.data.leftOutFiles', { missing: files.missing || 0, refused: files.refused || 0, large: files.too_large || 0 }),
+    }) : null));
+  toast(t('admin.saved'));
+}
+
 /* ---------------------------------- audit ---------------------------------- */
 
 async function renderAudit(main) {
-  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'org.', 'billing.'];
+  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'org.', 'billing.', 'data.'];
   const filter = el('select', {}, prefixes.map((p) => el('option', { value: p, text: p ? t(`admin.audit.kinds.${p.slice(0, -1)}`) : t('admin.audit.all') })));
   const body = el('tbody', {});
   const more = el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.audit.more') });

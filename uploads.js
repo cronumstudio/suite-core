@@ -68,6 +68,18 @@ export function safeName(name) {
   return base || 'file';
 }
 
+/**
+ * Where a file is kept, relative to the folder: `<folder>/<random>-<name>.<ext>`.
+ * Eight random bytes in front: two photos with the same name don't overwrite
+ * each other, and a stranger's address can't be guessed. The extension is the
+ * one its bytes say, whatever the name claimed.
+ */
+export function storedName({ folder, name, ext }) {
+  const clean = safeName(name);
+  const withExtension = clean.toLowerCase().endsWith(`.${ext}`) ? clean : `${clean}.${ext}`;
+  return `${folder}/${randomToken(8)}-${withExtension}`;
+}
+
 /** Taking more than half of the folder at once isn't tidying loose ends. */
 const MAX_ORPHAN_SHARE = 0.5;
 
@@ -160,11 +172,7 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
             refuse(badRequest('file_type'));
             return;
           }
-          const clean = safeName(name);
-          const withExtension = clean.toLowerCase().endsWith(`.${type.ext}`) ? clean : `${clean}.${type.ext}`;
-          // Eight random bytes in front: two photos with the same name don't
-          // overwrite each other, and a stranger's address can't be guessed.
-          relative = `${folder}/${randomToken(8)}-${withExtension}`;
+          relative = storedName({ folder, name, ext: type.ext });
           partial = `${resolve(relative)}.partial`;
           out = fs.createWriteStream(partial);
           out.on('error', (err) => refuse(err, { cut: true }));
@@ -194,9 +202,7 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
         if (!type) {
           type = detectType(head);
           if (!type) { failNow(badRequest('file_type')); return; }
-          const clean = safeName(name);
-          const withExtension = clean.toLowerCase().endsWith(`.${type.ext}`) ? clean : `${clean}.${type.ext}`;
-          relative = `${folder}/${randomToken(8)}-${withExtension}`;
+          relative = storedName({ folder, name, ext: type.ext });
           partial = `${resolve(relative)}.partial`;
           out = fs.createWriteStream(partial);
           out.on('error', failNow);
