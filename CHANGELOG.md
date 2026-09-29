@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.20.0 — 2026-09-29
+
+- `web/qr.js`: QR codes with no library, for what an app shows to be scanned (the second step's
+  `otpauth://` address). Byte mode (UTF-8), error correction level M, versions 1 to 10 (up to 213
+  bytes), the mask with the lowest penalty. `qrMatrix(text)` runs in Node too; `qrSvg(text, {
+  label })` builds an `<svg>` node by node, black on white whatever the theme, with the quiet
+  zone. Tested against the standard's published values, each version's codeword count and a
+  decoder in the tests, and read back by a reference reader (ZXing).
+- `web/kit.css`: `.kit-qr`.
+
 ## 0.19.0 — 2026-09-29
 
 - `two-factor.js`: two-step verification for local accounts. A code from an authenticator app

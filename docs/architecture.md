@@ -658,7 +658,9 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
 **Today (v0.15.0).** `dom.js` (`el`, `$`, `$$`, `clear`), `i18n.js` (`t()` with placeholders and
 plural forms, exact ones such as `=0` included; flat or nested catalogs; `pickLanguage()`, dates),
 `api.js` (`ApiError`, `SessionExpired`, `Offline`, `errorMessage()`), `ui.js` (toasts, fields,
-dialogs on the native `<dialog>`, confirmations), `theme.js` and `kit.css` (light and dark). On
+dialogs on the native `<dialog>`, confirmations), `theme.js` and `kit.css` (light and dark), and
+`qr.js` (v0.20.0: QR codes with no library, byte mode and level M up to version 10, drawn as an
+`<svg>` black on white; checked against the standard's values and a reference reader). On
 them, the admin panel: `/admin` serves `web/admin.html`, which has no inline script or text. It
 asks `/api/auth/config` which app this is, its languages and the modules it has on, shows itself
 in the person's language with the app's name, and only to an administrator: accounts (create,

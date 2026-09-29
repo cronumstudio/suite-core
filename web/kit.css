@@ -149,6 +149,8 @@ h1, h2, h3 { line-height: 1.25; }
 .kit-table tbody tr[data-open]:hover { background: var(--kit-hover); }
 .kit-table small { display: block; color: var(--kit-muted); font-size: 12.5px; }
 .kit-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+/* A QR code (qr.js): black on white in any theme, with its quiet zone drawn in. */
+.kit-qr { display: block; width: min(220px, 100%); height: auto; border-radius: 6px; }
 
 .kit-badge {
   display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
