@@ -87,3 +87,28 @@ export function needsRehash(stored) {
   return !hash || hash.N < SCRYPT.N || hash.r < SCRYPT.r || hash.p < SCRYPT.p
     || hash.key.length < SCRYPT.keyLength;
 }
+
+/**
+ * Something that must be read back but not by whoever copies the database
+ * file (a second factor's secret): AES-256-GCM with a key the app derives from
+ * its session secret. `v1:<iv>:<tag>:<ciphertext>`, each part base64url.
+ */
+export function encryptText(key, text) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const data = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
+  return ['v1', iv, cipher.getAuthTag(), data].map((part) => (typeof part === 'string' ? part : part.toString('base64url'))).join(':');
+}
+
+/** The text of encryptText(), or null when the key is another (the session secret changed) or it was tampered with. */
+export function decryptText(key, payload) {
+  const [version, iv, tag, data] = String(payload || '').split(':');
+  if (version !== 'v1' || !iv || !tag || data == null) return null;
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+    decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+    return Buffer.concat([decipher.update(Buffer.from(data, 'base64url')), decipher.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}

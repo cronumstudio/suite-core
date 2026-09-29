@@ -124,6 +124,7 @@ export function createAccounts({
     role: user.role, locale: user.locale ?? null, theme: user.theme ?? 'system',
     created_at: isoOf(user.created_at), last_login_at: isoOf(user.last_login_at),
     disabled: Boolean(user.disabled_at), has_password: Boolean(user.password_hash && user.password_hash !== '!'),
+    two_factor: Boolean(user.two_factor_at),
   });
 
   const activeAdmins = () => Number(database.get(
@@ -338,8 +339,9 @@ export function createAccounts({
   /**
    * The account of a username and password, or null. A disabled account never
    * signs in; a hash below today's cost is redone now that the password is known.
+   * With `signIn: false` the sign-in isn't noted yet (a second step comes).
    */
-  function verify(username, password) {
+  function verify(username, password, { signIn = true } = {}) {
     const user = byUsername(username);
     if (!user?.password_hash || user.password_hash === '!' || user.disabled_at) {
       // Same work either way: the time taken doesn't say whether the account exists.
@@ -348,8 +350,8 @@ export function createAccounts({
     }
     if (!verifyPassword(String(password || ''), user.password_hash)) return null;
     const rehash = needsRehash(user.password_hash) ? hashPassword(String(password)) : null;
-    database.run(`UPDATE users SET last_login_at = ?${rehash ? ', password_hash = ?' : ''} WHERE id = ?`,
-      iso(clock()), ...(rehash ? [rehash] : []), user.id);
+    if (rehash) database.run('UPDATE users SET password_hash = ? WHERE id = ?', rehash, user.id);
+    if (signIn) signedIn(user.id);
     return byId(user.id);
   }
 
@@ -370,7 +372,7 @@ export function createAccounts({
   const list = () => database.all('SELECT * FROM users ORDER BY id');
 
   return {
-    create, update, setPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
+    create, update, setPassword, checkPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
     byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
     setVerifiedEmail, fromIdentity, freeUsername,
     whenCreated: (hook) => { created.push(hook); },

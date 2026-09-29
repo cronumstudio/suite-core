@@ -3,6 +3,34 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.19.0 — 2026-09-29
+
+- `two-factor.js`: two-step verification for local accounts. A code from an authenticator app
+  (TOTP, RFC 6238) after the password, or one of ten recovery codes (kept as hashes, each once).
+  The secret is kept encrypted with a key derived from the session secret; each code works once;
+  a signed challenge of five minutes goes between the steps, and five wrong codes per account stop
+  it for the window. Suite migration 12 (`two-factor`): `user_two_factor`, `user_recovery_codes`
+  and `users.two_factor_at`.
+- `api.js`: `POST /api/auth/login` answers `{ two_factor_required, challenge }` for whoever has it
+  on, and `POST /api/auth/login/code` opens the session with the code (saying how many recovery
+  codes are left when one is used); a new password from a link needs the code too
+  (`two_factor_required`, then `code` with the rest), and nothing changes without it.
+  `/api/me/two-factor` (status), `…/setup` (the password), `…/enable` (a first code), `…/disable`
+  and `…/recovery-codes` (the password and a code); `DELETE /api/admin/users/:id/two-factor`. `/api/auth/config` says `two_factor`. Asking for the
+  current password again (a new password, the second step's settings) now has the brake of
+  sign-in.
+- `oauth.js`: `secondStep`: the consent screen asks for the code after the password before giving
+  permission; `createSuite()` wires it with local accounts.
+- `accounts.js`: `publicUser()` says `two_factor`; `verify(…, { signIn: false })` checks a password
+  without noting a sign-in (a second step may come), and `checkPassword()` is exported.
+- `account-mail.js`: `resetPassword(…, { before })` lets a check refuse it once the link and the
+  password have passed, outside the transaction so what it counts stays counted.
+- `rate-limit.js` and `config.js`: `rateLimits.code` (5), with `checkCode`, `codeFailed`,
+  `codeSucceeded`.
+- `crypto.js`: `encryptText()` / `decryptText()` (AES-256-GCM, `v1:iv:tag:data`).
+- `web/admin.js`: "Turn off two-step verification" in an account that has it.
+- `i18n/`: the second step's errors, fields, consent screen texts, admin texts and audit actions.
+
 ## 0.18.0 — 2026-09-29
 
 - `stripe.js`: Stripe as billing's provider (`BILLING_PROVIDER=stripe`, `STRIPE_SECRET_KEY`,

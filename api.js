@@ -13,7 +13,7 @@
  * Every change is recorded in the audit log, without content.
  */
 import {
-  HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, int, idOrNull, str,
+  HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int, idOrNull, str,
 } from './http.js';
 import { verifyPassword } from './crypto.js';
 
@@ -34,10 +34,11 @@ const countOrNull = (value, field) => (value == null ? null : int(value, { field
  * @param {object} [deps.app]             { id, name, languages, modules }, told to the browser
  * @param {boolean} [deps.mail]           whether mail leaves the server (false: only its log)
  * @param {number} [deps.passwordMin]     the shortest password accepted
+ * @param {object} [deps.twoFactor]       from createTwoFactor(): the second step, for whoever turned it on
  */
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
-  mail = true, passwordMin = null,
+  mail = true, passwordMin = null, twoFactor = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
@@ -46,13 +47,23 @@ export function registerAuthApi(router, {
     // `mail`: false when messages only reach the server's log, so screens don't
     // promise a link that will never arrive.
     // `password_min`: for the forms; null when passwords are the provider's.
+    // `two_factor`: whether people can add a code from an app to their password.
     // `app`: which app this is, the languages it speaks and the modules it has on,
     // for the suite's own pages (the admin panel).
     sendJson(ctx.res, 200, {
       provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
-      mail: Boolean(mail), password_min: idp ? null : passwordMin, ...(app ? { app } : {}),
+      mail: Boolean(mail), password_min: idp ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
+      ...(app ? { app } : {}),
     });
   });
+
+  /** A session for someone who passed every step. */
+  const signIn = (ctx, user, meta) => {
+    sessions.open(user.id, { req: ctx.req, res: ctx.res });
+    accounts.signedIn(user.id);
+    audit?.record({ action: 'auth.login', actor: user, req: ctx.req, ...(meta ? { meta } : {}) });
+    return accounts.byId(user.id);
+  };
 
   router.post('/api/auth/login', async (ctx) => {
     if (idp) throw badRequest('password_login_disabled');
@@ -60,7 +71,7 @@ export function registerAuthApi(router, {
     const username = String(body.username || '').trim();
     const allowed = limiter.checkLogin(ctx.req, username);
     if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
-    const user = accounts.verify(username, body.password);
+    const user = accounts.verify(username, body.password, { signIn: false });
     if (!user) {
       limiter.loginFailed(ctx.req, username);
       // Not which username: a password typed in the wrong box would end up here.
@@ -68,11 +79,38 @@ export function registerAuthApi(router, {
       throw new HttpError(401, 'bad_credentials');
     }
     limiter.loginSucceeded(ctx.req, username);
+    // With a second step the password only earns a challenge: the session comes with the code.
+    if (twoFactor?.isEnabled(user.id)) {
+      sendJson(ctx.res, 200, { two_factor_required: true, challenge: twoFactor.challengeFor(user.id) });
+      return;
+    }
     // With the request, the browser's previous session is closed and the device noted.
-    sessions.open(user.id, { req: ctx.req, res: ctx.res });
-    audit?.record({ action: 'auth.login', actor: user, req: ctx.req });
-    sendJson(ctx.res, 200, { user: serializeUser(user) });
+    sendJson(ctx.res, 200, { user: serializeUser(signIn(ctx, user)) });
   });
+
+  if (twoFactor && !idp) {
+    /**
+     * The second step: the challenge of the first and a code from the app, or
+     * one of the recovery codes (each works once; how many are left is said).
+     */
+    router.post('/api/auth/login/code', async (ctx) => {
+      const body = await readJson(ctx.req);
+      const user = accounts.byId(twoFactor.readChallenge(body.challenge));
+      if (!user || user.disabled_at) throw badRequest('challenge_invalid');
+      let how;
+      try {
+        how = twoFactor.pass(ctx.req, user.id, body.code);
+      } catch (err) {
+        audit?.record({ action: 'auth.login_failed', actor: user, req: ctx.req, meta: { step: 'code' } });
+        throw err;
+      }
+      const signedIn = signIn(ctx, user, { second_step: how });
+      sendJson(ctx.res, 200, {
+        user: serializeUser(signedIn),
+        ...(how === 'recovery' ? { recovery_codes_left: twoFactor.status(user.id).recovery_codes_left } : {}),
+      });
+    });
+  }
 
   router.post('/api/auth/logout', async (ctx) => {
     const idpSession = sessions.close(ctx.sessionToken);
@@ -94,7 +132,9 @@ export function registerAuthApi(router, {
  * links in the messages come back to the app's page (/?reset=…, /?verify=…,
  * /?signup=…), which posts the token here.
  */
-export function registerAccountMailApi(router, { accountMail, sessions, serializeUser, accounts = null, admin = true }) {
+export function registerAccountMailApi(router, {
+  accountMail, sessions, serializeUser, accounts = null, admin = true, twoFactor = null,
+}) {
   /** Opens a session for someone who just came in through a link: a sign-in, for the admin panel. */
   const signIn = (ctx, user) => {
     sessions.open(user.id, { req: ctx.req, res: ctx.res });
@@ -113,10 +153,21 @@ export function registerAccountMailApi(router, { accountMail, sessions, serializ
     sendJson(ctx.res, 200, { ok: true });
   });
 
-  /** A new password from a link: every other session ends and this browser is signed in. */
+  /**
+   * A new password from a link: every other session ends and this browser is
+   * signed in. With a second step on, the link alone changes nothing: the
+   * answer is `two_factor_required` until the code comes with it.
+   */
   router.post('/api/auth/reset', async (ctx) => {
     const body = await readJson(ctx.req);
-    const user = accountMail.resetPassword(body.token, body.password, { req: ctx.req });
+    const user = accountMail.resetPassword(body.token, body.password, {
+      req: ctx.req,
+      before: twoFactor ? (found) => {
+        if (!twoFactor.isEnabled(found.id)) return;
+        if (body.code == null || body.code === '') throw badRequest('two_factor_required');
+        twoFactor.pass(ctx.req, found.id, body.code);
+      } : null,
+    });
     sendJson(ctx.res, 200, { user: serializeUser(signIn(ctx, user)) });
   });
 
@@ -181,17 +232,33 @@ export function registerAccountMailApi(router, { accountMail, sessions, serializ
  * @param {object} [deps.entitlements]  from createEntitlements()
  * @param {object} [deps.oauth]         from createOAuthServer(), for connected apps
  * @param {object} [deps.audit]         from createAudit()
+ * @param {object} [deps.limiter]       from createRateLimiter(): the brake on the current password
+ * @param {object} [deps.twoFactor]     from createTwoFactor(), for the second step's settings
  * @param {boolean} [deps.localPasswords]  false when accounts sign in elsewhere (WorkOS)
  * @param {object} [deps.alsoAt]        older paths an app keeps answering:
  *   `{ tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' }`
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
-  localPasswords = true, alsoAt = {},
+  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {},
 }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
+  };
+  const hasPassword = (user) => Boolean(user.password_hash && user.password_hash !== '!');
+  /**
+   * The current password, asked again before something that could lock the
+   * person out: with the brake of sign-in, or an open session would be a way
+   * to try passwords without limit.
+   */
+  const confirmPassword = (ctx, user, password) => {
+    const allowed = limiter ? limiter.checkLogin(ctx.req, user.username) : { allowed: true };
+    if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
+    if (!verifyPassword(String(password ?? ''), user.password_hash)) {
+      limiter?.loginFailed(ctx.req, user.username);
+      throw forbidden('wrong_password');
+    }
   };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -279,14 +346,72 @@ export function registerProfileApi(router, {
       const user = requireUser(ctx);
       if (!localPasswords) throw badRequest('passwords_managed_elsewhere');
       const body = await readJson(ctx.req);
-      const hasOne = Boolean(user.password_hash && user.password_hash !== '!');
-      if (hasOne && !verifyPassword(String(body.current_password ?? ''), user.password_hash)) {
-        throw forbidden('wrong_password');
-      }
+      if (hasPassword(user)) confirmPassword(ctx, user, body.current_password);
       accounts.setPassword(user.id, body.password);
       sessions.open(user.id, { req: ctx.req, res: ctx.res });
       record(ctx, 'auth.password', 'user', user.id);
       sendJson(ctx.res, 200, { ok: true });
+    });
+  }
+
+  if (twoFactor && accounts && localPasswords) {
+    /**
+     * The second step: a code from an authenticator app after the password.
+     * Turning it on takes two calls: `setup` gives the secret (and the
+     * otpauth:// address a QR code is drawn from), `enable` checks a first
+     * code from it and returns ten recovery codes, shown only then. Turning
+     * it off asks for the password and a code (or a recovery code).
+     */
+    router.get('/api/me/two-factor', (ctx) => {
+      const user = requireUser(ctx);
+      sendJson(ctx.res, 200, twoFactor.status(user.id));
+    });
+
+    const withPassword = async (ctx) => {
+      const user = requireUser(ctx);
+      const body = await readJson(ctx.req);
+      if (!hasPassword(user)) throw badRequest('no_password');
+      confirmPassword(ctx, user, body.password);
+      return { user, body };
+    };
+
+    router.post('/api/me/two-factor/setup', async (ctx) => {
+      const { user } = await withPassword(ctx);
+      sendJson(ctx.res, 200, twoFactor.begin(user));
+    });
+
+    router.post('/api/me/two-factor/enable', async (ctx) => {
+      const user = requireUser(ctx);
+      const body = await readJson(ctx.req);
+      const codes = twoFactor.enable(user.id, body.code);
+      record(ctx, 'auth.two_factor.enable', 'user', user.id);
+      sendJson(ctx.res, 200, { ...twoFactor.status(user.id), recovery_codes: codes });
+    });
+
+    /**
+     * What undoes the second step asks for both: an open session and the
+     * password alone must not be a way around it.
+     */
+    const withPasswordAndCode = async (ctx) => {
+      const { user, body } = await withPassword(ctx);
+      if (!twoFactor.isEnabled(user.id)) throw conflict('two_factor_off');
+      twoFactor.pass(ctx.req, user.id, body.code);
+      return user;
+    };
+
+    router.post('/api/me/two-factor/disable', async (ctx) => {
+      const user = await withPasswordAndCode(ctx);
+      twoFactor.disable(user.id);
+      record(ctx, 'auth.two_factor.disable', 'user', user.id);
+      sendJson(ctx.res, 200, twoFactor.status(user.id));
+    });
+
+    /** Ten new recovery codes; the ones before stop working. */
+    router.post('/api/me/two-factor/recovery-codes', async (ctx) => {
+      const user = await withPasswordAndCode(ctx);
+      const codes = twoFactor.regenerateRecoveryCodes(user.id);
+      record(ctx, 'auth.two_factor.recovery_codes', 'user', user.id);
+      sendJson(ctx.res, 200, { ...twoFactor.status(user.id), recovery_codes: codes });
     });
   }
 }
@@ -299,8 +424,11 @@ export function registerProfileApi(router, {
  * @param {object} [deps.organizations] from createOrganizations()
  * @param {object} [deps.sessions]      from createSessions()
  * @param {object} [deps.audit]         from createAudit()
+ * @param {object} [deps.twoFactor]     from createTwoFactor()
  */
-export function registerAdminApi(router, { accounts, entitlements = null, organizations = null, sessions = null, audit = null }) {
+export function registerAdminApi(router, {
+  accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
+}) {
   const requireAdmin = (ctx) => {
     if (!ctx.user) throw unauthorized();
     if (ctx.user.role !== 'admin') throw forbidden('admin_only');
@@ -373,6 +501,22 @@ export function registerAdminApi(router, { accounts, entitlements = null, organi
     record(ctx, 'admin.user.signout', 'user', id, { closed });
     sendJson(ctx.res, 200, { ok: true, closed });
   });
+
+  if (twoFactor) {
+    /**
+     * Turns someone's second step off: for whoever lost the phone and the
+     * recovery codes. Their sessions stay; they sign in with the password alone
+     * until they set it up again.
+     */
+    router.delete('/api/admin/users/:id/two-factor', (ctx) => {
+      requireAdmin(ctx);
+      const id = idOf(ctx.params.id);
+      if (!accounts.byId(id)) throw notFound('user_not_found');
+      if (!twoFactor.disable(id)) throw conflict('two_factor_off');
+      record(ctx, 'admin.user.two_factor_off', 'user', id);
+      sendJson(ctx.res, 200, withPlan(accounts.byId(id)));
+    });
+  }
 
   if (entitlements) {
     router.get('/api/admin/plans', (ctx) => {

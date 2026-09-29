@@ -60,7 +60,7 @@ suite-core/
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
   db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
   migrate.js            done   numbered migrations with scopes (suite, app)
-  crypto.js             done   scrypt, HMAC, random tokens, token hashes
+  crypto.js             done   scrypt, HMAC, random tokens, token hashes, AES-256-GCM
   accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
@@ -77,6 +77,7 @@ suite-core/
   uploads.js                   file storage checked by content, trash and orphan sweep
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
   account-mail.js       done   confirming emails, new passwords, invitations, open sign-up
+  two-factor.js         done   two-step verification: TOTP codes, recovery codes, the challenge
   audit.js              done   who did what and when, never the content
   api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
   i18n/                 done   the suite's own texts: en.json, es.json, fr.json, de.json
@@ -428,11 +429,12 @@ cookie — bearer tokens, the OAuth endpoints — are not subject to it. `readJs
 
 **Brute-force brake.** Fixed 15-minute windows, persisted in `login_attempts`: 10 failures per
 account (the real protection) and 60 per IP (high on purpose: a household behind one proxy shares
-it). `X-Forwarded-For` is trusted only with `TRUST_PROXY=true`. For tokens only failures count, so
+it); 5 wrong codes of the second step per account, since whoever gets there knows the password. `X-Forwarded-For` is trusted only with `TRUST_PROXY=true`. For tokens only failures count, so
 a valid client is never locked out by a neighbour.
 
 **Sign-in providers.** `local` (default): usernames and passwords, accounts created by the admin,
-by invitation or by open sign-up as `accounts.signup` says. `workos`: AuthKit handles sign-up, 2FA,
+by invitation or by open sign-up as `accounts.signup` says, and two-step verification for whoever
+turns it on (**done**, v0.19.0; see below). `workos`: AuthKit handles sign-up, 2FA,
 Google and recovery, and is the authorization server for the MCP; an existing user is linked only
 through a verified email, and `ADMIN_EMAIL` takes over the first admin. `oidc` (**done**, v0.13.0):
 any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google, Entra), so a self-hoster gets
@@ -444,6 +446,23 @@ admin email taking over the first administrator, or created. AI clients keep the
 whose consent screen sends whoever isn't signed in to the provider and back. The variables are
 `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (empty for a public client), `OIDC_SCOPES`
 and `OIDC_NAME` (the button: "Sign in with Authentik").
+
+**Two-step verification** (**done**, v0.19.0, `two-factor.js`). With local accounts anyone can
+add a code from an authenticator app to their password (TOTP, RFC 6238: SHA-1, 30 seconds, six
+digits, a step of drift either side). Setting it up asks for the password again, gives the secret
+and its `otpauth://` address (the QR code), and turns it on only once a first code proves the app
+has it; ten recovery codes, shown then and kept as hashes, each work once. The secret is kept
+encrypted (AES-256-GCM) with a key derived from the session secret, so a copy of the database alone
+doesn't give it; a new SESSION_SECRET makes it unreadable, the recovery codes still work, and an
+administrator can turn the second step off. Each code works once (the step it belongs to is kept).
+Between the password and the code there is no session, only a challenge signed with the session
+secret that lasts five minutes. It is asked at every door a password opens: `/api/auth/login`
+answers `two_factor_required` with the challenge and `/api/auth/login/code` opens the session; the
+OAuth consent screen asks for the code before giving permission; and a new password from a link
+changes nothing without the code, since reading someone's mail is not enough. With WorkOS or OIDC
+the second step is the provider's. Routes: `GET /api/me/two-factor`, `POST …/setup` (password),
+`…/enable` (code → recovery codes), `…/disable` and `…/recovery-codes` (the password and a code:
+a session and a password are not enough to undo it), and `DELETE /api/admin/users/:id/two-factor`.
 
 ## 8. Entitlements: plans and permissions
 
@@ -567,9 +586,10 @@ apps learned the hard way:
    `/i18n/<lang>.json` (suite and app catalogs merged).
 8. The app's static files, then the SPA fallback for paths without an extension.
 
-The common API is the same in every app: sign-in (`POST /api/auth/login`, `POST /api/auth/logout`,
-`GET /api/auth/config`), the profile (`GET/PATCH /api/me`, `POST /api/me/password`, sessions,
-tokens, connected apps, entitlements), administration (users, plans and grants, organizations,
+The common API is the same in every app: sign-in (`POST /api/auth/login`, its second step
+`POST /api/auth/login/code`, `POST /api/auth/logout`, `GET /api/auth/config`), the profile
+(`GET/PATCH /api/me`, `POST /api/me/password`, two-step verification, sessions, tokens, connected
+apps, entitlements), administration (users, plans and grants, organizations,
 audit) and the live channel. Errors are codes, never sentences (see CONVENTIONS.md).
 
 ## 12. Live updates
@@ -727,6 +747,7 @@ first, then Tasks, then the rest.
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
 | `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
+| `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
 | `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
 | `live.js`, `push.js`, `uploads.js` | planned | from Tasks |

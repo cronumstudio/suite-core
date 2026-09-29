@@ -117,9 +117,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (!/^[a-z]{2,10}_$/.test(tokens.prefix)) errors.push('tokens.prefix: a few lowercase letters and _ ("mcp_")');
 
   const rl = isObject(p.rateLimits) ? p.rateLimits : {};
-  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, ...rl };
+  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, code: 5, ...rl };
   for (const [key, value] of Object.entries(rateLimits)) {
-    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
+    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup', 'code'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
     else if (!wholeNumber(value, 1, 100000)) errors.push(`rateLimits.${key} must be a whole number`);
   }
 

@@ -8,6 +8,8 @@
  *
  * Several limits at once:
  *   · per account → the real protection for a password (10 failures)
+ *   · the second step's code, per account (5): whoever gets there already
+ *     knows the password, and a code has only a million values
  *   · per address → stops someone trying many accounts at once (60: high on
  *     purpose, because a household behind one router shares its address)
  *   · tokens and client registration → per address, counting only failures
@@ -25,6 +27,8 @@ export const DEFAULT_LIMITS = Object.freeze({
   // Mail anyone can make the app send (a reset link), per address and per recipient,
   // and accounts anyone can create (open sign-up), per address.
   mail: 10, mailTo: 3, signup: 5,
+  // Wrong codes of the second step (two-factor.js), per account.
+  code: 5,
 });
 
 export function rateLimitSchema(d) {
@@ -36,7 +40,7 @@ export function rateLimitSchema(d) {
  * @param {object} options
  * @param {object} options.database  the suite's database handle
  * @param {string} [options.secret]  keys the bucket hashes (the session secret)
- * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup }
+ * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code }
  * @param {number} [options.windowMs]
  * @param {*} [options.trustProxy]   see proxyHops() in http.js
  */
@@ -90,6 +94,15 @@ export function createRateLimiter({
       const account = accountOf(username);
       clear(key('ip', ipOf(req)), ...(account ? [key('account', account)] : []));
     },
+
+    /** Whether the second step's code may be tried: the account's wrong codes, and its address. */
+    checkCode(req, userId) {
+      return blocked(key('ip', ipOf(req)), max.ip)
+        || blocked(key('code', String(userId)), max.code)
+        || { allowed: true };
+    },
+    codeFailed(req, userId) { add(key('ip', ipOf(req)), key('code', String(userId))); },
+    codeSucceeded(req, userId) { clear(key('ip', ipOf(req)), key('code', String(userId))); },
 
     /** Only consulted after a token has turned out to be invalid. */
     checkToken(req) {

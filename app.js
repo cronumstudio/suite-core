@@ -47,6 +47,7 @@ import { createMailer } from './mail.js';
 import { createAccountMail } from './account-mail.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
+import { createTwoFactor } from './two-factor.js';
 import { createMcpServer } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi,
@@ -150,6 +151,10 @@ export function createSuite({
     limits: config.rateLimits,
     trustProxy: install.trustProxy,
   });
+  // A code from an app after the password; with a provider, the second step is the provider's.
+  const twoFactor = install.authProvider === 'local'
+    ? createTwoFactor({ database, sign: sessions.sign, issuer: config.app.name, limiter })
+    : null;
 
   let organizations = null;
   const entitlements = createEntitlements({
@@ -228,15 +233,28 @@ export function createSuite({
     allowPrivateCimd: install.cimdAllowPrivateHosts,
     db: { all: database.all, get: database.get, run: database.run },
     users: {
-      login: (username, password) => accounts.verify(username, password),
+      // Noted as a sign-in when the session opens: a second step may come first.
+      login: (username, password) => accounts.verify(username, password, { signIn: false }),
       fromRequest: (req) => sessions.userFrom(req),
       byId: (id) => accounts.byId(id),
       handle: (user) => `@${user.username}`,
     },
     sessions: {
-      open: (res, userId) => sessions.open(userId, { res }),
+      open: (res, userId) => {
+        sessions.open(userId, { res });
+        accounts.signedIn(userId);
+      },
       tokenFrom: (req) => sessions.tokenFrom(req),
       sign: sessions.sign,
+    },
+    secondStep: twoFactor && {
+      required: (user) => twoFactor.isEnabled(user.id),
+      challengeFor: twoFactor.challengeFor,
+      userOf: (challenge) => {
+        const user = accounts.byId(twoFactor.readChallenge(challenge));
+        return user && !user.disabled_at ? user : null;
+      },
+      pass: twoFactor.pass,
     },
     limits: {
       checkLogin: limiter.checkLogin, loginFailed: limiter.loginFailed,
@@ -322,7 +340,7 @@ export function createSuite({
     || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
 
   return {
-    config, database, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing,
+    config, database, sessions, accounts, tokens, audit, limiter, twoFactor, entitlements, organizations, billing,
     workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
   };
 }
@@ -347,8 +365,8 @@ export function createApp({
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log,
 }) {
   const {
-    config, sessions, accounts, tokens, audit, limiter, entitlements, organizations, billing, workos, idp, oauth,
-    mailer, accountMail,
+    config, sessions, accounts, tokens, audit, limiter, twoFactor, entitlements, organizations, billing, workos, idp,
+    oauth, mailer, accountMail,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
@@ -359,20 +377,22 @@ export function createApp({
   const api = createRouter();
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
-    mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength,
+    mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled) },
     },
   });
   if (install.authProvider === 'local') {
-    registerAccountMailApi(api, { accountMail, sessions, accounts, serializeUser: serialize, admin: config.modules.admin });
+    registerAccountMailApi(api, {
+      accountMail, sessions, accounts, serializeUser: serialize, admin: config.modules.admin, twoFactor,
+    });
   }
   registerProfileApi(api, {
-    accounts, sessions, tokens, entitlements, oauth, audit,
+    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor,
     localPasswords: install.authProvider === 'local', alsoAt: profile.alsoAt || {},
   });
-  if (config.modules.admin) registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit });
+  if (config.modules.admin) registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
 

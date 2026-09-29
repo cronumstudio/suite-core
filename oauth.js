@@ -218,10 +218,15 @@ function privateIp(ip) {
  * @param {object} [options.externalSignIn]  when people sign in elsewhere (an OIDC provider):
  *   { name, url(returnTo) }. The consent screen then offers "Sign in with <name>", which comes
  *   back to the same request, instead of asking for a username and a password.
+ * @param {object} [options.secondStep]  a code after the password, for whoever turned it on
+ *   (two-factor.js): required(user) → bool; challengeFor(userId) → a signed challenge;
+ *   userOf(challenge) → the user who passed the password, or null (throws when it expired);
+ *   pass(req, userId, code) → throws an HttpError (code_invalid, too_many_attempts).
  */
 export function createOAuthServer({
   baseUrl, appName, enabled = true, allowPrivateCimd = false,
-  db, users, sessions, limits, texts = createTexts(), page, externalSignIn = null, log = console.log,
+  db, users, sessions, limits, texts = createTexts(), page, externalSignIn = null, secondStep = null,
+  log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const ISSUER = BASE_URL;
@@ -493,7 +498,12 @@ export function createOAuthServer({
   /** The authorization request again, to come back to it after signing in elsewhere. */
   const requestQuery = (p) => new URLSearchParams(REQUEST_FIELDS.filter((k) => p.get(k) != null).map((k) => [k, p.get(k)])).toString();
 
-  function consentScreen(req, res, p, { client, redirect }, { user = null, error = null } = {}) {
+  /**
+   * The consent screen. Signed in, it only asks for permission; if not, for a
+   * username and password too; with `challenge` (the password passed and a
+   * second step is on), for the code from the person's app.
+   */
+  function consentScreen(req, res, p, { client, redirect }, { user = null, error = null, challenge = null } = {}) {
     const { lang, t } = texts(req, user);
     const target = parseUrl(redirect);
     const loopback = target && target.protocol === 'http:' && LOOPBACK.has(target.hostname);
@@ -519,14 +529,18 @@ ${hidden}
 ${user
     ? `<input type="hidden" name="csrf" value="${escapeHtml(csrfFor(req, p))}">
 <p class="oauth__text">${htmlText(t, 'oauth.signedInAs', { user: strong(users.handle(user)) })}</p>`
-    : externalSignIn ? '' : `<label class="field"><span>${htmlText(t, 'oauth.username')}</span>
+    : challenge ? `<input type="hidden" name="challenge" value="${escapeHtml(challenge)}">
+<label class="field"><span>${htmlText(t, 'oauth.code')}</span>
+<input name="code" autocomplete="one-time-code" required autocapitalize="none" spellcheck="false" autofocus></label>
+<p class="oauth__text oauth__note">${htmlText(t, 'oauth.codeHint')}</p>`
+      : externalSignIn ? '' : `<label class="field"><span>${htmlText(t, 'oauth.username')}</span>
 <input name="username" autocomplete="username" required autocapitalize="none" spellcheck="false"></label>
 <label class="field"><span>${htmlText(t, 'oauth.password')}</span>
 <input name="password" type="password" autocomplete="current-password" required></label>`}
 <div class="oauth__actions">
-${!user && externalSignIn
+${!user && !challenge && externalSignIn
     ? `<a class="btn btn--primary" href="${escapeHtml(externalSignIn.url(`/oauth/authorize?${requestQuery(p)}`))}">${htmlText(t, 'oauth.signInWith', { provider: externalSignIn.name })}</a>`
-    : `<button class="btn btn--primary" type="submit" name="decision" value="allow">${htmlText(t, user ? 'oauth.allow' : 'oauth.signInAndAllow')}</button>`}
+    : `<button class="btn btn--primary" type="submit" name="decision" value="allow">${htmlText(t, user ? 'oauth.allow' : challenge ? 'oauth.verifyAndAllow' : 'oauth.signInAndAllow')}</button>`}
 <button class="btn" type="submit" name="decision" value="cancel" formnovalidate>${htmlText(t, 'oauth.cancel')}</button>
 </div>
 </form>`,
@@ -574,6 +588,23 @@ ${!user && externalSignIn
       // Signing in happens at the provider: back to the screen, with its link.
       consentScreen(req, res, p, checked);
       return;
+    } else if (secondStep && p.get('challenge') != null) {
+      // The second step: the password passed on the screen before.
+      let pending = null;
+      try { pending = secondStep.userOf(p.get('challenge')); } catch { pending = null; }
+      if (!pending) {
+        consentScreen(req, res, p, checked, { error: 'signInAgain' });
+        return;
+      }
+      try {
+        secondStep.pass(req, pending.id, p.get('code') || '');
+      } catch (err) {
+        const error = err?.code === 'too_many_attempts' ? 'tooManyAttempts' : 'badCode';
+        consentScreen(req, res, p, checked, { challenge: p.get('challenge'), error });
+        return;
+      }
+      user = pending;
+      sessions.open(res, user.id);
     } else {
       const name = p.get('username') || '';
       if (!limits.checkLogin(req, name).allowed) {
@@ -587,6 +618,11 @@ ${!user && externalSignIn
         return;
       }
       limits.loginSucceeded(req, name);
+      // With a second step on, the password only earns the screen that asks for the code.
+      if (secondStep?.required(user)) {
+        consentScreen(req, res, p, checked, { challenge: secondStep.challengeFor(user.id) });
+        return;
+      }
       // The browser session is opened on the way, as when signing in to the app.
       sessions.open(res, user.id);
     }

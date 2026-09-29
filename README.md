@@ -28,16 +28,17 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `oidc.js` | Sign-in with any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google…): PKCE, state and nonce, the ID token checked, the person linked to their account by a verified email or created, and the provider's sign-out |
 | `mail.js` | Outgoing mail: an SMTP client with no dependencies (TLS or STARTTLS, AUTH PLAIN or LOGIN, headers that can't be broken into), or the server's log by default; `verify()` checks the server and the account without sending, and the app does it once at the start |
 | `account-mail.js` | What local accounts do by mail: confirming an email, a new password when the old one is forgotten, the admin's invitations and open sign-up — single-use links kept as hashes, a brake per address and per inbox |
+| `two-factor.js` | Two-step verification for local accounts: a code from an authenticator app (TOTP, RFC 6238) after the password, or one of ten recovery codes; the secret kept encrypted with a key from the session secret, each code once, a signed five-minute challenge between the steps, and a brake per account. Asked at sign-in, on the OAuth consent screen and with a new password from a link |
 | `jwt.js` | JWTs signed by a provider, checked against its published keys (RS256, ES256) with caching, issuer, audience, dates and nonce; shared by WorkOS and OIDC |
 | `workos-accounts.js` | Accounts with WorkOS: the `/auth/login` and `/auth/callback` routes, the MCP metadata, and how a WorkOS account becomes a user of the app |
 | `i18n.js` | Translations: the suite's own texts (`i18n/<lang>.json`: its screens, and the sentence of every error and field it sends), language negotiation, `t()` with placeholders, plurals and a fallback to English, and `mergeCatalogs()` for what the browser gets |
 | `tools/i18n.mjs` | Catalog checks for the suite and each app, merged: `parity [dir]` (keys, placeholders, plural forms, nothing left undone) and `used <dir> <sources…>` (keys the code uses that no catalog has) |
-| `crypto.js` | Passwords in the scrypt format every app stores, token hashes, HMAC, constant-time comparison |
+| `crypto.js` | Passwords in the scrypt format every app stores, token hashes, HMAC, constant-time comparison, and AES-256-GCM for what must be read back (a second step's secret) |
 | `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec`, nested transactions, `app_meta` |
 | `migrate.js` | Numbered migrations per scope (`suite`, `app`), each in its own transaction; refuses gaps and newer databases |
 | `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`) |
 | `sessions.js` | Browser sessions that live while used (with a maximum), rotated at sign-in, listed and closed per device; the session secret, never an example value |
-| `rate-limit.js` | The brute-force brake kept in the database: per account, per address, for tokens and client registrations |
+| `rate-limit.js` | The brute-force brake kept in the database: per account, per address, the second step's codes per account, tokens and client registrations |
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
 | `mcp.js` | The MCP transport (Streamable HTTP, JSON-RPC): the app hands in its tools, prompts and instructions, how a token becomes a principal, and its plan check per tool |
 | `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, and `can()` / `limit()` / `require()` |
@@ -50,9 +51,9 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `config.js` | The app's configuration: `suite.config.js` (the product) and the environment (the install), checked as a whole — anything unknown or wrong stops the start, saying what |
 | `app.js` | `createSuite()` wires every module from the configuration (database and migrations, sessions, accounts, tokens, audit, brake, plans, organizations, billing, WorkOS, OAuth); `createApp()` serves the suite's routes, its browser code and admin panel, the MCP endpoint, the app's routes and static files, in the order the apps learned, with clean-ups, hot reload and an orderly shutdown |
 | `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
-| `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
+| `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, in two steps when the person turned it on, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password, two-step verification), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
 | `web/` | The web kit, served at `/suite/` with no build: `el()` and DOM helpers that never assemble HTML, `t()` in the browser (plurals, dates, the app's catalog merged with the suite's), `api` with errors in words, toasts, fields and dialogs, the theme before the first paint, and `kit.css` |
-| `web/admin.html` | The admin panel at `/admin`, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
+| `web/admin.html` | The admin panel at `/admin`, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, two-step verification, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
 
 ## Using it in an app
 
@@ -116,8 +117,18 @@ export const oauth = createOAuthServer({
   },
   texts: (req, user) => ({ lang, t }),  // optional: the suite's own texts by default (below)
   page: ({ lang, title, body }) => html,
+  secondStep: {                         // optional: a code after the password (two-factor.js)
+    required(user),                     // → whether this person turned it on
+    challengeFor(userId),               // → a signed challenge for the screen that asks for the code
+    userOf(challenge),                  // → who passed the password, or null
+    pass(req, userId, code),            // throws an HttpError: code_invalid, too_many_attempts
+  },
 });
 ```
+
+`createSuite()` passes `secondStep` itself with local accounts: whoever turned two-step
+verification on is asked for the code after the password, and gets the browser session and the
+permission only with it.
 
 Then, in the app:
 
@@ -144,8 +155,8 @@ texts: createTexts({ catalogs: {
 
 The keys are `oauth.connectTitle`, `wants`, `unverified`, `returnTo`, `loopback`, `signedInAs`,
 `username`, `password`, `allow`, `signInAndAllow`, `cancel`, `cannotConnect`, `goBack`,
-`badCredentials`, `tooManyAttempts` and `oauth.error.<code>` for every code of
-`OAuthScreenError`. Their markup
+`badCredentials`, `tooManyAttempts`, the second step's `code`, `codeHint`, `verifyAndAllow`,
+`badCode` and `signInAgain`, and `oauth.error.<code>` for every code of `OAuthScreenError`. Their markup
 uses the classes `oauth__text`, `oauth__note`, `oauth__warning`, `oauth__error`,
 `oauth__form`, `oauth__actions`, `field`, `btn` and `btn--primary`.
 

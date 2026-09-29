@@ -161,14 +161,26 @@ export function createAccountMail({
     }
   }
 
-  /** A new password from a link: every session ends, and the email is now known to be theirs. */
-  function resetPassword(token, password, { req = null } = {}) {
+  /**
+   * A new password from a link: every session ends, and the email is now known
+   * to be theirs. `before(user)` may still refuse it once the link and the
+   * password have passed (the second step: whoever reads the mail isn't enough);
+   * it runs outside the transaction, so what it counts stays counted.
+   */
+  function resetPassword(token, password, { req = null, before = null } = {}) {
     if (!localPasswords) throw badRequest('passwords_managed_elsewhere');
-    return database.tx(() => {
-      const row = open('reset', token);
+    const account = (row) => {
       const user = accounts.byId(row.user_id);
       if (!user || user.disabled_at || user.email !== row.email) throw badRequest('link_invalid');
-      // A password that doesn't pass leaves the link as it was, for another try.
+      return user;
+    };
+    const found = account(open('reset', token));
+    // A password that doesn't pass leaves the link as it was, for another try.
+    accounts.checkPassword(password);
+    before?.(found);
+    return database.tx(() => {
+      const row = open('reset', token);
+      const user = account(row);
       accounts.setPassword(user.id, password);
       used(row.id);
       if (!user.email_verified_at) database.run('UPDATE users SET email_verified_at = ? WHERE id = ?', iso(clock()), user.id);

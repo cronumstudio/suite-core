@@ -302,10 +302,23 @@ function userDialog(user) {
 
   const grants = state.catalog ? el('div', { class: 'kit-section' }) : null;
 
-  // Everywhere they are signed in, and the account itself.
+  // Everywhere they are signed in, their second step, and the account itself.
   const endSection = el('div', { class: 'kit-section' },
     el('h3', { text: t('admin.users.access') }),
+    local() && user.two_factor ? el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLead')}` }) : null,
     el('div', { class: 'kit-row' },
+      local() && user.two_factor ? el('button', {
+        type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.twoFactorOff'),
+        onClick: async () => {
+          if (!(await confirmDialog(t('admin.users.twoFactorOffConfirm', { name: user.display_name })))) return;
+          try {
+            await api.delete(`/api/admin/users/${user.id}/two-factor`);
+            toast(t('admin.users.twoFactorOffDone'));
+            dialog.close();
+            refresh();
+          } catch (err) { fail(err); }
+        },
+      }) : null,
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.signOut'),
         onClick: async () => {
