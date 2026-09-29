@@ -156,8 +156,13 @@ export function createSuite({
   const live = createLive();
   // A code from an app after the password; with a provider, the second step is the provider's.
   const twoFactor = install.authProvider === 'local'
-    ? createTwoFactor({ database, sign: sessions.sign, issuer: config.app.name, limiter })
+    ? createTwoFactor({
+      database, sign: sessions.sign, issuer: config.app.name, limiter, onChange: (id) => accounts.changed(id),
+    })
     : null;
+  // An account that changed —its email confirmed from the mail, a new password, the second
+  // step, what the admin changed— tells the person's open tabs, which reload what they show.
+  accounts.whenChanged((id) => live.publish({ audience: [id], event: 'account', data: { user_id: id } }));
 
   let organizations = null;
   const entitlements = createEntitlements({

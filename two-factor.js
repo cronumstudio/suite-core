@@ -112,8 +112,11 @@ export function matchStep(secret, code, now = Date.now(), window = 1) {
  * @param {Function} options.sign      the session secret's signature (sessions.sign)
  * @param {string} options.issuer      how the authenticator app names the account's app
  * @param {object} [options.limiter]   from createRateLimiter(): the brake on wrong codes
+ * @param {Function} [options.onChange]  (userId) when it is turned on or off, or the codes renewed
  */
-export function createTwoFactor({ database, sign, issuer, limiter = null, clock = () => Date.now() }) {
+export function createTwoFactor({
+  database, sign, issuer, limiter = null, onChange = () => {}, clock = () => Date.now(),
+}) {
   // The key that encrypts the secrets, derived from the session secret.
   const key = crypto.createHash('sha256').update(sign('two-factor-secrets')).digest();
 
@@ -172,7 +175,9 @@ export function createTwoFactor({ database, sign, issuer, limiter = null, clock 
       const now = iso(clock());
       database.run('UPDATE user_two_factor SET confirmed_at = ?, last_step = ? WHERE user_id = ?', now, step, userId);
       database.run('UPDATE users SET two_factor_at = ? WHERE id = ?', now, userId);
-      return newRecoveryCodes(userId);
+      const codes = newRecoveryCodes(userId);
+      onChange(userId);
+      return codes;
     });
   }
 
@@ -219,6 +224,7 @@ export function createTwoFactor({ database, sign, issuer, limiter = null, clock 
       const removed = database.run('DELETE FROM user_two_factor WHERE user_id = ?', userId).changes;
       database.run('DELETE FROM user_recovery_codes WHERE user_id = ?', userId);
       database.run('UPDATE users SET two_factor_at = NULL WHERE id = ?', userId);
+      if (removed > 0) onChange(userId);
       return removed > 0;
     });
   }
@@ -226,7 +232,9 @@ export function createTwoFactor({ database, sign, issuer, limiter = null, clock 
   /** Ten new recovery codes; the old ones stop working. */
   function regenerateRecoveryCodes(userId) {
     if (!isEnabled(userId)) throw conflict('two_factor_off');
-    return database.tx(() => newRecoveryCodes(userId));
+    const codes = database.tx(() => newRecoveryCodes(userId));
+    onChange(userId);
+    return codes;
   }
 
   /* ------------------------------ challenges ----------------------------- */

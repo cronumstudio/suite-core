@@ -125,6 +125,8 @@ export function createAccountMail({
       used(row.id);
       database.run('UPDATE users SET email_verified_at = ? WHERE id = ?', iso(clock()), user.id);
       audit?.record({ action: 'account.verify', actor: user, req });
+      // The tab with Settings open —often not the one the link opened— shows it confirmed.
+      accounts.changed?.(user.id);
       return accounts.byId(user.id);
     });
   }

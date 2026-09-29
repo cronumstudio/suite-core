@@ -603,7 +603,12 @@ connected; the app works out who can see what changed, as Tasks does with a list
 `event` is `change` unless it says otherwise. Every event carries an id, `<run>.<n>`; the last 256
 are remembered, so a tab that reconnects with `Last-Event-ID` (EventSource sends it by itself)
 gets what it missed, and one that missed more, or comes from another run of the server, gets
-`event: resync` and reloads what it shows. Events may carry the new state (Focus's run contract) or
+`event: resync` and reloads what it shows. The suite publishes one event of its own (v0.22.0):
+`account`, to the person's tabs when their account changes —an email confirmed from the mail,
+often opened in another tab or on the phone, a new password, the second step turned on or off,
+what the admin changed or signing them out everywhere— so the page reloads what it shows of the
+account (`/api/auth/me`). `accounts.whenChanged(hook)` hears those changes, and a module that
+changes an account says so with `accounts.changed(id)`. Events may carry the new state (Focus's run contract) or
 just say what changed (Tasks' lists): the app chooses.
 
 ## 13. MCP

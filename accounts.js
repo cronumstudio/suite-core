@@ -105,6 +105,18 @@ export function createAccounts({
 }) {
   const created = [onCreate];
   const removed = [onRemove];
+  /**
+   * Who hears that an account changed (its email confirmed, a new password,
+   * the second step, what the admin changed): the live channel tells the
+   * person's open tabs, which reload what they show of it. Other modules that
+   * change an account (account-mail, two-factor) say so with `changed(id)`.
+   */
+  const changes = [];
+  const changed = (id) => {
+    for (const hook of changes) {
+      try { hook(Number(id)); } catch { /* a listener never breaks the change */ }
+    }
+  };
   // An app's own table may say `password_hash NOT NULL` (Tasks): there an
   // account without a password stores `!`, which no password ever matches.
   const noPassword = database.all('PRAGMA table_info(users)')
@@ -233,6 +245,7 @@ export function createAccounts({
   function setVerifiedEmail(userId, email) {
     const clean = checkEmail(email);
     database.run('UPDATE users SET email = ?, email_verified_at = ? WHERE id = ?', clean, clean ? iso(clock()) : null, userId);
+    changed(userId);
   }
 
   /** A free username from a seed (an email, a provider's username): ana.perez, ana.perez2… */
@@ -297,7 +310,11 @@ export function createAccounts({
     return database.tx(() => {
       const sets = [];
       const params = [];
-      if (fields.displayName !== undefined) { sets.push('display_name = ?'); params.push(checkName(fields.displayName)); }
+      // Only what really changes is written, and said (whenChanged).
+      if (fields.displayName !== undefined) {
+        const name = checkName(fields.displayName);
+        if (name !== user.display_name) { sets.push('display_name = ?'); params.push(name); }
+      }
       let email = user.email ?? null;
       let verifiedAt = user.email_verified_at ?? null;
       if (fields.email !== undefined) {
@@ -312,7 +329,9 @@ export function createAccounts({
         verifiedAt = fields.emailVerified ? verifiedAt || iso(clock()) : null;
       }
       if (verifiedAt !== (user.email_verified_at ?? null)) { sets.push('email_verified_at = ?'); params.push(verifiedAt); }
-      if (fields.locale !== undefined) { sets.push('locale = ?'); params.push(fields.locale || null); }
+      if (fields.locale !== undefined && (fields.locale || null) !== (user.locale ?? null)) {
+        sets.push('locale = ?'); params.push(fields.locale || null);
+      }
       if (fields.role !== undefined && fields.role !== user.role) {
         checkRole(fields.role);
         if (user.role === 'admin' && !user.disabled_at && activeAdmins() <= 1) throw conflict('last_admin');
@@ -323,7 +342,10 @@ export function createAccounts({
         sets.push('disabled_at = ?'); params.push(fields.disabled ? iso(clock()) : null);
         if (fields.disabled) sessions?.closeAllOf(id);
       }
-      if (sets.length) database.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...params, id);
+      if (sets.length) {
+        database.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...params, id);
+        changed(id);
+      }
       return byId(id);
     });
   }
@@ -334,6 +356,7 @@ export function createAccounts({
     checkPassword(password);
     database.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), id);
     sessions?.closeAllOf(id, { exceptToken });
+    changed(id);
   }
 
   /**
@@ -377,6 +400,8 @@ export function createAccounts({
     setVerifiedEmail, fromIdentity, freeUsername,
     whenCreated: (hook) => { created.push(hook); },
     whenRemoved: (hook) => { removed.push(hook); },
+    whenChanged: (hook) => { changes.push(hook); },
+    changed,
   };
 }
 

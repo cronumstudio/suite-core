@@ -174,3 +174,49 @@ test('over HTTP: without modules.live the app keeps /api/events for itself', asy
   const { base } = await start(t, {});
   assert.equal((await fetch(`${base}/api/events`)).status, 404);
 });
+
+test('over HTTP: an account that changes tells its own tabs (event: account), and only when it changes', async (t) => {
+  const { suite, base } = await start(t, { live: true });
+  const ada = suite.accounts.create({ username: 'ada', password: 'ada-password' });
+  const bob = suite.accounts.create({ username: 'bob', password: 'bob-password' });
+  const heard = [];
+  suite.accounts.whenChanged((id) => heard.push(id));
+
+  const login = await fetch(`${base}/api/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'ada', password: 'ada-password' }),
+  });
+  const cookie = login.headers.getSetCookie().find((c) => c.startsWith('demo_sid=')).split(';')[0];
+  const controller = new AbortController();
+  const res = await fetch(`${base}/api/events`, { headers: { Cookie: cookie }, signal: controller.signal });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  const until = async (pattern) => {
+    while (!pattern.test(text)) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value);
+    }
+  };
+  await until(/event: hello/);
+
+  suite.accounts.update(bob.id, { displayName: 'Robert' });      // someone else's
+  suite.accounts.update(ada.id, { displayName: 'ada' });         // nothing really changes
+  suite.accounts.update(ada.id, { email: 'ada@example.com' });
+  await until(/event: account/);
+  assert.match(text, new RegExp(`event: account\ndata: \{"user_id":${ada.id}\}`));
+  assert.deepEqual(heard, [bob.id, ada.id], 'an update that changes nothing says nothing');
+
+  // A new password and the second step say so too.
+  suite.accounts.setPassword(ada.id, 'a-brand-new-one');
+  const { secret } = suite.twoFactor.begin(ada);
+  assert.deepEqual(heard, [bob.id, ada.id, ada.id], 'starting the setup changes nothing yet');
+  const { totp, base32Decode } = await import('../two-factor.js');
+  suite.twoFactor.enable(ada.id, totp(base32Decode(secret), Math.floor(Date.now() / 30000)));
+  suite.twoFactor.disable(ada.id);
+  assert.deepEqual(heard, [bob.id, ada.id, ada.id, ada.id, ada.id]);
+  await until(/(event: account[\s\S]*){4}/);
+  assert.equal((text.match(/event: account/g) || []).length, 4, 'every one reaches the tab, none of Bob’s');
+  controller.abort();
+});

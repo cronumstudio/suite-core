@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.22.0 — 2026-09-29
+
+- `app.js`: an account that changes tells the person's open tabs, with `event: account` on the
+  live channel: an email confirmed from its link (which usually opens in another tab or on the
+  phone, so the tab with Settings open kept saying "not confirmed" until reloaded), a new
+  password, the second step turned on or off or its codes renewed, what the admin changed, and
+  the admin signing them out everywhere.
+- `accounts.js`: `whenChanged(hook)` and `changed(id)`. `update()` writes, and says, only what
+  really changes: the same name or language is no longer a change.
+- `two-factor.js`: `onChange(userId)` when it is turned on or off, or the codes renewed.
+
 ## 0.21.0 — 2026-09-29
 
 - `live.js`: the live channel Next, Tasks and Projects each had, once. One SSE stream per tab

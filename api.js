@@ -498,6 +498,8 @@ export function registerAdminApi(router, {
     const id = idOf(ctx.params.id);
     if (!accounts.byId(id)) throw notFound('user_not_found');
     const closed = sessions ? sessions.closeAllOf(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null }) : 0;
+    // Their open tabs look again at who they are, and find nobody.
+    accounts.changed?.(id);
     record(ctx, 'admin.user.signout', 'user', id, { closed });
     sendJson(ctx.res, 200, { ok: true, closed });
   });
