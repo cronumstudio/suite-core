@@ -328,11 +328,20 @@ export function securityHeaders(res, { https = false, csp = DEFAULT_CSP } = {}) 
  * request came to, or `baseUrl`), or `Sec-Fetch-Site` must say same-origin.
  * Browsers always send one of them on these requests; when neither is there
  * the client is not a browser, and a CSRF needs one.
+ *
+ * `Origin: null` with `Sec-Fetch-Site: same-origin` is this server's own page:
+ * under `Referrer-Policy: no-referrer` the browser sends `null` even on a form
+ * posted to its own server (the Fetch spec does so for every non-CORS write),
+ * and that was the OAuth consent screen — "Allow" answered cross_site_request
+ * to anyone already signed in. No page can forge Sec-Fetch-Site; a sandboxed
+ * frame or a data: URL elsewhere sends `null` with cross-site, and stays out.
  */
 export function checkOrigin(req, { baseUrl = '', cookieName }) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return;
   if (cookieName && !(cookieName in parseCookies(req))) return;
   const origin = req.headers.origin;
+  const site = req.headers['sec-fetch-site'];
+  if (origin === 'null' && site === 'same-origin') return;
   if (origin) {
     let host = null;
     try { host = new URL(origin).host; } catch { /* "null" or garbage: not this server */ }
@@ -341,7 +350,6 @@ export function checkOrigin(req, { baseUrl = '', cookieName }) {
     if (host && (host === req.headers.host || host === own)) return;
     throw new HttpError(403, 'cross_site_request');
   }
-  const site = req.headers['sec-fetch-site'];
   if (!site || site === 'same-origin' || site === 'none') return;
   throw new HttpError(403, 'cross_site_request');
 }

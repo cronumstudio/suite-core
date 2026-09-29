@@ -84,7 +84,7 @@ const plainPage = (appName) => ({ lang, title, body }) => `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="same-origin">
 <meta name="color-scheme" content="light dark">
 <title>${escapeHtml(title)} · ${escapeHtml(appName)}</title>
 </head>

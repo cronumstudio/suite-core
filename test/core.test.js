@@ -219,6 +219,11 @@ test('cross-site requests on the session cookie are refused', () => {
   refused(() => checkOrigin(req('POST', { cookie: 'sid=1', origin: 'https://evil.example' }), opts));
   refused(() => checkOrigin(req('POST', { cookie: 'sid=1', origin: 'null' }), opts));
   refused(() => checkOrigin(req('POST', { cookie: 'sid=1', 'sec-fetch-site': 'cross-site' }), opts));
+  // A page of its own under `Referrer-Policy: no-referrer` posts with Origin: null (the OAuth
+  // consent screen did): the browser's Sec-Fetch-Site, which no page can forge, says it is ours.
+  checkOrigin(req('POST', { cookie: 'sid=1', origin: 'null', 'sec-fetch-site': 'same-origin' }), opts);
+  refused(() => checkOrigin(req('POST', { cookie: 'sid=1', origin: 'null', 'sec-fetch-site': 'cross-site' }), opts));
+  refused(() => checkOrigin(req('POST', { cookie: 'sid=1', origin: 'null', 'sec-fetch-site': 'same-site' }), opts));
 });
 
 test('a real server: JSON bodies, errors as codes, static files and headers', async (t) => {

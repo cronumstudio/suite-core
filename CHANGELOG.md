@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.24.1 — 2026-09-29
+
+- `checkOrigin`: `Origin: null` with `Sec-Fetch-Site: same-origin` is the app's own page. Under
+  `Referrer-Policy: no-referrer` browsers send `null` even on a form posted to their own server,
+  and the OAuth consent screen had that policy: pressing "Allow" answered `cross_site_request` to
+  anyone already signed in to the app, so connecting Claude failed. Still refused: `null` that is
+  cross-site, same-site or says nothing.
+- The plain OAuth screens (when the app doesn't dress them) use `Referrer-Policy: same-origin`:
+  the same privacy towards other sites, and the browser keeps the `Origin` on its own forms.
+
 ## 0.24.0 — 2026-09-29
 
 - `uploads.js`: the attachments of Tasks, for every app (`suite.uploads` with `modules.uploads`).
