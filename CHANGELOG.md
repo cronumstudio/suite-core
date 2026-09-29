@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.20.1 — 2026-09-29
+
+- `i18n/`: `errors.billing_provider_error` and `errors.billing_provider_unavailable`, which
+  `stripe.js` sends since 0.18.0 without a sentence (people read "Something went wrong").
+- `test/i18n.test.js`: every error code the modules throw has its sentence and every field they
+  name has its name, read from the code, so the next one is caught here and not in an app.
+
 ## 0.20.0 — 2026-09-29
 
 - `web/qr.js`: QR codes with no library, for what an app shows to be scanned (the second step's

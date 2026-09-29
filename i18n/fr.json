@@ -40,6 +40,8 @@
   "errors.bad_request": "La requête n’a pas pu être comprise.",
   "errors.bad_signature": "La signature de la notification n’est pas valide.",
   "errors.billing_off": "Les paiements ne sont pas disponibles sur cette installation.",
+  "errors.billing_provider_error": "Le prestataire de paiement a refusé la demande. Réessayez plus tard ; la personne qui gère cette installation peut en voir la raison dans le journal du serveur.",
+  "errors.billing_provider_unavailable": "Le prestataire de paiement est injoignable pour le moment. Réessayez dans un moment.",
   "errors.body_too_large": "Trop de texte.",
   "errors.conflict": "Cela entre en conflit avec quelque chose qui existe déjà.",
   "errors.cross_site_request": "Cette requête ne venait pas de l’application elle-même et a été refusée. Rechargez la page et réessayez.",

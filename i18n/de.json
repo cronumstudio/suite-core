@@ -40,6 +40,8 @@
   "errors.bad_request": "Die Anfrage konnte nicht verstanden werden.",
   "errors.bad_signature": "Die Signatur der Benachrichtigung ist ungültig.",
   "errors.billing_off": "Zahlungen sind in dieser Installation nicht verfügbar.",
+  "errors.billing_provider_error": "Der Zahlungsanbieter hat die Anfrage abgelehnt. Versuch es später noch einmal; wer diese Installation betreut, sieht den Grund im Protokoll des Servers.",
+  "errors.billing_provider_unavailable": "Der Zahlungsanbieter ist gerade nicht erreichbar. Versuch es in einer Weile noch einmal.",
   "errors.body_too_large": "Zu viel Text.",
   "errors.conflict": "Das kollidiert mit etwas, das es schon gibt.",
   "errors.cross_site_request": "Diese Anfrage kam nicht aus der App selbst und wurde abgelehnt. Lade die Seite neu und versuche es erneut.",

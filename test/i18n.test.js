@@ -6,6 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   LANGUAGES, SUITE_CATALOGS, flatten, unflatten, mergeCatalogs, negotiate, translator, createTexts,
 } from '../i18n.js';
@@ -101,4 +102,21 @@ test('parity: the suite’s catalogs agree, and what differs is named', () => {
     'de: c.d: plural forms one missing',
     'de: c.d: the exact form =0 is missing',
   ]);
+});
+
+test('every error the suite can send has its sentence, and every field it names has its name', () => {
+  // What the modules throw, read from their code: a new code without a sentence
+  // would reach people as "Something went wrong" (the apps' tests catch it late).
+  const root = new URL('../', import.meta.url);
+  const code = fs.readdirSync(root).filter((file) => file.endsWith('.js'))
+    .map((file) => fs.readFileSync(new URL(file, root), 'utf8')).join('\n');
+  const english = JSON.parse(fs.readFileSync(new URL('i18n/en.json', root), 'utf8'));
+  const codes = new Set([
+    ...[...code.matchAll(/(?:badRequest|conflict|notFound|forbidden|unauthorized)\(\s*'([a-z_]+)'/g)].map((m) => m[1]),
+    ...[...code.matchAll(/new HttpError\(\d+,\s*'([a-z_]+)'/g)].map((m) => m[1]),
+  ]);
+  assert.ok(codes.size > 40, 'the codes are found');
+  assert.deepEqual([...codes].filter((c) => !english[`errors.${c}`]), [], 'errors without a sentence');
+  const fields = new Set([...code.matchAll(/field: '([a-z_]+)'/g)].map((m) => m[1]));
+  assert.deepEqual([...fields].filter((f) => !english[`fields.${f}`]), [], 'fields without a name');
 });

@@ -40,6 +40,8 @@
   "errors.bad_request": "No se ha podido entender la petición.",
   "errors.bad_signature": "La firma del aviso no es válida.",
   "errors.billing_off": "Los pagos no están disponibles en esta instalación.",
+  "errors.billing_provider_error": "El proveedor de pagos ha rechazado la petición. Inténtalo más tarde; quien administra esta instalación puede ver el motivo en el registro del servidor.",
+  "errors.billing_provider_unavailable": "Ahora mismo no se puede contactar con el proveedor de pagos. Inténtalo dentro de un rato.",
   "errors.body_too_large": "Demasiado texto.",
   "errors.conflict": "Eso choca con algo que ya existe.",
   "errors.cross_site_request": "La petición no venía de la propia aplicación y se ha rechazado. Recarga la página e inténtalo de nuevo.",
