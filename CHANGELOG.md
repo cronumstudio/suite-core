@@ -3,6 +3,41 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.25.0 — 2026-09-29
+
+- `portability.js`: copies of the data, for every app that says what its data is
+  (`createApp({ …, portable })`): someone's own copy ("Download my data", `GET /api/me/export`) and
+  the whole install's for the admin (`GET /api/admin/export`), as a zip with `manifest.json`,
+  `data/<table>.json`, `suite/grants.json` (the plans the admin gave) and `files/<path>` (the
+  attachments byte for byte). Importing uploads the copy (`POST /api/me/import`,
+  `/api/admin/import`), answers what it would do, and applies it (`POST …/import/:id`) in one
+  transaction: new ids, every reference translated (also those to a later table or the same one,
+  set at the end), shares, the numbers people see, dates, the trash and attachments kept. A
+  person's copy goes into the account that imports it and leaves out what is shared with other
+  people, counted; a whole install's goes, account by account, into the account here with the same
+  email, a new one (linked by WorkOS or OIDC when that person signs in with that email) or
+  nowhere, and "replace" empties an account first. Passwords, second steps, sessions, tokens,
+  OAuth grants and push subscriptions never travel. The file is untrusted input: unknown tables or
+  columns, values that aren't plain, duplicate ids, a newer schema or another app's copy are
+  refused; references outside the file go nowhere; attachments must be images or PDF by their
+  first bytes; a copy is applied once (`data_imports`). The plan's limits hold on someone's own
+  import (`check`, and attachments left out when the plan has none).
+- `zip.js`: zip archives with no dependencies (`node:zlib`): written to any stream an entry at a
+  time with its back-pressure, ZIP64 past 4 GB or 65,535 entries; read through the central
+  directory, each entry inflated no further than it declares and checked against its CRC; refuses
+  encryption, split archives and unknown methods. Opened by Windows, macOS, `unzip` and Python.
+- `tools/data-cli.js`: the same from the command line, for each app's `scripts/data.js`:
+  `export <file> [--account <user>]`, `import <file>` (what it would do) with `--email`, `--to`,
+  `--new`, `--username`, `--skip`, `--replace` and `--as`, and `--apply`.
+- `web/admin.js`: a "Data" tab (with `modules.data` in `/api/auth/config`): download the copy of
+  the whole install, upload one, choose where each of its accounts goes, and import it.
+  `web/api.js`: `api.upload(path, file)`.
+- `accounts.js`: `create(fields, { quiet: true })` makes an account without the app's welcome
+  content (an imported account arrives with its own); `USERNAME` exported.
+- `uploads.js`: `storedName({ folder, name, ext })`, the name every stored file gets.
+- Suite migration 14 (`data-imports`). `i18n/`: the errors (`zip_*`, `import_*`, `data_busy`), the
+  fields and the admin panel's "Data" tab, in English, Spanish, French and German.
+
 ## 0.24.1 — 2026-09-29
 
 - `checkOrigin`: `Origin: null` with `Sec-Fetch-Site: same-origin` is the app's own page. Under

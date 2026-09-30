@@ -82,7 +82,7 @@ export function identitiesSchema(d) {
 const isoOf = (value) => (typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.test(value)
   ? `${value.replace(' ', 'T')}${value.endsWith('Z') ? '' : 'Z'}` : value ?? null);
 
-const USERNAME = /^[a-zA-Z0-9._-]{2,32}$/;
+export const USERNAME = /^[a-zA-Z0-9._-]{2,32}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
@@ -168,8 +168,12 @@ export function createAccounts({
    * Creates an account. Without a password it can only sign in elsewhere; with
    * `identity: { provider, subject, email }` it is linked to that account in
    * the same transaction, and the provider's email is taken as verified.
+   * `quiet`: the account arrives with its data (an import), so what the app
+   * makes for a newcomer —Tasks' first lists— isn't made for it.
    */
-  function create({ username, displayName, password = null, role = 'user', email = null, locale = null, identity = null }) {
+  function create({
+    username, displayName, password = null, role = 'user', email = null, locale = null, identity = null,
+  }, { quiet = false } = {}) {
     const name = String(username || '').trim();
     if (!USERNAME.test(name)) throw badRequest('field_invalid', { field: 'username' });
     if (byUsername(name)) throw conflict('username_taken');
@@ -189,7 +193,7 @@ export function createAccounts({
       );
       if (identity) insertIdentity(lastInsertRowid, identity.provider, identity.subject, row.email_verified_at ? row.email : null);
       const user = byId(lastInsertRowid);
-      for (const hook of created) hook(user);
+      if (!quiet) for (const hook of created) hook(user);
       return user;
     });
   }

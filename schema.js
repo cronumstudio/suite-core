@@ -26,6 +26,7 @@ import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
 import { pushSchema } from './push.js';
+import { dataImportsSchema } from './portability.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -44,4 +45,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 12, name: 'two-factor', up: twoFactorSchema },
   // Tasks' table as it was: its subscriptions (people's phones) keep working.
   { version: 13, name: 'push-subscriptions', up: pushSchema },
+  // Copies imported here, so none is applied twice (portability.js).
+  { version: 14, name: 'data-imports', up: dataImportsSchema },
 ]);

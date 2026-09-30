@@ -221,7 +221,7 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   });
   assert.equal(escape, 404, 'never outside the kit');
   assert.deepEqual((await call('GET', '/api/auth/config')).data.app,
-    { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false } });
+    { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false } });
 
   // Static files, the SPA's paths, and discovery paths that are not served.
   assert.match((await call('GET', '/')).data, /<title>Demo<\/title>/);
