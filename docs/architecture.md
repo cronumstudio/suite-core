@@ -141,6 +141,8 @@ export default {
     name: 'Tasks',                // shown on the consent screen, in the MCP server info, in mail
     port: 3456,                   // default for PORT (see the port registry in CONVENTIONS.md)
     languages: ['en', 'es'],      // English first: it is the fallback
+    color: '#EF4B2A',             // the product's colour: the accent of the OAuth consent screen
+    icon: '/icons/favicon.svg',   // the default; a path on the app, with its ?v= if the icons carry one
   },
 
   // Anything not listed keeps its default; a key that is not a module is an error.

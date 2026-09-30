@@ -24,6 +24,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | File | What it does |
 | --- | --- |
 | `oauth.js` | Built-in OAuth 2.1 authorization server for an app's MCP endpoint, so Claude or ChatGPT connect by pasting the URL |
+| `oauth-page.js` | Its consent and error screens with the Cronum Studio brand, the same in every app: the yolk behind, a card with the app's icon, name and colour (`app.color`, `app.icon`), and the "by Cronum Studio" signature; light or dark as the app |
 | `workos.js` | WorkOS AuthKit client: web sign-in with PKCE, sign-out, and verification of the JWTs AuthKit issues for the MCP |
 | `oidc.js` | Sign-in with any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google…): PKCE, state and nonce, the ID token checked, the person linked to their account by a verified email or created, and the provider's sign-out |
 | `mail.js` | Outgoing mail: an SMTP client with no dependencies (TLS or STARTTLS, AUTH PLAIN or LOGIN, headers that can't be broken into), or the server's log by default; `verify()` checks the server and the account without sending, and the app does it once at the start |
@@ -58,7 +59,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `app.js` | `createSuite()` wires every module from the configuration (database and migrations, sessions, accounts, tokens, audit, brake, plans, organizations, billing, WorkOS, OAuth); `createApp()` serves the suite's routes, its browser code and admin panel, the MCP endpoint, the app's routes and static files, in the order the apps learned, with clean-ups, hot reload and an orderly shutdown |
 | `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
 | `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, in two steps when the person turned it on, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password, two-step verification), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
-| `web/` | The web kit, served at `/suite/` with no build: `el()` and DOM helpers that never assemble HTML, `t()` in the browser (plurals, dates, the app's catalog merged with the suite's), `api` with errors in words, toasts, fields and dialogs, the theme before the first paint, QR codes with no library (`qr.js`: the second step's `otpauth://` address, a link for the phone), and `kit.css` |
+| `web/` | The web kit, served at `/suite/` with no build: `el()` and DOM helpers that never assemble HTML, `t()` in the browser (plurals, dates, the app's catalog merged with the suite's), `api` with errors in words, toasts, fields and dialogs, the theme before the first paint, QR codes with no library (`qr.js`: the second step's `otpauth://` address, a link for the phone), `kit.css`, and `oauth.css` for the OAuth screens |
 | `web/admin.html` | The admin panel at `/admin`, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, two-step verification, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
 
 ## Using it in an app
@@ -122,7 +123,7 @@ export const oauth = createOAuthServer({
     allowRegistration(req),             // → { allowed, retryAfter? } for dynamic registration
   },
   texts: (req, user) => ({ lang, t }),  // optional: the suite's own texts by default (below)
-  page: ({ lang, title, body }) => html,
+  page: ({ lang, title, body, theme }) => html,   // brandedPage(config.app) from oauth-page.js
   secondStep: {                         // optional: a code after the password (two-factor.js)
     required(user),                     // → whether this person turned it on
     challengeFor(userId),               // → a signed challenge for the screen that asks for the code
@@ -165,6 +166,14 @@ The keys are `oauth.connectTitle`, `wants`, `unverified`, `returnTo`, `loopback`
 `badCode` and `signInAgain`, and `oauth.error.<code>` for every code of `OAuthScreenError`. Their markup
 uses the classes `oauth__text`, `oauth__note`, `oauth__warning`, `oauth__error`,
 `oauth__form`, `oauth__actions`, `field`, `btn` and `btn--primary`.
+
+`createSuite()` dresses the screens with `oauth-page.js`: the Cronum Studio yolk behind (a glow
+over ink in the dark theme), a card with the app's icon (`app.icon`, `/icons/favicon.svg` by
+default), its name and its colour on the main button (`app.color`), and the "by Cronum Studio"
+signature under it. The page follows the person's theme: their own choice when they are signed in,
+else the one the app saved in the browser (`<app id>.theme` in `localStorage`), else the
+system's. Its styles are `web/oauth.css` and nothing comes from elsewhere. An app that wants its
+own page still passes `hooks.oauthPage`.
 
 What it implements and why is explained at the top of `oauth.js`.
 

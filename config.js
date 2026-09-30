@@ -68,6 +68,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     name: String(a.name ?? a.id ?? ''),
     port: a.port ?? 3000,
     languages: Array.isArray(a.languages) && a.languages.length ? [...a.languages] : ['en'],
+    // The product's colour and icon: the accent and the picture of the OAuth consent screen.
+    color: a.color ?? null,
+    icon: a.icon ?? '/icons/favicon.svg',
   };
   if (!/^[a-z][a-z0-9-]{1,30}$/.test(app.id)) errors.push('app.id: lowercase letters, digits and -, starting with a letter');
   if (!app.name.trim()) errors.push('app.name is needed');
@@ -75,6 +78,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const unknownLanguages = app.languages.filter((l) => !LANGUAGES.includes(l));
   if (unknownLanguages.length) errors.push(`app.languages: ${unknownLanguages.join(', ')} not among ${LANGUAGES.join(', ')}`);
   if (app.languages[0] !== 'en') errors.push('app.languages: English goes first, it is the fallback');
+  if (app.color !== null && !/^#[0-9a-fA-F]{6}$/.test(String(app.color))) errors.push('app.color: a colour as #RRGGBB, e.g. #3A4660');
+  // The consent screen's CSP only loads images from the app itself.
+  if (!/^\/(?!\/)[^\s"'<>\\]*$/.test(String(app.icon))) errors.push('app.icon: a path on the app itself, starting with /');
 
   /* ------------------------------- modules ------------------------------ */
 

@@ -47,6 +47,7 @@ import { createMailer } from './mail.js';
 import { createAccountMail } from './account-mail.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
+import { brandedPage } from './oauth-page.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createPush, vapidKeys } from './push.js';
@@ -75,27 +76,6 @@ export class SuiteConfigError extends Error {
   }
 }
 
-const escapeHtml = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-}[c]));
-
-/** The OAuth consent and error screens when the app doesn't dress them itself. */
-const plainPage = (appName) => ({ lang, title, body }) => `<!DOCTYPE html>
-<html lang="${escapeHtml(lang)}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="same-origin">
-<meta name="color-scheme" content="light dark">
-<title>${escapeHtml(title)} · ${escapeHtml(appName)}</title>
-</head>
-<body>
-<main>
-${body}
-</main>
-</body>
-</html>`;
-
 /** Passwords from examples and old defaults: known to anyone, so never used. */
 const EXAMPLE_PASSWORDS = new Set([
   'change-this-password', 'changeme', 'change-me',
@@ -110,7 +90,8 @@ const EXAMPLE_PASSWORDS = new Set([
  * @param {object} [options.hooks]
  *   extraColumns(user) → the app's own columns for a new account;
  *   onUserCreated(user), onUserRemoved(userId);
- *   oauthPage({ lang, title, body }) → HTML of the consent screen, dressed like the app;
+ *   oauthPage({ lang, title, body, theme }) → HTML of the consent screen, when the app dresses it
+ *     itself instead of the suite's (oauth-page.js, with app.color and app.icon);
  *   texts(req, user) → { lang, t } for that screen
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
@@ -272,7 +253,7 @@ export function createSuite({
       loginSucceeded: limiter.loginSucceeded, allowRegistration: limiter.allowRegistration,
     },
     ...(hooks.texts ? { texts: hooks.texts } : {}),
-    page: hooks.oauthPage || plainPage(config.app.name),
+    page: hooks.oauthPage || brandedPage(config.app),
     // With OIDC, whoever isn't signed in goes to the provider and comes back.
     externalSignIn: oidc ? { name: oidc.name, url: oidc.signInUrl } : null,
     log,

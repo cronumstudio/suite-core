@@ -14,7 +14,7 @@ import { resolveConfig } from '../config.js';
 import { createSuite, createApp, SuiteConfigError } from '../app.js';
 
 const PRODUCT = {
-  app: { id: 'demo', name: 'Demo', port: 3999, languages: ['en', 'es'] },
+  app: { id: 'demo', name: 'Demo', port: 3999, languages: ['en', 'es'], color: '#3A4660' },
   accounts: { minPasswordLength: 8 },
   features: { 'notes.max': { type: 'limit', default: null, label: 'more notes' } },
 };
@@ -55,6 +55,18 @@ test('the configuration: defaults, the environment, and every mistake named', ()
     'BILLING_PROVIDER is set, but this app has modules.billing off']) {
     assert.ok(said.includes(piece), `names: ${piece}\n${said}`);
   }
+  assert.equal(plain.app.color, '#3A4660');
+  assert.equal(plain.app.icon, '/icons/favicon.svg', 'the icon every app publishes');
+  assert.equal(resolveConfig({ app: { id: 'demo' } }, {}).app.color, null, 'no colour: the page keeps ink');
+  for (const [app, piece] of [
+    [{ color: '3A4660' }, 'app.color'], [{ color: '#3A466' }, 'app.color'], [{ color: 'navy' }, 'app.color'],
+    [{ icon: 'icons/favicon.svg' }, 'app.icon'], [{ icon: '//cdn.example/icon.svg' }, 'app.icon'],
+    [{ icon: 'https://cdn.example/icon.svg' }, 'app.icon'], [{ icon: '/icons/a"b.svg' }, 'app.icon'],
+  ]) {
+    const said = resolveConfig({ ...PRODUCT, app: { ...PRODUCT.app, ...app } }, {}).errors.join('\n');
+    assert.ok(said.includes(piece), `${JSON.stringify(app)} is refused: ${said}`);
+  }
+  assert.deepEqual(resolveConfig({ ...PRODUCT, app: { ...PRODUCT.app, icon: '/icons/favicon.svg?v=2' } }, {}).errors, []);
   const unknownProvider = resolveConfig(PRODUCT, { AUTH_PROVIDER: 'ldap' });
   assert.equal(unknownProvider.install.authProvider, 'local');
   assert.match(unknownProvider.warnings[0], /AUTH_PROVIDER="ldap" is not known/);
@@ -222,6 +234,31 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.equal(escape, 404, 'never outside the kit');
   assert.deepEqual((await call('GET', '/api/auth/config')).data.app,
     { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false } });
+
+  // The OAuth screens, dressed by the suite: the yolk page with the app's icon, name and colour.
+  const consent = await call('GET', '/oauth/authorize');
+  assert.equal(consent.status, 400, 'no client: the error screen');
+  assert.match(consent.headers.get('content-security-policy'), /default-src 'self'/);
+  assert.match(consent.data, /<html lang="en" data-app="demo" style="--app: #3A4660; --app-on: #FFFFFF">/);
+  assert.match(consent.data, /<title>[^<]+ · Demo<\/title>/);
+  assert.match(consent.data, /<img src="\/icons\/favicon\.svg" alt="" width="44" height="44"><span>Demo<\/span>/);
+  assert.match(consent.data, /<link rel="stylesheet" href="\/suite\/oauth\.css">/);
+  assert.match(consent.data, /<script src="\/suite\/theme\.js"><\/script>/);
+  assert.match(consent.data, /class="cronum-sig" href="https:\/\/cronumstudio\.com"[^>]*>[\s\S]*<strong>Cronum Studio<\/strong>/);
+  assert.doesNotMatch(consent.data, /data-theme=/, 'the admin chose no theme: the browser’s');
+  for (const [, url] of consent.data.matchAll(/<(?:link|script|img)\b[^>]*\b(?:href|src)="([^"]*)"/g)) {
+    assert.match(url, /^\/[^/]/, `${url}: nothing loaded from elsewhere`);
+  }
+  suite.database.run("UPDATE users SET theme = 'dark' WHERE username = 'admin'");
+  assert.match((await call('GET', '/oauth/authorize')).data, /<html lang="en" data-app="demo" data-theme="dark"/,
+    'the person’s own theme from the first paint');
+  const sheet = await fetch(`${base}/suite/oauth.css`);
+  assert.equal(sheet.status, 200);
+  assert.match(sheet.headers.get('content-type'), /text\/css/);
+  const css = await sheet.text();
+  assert.doesNotMatch(css, /@import|url\(|https?:/, 'no fonts or images from elsewhere: the CSP allows none');
+  assert.doesNotMatch(css, /#4A1478/i, 'no eggplant on yolk');
+  assert.equal((await fetch(`${base}/suite/theme.js`)).status, 200);
 
   // Static files, the SPA's paths, and discovery paths that are not served.
   assert.match((await call('GET', '/')).data, /<title>Demo<\/title>/);
