@@ -214,7 +214,8 @@ function privateIp(ip) {
  * @param {(req, user) => {lang: string, t: Function}} [options.texts]
  *   the screens' texts; by default the suite's own (i18n/), in the user's or
  *   the browser's language. `createTexts({ catalogs })` overrides some keys.
- * @param {({lang, title, body}) => string} options.page  full HTML around a body
+ * @param {({lang, title, body, theme}) => string} options.page  full HTML around a body; `theme` is
+ *   the person's own choice, 'light' or 'dark', when known (oauth-page.js is the suite's)
  * @param {object} [options.externalSignIn]  when people sign in elsewhere (an OIDC provider):
  *   { name, url(returnTo) }. The consent screen then offers "Sign in with <name>", which comes
  *   back to the same request, instead of asking for a username and a password.
@@ -478,16 +479,21 @@ export function createOAuthServer({
   };
   const strong = (text) => `<strong>${escapeHtml(text)}</strong>`;
 
-  function screen(res, status, { lang, title, body, redirect = null }) {
+  /** The person's own theme, when they chose one: the page follows it from the first paint. */
+  const themeOf = (user) => (user?.theme === 'light' || user?.theme === 'dark' ? user.theme : null);
+
+  function screen(res, status, { lang, title, body, redirect = null, theme = null }) {
     res.setHeader('Content-Security-Policy', screenCsp(redirect));
     res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(page({ lang, title, body }));
+    res.end(page({ lang, title, body, theme }));
   }
 
   function errorScreen(req, res, code) {
-    const { lang, t } = texts(req, users.fromRequest(req));
+    const user = users.fromRequest(req);
+    const { lang, t } = texts(req, user);
     screen(res, 400, {
       lang,
+      theme: themeOf(user),
       title: t('oauth.cannotConnect'),
       body: `<h1>${htmlText(t, 'oauth.cannotConnect')}</h1>
 <p class="oauth__text">${htmlText(t, `oauth.error.${code}`)}</p>
@@ -518,6 +524,7 @@ export function createOAuthServer({
       lang,
       title: t('oauth.connectTitle', { app: appName }),
       redirect,
+      theme: themeOf(user),
       body: `<h1>${htmlText(t, 'oauth.connectTitle')}</h1>
 <p class="oauth__text">${htmlText(t, 'oauth.wants', { client: who })}</p>
 ${client.verified ? '' : `<p class="oauth__text oauth__note">${htmlText(t, 'oauth.unverified')}</p>`}

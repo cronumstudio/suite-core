@@ -1,0 +1,210 @@
+/*
+ * The OAuth consent and error screens (oauth-page.js), the same in every app:
+ * Cronum's yolk behind, a card with the app's icon, name and colour (--app,
+ * set by the page from app.color), and the signature under it.
+ *
+ * On yolk, the signature is the monochrome ink one: the brand never puts
+ * eggplant on yellow. In the dark theme the yolk becomes a glow over ink, and
+ * the signature takes the version for dark backgrounds (yolk ring, cream dot
+ * and text).
+ */
+
+:root {
+  color-scheme: light;
+  --app: #16130E;
+  --app-on: #FFFFFF;
+  --yolk-300: #FFD95C;
+  --yolk-500: #FFC21A;
+  --yolk-600: #FFB000;
+  --yolk-700: #FFA812;
+  --ink: #16130E;
+  --cream: #FFF7E6;
+
+  --page: linear-gradient(135deg, var(--yolk-300) 0%, var(--yolk-500) 55%, var(--yolk-700) 100%);
+  --page-solid: var(--yolk-500);
+  --card: #FFFDF8;
+  --card-border: rgba(22, 19, 14, .06);
+  --card-shadow: 0 1px 2px rgba(90, 60, 0, .10), 0 18px 48px -12px rgba(90, 60, 0, .30);
+  --text: #16130E;
+  --muted: #7A7064;
+  --line: #E4DCCD;
+  --field: #FFFFFF;
+  --focus: var(--app);
+  --btn-border: var(--line);
+  --warn-bg: #FFF1D1;
+  --warn-text: #7A4A00;
+  --error-bg: #FDE7E4;
+  --error-text: #A8261B;
+
+  --sig-text: #16130E;
+  --sig-ring: #16130E;
+  --sig-dot: #16130E;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:
+    radial-gradient(110% 70% at 0% 0%, rgba(255, 194, 26, .30) 0%, rgba(255, 176, 0, .10) 45%, transparent 75%),
+    radial-gradient(90% 60% at 100% 100%, rgba(255, 168, 18, .14) 0%, transparent 70%),
+    #16130E;
+  --page-solid: #16130E;
+  --card: #1F1B15;
+  --card-border: rgba(255, 247, 230, .08);
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 18px 48px -12px rgba(0, 0, 0, .7);
+  --text: #FFF7E6;
+  --muted: #B8AE9F;
+  --line: #3A342A;
+  --field: #16130E;
+  --focus: var(--yolk-500);
+  --btn-border: #4A4236;
+  --warn-bg: #3A2C0C;
+  --warn-text: #FFD27A;
+  --error-bg: #3F1A16;
+  --error-text: #FFB4A9;
+
+  --sig-text: #FFF7E6;
+  --sig-ring: var(--yolk-500);
+  --sig-dot: #FFF7E6;
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--page-solid); }
+
+body.consent-page {
+  margin: 0;
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  background: var(--page) no-repeat;
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.consent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  padding-block: max(32px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-bottom));
+  padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right));
+}
+
+.consent__card {
+  inline-size: 100%;
+  max-inline-size: 420px;
+  padding: 28px;
+  border-radius: 20px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow);
+  overflow-wrap: anywhere;
+}
+
+.consent__app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block-end: 20px;
+  font-weight: 650;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.consent__app img { inline-size: 44px; block-size: 44px; border-radius: 11px; flex: none; }
+
+.consent__card h1 {
+  margin: 0 0 12px;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.oauth__text { margin: 0 0 10px; }
+.oauth__text strong { font-weight: 650; }
+.oauth__note { color: var(--muted); font-size: 14px; }
+.oauth__warning, .oauth__error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+.oauth__warning { background: var(--warn-bg); color: var(--warn-text); }
+.oauth__error { background: var(--error-bg); color: var(--error-text); font-weight: 550; }
+
+.oauth__form { margin-block-start: 18px; }
+
+.field { display: block; margin-block-end: 14px; }
+.field span { display: block; margin-block-end: 6px; font-size: 13.5px; font-weight: 600; }
+.field input {
+  display: block;
+  inline-size: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+}
+.field input:focus { outline: 2px solid var(--focus); outline-offset: 1px; border-color: transparent; }
+
+.oauth__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block-start: 20px;
+}
+
+.btn {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 44px;
+  padding: 10px 18px;
+  border: 1px solid var(--btn-border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.btn--primary {
+  flex-grow: 2;
+  border-color: var(--app);
+  background: var(--app);
+  color: var(--app-on);
+}
+.btn--primary:hover { background: color-mix(in srgb, var(--app) 88%, #000); }
+/* A dark product colour on the dark card: a hairline keeps the button's edge. */
+:root[data-theme="dark"] .btn--primary { border-color: color-mix(in srgb, var(--app) 70%, #FFF7E6); }
+:root[data-theme="dark"] .btn--primary:hover { background: color-mix(in srgb, var(--app) 85%, #FFF7E6); }
+
+/* ------------------------------ signature ------------------------------- */
+
+.cronum-sig {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--sig-text);
+  opacity: .78;
+  text-decoration: none;
+}
+.cronum-sig:hover, .cronum-sig:focus-visible { opacity: 1; }
+.cronum-sig strong { font-weight: 600; }
+.cronum-sig svg { inline-size: 17px; block-size: 17px; flex: none; }
+.cronum-sig path { fill: none; stroke: var(--sig-ring); stroke-width: 20; stroke-linecap: round; }
+.cronum-sig circle { fill: var(--sig-dot); }
+
+@media (max-width: 420px) {
+  .consent__card { padding: 22px 20px; border-radius: 18px; }
+  .consent__card h1 { font-size: 22px; }
+}

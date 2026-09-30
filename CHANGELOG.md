@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.26.0 — 2026-09-30
+
+- `oauth-page.js`: the OAuth consent and error screens are the same in every app, with the
+  Cronum Studio brand: the yolk gradient behind (a yolk glow over ink in the dark theme), a card
+  with the app's icon, name and colour on its main button, and the "by Cronum Studio" signature
+  under it (monochrome ink on yolk: never eggplant on yellow; the version for dark backgrounds in
+  the dark theme). It replaces the plain page and the page each app dressed itself, which an app
+  can still pass (`hooks.oauthPage`); the texts hook (`hooks.texts`, `createTexts`) is as it was.
+  Everything is the app's own: styles in `web/oauth.css` (at `/suite/oauth.css`), the theme with
+  `/suite/theme.js`, the icon from the app; no fonts or anything else from elsewhere, as the
+  screen's CSP wants.
+- `suite.config.js`: `app.color` (`#RRGGBB`, the product's colour; ink when absent) and
+  `app.icon` (a path on the app, `/icons/favicon.svg` by default, with its `?v=` when the icons
+  carry one), checked on start. The text on the button is white unless the colour is too light
+  for it (`textOn()`).
+- `oauth.js`: `page({ lang, title, body, theme })`: the person's own theme (`users.theme`,
+  `light` or `dark`) when the screen knows who they are, so it follows the app from the first
+  paint.
+- `web/theme.js`: keeps a `data-theme` the server already wrote, and reads the app's own saved
+  choice (`<app>.theme` in `localStorage`, when the page names the app with `data-app`) before
+  `suite.theme`.
+
 ## 0.25.0 — 2026-09-29
 
 - `portability.js`: copies of the data, for every app that says what its data is
