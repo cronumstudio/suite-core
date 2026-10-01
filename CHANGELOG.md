@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.27.0 — 2026-10-01
+
+- The admin panel (`/admin`) wears the Cronum Studio brand: `web/kit.css` has warm neutrals from
+  cream and ink instead of the neutral tokens, the product's colour (`app.color`) is the accent
+  (lightened with cream in the dark theme, where a dark colour would vanish; ink, or yolk in the
+  dark, without one), the app's icon (`app.icon`) is the favicon and sits in the header, and
+  "by Cronum Studio" closes the page. The server fills `web/admin.html` with the app's id, colour
+  and icon, so the theme the app saved in the browser (`<app>.theme`) applies before the first
+  paint.
+- `brand.js`: what the suite's screens share — `textOn()`, the colour as a style attribute, the
+  signature — used by the OAuth screens and the panel. `oauth-page.js` still exports `textOn`.
+
 ## 0.26.0 — 2026-09-30
 
 - `oauth-page.js`: the OAuth consent and error screens are the same in every app, with the

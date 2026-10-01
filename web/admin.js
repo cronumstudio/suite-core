@@ -108,8 +108,11 @@ async function start() {
   state.data = Boolean(state.config.app?.modules?.data);
 
   const app = state.config.app || {};
+  // The app's icon, as the server wrote it into the page (app.icon).
+  const icon = document.querySelector('link[rel="icon"]')?.getAttribute('href');
   clear(root).append(
     el('header', { class: 'kit-header' },
+      icon ? el('img', { class: 'kit-header__icon', src: icon, alt: '', width: 40, height: 40 }) : null,
       el('div', {},
         el('div', { class: 'kit-header__app', text: app.name }),
         el('h1', { text: t('admin.title') })),
