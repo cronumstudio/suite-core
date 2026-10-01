@@ -60,7 +60,8 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
 | `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, in two steps when the person turned it on, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password, two-step verification), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
 | `web/` | The web kit, served at `/suite/` with no build: `el()` and DOM helpers that never assemble HTML, `t()` in the browser (plurals, dates, the app's catalog merged with the suite's), `api` with errors in words, toasts, fields and dialogs, the theme before the first paint, QR codes with no library (`qr.js`: the second step's `otpauth://` address, a link for the phone), `kit.css`, and `oauth.css` for the OAuth screens |
-| `web/admin.html` | The admin panel at `/admin`, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, two-step verification, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
+| `brand.js` | What the suite's own screens share of the Cronum Studio brand: the product's colour as the accent, the text that reads on it, and the "by Cronum Studio" signature |
+| `web/admin.html` | The admin panel at `/admin`, in the app's colour and with its icon and the signature, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, two-step verification, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
 
 ## Using it in an app
 

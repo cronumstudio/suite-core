@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-app="{{app.id}}"{{app.style}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -7,12 +7,15 @@
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
 <title>Admin</title>
-<link rel="icon" href="/icons/favicon.png" sizes="any">
+<link rel="icon" href="{{app.icon}}" type="image/svg+xml">
 <script src="/suite/theme.js"></script>
 <link rel="stylesheet" href="/suite/kit.css">
 <script type="module" src="/suite/admin.js"></script>
 </head>
 <body>
 <div id="admin"></div>
+<footer class="kit-signature">
+{{signature}}
+</footer>
 </body>
 </html>

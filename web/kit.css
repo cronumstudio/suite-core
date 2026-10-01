@@ -1,42 +1,51 @@
 /*
  * The suite's screens (the admin panel today): design tokens and a handful of
- * components. Neutral until the Cronum style guide exists; an app can bring
- * its accent by overriding --kit-accent.
+ * components, with the Cronum Studio brand: warm neutrals from cream and ink,
+ * and the product's colour as the accent (--app, which the page sets from
+ * app.color). Without a colour the accent is ink, and yolk in the dark theme.
  */
 
 :root {
   color-scheme: light;
-  --kit-accent: #4f5bd5;
-  --kit-accent-soft: #e6e8fb;
-  --kit-accent-text: #ffffff;
-  --kit-ok: #2e9d62;
-  --kit-warn: #b86e05;
-  --kit-danger: #d1453b;
-  --kit-bg: #f4f5f9;
-  --kit-panel: #ffffff;
-  --kit-hover: #eceef4;
-  --kit-text: #1b1e28;
-  --kit-muted: #5d6475;
-  --kit-border: #dfe2ea;
-  --kit-shadow: 0 1px 3px rgba(16, 20, 40, .10), 0 6px 20px rgba(16, 20, 40, .06);
+  --kit-accent: var(--app, #16130E);
+  --kit-accent-soft: color-mix(in srgb, var(--kit-accent) 12%, #FFFFFF);
+  --kit-accent-text: var(--app-on, #FFFFFF);
+  --kit-ok: #1F8A57;
+  --kit-warn: #A86200;
+  --kit-danger: #C8372D;
+  --kit-bg: #FAF6EE;
+  --kit-panel: #FFFFFF;
+  --kit-hover: #F2ECE0;
+  --kit-text: #16130E;
+  --kit-muted: #7A7064;
+  --kit-border: #E4DCCD;
+  --kit-shadow: 0 1px 3px rgba(60, 40, 0, .08), 0 6px 20px rgba(60, 40, 0, .05);
   --kit-radius: 10px;
+  --kit-sig-ring: #FFB000;
+  --kit-sig-dot: #4A1478;
 }
 
+/*
+ * In the dark the product's colour (graphite, say) would vanish on ink: the
+ * accent takes it lightened with cream, and the text on it is ink.
+ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --kit-accent: #8d95ff;
-  --kit-accent-soft: #262a4d;
-  --kit-accent-text: #10122a;
-  --kit-ok: #4cc184;
-  --kit-warn: #f0a531;
-  --kit-danger: #f06a60;
-  --kit-bg: #13151c;
-  --kit-panel: #1c1f28;
-  --kit-hover: #262a36;
-  --kit-text: #e7e9f0;
-  --kit-muted: #9aa1b2;
-  --kit-border: #2e323f;
+  --kit-accent: color-mix(in srgb, var(--app, #FFC21A) 55%, #FFF7E6);
+  --kit-accent-soft: color-mix(in srgb, var(--kit-accent) 16%, #1F1B15);
+  --kit-accent-text: #16130E;
+  --kit-ok: #4CC184;
+  --kit-warn: #FFC94D;
+  --kit-danger: #F07A6E;
+  --kit-bg: #16130E;
+  --kit-panel: #1F1B15;
+  --kit-hover: #2A251D;
+  --kit-text: #FFF7E6;
+  --kit-muted: #B8AE9F;
+  --kit-border: #3A342A;
   --kit-shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .3);
+  --kit-sig-ring: #FFC21A;
+  --kit-sig-dot: #FFF7E6;
 }
 
 * { box-sizing: border-box; }
@@ -61,7 +70,8 @@ h1, h2, h3 { line-height: 1.25; }
   padding: 14px max(16px, env(safe-area-inset-left)) 0;
   max-width: 1120px; margin: 0 auto;
 }
-.kit-header h1 { margin: 0; font-size: 20px; }
+.kit-header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+.kit-header__icon { width: 40px; height: 40px; border-radius: 10px; flex: none; }
 .kit-header__app { color: var(--kit-muted); font-size: 14px; }
 .kit-header__spacer { flex: 1; }
 .kit-header__user { color: var(--kit-muted); font-size: 14px; }
@@ -202,6 +212,20 @@ h1, h2, h3 { line-height: 1.25; }
   box-shadow: var(--kit-shadow); font-size: 14px;
 }
 .kit-toast--error { background: var(--kit-danger); color: #fff; }
+
+/* ------------------------------- signature -------------------------------- */
+
+/* Until the panel has drawn itself, the signature alone would sit at the top. */
+#admin:empty + .kit-signature { display: none; }
+.kit-signature { display: flex; justify-content: center; padding: 8px 16px max(28px, env(safe-area-inset-bottom)); }
+.cronum-sig {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px;
+  color: var(--kit-muted); text-decoration: none;
+}
+.cronum-sig strong { font-weight: 600; color: var(--kit-text); }
+.cronum-sig svg { width: 17px; height: 17px; flex: none; }
+.cronum-sig path { fill: none; stroke: var(--kit-sig-ring); stroke-width: 20; stroke-linecap: round; }
+.cronum-sig circle { fill: var(--kit-sig-dot); }
 
 @media (max-width: 640px) {
   .kit-hide-narrow { display: none; }

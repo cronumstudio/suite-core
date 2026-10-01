@@ -219,6 +219,14 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.equal(panel.status, 200);
   assert.match(panel.headers.get('content-type'), /text\/html/);
   assert.match(panel.data, /<script type="module" src="\/suite\/admin\.js"><\/script>/);
+  assert.match(panel.data, /<html lang="en" data-app="demo" style="--app: #3A4660; --app-on: #FFFFFF">/,
+    'the product’s colour is the panel’s accent');
+  assert.match(panel.data, /<link rel="icon" href="\/icons\/favicon\.svg" type="image\/svg\+xml">/);
+  assert.match(panel.data, /<footer class="kit-signature">\s*<a class="cronum-sig" href="https:\/\/cronumstudio\.com"[\s\S]*<strong>Cronum Studio<\/strong>/);
+  assert.doesNotMatch(panel.data, /\{\{/, 'every placeholder filled');
+  const kitCss = await (await fetch(`${base}/suite/kit.css`)).text();
+  assert.match(kitCss, /--kit-accent: var\(--app, #16130E\)/);
+  assert.doesNotMatch(kitCss, /@import|url\(|https?:/, 'nothing from elsewhere');
   assert.doesNotMatch(panel.data.replace(/<script[^>]*src="[^"]+"[^>]*><\/script>/g, ''), /<script/,
     'no inline script: the CSP allows none');
   const kit = await fetch(`${base}/suite/admin.js`);

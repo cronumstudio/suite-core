@@ -48,6 +48,7 @@ import { createAccountMail } from './account-mail.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { brandedPage } from './oauth-page.js';
+import { brandedAdmin } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createPush, vapidKeys } from './push.js';
@@ -617,7 +618,10 @@ export function createApp({
       // The suite's browser code (the web kit) and its admin panel.
       if (pathname.startsWith('/suite/') && serveStatic(WEB_DIR, pathname.slice('/suite'.length), res)) return;
       if (config.modules.admin && (pathname === '/admin' || pathname === '/admin/')) {
-        serveStatic(WEB_DIR, '/admin.html', res);
+        // Read on every request: it is small, and a new suite-core is served without a restart.
+        const page = brandedAdmin(fs.readFileSync(path.join(WEB_DIR, 'admin.html'), 'utf8'), config.app);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+        res.end(req.method === 'HEAD' ? undefined : page);
         return;
       }
       const wanted = /^\/i18n\/([a-z]{2})\.json$/.exec(pathname)?.[1];

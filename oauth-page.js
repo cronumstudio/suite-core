@@ -9,36 +9,10 @@
  * product's colour goes in a style attribute, which that CSP allows.
  */
 
-const escapeHtml = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-}[c]));
+import { escapeHtml, appStyle, SIGNATURE, textOn } from './brand.js';
 
-const INK = '#16130E';
-
-/** WCAG relative luminance of a #RRGGBB colour. */
-function luminance(hex) {
-  const [r, g, b] = [1, 3, 5].map((i) => {
-    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-/**
- * The text on a button of the product's colour: white, as the apps' own
- * buttons have it, unless the colour is so light that white stops reading
- * (under 3:1, the ratio for large and bold text); then ink.
- */
-export function textOn(hex) {
-  return 1.05 / (luminance(hex) + 0.05) >= 3 ? '#FFFFFF' : INK;
-}
-
-/** The ring of the signature: its colours follow the theme (oauth.css). */
-const SIGNATURE = `<a class="cronum-sig" href="https://cronumstudio.com" target="_blank" rel="noopener">
-<span>by</span>
-<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 14A36 36 0 1 0 86 50"/><circle cx="76.87" cy="23.13" r="10"/></svg>
-<strong>Cronum Studio</strong>
-</a>`;
+// Still exported from here: apps and tests imported it before brand.js existed.
+export { textOn };
 
 /**
  * @param {object} app   config.app: { id, name, color, icon }
@@ -47,7 +21,7 @@ const SIGNATURE = `<a class="cronum-sig" href="https://cronumstudio.com" target=
  *   without it, /suite/theme.js takes the one the app saved in this browser.
  */
 export function brandedPage({ id, name, color = null, icon = '/icons/favicon.svg' }) {
-  const style = color ? ` style="--app: ${color}; --app-on: ${textOn(color)}"` : '';
+  const style = appStyle(color);
   const head = `<link rel="icon" href="${escapeHtml(icon)}" type="image/svg+xml">
 <link rel="stylesheet" href="/suite/oauth.css">
 <script src="/suite/theme.js"></script>`;
