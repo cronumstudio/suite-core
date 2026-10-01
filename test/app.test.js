@@ -226,6 +226,7 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.doesNotMatch(panel.data, /\{\{/, 'every placeholder filled');
   const kitCss = await (await fetch(`${base}/suite/kit.css`)).text();
   assert.match(kitCss, /--kit-accent: var\(--app, #16130E\)/);
+  assert.doesNotMatch(kitCss, /#4A1478/i, 'no eggplant: the brand dropped it');
   assert.doesNotMatch(kitCss, /@import|url\(|https?:/, 'nothing from elsewhere');
   assert.doesNotMatch(panel.data.replace(/<script[^>]*src="[^"]+"[^>]*><\/script>/g, ''), /<script/,
     'no inline script: the CSP allows none');
