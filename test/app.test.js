@@ -44,6 +44,18 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.equal(hosted.install.hotReload, true);
   assert.deepEqual(hosted.warnings, ['RECARGA_EN_CALIENTE is the old name of HOT_RELOAD: rename it']);
 
+  const oldNames = resolveConfig(PRODUCT, { PUBLIC_URL: 'https://gps.example', PUERTO: '8080' });
+  assert.deepEqual(oldNames.errors, []);
+  assert.equal(oldNames.install.baseUrl, 'https://gps.example', 'PUBLIC_URL still sets the address');
+  assert.equal(oldNames.install.secureCookies, true);
+  assert.deepEqual(oldNames.warnings, [
+    'PUERTO is the old name of HOST_PORT: rename it',
+    'PUBLIC_URL is the old name of BASE_URL: rename it',
+  ]);
+  const bothNames = resolveConfig(PRODUCT, { BASE_URL: 'https://new.example', PUBLIC_URL: 'https://old.example' });
+  assert.equal(bothNames.install.baseUrl, 'https://new.example', 'the current name wins');
+  assert.deepEqual(bothNames.warnings, []);
+
   const wrong = resolveConfig({
     app: { id: 'Demo App', languages: ['es', 'xx'] }, modules: { organisations: true, mcp: 'yes' },
     accounts: { signup: 'public', minPasswordLength: 4 }, sessions: { cookieName: 'Demo SID' }, plan: {},

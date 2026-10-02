@@ -40,8 +40,13 @@ const PRODUCT_KEYS = new Set([
   'features', 'plans', 'defaultPlan', 'products', 'trustProxy',
 ]);
 
-/** Variables renamed when the code base moved to English: still read, with a warning. */
-const OLD_NAMES = Object.freeze({ RECARGA_EN_CALIENTE: 'HOT_RELOAD', PORT_HOST: 'HOST_PORT' });
+/**
+ * Variables renamed when the apps moved to one set of names (CONVENTIONS.md): still read, with a
+ * warning. HOST_PORT only matters to docker compose, but the warning helps when .env reaches the app.
+ */
+const OLD_NAMES = Object.freeze({
+  RECARGA_EN_CALIENTE: 'HOT_RELOAD', PORT_HOST: 'HOST_PORT', PUERTO: 'HOST_PORT', PUBLIC_URL: 'BASE_URL',
+});
 
 const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 const wholeNumber = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
@@ -144,8 +149,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   const port = env.PORT ? Number(env.PORT) : app.port;
   if (!wholeNumber(port, 0, 65535)) errors.push(`PORT "${env.PORT}" is not a port number`);
-  const baseUrl = String(env.BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
-  if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(baseUrl)) errors.push(`BASE_URL "${env.BASE_URL}" is not an http(s) address`);
+  const givenUrl = env.BASE_URL || env.PUBLIC_URL;
+  const baseUrl = String(givenUrl || `http://localhost:${port}`).replace(/\/+$/, '');
+  if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(baseUrl)) errors.push(`BASE_URL "${givenUrl}" is not an http(s) address`);
   const dataDir = env.DATA_DIR || path.join(cwd, 'data');
 
   let authProvider = env.AUTH_PROVIDER || 'local';
