@@ -13,9 +13,11 @@ relax these. The design they serve is in [docs/architecture.md](docs/architectur
   translation catalogs through `t('key')` or `data-i18n`; English is the base language, Spanish,
   French and German are translations. A new key goes into every catalog; the tests fail if one is
   missing. Content people write is never translated.
-- **Renaming keeps the old name working.** When something that clients or installs depend on is
-  renamed (an MCP tool or parameter, an environment variable, a `localStorage` key), the old name
-  stays as an alias, as Next did when it moved to English.
+- **Renaming depends on who holds the old name.** What clients hold and nobody can update for
+  them (an MCP tool or parameter that an assistant remembers, a `localStorage` key in someone's
+  browser) keeps the old name as an alias. What an install holds (an environment variable) does
+  not: the old name stops the start and the message names the new one, because an alias would
+  keep the install working on the old name forever without anyone noticing.
 - Repositories that are still partly in Spanish move to English file by file; new code and new
   documents are English from the start. The maintainer's own tools (task lists, the progress log)
   are outside this rule.
@@ -88,7 +90,7 @@ names are the same in every app:
 
 | Variable | What it does |
 | --- | --- |
-| `BASE_URL` | Public URL, exactly as the browser uses it; decides Secure cookies and the OAuth issuer |
+| `BASE_URL` | Public URL, exactly as the browser uses it; decides Secure cookies and the OAuth issuer. Required in production (`NODE_ENV=production`, as the images set it) |
 | `PORT` / `HOST_PORT` | Port inside the container / published on the host |
 | `DATA_DIR` | Where the database and uploads live (`/data` in the container) |
 | `DATA_PATH`, `PROJECT_PATH` | Absolute host paths for the compose files (Synology needs them) |
@@ -108,8 +110,9 @@ names are the same in every app:
 | `BILLING_PROVIDER`, `STRIPE_*` | Billing; off when empty |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 
-Old names are read as fallbacks with a warning: `PORT_HOST` and `PUERTO` for `HOST_PORT`,
-`RECARGA_EN_CALIENTE` for `HOT_RELOAD`, `PUBLIC_URL` for `BASE_URL`.
+Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`
+(`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one.
+Compose files use only the current names.
 
 **Port registry** (default `PORT`, also the host port unless an install says otherwise):
 
