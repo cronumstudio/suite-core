@@ -5,8 +5,10 @@
  *
  * Checked as a whole on start. A misspelled setting must never leave a barrier
  * open or a module half on, so anything unknown or wrong is an error and the
- * app doesn't start; it says what is wrong instead. What only deserves a word
- * (an old variable name, an unknown AUTH_PROVIDER) is a warning.
+ * app doesn't start; it says what is wrong instead. That includes a variable
+ * under its old name: read as an alias, it would keep an install working on
+ * the old name forever. What only deserves a word (an unknown AUTH_PROVIDER)
+ * is a warning.
  *
  *   import product from '../suite.config.js';
  *   const config = resolveConfig(product);          // process.env by default
@@ -41,8 +43,9 @@ const PRODUCT_KEYS = new Set([
 ]);
 
 /**
- * Variables renamed when the apps moved to one set of names (CONVENTIONS.md): still read, with a
- * warning. HOST_PORT only matters to docker compose, but the warning helps when .env reaches the app.
+ * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
+ * finding one stops the start and names its replacement. HOST_PORT only matters to docker compose,
+ * but .env often reaches the app too.
  */
 const OLD_NAMES = Object.freeze({
   RECARGA_EN_CALIENTE: 'HOT_RELOAD', PORT_HOST: 'HOST_PORT', PUERTO: 'HOST_PORT', PUBLIC_URL: 'BASE_URL',
@@ -145,13 +148,17 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   /* ------------------------------- install ------------------------------ */
 
   for (const [old, current] of Object.entries(OLD_NAMES)) {
-    if (env[old] !== undefined && env[current] === undefined) warnings.push(`${old} is the old name of ${current}: rename it`);
+    if (env[old] !== undefined && env[old] !== '') errors.push(`${old} is no longer read: rename it to ${current}`);
   }
   const port = env.PORT ? Number(env.PORT) : app.port;
   if (!wholeNumber(port, 0, 65535)) errors.push(`PORT "${env.PORT}" is not a port number`);
-  const givenUrl = env.BASE_URL || env.PUBLIC_URL;
-  const baseUrl = String(givenUrl || `http://localhost:${port}`).replace(/\/+$/, '');
-  if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(baseUrl)) errors.push(`BASE_URL "${givenUrl}" is not an http(s) address`);
+  // In production the address decides Secure cookies, the OAuth issuer and the links in emails:
+  // a localhost guess there would half-work instead of failing.
+  if (!env.BASE_URL && env.NODE_ENV === 'production') {
+    errors.push('BASE_URL is required in production: the public address, e.g. https://app.example.com');
+  }
+  const baseUrl = String(env.BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
+  if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(baseUrl)) errors.push(`BASE_URL "${env.BASE_URL}" is not an http(s) address`);
   const dataDir = env.DATA_DIR || path.join(cwd, 'data');
 
   let authProvider = env.AUTH_PROVIDER || 'local';
@@ -250,7 +257,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     billing,
     mail,
     push,
-    hotReload: (env.HOT_RELOAD ?? env.RECARGA_EN_CALIENTE) === 'true',
+    hotReload: env.HOT_RELOAD === 'true',
   };
 
   return {

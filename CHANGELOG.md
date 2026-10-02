@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.28.0 — 2026-10-03
+
+- **Breaking for installs:** old variable names are no longer read. `RECARGA_EN_CALIENTE`,
+  `PORT_HOST`, `PUERTO` or `PUBLIC_URL` in the environment stop the start with a message that
+  names the new one (`HOT_RELOAD`, `HOST_PORT`, `BASE_URL`): an alias would keep an install on the
+  old name forever. An empty one, as compose passes an unset variable, counts as absent.
+- `BASE_URL` is required when `NODE_ENV=production` (the images set it): a localhost guess would
+  half-work there (no Secure cookies, a wrong OAuth issuer) instead of failing.
+- `CONVENTIONS.md`: renames keep an alias only for what clients hold (MCP tools, `localStorage`
+  keys); environment variables don't.
+
 ## 0.27.1 — 2026-10-02
 
 - `config.js` reads every old name that `CONVENTIONS.md` lists, with its warning: `PUBLIC_URL`

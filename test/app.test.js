@@ -33,7 +33,8 @@ test('the configuration: defaults, the environment, and every mistake named', ()
 
   const hosted = resolveConfig({ ...PRODUCT, trustProxy: true }, {
     BASE_URL: 'https://demo.example/', PORT: '8080', AUTH_PROVIDER: 'workos',
-    WORKOS_API_KEY: 'sk', WORKOS_CLIENT_ID: 'client', WORKOS_AUTHKIT_DOMAIN: 'auth.example', RECARGA_EN_CALIENTE: 'true',
+    WORKOS_API_KEY: 'sk', WORKOS_CLIENT_ID: 'client', WORKOS_AUTHKIT_DOMAIN: 'auth.example', HOT_RELOAD: 'true',
+    NODE_ENV: 'production',
   });
   assert.deepEqual(hosted.errors, []);
   assert.equal(hosted.install.baseUrl, 'https://demo.example');
@@ -42,19 +43,27 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.equal(hosted.install.trustProxy, 'true', 'the product’s default when TRUST_PROXY is unset');
   assert.equal(hosted.install.mcpOAuth, false, 'with WorkOS, AuthKit is the authorization server');
   assert.equal(hosted.install.hotReload, true);
-  assert.deepEqual(hosted.warnings, ['RECARGA_EN_CALIENTE is the old name of HOT_RELOAD: rename it']);
+  assert.deepEqual(hosted.warnings, []);
 
-  const oldNames = resolveConfig(PRODUCT, { PUBLIC_URL: 'https://gps.example', PUERTO: '8080' });
-  assert.deepEqual(oldNames.errors, []);
-  assert.equal(oldNames.install.baseUrl, 'https://gps.example', 'PUBLIC_URL still sets the address');
-  assert.equal(oldNames.install.secureCookies, true);
-  assert.deepEqual(oldNames.warnings, [
-    'PUERTO is the old name of HOST_PORT: rename it',
-    'PUBLIC_URL is the old name of BASE_URL: rename it',
+  // An old name is not an alias: it would keep the install on it forever without anyone knowing.
+  const oldNames = resolveConfig(PRODUCT, {
+    PUBLIC_URL: 'https://gps.example', PUERTO: '8080', PORT_HOST: '8080', RECARGA_EN_CALIENTE: 'true',
+  });
+  assert.deepEqual(oldNames.errors, [
+    'RECARGA_EN_CALIENTE is no longer read: rename it to HOT_RELOAD',
+    'PORT_HOST is no longer read: rename it to HOST_PORT',
+    'PUERTO is no longer read: rename it to HOST_PORT',
+    'PUBLIC_URL is no longer read: rename it to BASE_URL',
   ]);
-  const bothNames = resolveConfig(PRODUCT, { BASE_URL: 'https://new.example', PUBLIC_URL: 'https://old.example' });
-  assert.equal(bothNames.install.baseUrl, 'https://new.example', 'the current name wins');
-  assert.deepEqual(bothNames.warnings, []);
+  assert.equal(oldNames.install.baseUrl, 'http://localhost:3999', 'PUBLIC_URL does not set the address');
+  assert.equal(oldNames.install.hotReload, false);
+  const leftOver = resolveConfig(PRODUCT, { BASE_URL: 'https://new.example', PUBLIC_URL: 'https://old.example' });
+  assert.deepEqual(leftOver.errors, ['PUBLIC_URL is no longer read: rename it to BASE_URL'], 'even next to the new one');
+  assert.deepEqual(resolveConfig(PRODUCT, { PUBLIC_URL: '' }).errors, [], 'an empty one, as compose passes it, is nothing');
+
+  // In production, a missing address would half-work on a localhost guess.
+  assert.deepEqual(resolveConfig(PRODUCT, { NODE_ENV: 'production' }).errors,
+    ['BASE_URL is required in production: the public address, e.g. https://app.example.com']);
 
   const wrong = resolveConfig({
     app: { id: 'Demo App', languages: ['es', 'xx'] }, modules: { organisations: true, mcp: 'yes' },

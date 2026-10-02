@@ -29,7 +29,7 @@ Each shared piece takes the best version the apps already had:
 
 | Piece | Taken from | Why that one |
 | --- | --- | --- |
-| Conventions (English, error codes, aliases, commits, versions) | Next | Already all English, API answers codes, old names kept as aliases |
+| Conventions (English, error codes, aliases, commits, versions) | Next | Already all English, API answers codes, renames recorded |
 | HTTP kernel, database, migrations | Focus | Factories with injected dependencies, numbered migrations, strict request parsing |
 | Principal and access checks | Focus | One resolver for every credential, one place that decides access |
 | Sessions, secrets, brute-force brake | Focus + Tasks | Sliding sessions with rotation; secret generated when missing; brake persisted |
@@ -194,7 +194,8 @@ Environment variables configure the install, never the product (`config.js` read
 `BILLING_PROVIDER` (`remote` so far) with `BILLING_SECRET` and `BILLING_URL`, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`; later `VAPID_*` and `STRIPE_*`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
-Old variable names keep working as aliases, with a warning (`RECARGA_EN_CALIENTE`, `PORT_HOST`…).
+An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
+names the new one, and `BASE_URL` is required when `NODE_ENV=production`.
 
 ## 6. Data model
 
