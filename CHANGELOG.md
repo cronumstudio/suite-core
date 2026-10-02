@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.27.1 — 2026-10-02
+
+- `config.js` reads every old name that `CONVENTIONS.md` lists, with its warning: `PUBLIC_URL`
+  now sets `BASE_URL` when that one is unset (Tracker's name for it), and `PUERTO` warns like
+  `PORT_HOST` does. When both names are set, the current one wins and nothing is said.
+
 ## 0.27.0 — 2026-10-01
 
 - The admin panel (`/admin`) wears the Cronum Studio brand: `web/kit.css` has warm neutrals from
