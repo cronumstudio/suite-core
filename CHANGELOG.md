@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.29.0 — 2026-10-03
+
+- `tools/conformance.js`: the platform checks every app inherits, against a running copy over plain
+  HTTP (nothing outside the app is called): security headers, `/health`, `/version` and the
+  fingerprint, JSON 404s on discovery paths, the MCP `401` with its Bearer challenge and the
+  metadata it points at, every language saying what English says, sign-in, the session cookie,
+  `/api/auth/me`, CSRF, sign-out and the brute-force brake (with a made-up username, so the real
+  account still signs in). `checkConformance()` returns the results for an app's smoke test;
+  `node tools/conformance.js <url>` prints them, with `CONFORMANCE_USER`/`CONFORMANCE_PASSWORD`
+  for the sign-in checks and `--no-brake` for a copy people use.
+
 ## 0.28.0 — 2026-10-03
 
 - **Breaking for installs:** old variable names are no longer read. `RECARGA_EN_CALIENTE`,

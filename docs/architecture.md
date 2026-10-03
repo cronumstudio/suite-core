@@ -85,7 +85,7 @@ suite-core/
   i18n/                 done   the suite's own texts: en.json, es.json, fr.json, de.json
   web/                  begun  browser kit (§15), served at /suite/; the admin panel at /admin
   tools/                done   i18n.mjs: catalog parity and keys in use; data-cli.js: copies from the
-                               command line; conformance tests for apps later
+                               command line; conformance.js: the platform checks for a running app
   test/                        suite-core's own tests (node:test)
   docs/                        this document and the module guides
 ```
@@ -789,10 +789,12 @@ Every app gets these from the suite and the conformance tests check them:
 
 - suite-core tests itself with `node:test` (built in): every module against an in-memory database,
   with fake adapters where it talks to an app.
-- `tools/conformance.js` runs against a running app and checks the platform behaviour it inherits:
-  headers, `/health` and `/version`, sign-in and sign-out, the brute-force brake, CSRF, the MCP
-  `401` challenge, JSON 404 on discovery paths, translations complete. Each app's smoke test calls
-  it, then tests its own domain.
+- `tools/conformance.js` (**done**, v0.29.0) runs against a running app and checks the platform
+  behaviour it inherits: headers, `/health` and `/version`, sign-in and sign-out, the brute-force
+  brake, CSRF, the MCP `401` challenge, JSON 404 on discovery paths, translations complete. Only
+  HTTP to the app itself, so it runs the same on a laptop, a NAS, in a container or against
+  production (read-only there: no credentials, `--no-brake`). Each app's smoke test calls it, then
+  tests its own domain, and the shared container checks run it against every image built.
 
 ## 19. Versions and adoption
 
