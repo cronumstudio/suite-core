@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.29.1 — 2026-10-04
+
+- Nothing under `/i18n/` reaches the app's static files any more: a catalog is served merged,
+  under its exact name (`/i18n/<lang>.json` for a language of `app.languages`), and anything else
+  there is a `404`. On a case-insensitive disk (Windows, macOS) `/i18n/EN.json`, `/I18N/en.json`,
+  `/i18n/en.json::$DATA` or `/i18n%5Cen.json` used to answer `200` with the app's raw `en.json`,
+  without the suite's texts.
+- `tools/conformance.js`: a new check, "Only the merged catalogs are served under /i18n/"
+  (`xx.json`, `EN.json`, `/I18N/en.json` answer `404`).
+
 ## 0.29.0 — 2026-10-03
 
 - `tools/conformance.js`: the platform checks every app inherits, against a running copy over plain

@@ -148,6 +148,14 @@ export async function checkConformance({ baseUrl, username, password, brake = tr
   }
   const noLanguage = await get('/i18n/zz.json');
   check('A language the app does not have is a 404', noLanguage.status === 404, noLanguage.status);
+  // On a case-insensitive disk (Windows, macOS) these would find the app's raw en.json if the
+  // static files answered them: catalogs are only served merged, under their exact names.
+  const notCatalogs = [];
+  for (const other of ['/i18n/xx.json', '/i18n/EN.json', '/I18N/en.json']) {
+    const res = await get(other);
+    if (res.status !== 404) notCatalogs.push(`${other} ${res.status}`);
+  }
+  check('Only the merged catalogs are served under /i18n/', notCatalogs.length === 0, notCatalogs.join(', '));
 
   /* ------------------------------ sign-in ----------------------------- */
 

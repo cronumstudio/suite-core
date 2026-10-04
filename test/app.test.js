@@ -234,6 +234,12 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.equal(again.status, 304);
   assert.equal((await call('GET', '/i18n/es.json')).data['errors.not_found'], 'No encontrado.', 'no file of its own: the suite’s');
   assert.equal((await call('GET', '/i18n/fr.json')).status, 404, 'not a language of this app');
+  // Nothing else under /i18n/ reaches the static files: a case-insensitive disk (Windows, macOS)
+  // would answer these with the app's raw en.json, without the suite's texts.
+  for (const other of ['/i18n/xx.json', '/i18n/EN.json', '/I18N/en.json', '/i18n/en.json.', '/i18n/en.json::$DATA',
+    '/i18n./en.json', '/i18n%5Cen.json', '//i18n/en.json', '/i18n/', '/i18n/en.json/']) {
+    assert.equal((await call('GET', other)).status, 404, other);
+  }
 
   // The suite's pages: the admin panel and the web kit it is made of.
   const panel = await call('GET', '/admin');
