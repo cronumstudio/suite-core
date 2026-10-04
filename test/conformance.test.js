@@ -52,6 +52,7 @@ test('an app made of the suite passes every conformance check', async (t) => {
     '/mcp without a token is a 401 with a Bearer challenge',
     'The challenge points at protected-resource metadata that answers',
     '/i18n/es.json says everything English says',
+    'Only the merged catalogs are served under /i18n/',
     'The brute-force brake answers 429 too_many_attempts',
     'Signing in with the right password opens a session',
     'A request with the session from another site is refused (CSRF)',
@@ -94,4 +95,28 @@ test('a server that is not made of the suite fails, and says where', async (t) =
     '/api/auth/config names the provider and the languages',
     'A request with a session cookie from another site is refused (CSRF)',
   ]) assert.ok(failed.includes(expected), `fails: ${expected}`);
+});
+
+test('a catalog served by name on a case-insensitive disk is named', async (t) => {
+  // What an app that let /i18n/ fall through to its static files answers on Windows.
+  const server = http.createServer((req, res) => {
+    const lang = /^\/i18n\/(\w+)\.json$/i.exec(req.url)?.[1].toLowerCase();
+    if (req.url === '/api/auth/config') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ provider: 'local', app: { languages: ['en'] } }));
+    } else if (lang === 'en') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"hello":"Hello"}');
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const results = await checkConformance({ baseUrl: `http://127.0.0.1:${server.address().port}`, brake: false });
+  const catalogs = results.find((r) => r.name === 'Only the merged catalogs are served under /i18n/');
+  assert.equal(catalogs.ok, false);
+  assert.equal(catalogs.detail, '/i18n/EN.json 200, /I18N/en.json 200');
+  assert.ok(results.find((r) => r.name === 'A language the app does not have is a 404').ok);
 });

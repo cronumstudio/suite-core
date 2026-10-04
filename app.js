@@ -365,6 +365,18 @@ export function createSuite({
 const DISCOVERY_PATHS = ['/.well-known', '/register', '/authorize', '/token', '/oauth'];
 
 /**
+ * Whether serveStatic would look for `pathname` in the catalogs' folder (public/i18n) on any
+ * disk: decoded and normalized as it does, with Windows' own leniency (any case, a backslash,
+ * trailing dots or spaces, an NTFS stream after a colon) in the folder's name.
+ */
+function inCatalogDir(pathname) {
+  let decoded;
+  try { decoded = decodeURIComponent(pathname); } catch { return false; }   // serveStatic refuses it too
+  const first = path.posix.normalize(`/${decoded.replace(/\\/g, '/')}`).split('/')[1];
+  return first.toLowerCase().split(':')[0].replace(/[. ]+$/, '') === 'i18n';
+}
+
+/**
  * @param {object} options
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
@@ -624,8 +636,15 @@ export function createApp({
         res.end(req.method === 'HEAD' ? undefined : page);
         return;
       }
-      const wanted = /^\/i18n\/([a-z]{2})\.json$/.exec(pathname)?.[1];
-      if (wanted && config.app.languages.includes(wanted)) {
+      // /i18n/ is the suite's: a catalog is only ever served merged, and anything else there is a
+      // 404 that never reaches the static files, where a case-insensitive disk would answer
+      // EN.json or en.json::$DATA with the app's raw en.json.
+      if (inCatalogDir(pathname)) {
+        const wanted = /^\/i18n\/([a-z]{2})\.json$/.exec(pathname)?.[1];
+        if (!wanted || !config.app.languages.includes(wanted)) {
+          sendText(res, 404, 'Not found');
+          return;
+        }
         const { body, etag } = catalogFor(wanted);
         if (req.headers['if-none-match'] === etag) {
           res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
