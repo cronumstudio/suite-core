@@ -172,6 +172,14 @@ export function decryptPayload(body, subscriberPrivateD, subscriberPublicPoint, 
 const HOME_NAMES = /(^|\.)(localhost|local|internal|intranet|lan|home|home\.arpa)$/i;
 
 /**
+ * The browsers' push services: Chrome, Edge's Chromium, Opera, Brave and
+ * Samsung go through Google; Firefox through Mozilla; Safari through Apple;
+ * the old Edge through Windows. Anything else is no push service, and a name
+ * that only looks public can point inside the network (DNS can say anything).
+ */
+const PUSH_SERVICES = /(^|\.)(fcm\.googleapis\.com|android\.googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com)$/i;
+
+/**
  * A push endpoint is a URL the SERVER visits, and whoever subscribes chooses
  * it. Checking only that it starts with https:// let anyone with an account
  * point it at the router, an internal panel or a service that only answers
@@ -192,6 +200,7 @@ export function checkEndpoint(endpoint) {
   // An IP literal is never a push service, and it is the direct way to aim inside the network.
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) throw refuse('ip_address');
   if (HOME_NAMES.test(host)) throw refuse('local_name');
+  if (!PUSH_SERVICES.test(host)) throw refuse('push_service');
 }
 
 /* ------------------------------ the service ------------------------------ */

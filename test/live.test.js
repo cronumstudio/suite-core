@@ -35,6 +35,24 @@ const eventsOf = (res) => res.text.split('\n\n').filter((block) => /^(id|event):
   data: JSON.parse(/^data: (.*)$/m.exec(block)?.[1] || 'null'),
 }));
 
+test('a person keeps at most ten channels, and one that stops reading is closed', () => {
+  const live = createLive();
+  const tabs = Array.from({ length: 11 }, () => tab(7));
+  for (const t of tabs) live.subscribe(t.req, t.res, t.user);
+  assert.equal(tabs[0].res.ended, true, 'the eleventh closes the oldest');
+  assert.ok(tabs.slice(1).every((t) => !t.res.ended), 'the other ten stay');
+  const other = tab(8);
+  live.subscribe(other.req, other.res, other.user);
+  assert.equal(tabs[1].res.ended, false, 'someone else\'s channel counts for them, not for this person');
+  // A reader that stopped: writes say "wait" and the backlog grows past 64 kB.
+  const stuck = tab(9);
+  live.subscribe(stuck.req, stuck.res, stuck.user);
+  Object.assign(stuck.res, { write() { return false; }, writableLength: 70 * 1024 });
+  live.publish({ data: { x: 1 } });
+  assert.equal(stuck.res.ended, true);
+  live.close();
+});
+
 test('a tab opens with the stream headers, retry and hello', () => {
   const live = createLive();
   const t = tab(7);

@@ -596,7 +596,8 @@ export function createPortability({
    * only account goes into whoever imports it.
    *
    * A decision is { source, user_id, replace } (into that account here),
-   * { source, create: { username, email } } (a new one), { source, email }
+   * { source, create: { username, email, role } } (a new one; with no role, a plain user when
+   * applied from the panel), { source, email }
    * (the one here with that email, or a new one with it) or
    * { source, skip: true } (left out, with everything only theirs).
    */
@@ -629,9 +630,10 @@ export function createPortability({
         if (!target) throw notFound('user_not_found');
         choices.set(source.id, { action: 'map', userId: target.id, replace: Boolean(decision.replace) });
       } else if (isObject(decision.create)) {
-        const { username = null, email } = decision.create;
+        const { username = null, email, role = null } = decision.create;
         choices.set(source.id, {
           action: 'create', username: username == null || username === '' ? null : String(username).trim(),
+          role: typeof role === 'string' ? role : null,
           email: email === undefined ? source.email ?? null : email === null || email === '' ? null : String(email).trim().toLowerCase(),
         });
       } else if ('email' in decision) {
@@ -797,7 +799,11 @@ export function createPortability({
           const account = accounts.create({
             username,
             displayName: String(source.display_name || username).trim().slice(0, 80) || username,
-            role: roles.includes(source.role) ? source.role : 'user',
+            // From the panel a copy never makes an admin by itself: whoever applies
+            // it says so per account (\`create.role\`); a file could carry any role.
+            // The command line, run by whoever runs the server, keeps the copy's.
+            role: roles.includes(choice.role) ? choice.role
+              : req ? 'user' : roles.includes(source.role) ? source.role : 'user',
             email: choice.email || null,
             locale: typeof source.locale === 'string' ? source.locale.slice(0, 16) : null,
           }, { quiet: true });

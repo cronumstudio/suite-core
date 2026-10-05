@@ -40,13 +40,21 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
   const frame = (n, event, body) => `id: ${boot}.${n}\nevent: ${event}\ndata: ${body}\n\n`;
   const reaches = (entry, userId) => !entry.audience || entry.audience.has(userId);
 
+  /** Channels per person: tabs and devices, with room to spare. More, and the oldest goes. */
+  const PER_USER = 10;
+  /** What may wait unread for one channel before it is closed (its browser reconnects and resyncs). */
+  const BACKLOG = 64 * 1024;
+
   function drop(client) {
     if (!clients.delete(client)) return;
     clearInterval(client.timer);
     try { client.res.end(); } catch { /* already closed */ }
   }
   function send(client, text) {
-    try { client.res.write(text); } catch { drop(client); }
+    try {
+      // A channel that stops reading piled every notice up in memory, without end.
+      if (!client.res.write(text) && client.res.writableLength > BACKLOG) drop(client);
+    } catch { drop(client); }
   }
 
   /**
@@ -99,6 +107,9 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     res.write(`event: hello\ndata: ${JSON.stringify({ user_id: user.id })}\n\n`);
 
     const client = { res, userId: Number(user.id) };
+    // Opening channels without end held a socket, a timer and a buffer each.
+    const theirs = [...clients].filter((other) => other.userId === client.userId);
+    for (const old of theirs.slice(0, Math.max(0, theirs.length - PER_USER + 1))) drop(old);
     client.timer = setInterval(() => send(client, ': ping\n\n'), heartbeatMs);
     client.timer.unref?.();
     clients.add(client);
