@@ -381,15 +381,48 @@ export function registerProfileApi(router, {
     });
   }
 
-  if (oauth) {
-    /** Apps connected through the built-in OAuth (Claude, ChatGPT…); `enabled` says whether pasting the URL is enough. */
+  // With WorkOS, the clients AuthKit authorized; their ids carry the provider's: "workos:…".
+  const viaProvider = Boolean(idp?.connectionsOf);
+  const providerPrefix = viaProvider ? `${idp.id}:` : null;
+  if (oauth || viaProvider) {
+    /**
+     * Apps connected through the built-in OAuth or the identity provider
+     * (Claude, ChatGPT…); `enabled` says whether pasting the URL is enough,
+     * `unavailable` that the provider couldn't be asked just now.
+     */
     at('/api/me/apps', alsoAt.apps, (path) => {
-      router.get(path, (ctx) => {
+      router.get(path, async (ctx) => {
         const user = requireUser(ctx);
-        sendJson(ctx.res, 200, { enabled: oauth.enabled, grants: oauth.enabled ? oauth.grantsOf(user.id) : [] });
+        const grants = oauth?.enabled ? [...oauth.grantsOf(user.id)] : [];
+        let unavailable = false;
+        if (viaProvider) {
+          try {
+            for (const c of await idp.connectionsOf(user.id)) {
+              grants.push({ id: `${providerPrefix}${c.id}`, client_name: c.client_name, last_used_at: c.last_used_at, provider: idp.id });
+            }
+          } catch (err) {
+            console.error(`[auth] the apps connected through ${idp.name} can't be listed: ${err.message}`);
+            unavailable = true;
+          }
+        }
+        sendJson(ctx.res, 200, { enabled: Boolean(oauth?.enabled || viaProvider), grants, ...(unavailable ? { unavailable } : {}) });
       });
-      router.delete(`${path}/:id`, (ctx) => {
+      router.delete(`${path}/:id`, async (ctx) => {
         const user = requireUser(ctx);
+        if (viaProvider && ctx.params.id.startsWith(providerPrefix)) {
+          let done;
+          try {
+            done = await idp.revokeConnection(user.id, ctx.params.id.slice(providerPrefix.length));
+          } catch (err) {
+            console.error(`[auth] an app connected through ${idp.name} could not be disconnected: ${err.message}`);
+            throw new HttpError(503, 'provider_unavailable');
+          }
+          if (!done) throw notFound('app_not_found');
+          record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name });
+          sendJson(ctx.res, 200, { ok: true });
+          return;
+        }
+        if (!oauth) throw notFound('app_not_found');
         const id = idOf(ctx.params.id);
         if (!oauth.revokeGrant(id, user.id)) throw notFound('app_not_found');
         record(ctx, 'oauth.grant.revoke', 'oauth_grant', id);

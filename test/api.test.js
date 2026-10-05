@@ -45,7 +45,23 @@ async function start(t) {
   const tokens = createTokens({ database });
   // The identity provider: which of its sessions were ended from here.
   const revokedAtProvider = [];
-  const idp = { name: 'WorkOS', revokeSession: async (id) => { revokedAtProvider.push(id); } };
+  // And the AI clients it authorized: one per person, unless it doesn't answer.
+  const providerApps = new Map();
+  let providerDown = false;
+  const idp = {
+    id: 'workos', name: 'WorkOS', revokeSession: async (id) => { revokedAtProvider.push(id); },
+    connectionsOf: async (userId) => {
+      if (providerDown) throw new Error('WorkOS answered 503');
+      return providerApps.get(userId) || [];
+    },
+    revokeConnection: async (userId, id) => {
+      if (providerDown) throw new Error('WorkOS answered 503');
+      const found = (providerApps.get(userId) || []).find((c) => c.id === id);
+      if (!found) return false;
+      providerApps.set(userId, providerApps.get(userId).filter((c) => c !== found));
+      return { client_id: found.client_id, client_name: found.client_name };
+    },
+  };
   const pushed = { unsubscribed: [] };
   const push = { unsubscribe: (id) => { pushed.unsubscribed.push(id); return 1; } };
   const forgotten = [];
@@ -90,7 +106,8 @@ async function start(t) {
     return { status: res.status, body: await res.json() };
   };
   const root = accounts.create({ username: 'root', password: 'correct horse', role: 'admin' });
-  return { call, root: root.id, accounts, sessions, entitlements, organizations, audit, database, tokens, grants, revokedAtProvider, pushed, forgotten };
+  const provider = { apps: providerApps, down: (value) => { providerDown = value; } };
+  return { call, root: root.id, accounts, sessions, entitlements, organizations, audit, database, tokens, grants, revokedAtProvider, pushed, forgotten, provider };
 }
 
 test('only the admin reaches /api/admin', async (t) => {
@@ -261,6 +278,8 @@ test('each person’s own: sessions, plan, tokens, connected apps and password',
   assert.equal(tokens.authenticate(made.body.token), null);
 
   grants.set(ada, [{ id: 1, client_name: 'Claude' }]);
+  const unchanged = await call('GET', '/api/me/apps', { as: ada });
+  assert.deepEqual(unchanged.body, { enabled: true, grants: [{ id: 1, client_name: 'Claude' }] }, 'nothing from the provider when it has none');
   assert.deepEqual((await call('GET', '/api/oauth-grants', { as: ada })).body, { enabled: true, grants: [{ id: 1, client_name: 'Claude' }] });
   assert.equal((await call('DELETE', '/api/me/apps/2', { as: ada })).body.error, 'app_not_found');
   assert.deepEqual((await call('DELETE', '/api/me/apps/1', { as: ada })).body, { ok: true });
@@ -278,4 +297,35 @@ test('each person’s own: sessions, plan, tokens, connected apps and password',
 
   assert.deepEqual(audit.list({ actorId: ada }).map((e) => e.action).reverse(),
     ['auth.session.revoke', 'token.create', 'token.revoke', 'oauth.grant.revoke', 'auth.password']);
+});
+
+test('the AI clients the identity provider authorized are listed and disconnected with the others', async (t) => {
+  const { call, accounts, grants, audit, provider } = await start(t);
+  const ada = accounts.create({ username: 'ada' }).id;
+  const bob = accounts.create({ username: 'bob' }).id;
+  grants.set(ada, [{ id: 1, client_name: 'Inspector' }]);
+  provider.apps.set(ada, [{ id: 'aca_1', client_id: 'client_claude', client_name: 'Claude', last_used_at: '2026-10-05T10:00:00.000Z' }]);
+
+  const listed = await call('GET', '/api/me/apps', { as: ada });
+  assert.deepEqual(listed.body, { enabled: true, grants: [
+    { id: 1, client_name: 'Inspector' },
+    { id: 'workos:aca_1', client_name: 'Claude', last_used_at: '2026-10-05T10:00:00.000Z', provider: 'workos' },
+  ] });
+
+  // Someone else's, or one that isn't there, isn't found.
+  assert.equal((await call('DELETE', '/api/me/apps/workos%3Aaca_1', { as: bob })).body.error, 'app_not_found');
+  assert.equal((await call('DELETE', '/api/me/apps/workos%3Aaca_9', { as: ada })).body.error, 'app_not_found');
+
+  // While the provider doesn't answer: the others are still shown, and disconnecting says why it can't.
+  provider.down(true);
+  const down = await call('GET', '/api/me/apps', { as: ada });
+  assert.deepEqual(down.body, { enabled: true, grants: [{ id: 1, client_name: 'Inspector' }], unavailable: true });
+  const failed = await call('DELETE', '/api/me/apps/workos%3Aaca_1', { as: ada });
+  assert.deepEqual([failed.status, failed.body.error], [503, 'provider_unavailable']);
+  provider.down(false);
+
+  assert.deepEqual((await call('DELETE', '/api/me/apps/workos%3Aaca_1', { as: ada })).body, { ok: true });
+  assert.deepEqual((await call('GET', '/api/me/apps', { as: ada })).body.grants.map((g) => g.id), [1]);
+  const [entry] = audit.list({ actorId: ada, action: 'oauth.connection.' });
+  assert.deepEqual([entry.action, entry.meta], ['oauth.connection.revoke', { provider: 'workos', client: 'Claude' }]);
 });

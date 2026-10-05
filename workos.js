@@ -170,6 +170,57 @@ export function createWorkosClient({
     throw new WorkosUnavailable(`WorkOS answered ${status}`);
   }
 
+  /* ------------------------ authorized applications ---------------------- */
+
+  /**
+   * The OAuth clients a user has authorized (Claude, ChatGPT…), every page:
+   * `{ id, application_id, client_id, name, resource, scopes }` each. What AuthKit gave them
+   * is a consent, not a sign-in, so it isn't among the user's sessions.
+   * @throws {WorkosUnavailable}
+   */
+  async function authorizedApplications(userId) {
+    const found = [];
+    let after = null;
+    // A hundred a page: ten pages is more than anyone authorizes.
+    for (let page = 0; page < 10; page++) {
+      const q = new URLSearchParams({ limit: '100', ...(after ? { after } : {}) });
+      const { ok, status, body } = await request(
+        `${API_URL}/user_management/users/${encodeURIComponent(userId)}/authorized_applications?${q}`,
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      if (status === 404) return found;
+      if (!ok || !Array.isArray(body?.data)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+      for (const item of body.data) {
+        found.push({
+          id: item.id,
+          application_id: item.application?.id || null,
+          client_id: item.application?.client_id || null,
+          name: item.application?.name || null,
+          resource: item.oauth_resource || null,
+          scopes: item.granted_scopes || [],
+        });
+      }
+      after = body.list_metadata?.after;
+      if (!after || !body.data.length) break;
+    }
+    return found;
+  }
+
+  /**
+   * Withdraws a user's authorization of a client (its id or client id): its
+   * refresh tokens stop working; the access tokens it already has live until
+   * they expire, which is why the app refuses them too (workos-accounts.js).
+   */
+  async function revokeApplication(userId, applicationId) {
+    const { ok, status } = await request(
+      `${API_URL}/user_management/users/${encodeURIComponent(userId)}/authorized_applications/${encodeURIComponent(applicationId)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (ok || status === 404) return;
+    if (status >= 500 || status === 429) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    throw new Error(`WorkOS did not revoke the authorization (${status})`);
+  }
+
   /* ----------------------------- MCP tokens ----------------------------- */
 
   /** What a JWT says, without checking its signature. Only for what already comes from WorkOS. */
@@ -227,6 +278,6 @@ export function createWorkosClient({
   return {
     authkitDomain: AUTHKIT,
     missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, account, knows,
-    verifyToken, resourceMetadata, authorizationServerMetadata,
+    authorizedApplications, revokeApplication, verifyToken, resourceMetadata, authorizationServerMetadata,
   };
 }

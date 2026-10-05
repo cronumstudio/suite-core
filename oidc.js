@@ -168,7 +168,7 @@ export function createOidcClient({
  * @param {object} options.oidc         from createOidcClient()
  * @param {object} options.accounts     from createAccounts(): fromIdentity() does the rest
  * @param {string} [options.adminEmail] whoever signs in with this verified email administers
- * @param {object} options.sessions     open(res, userId, { idpSessionId }) opens the app's session
+ * @param {object} options.sessions     open(res, userId, { idpSessionId, req }) opens the app's session
  */
 export function createOidcAccounts({
   baseUrl, oidc, accounts, adminEmail = '', sessions, secureCookies = false, stateCookie = 'suite_oidc',
@@ -246,7 +246,7 @@ export function createOidcAccounts({
           redirect(res, '/?auth_error=disabled');
           return true;
         }
-        sessions.open(res, user.id, { idpSessionId: `oidc:${claims.sid || '-'}` });
+        sessions.open(res, user.id, { idpSessionId: `oidc:${claims.sid || '-'}`, req });
         redirect(res, localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/'));
       } catch (err) {
         log(`[oidc] sign-in could not be completed: ${err.message}`);

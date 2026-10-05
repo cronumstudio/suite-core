@@ -41,7 +41,7 @@ import { createOrganizations } from './organizations.js';
 import { createBilling, signedProvider, registerBillingApi } from './billing.js';
 import { stripeProvider } from './stripe.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
-import { createWorkosAccounts, workosUsers } from './workos-accounts.js';
+import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
 import { createAccountMail } from './account-mail.js';
@@ -194,9 +194,10 @@ export function createSuite({
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_auth`,
     users: workosUsers(accounts, { database }),
+    connections: workosConnections(database),
     sessions: {
-      open: (res, userId, { workosSessionId }) => {
-        sessions.open(userId, { res, idpSessionId: workosSessionId });
+      open: (res, userId, { workosSessionId, req = null }) => {
+        sessions.open(userId, { req, res, idpSessionId: workosSessionId });
         audit.record({ action: 'auth.login', actor: userId, meta: { provider: 'workos' } });
       },
     },
@@ -211,8 +212,8 @@ export function createSuite({
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_oidc`,
     sessions: {
-      open: (res, userId, { idpSessionId }) => {
-        sessions.open(userId, { res, idpSessionId });
+      open: (res, userId, { idpSessionId, req = null }) => {
+        sessions.open(userId, { req, res, idpSessionId });
         audit.record({ action: 'auth.login', actor: userId, meta: { provider: 'oidc' } });
       },
     },
@@ -236,8 +237,8 @@ export function createSuite({
       handle: (user) => `@${user.username}`,
     },
     sessions: {
-      open: (res, userId) => {
-        sessions.open(userId, { res });
+      open: (res, userId, { req = null } = {}) => {
+        sessions.open(userId, { req, res });
         accounts.signedIn(userId);
       },
       tokenFrom: (req) => sessions.tokenFrom(req),
