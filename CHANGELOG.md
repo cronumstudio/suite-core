@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.30.2 — 2026-10-05
+
+- **An import can't multiply one attachment on disk** (audit, sc-data-13). Rows that share a file
+  in a copy each get a file of their own when it is applied, but 0.30.0 counted only the distinct
+  files against its ceilings: forty rows over one photo that inflates to 1 MB wrote 40 MB from an
+  upload of a few kB, and it scaled to terabytes. Now every row that brings a file counts, in
+  bytes against twice the upload plus 16 MB and in number against `limits.files`.
+
 ## 0.30.1 — 2026-10-05
 
 - **"WorkOS does not answer" says why.** When a request to WorkOS or an OIDC provider fails before

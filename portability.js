@@ -748,20 +748,23 @@ export function createPortability({
     // entries declare. (Twice, and some, for a copy someone zipped again.)
     const staged = new Map();
     let stagedCount = 0;
+    // Every row gets a file of its own once applied (two rows that share one are
+    // written twice), so it is the rows that are counted, not the distinct files:
+    // a thousand rows over one photo in the copy are a thousand photos on disk.
     let diskBudget = 2 * archive.zip.size + 16 * MB;
+    let filesLeft = max.files[by];
     const cleanStaging = () => fs.rmSync(staging, { recursive: true, force: true });
     try {
       for (const table of model.tables.filter((t) => t.file)) {
         const usable = [];
         for (const row of kept.get(table.name)) {
           const old = row[table.file.path];
+          const entry = `files/${old}`;
           if (!staged.has(old)) {
-            const entry = `files/${old}`;
             const size = archive.zip.sizeOf(entry);
             if (size == null) { problems.missing += 1; continue; }
             if (uploads && size > uploads.maxBytes) { problems.too_large += 1; continue; }
-            diskBudget -= size;
-            if (diskBudget < 0 || stagedCount >= max.files[by]) throw new HttpError(413, 'zip_too_large', { entry });
+            if (size > diskBudget) throw new HttpError(413, 'zip_too_large', { entry });
             const bytes = await archive.zip.read(entry, { maxBytes: uploads?.maxBytes ?? 15 * MB });
             const type = detectType(bytes.subarray(0, 16));
             if (!type) { problems.refused += 1; continue; }
@@ -771,6 +774,9 @@ export function createPortability({
             fs.writeFileSync(file, bytes);
             staged.set(old, { file, mime: type.mime, ext: type.ext, size: bytes.length });
           }
+          diskBudget -= staged.get(old).size;
+          filesLeft -= 1;
+          if (diskBudget < 0 || filesLeft < 0) throw new HttpError(413, 'zip_too_large', { entry });
           usable.push(row);
         }
         kept.set(table.name, usable);
