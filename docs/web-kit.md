@@ -1,0 +1,195 @@
+# The web kit
+
+The interface every app of the suite shares, served by suite-core at `/suite/`: native ES modules,
+no build, no dependencies, the same CSP everywhere (`script-src 'self'`). It is the Cronum Studio
+brand made into a frame, screens and components, approved on 2026-10-05 (the «Kit web» branch of
+«Suite: unificación» in Next). Each app keeps its own domain —Notes' editor, Next's step graph,
+Tasks' lists— and takes everything else from here.
+
+## What was decided
+
+| Question | Answer |
+| --- | --- |
+| Structure | The kit has both, with the same pieces: a **sidebar** for apps with many lists (Tasks, Notes, Projects) and a **top bar with tabs** for apps with a few views (Next, Focus, Tracker, Talk) |
+| Sign-in | The **product's colour large**, the form beside it; stacked on a phone; "by Cronum Studio" under it |
+| Settings | A **list of sections**; on a phone each section is a screen of its own |
+| Dialogs on a phone | A **sheet that rises from the bottom**; centred on a computer |
+| Type | **Geist** for the interface, **Space Grotesk** bold for headings, **Geist Mono** for figures, served from `/suite/fonts/` —never from Google— |
+
+And, without a choice: one primary button per screen in the product's colour; greys with a touch
+of that hue; **yolk marks "now" and nothing else**; touch targets of 44 px on a phone; stroked
+icons with round ends instead of emoji; short notices at the bottom (with *Undo* or *Retry*),
+banners under the header for a state that lasts (offline, a new version), and the state of a save
+next to what is saved.
+
+## A page
+
+```html
+<!DOCTYPE html>
+<html lang="en" data-app="notes">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Notes</title>
+<link rel="preload" href="/suite/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<script src="/suite/theme.js"></script>
+<link rel="stylesheet" href="/suite/tokens.css">
+<link rel="stylesheet" href="/suite/kit.css">
+<link rel="stylesheet" href="/css/app.css">
+<script type="module" src="/js/main.js"></script>
+</head>
+<body></body>
+</html>
+```
+
+`data-app` picks the product's accent from `tokens.css` (light and dark, measured by the tests). An
+app that isn't there sets `--app`, `--app-accent`, `--app-on`, `--app-accent-dark` and
+`--app-on-dark` on `<html>` itself. `theme.js` sets `data-theme` before the first paint; the app
+saves the person's choice as `<app>.theme` in `localStorage` so the next start gets it right.
+
+## The modules
+
+| File | What it gives |
+| --- | --- |
+| `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
+| `kit.css` | Every component below, light and dark, logical properties |
+| `dom.js` | `el(tag, props, …children)`, `$`, `$$`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings |
+| `i18n.js` | `loadLanguage`, `pickLanguage`, `t(key, vars)` with plurals, `formatDateTime` |
+| `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key; `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
+| `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
+| `shell.js` | `createShell()`: the frame; `navItem()`, `navSection()`, `setCurrent()` |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
+| `settings.js` | `openSettings({ … })`; `subscribePush()`; `deviceName()` |
+| `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
+| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
+| `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
+| `outbox.js` | `createOutbox({ local, … })`: changes made offline, sent once each; `tempId()`, `isTempId()` |
+| `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
+| `sw-core.js` | `suiteWorker({ version, shell, optional, push })` for the app's service worker (a classic script) |
+| `qr.js` | `qrSvg(text, { label })` |
+
+## Starting an app
+
+```js
+import { el } from '/suite/dom.js';
+import { t, loadLanguage, pickLanguage } from '/suite/i18n.js';
+import { api } from '/suite/api.js';
+import { createShell, navItem, navSection } from '/suite/shell.js';
+import { signIn, signOut, confirmEmailFromLink } from '/suite/signin.js';
+import { openSettings } from '/suite/settings.js';
+import { connectLive } from '/suite/live.js';
+import { watchUpdates, applyUpdate, tidyAddress } from '/suite/update.js';
+import { openLocal } from '/suite/local.js';
+import { createOutbox } from '/suite/outbox.js';
+
+const config = await api.get('/api/auth/config');
+let { user } = await api.get('/api/auth/me');
+await loadLanguage(pickLanguage([user?.prefs?.lang, navigator.languages], config.app.languages));
+const app = { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg?v=1', tagline: t('app.tagline') };
+if (!user) user = await signIn({ app, config });
+tidyAddress();
+confirmEmailFromLink();
+
+const local = openLocal('notes', ['notes', 'notebooks']);
+const shell = createShell({
+  layout: 'side', panes: 'split', app,
+  create: { label: t('notes.new'), onClick: newNote },
+  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
+    onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
+  onSignOut: () => signOut({ local }),
+});
+shell.setUser(user);
+shell.nav.append(navItem({ label: t('notes.all'), iconName: 'notes', current: true }), navSection(t('notes.notebooks')));
+
+const live = connectLive({ onChange: reload, onResync: reloadAll, onAccount: refreshUser, onState: shell.setLive });
+const updates = watchUpdates({
+  onUpdate: () => shell.showBanner('update', {
+    kind: 'accent', iconName: 'refresh', text: t('kit.update.availableNamed', { app: app.name }),
+    action: { label: t('kit.update.apply'), onClick: applyUpdate }, onClose: () => updates.dismiss(),
+  }),
+});
+const outbox = createOutbox({ local, onCount: (n) => …, onConflict: keepConflictCopy, onDropped: tell });
+```
+
+### The frame
+
+`createShell()` builds the frame into `document.body`: `shell.nav` (the sidebar's content),
+`shell.list` and `shell.detail` (a list and what is open from it: side by side from 960 px, two
+screens below), `shell.actions` (buttons in the bar), `shell.banners`. On a phone, `showDetail()`
+moves to the detail and the bar's back button returns (`onBack`, or `showList()`); the sidebar is a
+drawer behind ☰. With `panes: 'single'` there is one view in `shell.list`. The account menu has
+Settings, Administration (for admins, at `/admin`) and Sign out, after the app's `accountItems`.
+`setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
+
+### Sign-in and settings
+
+`signIn()` shows the screen and resolves with the user. It handles local accounts with their
+second step, a forgotten password, the `?reset=` and `?signup=` links and open sign-up, or a button
+to WorkOS or an OpenID Connect provider.
+
+`openSettings()` opens the sections every account has —profile, language and theme, password and
+sign-in (two-step verification, sessions), the AI (MCP address, connected apps, tokens),
+notifications (`push: true`), plan (`plan: true`), the app's own `sections`, data (when the app
+declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
+which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
+everything else is the suite's. `aiExtra()` and `aboutExtra()` add a block (Next's standing
+instruction, an app's tips).
+
+### Offline
+
+`openLocal()` keeps what the app has shown and the outbox in IndexedDB (`<app>-local`). A change
+goes through the outbox when it must not be lost:
+
+```js
+const ref = tempId();                                       // tmp-…: the note until the server names it
+await outbox.add({ method: 'POST', path: '/api/notes', body: { text, client_ref: ref }, tempId: ref });
+await outbox.add({ method: 'PATCH', path: `/api/notes/${ref}`, body: { text: more, version } });
+outbox.flush();                                             // and by itself on `online`
+```
+
+Each change carries its id as `Idempotency-Key`: the server answers a repeat with the first answer
+(suite-core `idempotency.js`, for every app's API, a day). When the creation goes through, later
+changes are pointed at the real id (`idOf(answer)`, by default `answer.id`). It stops without a
+signal, with the session ended or the server failing, and waits; a 409 goes to `onConflict` (Notes
+saves a conflict copy), anything else that can't be fixed by retrying to `onDropped`. One tab sends
+at a time (a Web Lock). `signOut({ local })` wipes it all: one person's notes don't stay for the next.
+
+### Markdown
+
+`renderMarkdown(text, { onTaskToggle })` draws a note with `el()` —headings, lists, task lists,
+quotes, code, tables, links and images— and never interprets HTML. Links go to http, https, mailto
+or within the app; images load only from the app (`resolveImage` maps an attachment), so nothing
+in a note makes the reader's browser call a third party. `toggleTask(text, line, done)` ticks the
+box in the source.
+
+### The service worker
+
+```js
+// public/sw.js
+importScripts('/suite/sw-core.js');
+suiteWorker({
+  version: 'notes-v1',
+  shell: ['/', '/index.html', '/css/app.css', '/js/main.js', '/js/app-version.js', '/i18n/en.json',
+    '/manifest.webmanifest', '/icons/favicon.svg?v=1'],
+  optional: ['/i18n/es.json', '/i18n/fr.json', '/i18n/de.json'],
+  push: { title: 'Notes', icon: '/icons/icon-192.png?v=1', badge: '/icons/badge-96.png?v=1' },
+});
+```
+
+The kit's own files join the shell by themselves. Every file the app adds to `public/js/` goes in
+`shell`.
+
+## Texts
+
+Every text a person reads comes from the catalogs: the kit's are `kit.*` in suite-core's
+`i18n/<lang>.json`, merged with the app's at `/i18n/<lang>.json`. The check of texts written in the
+code runs in each app's tests:
+
+```
+node server/suite/tools/i18n.mjs hardcoded public
+```
+
+It reads strings given as text, titles, labels and notices in `.js`, and the text and the read
+attributes of `.html` outside script, style and code. Brand and product names pass; a line with
+`i18n-exempt` (and why) is skipped.

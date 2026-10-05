@@ -32,6 +32,9 @@ relax these. The design they serve is in [docs/architecture.md](docs/architectur
 - **Comments explain why, not what.** When a decision was odd, the reason is written next to it.
 - **The DOM is built with `el()`**, through `textContent` and `setAttribute`. HTML is never
   assembled from strings: that is the whole defence against XSS.
+- **The interface is the web kit's** ([docs/web-kit.md](docs/web-kit.md)): the frame, sign-in,
+  Settings, dialogs, notices, controls, the brand's tokens and fonts. An app draws its own domain
+  on it (Notes' editor, Next's graph) and doesn't make its own version of what the kit has.
 - **Every write on the server follows four steps:** permission, validation, transaction, event
   (live update and audit).
 - **A resource someone may not see answers 404**, not 403; 403 is for a visible resource and an
@@ -140,8 +143,9 @@ Compose files use only the current names.
 ## 7. Tests
 
 - `npm test` runs everything with nothing to install: a smoke test with a temporary database, a
-  random port and a real server; the suite's conformance checks; translation parity and lint; the
-  version check. New behaviour comes with its check; a step that adds none has not been understood.
+  random port and a real server; the suite's conformance checks; translation parity, keys in use
+  and texts written in the code (`tools/i18n.mjs hardcoded public`; a line that must keep one says
+  `i18n-exempt` and why); the version check. New behaviour comes with its check; a step that adds none has not been understood.
 - Before a change to anything a phone shows (audio, wake lock, safe areas, installation), it is
   tried on a real device: emulators lie about those.
 

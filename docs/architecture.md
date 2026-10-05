@@ -83,8 +83,9 @@ suite-core/
   audit.js              done   who did what and when, never the content
   api.js                done   the common routes: /api/me/*, /api/admin/* and /api/orgs/*
   i18n/                 done   the suite's own texts: en.json, es.json, fr.json, de.json
-  web/                  begun  browser kit (§15), served at /suite/; the admin panel at /admin
-  tools/                done   i18n.mjs: catalog parity and keys in use; data-cli.js: copies from the
+  idempotency.js        done   a write sent twice with the same Idempotency-Key answers once
+  web/                  done   the web kit (§15, docs/web-kit.md), served at /suite/; the admin panel at /admin
+  tools/                done   i18n.mjs: catalog parity, keys in use, texts written in the code; data-cli.js: copies from the
                                command line; conformance.js: the platform checks for a running app
   test/                        suite-core's own tests (node:test)
   docs/                        this document and the module guides
@@ -674,7 +675,7 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
 - `el(tag, props, children)`: every node through `textContent` and `setAttribute`; HTML is never
   assembled from strings. That is the whole XSS defence.
 - `api.js`: fetch with JSON, error codes turned into sentences by `t()`, offline detected apart
-  from server errors, `Idempotency-Key` on writes.
+  from server errors, `Idempotency-Key` on the writes that may be sent again.
 - `theme.js` (classic script, applied before the first paint), `i18n.js`, `live.js` (the SSE client
   with reconnection), `update.js` (the new-version notice), `outbox.js` (writes queued offline,
   replayed with their idempotency keys), toasts and dialogs.
@@ -687,7 +688,21 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
 - `sw-core.js`, imported by each app's service worker: shell caching, network-first for code and
   catalogs, never caching `/api`, `/mcp`, `/auth`, `/oauth`, `/version`.
 
-**Today (v0.15.0).** `dom.js` (`el`, `$`, `$$`, `clear`), `i18n.js` (`t()` with placeholders and
+**Since v0.34.0 the kit is whole**, with the shared interface approved on 2026-10-05; how an app
+uses it is in [web-kit.md](web-kit.md). The frame (`shell.js`) has a sidebar or a top bar with tabs,
+the same pieces in both, a drawer and two screens on a phone; sign-in (`signin.js`) puts the
+product's colour large beside the form; Settings (`settings.js`) is a list of sections, one screen
+each on a phone, with the app's own among them and About in every app; dialogs are sheets from the
+bottom on a phone. `tokens.css` brings the brand and each product's accent by `<html data-app>`,
+measured for contrast by the tests, and the fonts (Geist, Space Grotesk, Geist Mono) from
+`/suite/fonts/`. `update.js` keeps the new-version notice until it is acted on and waits for the
+new service worker; `live.js` groups changes, resyncs after a cut and reopens with a growing wait;
+`outbox.js` keeps offline writes in IndexedDB (`local.js`) with their idempotency keys and
+provisional ids, which the server honours for every app (`idempotency.js`); `markdown.js` draws
+notes with `el()`; `sw-core.js` is the service worker; `icons.js` the icons; and
+`tools/i18n.mjs hardcoded` finds texts written in the code.
+
+**Before (v0.15.0).** `dom.js` (`el`, `$`, `$$`, `clear`), `i18n.js` (`t()` with placeholders and
 plural forms, exact ones such as `=0` included; flat or nested catalogs; `pickLanguage()`, dates),
 `api.js` (`ApiError`, `SessionExpired`, `Offline`, `errorMessage()`), `ui.js` (toasts, fields,
 dialogs on the native `<dialog>`, confirmations), `theme.js` and `kit.css` (light and dark), and
@@ -700,8 +715,8 @@ role, plan, extras granted per feature with an end date, a new password, signing
 disabling, removal), invitations with the link to pass on, what each plan allows, organizations
 when that module is on, and the activity log, filtered and paged. A feature is named by the app's
 `features.<key>` text when it has one, else by its label in the configuration.
-Still to come: `live.js`, `update.js`, `outbox.js`, the sign-in and settings screens (each app
-keeps its own for now), `tokens.css` from the Cronum style guide and `sw-core.js`.
+Next adopts the rest first (its own sign-in, settings, notice and service worker give way to the
+kit's), then Notes is built on it whole, then the others as they move to English.
 
 ## 16. Push, uploads, mail and audit
 
@@ -818,7 +833,7 @@ first, then Tasks, then the rest.
 | `http.js`, `db.js`, `migrate.js`, `crypto.js` | done (v0.4.0) | adopted by Next; Tasks and the rest next |
 | `sessions.js`, `rate-limit.js` | done (v0.5.0) | adopted by Next; `principal.js` comes with the MCP transport |
 | `mcp.js` | done (v0.6.0) | adopted by Next; plan checks wired to entitlements when they exist |
-| `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser) | the lint of strings written in the code |
+| `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser; v0.34.0: texts written in the code) | each app's tests run `hardcoded` |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
@@ -830,5 +845,6 @@ first, then Tasks, then the rest.
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud |
-| Web kit and admin panel | begun (v0.15.0: the kit's base and the admin panel at `/admin`) | used by Next; the sign-in and settings screens, `live.js` and the outbox; the Cronum style guide's tokens |
+| Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
+| `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |
