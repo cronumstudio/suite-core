@@ -54,6 +54,8 @@ const fake = http.createServer(async (req, res) => {
     return json(200, { user: ACCOUNTS[c.id], access_token: sign({ sid: `sess_${c.id}`, sub: c.id }) });
   }
   const u = url.pathname.match(/^\/user_management\/users\/([\w-]+)$/);
+  // An id WorkOS can't answer about right now.
+  if (u?.[1] === 'user_busy') return json(429, {});
   if (u) return ACCOUNTS[u[1]] ? json(200, ACCOUNTS[u[1]]) : json(404, {});
   return json(404, {});
 });
@@ -68,7 +70,13 @@ const users = {
   byWorkosId: (id) => USERS.find((u) => u.workos_user_id === id) || null,
   unlinkedByEmail: (email) => USERS.find((u) => u.email === email && !u.workos_user_id) || null,
   firstUnlinkedAdmin: () => USERS.find((u) => u.role === 'admin' && !u.workos_user_id) || null,
+  linkedByEmail: (email) => {
+    const user = USERS.find((u) => u.email === email && u.workos_user_id);
+    return user ? { user, subject: user.workos_user_id } : null;
+  },
   link: (id, { workosId, email }) => Object.assign(USERS.find((u) => u.id === id), { workos_user_id: workosId, email }),
+  relink: (id, { from, workosId, email }) => Object.assign(USERS.find((u) => u.id === id && u.workos_user_id === from),
+    { workos_user_id: workosId, email }),
   setEmail: (id, email) => { USERS.find((u) => u.id === id).email = email; },
   usernameTaken: (name) => USERS.some((u) => u.username === name),
   create: ({ username, displayName, role, email, workosId }) => {
@@ -177,6 +185,30 @@ try {
   check('The 401 challenge points at the metadata', accounts.challenge(false).includes(`${base}/.well-known/oauth-protected-resource/mcp`));
   check('Signing out also closes AuthKit’s session',
     accounts.signOutUrl('sess_1') === `${AUTHKIT}/user_management/sessions/logout?session_id=sess_1`);
+
+  console.log('\nWhen WorkOS knows someone by a new id');
+  // The install moves to another WorkOS environment: Ada's old id is gone there.
+  delete ACCOUNTS.user_ada;
+  ACCOUNTS.user_ada_prod = { id: 'user_ada_prod', email: 'ada@example.com', email_verified: true, first_name: 'Ada' };
+  const usersBefore = USERS.length;
+  const moved = await signIn('user_ada_prod');
+  check('Her account follows her to the new id', USERS[0].workos_user_id === 'user_ada_prod'
+    && USERS.length === usersBefore && opened.at(-1)?.userId === 1, moved.back.headers.get('location'));
+  ACCOUNTS.user_bob_new = { id: 'user_bob_new', email: 'bob@example.com', email_verified: true, first_name: 'Robert' };
+  await signIn('user_bob_new');
+  check('While the old id still exists, it is someone else: a new account',
+    USERS.find((u) => u.username === 'bob')?.workos_user_id === 'user_bob'
+    && USERS.find((u) => u.workos_user_id === 'user_bob_new')?.id > usersBefore);
+  USERS.push({ id: USERS.length + 1, username: 'carl', role: 'user', email: 'carl@example.com', workos_user_id: 'user_carl_old' });
+  ACCOUNTS.user_carl = { id: 'user_carl', email: 'carl@example.com', email_verified: true, first_name: 'Carl' };
+  check('Through the MCP too', (await accounts.userFromToken(tokenOf('user_carl')))?.username === 'carl');
+  USERS.push({ id: USERS.length + 1, username: 'dan', role: 'user', email: 'dan@example.com', workos_user_id: 'user_busy' });
+  ACCOUNTS.user_dan = { id: 'user_dan', email: 'dan@example.com', email_verified: true, first_name: 'Dan' };
+  const countBefore = USERS.length;
+  const busy = await signIn('user_dan');
+  check('If WorkOS can’t say whether the old id exists, nothing moves and nothing is made',
+    /auth_error=unavailable/.test(busy.back.headers.get('location'))
+    && USERS.find((u) => u.username === 'dan').workos_user_id === 'user_busy' && USERS.length === countBefore);
 
   console.log('\nWhen WorkOS doesn’t answer');
   // A port that was just free: nothing listens there any more.

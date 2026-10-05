@@ -3,6 +3,27 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.32.0 — 2026-10-05
+
+- **Someone WorkOS knows by a new id keeps their account** (sc-auth-46). Every WorkOS environment
+  has its own user ids, and an account deleted and made again there gets a new one. Before, after
+  moving an install to another environment:
+  - everyone got a new, empty account;
+  - the admin email took the account of another administrator: their data, and their email
+    overwritten;
+  - that administrator then got a new account, as a plain user.
+
+  Now an account with that verified email, linked to an id WorkOS answers 404 for, is moved to the
+  new id. While the old id still exists it is someone else, and the newcomer gets an account of
+  their own. If WorkOS gives no clear answer, the sign-in fails as unavailable and nothing changes.
+- **The admin email takes over another administrator only while the install moves to the
+  provider**, or one with no email (`firstUnlinkedAdmin`, WorkOS and OIDC). An administrator with
+  an email, made once people sign in there, is that person's.
+- Interface: `localUser()` of `createWorkosAccounts` is async. `users` may give
+  `linkedByEmail(email)` and `relink(userId, { from, workosId, email })` (`workosUsers()` does);
+  without them nothing is moved. New: `accounts.linkedByEmail()`, `accounts.relinkIdentity()` and
+  the WorkOS client's `knows(id)`.
+
 ## 0.31.1 — 2026-10-05
 
 More of the audit's medium findings.

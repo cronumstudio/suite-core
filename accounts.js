@@ -239,11 +239,41 @@ export function createAccounts({
       (SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = ?)
     ORDER BY u.id LIMIT 1`, String(email || '').trim().toLowerCase(), provider) || null;
 
-  /** The oldest administrator not linked to the provider: whose account the admin email takes over. */
+  /**
+   * The account with that verified email linked to the provider under another
+   * subject, and that subject: someone the provider may now know by a new id
+   * (another environment of it, or their account there made again).
+   */
+  function linkedByEmail(provider, email) {
+    const row = database.get(`SELECT i.user_id, i.subject FROM users u
+      JOIN user_identities i ON i.user_id = u.id AND i.provider = ?
+      WHERE u.email = ? COLLATE NOCASE AND u.email_verified_at IS NOT NULL
+      ORDER BY u.id, i.id LIMIT 1`, provider, String(email || '').trim().toLowerCase());
+    return row ? { user: byId(row.user_id), subject: row.subject } : null;
+  }
+
+  /** Moves an account's link at a provider from the subject it had to a new one. */
+  function relinkIdentity(userId, provider, from, to, { email = null } = {}) {
+    database.tx(() => {
+      database.run('DELETE FROM user_identities WHERE user_id = ? AND provider = ? AND subject = ?',
+        userId, provider, String(from));
+      insertIdentity(userId, provider, to, email);
+      if (email) setVerifiedEmail(userId, email);
+    });
+  }
+
+  /**
+   * The oldest administrator not linked to the provider: whose account the
+   * admin email takes over when an install moves to the provider. Only while
+   * nobody is linked to it yet, or one with no email: an administrator with an
+   * email, made once people sign in there, is that person's, and taking it
+   * gave the admin email someone else's account and data.
+   */
   const firstUnlinkedAdmin = (provider) => database.get(`SELECT * FROM users u
     WHERE u.role = 'admin' AND NOT EXISTS
       (SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = ?)
-    ORDER BY u.id LIMIT 1`, provider) || null;
+      AND (u.email IS NULL OR NOT EXISTS (SELECT 1 FROM user_identities WHERE provider = ?))
+    ORDER BY u.id LIMIT 1`, provider, provider) || null;
 
   /** An email a provider vouches for: stored as verified. */
   function setVerifiedEmail(userId, email) {
@@ -406,6 +436,7 @@ export function createAccounts({
   return {
     create, update, setPassword, checkPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
     byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
+    linkedByEmail, relinkIdentity,
     setVerifiedEmail, fromIdentity, freeUsername,
     whenCreated: (hook) => { created.push(hook); },
     whenRemoved: (hook) => { removed.push(hook); },
