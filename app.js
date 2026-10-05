@@ -51,6 +51,7 @@ import { brandedPage } from './oauth-page.js';
 import { brandedAdmin } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
+import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
 import { createUploads } from './uploads.js';
 import { createPortability, registerPortabilityApi } from './portability.js';
@@ -139,6 +140,8 @@ export function createSuite({
   });
   // Notices for the open tabs (GET /api/events, with modules.live): the app publishes what changed.
   const live = createLive();
+  // A write sent again with the same Idempotency-Key answers what the first did (the outbox's retries).
+  const idempotency = createIdempotency({ database });
   // A code from an app after the password; with a provider, the second step is the provider's.
   const twoFactor = install.authProvider === 'local'
     ? createTwoFactor({
@@ -333,6 +336,7 @@ export function createSuite({
     audit.purge(365);
     tokens.purge();
     accountMail.purge();
+    idempotency.purge();
   }
 
   /**
@@ -357,7 +361,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor,
+    portabilityFor, idempotency,
   };
 }
 
@@ -613,14 +617,16 @@ export function createApp({
           sendJson(res, 405, { error: 'method_not_allowed' }, { Allow: match.allow });
           return;
         }
-        await match.handler({
+        const ctx = {
           req, res, url,
           params: match.params,
           query: url.searchParams,
           user: sessions.userFrom(req),
           sessionToken: sessions.tokenFrom(req),
           baseUrl: install.baseUrl,
-        });
+        };
+        // A write with an Idempotency-Key runs once; the same key again gets the same answer.
+        await (suite.idempotency ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
         return;
       }
 
