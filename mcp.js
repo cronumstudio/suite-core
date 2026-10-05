@@ -21,6 +21,12 @@ import crypto from 'node:crypto';
 import { readJson, sendJson, sendText } from './http.js';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-06-18', '2025-03-26', '2024-11-05']);
+/**
+ * Messages in one JSON-RPC batch. Clients send one at a time (2025-06-18 dropped
+ * batches); without a ceiling, a megabyte of `tools/list` would build hundreds
+ * of megabytes of answer and hold the server for everyone.
+ */
+export const MAX_BATCH = 20;
 
 const rpcResult = (id, value) => ({ jsonrpc: '2.0', id, result: value });
 const rpcError = (id, code, message, data) => ({
@@ -170,13 +176,20 @@ export function createMcpServer({
     if (!principal) {
       // The brake only counts failures: a good token is never blocked, even
       // behind an address shared with someone trying blindly. With OAuth the
-      // first request comes without a token on purpose: that is no failure.
-      if (token) limiter?.tokenFailed(req);
-      const allowed = limiter ? limiter.checkToken(req) : { allowed: true };
-      if (!allowed.allowed) {
-        sendJson(res, 429, rpcError(null, -32002, 'Too many attempts with an invalid token. Wait a while.'),
-          { 'Retry-After': String(allowed.retryAfter) });
-        return;
+      // first request comes without a token on purpose: that is no failure, and
+      // it always gets its 401, which is what starts the sign-in (behind a
+      // shared address, a 429 there would keep everyone else from connecting).
+      if (token && limiter) {
+        // Once the address is blocked its failures are no longer written down:
+        // the bucket stays at its limit instead of growing with the attack.
+        const before = limiter.checkToken(req);
+        if (before.allowed) limiter.tokenFailed(req);
+        const allowed = before.allowed ? limiter.checkToken(req) : before;
+        if (!allowed.allowed) {
+          sendJson(res, 429, rpcError(null, -32002, 'Too many attempts with an invalid token. Wait a while.'),
+            { 'Retry-After': String(allowed.retryAfter) });
+          return;
+        }
       }
       sendJson(res, 401, rpcError(null, -32001, oauthOffered
         ? 'Authorization required: connect with OAuth, or use a manual token from the app’s settings.'
@@ -220,6 +233,10 @@ export function createMcpServer({
     }
     const context = { sessionId: req.headers['mcp-session-id'] ? String(req.headers['mcp-session-id']) : null };
     const batch = Array.isArray(body) ? body : [body];
+    if (batch.length > MAX_BATCH) {
+      sendJson(res, 400, rpcError(null, -32600, `A batch may carry at most ${MAX_BATCH} messages.`));
+      return;
+    }
     const responses = [];
     for (const message of batch) {
       if (!message || message.jsonrpc !== '2.0') {

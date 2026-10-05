@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createMcpServer } from '../mcp.js';
+import { createMcpServer, MAX_BATCH } from '../mcp.js';
 
 class Unavailable extends Error {}
 class NotFound extends Error {}
@@ -86,6 +86,29 @@ test('without a valid token: 401 pointing at OAuth, and the brake counts only ba
   assert.equal((await call('good-token', { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200,
     'a good token is never blocked');
   assert.equal(failures, 0, 'and it clears the address');
+});
+
+test('a blocked address: no more failures written down, and a request without a token still gets its 401', async (t) => {
+  failures = 0;
+  const { call } = await start(t);
+  for (let i = 0; i < 10; i++) await call('nope', { jsonrpc: '2.0', id: 1, method: 'ping' });
+  assert.equal(failures, 4, 'once blocked, the bucket stops growing with the attack');
+  const none = await call(null, { jsonrpc: '2.0', id: 1, method: 'ping' });
+  assert.equal(none.status, 401, 'someone else behind that address can still start signing in');
+  assert.match(none.headers.get('www-authenticate'), /resource_metadata=/);
+  assert.equal((await call('nope', { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 429);
+  failures = 0;
+});
+
+test('a batch carries at most MAX_BATCH messages', async (t) => {
+  const { call } = await start(t);
+  const ping = (id) => ({ jsonrpc: '2.0', id, method: 'ping' });
+  const full = await call('good-token', Array.from({ length: MAX_BATCH }, (_, i) => ping(i)));
+  assert.equal(full.status, 200);
+  assert.equal((await full.json()).length, MAX_BATCH);
+  const over = await call('good-token', Array.from({ length: MAX_BATCH + 1 }, (_, i) => ping(i)));
+  assert.equal(over.status, 400);
+  assert.equal((await over.json()).error.code, -32600, 'refused whole, before any of it runs');
 });
 
 test('when tokens cannot be checked: 503, not a request for permission', async (t) => {

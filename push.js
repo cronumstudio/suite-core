@@ -25,6 +25,13 @@ import { badRequest } from './http.js';
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 const fromB64url = (text) => Buffer.from(String(text), 'base64url');
 
+/** Devices one person may have subscribed: more than anyone uses, few enough that a sweep stays short. */
+export const MAX_DEVICES = 10;
+/** Push services answer in well under a second; one that doesn't in this long is treated as down. */
+const SEND_TIMEOUT_MS = 10000;
+/** Subscriptions encrypted and sent at once by deliver(). */
+const DELIVER_BATCH = 20;
+
 /** Tasks' table, which is the suite's shape: its subscriptions survive the move. */
 export function pushSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -219,8 +226,16 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
    * means the browser no longer has it, and it should be dropped.
    */
   async function send(subscription, payload, { ttl = 3600, urgency = 'normal' } = {}) {
-    const body = encryptPayload(subscription.p256dh, subscription.auth,
-      Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8'));
+    // Outside the try: a payload that can't be written is the app's mistake, not the device's.
+    const plain = Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
+    let body;
+    try {
+      body = encryptPayload(subscription.p256dh, subscription.auth, plain);
+    } catch (err) {
+      // Keys nothing can be encrypted for (stored before subscribe() checked them):
+      // no message will ever reach that device, so it goes like a gone one.
+      return { ok: false, status: 0, gone: true, reason: err.message };
+    }
     let res;
     try {
       res = await fetch(subscription.endpoint, {
@@ -233,6 +248,11 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
           Urgency: urgency,
         },
         body,
+        // No push service redirects: following one would let an endpoint chosen by
+        // a user send our requests to an address inside the network.
+        redirect: 'error',
+        // One that accepts the connection and never answers would hold a sweep for minutes.
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
     } catch (err) {
       return { ok: false, status: 0, gone: false, reason: err.message };
@@ -240,26 +260,37 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
     return { ok: res.status >= 200 && res.status < 300, status: res.status, gone: res.status === 404 || res.status === 410 };
   }
 
+  async function deliverOne(sub, payload, options) {
+    const res = await send(sub, typeof payload === 'function' ? payload(sub) : payload, options);
+    if (res.gone) {
+      database.run('DELETE FROM push_subscriptions WHERE id = ?', sub.id);
+    } else if (res.ok) {
+      database.run("UPDATE push_subscriptions SET last_ok_at = datetime('now'), failures = 0 WHERE id = ?", sub.id);
+    } else {
+      database.run('UPDATE push_subscriptions SET failures = failures + 1 WHERE id = ?', sub.id);
+      database.run('DELETE FROM push_subscriptions WHERE id = ? AND failures >= 3', sub.id);
+      log(`[push] a notice could not be sent (${res.status || res.reason})`);
+    }
+    return res;
+  }
+
   /**
    * Sends to several subscriptions and keeps the table clean: a gone one is
    * dropped, a good one noted, and one that fails three times in a row is
    * dropped too. `payload` may be a function of the subscription (its
-   * language). → { sent, gone, failed }
+   * language). A few at a time: each one's encryption is synchronous work, and
+   * thousands in one go would hold the server for everyone. Never rejects: one
+   * device's problem is not the others'. → { sent, gone, failed }
    */
   async function deliver(subscriptions, payload, options = {}) {
-    const results = await Promise.all(subscriptions.map(async (sub) => {
-      const res = await send(sub, typeof payload === 'function' ? payload(sub) : payload, options);
-      if (res.gone) {
-        database.run('DELETE FROM push_subscriptions WHERE id = ?', sub.id);
-      } else if (res.ok) {
-        database.run("UPDATE push_subscriptions SET last_ok_at = datetime('now'), failures = 0 WHERE id = ?", sub.id);
-      } else {
-        database.run('UPDATE push_subscriptions SET failures = failures + 1 WHERE id = ?', sub.id);
-        database.run('DELETE FROM push_subscriptions WHERE id = ? AND failures >= 3', sub.id);
-        log(`[push] a notice could not be sent (${res.status || res.reason})`);
-      }
-      return res;
-    }));
+    const results = [];
+    for (let i = 0; i < subscriptions.length; i += DELIVER_BATCH) {
+      const batch = subscriptions.slice(i, i + DELIVER_BATCH);
+      results.push(...await Promise.all(batch.map((sub) => deliverOne(sub, payload, options).catch((err) => {
+        log(`[push] a notice failed: ${err?.message || err}`);
+        return { ok: false, status: 0, gone: false, reason: err?.message };
+      }))));
+    }
     return {
       sent: results.filter((r) => r.ok).length,
       gone: results.filter((r) => r.gone).length,
@@ -282,11 +313,23 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
     checkEndpoint(endpoint);
     if (typeof p256dh !== 'string' || fromB64url(p256dh).length !== 65) throw badRequest('field_invalid', { field: 'p256dh' });
     if (typeof auth !== 'string' || fromB64url(auth).length < 8) throw badRequest('field_invalid', { field: 'auth' });
-    database.run(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, label, lang)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh,
-        auth = excluded.auth, label = excluded.label, lang = excluded.lang, failures = 0`,
-    userId, endpoint, p256dh, auth, label ? String(label).slice(0, 80) : null, lang ? String(lang).slice(0, 12) : null);
+    // 65 bytes is not yet a key: a point off the curve would make every message
+    // to it fail. A browser's key always works, so trying once settles it.
+    try { encryptPayload(p256dh, auth, Buffer.alloc(0)); } catch { throw badRequest('field_invalid', { field: 'p256dh' }); }
+    database.tx(() => {
+      database.run(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, label, lang)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh,
+          auth = excluded.auth, label = excluded.label, lang = excluded.lang, failures = 0,
+          created_at = datetime('now')`,
+      userId, endpoint, p256dh, auth, label ? String(label).slice(0, 80) : null, lang ? String(lang).slice(0, 12) : null);
+      // A person has a few devices, not thousands: past the ceiling the ones that have gone
+      // longest without being used go (subscribing again counts as use), never the one that just said yes.
+      database.run(`DELETE FROM push_subscriptions WHERE user_id = ? AND id NOT IN (
+          SELECT id FROM push_subscriptions WHERE user_id = ?
+          ORDER BY endpoint = ? DESC, max(coalesce(last_ok_at, created_at), created_at) DESC, id DESC LIMIT ?)`,
+      userId, userId, endpoint, MAX_DEVICES);
+    });
     return Number(database.get('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?', userId).n);
   }
 

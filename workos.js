@@ -26,6 +26,7 @@ const noSlash = (url) => String(url || '').replace(/\/+$/, '');
 export class WorkosUnavailable extends Error {}
 
 const TIMEOUT_MS = 8000;              // Claude gives up at 10 s: better to fail first
+const METADATA_TTL_MS = 3600 * 1000;  // AuthKit's metadata, copied for the clients that ask here
 const CLOCK_SKEW_S = 30;              // clocks that don't tick exactly together
 
 /** Configuration from the usual environment variables. */
@@ -150,9 +151,11 @@ export function createWorkosClient({
   const keys = createKeySet({
     load: async () => {
       const { ok, status, body } = await request(`${AUTHKIT}/oauth2/jwks`);
-      if (!ok || !Array.isArray(body?.keys)) throw new WorkosUnavailable(`AuthKit JWKS: ${status}`);
+      // An empty set is an outage too: taken as it is, every token would be refused as invalid.
+      if (!ok || !Array.isArray(body?.keys) || !body.keys.length) throw new WorkosUnavailable(`AuthKit JWKS: ${status}`);
       return body.keys;
     },
+    unavailable: (message) => new WorkosUnavailable(`AuthKit JWKS: ${message}`),
   });
 
   /**
@@ -186,7 +189,7 @@ export function createWorkosClient({
    */
   let asMetadata = { value: null, at: 0 };
   async function authorizationServerMetadata() {
-    if (asMetadata.value && Date.now() - asMetadata.at < KEYS_TTL_MS) return asMetadata.value;
+    if (asMetadata.value && Date.now() - asMetadata.at < METADATA_TTL_MS) return asMetadata.value;
     const { ok, status, body } = await request(`${AUTHKIT}/.well-known/oauth-authorization-server`);
     if (!ok || !body?.issuer) throw new WorkosUnavailable(`AuthKit metadata: ${status}`);
     asMetadata = { value: body, at: Date.now() };

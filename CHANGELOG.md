@@ -3,6 +3,41 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.29.2 — 2026-10-05
+
+Fixes from the audit of 2026-10-04: nothing a single request or one account can do should stop the
+server for everyone.
+
+- **A request no URL can be made of is a `400`**, not a crash: `GET //` or a `Host` such as
+  `a:99999` made `new URL()` throw outside the handler's `try`, and the rejection nobody awaited
+  ended the process. Whatever escapes `handle()` is now caught and answered `500`.
+- **The process has a safety net**: an unhandled rejection is logged and the server goes on; an
+  uncaught exception is logged and the server closes in order (exit 1, for Docker to restart it).
+  The periodic clean-ups log a failure and try again next time. `SIGTERM` now also closes the live
+  channels, which kept the shutdown waiting for its 5-second timeout whenever a tab was open.
+- **MCP**: a JSON-RPC batch carries at most `MAX_BATCH` (20) messages; a bigger one is refused
+  whole (`-32600`) before any of it runs. A request without a token always gets its `401` (behind
+  an address shared with someone trying bad tokens it used to get `429`, and couldn't start signing
+  in), and once an address is blocked its failed tokens are no longer written down.
+- **`TRUST_PROXY=cloudflare`**: the client address is `CF-Connecting-IP`, believed only when the hop
+  that brought it is one of Cloudflare's published ranges (reached directly, the origin would take
+  whatever a client wrote). Behind Cloudflare and Traefik every client used to share Cloudflare's
+  addresses in the brakes, the audit log and the sessions. An empty `TRUST_PROXY`, as compose passes
+  an unset one, now leaves the product's default.
+- **WorkOS**: `/.well-known/oauth-authorization-server` answered `502` from its second request on
+  (an undefined constant). A missing `WORKOS_MCP_AUDIENCE` is now a start-up warning: without it,
+  an MCP token AuthKit issued for another app of the same environment is accepted.
+- **Issuer keys (WorkOS, OIDC)**: when the JWKS can't be fetched, the keys in hand keep serving for
+  up to a day and the issuer is asked again every five minutes (each request used to wait for it,
+  and every token got `503`); with no key in hand, again after ten seconds. A set with no usable key
+  counts as an outage (`createKeySet({ unavailable })` says with which error).
+- **Web Push**: a key that is no point of P-256 is refused on subscribing, and one stored before is
+  dropped instead of failing the whole send (in Tasks it stopped the reminder sweep for everyone).
+  A send never follows a redirect (an endpoint chosen by a user could point inside the network) and
+  gives up after 10 s. A person keeps at most `MAX_DEVICES` (10) devices: the ones longest unused go
+  (subscribing again counts as use). `deliver()` encrypts 20 at a time and never rejects; a payload
+  that can't be written fails that send without dropping any device.
+
 ## 0.29.1 — 2026-10-04
 
 - Nothing under `/i18n/` reaches the app's static files any more: a catalog is served merged,

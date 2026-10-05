@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  generateVapidKeys, vapidKeyErrors, vapidKeys, encryptPayload, decryptPayload, checkEndpoint, createPush,
+  generateVapidKeys, vapidKeyErrors, vapidKeys, encryptPayload, decryptPayload, checkEndpoint, createPush, MAX_DEVICES,
 } from '../push.js';
 import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
@@ -218,6 +218,88 @@ test('subscribing: one row per device, checked; the list never shows the keys', 
   assert.ok(!('p256dh' in listed) && !('auth' in listed) && !('endpoint' in listed));
   assert.equal(push.unsubscribe(ada.id, endpoint), 1);
   assert.deepEqual(push.devices(ada.id), []);
+});
+
+test('a key off the curve is refused, and one stored before does not stop the others’ notices', async (t) => {
+  const ok = await fakeService(t, 201);
+  const { database, accounts } = store();
+  const ada = accounts.create({ username: 'ada', password: 'ada-password' });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, log: () => {} });
+  const device = deviceKeys();
+  // 0x04 and 64 bytes: the right length, but no point of P-256.
+  const offCurve = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url');
+  assert.throws(() => push.subscribe(ada.id, { endpoint: 'https://fcm.googleapis.com/fcm/send/x', p256dh: offCurve, auth: device.auth }),
+    { extra: { field: 'p256dh' } });
+
+  database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+    ada.id, ok.url('/broken'), offCurve, device.auth);
+  database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+    ada.id, ok.url('/phone'), device.p256dh, device.auth);
+  assert.deepEqual(await push.sendTo([ada.id], { title: 'x' }), { sent: 1, gone: 1, failed: 0 },
+    'the good device gets it; the broken one is dropped instead of failing the whole send');
+  assert.deepEqual(database.all('SELECT endpoint FROM push_subscriptions').map((r) => r.endpoint), [ok.url('/phone')]);
+});
+
+test('a person keeps at most MAX_DEVICES devices: the oldest go, never the newest', () => {
+  const { database, accounts } = store();
+  const ada = accounts.create({ username: 'ada', password: 'ada-password' });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, log: () => {} });
+  const device = deviceKeys();
+  const endpoint = (n) => `https://fcm.googleapis.com/fcm/send/device-${n}`;
+  for (let n = 1; n <= MAX_DEVICES + 3; n++) {
+    database.run("UPDATE push_subscriptions SET created_at = datetime(created_at, '-1 minute')");
+    push.subscribe(ada.id, { endpoint: endpoint(n), p256dh: device.p256dh, auth: device.auth });
+  }
+  const kept = database.all('SELECT endpoint FROM push_subscriptions WHERE user_id = ?', ada.id).map((r) => r.endpoint);
+  assert.equal(kept.length, MAX_DEVICES);
+  assert.ok(kept.includes(endpoint(MAX_DEVICES + 3)), 'the one that just subscribed stays');
+  assert.ok(!kept.includes(endpoint(1)) && !kept.includes(endpoint(3)), 'the three oldest went');
+  // An old device subscribing again counts as recent: the next newcomer pushes out another one.
+  const oldest = endpoint(4);
+  database.run("UPDATE push_subscriptions SET created_at = datetime(created_at, '-1 minute')");
+  push.subscribe(ada.id, { endpoint: oldest, p256dh: device.p256dh, auth: device.auth });
+  database.run("UPDATE push_subscriptions SET created_at = datetime(created_at, '-1 minute')");
+  push.subscribe(ada.id, { endpoint: endpoint(99), p256dh: device.p256dh, auth: device.auth });
+  assert.ok(database.get('SELECT 1 AS x FROM push_subscriptions WHERE endpoint = ?', oldest), 'the one subscribed again stays');
+  assert.ok(!database.get('SELECT 1 AS x FROM push_subscriptions WHERE endpoint = ?', endpoint(5)), 'the next oldest went');
+  // One that keeps working counts as used, however long ago it subscribed.
+  database.run("UPDATE push_subscriptions SET last_ok_at = datetime('now', '+1 minute') WHERE endpoint = ?", endpoint(6));
+  database.run("UPDATE push_subscriptions SET created_at = datetime(created_at, '-1 minute')");
+  push.subscribe(ada.id, { endpoint: endpoint(100), p256dh: device.p256dh, auth: device.auth });
+  assert.ok(database.get('SELECT 1 AS x FROM push_subscriptions WHERE endpoint = ?', endpoint(6)));
+});
+
+test('a notice that can’t be written is the app’s mistake: nobody loses a device for it', async (t) => {
+  const ok = await fakeService(t, 201);
+  const { database, accounts } = store();
+  const ada = accounts.create({ username: 'ada', password: 'ada-password' });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, log: () => {} });
+  const device = deviceKeys();
+  database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+    ada.id, ok.url('/phone'), device.p256dh, device.auth);
+  assert.deepEqual(await push.sendTo([ada.id], { n: 1n }), { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual(await push.sendTo([ada.id], () => undefined), { sent: 0, gone: 0, failed: 1 });
+  assert.equal(database.all('SELECT 1 FROM push_subscriptions').length, 1);
+});
+
+test('a push service that redirects or never answers: a failure, not a request elsewhere', async (t) => {
+  const seen = [];
+  const fetch = async (url, options) => {
+    seen.push(options);
+    if (url.endsWith('/slow')) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    throw new TypeError('fetch failed: redirect mode is set to error');
+  };
+  const { database, accounts } = store();
+  const ada = accounts.create({ username: 'ada', password: 'ada-password' });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
+  const device = deviceKeys();
+  for (const p of ['/moved', '/slow']) {
+    database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+      ada.id, `https://push.example${p}`, device.p256dh, device.auth);
+  }
+  assert.deepEqual(await push.sendTo([ada.id], { title: 'x' }), { sent: 0, gone: 0, failed: 2 });
+  assert.ok(seen.every((o) => o.redirect === 'error'), 'redirects are never followed');
+  assert.ok(seen.every((o) => o.signal instanceof AbortSignal), 'every send has a time limit');
 });
 
 async function start(t, modules, env = {}) {

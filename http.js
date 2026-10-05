@@ -8,6 +8,7 @@
  * and the browser is the one that says it in each person's, from its catalogs.
  */
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 /* --------------------------------- errors --------------------------------- */
@@ -109,14 +110,15 @@ export async function readJson(req, { limit = MAX_BODY, requireType = true, allo
 
 /**
  * How many proxies in front of the app are trusted: TRUST_PROXY=true is one
- * (the NAS or VPS reverse proxy), a number says how many (Cloudflare in front
- * of it makes two); empty or false, none.
+ * (the NAS or VPS reverse proxy), a number says how many; empty or false, none.
+ * `cloudflare` is Cloudflare in front of one reverse proxy: the client is the
+ * address Cloudflare puts in CF-Connecting-IP (see clientIp()).
  */
 export function proxyHops(value) {
   if (value === true) return 1;
   if (value == null || value === false) return 0;
   const text = String(value).trim().toLowerCase();
-  if (text === 'true') return 1;
+  if (text === 'true' || text === 'cloudflare') return 1;
   const n = Number(text);
   return Number.isInteger(n) && n > 0 ? n : 0;
 }
@@ -127,16 +129,49 @@ export function proxyHops(value) {
  * is the entry that many places from the end. The first entry is whatever the
  * client chose to send — believing it would let anyone pick their address and
  * walk around the brute-force brake.
+ *
+ * Behind Cloudflare, a reverse proxy such as Traefik drops the X-Forwarded-For
+ * it doesn't trust and writes Cloudflare's own address there, so every client
+ * would share a handful of addresses. With TRUST_PROXY=cloudflare the address
+ * is CF-Connecting-IP, which Cloudflare always sets — but only when the hop
+ * that brought it is one of Cloudflare's own: an origin can usually be reached
+ * directly too, and there anyone could write that header.
  */
 export function clientIp(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
   // Without a request (a script run by whoever runs the install) there is no address.
   if (!req) return '';
   const hops = proxyHops(trustProxy);
+  let address = req.socket?.remoteAddress || '';
   if (hops) {
     const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
-    if (chain.length) return chain[Math.max(0, chain.length - hops)];
+    if (chain.length) address = chain[Math.max(0, chain.length - hops)];
   }
-  return req.socket?.remoteAddress || '';
+  if (String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare') {
+    const cf = String(req.headers['cf-connecting-ip'] || '').trim();
+    if (net.isIP(cf) && fromCloudflare(address)) return cf;
+  }
+  return address;
+}
+
+/**
+ * Cloudflare's published ranges (https://www.cloudflare.com/ips/, which has not
+ * changed in years). Should one be added, requests from it count as from the
+ * edge address, as with TRUST_PROXY=true: less precise, never spoofable.
+ */
+const CLOUDFLARE = new net.BlockList();
+for (const cidr of [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18',
+  '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+  '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32', '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+]) {
+  const [network, bits] = cidr.split('/');
+  CLOUDFLARE.addSubnet(network, Number(bits), network.includes(':') ? 'ipv6' : 'ipv4');
+}
+function fromCloudflare(address) {
+  const ip = String(address).replace(/^::ffff:/i, '');
+  const family = net.isIP(ip);
+  return family ? CLOUDFLARE.check(ip, family === 6 ? 'ipv6' : 'ipv4') : false;
 }
 
 /* -------------------------------- cookies --------------------------------- */
