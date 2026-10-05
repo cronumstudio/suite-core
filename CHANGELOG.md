@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.31.1 — 2026-10-05
+
+More of the audit's medium findings.
+
+- **Push only to the browsers' push services** (sc-oauth-12). A subscription's endpoint must be
+  under Google's, Mozilla's, Apple's or Windows' push service domains. A public-looking name can
+  point anywhere through DNS, and the server would send to it.
+- **The live channel has bounds** (sc-platform-17). A person keeps at most 10 channels; an 11th
+  closes their oldest. A channel that stops reading is closed once 64 kB wait unsent; its browser
+  reconnects and resyncs. Before, both grew without end in memory.
+- **An install imported from the panel makes no admin by itself** (sc-web-1). A copy's accounts
+  are created as plain users unless the decision says `create: { role }`. The file could carry
+  any role, and with WorkOS whoever signed in with that email became an admin. The command line
+  keeps the copy's roles.
+
 ## 0.31.0 — 2026-10-05
 
 More fixes from the audit of 2026-10-04.

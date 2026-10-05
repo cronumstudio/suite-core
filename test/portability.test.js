@@ -706,6 +706,20 @@ test('the routes: someone’s own data down and up, the whole install for the ad
   const config = await (await fetch(`${base}/api/auth/config`)).json();
   assert.equal(config.app.modules.data, true);
 
+  // From the panel, a copy never makes an admin by itself: its admin comes in as a
+  // plain user unless whoever applies it says otherwise for that account.
+  const install = Buffer.from(await (await call(asAdmin, 'GET', '/api/admin/export')).arrayBuffer());
+  const roles = async (decisions) => {
+    const opened = await (await call(asAdmin, 'POST', '/api/admin/import', install, 'application/zip')).json();
+    const done = await (await call(asAdmin, 'POST', `/api/admin/import/${opened.import_id}`, { accounts: decisions })).json();
+    return Object.fromEntries(done.accounts.filter((a) => a.created).map((a) => [a.username, suite.accounts.byId(a.user_id).role]));
+  };
+  const plain = await roles([{ source: 'admin', create: { username: 'admin-copy' } }]);
+  assert.equal(plain['admin-copy'], 'user', 'the copy\'s admin comes in as a user');
+  suite.database.run("DELETE FROM data_imports");
+  const chosen = await roles([{ source: 'admin', create: { username: 'admin-again', role: 'admin' } }]);
+  assert.equal(chosen['admin-again'], 'admin', 'unless the admin asks for it');
+
   // Opening copies is braked per account: ben runs out, ana doesn't.
   const statuses = [];
   for (let i = 0; i < 10; i++) statuses.push((await call(asBen, 'POST', '/api/me/import', Buffer.from('nope'), 'application/zip')).status);

@@ -192,7 +192,9 @@ test('where a subscription may point: real push services, never inside the netwo
   const accepted = (url) => { try { checkEndpoint(url); return true; } catch { return false; } };
   for (const url of ['https://192.168.1.1/hook', 'https://169.254.169.254/latest/meta-data/', 'https://127.0.0.1/hook',
     'https://[::1]/hook', 'https://nas.local/hook', 'https://router.home.arpa/x', 'https://algo.example.com:8080/hook',
-    'http://fcm.googleapis.com/hook', 'no-soy-una-url']) {
+    'http://fcm.googleapis.com/hook', 'no-soy-una-url',
+    // A public-looking name is no push service, and DNS can point it anywhere.
+    'https://algo.example.com/hook', 'https://fcm.googleapis.com.evil.example/x']) {
     assert.equal(accepted(url), false, url);
   }
   for (const url of ['https://fcm.googleapis.com/fcm/send/abc123', 'https://updates.push.services.mozilla.com/wpush/v2/abc',
