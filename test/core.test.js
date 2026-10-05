@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import net from 'node:net';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,6 +20,7 @@ import {
   HttpError, createRouter, readJson, serveStatic, securityHeaders, checkOrigin, sendError,
   parseCookies, serializeCookie, str, clientIp,
 } from '../http.js';
+import { createKeySet } from '../jwt.js';
 
 /* --------------------------------- crypto --------------------------------- */
 
@@ -201,6 +203,95 @@ test('client address: X-Forwarded-For only as far as the trusted proxies go', ()
   assert.equal(clientIp(req, { trustProxy: 'true' }), '203.0.113.9', 'one proxy: the entry it appended');
   assert.equal(clientIp(req, { trustProxy: '2' }), '6.6.6.6', 'two proxies (say Cloudflare and the NAS)');
   assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '10.0.0.2' } }, { trustProxy: true }), '10.0.0.2');
+
+  // Behind Cloudflare, Traefik writes Cloudflare's address: the client is in CF-Connecting-IP.
+  const viaCloudflare = { headers: { 'x-forwarded-for': '172.70.1.1', 'cf-connecting-ip': '198.51.100.7' }, socket: { remoteAddress: '10.0.0.2' } };
+  assert.equal(clientIp(viaCloudflare, { trustProxy: 'cloudflare' }), '198.51.100.7');
+  assert.equal(clientIp(viaCloudflare, { trustProxy: 'true' }), '172.70.1.1', 'only when the install says so');
+  assert.equal(clientIp({ ...viaCloudflare, headers: { ...viaCloudflare.headers, 'cf-connecting-ip': 'not an address' } },
+    { trustProxy: 'cloudflare' }), '172.70.1.1', 'something that is no address: the proxy’s entry, as with true');
+  // Straight to the origin, past Cloudflare: the header is whatever the client wrote, and is not believed.
+  const direct = { headers: { 'x-forwarded-for': '203.0.113.9', 'cf-connecting-ip': '1.2.3.4' }, socket: { remoteAddress: '10.0.0.2' } };
+  assert.equal(clientIp(direct, { trustProxy: 'cloudflare' }), '203.0.113.9');
+  assert.equal(clientIp({ headers: { 'cf-connecting-ip': '2001:db8::5', 'x-forwarded-for': '2606:4700:10::6' }, socket: {} },
+    { trustProxy: 'cloudflare' }), '2001:db8::5', 'Cloudflare over IPv6');
+});
+
+test('an issuer’s keys: an outage keeps the ones in hand, and the issuer is not asked on every request', async () => {
+  const jwk = { ...crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ format: 'jwk' }), kid: 'k1', use: 'sig' };
+  let now = 1_000_000;
+  let loads = 0;
+  let answer = () => [jwk];
+  const keys = createKeySet({ load: async () => { loads++; return answer(); }, clock: () => now });
+  assert.ok(await keys.keyFor('k1'));
+  assert.equal(loads, 1);
+
+  // The hour has passed and the issuer is down: the key in hand still serves.
+  now += 3601 * 1000;
+  answer = () => { throw new Error('issuer down'); };
+  assert.ok(await keys.keyFor('k1'), 'a token signed with a known key is still checked');
+  assert.equal(loads, 2);
+  for (let i = 0; i < 5; i++) assert.ok(await keys.keyFor('k1'));
+  assert.equal(loads, 2, 'after a failure, no new attempt for five minutes');
+  await assert.rejects(keys.keyFor('unknown'), /issuer down/, 'an unknown key: the outage is said, not "invalid token"');
+
+  // Five minutes later it is asked again; a day after the last good answer the old keys no longer count.
+  now += 5 * 60 * 1000 + 1;
+  assert.ok(await keys.keyFor('k1'));
+  assert.equal(loads, 3);
+  now += 24 * 3600 * 1000;
+  await assert.rejects(keys.keyFor('k1'), /issuer down/);
+
+  // An answer without keys is a failure too, not a rotation to nothing.
+  now += 5 * 60 * 1000 + 1;
+  answer = () => [jwk];
+  assert.ok(await keys.keyFor('k1'));
+  now += 3601 * 1000;
+  answer = () => [];
+  assert.ok(await keys.keyFor('k1'), 'an empty set leaves the keys in hand');
+
+  // With no key in hand a blip is not five minutes of refusals: it is asked again within seconds.
+  class Down extends Error {}
+  let fresh = 0;
+  let fails = true;
+  const cold = createKeySet({
+    load: async () => { fresh++; if (fails) throw new Down('blip'); return [jwk]; },
+    unavailable: (message) => new Down(message), clock: () => now,
+  });
+  await assert.rejects(cold.keyFor('k1'), Down);
+  await assert.rejects(cold.keyFor('k1'), Down);
+  assert.equal(fresh, 1, 'not on every request');
+  now += 10 * 1000 + 1;
+  fails = false;
+  assert.ok(await cold.keyFor('k1'), 'back after a few seconds');
+  const empty = createKeySet({ load: async () => [{ kty: 'OKP', crv: 'Ed25519', x: 'AA', kid: 'e' }],
+    unavailable: (message) => new Down(message), clock: () => now });
+  await assert.rejects(empty.keyFor('e'), Down, 'no usable key: the caller’s "can’t check now", not a crash');
+});
+
+test('a request no URL can be made of is a 400, and the server goes on', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-url-'));
+  const { createSuite, createApp } = await import('../app.js');
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, accounts: { minPasswordLength: 8 } },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', SECURE_COOKIES: 'false', ADMIN_PASSWORD: 'root-password' },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { port } = server.address();
+  // Raw, because fetch would never send these.
+  const raw = (head) => new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => socket.end(`${head}\r\nConnection: close\r\n\r\n`));
+    let text = '';
+    socket.on('data', (chunk) => { text += chunk; });
+    socket.on('end', () => resolve(text));
+    socket.on('error', reject);
+  });
+  assert.match(await raw('GET // HTTP/1.1\r\nHost: 127.0.0.1'), /^HTTP\/1\.1 400/);
+  assert.match(await raw('GET / HTTP/1.1\r\nHost: a:99999'), /^HTTP\/1\.1 400/);
+  assert.match(await raw('GET /health HTTP/1.1\r\nHost: 127.0.0.1'), /^HTTP\/1\.1 200/, 'still up');
 });
 
 test('cross-site requests on the session cookie are refused', () => {

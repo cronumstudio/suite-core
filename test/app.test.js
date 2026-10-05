@@ -43,7 +43,15 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.equal(hosted.install.trustProxy, 'true', 'the product’s default when TRUST_PROXY is unset');
   assert.equal(hosted.install.mcpOAuth, false, 'with WorkOS, AuthKit is the authorization server');
   assert.equal(hosted.install.hotReload, true);
-  assert.deepEqual(hosted.warnings, []);
+  // Without an audience, a token AuthKit issued for another app of the environment would open this MCP.
+  assert.deepEqual(hosted.warnings, ['WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to https://demo.example/mcp, with that resource in WorkOS']);
+  const bound = resolveConfig(PRODUCT, {
+    BASE_URL: 'https://demo.example', AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'sk', WORKOS_CLIENT_ID: 'client',
+    WORKOS_AUTHKIT_DOMAIN: 'auth.example', WORKOS_MCP_AUDIENCE: 'https://demo.example/mcp',
+  });
+  assert.deepEqual(bound.warnings, [], 'with the audience set nothing is said');
+  assert.equal(resolveConfig({ ...PRODUCT, trustProxy: true }, { TRUST_PROXY: '' }).install.trustProxy, 'true',
+    'an empty TRUST_PROXY, as compose passes it, leaves the product’s default');
 
   // An old name is not an alias: it would keep the install on it forever without anyone knowing.
   const oldNames = resolveConfig(PRODUCT, {

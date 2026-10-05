@@ -59,7 +59,7 @@ import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
 } from './api.js';
 import {
-  HttpError, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
+  HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
 } from './http.js';
 import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
@@ -544,13 +544,22 @@ export function createApp({
 
   async function handle(req, res) {
     const start = Date.now();
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const pathname = url.pathname;
+    let pathname = String(req.url || '');
 
     // Before anything else, so they reach every response.
     securityHeaders(res, { https: install.https });
 
     try {
+      // Inside the try: a target or a Host no URL can be made of (`GET //`,
+      // `Host: a:99999`) is the client's mistake, a 400, and not an exception
+      // that nobody awaits and that takes the whole process down.
+      let url;
+      try {
+        url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      } catch {
+        throw badRequest();
+      }
+      pathname = url.pathname;
       // A write that rides on the session cookie must come from the app's own
       // pages: another site can make a browser send the cookie, not the Origin.
       checkOrigin(req, { baseUrl: install.baseUrl, cookieName: sessions.cookieName });
@@ -680,30 +689,53 @@ export function createApp({
     }
   }
 
-  const server = http.createServer(handle);
+  // handle() catches what a route throws; this is for whatever escapes it, so
+  // that one request can never leave a rejection nobody awaits.
+  const server = http.createServer((req, res) => {
+    handle(req, res).catch((err) => {
+      console.error(`[error] ${req.method} ${req.url}`, err);
+      if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
+      else res.end();
+    });
+  });
   server.headersTimeout = 65000;
   server.requestTimeout = 0;   // live channels stay open
 
   const timers = [];
 
+  /** A clean-up that fails is logged and tried again next time: it must not take the server down. */
+  const safely = (name, fn) => () => {
+    try { fn(); } catch (err) { log(`${tag} ${name} failed: ${err?.stack || err}`); }
+  };
+
   /** Creates the first administrator if needed, starts the clean-ups and listens. */
   function listen() {
     suite.ensureAdmin();
-    suite.purge();
-    portability?.purge();
-    timers.push(setInterval(() => { suite.purge(); portability?.purge(); }, 6 * HOUR).unref());
+    const cleanUp = safely('clean-up', () => { suite.purge(); portability?.purge(); });
+    cleanUp();
+    timers.push(setInterval(cleanUp, 6 * HOUR).unref());
     if (oauth) {
-      oauth.purge();
-      timers.push(setInterval(() => oauth.purge(), HOUR).unref());
+      const purgeOAuth = safely('OAuth clean-up', () => oauth.purge());
+      purgeOAuth();
+      timers.push(setInterval(purgeOAuth, HOUR).unref());
     }
     if (handleSignals) {
-      const shutdown = (signal) => {
-        log(`${tag} ${signal} received, closing…`);
-        server.close(() => process.exit(0));
-        setTimeout(() => process.exit(0), 5000).unref();
+      // close() also ends the live channels, which would otherwise keep the server open until the timeout.
+      const shutdown = (reason, code = 0) => {
+        log(`${tag} ${reason}, closing…`);
+        close().then(() => process.exit(code), () => process.exit(code));
+        setTimeout(() => process.exit(code), 5000).unref();
       };
-      process.once('SIGTERM', () => shutdown('SIGTERM'));
-      process.once('SIGINT', () => shutdown('SIGINT'));
+      process.once('SIGTERM', () => shutdown('SIGTERM received'));
+      process.once('SIGINT', () => shutdown('SIGINT received'));
+      // A rejection that nothing awaited belongs to one task (a notice, a timer): it is
+      // logged and the rest goes on. An exception that reached the top leaves the process
+      // in a state nobody knows: it is logged and the process ends, for Docker to start it again.
+      process.on('unhandledRejection', (err) => log(`${tag} unhandled rejection: ${err?.stack || err}`));
+      process.once('uncaughtException', (err) => {
+        log(`${tag} uncaught exception: ${err?.stack || err}`);
+        shutdown('uncaught exception', 1);
+      });
     }
     return new Promise((resolve) => {
       server.listen(install.port, install.host, () => {

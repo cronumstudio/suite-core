@@ -171,6 +171,12 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     const missing = ['WORKOS_API_KEY', 'WORKOS_CLIENT_ID', 'WORKOS_AUTHKIT_DOMAIN'].filter((name) => !env[name]);
     // With WorkOS half set up nobody could sign in, not even the administrator.
     if (missing.length) errors.push(`AUTH_PROVIDER=workos, but these are missing: ${missing.join(', ')}`);
+    // Without an audience any token of the AuthKit environment opens this app's MCP, also one
+    // a person gave to another app of the suite. A warning and not an error: an install that
+    // starts requiring it must first have its Resource Indicator set in WorkOS.
+    if (modules.mcp && !env.WORKOS_MCP_AUDIENCE) {
+      warnings.push(`WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to ${String(env.BASE_URL || 'BASE_URL').replace(/\/+$/, '')}/mcp, with that resource in WorkOS`);
+    }
   }
   const oidc = oidcConfigFromEnv({ ...env, AUTH_PROVIDER: authProvider });
   if (authProvider === 'oidc') {
@@ -236,7 +242,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     host: env.HOST || '0.0.0.0',
     dataDir,
     dbPath: env.DB_PATH || path.join(dataDir, `${app.id}.db`),
-    trustProxy: env.TRUST_PROXY ?? (p.trustProxy === undefined ? 'false' : String(p.trustProxy)),
+    // Empty, as compose passes an unset variable, counts as absent: the product's default applies.
+    trustProxy: env.TRUST_PROXY || (p.trustProxy === undefined ? 'false' : String(p.trustProxy)),
     secureCookies: env.SECURE_COOKIES === 'true' || (env.SECURE_COOKIES !== 'false' && baseUrl.startsWith('https://')),
     sessionSecret: env.SESSION_SECRET,
     admin: {

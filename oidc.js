@@ -79,9 +79,10 @@ export function createOidcClient({
     load: async () => {
       const { jwks_uri: uri } = await metadata();
       const { ok, status, body } = await request(uri);
-      if (!ok || !Array.isArray(body?.keys)) throw new OidcUnavailable(`${name} JWKS: ${status}`);
+      if (!ok || !Array.isArray(body?.keys) || !body.keys.length) throw new OidcUnavailable(`${name} JWKS: ${status}`);
       return body.keys;
     },
+    unavailable: (message) => new OidcUnavailable(`${name} JWKS: ${message}`),
     clock,
   });
 

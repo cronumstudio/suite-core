@@ -448,8 +448,8 @@ cookie — bearer tokens, the OAuth endpoints — are not subject to it. `readJs
 
 **Brute-force brake.** Fixed 15-minute windows, persisted in `login_attempts`: 10 failures per
 account (the real protection) and 60 per IP (high on purpose: a household behind one proxy shares
-it); 5 wrong codes of the second step per account, since whoever gets there knows the password. `X-Forwarded-For` is trusted only with `TRUST_PROXY=true`. For tokens only failures count, so
-a valid client is never locked out by a neighbour.
+it); 5 wrong codes of the second step per account, since whoever gets there knows the password. `X-Forwarded-For` is trusted only with `TRUST_PROXY=true` (or a number of proxies); behind Cloudflare and a reverse proxy, `TRUST_PROXY=cloudflare` takes the client from `CF-Connecting-IP`, for an origin that answers nothing but Cloudflare. For tokens only failures count, so
+a valid client is never locked out by a neighbour, and a request without a token always gets its 401: that is how signing in starts. Once an address is blocked its failures are no longer written down.
 
 **Sign-in providers.** `local` (default): usernames and passwords, accounts created by the admin,
 by invitation or by open sign-up as `accounts.signup` says, and two-step verification for whoever

@@ -171,6 +171,9 @@ try {
   const prm = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();
   check('The resource points at AuthKit', prm.resource === `${base}/mcp` && prm.authorization_servers[0] === AUTHKIT);
   check('AuthKit’s own metadata is relayed', (await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json()).issuer === AUTHKIT);
+  const again = await fetch(`${base}/.well-known/oauth-authorization-server`);
+  check('And again, from the copy kept (not only the first time after starting)',
+    again.status === 200 && (await again.json()).issuer === AUTHKIT, `status ${again.status}`);
   check('The 401 challenge points at the metadata', accounts.challenge(false).includes(`${base}/.well-known/oauth-protected-resource/mcp`));
   check('Signing out also closes AuthKit’s session',
     accounts.signOutUrl('sess_1') === `${AUTHKIT}/user_management/sessions/logout?session_id=sess_1`);

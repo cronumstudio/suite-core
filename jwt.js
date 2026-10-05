@@ -28,10 +28,22 @@ export function decodeJwt(token) {
  * forces a new fetch —that is how a rotation is picked up— but at most every
  * five minutes, so made-up tokens can't be used to hammer the issuer.
  *
+ * When the issuer can't be reached, the keys in hand keep serving for up to
+ * `staleMs` (an outage that falls on the hourly refresh must not refuse every
+ * token) and it is asked again every `retryMs`; without a key in hand for that
+ * token, again after `quickRetryMs`, so a blip doesn't refuse everyone for
+ * minutes. An answer with no usable key counts as a failure, not as a rotation
+ * to no keys.
+ *
  * @param {() => Promise<object[]>} load   the `keys` of the JWKS document; throws when it can't
+ * @param {(message: string) => Error} [unavailable]   the error for an answer with no usable key:
+ *   the caller's "can't check now" class, so it is told apart from a bad token
  */
-export function createKeySet({ load, ttlMs = 3600 * 1000, retryMs = 5 * 60 * 1000, clock = () => Date.now() }) {
-  const state = { byKid: new Map(), at: 0, loading: null };
+export function createKeySet({
+  load, ttlMs = 3600 * 1000, retryMs = 5 * 60 * 1000, quickRetryMs = 10 * 1000, staleMs = 24 * 3600 * 1000,
+  unavailable = (message) => new Error(message), clock = () => Date.now(),
+}) {
+  const state = { byKid: new Map(), at: 0, loading: null, failedAt: 0, failure: null };
 
   async function refresh() {
     const byKid = new Map();
@@ -39,16 +51,36 @@ export function createKeySet({ load, ttlMs = 3600 * 1000, retryMs = 5 * 60 * 100
       if (!['RSA', 'EC'].includes(jwk?.kty) || !jwk.kid || (jwk.use && jwk.use !== 'sig')) continue;
       try { byKid.set(jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' })); } catch { /* odd key: left out */ }
     }
+    if (!byKid.size) throw unavailable('the issuer published no usable key');
     state.byKid = byKid;
     state.at = clock();
+    state.failedAt = 0;
+    state.failure = null;
   }
+
+  /** A key still in hand, if the last good answer isn't too old. */
+  const inHand = (kid) => (state.byKid.has(kid) && clock() - state.at < staleMs ? state.byKid.get(kid) : null);
 
   async function keyFor(kid) {
     const age = clock() - state.at;
     if (state.byKid.has(kid) && age < ttlMs) return state.byKid.get(kid);
     if (state.at && age < retryMs) return state.byKid.get(kid) || null;
-    state.loading ??= refresh().finally(() => { state.loading = null; });
+    if (state.failedAt) {
+      const since = clock() - state.failedAt;
+      const key = inHand(kid);
+      if (key && since < retryMs) return key;
+      if (!key && since < quickRetryMs) throw state.failure;
+    }
+    state.loading ??= refresh().catch((err) => {
+      state.failedAt = clock();
+      state.failure = err;
+    }).finally(() => { state.loading = null; });
     await state.loading;
+    if (state.failure) {
+      const key = inHand(kid);
+      if (key) return key;
+      throw state.failure;
+    }
     return state.byKid.get(kid) || null;
   }
 
