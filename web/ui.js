@@ -159,6 +159,8 @@ export async function copyText(text, fallback = null) {
  * phone it rises from the bottom as a sheet (kit.css).
  */
 export function openDialog({ title, content, actions = [], wide = false, onClose = null }) {
+  // A menu left open would sit beside the dialog: a dialog comes from a choice, so the menu is done.
+  closeMenu();
   const dialog = el('dialog', { class: `kit-dialog${wide ? ' kit-dialog--wide' : ''}`, 'aria-label': title });
   const close = () => { if (dialog.open) dialog.close(); };
   const buttons = actions.map((action) => el('button', {

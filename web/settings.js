@@ -594,23 +594,32 @@ export function openSettings(options) {
    * the new version can be checked by hand here.
    */
   function about() {
-    const loaded = options.updates?.loaded?.() || null;
     const serverLine = el('div');
+    let running = el('div', { class: 'kit-fact' });
+    let liveFact = el('div', { class: 'kit-fact' });
+    // What runs and the live channel are known a moment after opening: painted again after each check.
+    const paintFacts = () => {
+      const loaded = options.updates?.loaded?.() || null;
+      running.replaceWith(running = fact(t('kit.about.version'), loaded?.app ? `v${loaded.app}` : '—',
+        [loaded?.built ? formatDateTime(loaded.built) : null, loaded?.version].filter(Boolean).join(' · ')));
+      liveFact.replaceWith(liveFact = fact(t('kit.about.live'), t(`kit.live.${options.live?.state || 'closed'}`)));
+    };
     const check = async () => {
       clear(serverLine).append(hint(t('kit.about.checking')));
       const isNew = options.updates ? await options.updates.check({ announce: true }) : null;
+      paintFacts();
       clear(serverLine).append(isNew === null ? hint(t('kit.about.unknown'))
         : isNew ? row(el('span', { text: t('kit.about.newVersion') }), button(t('kit.about.update'), () => options.applyUpdate?.(), 'primary'))
           : hint(t('kit.about.upToDate')));
     };
-    const liveState = options.live?.state || 'closed';
     const source = app.source || `https://github.com/cronumstudio/${app.id}`;
     const facts = el('div', { class: 'kit-facts' },
-      fact(t('kit.about.version'), loaded?.app ? `v${loaded.app}` : '—', [loaded?.built ? formatDateTime(loaded.built) : null, loaded?.version].filter(Boolean).join(' · ')),
-      fact(t('kit.about.live'), t(`kit.live.${liveState}`)),
+      running,
+      liveFact,
       el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.latest') }), serverLine, button(t('kit.about.check'), check)),
       // The AGPL asks modified versions to offer their source.
       el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.source') }), el('a', { href: source, target: '_blank', rel: 'noopener', text: source.replace(/^https?:\/\//, '') })));
+    paintFacts();
     check();
     return [
       block(null, el('div', { class: 'kit-about' },
