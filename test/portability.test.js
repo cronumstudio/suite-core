@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
-import { describeData, selectRows } from '../portability.js';
+import { describeData, selectRows, ownership } from '../portability.js';
 import { openDatabase } from '../db.js';
 import { runDataCli } from '../tools/data-cli.js';
 
@@ -341,6 +341,36 @@ test('“replace” deletes what the account had first —and its files—, neve
   assert.deepEqual(target.db.all('SELECT name FROM groups WHERE user_id = ?', me.id).map((g) => g.name), ['Home']);
 });
 
+test('one person’s copy, plan and “replace” read the rows near them, not everybody’s', async (t) => {
+  const box = install(t);
+  const s = seedSource(box);
+  // Many other people, each with a list of tasks: the rest of a busy install.
+  for (let i = 0; i < 200; i++) {
+    const other = box.suite.accounts.create({ username: `other${i}`, displayName: `Other ${i}` }, { quiet: true });
+    const list = box.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Theirs')", other.id).lastInsertRowid;
+    for (let n = 1; n <= 5; n++) {
+      box.db.run("INSERT INTO tasks (list_id, title, number, created_by, created_at) VALUES (?, 'x', ?, ?, '2026-01-01T00:00:00Z')", list, n, other.id);
+    }
+  }
+  let read = 0;
+  const all = box.db.all;
+  box.db.all = (...args) => { const rows = all.apply(box.db, args); read += rows.length; return rows; };
+  t.after(() => { box.db.all = all; });
+
+  const file = path.join(box.dir, 'ana.zip');
+  const manifest = await exportTo(box, file, { scope: 'account', userId: s.ana.id });
+  assert.deepEqual(manifest.left_out, { shares: 2, list_prefs: 1, tasks: 1 }, 'the same copy as before');
+  assert.ok(read < 60, `rows read for her copy: ${read}`);
+
+  // What "replace" would take from ben: the same as counting over the whole install.
+  read = 0;
+  const plan = await box.portability.planFile(file, { mode: 'account', user: s.ben });
+  assert.ok(read < 60, `rows read for the plan: ${read}`);
+  const everything = ownership(describeData(box.db, DATA), (name) => all.call(box.db, `SELECT * FROM "${name}"`));
+  assert.deepEqual(plan.replace, everything.get(s.ben.id));
+  assert.deepEqual(plan.replace, { lists: 1, tasks: 1 });
+});
+
 test('a plan that doesn’t allow attachments brings the copy without them', async (t) => {
   const source = install(t);
   const s = seedSource(source);
@@ -551,6 +581,46 @@ test('a crafted copy can’t reach anything already here, nor plant a page on th
   assert.deepEqual([after.username, after.role, after.email], ['me', 'user', null], 'a copy never changes who someone is');
   const everything = fs.readdirSync(target.suite.uploads.dir, { recursive: true }).map(String);
   assert.ok(everything.every((f) => !f.endsWith('.html')), 'no page on disk');
+});
+
+test('what a copy brings stays within what the app’s screens accept', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const own = path.join(source.dir, 'ana.zip');
+  await exportTo(source, own, { scope: 'account', userId: s.ana.id });
+  const huge = 'x'.repeat(200_000);
+  const crafted = await tamper(own, path.join(source.dir, 'crafted.zip'), (name, bytes) => {
+    if (name === 'data/lists.json') {
+      return Buffer.from(JSON.stringify(JSON.parse(bytes.toString('utf8')).map((l) => ({ ...l, name: `${'🛒'.repeat(15)} and more` }))));
+    }
+    if (name === 'data/tasks.json') {
+      return Buffer.from(JSON.stringify(JSON.parse(bytes.toString('utf8')).map((x, i) => (i ? x : { ...x, title: huge }))));
+    }
+    if (name === 'data/users.json') {
+      const [ana] = JSON.parse(bytes.toString('utf8'));
+      return Buffer.from(JSON.stringify([{ ...ana, avatar_color: 'url(javascript:1)' }]));
+    }
+    return bytes;
+  });
+
+  const target = install(t);
+  const limited = target.suite.portabilityFor({
+    ...DATA,
+    tables: { ...DATA.tables, lists: { ...DATA.tables.lists, limits: { name: 21 } } },
+    users: { ...DATA.users, limits: { avatar_color: /^#[0-9a-f]{6}$/i } },
+  }, { version: '1.0.0' });
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  target.db.run("UPDATE users SET avatar_color = '#123456' WHERE id = ?", me.id);
+  await limited.applyFile(crafted, { mode: 'account', user: me });
+
+  const list = target.db.get('SELECT name FROM lists WHERE owner_id = ? AND id > 0 ORDER BY id DESC LIMIT 1', me.id);
+  assert.equal(list.name, '🛒'.repeat(10), 'cut at the limit, never through an emoji');
+  const longest = target.db.get('SELECT MAX(LENGTH(title)) AS n FROM tasks').n;
+  assert.equal(longest, 100_000, 'text without a limit of its own is cut too');
+  assert.equal(target.suite.accounts.byId(me.id).avatar_color, '#123456', 'a value without the shape keeps what the account had');
+
+  assert.throws(() => target.suite.portabilityFor({ ...DATA, tables: { ...DATA.tables, lists: { ...DATA.tables.lists, limits: { nope: 3 } } } },
+    { version: '1.0.0' }), /lists\.nope: a limit for a column that isn't there/);
 });
 
 test('someone’s own copy can’t fill the memory, the account’s row or the disk', async (t) => {

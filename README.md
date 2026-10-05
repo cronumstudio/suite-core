@@ -237,12 +237,14 @@ a command line with `tools/data-cli.js`.
 export const DATA = {
   tables: {                                   // in the order their rows are created
     list_groups: { refs: { user_id: 'users' } },
-    lists: { refs: { owner_id: 'users', group_id: 'list_groups' } },
+    lists: { refs: { owner_id: 'users', group_id: 'list_groups' },
+             limits: { name: 80, color: /^#[0-9a-f]{6}$/i } },   // what the app's screens accept
     tasks: { refs: { list_id: 'lists', parent_id: 'tasks', created_by: 'users' } },
     task_files: { refs: { task_id: 'tasks', user_id: 'users' },
                   file: { path: 'path', folder: 'user_id', feature: 'attachments' } },
   },
-  users: { columns: ['avatar_color'], prefs: (prefs, { ids, current }) => ({ … }) },
+  users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
+           prefs: (prefs, { ids, current }) => ({ … }) },
   check({ user, counts, replaced }) { … },   // the plan's limits, for someone's own import
 };
 ```
@@ -266,6 +268,12 @@ export const DATA = {
   applied 10 times every 15 minutes (`rateLimits.importTo`). The admin and the command line have
   higher ceilings. `createApp` passes none of them, so these defaults hold. Zips whose entries share
   their bytes are refused.
+- `limits` keep what a copy brings within what the app's screens accept. A number is the most
+  characters, and longer text is cut there. A pattern is the shape, and a value without it is left
+  out (the column's default, or what the profile had). Text without a limit is cut at 100,000
+  characters.
+- Someone's own copy, its plan and "replace" read only the rows near that account. Their cost
+  follows that person's data, not the whole install's.
 
 ```bash
 node scripts/data.js export copy.zip [--account ana]

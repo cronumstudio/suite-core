@@ -64,6 +64,12 @@ const DAY = 24 * 3600 * 1000;
 /** An account's preferences, and each of the app's own columns of it, in a copy. */
 const MAX_PREFS = 64 * 1024;
 const MAX_USER_VALUE = 1024;
+/**
+ * Any text in a row, unless the app gives that column its own limit: far
+ * above what the apps write (Tasks' notes, 10,000 characters; Next's
+ * details, 4,000), far below what one value could take of a copy's memory.
+ */
+const MAX_TEXT = 100_000;
 /** A pending import waits this long for its "apply"; then it goes. */
 const PENDING_MS = DAY;
 const TOKEN = /^[\w-]{16,64}$/;
@@ -96,13 +102,22 @@ export function dataImportsSchema(d) {
  *   {
  *     tables: {                      // in the order rows are created on import
  *       lists: { refs: { owner_id: 'users', group_id: 'list_groups' } },
- *       tasks: { refs: { list_id: 'lists', created_by: 'users' }, clean(row) { … } },
+ *       tasks: { refs: { list_id: 'lists', created_by: 'users' }, clean(row) { … },
+ *                limits: { title: 500, color: /^#[0-9a-f]{6}$/i } },
  *       task_files: { refs: { task_id: 'tasks', user_id: 'users' },
  *                     file: { path: 'path', folder: 'user_id', feature: 'attachments' } },
  *     },
- *     users: { columns: ['avatar_color'], prefs(prefs, { ids, current, created }) { … } },
+ *     users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
+ *              prefs(prefs, { ids, current, created }) { … } },
  *     check({ user, counts, replaced }) { … },   // limits of the plan, for someone's own import
  *   }
+ *
+ * `limits` are what the app's own screens accept, per column: a number is the
+ * most characters, and longer text is cut there; a pattern is the shape, and
+ * a value without it is left out (the column's default; for a profile, what
+ * the account has). A copy is a file anyone can write: without them, a name
+ * of megabytes reached everyone the list was shared with. Text without a
+ * limit is cut at MAX_TEXT.
  *
  * A reference to a table declared later, or to the same one, is set after
  * every row exists, so its column must allow NULL. Every table needs a NOT NULL
@@ -152,6 +167,7 @@ export function describeData(database, declaration = {}) {
     tables.push({
       name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file,
       clean: typeof spec.clean === 'function' ? spec.clean : null,
+      limits: limitsOf(spec.limits, columns, name, errors),
     });
   });
   for (const table of tables) {
@@ -170,22 +186,55 @@ export function describeData(database, declaration = {}) {
       errors.push(`users.${column}: not one of the app's own columns`);
     }
   }
+  const userLimits = limitsOf(declaration.users?.limits, new Map(appColumns.map((c) => [c, true])), 'users', errors);
   if (errors.length) throw new Error(`The app's data declaration (portable) has errors:\n  ${errors.join('\n  ')}`);
   return {
     tables,
     byName: new Map(tables.map((t) => [t.name, t])),
     userColumns: [...USER_COLUMNS.filter((c) => inUsers.has(c)), ...appColumns],
     appColumns,
+    userLimits,
     prefs: typeof declaration.users?.prefs === 'function' ? declaration.users.prefs : null,
     check: typeof declaration.check === 'function' ? declaration.check : null,
   };
+}
+
+/** A declaration's `limits`, checked: a Map of column → most characters, or pattern. */
+function limitsOf(spec, columns, name, errors) {
+  const limits = new Map();
+  for (const [column, limit] of Object.entries(spec || {})) {
+    if (!columns.has(column)) errors.push(`${name}.${column}: a limit for a column that isn't there`);
+    else if (!(limit instanceof RegExp) && !(Number.isSafeInteger(limit) && limit > 0)) {
+      errors.push(`${name}.${column}: a limit is a number of characters or a pattern`);
+    } else limits.set(column, limit);
+  }
+  return limits;
+}
+
+/** Text cut to `max` characters, never through the middle of one (an emoji is two). */
+function cut(text, max) {
+  if (text.length <= max) return text;
+  const code = text.charCodeAt(max - 1);
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? max - 1 : max);
+}
+
+/**
+ * A value of a copy within the limit the app gives its column (see
+ * describeData), or undefined when it doesn't have the shape the column takes.
+ */
+function within(value, limit) {
+  if (typeof value !== 'string') return value;
+  if (limit instanceof RegExp) return limit.test(value) ? value : undefined;
+  return cut(value, limit ?? MAX_TEXT);
 }
 
 /* ------------------------------- whose rows are ------------------------------- */
 
 /**
  * The rows that go into a copy —or into this install— given which accounts
- * are in it. `rowsOf(name)` gives a table's rows; `inside(userId)` says whether
+ * are in it. `rowsOf(name, ids)` gives a table's rows, at least those that can
+ * concern the accounts inside (`ids`: per earlier table, the ids kept so far);
+ * `inside(userId)` says whether
  * an account is. Returns the rows kept (copies: optional references pointing
  * outside are emptied) and, with `account`, how many rows that concern that
  * person were left out, per table: what is shared with other people.
@@ -198,7 +247,7 @@ export function selectRows(model, rowsOf, inside, { account = null } = {}) {
     const rows = [];
     const keptIds = new Set();
     let left = 0;
-    for (const source of rowsOf(table.name)) {
+    for (const source of rowsOf(table.name, ids)) {
       const row = { ...source };
       let belongs = true;
       let concerns = false;
@@ -334,6 +383,29 @@ export function createPortability({
     return database.all(`SELECT * FROM ${quote(name)} ORDER BY ${table.key.map(quote).join(', ')}`);
   };
 
+  /**
+   * rowsOf() for selectRows() when the copy is of a few accounts (`userIds`):
+   * only the rows that point at one of them, or whose required reference
+   * points at a row already kept. Those are all that can belong to the copy
+   * or concern it; the rest of the install stays in the database. Reading
+   * every table whole made one person's copy cost, in time with the server
+   * stopped and in memory, as much as everybody's data (x-stability-1).
+   */
+  const rowsNear = (userIds) => (name, ids) => {
+    const table = model.byName.get(name);
+    const where = [];
+    const params = [];
+    for (const ref of table.refs) {
+      if (ref.deferred || (ref.target !== 'users' && !ref.required)) continue;
+      where.push(`${quote(ref.column)} IN (SELECT value FROM json_each(?))`);
+      params.push(JSON.stringify(ref.target === 'users' ? userIds : [...ids.get(ref.target)]));
+    }
+    return database.all(`SELECT * FROM ${quote(name)} WHERE ${where.join(' OR ')}
+      ORDER BY ${table.key.map(quote).join(', ')}`, ...params);
+  };
+  /** What an account owns alone, per table: what its own copy takes and "replace" empties. */
+  const ownedBy = (userId) => selectRows(model, rowsNear([userId]), (id) => id === userId).kept;
+
   /** The versions of this database's schema, the app's and the suite's. */
   function schemaVersions() {
     const rows = database.all('SELECT scope, MAX(version) AS version FROM schema_migrations GROUP BY scope');
@@ -377,7 +449,8 @@ export function createPortability({
       users = scope === 'install' ? database.all(`${userSql} ORDER BY id`) : [database.get(`${userSql} WHERE id = ?`, userId)].filter(Boolean);
       if (!users.length) throw notFound('user_not_found');
       const inside = scope === 'install' ? () => true : (id) => id === userId;
-      ({ kept, leftOut } = selectRows(model, rowsOfDb, inside, { account: scope === 'account' ? userId : null }));
+      ({ kept, leftOut } = selectRows(model, scope === 'install' ? rowsOfDb : rowsNear([userId]), inside,
+        { account: scope === 'account' ? userId : null }));
       if (scope === 'install' && database.columnsOf('entitlement_grants').length) {
         grants = database.all(`SELECT subject_id, plan, feature, value, quantity, source, starts_at, ends_at, created_at, note
           FROM entitlement_grants WHERE subject_type = 'user' AND source = 'admin' AND revoked_at IS NULL ORDER BY id`);
@@ -474,7 +547,8 @@ export function createPortability({
         if (!table.columns.has(column)) throw invalidData(table.name, { column });
         const clean = fromJson(value);
         if (clean === undefined) throw invalidData(table.name, { column });
-        row[column] = clean;
+        const kept = within(clean, table.limits.get(column));
+        if (kept !== undefined) row[column] = kept;
       }
       if (table.keyed) {
         if (!isId(row.id) || seen.has(row.id)) throw invalidData(table.name, { column: 'id' });
@@ -514,6 +588,11 @@ export function createPortability({
       if (user.prefs != null && user.prefs.length > MAX_PREFS) throw invalidData('users', { column: 'prefs' });
       for (const column of model.appColumns) {
         if (typeof user[column] === 'string' && user[column].length > MAX_USER_VALUE) throw invalidData('users', { column });
+        if (model.userLimits.has(column)) {
+          const kept = within(user[column], model.userLimits.get(column));
+          if (kept === undefined) delete user[column];
+          else user[column] = kept;
+        }
       }
       seen.add(user.id);
       return user;
@@ -685,10 +764,10 @@ export function createPortability({
       applied_at: alreadyApplied(manifest, target),
     };
     const choices = decide(archive, { mode, user, decisions, replace });
-    const own = ownership(model, rowsOfDb);
     if (mode === 'account') {
-      return { mode, copy: summary, account: archive.users[0].username, replace: own.get(user.id) || {} };
+      return { mode, copy: summary, account: archive.users[0].username, replace: countsOf(ownedBy(user.id)) };
     }
+    const own = ownership(model, rowsOfDb);
     const fileOwners = ownership(model, (name) => archive.tables.get(name));
     return {
       mode,
@@ -820,7 +899,7 @@ export function createPortability({
         const replaced = {};
         for (const choice of choices.values()) {
           if (choice.action !== 'map' || !choice.replace) continue;
-          const { kept: owned } = selectRows(model, rowsOfDb, (id) => id === choice.userId);
+          const owned = ownedBy(choice.userId);
           for (const table of [...model.tables].reverse()) {
             const rows = owned.get(table.name);
             if (!rows.length) continue;

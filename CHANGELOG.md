@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.33.0 — 2026-10-05
+
+Copies of data, from the audit's medium findings.
+
+- **One person's copy reads that person's rows, not the whole install** (x-stability-1,
+  sc-data-14, sc-web-37). "Download my data", the plan of "Import data" and "replace" now ask
+  SQLite only for the rows that point at that account, or at rows of theirs already kept. Before,
+  they loaded every table whole and filtered it in memory, with the server stopped meanwhile. With
+  500,000 tasks of 2,000 people:
+  - a copy of an empty account went from 1,298 ms to 34 ms;
+  - its plan went from 665 ms to 37 ms.
+
+  The whole install's copy still reads everything, which it needs.
+- **What a copy brings stays within what the app's screens accept** (sc-data-7). A declaration may
+  give `limits` per table, and `users.limits` for the app's own profile columns:
+  - a number is the most characters, and longer text is cut there (never through an emoji);
+  - a pattern is the shape, and a value without it is left out: the column's default, or what the
+    profile already had.
+
+  Text without a limit is cut at 100,000 characters. A copy is a file anyone can write: before, a
+  list name of megabytes reached everyone it was shared with.
+- Interface: `selectRows()` calls `rowsOf(name, ids)`, with the ids kept so far per table. A
+  `rowsOf` that takes only the name works as before.
+
 ## 0.32.0 — 2026-10-05
 
 - **Someone WorkOS knows by a new id keeps their account** (sc-auth-46). Every WorkOS environment
