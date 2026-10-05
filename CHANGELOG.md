@@ -33,6 +33,8 @@ be built on it alone. How an app uses it: [docs/web-kit.md](docs/web-kit.md).
   http, https, mailto or the app, images only from the app; tests with the usual XSS payloads.
 - **Texts written in the code** (`tools/i18n.mjs hardcoded`), and the kit's texts in the four
   languages (`kit.*`), most of them from Next's.
+- **Dates in SQLite's format** ("2026-10-04 12:38:27", the OAuth grants) read as UTC in every browser
+  (`instant()` in `i18n.js`): Safari took them for invalid dates and Chrome for local time.
 - Interface: `api.write(method, path, body, { key })`; `toast()` takes `action`; `openDialog()`
   takes `onClose`; `confirmDialog()` takes `title`. `kit.css` no longer brings the tokens: a
   page links `tokens.css` before it.

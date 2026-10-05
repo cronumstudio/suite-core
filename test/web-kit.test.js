@@ -324,3 +324,12 @@ test('the lint finds texts written in the code, and leaves keys, names and exemp
     'page.html:6: Welcome back', 'page.html:7: Close the panel',
   ].sort());
 });
+
+test('dates from the server read the same in ISO and in SQLite’s format, and a bad one is none', async () => {
+  const { instant, formatDateTime } = await import('../web/i18n.js');
+  assert.equal(instant('2026-10-04 12:38:27').toISOString(), '2026-10-04T12:38:27.000Z', 'SQLite’s format is UTC');
+  assert.equal(instant('2026-10-04T12:38:27.055Z').toISOString(), '2026-10-04T12:38:27.055Z');
+  assert.equal(instant('not a date'), null);
+  assert.equal(formatDateTime('not a date'), '');
+  assert.notEqual(formatDateTime('2026-10-04 12:38:27'), '');
+});
