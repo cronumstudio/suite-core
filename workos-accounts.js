@@ -275,5 +275,8 @@ export function createWorkosAccounts({
     return false;
   }
 
-  return { id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser, signOutUrl: workos.signOutUrl };
+  return {
+    id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser,
+    signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,
+  };
 }

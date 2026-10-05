@@ -22,6 +22,9 @@
 import { hmac, sha256 } from './crypto.js';
 import { clientIp } from './http.js';
 
+/** Failed tokens written down per address in the window, at most (see checkToken). */
+const TOKEN_WRITES = 1000;
+
 export const DEFAULT_LIMITS = Object.freeze({
   account: 10, ip: 60, token: 30, registration: 30,
   // Mail anyone can make the app send (a reset link), per address and per recipient,
@@ -106,12 +109,23 @@ export function createRateLimiter({
     codeFailed(req, userId) { add(key('ip', ipOf(req)), key('code', String(userId))); },
     codeSucceeded(req, userId) { clear(key('ip', ipOf(req)), key('code', String(userId))); },
 
-    /** Only consulted after a token has turned out to be invalid. */
-    checkToken(req) {
-      return blocked(key('token', ipOf(req)), max.token + 1) || { allowed: true };
+    /**
+     * Only consulted after a token has turned out to be invalid, and counted
+     * per address *and token*. Tokens are 192 random bits: nobody guesses one,
+     * so what the brake stops is a client repeating the same bad one. Counted
+     * per address alone, claude.ai's or ChatGPT's few shared addresses made one
+     * misbehaving connector lock everyone else out of signing in. Past
+     * TOKEN_WRITES failures from an address nothing more is written down: a
+     * stream of made-up tokens costs a lookup each, never a growing table.
+     */
+    checkToken(req, token = '') {
+      return blocked(key('token', `${ipOf(req)} ${token}`), max.token + 1) || { allowed: true };
     },
-    tokenFailed(req) { add(key('token', ipOf(req))); },
-    tokenSucceeded(req) { clear(key('token', ipOf(req))); },
+    tokenFailed(req, token = '') {
+      if (blocked(key('token-ip', ipOf(req)), TOKEN_WRITES)) return;
+      add(key('token', `${ipOf(req)} ${token}`), key('token-ip', ipOf(req)));
+    },
+    tokenSucceeded(req, token = '') { clear(key('token', `${ipOf(req)} ${token}`)); },
 
     /**
      * Dynamic client registration asks for no credentials: anyone can sign

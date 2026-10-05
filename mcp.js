@@ -182,9 +182,9 @@ export function createMcpServer({
       if (token && limiter) {
         // Once the address is blocked its failures are no longer written down:
         // the bucket stays at its limit instead of growing with the attack.
-        const before = limiter.checkToken(req);
-        if (before.allowed) limiter.tokenFailed(req);
-        const allowed = before.allowed ? limiter.checkToken(req) : before;
+        const before = limiter.checkToken(req, token);
+        if (before.allowed) limiter.tokenFailed(req, token);
+        const allowed = before.allowed ? limiter.checkToken(req, token) : before;
         if (!allowed.allowed) {
           sendJson(res, 429, rpcError(null, -32002, 'Too many attempts with an invalid token. Wait a while.'),
             { 'Retry-After': String(allowed.retryAfter) });
@@ -197,7 +197,7 @@ export function createMcpServer({
       { 'WWW-Authenticate': challenge(Boolean(token)) });
       return;
     }
-    limiter?.tokenSucceeded(req);
+    limiter?.tokenSucceeded(req, token);
 
     if (req.method === 'DELETE') {
       const sid = req.headers['mcp-session-id'];

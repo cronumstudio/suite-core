@@ -172,12 +172,20 @@ test('the brake: per account, per address, tokens only on failure, persisted', (
   now += 15 * 60 * 1000 + 1000;
   assert.equal(reopened.checkLogin(from('203.0.113.1'), 'ada').allowed, true, 'after the window, free again');
 
-  for (let i = 0; i < 30; i++) limiter.tokenFailed(from('192.0.2.50'));
-  assert.equal(limiter.checkToken(from('192.0.2.50')).allowed, true, 'thirty bad tokens are still allowed');
-  limiter.tokenFailed(from('192.0.2.50'));
-  assert.equal(limiter.checkToken(from('192.0.2.50')).allowed, false, 'the next one is not');
-  limiter.tokenSucceeded(from('192.0.2.50'));
-  assert.equal(limiter.checkToken(from('192.0.2.50')).allowed, true, 'a good token clears the address');
+  for (let i = 0; i < 30; i++) limiter.tokenFailed(from('192.0.2.50'), 'bad');
+  assert.equal(limiter.checkToken(from('192.0.2.50'), 'bad').allowed, true, 'thirty tries of a bad token are still allowed');
+  limiter.tokenFailed(from('192.0.2.50'), 'bad');
+  assert.equal(limiter.checkToken(from('192.0.2.50'), 'bad').allowed, false, 'the next one is not');
+  // Behind a shared address (claude.ai, ChatGPT), someone else's token is not that one.
+  assert.equal(limiter.checkToken(from('192.0.2.50'), 'another').allowed, true, 'another token from the same address is not braked');
+  limiter.tokenSucceeded(from('192.0.2.50'), 'bad');
+  assert.equal(limiter.checkToken(from('192.0.2.50'), 'bad').allowed, true, 'a success clears it');
+  // A stream of made-up tokens: past the ceiling, nothing more is written down.
+  const rows = () => database.get('SELECT COUNT(*) AS n FROM login_attempts').n;
+  for (let i = 0; i < 1100; i++) limiter.tokenFailed(from('192.0.2.70'), `made-up-${i}`);
+  const written = rows();
+  limiter.tokenFailed(from('192.0.2.70'), 'one-more');
+  assert.equal(rows(), written, 'an address past the ceiling writes nothing more');
 
   for (let i = 0; i < 30; i++) assert.equal(limiter.allowRegistration(from('192.0.2.60')).allowed, true);
   assert.equal(limiter.allowRegistration(from('192.0.2.60')).allowed, false);
