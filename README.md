@@ -259,8 +259,13 @@ export const DATA = {
   app keeps in its preferences. Passwords, second steps, sessions, tokens, OAuth grants and push
   subscriptions never travel.
 - A copy is not trusted: only columns this install has, plain values, references inside the
-  file, attachments that are images or PDF by their first bytes, size ceilings, one apply per copy
-  (`data_imports`).
+  file, attachments that are images or PDF by their first bytes, one apply per copy
+  (`data_imports`), and ceilings by who imports it. Someone's own copy has at most 64 MB of data,
+  32 MB per file, 2 million values counted before parsing, 64 kB of preferences, 20,000
+  attachments, and no more bytes of them on disk than about twice the upload. It can be opened or
+  applied 10 times every 15 minutes (`rateLimits.importTo`). The admin and the command line have
+  higher ceilings. `createApp` passes none of them, so these defaults hold. Zips whose entries share
+  their bytes are refused.
 
 ```bash
 node scripts/data.js export copy.zip [--account ana]

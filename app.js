@@ -348,10 +348,10 @@ export function createSuite({
    * app says its data is. createApp makes it when it is given `portable`; a
    * script of the app (its command line) makes it the same way.
    */
-  const portabilityFor = (declaration, { version = null } = {}) => createPortability({
+  const portabilityFor = (declaration, { version = null, limits = {} } = {}) => createPortability({
     database, accounts, uploads, entitlements, live, audit,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
-    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
+    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
   });
 
   return {
@@ -436,7 +436,7 @@ export function createApp({
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
-  if (portability) registerPortabilityApi(api, { portability, audit, log });
+  if (portability) registerPortabilityApi(api, { portability, audit, limiter, log });
 
   let appApi = routes;
   if (typeof routes === 'function') {

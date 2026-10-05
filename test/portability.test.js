@@ -553,6 +553,42 @@ test('a crafted copy can’t reach anything already here, nor plant a page on th
   assert.ok(everything.every((f) => !f.endsWith('.html')), 'no page on disk');
 });
 
+test('someone’s own copy can’t fill the memory, the account’s row or the disk', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const own = path.join(source.dir, 'ana.zip');
+  await exportTo(source, own, { scope: 'account', userId: s.ana.id });
+  const target = install(t);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  const plan = (file) => target.portability.planFile(file, { mode: 'account', user: me, by: 'account' });
+  const at = (name) => path.join(source.dir, name);
+
+  // A few kB that would parse into seven million objects, gigabytes of memory: counted first, never parsed.
+  const empties = Buffer.from(`[${'{},'.repeat(7_000_000)}{}]`);
+  const values = await tamper(own, at('values.zip'), (name, bytes) => (name === 'data/tasks.json' ? empties : bytes));
+  assert.ok(fs.statSync(values).size < 256 * 1024, 'the upload itself is small');
+  await rejectsWith(plan(values), 'zip_too_large');
+
+  // The account's row is read on every request: its preferences and the app's columns stay small.
+  const user = (change) => editJson('data/users.json', ([ana]) => [{ ...ana, ...change }]);
+  await rejectsWith(plan(await tamper(own, at('prefs.zip'), user({ prefs: JSON.stringify({ pad: 'x'.repeat(70 * 1024) }) }))), 'import_invalid_data');
+  await rejectsWith(plan(await tamper(own, at('color.zip'), user({ avatar_color: '#'.repeat(2000) }))), 'import_invalid_data');
+
+  // Attachments: no more on disk than about twice what was uploaded. Ten MB "photos" of zeros deflate to almost nothing.
+  const blank = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(10 * 1024 * 1024)]);
+  const swollen = await tamper(own, at('files.zip'), (name, bytes) => (name.startsWith('files/') ? blank : bytes));
+  await rejectsWith(target.portability.applyFile(swollen, { mode: 'account', user: me, by: 'account' }), 'zip_too_large');
+  // And no more of them than the ceiling says.
+  const one = target.suite.portabilityFor(DATA, { version: '1.0.0', limits: { files: { account: 1 } } });
+  await rejectsWith(one.applyFile(own, { mode: 'account', user: me, by: 'account' }), 'zip_too_large');
+  assert.equal(target.db.get('SELECT COUNT(*) AS n FROM lists').n, 0, 'nothing came in');
+  assert.deepEqual(fs.readdirSync(path.join(target.dir, 'imports')), [], 'nothing left staged');
+
+  // A real copy passes every ceiling.
+  const result = await target.portability.applyFile(own, { mode: 'account', user: me, by: 'account' });
+  assert.equal(result.imported.files, 2);
+});
+
 /* -------------------------------- command line -------------------------------- */
 
 test('the command line: a whole install out, and in with emails given and an account left out', async (t) => {
@@ -657,4 +693,10 @@ test('the routes: someone’s own data down and up, the whole install for the ad
 
   const config = await (await fetch(`${base}/api/auth/config`)).json();
   assert.equal(config.app.modules.data, true);
+
+  // Opening copies is braked per account: ben runs out, ana doesn't.
+  const statuses = [];
+  for (let i = 0; i < 10; i++) statuses.push((await call(asBen, 'POST', '/api/me/import', Buffer.from('nope'), 'application/zip')).status);
+  assert.equal(statuses.at(-1), 429, statuses.join(' '));
+  assert.equal((await call(asAna, 'POST', '/api/me/import', Buffer.from('nope'), 'application/zip')).status, 400);
 });

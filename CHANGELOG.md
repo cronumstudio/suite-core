@@ -3,6 +3,34 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.30.0 — 2026-10-05
+
+More fixes from the audit: importing one's own data (`POST /api/me/import`, open to every account)
+could stop the server or fill its disk.
+
+- **Ceilings by who imports a copy.** Someone's own copy has at most 64 MB of data, 32 MB per file
+  and 20,000 attachments. Before, it had the whole install's 512 and 256 MB, and no attachment
+  count. The administrator's routes and the command line keep the higher ceilings
+  (`planFile`/`applyFile` take `by`). `createPortability({ limits })` sets `data`, `entry`,
+  `values` and `files` per `account`/`install`, and `portabilityFor` now passes `limits` through.
+- **Values are counted before parsing.** A 250 kB zip holding 250 MB of `[{},{},…]` took the
+  process out of memory: `JSON.parse` builds everything before a row is checked. Commas, braces
+  and brackets are now counted on the bytes, at most 2 million for an account, and above that the
+  copy is refused with `413 zip_too_large` without parsing.
+- **Attachments take no more disk than about twice the upload.** Thousands of rows can point at
+  "photos" that inflate from a few kB to 15 MB each. Now the files staged for one import add up to
+  at most twice the zip plus 16 MB. Exports store files as they are, so a real copy is never near
+  that.
+- **Entries that share their bytes are refused** (`zip_invalid`, `overlap`). This is the
+  overlapping zip bomb, where many names point over one deflated block. Also refused: a header
+  that isn't the entry's own (`entry`), a stored entry whose sizes differ, and a deflated entry far
+  bigger than its data (`size`). Before, those were read into memory whole.
+- **The account's row stays small**: a copy's `prefs` is at most 64 kB and each of the app's own
+  `users` columns at most 1 kB, or `import_invalid_data`. Before, 150 MB of preferences came in and
+  were read on every request that account made.
+- **Opening or applying one's own copy is braked**: 10 times every 15 minutes per account
+  (`rateLimits.importTo`), then `429 too_many_attempts`.
+
 ## 0.29.2 — 2026-10-05
 
 Fixes from the audit of 2026-10-04: nothing a single request or one account can do should stop the

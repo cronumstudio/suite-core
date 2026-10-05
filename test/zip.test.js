@@ -1,7 +1,8 @@
 /**
  * Zip archives (zip.js): what is written reads back byte for byte, deflated
  * or stored; ZIP64 past 65,535 entries; and what reading refuses — not a zip,
- * a damaged entry, an entry bigger than it promised (a zip bomb), encryption.
+ * a damaged entry, an entry bigger than it promised (a zip bomb), entries
+ * that share their bytes (the overlapping bomb), encryption.
  *
  *   npm test
  */
@@ -130,6 +131,52 @@ test('a zip bomb stops at the size it declared; one declaring too much isn’t e
   t.after(() => second.close());
   await rejectsWith(second.read('data/tasks.json', { maxBytes: 1024 * 1024 }), 'zip_too_large');
   assert.equal((await second.read('data/tasks.json', { maxBytes: 4 * 1024 * 1024 })).length, 2 * 1024 * 1024);
+});
+
+/** The offset of the `index`th record of the directory. */
+function centralRecord(bytes, index) {
+  let at = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  for (let i = 0; i < index; i++) at += 46 + bytes.readUInt16LE(at + 28) + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32);
+  return at;
+}
+
+test('entries that share their bytes are refused: the overlapping zip bomb', async (t) => {
+  const dir = tmp(t);
+  // Two names over the first one's bytes: thousands of them would inflate the same block thousands of times.
+  const file = await zipFile(dir, [['files/a.jpg', PHOTO, { compress: false }], ['files/b.jpg', PHOTO, { compress: false }]]);
+  const bytes = fs.readFileSync(file);
+  bytes.writeUInt32LE(0, centralRecord(bytes, 1) + 42);
+  fs.writeFileSync(file, bytes);
+  await assert.rejects(openZip(file), (err) => err.code === 'zip_invalid' && err.extra.reason === 'overlap');
+
+  // An entry whose data runs into the directory.
+  const long = await zipFile(dir, [['files/a.jpg', PHOTO, { compress: false }]], 'long.zip');
+  const longBytes = fs.readFileSync(long);
+  longBytes.writeUInt32LE(PHOTO.length + 100, centralRecord(longBytes, 0) + 20);
+  fs.writeFileSync(long, longBytes);
+  await assert.rejects(openZip(long), (err) => err.code === 'zip_invalid' && err.extra.reason === 'overlap');
+});
+
+test('an entry is read only from its own header, with sizes a real entry could have', async (t) => {
+  const dir = tmp(t);
+  // The directory names b.txt where a.txt's header is; the names are the same length, so nothing overlaps.
+  const file = await zipFile(dir, [['a.txt', 'x'.repeat(200)]]);
+  const bytes = fs.readFileSync(file);
+  const at = centralRecord(bytes, 0);
+  bytes.write('b', at + 46);
+  fs.writeFileSync(file, bytes);
+  const zip = await openZip(file);
+  t.after(() => zip.close());
+  await assert.rejects(zip.read('b.txt'), (err) => err.code === 'zip_invalid' && err.extra.reason === 'entry');
+
+  // Stored, but declaring fewer bytes than it holds; deflated, but far bigger than its data.
+  const stored = await zipFile(dir, [['files/p.jpg', PHOTO, { compress: false }]], 'stored.zip');
+  const storedBytes = fs.readFileSync(stored);
+  storedBytes.writeUInt32LE(PHOTO.length - 10, centralRecord(storedBytes, 0) + 20);
+  fs.writeFileSync(stored, storedBytes);
+  const second = await openZip(stored);
+  t.after(() => second.close());
+  await assert.rejects(second.read('files/p.jpg'), (err) => err.code === 'zip_invalid' && err.extra.reason === 'size');
 });
 
 test('encrypted entries are not read', async (t) => {
