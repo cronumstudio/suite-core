@@ -64,7 +64,7 @@ export function saveState(initial = 'saved') {
     node.replaceChildren(
       state === 'saving' ? el('span', { class: 'kit-spinner', 'aria-hidden': 'true' })
         : icon(state === 'saved' ? 'check' : state === 'offline' ? 'wifi-off' : 'info'),
-      el('span', { text: t(`kit.save.${state}`) }));
+      el('span', { text: t(`kit.saveState.${state}`) }));
   };
   set(initial);
   return { node, set };
@@ -133,9 +133,9 @@ export function avatar(name = '') {
 /** "by Cronum Studio": the brand that signs every app, in English in every language. */
 export function signature() {
   return el('a', { class: 'cronum-sig', href: 'https://cronumstudio.com', target: '_blank', rel: 'noopener' },
-    el('span', { text: 'by' }),   // i18n-ignore: the signature is the same in every language
+    el('span', { text: 'by' }),   // i18n-exempt: the signature is the same in every language
     cronumRing(),
-    el('strong', { text: 'Cronum Studio' }));   // i18n-ignore: a name
+    el('strong', { text: 'Cronum Studio' }));   // i18n-exempt: a name
 }
 
 /**

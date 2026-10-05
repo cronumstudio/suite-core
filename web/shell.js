@@ -10,10 +10,10 @@
  *
  *   const shell = createShell({
  *     layout: 'side', panes: 'split', app: { name: 'Notes', icon: '/icons/favicon.svg' },
- *     create: { label: t('notes.new'), onClick: newNote },
+ *     create: { label: newLabel, onClick: newNote },
  *     onSettings: openSettings, onSignOut: signOut,
  *   });
- *   shell.nav.append(navItem({ label: t('notes.all'), iconName: 'notes', count: 24, current: true }));
+ *   shell.nav.append(navItem({ label: allLabel, iconName: 'notes', count: 24, current: true }));
  *   shell.list.append(…); shell.detail.append(…); shell.showDetail();
  */
 import { el, clear } from './dom.js';

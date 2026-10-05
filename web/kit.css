@@ -8,8 +8,8 @@
  * Logical properties throughout (margin-inline, inset-inline-start): the
  * suite's convention, and right-to-left for free. The theme hangs from
  * <html data-theme>, which theme.js resolves before the first paint.
+ * Linked after tokens.css, which brings the brand's colours and fonts.
  */
-@import url('tokens.css');
 
 :root {
   color-scheme: light;

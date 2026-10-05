@@ -41,10 +41,12 @@ export const SIGNATURE = `<a class="cronum-sig" href="https://cronumstudio.com" 
 
 /**
  * The admin panel's page (web/admin.html) for this app: its id (for the
- * theme it saved), its colour and its icon, and the signature.
+ * theme it saved and its accent), its name until the panel writes its title,
+ * its colour and its icon, and the signature.
  */
-export const brandedAdmin = (template, { id, color = null, icon = '/icons/favicon.svg' }) => template
+export const brandedAdmin = (template, { id, name = '', color = null, icon = '/icons/favicon.svg' }) => template
   .replace('{{app.id}}', escapeHtml(id))
+  .replace('{{app.name}}', escapeHtml(name))
   .replace('{{app.style}}', appStyle(color))
   .replace('{{app.icon}}', escapeHtml(icon))
   .replace('{{signature}}', SIGNATURE);

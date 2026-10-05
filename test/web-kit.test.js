@@ -290,3 +290,37 @@ test('every file the service worker caches for the kit exists', () => {
   assert.ok(files.length > 15);
   for (const file of files) assert.ok(fs.existsSync(new URL(`../web/${file.replace('/suite/', '')}`, import.meta.url)), file);
 });
+
+/* ------------------------------ texts in code ----------------------------- */
+
+test('the kit writes no text for people in its code, and every key it uses exists', async () => {
+  const { hardcodedTexts, unknownKeys, catalogsOf } = await import('../tools/i18n.mjs');
+  const web = new URL('../web/', import.meta.url);
+  assert.deepEqual(hardcodedTexts([fs.realpathSync(web)]), []);
+  assert.deepEqual(unknownKeys(catalogsOf().en, [fs.realpathSync(web)]), []);
+});
+
+test('the lint finds texts written in the code, and leaves keys, names and exemptions alone', async () => {
+  const { hardcodedTexts } = await import('../tools/i18n.mjs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-lint-'));
+  fs.writeFileSync(path.join(dir, 'page.html'), [
+    '<!DOCTYPE html>', '<title>Notes</title>', '<!-- A comment says', 'what it likes. -->',
+    '<h1 data-i18n="app.title"></h1>', '<p>Welcome back</p>', '<button title="Close the panel">×</button>',
+    '<input data-i18n-attr="placeholder:x.y" placeholder="ignored">', '<span>by</span> <strong>Cronum Studio</strong>',
+    '<script>const a = "<p>Not text</p>";</script>', '<p>Ok exempted</p> <!-- i18n-exempt -->',
+  ].join('\n'));
+  fs.writeFileSync(path.join(dir, 'app.js'), [
+    "el('p', { text: t('notes.empty') });", "el('p', { text: 'Nothing here yet' });", "toast('Saved!');",
+    "el('div', { class: 'kit-row', title: 'notes.title' });", "el('a', { 'aria-label': 'Open the menu' });",
+    "el('span', { text: 'Claude' });", "el('p', { text: 'Offline' }); // i18n-exempt: before the catalogs",
+    '// text: "a comment"',
+  ].join('\n'));
+  const found = hardcodedTexts([dir]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(found.sort(), [
+    'app.js:2: Nothing here yet', 'app.js:3: Saved!', 'app.js:5: Open the menu',
+    'page.html:6: Welcome back', 'page.html:7: Close the panel',
+  ].sort());
+});
