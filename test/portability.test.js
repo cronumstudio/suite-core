@@ -578,6 +578,18 @@ test('someone’s own copy can’t fill the memory, the account’s row or the d
   const blank = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(10 * 1024 * 1024)]);
   const swollen = await tamper(own, at('files.zip'), (name, bytes) => (name.startsWith('files/') ? blank : bytes));
   await rejectsWith(target.portability.applyFile(swollen, { mode: 'account', user: me, by: 'account' }), 'zip_too_large');
+  // Rows that share one file each get a copy on disk: forty rows over one "photo" are forty photos.
+  const shared = await tamper(own, at('shared.zip'), (name, bytes) => {
+    if (name === `files/${s.photo}`) return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(1024 * 1024)]);
+    if (name === 'data/files.json') {
+      const rows = JSON.parse(bytes.toString('utf8'));
+      const photo = rows.find((r) => r.path === s.photo);
+      return Buffer.from(JSON.stringify([...rows, ...Array.from({ length: 40 }, (_, i) => ({ ...photo, id: 5000 + i }))]));
+    }
+    return bytes;
+  });
+  assert.ok(fs.statSync(shared).size < 256 * 1024, 'the upload itself is small');
+  await rejectsWith(target.portability.applyFile(shared, { mode: 'account', user: me, by: 'account' }), 'zip_too_large');
   // And no more of them than the ceiling says.
   const one = target.suite.portabilityFor(DATA, { version: '1.0.0', limits: { files: { account: 1 } } });
   await rejectsWith(one.applyFile(own, { mode: 'account', user: me, by: 'account' }), 'zip_too_large');
