@@ -423,6 +423,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* The top layout's create button sits in the bar only where the floating one doesn't. */
 .kit-bar__create { display: none; }
 .kit-bar .kit-live { margin-inline: 6px; }
+/* The top layout wears the app's name and icon in its bar at every width; the tabs join it from 640 px. */
+.kit-app[data-layout="top"] .kit-bar__brand { display: flex; flex: 1; }
+.kit-app[data-layout="top"] .kit-bar__title { display: none; }
 .kit-app:not([data-screen="detail"]) .kit-bar__back,
 .kit-app[data-screen="detail"] .kit-bar__menu { display: none; }
 
@@ -517,8 +520,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
     grid-template-areas: "bar" "banners" "main";
   }
   .kit-app[data-layout="top"] .kit-bar { padding-inline: 14px; gap: 6px; }
-  .kit-app[data-layout="top"] .kit-bar__brand, .kit-app[data-layout="top"] .kit-bar__tabs { display: flex; }
-  .kit-app[data-layout="top"] .kit-bar__title { display: none; }
+  .kit-app[data-layout="top"] .kit-bar__brand { flex: none; }
+  .kit-app[data-layout="top"] .kit-bar__tabs { display: flex; }
   .kit-app[data-layout="top"] .kit-bottom { display: none; }
   .kit-app[data-layout="top"] .kit-fab { bottom: calc(20px + var(--kit-safe-bottom)); }
 }
