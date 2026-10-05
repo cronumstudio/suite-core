@@ -81,7 +81,13 @@ export function workosUsers(accounts, { database = null } = {}) {
     byWorkosId,
     unlinkedByEmail: (email) => unlinked(accounts.unlinkedByEmail(PROVIDER, email)),
     firstUnlinkedAdmin: () => unlinked(accounts.firstUnlinkedAdmin(PROVIDER)),
+    linkedByEmail: (email) => accounts.linkedByEmail(PROVIDER, email),
     link: (userId, { workosId, email }) => accounts.linkIdentity(userId, PROVIDER, workosId, { email }),
+    relink: (userId, { from, workosId, email }) => {
+      accounts.relinkIdentity(userId, PROVIDER, from, workosId, { email });
+      // The old column would bring the old id back the next time it is asked for.
+      if (legacy) database.run('UPDATE users SET workos_user_id = NULL WHERE id = ? AND workos_user_id = ?', userId, String(from));
+    },
     setEmail: (userId, email) => accounts.setVerifiedEmail(userId, email),
     usernameTaken: (name) => Boolean(accounts.byUsername(name)),
     create: ({ username, displayName, role, email, workosId }) =>
@@ -108,6 +114,8 @@ function freeUsername(seed, taken) {
  * @param {object} options.users
  *   byWorkosId(id), unlinkedByEmail(email), firstUnlinkedAdmin() → user | null;
  *   link(userId, { workosId, email }); setEmail(userId, email); usernameTaken(name) → bool;
+ *   optionally linkedByEmail(email) → { user, subject } | null and
+ *   relink(userId, { from, workosId, email }), to follow someone WorkOS knows by a new id;
  *   create({ username, displayName, role, email, workosId }) → user (throws on a duplicate
  *   workosId, which the unique index of the app's table should enforce);
  *   optionally signedIn(user, account) after a web sign-in.
@@ -138,10 +146,13 @@ export function createWorkosAccounts({
    * with someone else's address would be enough to take their data. For the
    * same reason only a verified email is stored.
    *
+   * Someone WorkOS now knows by a new id keeps their account (see relinked()).
+   *
    * `adminEmail` decides who administers. In an install that already existed,
    * that person takes over the previous admin account, with all its data.
+   * @throws {WorkosUnavailable} if WorkOS can't say whether an old id still exists.
    */
-  function localUser(account) {
+  async function localUser(account) {
     const verified = account.email_verified === true && !!account.email;
     const email = verified ? String(account.email).trim().toLowerCase() : null;
 
@@ -152,8 +163,12 @@ export function createWorkosAccounts({
     }
 
     if (email) {
-      const previous = users.unlinkedByEmail(email)
-        || (email === ADMIN_EMAIL ? users.firstUnlinkedAdmin() : null);
+      let previous = users.unlinkedByEmail(email);
+      if (!previous) {
+        const moved = await relinked(account, email);
+        if (moved) return moved;
+        previous = email === ADMIN_EMAIL ? users.firstUnlinkedAdmin() : null;
+      }
       if (previous) {
         users.link(previous.id, { workosId: account.id, email });
         log(`[workos] user #${previous.id} linked to their WorkOS account`);
@@ -183,6 +198,30 @@ export function createWorkosAccounts({
   }
 
   /**
+   * The account of someone WorkOS now knows by a new id, moved over to it: an
+   * account with their verified email is linked to an id this WorkOS doesn't
+   * know. That happens when the install moves to another WorkOS environment
+   * (each has its own ids) or their account there is deleted and made again;
+   * before, every such person got a new, empty account, and the admin email
+   * the account of another administrator. While the old id still exists it is
+   * someone else, who had the email first: null, and the newcomer gets an
+   * account of their own.
+   */
+  async function relinked(account, email) {
+    const linked = users.linkedByEmail?.(email);
+    if (!linked || linked.subject === account.id) return null;
+    if (await workos.knows(linked.subject)) return null;
+    try {
+      users.relink(linked.user.id, { from: linked.subject, workosId: account.id, email });
+      log(`[workos] user #${linked.user.id} linked to their new WorkOS account`);
+    } catch (err) {
+      // The web and the MCP may move the same person at once.
+      if (!users.byWorkosId(account.id)) throw err;
+    }
+    return users.byWorkosId(account.id);
+  }
+
+  /**
    * The user of an MCP OAuth token, or null if the token isn't valid. The
    * first time someone connects a client without ever opening the web app,
    * their account is created here, with what WorkOS says about them.
@@ -194,7 +233,7 @@ export function createWorkosAccounts({
     let user = users.byWorkosId(data.sub);
     if (!user) {
       const account = await workos.account(data.sub);
-      user = account ? localUser(account) : null;
+      user = account ? await localUser(account) : null;
     }
     // An account the admin disabled is no one, whatever AuthKit says.
     return user && !user.disabled_at ? user : null;
@@ -235,7 +274,7 @@ export function createWorkosAccounts({
       }
       try {
         const { account, sessionId } = await workos.exchangeCode({ code, verifier });
-        const user = localUser(account);
+        const user = await localUser(account);
         // An account the admin disabled stays out, whatever AuthKit says.
         if (user.disabled_at) {
           log(`[workos] user #${user.id} is disabled: not signed in`);

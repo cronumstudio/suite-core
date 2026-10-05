@@ -257,6 +257,40 @@ test('the WorkOS users on the suite: links from an older version adopted, never 
   assert.equal(users.usernameTaken('ADA'), true);
 });
 
+test('a new id at the provider: the account follows its verified email; an admin with an email is nobody else’s', (t) => {
+  const database = setup(t);
+  const accounts = createAccounts({ database });
+
+  // Moving to the provider: nobody is linked yet, so the admin email takes the old administrator.
+  const root = accounts.create({ username: 'root', role: 'admin', email: 'old@example.com' });
+  assert.equal(accounts.firstUnlinkedAdmin('workos')?.id, root.id);
+  accounts.linkIdentity(root.id, 'workos', 'user_STAGING_BOSS', { email: 'boss@example.com' });
+
+  // An administrator made in the panel once people sign in there, with an email: theirs, not the admin email’s.
+  const colleague = accounts.create({ username: 'colleague', role: 'admin', email: 'colleague@example.com' });
+  assert.equal(accounts.firstUnlinkedAdmin('workos'), null);
+  // One with no email is no one else’s: it can still be taken.
+  const spare = accounts.create({ username: 'spare', role: 'admin' });
+  assert.equal(accounts.firstUnlinkedAdmin('workos')?.id, spare.id);
+  accounts.remove(spare.id);
+
+  // The provider knows the boss by a new id: found by the verified email, with the old id.
+  const linked = accounts.linkedByEmail('workos', 'BOSS@example.com');
+  assert.equal(linked.user.id, root.id);
+  assert.equal(linked.subject, 'user_STAGING_BOSS');
+  accounts.relinkIdentity(root.id, 'workos', 'user_STAGING_BOSS', 'user_PROD_BOSS', { email: 'boss@example.com' });
+  assert.equal(accounts.byIdentity('workos', 'user_PROD_BOSS')?.id, root.id);
+  assert.equal(accounts.byIdentity('workos', 'user_STAGING_BOSS'), null);
+  assert.deepEqual(accounts.identitiesOf(root.id).map((i) => i.subject), ['user_PROD_BOSS']);
+  assert.equal(accounts.byId(colleague.id).email, 'colleague@example.com', 'the colleague is left alone');
+
+  // Only a verified email leads to an account.
+  assert.equal(accounts.linkedByEmail('workos', 'colleague@example.com'), null, 'not linked');
+  accounts.linkIdentity(colleague.id, 'workos', 'user_COLLEAGUE');
+  database.run('UPDATE users SET email_verified_at = NULL WHERE id = ?', colleague.id);
+  assert.equal(accounts.linkedByEmail('workos', 'colleague@example.com'), null, 'not verified');
+});
+
 test('the same email again stays confirmed; another one has to be confirmed', (t) => {
   const database = setup(t);
   const accounts = createAccounts({ database });

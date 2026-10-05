@@ -154,6 +154,22 @@ export function createWorkosClient({
     return null;
   }
 
+  /**
+   * Whether WorkOS still has a user with that id: false only when it says so
+   * (404). Any other answer is no answer, since false hands that person's
+   * account to someone else.
+   * @throws {WorkosUnavailable}
+   */
+  async function knows(id) {
+    const { ok, status } = await request(
+      `${API_URL}/user_management/users/${encodeURIComponent(id)}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (ok) return true;
+    if (status === 404) return false;
+    throw new WorkosUnavailable(`WorkOS answered ${status}`);
+  }
+
   /* ----------------------------- MCP tokens ----------------------------- */
 
   /** What a JWT says, without checking its signature. Only for what already comes from WorkOS. */
@@ -210,7 +226,7 @@ export function createWorkosClient({
 
   return {
     authkitDomain: AUTHKIT,
-    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, account,
+    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, account, knows,
     verifyToken, resourceMetadata, authorizationServerMetadata,
   };
 }

@@ -455,7 +455,10 @@ a valid client is never locked out by a neighbour, and a request without a token
 by invitation or by open sign-up as `accounts.signup` says, and two-step verification for whoever
 turns it on (**done**, v0.19.0; see below). `workos`: AuthKit handles sign-up, 2FA,
 Google and recovery, and is the authorization server for the MCP; an existing user is linked only
-through a verified email, and `ADMIN_EMAIL` takes over the first admin. `oidc` (**done**, v0.13.0):
+through a verified email, and `ADMIN_EMAIL` takes over the first admin while the install moves to
+WorkOS (afterwards, only one with no email). Someone WorkOS knows by a new id (another environment,
+or their account made again there) keeps their account, linked by its verified email once WorkOS
+says the old id is gone (v0.32.0). `oidc` (**done**, v0.13.0):
 any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google, Entra), so a self-hoster gets
 single sign-on across the apps — which replaces the identity bridge once planned between Projects
 and Tasks. `oidc.js` signs in with PKCE, a state and a nonce, checks the ID token against the
