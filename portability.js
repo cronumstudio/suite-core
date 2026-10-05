@@ -61,6 +61,9 @@ const USER_COLUMNS = ['id', 'username', 'display_name', 'email', 'email_verified
 
 const MB = 1024 * 1024;
 const DAY = 24 * 3600 * 1000;
+/** An account's preferences, and each of the app's own columns of it, in a copy. */
+const MAX_PREFS = 64 * 1024;
+const MAX_USER_VALUE = 1024;
 /** A pending import waits this long for its "apply"; then it goes. */
 const PENDING_MS = DAY;
 const TOKEN = /^[\w-]{16,64}$/;
@@ -274,6 +277,20 @@ function fromJson(value) {
 
 const isId = (value) => Number.isSafeInteger(value) && value > 0;
 
+/**
+ * How many values JSON text can hold at most. Every value but the first comes
+ * after a comma, and an object or array opens with a brace or bracket; those
+ * inside strings only make the count higher, never lower.
+ */
+function countValues(bytes) {
+  let count = 1;
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i];
+    if (byte === 0x2c || byte === 0x7b || byte === 0x5b) count += 1;
+  }
+  return count;
+}
+
 /* -------------------------------- the service ---------------------------------- */
 
 /**
@@ -295,10 +312,21 @@ export function createPortability({
 }) {
   const model = describeData(database, declaration);
   const importsDir = path.join(dataDir, 'imports');
+  // Ceilings by who brings the copy in: anyone with an account ('account'), or the
+  // administrator and the command line ('install'). Someone's own data is a few MB;
+  // these leave room for years of it and keep one upload from filling the memory.
+  const byWho = (value, account, install) => (isObject(value) ? { account, install, ...value }
+    : value != null ? { account: value, install: value } : { account, install });
   const max = {
     upload: { account: 512 * MB, install: 4096 * MB, ...(limits.upload || {}) },
-    data: limits.data ?? 512 * MB,
-    entry: limits.entry ?? 256 * MB,
+    // Bytes of data once inflated, in all and per file.
+    data: byWho(limits.data, 64 * MB, 512 * MB),
+    entry: byWho(limits.entry, 32 * MB, 256 * MB),
+    // Values in the data (rows, fields), counted before parsing: an empty row is
+    // three bytes of JSON and some sixty of memory, so bytes alone don't bound it.
+    values: byWho(limits.values, 2_000_000, 50_000_000),
+    // Attachments in one copy.
+    files: byWho(limits.files, 20_000, 1_000_000),
   };
   const iso = () => new Date(clock()).toISOString();
   const rowsOfDb = (name) => {
@@ -481,6 +509,12 @@ export function createPortability({
       for (const text of ['display_name', 'email', 'role', 'locale', 'theme', 'prefs', 'created_at', 'disabled_at', 'email_verified_at']) {
         if (user[text] != null && typeof user[text] !== 'string') throw invalidData('users', { column: text });
       }
+      // The account's row is read whole on every request it makes: what comes in
+      // here must stay the size the app's own screens would ever write.
+      if (user.prefs != null && user.prefs.length > MAX_PREFS) throw invalidData('users', { column: 'prefs' });
+      for (const column of model.appColumns) {
+        if (typeof user[column] === 'string' && user[column].length > MAX_USER_VALUE) throw invalidData('users', { column });
+      }
       seen.add(user.id);
       return user;
     });
@@ -501,8 +535,11 @@ export function createPortability({
     });
   }
 
-  /** Opens a copy and checks all of it but the attachments, which are read when applied. */
-  async function readArchive(file) {
+  /**
+   * Opens a copy and checks all of it but the attachments, which are read when
+   * applied. `by` says whose ceilings hold (see `max`).
+   */
+  async function readArchive(file, { by = 'account' } = {}) {
     const zip = await openZip(file);
     try {
       const manifestBytes = await zip.read('manifest.json', { maxBytes: MB }).catch(() => null);
@@ -515,13 +552,18 @@ export function createPortability({
         const table = /^data\/(.+)\.json$/.exec(entry.name)?.[1];
         if (table && table !== 'users' && !model.byName.has(table)) throw invalidData(table, { reason: 'unknown_table' });
       }
-      let budget = max.data;
+      let budget = max.data[by];
+      let values = max.values[by];
       const readJsonEntry = async (name) => {
         const size = zip.sizeOf(name);
         if (size == null) return null;
         budget -= size;
         if (budget < 0) throw new HttpError(413, 'zip_too_large');
-        const bytes = await zip.read(name, { maxBytes: max.entry });
+        const bytes = await zip.read(name, { maxBytes: max.entry[by] });
+        // Parsing builds every value at once, before any of it is checked: they are
+        // counted first, on the bytes, which costs a few milliseconds.
+        values -= countValues(bytes);
+        if (values < 0) throw new HttpError(413, 'zip_too_large', { entry: name });
         try { return JSON.parse(bytes.toString('utf8')); } catch { throw invalidData(name.replace(/^\w+\/|\.json$/g, '')); }
       };
       const users = checkUsers((await readJsonEntry('data/users.json')) ?? []);
@@ -681,7 +723,7 @@ export function createPortability({
    * it commits are the files moved into place. A failure anywhere before the
    * commit leaves the install as it was.
    */
-  async function applyArchive(archive, { mode, user = null, decisions = [], replace = false, req = null, staging }) {
+  async function applyArchive(archive, { mode, user = null, decisions = [], replace = false, req = null, staging, by = 'account' }) {
     const { manifest } = archive;
     const target = targetOf(mode, user);
     const when = alreadyApplied(manifest, target);
@@ -701,8 +743,12 @@ export function createPortability({
     }
 
     // The attachments: read, checked by their first bytes like any upload, and staged.
+    // A copy stores them as they are, so they never add up to much more than the
+    // file that was uploaded: that is what they may take on disk, whatever the
+    // entries declare. (Twice, and some, for a copy someone zipped again.)
     const staged = new Map();
     let stagedCount = 0;
+    let diskBudget = 2 * archive.zip.size + 16 * MB;
     const cleanStaging = () => fs.rmSync(staging, { recursive: true, force: true });
     try {
       for (const table of model.tables.filter((t) => t.file)) {
@@ -714,6 +760,8 @@ export function createPortability({
             const size = archive.zip.sizeOf(entry);
             if (size == null) { problems.missing += 1; continue; }
             if (uploads && size > uploads.maxBytes) { problems.too_large += 1; continue; }
+            diskBudget -= size;
+            if (diskBudget < 0 || stagedCount >= max.files[by]) throw new HttpError(413, 'zip_too_large', { entry });
             const bytes = await archive.zip.read(entry, { maxBytes: uploads?.maxBytes ?? 15 * MB });
             const type = detectType(bytes.subarray(0, 16));
             if (!type) { problems.refused += 1; continue; }
@@ -995,7 +1043,7 @@ export function createPortability({
       await receiveFile(req, `${files.zip}.partial`, max.upload[mode]);
       fs.renameSync(`${files.zip}.partial`, files.zip);
       fs.writeFileSync(files.meta, JSON.stringify({ owner: user.id, mode, created_at: iso() }));
-      const archive = await readArchive(files.zip);
+      const archive = await readArchive(files.zip, { by: mode });
       try {
         return { import_id: id, ...planFor(archive, { mode, user }) };
       } finally {
@@ -1014,10 +1062,10 @@ export function createPortability({
     const files = pending(id, { mode, user });
     const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
     try {
-      const archive = await readArchive(files.zip);
+      const archive = await readArchive(files.zip, { by: mode });
       let result;
       try {
-        result = await applyArchive(archive, { mode, user, decisions, replace, req, staging: files.staging });
+        result = await applyArchive(archive, { mode, user, decisions, replace, req, staging: files.staging, by: mode });
       } finally {
         await archive.zip.close();
       }
@@ -1034,9 +1082,9 @@ export function createPortability({
     forget(id);
   }
 
-  /** What an import of a file on disk would do (the command line). */
-  async function planFile(file, { mode, user = null, decisions = [], replace = false }) {
-    const archive = await readArchive(file);
+  /** What an import of a file on disk would do (the command line, with the administrator's ceilings). */
+  async function planFile(file, { mode, user = null, decisions = [], replace = false, by = 'install' }) {
+    const archive = await readArchive(file, { by });
     try {
       return planFor(archive, { mode, user, decisions, replace });
     } finally {
@@ -1044,15 +1092,15 @@ export function createPortability({
     }
   }
 
-  /** Applies a file on disk (the command line). */
-  async function applyFile(file, { mode, user = null, decisions = [], replace = false }) {
+  /** Applies a file on disk (the command line, with the administrator's ceilings). */
+  async function applyFile(file, { mode, user = null, decisions = [], replace = false, by = 'install' }) {
     const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
     try {
       fs.mkdirSync(importsDir, { recursive: true });
-      const archive = await readArchive(file);
+      const archive = await readArchive(file, { by });
       try {
         return await applyArchive(archive, {
-          mode, user, decisions, replace, staging: path.join(importsDir, `${randomToken(12)}.files`),
+          mode, user, decisions, replace, staging: path.join(importsDir, `${randomToken(12)}.files`), by,
         });
       } finally {
         await archive.zip.close();
@@ -1093,10 +1141,17 @@ export function createPortability({
  * `DELETE /api/me/import/:id`; and the same under `/api/admin/` for the whole
  * install, whose apply takes `{ accounts: [decisions] }`.
  */
-export function registerPortabilityApi(router, { portability, audit = null, log = console.log }) {
+export function registerPortabilityApi(router, { portability, audit = null, limiter = null, log = console.log }) {
   const signedIn = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
+  };
+  // Opening a copy is the heaviest thing anyone with an account can ask for: a
+  // few times every quarter of an hour is plenty to bring one's data in, retries included.
+  const brake = (user) => {
+    const allowed = limiter?.allowTo('import', `user:${user.id}`);
+    if (allowed && !allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
+    return user;
   };
   const admin = (ctx) => {
     const user = signedIn(ctx);
@@ -1132,10 +1187,10 @@ export function registerPortabilityApi(router, { portability, audit = null, log 
 
   router.get('/api/me/export', (ctx) => download(ctx, { scope: 'account', user: signedIn(ctx) }));
   router.post('/api/me/import', async (ctx) => {
-    sendJson(ctx.res, 200, await portability.receive(ctx.req, { mode: 'account', user: signedIn(ctx) }));
+    sendJson(ctx.res, 200, await portability.receive(ctx.req, { mode: 'account', user: brake(signedIn(ctx)) }));
   });
   router.post('/api/me/import/:id', async (ctx) => {
-    const user = signedIn(ctx);
+    const user = brake(signedIn(ctx));
     const body = await readJson(ctx.req);
     sendJson(ctx.res, 200, await portability.apply(ctx.params.id, { mode: 'account', user, replace: body.replace === true, req: ctx.req }));
   });

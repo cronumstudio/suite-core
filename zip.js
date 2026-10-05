@@ -17,7 +17,8 @@
  *   deflate, archives split in parts— and inflates each entry with a cap: the
  *   size its directory declares, which the caller checks against its own
  *   limits before asking. A zip bomb stops at the first byte past what it
- *   promised, and a CRC that doesn't match is a damaged file, not data.
+ *   promised, entries that share their bytes are refused when it opens, and
+ *   a CRC that doesn't match is a damaged file, not data.
  */
 import fs from 'node:fs';
 import zlib from 'node:zlib';
@@ -315,10 +316,23 @@ export async function openZip(file, { maxEntries = 200000, maxDirectoryBytes = 6
         }
         if (!found) throw invalid('zip64_extra');
       }
+      const rawName = Buffer.from(directory.subarray(p + 46, nameEnd));
       p = nameEnd + extraLength + commentLength;
       if (name.endsWith('/')) continue;       // a folder: nothing to read
       if (entries.has(name)) throw invalid('duplicate_name');
-      entries.set(name, { name, flags, method, crc, compressed, size, localOffset });
+      entries.set(name, { name, rawName, flags, method, crc, compressed, size, localOffset });
+    }
+
+    // Each entry's bytes are its own. Entries that share them —many names over one
+    // deflated block, or one entry's data hiding the next one's header— are how a
+    // few kB turn into terabytes, every name inflating the same bytes again.
+    // Its header and name come before its data, so this is the least it takes.
+    const laidOut = [...entries.values()].sort((a, b) => a.localOffset - b.localOffset);
+    for (let i = 0; i < laidOut.length; i++) {
+      const entry = laidOut[i];
+      const end = entry.localOffset + 30 + entry.rawName.length + entry.compressed;
+      const next = i + 1 < laidOut.length ? laidOut[i + 1].localOffset : directoryStart;
+      if (end > next) throw invalid('overlap');
     }
 
     /** The bytes of an entry, or null when there is none by that name. */
@@ -328,9 +342,17 @@ export async function openZip(file, { maxEntries = 200000, maxDirectoryBytes = 6
       if (entry.flags & 0x1) throw unsupported('encrypted');
       if (entry.method !== 0 && entry.method !== 8) throw unsupported('method');
       if (entry.size > maxBytes) throw new HttpError(413, 'zip_too_large', { entry: name });
-      if (entry.localOffset + 30 > fileSize) throw invalid('entry_outside');
-      const local = await readAt(handle, 30, entry.localOffset);
+      // Stored is the same bytes; deflate never needs much more than the data
+      // (5 bytes a block, when nothing compresses). More is not a real entry, and
+      // would be read into memory whole before anything else is checked.
+      if (entry.method === 0 ? entry.compressed !== entry.size
+        : entry.compressed > entry.size + Math.floor(entry.size / 1024) + 64) throw invalid('size');
+      const headerLength = 30 + entry.rawName.length;
+      if (entry.localOffset + headerLength > fileSize) throw invalid('entry_outside');
+      const local = await readAt(handle, headerLength, entry.localOffset);
       if (local.readUInt32LE(0) !== LOCAL) throw invalid('entry');
+      // The header the directory points at must be this entry's, not another one's.
+      if (local.readUInt16LE(26) !== entry.rawName.length || !local.subarray(30).equals(entry.rawName)) throw invalid('entry');
       const start = entry.localOffset + 30 + local.readUInt16LE(26) + local.readUInt16LE(28);
       if (start + entry.compressed > fileSize) throw invalid('entry_outside');
       const raw = await readAt(handle, entry.compressed, start);
@@ -349,6 +371,8 @@ export async function openZip(file, { maxEntries = 200000, maxDirectoryBytes = 6
     }
 
     return {
+      /** The archive's own size on disk: what was really uploaded, whatever its entries declare. */
+      size: fileSize,
       entries: [...entries.values()].map(({ name, size, compressed }) => ({ name, size, compressed })),
       has: (name) => entries.has(name),
       sizeOf: (name) => entries.get(name)?.size ?? null,

@@ -29,6 +29,8 @@ export const DEFAULT_LIMITS = Object.freeze({
   mail: 10, mailTo: 3, signup: 5,
   // Wrong codes of the second step (two-factor.js), per account.
   code: 5,
+  // Someone's own copies opened or applied (portability.js), per account.
+  importTo: 10,
 });
 
 export function rateLimitSchema(d) {
@@ -40,7 +42,7 @@ export function rateLimitSchema(d) {
  * @param {object} options
  * @param {object} options.database  the suite's database handle
  * @param {string} [options.secret]  keys the bucket hashes (the session secret)
- * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code }
+ * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code, importTo }
  * @param {number} [options.windowMs]
  * @param {*} [options.trustProxy]   see proxyHops() in http.js
  */
