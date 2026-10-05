@@ -209,8 +209,14 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
 });
 
 test('OIDC: a provider that doesn’t answer, and a configuration that is missing', async () => {
-  const client = createOidcClient({ issuer: 'http://127.0.0.1:9', clientId: 'x' });
+  // A port that was just free: nothing listens there any more.
+  const gone = http.createServer();
+  await new Promise((resolve) => gone.listen(0, '127.0.0.1', resolve));
+  const { port } = gone.address();
+  await new Promise((resolve) => gone.close(resolve));
+  const client = createOidcClient({ issuer: `http://127.0.0.1:${port}`, clientId: 'x' });
+  // With the reason in the message: "fetch failed" alone leaves the log saying nothing.
   await assert.rejects(client.authorizationUrl({ redirectUri: 'x', state: 's', challenge: 'c', nonce: 'n' }),
-    (err) => err instanceof OidcUnavailable);
+    (err) => err instanceof OidcUnavailable && /ECONNREFUSED/.test(err.message));
   assert.deepEqual(createOidcClient({ issuer: '', clientId: '' }).missingConfig(), ['OIDC_ISSUER', 'OIDC_CLIENT_ID']);
 });

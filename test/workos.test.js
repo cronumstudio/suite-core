@@ -7,7 +7,7 @@
  */
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { createWorkosClient, workosConfigFromEnv } from '../workos.js';
+import { createWorkosClient, workosConfigFromEnv, WorkosUnavailable } from '../workos.js';
 import { createWorkosAccounts } from '../workos-accounts.js';
 
 let passed = 0;
@@ -177,6 +177,17 @@ try {
   check('The 401 challenge points at the metadata', accounts.challenge(false).includes(`${base}/.well-known/oauth-protected-resource/mcp`));
   check('Signing out also closes AuthKit’s session',
     accounts.signOutUrl('sess_1') === `${AUTHKIT}/user_management/sessions/logout?session_id=sess_1`);
+
+  console.log('\nWhen WorkOS doesn’t answer');
+  // A port that was just free: nothing listens there any more.
+  const gone = http.createServer();
+  await new Promise((r) => gone.listen(0, '127.0.0.1', r));
+  const GONE = `http://127.0.0.1:${gone.address().port}`;
+  await new Promise((r) => gone.close(r));
+  const away = createWorkosClient({ apiUrl: GONE, apiKey: 'sk_test', clientId: 'c', authkitDomain: GONE });
+  const outage = await away.exchangeCode({ code: 'x', verifier: 'v' }).then(() => null, (err) => err);
+  check('It is an outage, not a bad code', outage instanceof WorkosUnavailable, String(outage));
+  check('And the log says why, not just "fetch failed"', /ECONNREFUSED/.test(outage?.message), outage?.message);
 } catch (err) {
   failed++;
   console.log(`\n✗ Unexpected error: ${err.stack}`);
