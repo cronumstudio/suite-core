@@ -260,9 +260,13 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.match(panel.data, /<footer class="kit-signature">\s*<a class="cronum-sig" href="https:\/\/cronumstudio\.com"[\s\S]*<strong>Cronum Studio<\/strong>/);
   assert.doesNotMatch(panel.data, /\{\{/, 'every placeholder filled');
   const kitCss = await (await fetch(`${base}/suite/kit.css`)).text();
-  assert.match(kitCss, /--kit-accent: var\(--app, #16130E\)/);
+  assert.match(kitCss, /--kit-accent: var\(--app-accent, var\(--app, #16130E\)\)/);
   assert.doesNotMatch(kitCss, /#4A1478/i, 'no eggplant: the brand dropped it');
   assert.doesNotMatch(kitCss, /@import|url\(|https?:/, 'nothing from elsewhere');
+  const tokensCss = await (await fetch(`${base}/suite/tokens.css`)).text();
+  assert.deepEqual([...tokensCss.matchAll(/url\(([^)]*)\)/g)].map((m) => m[1]).filter((u) => !/^fonts\/[\w-]+\.woff2$/.test(u)), [],
+    'the fonts are the suite’s own files, never Google’s');
+  assert.equal((await fetch(`${base}/suite/fonts/geist-latin.woff2`)).headers.get('content-type'), 'font/woff2');
   assert.doesNotMatch(panel.data.replace(/<script[^>]*src="[^"]+"[^>]*><\/script>/g, ''), /<script/,
     'no inline script: the CSP allows none');
   const kit = await fetch(`${base}/suite/admin.js`);

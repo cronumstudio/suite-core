@@ -4,6 +4,7 @@
  *
  *   node server/suite/tools/i18n.mjs parity [dir]            every language says the same things
  *   node server/suite/tools/i18n.mjs used <dir> <src>…       every key the code uses exists
+ *   node server/suite/tools/i18n.mjs hardcoded <src>…        no text for people written in the code
  *
  * An app's catalogs (`<dir>/<lang>.json`, nested or dotted) are checked merged
  * over the suite's, which is what its browser gets from /i18n/<lang>.json.
@@ -121,20 +122,93 @@ export function unknownKeys(english, dirs) {
   return [...unknown].map(([key, files]) => `${key} (${[...new Set(files)].join(', ')})`);
 }
 
+/* ------------------------------ hardcoded texts ----------------------------- */
+
+/**
+ * Names that are the same in every language: the brand that signs every app,
+ * the products and the protocols. An app adds its own with `allow`.
+ */
+export const BRAND_WORDS = [
+  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Focus', 'Notes', 'Tracker', 'Talk',
+  'MCP', 'OAuth', 'WorkOS', 'Claude', 'ChatGPT', 'English', 'Español', 'Français', 'Deutsch',
+];
+
+/** What a tag becomes while the text between tags is read. */
+const MARK = '\u0000';
+const LETTERS = /\p{L}{2,}/u;
+/** Properties that put a text in front of people: el('…', { text: '…' }), node.title = '…'. */
+const JS_TEXT = /(?:\b(?:text|textContent|innerText|placeholder|title|label|alt)\s*[:=]\s*|['"]aria-label['"]\s*:\s*|\b(?:toast|alert|confirm|prompt)\(\s*)(['"`])((?:\.|(?!\1).)*)\1/g;
+const HTML_ATTRIBUTES = /\s(?:title|placeholder|alt|aria-label)="([^"]*)"/g;
+
+/**
+ * Texts for people written in the code instead of the catalogs: in .js,
+ * strings given as text, titles, labels and notices; in .html, the text
+ * between tags (outside script, style and code) and the attributes people
+ * read. A line with `i18n-exempt` is skipped, and so is an element with
+ * data-i18n (its text is filled from the catalog). → ["file:line: text"].
+ */
+export function hardcodedTexts(dirs, { allow = [] } = {}) {
+  const allowed = new Set([...BRAND_WORDS, ...allow].map((w) => w.toLowerCase()));
+  const isText = (value) => {
+    const clean = value.replace(/\$\{[^}]*\}/g, ' ').replace(/\{\{[^}]*\}\}/g, ' ').trim();
+    if (!LETTERS.test(clean)) return false;
+    if (allowed.has(clean.toLowerCase())) return false;
+    // A key, an id, a class or a path: not words for people.
+    if (/^[\w.:/#?&=-]+$/.test(clean) && !/\s/.test(clean) && /[._/:#-]|^[a-z]+[A-Z]/.test(clean)) return false;
+    return true;
+  };
+  const found = [];
+  for (const file of sources(dirs)) {
+    const text = readFileSync(file, 'utf8');
+    const lines = text.split('\n');
+    const name = path.basename(file);
+    if (file.endsWith('.html')) {
+      // Whole-file passes that keep the line breaks, so a finding still says its line.
+      const blank = (part) => part.replace(/[^\n]/g, ' ');
+      let html = lines.map((line) => (line.includes('i18n-exempt') ? blank(line) : line)).join('\n')
+        .replace(/<!--[\s\S]*?-->/g, blank)
+        .replace(/<(script|style|code|pre)\b[\s\S]*?<\/\1>/gi, blank)
+        // An element whose text comes from the catalog.
+        .replace(/<([a-z][\w-]*)\b[^>]*\bdata-i18n="[^"]*"[^>]*>[^<]*<\/\1>/gi, blank);
+      const lineAt = (index) => html.slice(0, index).split('\n').length;
+      for (const tag of html.matchAll(/<[a-z][^>]*>/gi)) {
+        if (/data-i18n-attr=/.test(tag[0])) continue;
+        for (const match of tag[0].matchAll(HTML_ATTRIBUTES)) {
+          if (isText(match[1])) found.push(`${name}:${lineAt(tag.index)}: ${match[1]}`);
+        }
+      }
+      // Tags become a mark (keeping their line breaks); what is between them is text.
+      html = html.replace(/<[^>]*>/g, (tag) => MARK + tag.replace(/[^\n]/g, ''));
+      let offset = 0;
+      for (const piece of html.split(MARK)) {
+        if (isText(piece)) found.push(`${name}:${lineAt(offset + piece.search(/\S/))}: ${piece.trim().replace(/\s+/g, ' ')}`);
+        offset += piece.length + 1;
+      }
+      continue;
+    }
+    lines.forEach((line, i) => {
+      if (line.includes('i18n-exempt') || /^\s*(?:\*|\/\/|\/\*)/.test(line)) return;
+      for (const match of line.matchAll(JS_TEXT)) if (isText(match[2])) found.push(`${name}:${i + 1}: ${match[2]}`);
+    });
+  }
+  return found;
+}
+
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   const [command = 'parity', dir, ...rest] = process.argv.slice(2);
   try {
     const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
     const problems = command === 'parity' ? parity(catalogs)
       : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-        : [`Use: parity [dir] | used <dir> <source folders…>`];
+        : command === 'hardcoded' ? hardcodedTexts([dir, ...rest].filter(Boolean).map((d) => path.resolve(d))).map((f) => `written in the code: ${f}`)
+          : [`Use: parity [dir] | used <dir> <source folders…> | hardcoded <source folders…>`];
     if (problems.length) {
       console.error(problems.join('\n'));
       process.exitCode = 1;
     } else {
       console.log(command === 'parity'
         ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`
-        : 'Every key in use is in the catalogs');
+        : command === 'used' ? 'Every key in use is in the catalogs' : 'No text written in the code');
     }
   } catch (err) {
     console.error(err.message);

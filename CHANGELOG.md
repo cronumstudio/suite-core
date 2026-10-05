@@ -3,6 +3,42 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.34.0 — 2026-10-05
+
+The web kit, whole: the interface every app shares, approved on 5 October, and what Notes needs to
+be built on it alone. How an app uses it: [docs/web-kit.md](docs/web-kit.md).
+
+- **The shared interface.** A frame with a sidebar (Tasks, Notes, Projects) or a top bar with tabs
+  (Next, Focus, Tracker, Talk) and the same pieces in both; on a phone a drawer, two screens for a
+  list and its detail and the tabs at the bottom (`shell.js`). Sign-in with the product's colour
+  large beside the form (`signin.js`), Settings as a list of sections with About in every app
+  (`settings.js`), dialogs that rise from the bottom on a phone, menus, notices with *Undo* or
+  *Retry*, banners, switches and the like (`ui.js`), stroked icons (`icons.js`).
+- **The brand.** `tokens.css`: yolk, ink, cream, every product's colour and its accent by
+  `<html data-app>`, light and dark, each pair measured at 4.5:1 by the tests; Geist, Space Grotesk
+  and Geist Mono served from `/suite/fonts/` (SIL OFL), never from Google. Tasks' light accent goes
+  to `#CC3718` and its dark one to `#F0694B` with ink, Next's light one to `#0A789E`: the ones
+  before didn't read as a link on the page's ground. The admin panel takes all of it, and its
+  title is the app's name until it writes its own.
+- **Offline writes sent once.** `idempotency.js`: every app's API keeps a day the first successful
+  answer to an `Idempotency-Key` (per account, tied to its method and path) and answers a repeat
+  with it, without running the write again; migration 15. In the browser, `local.js` keeps an
+  app's stores in IndexedDB and `outbox.js` the changes made offline, each with its key and
+  provisional ids that become the real ones; it waits without a signal, a session or a server,
+  hands conflicts (409) to the app and sends from one tab at a time.
+- **What the apps already did, once.** `update.js` (the new-version notice, from Tasks, kept until
+  acted on), `live.js` (the live channel, from Next and Tasks), `sw-core.js` (the service worker,
+  from Tasks).
+- **Markdown** (`markdown.js`): notes drawn with `el()`, HTML never interpreted, links only to
+  http, https, mailto or the app, images only from the app; tests with the usual XSS payloads.
+- **Texts written in the code** (`tools/i18n.mjs hardcoded`), and the kit's texts in the four
+  languages (`kit.*`), most of them from Next's.
+- **Dates in SQLite's format** ("2026-10-04 12:38:27", the OAuth grants) read as UTC in every browser
+  (`instant()` in `i18n.js`): Safari took them for invalid dates and Chrome for local time.
+- Interface: `api.write(method, path, body, { key })`; `toast()` takes `action`; `openDialog()`
+  takes `onClose`; `confirmDialog()` takes `title`. `kit.css` no longer brings the tokens: a
+  page links `tokens.css` before it.
+
 ## 0.33.0 — 2026-10-05
 
 Copies of data, from the audit's medium findings.

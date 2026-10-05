@@ -14,6 +14,7 @@ in, connect AI clients, translate, sync and charge the same way; that shared par
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | The target design: modules, configuration file, data model, accounts, organizations, plans, billing, and the order in which it is built |
 | [CONVENTIONS.md](CONVENTIONS.md) | The rules every repository of the suite follows: language, code, commits, versions, configuration, ports, tests |
+| [docs/web-kit.md](docs/web-kit.md) | The shared interface and how an app uses the web kit |
 | [CHANGELOG.md](CHANGELOG.md) | What each version changed |
 
 ## Modules
@@ -33,7 +34,8 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `jwt.js` | JWTs signed by a provider, checked against its published keys (RS256, ES256) with caching, issuer, audience, dates and nonce; shared by WorkOS and OIDC |
 | `workos-accounts.js` | Accounts with WorkOS: the `/auth/login` and `/auth/callback` routes, the MCP metadata, and how a WorkOS account becomes a user of the app |
 | `i18n.js` | Translations: the suite's own texts (`i18n/<lang>.json`: its screens, and the sentence of every error and field it sends), language negotiation, `t()` with placeholders, plurals and a fallback to English, and `mergeCatalogs()` for what the browser gets |
-| `tools/i18n.mjs` | Catalog checks for the suite and each app, merged: `parity [dir]` (keys, placeholders, plural forms, nothing left undone) and `used <dir> <sources…>` (keys the code uses that no catalog has) |
+| `tools/i18n.mjs` | Catalog checks for the suite and each app, merged: `parity [dir]` (keys, placeholders, plural forms, nothing left undone), `used <dir> <sources…>` (keys the code uses that no catalog has) and `hardcoded <sources…>` (texts for people written in the code instead of the catalogs) |
+| `idempotency.js` | Writes that may arrive twice: the first successful answer to an `Idempotency-Key` is kept a day per account, and the same key again gets it back without the write running again (the web kit's outbox sends them) |
 | `crypto.js` | Passwords in the scrypt format every app stores, token hashes, HMAC, constant-time comparison, and AES-256-GCM for what must be read back (a second step's secret) |
 | `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec`, nested transactions, `app_meta` |
 | `migrate.js` | Numbered migrations per scope (`suite`, `app`), each in its own transaction; refuses gaps and newer databases |
@@ -60,7 +62,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `app.js` | `createSuite()` wires every module from the configuration (database and migrations, sessions, accounts, tokens, audit, brake, plans, organizations, billing, WorkOS, OAuth); `createApp()` serves the suite's routes, its browser code and admin panel, the MCP endpoint, the app's routes and static files, in the order the apps learned, with clean-ups, hot reload and an orderly shutdown |
 | `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
 | `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, in two steps when the person turned it on, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password, two-step verification), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
-| `web/` | The web kit, served at `/suite/` with no build: `el()` and DOM helpers that never assemble HTML, `t()` in the browser (plurals, dates, the app's catalog merged with the suite's), `api` with errors in words, toasts, fields and dialogs, the theme before the first paint, QR codes with no library (`qr.js`: the second step's `otpauth://` address, a link for the phone), `kit.css`, and `oauth.css` for the OAuth screens |
+| `web/` | The web kit, served at `/suite/` with no build ([docs/web-kit.md](docs/web-kit.md)): the shared interface with the Cronum Studio brand —the app's frame with a sidebar or a top bar (`shell.js`), sign-in (`signin.js`), Settings (`settings.js`), dialogs, menus, notices and icons (`ui.js`, `icons.js`), `tokens.css` and `kit.css` with each product's accent and the brand's fonts—; `el()` and DOM helpers that never assemble HTML, `t()` in the browser, `api` with errors in words; the new-version notice (`update.js`), the live channel (`live.js`), offline writes in IndexedDB with idempotency keys (`local.js`, `outbox.js`), Markdown drawn without HTML (`markdown.js`), the service worker (`sw-core.js`), QR codes (`qr.js`) and `oauth.css` for the OAuth screens |
 | `brand.js` | What the suite's own screens share of the Cronum Studio brand: the product's colour as the accent, the text that reads on it, and the "by Cronum Studio" signature |
 | `web/admin.html` | The admin panel at `/admin`, in the app's colour and with its icon and the signature, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, two-step verification, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
 

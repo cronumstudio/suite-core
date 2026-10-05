@@ -53,9 +53,20 @@ export function t(key, vars = {}) {
 
 /** A date and time, the way the language writes them; an empty string for none. */
 export function formatDateTime(iso, options = { dateStyle: 'medium', timeStyle: 'short' }) {
-  if (!iso) return '';
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(language, options).format(date);
+  const date = instant(iso);
+  return date ? new Intl.DateTimeFormat(language, options).format(date) : '';
+}
+
+/**
+ * A moment from the server as a Date, or null. Some tables keep SQLite's own
+ * format ("2026-10-04 12:38:27", UTC, the OAuth grants): Safari reads that as
+ * an invalid date and Chrome as local time, so it is made ISO first.
+ */
+export function instant(value) {
+  if (!value) return null;
+  const text = String(value);
+  const date = new Date(/^\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d(\.\d+)?)?$/.test(text) ? `${text.replace(' ', 'T')}Z` : text);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export const formatDate = (iso) => formatDateTime(iso, { dateStyle: 'medium' });

@@ -3,7 +3,8 @@
  * three kinds of failure kept apart — no network (Offline), no session
  * (SessionExpired, a 401) and anything else (ApiError, with the code and the
  * details the server sent). `errorMessage()` turns any of them into a
- * sentence in the person's language.
+ * sentence in the person's language. A write may carry an Idempotency-Key
+ * (`api.write`), so sending it twice does it once.
  */
 import { t } from './i18n.js';
 
@@ -18,15 +19,19 @@ export class ApiError extends Error {
 export class SessionExpired extends ApiError {}
 export class Offline extends Error {}
 
-async function request(method, path, body, { file = false } = {}) {
+async function request(method, path, body, { file = false, key = null } = {}) {
   let res;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
       // A file goes as the raw body, as the suite's uploads expect: no multipart.
-      headers: file ? { 'Content-Type': body.type || 'application/octet-stream' }
-        : body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers: {
+        ...(file ? { 'Content-Type': body.type || 'application/octet-stream' }
+          : body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        // The same key twice gets the first answer back (suite-core idempotency.js).
+        ...(key ? { 'Idempotency-Key': key } : {}),
+      },
       body: file ? body : body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -47,6 +52,8 @@ export const api = {
   delete: (path) => request('DELETE', path),
   /** Sends a File or Blob as the body of a POST. */
   upload: (path, file) => request('POST', path, file, { file: true }),
+  /** A write that may be sent again (the outbox): `key` makes the server do it once. */
+  write: (method, path, body, { key = null } = {}) => request(method, path, body ?? undefined, { key }),
 };
 
 /** What went wrong, as a sentence: errors.<code>, with the field named in the language. */
