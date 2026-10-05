@@ -21,6 +21,8 @@ import { createKeySet, decodeJwt, verifyJwt } from './jwt.js';
 
 const withScheme = (url) => (url && !/^https?:\/\//.test(url) ? `https://${url}` : url);
 const noSlash = (url) => String(url || '').replace(/\/+$/, '');
+/** Why a fetch failed: "fetch failed" alone says nothing, its cause does (ECONNREFUSED, ECONNRESET…). */
+const fetchFailure = (err) => [err.message, err.cause?.code || err.cause?.message].filter(Boolean).join(': ');
 
 /** WorkOS doesn't answer, or answers badly: not the fault of whoever asks. */
 export class WorkosUnavailable extends Error {}
@@ -69,7 +71,7 @@ export function createWorkosClient({
     try {
       res = await fetch(url, { ...options, signal: AbortSignal.timeout(TIMEOUT_MS) });
     } catch (err) {
-      throw new WorkosUnavailable(`WorkOS does not answer (${err.message})`);
+      throw new WorkosUnavailable(`WorkOS does not answer (${fetchFailure(err)})`);
     }
     const body = await res.json().catch(() => null);
     return { status: res.status, ok: res.ok, body };

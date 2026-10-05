@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.30.1 — 2026-10-05
+
+- **"WorkOS does not answer" says why.** When a request to WorkOS or an OIDC provider fails before
+  any answer, the log now carries the reason from `fetch`'s cause (`fetch failed: ECONNREFUSED`,
+  `ECONNRESET`, `UND_ERR_SOCKET`…) instead of `fetch failed` alone, which couldn't tell a
+  provider that is down from a connection cut halfway.
+
 ## 0.30.0 — 2026-10-05
 
 More fixes from the audit: importing one's own data (`POST /api/me/import`, open to every account)

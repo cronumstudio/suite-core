@@ -37,6 +37,8 @@ export function oidcConfigFromEnv(env = process.env) {
 }
 
 const noSlash = (value) => String(value || '').replace(/\/+$/, '');
+/** Why a fetch failed: "fetch failed" alone says nothing, its cause does (ECONNREFUSED, ECONNRESET…). */
+const fetchFailure = (err) => [err.message, err.cause?.code || err.cause?.message].filter(Boolean).join(': ');
 
 /**
  * @param {object} config
@@ -56,7 +58,7 @@ export function createOidcClient({
     try {
       res = await fetch(url, { ...options, signal: AbortSignal.timeout(TIMEOUT_MS) });
     } catch (err) {
-      throw new OidcUnavailable(`${name} does not answer (${err.message})`);
+      throw new OidcUnavailable(`${name} does not answer (${fetchFailure(err)})`);
     }
     const body = await res.json().catch(() => null);
     return { status: res.status, ok: res.ok, body };
