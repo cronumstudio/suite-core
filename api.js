@@ -300,7 +300,7 @@ export function registerAccountMailApi(router, {
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
-  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {},
+  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null,
 }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
@@ -334,7 +334,9 @@ export function registerProfileApi(router, {
     /** Signs one of those devices out. */
     router.delete('/api/me/sessions/:key', (ctx) => {
       const user = requireUser(ctx);
+      const atProvider = sessions.idpSessionsOf?.(user.id, { key: ctx.params.key }) || [];
       if (!sessions.revoke(user.id, ctx.params.key)) throw notFound('session_not_found');
+      revokeAtProvider(idp, atProvider);
       record(ctx, 'auth.session.revoke', 'session', null);
       sendJson(ctx.res, 200, { ok: true });
     });
@@ -488,7 +490,24 @@ export function registerProfileApi(router, {
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
+  tokens = null, oauth = null, push = null, idp = null,
 }) {
+  /**
+   * Out everywhere, for a lost phone or a departure: the sessions here and at
+   * the identity provider, the API tokens, the assistants' OAuth grants and the
+   * devices that get notices. Closing the sessions alone left the assistants
+   * connected, the notices coming, and the provider's session ready to sign
+   * that browser back in with one click.
+   */
+  const signOutEverywhere = (id, { exceptToken = null } = {}) => {
+    const atProvider = sessions?.idpSessionsOf?.(id, { exceptToken }) || [];
+    const closed = sessions ? sessions.closeAllOf(id, { exceptToken }) : 0;
+    const revoked = tokens?.revokeAllOf(id) ?? 0;
+    oauth?.forgetUser(id);
+    push?.unsubscribe(id);
+    revokeAtProvider(idp, atProvider);
+    return { closed, tokens: revoked };
+  };
   const requireAdmin = (ctx) => {
     if (!ctx.user) throw unauthorized();
     if (ctx.user.role !== 'admin') throw forbidden('admin_only');
@@ -536,6 +555,8 @@ export function registerAdminApi(router, {
     });
     if (body.password !== undefined) {
       accounts.setPassword(id, body.password, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
+      // Someone else's password set by the admin is someone else out, everywhere.
+      if (id !== ctx.user.id) signOutEverywhere(id);
     }
     record(ctx, 'admin.user.update', 'user', id, {
       fields: Object.keys(body).filter((k) => k !== 'password'), password: body.password !== undefined,
@@ -557,11 +578,11 @@ export function registerAdminApi(router, {
     requireAdmin(ctx);
     const id = idOf(ctx.params.id);
     if (!accounts.byId(id)) throw notFound('user_not_found');
-    const closed = sessions ? sessions.closeAllOf(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null }) : 0;
+    const { closed, tokens: revoked } = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
     // Their open tabs look again at who they are, and find nobody.
     accounts.changed?.(id);
-    record(ctx, 'admin.user.signout', 'user', id, { closed });
-    sendJson(ctx.res, 200, { ok: true, closed });
+    record(ctx, 'admin.user.signout', 'user', id, { closed, tokens: revoked });
+    sendJson(ctx.res, 200, { ok: true, closed, tokens: revoked });
   });
 
   if (twoFactor) {
@@ -760,4 +781,16 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
     record(ctx, target === user.id ? 'org.leave' : 'org.member.remove', id, 'user', target);
     sendJson(ctx.res, 200, { ok: true });
   });
+}
+
+/**
+ * Ends sessions at the identity provider, in the background: it is a request to
+ * another service, and ours are already closed whatever it answers. With a
+ * provider that can't do it from the server (OIDC), nothing.
+ */
+function revokeAtProvider(idp, sessionIds) {
+  if (!idp?.revokeSession) return;
+  for (const id of sessionIds) {
+    idp.revokeSession(id).catch((err) => console.error(`[auth] a session at ${idp.name} stays open: ${err.message}`));
+  }
 }

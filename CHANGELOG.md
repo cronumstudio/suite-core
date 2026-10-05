@@ -3,6 +3,35 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.31.0 — 2026-10-05
+
+More fixes from the audit of 2026-10-04.
+
+- **Signing someone out from the admin panel is everywhere** (sc-web-3, sc-auth-48). "Sign out
+  everywhere" (`DELETE /api/admin/users/:id/sessions`) and a password the admin sets for someone
+  else used to close only the sessions here. Now they also:
+  - revoke the API tokens and the assistants' OAuth grants;
+  - drop the devices that get notices;
+  - end the identity provider's sessions behind them.
+
+  The answer now says `{ closed, tokens }`. Signing one device out from the profile ends its
+  provider session too. With WorkOS this is `revokeSession` (`POST
+  /user_management/sessions/revoke`), sent in the background, with failures logged. With OIDC
+  nothing changes, because there is no server-side way to end that session.
+  `registerAdminApi` takes `tokens`, `oauth`, `push` and `idp`, and `registerProfileApi` takes
+  `idp`. `sessions.idpSessionsOf()` is new.
+- **A disabled account gets no notices** (sc-platform-18): disabling it deletes its push
+  subscriptions. Apps pick whom to notify from that table without looking at `disabled_at`.
+- **Push: an outage no longer drops devices** (sc-platform-14). A failed fetch, a 408 or 429, and
+  any 5xx used to count towards the three failures that delete a subscription: a push service
+  down for minutes, or an outbound network blip, dropped every device of everyone. Only the other
+  4xx (a refusal about the subscription itself) count now; 404 and 410 still delete at once.
+- **The MCP token brake counts per address and token** (sc-oauth-1). Counted per address alone,
+  one misbehaving connector behind claude.ai's or ChatGPT's few shared addresses locked every
+  other user there out of signing in. Tokens are 192 random bits, so nobody guesses one: what
+  the brake stops is a client repeating the same bad token. Past 1,000 failures from an address
+  nothing more is written down. `checkToken`, `tokenFailed` and `tokenSucceeded` take the token.
+
 ## 0.30.2 — 2026-10-05
 
 - **An import can't multiply one attachment on disk** (audit, sc-data-13). Rows that share a file

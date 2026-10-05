@@ -422,10 +422,12 @@ export function createApp({
     });
   }
   registerProfileApi(api, {
-    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor,
+    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp,
     localPasswords: install.authProvider === 'local', alsoAt: profile.alsoAt || {},
   });
-  if (config.modules.admin) registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor });
+  if (config.modules.admin) {
+    registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp });
+  }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name });
   if (config.modules.live) {

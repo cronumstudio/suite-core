@@ -191,6 +191,18 @@ export function createSessions({
     return database.run('DELETE FROM sessions WHERE user_id = ?', userId).changes;
   }
 
+  /**
+   * The identity provider's sessions behind some of a person's sessions here
+   * (all, all but `exceptToken`'s, or the one of `key`): closing ours alone
+   * leaves that browser signed in at the provider, back in with one click.
+   */
+  function idpSessionsOf(userId, { key = null, exceptToken = null } = {}) {
+    const rows = database.all('SELECT token_hash, idp_session_id FROM sessions WHERE user_id = ? AND idp_session_id IS NOT NULL', userId);
+    return rows
+      .filter((r) => (key ? r.token_hash.slice(0, 16) === key : !exceptToken || r.token_hash !== hashOf(exceptToken)))
+      .map((r) => r.idp_session_id);
+  }
+
   /** Where a person is signed in, newest use first; `current` marks this browser. */
   function list(userId, currentToken = null) {
     const current = currentToken ? hashOf(currentToken) : null;
@@ -218,7 +230,7 @@ export function createSessions({
   const sign = (value) => hmac(secret, `sign|${value}`);
 
   return {
-    cookieName, open, alive, userFrom, tokenFrom, close, closeAllOf, list, revoke, purge, sign,
+    cookieName, open, alive, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign,
     setCookie, clearCookie,
   };
 }

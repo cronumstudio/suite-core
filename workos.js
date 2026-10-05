@@ -133,6 +133,16 @@ export function createWorkosClient({
     return url.toString();
   }
 
+  /** Ends an AuthKit session from here (signing someone out of a device they don't have at hand). */
+  async function revokeSession(sessionId) {
+    const { ok, status } = await request(`${API_URL}/user_management/sessions/revoke`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    if (!ok && status !== 404) throw new Error(`WorkOS did not revoke the session (${status})`);
+  }
+
   /** A WorkOS user by id (`user_…`), or null. */
   async function account(id) {
     const { ok, status, body } = await request(
@@ -200,7 +210,7 @@ export function createWorkosClient({
 
   return {
     authkitDomain: AUTHKIT,
-    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, account,
+    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, account,
     verifyToken, resourceMetadata, authorizationServerMetadata,
   };
 }

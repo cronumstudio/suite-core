@@ -260,16 +260,23 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
     return { ok: res.status >= 200 && res.status < 300, status: res.status, gone: res.status === 404 || res.status === 410 };
   }
 
+  /** A refusal about the subscription itself (bad request, keys, size): three in a row and it goes. */
+  const rejected = (status) => status >= 400 && status < 500 && status !== 408 && status !== 429;
+
   async function deliverOne(sub, payload, options) {
     const res = await send(sub, typeof payload === 'function' ? payload(sub) : payload, options);
     if (res.gone) {
       database.run('DELETE FROM push_subscriptions WHERE id = ?', sub.id);
     } else if (res.ok) {
       database.run("UPDATE push_subscriptions SET last_ok_at = datetime('now'), failures = 0 WHERE id = ?", sub.id);
-    } else {
+    } else if (rejected(res.status)) {
       database.run('UPDATE push_subscriptions SET failures = failures + 1 WHERE id = ?', sub.id);
       database.run('DELETE FROM push_subscriptions WHERE id = ? AND failures >= 3', sub.id);
-      log(`[push] a notice could not be sent (${res.status || res.reason})`);
+      log(`[push] a notice was refused (${res.status})`);
+    } else {
+      // The network, a 429 or the push service down: nothing about this device.
+      // Counted, an outage of a few minutes dropped every device of everyone.
+      log(`[push] a notice could not be sent for now (${res.status || res.reason})`);
     }
     return res;
   }

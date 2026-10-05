@@ -42,13 +42,22 @@ async function start(t) {
   const audit = createAudit({ database, trustProxy: '' });
 
   const router = createRouter();
-  registerAdminApi(router, { accounts, entitlements, organizations, sessions, audit });
-  registerOrganizationsApi(router, { organizations, audit, baseUrl: 'https://app.example/' });
   const tokens = createTokens({ database });
+  // The identity provider: which of its sessions were ended from here.
+  const revokedAtProvider = [];
+  const idp = { name: 'WorkOS', revokeSession: async (id) => { revokedAtProvider.push(id); } };
+  const pushed = { unsubscribed: [] };
+  const push = { unsubscribe: (id) => { pushed.unsubscribed.push(id); return 1; } };
+  const forgotten = [];
+  registerAdminApi(router, {
+    accounts, entitlements, organizations, sessions, audit, tokens, idp, push,
+    oauth: { forgetUser: (id) => forgotten.push(id) },
+  });
+  registerOrganizationsApi(router, { organizations, audit, baseUrl: 'https://app.example/' });
   // Connected apps: a stand-in for the OAuth server with one grant per person.
   const grants = new Map();
   const oauth = { enabled: true, grantsOf: (id) => grants.get(id) || [], revokeGrant: (grant, id) => grant === 1 && grants.delete(id) };
-  registerProfileApi(router, { accounts, sessions, tokens, entitlements, oauth, audit, alsoAt: { tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' } });
+  registerProfileApi(router, { accounts, sessions, tokens, entitlements, oauth, audit, idp, alsoAt: { tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' } });
 
   // Who is asking comes in a header: signing in is not what is tested here.
   const server = http.createServer(async (req, res) => {
@@ -81,7 +90,7 @@ async function start(t) {
     return { status: res.status, body: await res.json() };
   };
   const root = accounts.create({ username: 'root', password: 'correct horse', role: 'admin' });
-  return { call, root: root.id, accounts, sessions, entitlements, organizations, audit, database, tokens, grants };
+  return { call, root: root.id, accounts, sessions, entitlements, organizations, audit, database, tokens, grants, revokedAtProvider, pushed, forgotten };
 }
 
 test('only the admin reaches /api/admin', async (t) => {
@@ -93,7 +102,7 @@ test('only the admin reaches /api/admin', async (t) => {
 });
 
 test('the admin manages accounts, and every change is in the log', async (t) => {
-  const { call, root, sessions, audit } = await start(t);
+  const { call, root, sessions, audit, tokens, database, revokedAtProvider, pushed, forgotten } = await start(t);
 
   const created = await call('POST', '/api/admin/users', { as: root, body: { username: 'ada', display_name: 'Ada', password: 'correct horse', email: 'ada@example.com' } });
   assert.equal(created.status, 201);
@@ -112,9 +121,19 @@ test('the admin manages accounts, and every change is in the log', async (t) => 
   assert.equal(patched.body.display_name, 'Ada L.');
   assert.equal(sessions.alive(phone), null, 'a new password signs them out');
 
-  const again = sessions.open(ada, {});
-  assert.deepEqual((await call('DELETE', `/api/admin/users/${ada}/sessions`, { as: root })).body, { ok: true, closed: 1 });
+  // A lost phone: out everywhere, not just of the sessions here.
+  const again = sessions.open(ada, { idpSessionId: 'session_lost_phone' });
+  const assistant = tokens.create(ada, { name: 'Claude' });
+  assert.deepEqual((await call('DELETE', `/api/admin/users/${ada}/sessions`, { as: root })).body, { ok: true, closed: 1, tokens: 1 });
   assert.equal(sessions.alive(again), null);
+  assert.equal(tokens.authenticate(assistant.token), null, 'its API tokens are revoked');
+  assert.deepEqual([forgotten.at(-1), pushed.unsubscribed.at(-1), revokedAtProvider.at(-1)], [ada, ada, 'session_lost_phone'],
+    'and its assistants’ grants, its devices’ notices and the provider’s session');
+  // Disabled: its devices stop getting notices too (apps read the table directly).
+  database.run("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, 'https://push.example/x', 'k', 'a')", ada);
+  await call('PATCH', `/api/admin/users/${ada}`, { as: root, body: { disabled: true } });
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?', ada).n, 0, 'a disabled account gets no notices');
+  await call('PATCH', `/api/admin/users/${ada}`, { as: root, body: { disabled: false } });
 
   // Never on yourself: the admin panel would lock its own admin out.
   assert.deepEqual((await call('PATCH', `/api/admin/users/${root}`, { as: root, body: { role: 'user' } })).body, { error: 'not_on_yourself' });
@@ -125,12 +144,12 @@ test('the admin manages accounts, and every change is in the log', async (t) => 
   assert.deepEqual((await call('DELETE', `/api/admin/users/${ada}`, { as: root })).body, { ok: true });
   const log = audit.list();
   assert.deepEqual(log.map((e) => e.action),
-    ['admin.user.remove', 'admin.user.signout', 'admin.user.update', 'admin.user.create']);
-  assert.deepEqual(log[2].meta, { fields: ['display_name'], password: true }, 'that it changed, never to what');
+    ['admin.user.remove', 'admin.user.update', 'admin.user.update', 'admin.user.signout', 'admin.user.update', 'admin.user.create']);
+  assert.deepEqual(log[4].meta, { fields: ['display_name'], password: true }, 'that it changed, never to what');
   assert.equal(JSON.stringify(log).includes('much better'), false);
 
   const page = await call('GET', `/api/admin/audit?limit=2&before=${log[0].id}`, { as: root });
-  assert.deepEqual(page.body.entries.map((e) => e.action), ['admin.user.signout', 'admin.user.update']);
+  assert.deepEqual(page.body.entries.map((e) => e.action), ['admin.user.update', 'admin.user.update']);
 });
 
 test('plans and grants from the admin', async (t) => {

@@ -148,10 +148,11 @@ test('a notice reaches the push service signed with VAPID, and the device can re
   assert.deepEqual(JSON.parse(decryptPayload(body, device.d, device.p256dh, device.auth).toString()), { title: 'Hola', body: 'Prueba' });
 });
 
-test('delivering keeps the table clean: gone ones dropped, three failures dropped, good ones noted', async (t) => {
+test('delivering keeps the table clean: gone ones dropped, three refusals dropped, outages kept, good ones noted', async (t) => {
   const ok = await fakeService(t, 201);
   const gone = await fakeService(t, 410);
   const broken = await fakeService(t, 500);
+  const refused = await fakeService(t, 403);
   const { database, accounts } = store();
   const ada = accounts.create({ username: 'ada', password: 'ada-password' });
   const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, log: () => {} });
@@ -164,24 +165,26 @@ test('delivering keeps the table clean: gone ones dropped, three failures droppe
   const phone = add(ok.url('/phone'), 'es');
   add(gone.url('/old'));
   add(broken.url('/flaky'));
+  add(refused.url('/wrong-keys'));
 
   const said = [];
   const result = await push.sendTo([ada.id], (sub) => {
     said.push(sub.lang);
     return { title: sub.lang === 'es' ? 'Hola' : 'Hello' };
   });
-  assert.deepEqual(result, { sent: 1, gone: 1, failed: 1 });
-  assert.equal(said.length, 3, 'the payload is asked per device');
+  assert.deepEqual(result, { sent: 1, gone: 1, failed: 2 });
+  assert.equal(said.length, 4, 'the payload is asked per device');
   assert.equal(said.filter((lang) => lang === 'es').length, 1);
   assert.equal(JSON.parse(decryptPayload(ok.got[0].body, phone.d, phone.p256dh, phone.auth).toString()).title, 'Hola',
     'each device in its language');
   const rows = () => database.all('SELECT endpoint, failures, last_ok_at FROM push_subscriptions ORDER BY id');
-  assert.deepEqual(rows().map((r) => r.endpoint), [ok.url('/phone'), broken.url('/flaky')], 'the gone one is dropped');
+  assert.deepEqual(rows().map((r) => r.endpoint), [ok.url('/phone'), broken.url('/flaky'), refused.url('/wrong-keys')], 'the gone one is dropped');
   assert.ok(rows()[0].last_ok_at, 'the good one is noted');
   await push.sendTo([ada.id], { title: 'x' });
   await push.sendTo([ada.id], { title: 'x' });
-  assert.deepEqual(rows().map((r) => r.endpoint), [ok.url('/phone')], 'three failures in a row and it goes too');
-  assert.equal(rows()[0].failures, 0);
+  // A service that is down says nothing about the device: counted, an outage of minutes dropped everyone's.
+  assert.deepEqual(rows().map((r) => r.endpoint), [ok.url('/phone'), broken.url('/flaky')], 'three refusals in a row and it goes; an outage, never');
+  assert.deepEqual(rows().map((r) => r.failures), [0, 0]);
   assert.deepEqual(await push.sendTo([], { title: 'x' }), { sent: 0, gone: 0, failed: 0 });
 });
 

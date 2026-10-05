@@ -344,7 +344,12 @@ export function createAccounts({
       if (fields.disabled !== undefined && Boolean(fields.disabled) !== Boolean(user.disabled_at)) {
         if (fields.disabled && user.role === 'admin' && activeAdmins() <= 1) throw conflict('last_admin');
         sets.push('disabled_at = ?'); params.push(fields.disabled ? iso(clock()) : null);
-        if (fields.disabled) sessions?.closeAllOf(id);
+        if (fields.disabled) {
+          sessions?.closeAllOf(id);
+          // Its devices go too: notices carry task titles and list names, and an
+          // app picks whom to notify from this table without asking who is disabled.
+          if (database.columnsOf('push_subscriptions').length) database.run('DELETE FROM push_subscriptions WHERE user_id = ?', id);
+        }
       }
       if (sets.length) {
         database.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...params, id);
