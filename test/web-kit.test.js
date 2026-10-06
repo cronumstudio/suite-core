@@ -333,3 +333,11 @@ test('dates from the server read the same in ISO and in SQLite’s format, and a
   assert.equal(formatDateTime('not a date'), '');
   assert.notEqual(formatDateTime('2026-10-04 12:38:27'), '');
 });
+
+test('a session or a device without a browser to name says so, not a dash', async () => {
+  const { deviceName } = await import('../web/settings.js');
+  const chrome = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36';
+  assert.equal(deviceName(chrome, 'Unidentified browser'), 'Chrome · Windows');
+  assert.equal(deviceName(null, 'Unidentified browser'), 'Unidentified browser');
+  assert.equal(deviceName(''), '—', 'without a text of its own, as before');
+});

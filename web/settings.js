@@ -279,7 +279,11 @@ export function openSettings(options) {
     return parts;
   }
 
-  /** Where the person is signed in, each one closable. */
+  /**
+   * Where the person is signed in, each one closable. A session opened before
+   * the device was noted (a sign-in through WorkOS before 0.35.0) says so, and
+   * when it began, instead of a dash.
+   */
   function sessionsBlock() {
     const box = el('div', { class: 'kit-list' });
     const paint = async () => {
@@ -288,8 +292,12 @@ export function openSettings(options) {
       clear(box).append(...sessions.map((s) => el('div', { class: 'kit-list__row' },
         icon(/mobile|android|iphone/i.test(s.user_agent || '') ? 'phone' : 'device'),
         el('span', { class: 'kit-list__text' },
-          el('strong', { text: deviceName(s.user_agent) }),
-          el('small', { text: [s.ip, t('kit.security.lastUsed', { when: formatDateTime(s.last_used_at) })].filter(Boolean).join(' · ') })),
+          el('strong', { text: deviceName(s.user_agent, t('kit.security.unknownDevice')) }),
+          el('small', { text: [
+            s.ip,
+            s.user_agent ? null : t('kit.security.openedAt', { when: formatDateTime(s.created_at) }),
+            t('kit.security.lastUsed', { when: formatDateTime(s.last_used_at) }),
+          ].filter(Boolean).join(' · ') })),
         s.current ? el('span', { class: 'kit-badge kit-badge--accent', text: t('kit.security.thisDevice') })
           : button(t('kit.security.signOutDevice'), async () => {
             try {
@@ -400,9 +408,9 @@ export function openSettings(options) {
   /* ----------------------------------- AI ----------------------------------- */
 
   /**
-   * Connecting an assistant: the MCP address; with the built-in OAuth pasting
-   * it is enough and the apps connected that way are listed; manual tokens for
-   * clients that can't sign in.
+   * Connecting an assistant: the MCP address; with the built-in OAuth or
+   * WorkOS pasting it is enough and the apps connected that way are listed,
+   * each one disconnectable here; manual tokens for clients that can't sign in.
    */
   function ai() {
     const endpoint = el('code', { text: `${window.location.origin}/mcp` });
@@ -418,14 +426,18 @@ export function openSettings(options) {
       try { answer = await api.get('/api/me/apps'); } catch { /* without the built-in OAuth: tokens only */ }
       intro.textContent = t(answer.enabled ? 'kit.ai.introOAuth' : 'kit.ai.intro', { app: app.name });
       appsBlock.hidden = !answer.enabled;
-      clear(apps).append(...(answer.grants.length ? answer.grants.map((g) => el('div', { class: 'kit-list__row' },
+      const rows = answer.grants.map((g) => el('div', { class: 'kit-list__row' },
         icon('spark'),
         el('span', { class: 'kit-list__text' }, el('strong', { text: g.client_name }),
-          el('small', { text: [g.redirect_host, used(g.last_used_at)].filter(Boolean).join(' · ') })),
+          // Through WorkOS, when it was last used is only known since 0.35.0: no "never used" before.
+          el('small', { text: [g.redirect_host, g.provider && !g.last_used_at ? null : used(g.last_used_at)].filter(Boolean).join(' · ') })),
         button(t('kit.ai.disconnect'), async () => {
           if (!(await confirmDialog(t('kit.ai.confirmDisconnect', { name: g.client_name }), { confirm: t('kit.ai.disconnect') }))) return;
-          try { await api.delete(`/api/me/apps/${g.id}`); paintApps(); } catch (err) { fail(err); }
-        }, 'danger-quiet'))) : [el('div', { class: 'kit-list__row' }, hint(t('kit.ai.noApps')))]));
+          try { await api.delete(`/api/me/apps/${encodeURIComponent(g.id)}`); paintApps(); } catch (err) { fail(err); }
+        }, 'danger-quiet')));
+      if (answer.unavailable) rows.push(el('div', { class: 'kit-list__row' }, hint(t('kit.ai.appsUnavailable'))));
+      else if (!rows.length) rows.push(el('div', { class: 'kit-list__row' }, hint(t('kit.ai.noApps'))));
+      clear(apps).append(...rows);
     };
 
     const paintTokens = async () => {
@@ -479,7 +491,7 @@ export function openSettings(options) {
       try { devices = await api.get('/api/push/devices'); } catch (err) { fail(err); }
       clear(box).append(...(devices.length ? devices.map((d) => el('div', { class: 'kit-list__row' },
         icon(/mobile|android|iphone/i.test(d.label || '') ? 'phone' : 'device'),
-        el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(d.label) }),
+        el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(d.label, t('kit.security.unknownDevice')) }),
           el('small', { text: t('kit.notifications.since', { when: formatDateTime(d.created_at) }) }))))
         : [el('div', { class: 'kit-list__row' }, hint(t('kit.notifications.none')))]));
       status.textContent = !supported ? t('kit.notifications.unsupported')
@@ -640,14 +652,14 @@ function fact(label, value, detail = '') {
   return el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value }), detail ? el('small', { text: detail }) : null);
 }
 
-/** A browser and system from a user agent, short: "Chrome · Windows". */
-export function deviceName(agent = '') {
+/** A browser and system from a user agent, short: "Chrome · Windows"; `unknown` without one. */
+export function deviceName(agent = '', unknown = '—') {
   const text = String(agent || '');
   const browser = /Edg\//.test(text) ? 'Edge' : /OPR\//.test(text) ? 'Opera' : /Firefox\//.test(text) ? 'Firefox'
     : /Chrome\//.test(text) ? 'Chrome' : /Safari\//.test(text) ? 'Safari' : null;
   const system = /iPhone|iPad/.test(text) ? 'iOS' : /Android/.test(text) ? 'Android' : /Windows/.test(text) ? 'Windows'
     : /Mac OS X/.test(text) ? 'macOS' : /Linux/.test(text) ? 'Linux' : null;
-  return [browser, system].filter(Boolean).join(' · ') || text.slice(0, 40) || '—';
+  return [browser, system].filter(Boolean).join(' · ') || text.slice(0, 40) || unknown;
 }
 
 /** A text file saved on the device, made here: nothing goes to the server. */

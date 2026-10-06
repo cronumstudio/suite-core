@@ -459,7 +459,10 @@ Google and recovery, and is the authorization server for the MCP; an existing us
 through a verified email, and `ADMIN_EMAIL` takes over the first admin while the install moves to
 WorkOS (afterwards, only one with no email). Someone WorkOS knows by a new id (another environment,
 or their account made again there) keeps their account, linked by its verified email once WorkOS
-says the old id is gone (v0.32.0). `oidc` (**done**, v0.13.0):
+says the old id is gone (v0.32.0). The AI clients AuthKit authorized for the app are listed in
+Settings beside the built-in OAuth's, with their last use here, and disconnected from there: the
+authorization is withdrawn at WorkOS and the access tokens it had issued are refused here until
+they expire (`idp_connections`, v0.35.0). `oidc` (**done**, v0.13.0):
 any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google, Entra), so a self-hoster gets
 single sign-on across the apps — which replaces the identity bridge once planned between Projects
 and Tasks. `oidc.js` signs in with PKCE, a state and a nonce, checks the ID token against the

@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.35.0 — 2026-10-05
+
+- **The AI clients connected through WorkOS, in the app.** With WorkOS, Claude or ChatGPT are
+  authorized by AuthKit, not by the built-in OAuth, so Settings → Your AI listed none and
+  disconnecting one meant going to WorkOS. Now `/api/me/apps` lists them too —those whose
+  authorization names this app's `/mcp` and those whose tokens have come here—, with their last use
+  here, and *Disconnect* withdraws the authorization at WorkOS
+  (`/user_management/users/:id/authorized_applications`) and refuses from then on the access
+  tokens it had already issued, which would otherwise work until they expire. Their ids are
+  `workos:…`; the audit log notes `oauth.connection.revoke`. Migration 16 (`idp_connections`):
+  per person and client, last use and when it was disconnected. `workosUsers()` gains
+  `workosIdOf()`, `createWorkosAccounts()` takes `connections` (`workosConnections(database)`),
+  and the WorkOS client `authorizedApplications()` and `revokeApplication()`.
+- **Where you are signed in, with its browser.** A sign-in through WorkOS, OIDC or the OAuth consent
+  screen opened its session without the request, so Settings showed a dash with nothing else: now
+  the browser and address are noted as with a password. Sessions opened before say *Unidentified
+  browser* and when they began. `deviceName()` takes the text for an unknown one.
+
 ## 0.34.0 — 2026-10-05
 
 The web kit, whole: the interface every app shares, approved on 5 October, and what Notes needs to

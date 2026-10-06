@@ -206,7 +206,7 @@ function privateIp(ip) {
  *   login(username, password) → user | null; fromRequest(req) → user | null;
  *   byId(id) → user | null; handle(user) → how the consent screen names them
  * @param {object} options.sessions
- *   open(res, userId) opens a browser session; tokenFrom(req) → session token | null;
+ *   open(res, userId, { req }) opens a browser session, noting its device; tokenFrom(req) → session token | null;
  *   sign(value) → a keyed signature (for the consent CSRF)
  * @param {object} options.limits
  *   checkLogin(req, name), loginFailed(req, name), loginSucceeded(req, name),
@@ -611,7 +611,7 @@ ${!user && !challenge && externalSignIn
         return;
       }
       user = pending;
-      sessions.open(res, user.id);
+      sessions.open(res, user.id, { req });
     } else {
       const name = p.get('username') || '';
       if (!limits.checkLogin(req, name).allowed) {
@@ -631,7 +631,7 @@ ${!user && !challenge && externalSignIn
         return;
       }
       // The browser session is opened on the way, as when signing in to the app.
-      sessions.open(res, user.id);
+      sessions.open(res, user.id, { req });
     }
 
     if (!client.verified) {

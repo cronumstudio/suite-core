@@ -8,7 +8,8 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { createWorkosClient, workosConfigFromEnv, WorkosUnavailable } from '../workos.js';
-import { createWorkosAccounts } from '../workos-accounts.js';
+import { createWorkosAccounts, connectionsSchema, workosConnections } from '../workos-accounts.js';
+import { openDatabase } from '../db.js';
 
 let passed = 0;
 let failed = 0;
@@ -37,6 +38,14 @@ const ACCOUNTS = {
 };
 const codes = new Map();
 let jwksHits = 0;
+// Bob's authorized clients: Claude for this app, ChatGPT for another, Cursor last given for another
+// one but used here; and the authorizations withdrawn.
+const AUTHORIZED = () => [
+  { id: 'aca_claude', oauth_resource: `${base}/mcp/`, application: { id: 'conn_claude', client_id: 'client_claude', name: 'Claude' } },
+  { id: 'aca_gpt', oauth_resource: 'https://other.example/mcp', application: { id: 'conn_gpt', client_id: 'client_gpt', name: 'ChatGPT' } },
+  { id: 'aca_cursor', oauth_resource: 'https://next.example/mcp', application: { id: 'conn_cursor', client_id: 'client_cursor', name: 'Cursor' } },
+];
+const withdrawn = [];
 
 const fake = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -52,6 +61,15 @@ const fake = http.createServer(async (req, res) => {
     if (b.client_secret !== 'sk_test' || !c || c.challenge !== challenge) return json(400, { error: 'invalid_grant' });
     codes.delete(b.code);
     return json(200, { user: ACCOUNTS[c.id], access_token: sign({ sid: `sess_${c.id}`, sub: c.id }) });
+  }
+  const apps = url.pathname.match(/^\/user_management\/users\/([\w-]+)\/authorized_applications(?:\/([\w-]+))?$/);
+  if (apps) {
+    if (req.headers.authorization !== 'Bearer sk_test') return json(401, {});
+    if (req.method === 'DELETE') { withdrawn.push([apps[1], apps[2]]); res.writeHead(204); return res.end(); }
+    const data = apps[1] === 'user_bob' ? AUTHORIZED().filter((a) => !withdrawn.some(([, id]) => id === a.application.id)) : [];
+    // Two pages, to see they are all read.
+    return json(200, url.searchParams.get('after') ? { data: data.slice(2), list_metadata: {} }
+      : { data: data.slice(0, 2), list_metadata: { after: data.length > 2 ? 'next' : null } });
   }
   const u = url.pathname.match(/^\/user_management\/users\/([\w-]+)$/);
   // An id WorkOS can't answer about right now.
@@ -79,6 +97,7 @@ const users = {
     { workos_user_id: workosId, email }),
   setEmail: (id, email) => { USERS.find((u) => u.id === id).email = email; },
   usernameTaken: (name) => USERS.some((u) => u.username === name),
+  workosIdOf: (id) => USERS.find((u) => u.id === id)?.workos_user_id ?? null,
   create: ({ username, displayName, role, email, workosId }) => {
     if (USERS.some((u) => u.workos_user_id === workosId)) throw new Error('duplicate');
     const user = { id: USERS.length + 1, username, display_name: displayName, role, email, workos_user_id: workosId };
@@ -100,8 +119,11 @@ base = `http://127.0.0.1:${server.address().port}`;
 const workos = createWorkosClient({
   apiUrl: AUTHKIT, apiKey: 'sk_test', clientId: 'client_test', authkitDomain: AUTHKIT,
 });
+const database = openDatabase({ path: ':memory:' });
+connectionsSchema(database);
+const connections = workosConnections(database);
 accounts = createWorkosAccounts({
-  baseUrl: base, appName: 'Test app', workos, adminEmail: 'ada@example.com', users,
+  baseUrl: base, appName: 'Test app', workos, adminEmail: 'ada@example.com', users, connections,
   sessions: { open: (res, userId, extra) => opened.push({ userId, ...extra }) },
   stateCookie: 'test_auth', log: () => {},
 });
@@ -134,6 +156,7 @@ try {
     /HttpOnly/.test(ada.out.headers.get('set-cookie')) && /Path=\/auth/.test(ada.out.headers.get('set-cookie')));
   check('The return opens a session through the app, with AuthKit’s session id',
     ada.back.headers.get('location') === '/' && opened.at(-1)?.workosSessionId === 'sess_user_ada');
+  check('And with the request, so the session knows its browser', typeof opened.at(-1)?.req?.headers === 'object');
   check('The admin email takes over the existing admin', USERS[0].workos_user_id === 'user_ada'
     && USERS[0].email === 'ada@example.com' && USERS.length === 1);
   const eve = await signIn('user_eve');
@@ -174,6 +197,31 @@ try {
   check('With an audience set, a token for another app is refused',
     (await strict.verifyToken(tokenOf('user_bob', { aud: 'https://other/mcp' }))) === null
     && (await strict.verifyToken(tokenOf('user_bob', { aud: `${base}/mcp` })))?.sub === 'user_bob');
+
+  console.log('\nConnected AI clients');
+  const bobId = bobUser.id;
+  check('A token from a client is noted as its use',
+    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_cursor', iat: now - 10 })))?.id === bobId
+    && Boolean(connections.lastUsed('user_bob').client_cursor));
+  const listed = await accounts.connectionsOf(bobId);
+  check('Listed: those for this app and those used here, not those of another app',
+    listed.map((c) => c.client_name).join() === 'Claude,Cursor', listed.map((c) => c.client_name).join());
+  check('With when they were last used here', Boolean(listed.find((c) => c.client_id === 'client_cursor')?.last_used_at)
+    && listed.find((c) => c.client_id === 'client_claude')?.last_used_at === null);
+  check('An account without WorkOS has none', (await accounts.connectionsOf(9999)).length === 0);
+  const claudeBefore = tokenOf('user_bob', { client_id: 'client_claude', iat: now - 5 });
+  check('Before disconnecting, Claude’s token works', (await accounts.userFromToken(claudeBefore))?.id === bobId);
+  check('Another app’s connection can’t be disconnected from here',
+    (await accounts.revokeConnection(bobId, 'aca_gpt')) === false && withdrawn.length === 0);
+  const done = await accounts.revokeConnection(bobId, 'aca_claude');
+  check('Disconnecting withdraws the authorization at WorkOS', done?.client_name === 'Claude'
+    && withdrawn.at(-1)?.join() === 'user_bob,conn_claude', JSON.stringify(withdrawn));
+  check('And it is no longer listed', !(await accounts.connectionsOf(bobId)).some((c) => c.client_id === 'client_claude'));
+  check('A token Claude already had is refused, though it hasn’t expired', (await accounts.userFromToken(claudeBefore)) === null);
+  check('One issued after connecting again works',
+    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_claude', iat: now + 5 })))?.id === bobId);
+  check('Other clients are untouched',
+    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_cursor', iat: now - 10 })))?.id === bobId);
 
   console.log('\nMetadata and sign-out');
   const prm = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();
