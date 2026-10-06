@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.36.0 — 2026-10-06
+
+- **Drag and drop in the web kit** (`drag.js`). `makeDraggable(container, { items, check, onDrop })`
+  lets an app pick up rows of a list and drop them on places anywhere on the page (`data-drop`): a
+  note on another notebook, a task on another list. A card follows the pointer saying in words what
+  letting go will do, or why it can't be done there; the place under it lights up. A mouse starts
+  after a few pixels, a finger after holding still; Escape puts it back; it scrolls near the edges;
+  the release doesn't also open the row. On a phone, holding it over ☰ opens the drawer, which
+  closes again when the drag ends. `kit-dragstart`/`kit-dragend` and `<html data-kit-dragging>` let
+  the app's own gestures wait. The service worker caches it with the rest of the kit.
+- `navItem()` takes `data`, its entry's data-* attributes (`{ drop: '', notebook: 7 }`), so a sidebar
+  entry can be a place to drop on and say which one it is.
+
 ## 0.35.1 — 2026-10-06
 
 - **Each app sees only its own connections.** Claude is one client for every app, with an

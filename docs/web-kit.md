@@ -58,7 +58,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key; `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
-| `shell.js` | `createShell()`: the frame; `navItem()`, `navSection()`, `setCurrent()` |
+| `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
 | `settings.js` | `openSettings({ … })`; `subscribePush()`; `deviceName()` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
@@ -68,6 +68,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push })` for the app's service worker (a classic script) |
 | `qr.js` | `qrSvg(text, { label })` |
+| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place |
 
 ## Starting an app
 
@@ -154,6 +155,45 @@ changes are pointed at the real id (`idOf(answer)`, by default `answer.id`). It 
 signal, with the session ended or the server failing, and waits; a 409 goes to `onConflict` (Notes
 saves a conflict copy), anything else that can't be fixed by retrying to `onDropped`. One tab sends
 at a time (a Web Lock). `signOut({ local })` wipes it all: one person's notes don't stay for the next.
+
+### Drag and drop
+
+A note onto another notebook, a task onto another list: `makeDraggable()` picks up rows of a list
+and drops them on places anywhere on the page —anything with `data-drop`, such as a sidebar entry
+made with `navItem({ …, data: { drop: '', notebook: id } })`—. The app says what letting go there
+would do; the kit does the pointer:
+
+```js
+import { makeDraggable } from '/suite/drag.js';
+
+makeDraggable(list, {
+  items: '[data-note]',                                    // what picks up; the list may redraw them
+  canDrag: (row) => writable(row),                         // false: it stays (a notebook only to read)
+  label: (row) => titleOf(row),                            // the card that follows the pointer
+  check: (row, place) => same(row, place)                  // in words, before letting go
+    ? { ok: false, text: t('notes.drag.alreadyThere') }
+    : { ok: true, text: t('notes.drag.moveTo', { name: nameOf(place) }) },
+  onDrop: (row, place) => move(row, place),                // only when check said ok
+});
+```
+
+- **With a mouse** it starts once the pointer has moved a few pixels, so a click is still a click;
+  **with a finger**, after holding still for a moment (and a little buzz on Android), because
+  otherwise every scroll of the list would pick up a row. `handle` gives a grip that drags at once;
+  `skip` names parts of a row that don't pick it up (a grip that reorders). Controls inside a row
+  keep their job.
+- **Words, not just a highlight.** The card says what letting go will do or why it can't
+  (`{ ok: false, text }`): a few pixels separate two notebooks on a sidebar. The place under the
+  pointer gets `data-drop-state="ok"` or `"no"`; `null` from `check` means the place has nothing to do
+  with it.
+- **Escape** puts it back; letting go anywhere else does nothing; the click the release would make
+  doesn't open the row. Near the top or bottom of whatever scrolls under the pointer, it scrolls.
+- **On a phone** the sidebar is a drawer: held over ☰ for a moment it opens (the frame marks the
+  button with `data-drag-spring`), and it closes again when the drag ends.
+- `document` hears `kit-dragstart` and `kit-dragend`, and `<html>` has `data-kit-dragging` meanwhile:
+  an app's own gestures (a swipe on the row, a refresh that redraws the list) wait.
+- It is never the only way: a keyboard or a screen reader can't drag, so what can be dropped
+  somewhere can also be moved from a menu. After a move, a notice with *Undo*.
 
 ### Markdown
 

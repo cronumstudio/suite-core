@@ -80,7 +80,10 @@ export function createShell({
     bottom.append(below);
   }
   const bar = el('header', { class: 'kit-bar' },
-    el('button', { type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), onClick: () => toggleDrawer() }, icon('menu')),
+    el('button', {
+      type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
+      onClick: () => toggleDrawer(),
+    }, icon('menu')),
     el('button', { type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)() }, icon('back')),
     el('a', { class: 'kit-bar__brand', href: app.href || '/?app' }, appIcon(28), el('span', { class: 'kit-appname', text: app.name })),
     tabStrip,
@@ -123,6 +126,18 @@ export function createShell({
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); });
+  // Something dragged and held over ☰ opens the drawer, so it can be dropped on a list there
+  // (drag.js); the drawer goes when the drag ends, dropped or not, as it came for it.
+  let drawerForDrag = false;
+  element.addEventListener('kit-drag-spring', (ev) => {
+    if (!ev.target.closest('.kit-bar__menu') || element.hasAttribute('data-drawer')) return;
+    element.setAttribute('data-drawer', '');
+    drawerForDrag = true;
+  });
+  document.addEventListener('kit-dragend', () => {
+    if (drawerForDrag) closeDrawer();
+    drawerForDrag = false;
+  });
 
   function selectTab(id, { silent = false } = {}) {
     for (const [key, buttons] of tabButtons) {
@@ -208,13 +223,18 @@ export const navSection = (label) => el('div', { class: 'kit-nav__section', text
 /**
  * An entry of the sidebar: `iconName` or `color` (a swatch for a list or a
  * notebook), a `count` on the right; `now` paints it yolk (today, my day).
+ * `data` becomes data-* attributes: `{ drop: '', notebook: 7 }` makes it a
+ * place to drop things on (drag.js) that knows which notebook it is.
  */
-export function navItem({ label, iconName = null, color = null, count = null, current = false, now = false, href = null, onClick = null }) {
+export function navItem({ label, iconName = null, color = null, count = null, current = false, now = false, href = null, onClick = null, data = null }) {
   const props = {
     class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}`,
     'aria-current': current ? 'page' : null,
     onClick,
   };
+  for (const [key, value] of Object.entries(data || {})) {
+    props[`data-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`] = value;
+  }
   const children = [
     color ? el('span', { class: 'kit-nav__swatch', style: `background:${color}` }) : iconName ? icon(iconName) : null,
     el('span', { class: 'kit-nav__label', text: label }),
