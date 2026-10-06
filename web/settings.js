@@ -82,9 +82,9 @@ export function openSettings(options) {
   const frame = el('div', { class: 'kit-settings' }, el('div', { class: 'kit-settings__grid' }, list, page));
   const title = el('h1', { class: 'kit-settings-page__title', text: t('kit.settings.title') });
   const backButton = el('button', { type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.back'), onClick: () => back() }, icon('back'));
+  const scroller = el('div', { class: 'kit-settings-page__body' }, frame);
   const overlay = el('div', { class: 'kit-settings-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('kit.settings.title') },
-    el('header', { class: 'kit-settings-page__bar' }, backButton, title),
-    el('div', { class: 'kit-settings-page__body' }, frame));
+    el('header', { class: 'kit-settings-page__bar' }, backButton, title), scroller);
   root.append(overlay);
 
   const items = new Map();
@@ -127,7 +127,9 @@ export function openSettings(options) {
       else item.removeAttribute('aria-current');
     }
     title.textContent = wide() ? t('kit.settings.title') : section.label;
+    // Side by side the section scrolls on its own; on a phone the whole page does.
     page.scrollTop = 0;
+    if (!wide()) scroller.scrollTop = 0;
     page.focus({ preventScroll: true });
   }
 

@@ -119,8 +119,11 @@ const outbox = createOutbox({ local, onCount: (n) => …, onConflict: keepConfli
 `shell.list` and `shell.detail` (a list and what is open from it: side by side from 960 px, two
 screens below), `shell.actions` (buttons in the bar), `shell.banners`. On a phone, `showDetail()`
 moves to the detail and the bar's back button returns (`onBack`, or `showList()`); the sidebar is a
-drawer behind ☰. With `panes: 'single'` there is one view in `shell.list`. The account menu has
-Settings, Administration (for admins, at `/admin`) and Sign out, after the app's `accountItems`.
+drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
+drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
+edge does nothing instead of its forward. With `panes: 'single'` there is one view in
+`shell.list`. The account menu has Settings, Administration (for admins, at `/admin`) and Sign out,
+after the app's `accountItems`; it names the person only when opened from the bar's avatar.
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
 ### Sign-in and settings
