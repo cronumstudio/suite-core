@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.37.0 — 2026-10-06
+
+- **The person's button opens Settings.** It opened a menu whose entries were Settings,
+  Administration and Sign out, and Settings already has the other two: now it goes straight there.
+  A menu is still opened when the app gives `accountItems` or has no `onSettings`.
+- **Sign out at the foot of Settings' list**, seen from the first screen on a phone and always on a
+  computer, instead of at the bottom of *Password and sign-in*.
+
 ## 0.36.2 — 2026-10-06
 
 - **A swipe from the edge stays in the app.** Safari took a swipe from the left edge as back in the
