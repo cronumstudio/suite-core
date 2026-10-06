@@ -9,6 +9,7 @@
  */
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
+import { ensureColumn } from './migrate.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
 const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
@@ -123,6 +124,18 @@ export function connectionsSchema(d) {
 }
 
 /**
+ * The consent behind each connection (the tokens' `sid`): it stays the same
+ * when the client refreshes its token and changes when the person connects
+ * again. Claude is one client for every app, and WorkOS withdraws a client
+ * from all of them at once; disconnected here only, what comes with the
+ * consent that was disconnected is refused (migration 17).
+ */
+export function connectionConsentsSchema(d) {
+  ensureColumn(d, 'idp_connections', 'sid', 'sid TEXT');
+  ensureColumn(d, 'idp_connections', 'revoked_sid', 'revoked_sid TEXT');
+}
+
+/**
  * The `connections` that `createWorkosAccounts` needs, on that table.
  * @param {object} database
  * @param {object} [options]
@@ -130,33 +143,40 @@ export function connectionsSchema(d) {
  */
 export function workosConnections(database, { provider = 'workos', clock = () => Date.now() } = {}) {
   const iso = (ms) => new Date(ms).toISOString();
+  const rowOf = (subject, clientId) => database.get(
+    'SELECT * FROM idp_connections WHERE provider = ? AND subject = ? AND client_id = ?',
+    provider, String(subject), String(clientId));
   return {
-    /** Notes a use, at most once a minute per client: every MCP request brings its token. */
-    used(subject, clientId) {
+    /**
+     * Notes a use, at most once a minute per client (every MCP request brings
+     * its token), and at once when it comes with another consent.
+     */
+    used(subject, clientId, sid = null) {
       const now = clock();
-      database.run(`INSERT INTO idp_connections (provider, subject, client_id, last_used_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT (provider, subject, client_id) DO UPDATE SET last_used_at = excluded.last_used_at
-        WHERE last_used_at IS NULL OR last_used_at < ?`,
-      provider, String(subject), String(clientId), iso(now), iso(now - 60 * 1000));
+      database.run(`INSERT INTO idp_connections (provider, subject, client_id, last_used_at, sid) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (provider, subject, client_id) DO UPDATE SET last_used_at = excluded.last_used_at, sid = excluded.sid
+        WHERE last_used_at IS NULL OR last_used_at < ? OR sid IS NOT excluded.sid`,
+      provider, String(subject), String(clientId), iso(now), sid, iso(now - 60 * 1000));
     },
-    /** When each client of a person was last used here: { client_id: iso }. */
-    lastUsed(subject) {
+    /** A person's clients here: { client_id: { last_used_at, revoked_at } }. */
+    of(subject) {
       const out = {};
-      for (const row of database.all('SELECT client_id, last_used_at FROM idp_connections WHERE provider = ? AND subject = ?',
-        provider, String(subject))) out[row.client_id] = row.last_used_at;
+      for (const row of database.all('SELECT client_id, last_used_at, revoked_at FROM idp_connections WHERE provider = ? AND subject = ?',
+        provider, String(subject))) out[row.client_id] = { last_used_at: row.last_used_at, revoked_at: row.revoked_at };
       return out;
     },
-    /** Disconnected here now: the tokens issued until now are refused. */
+    /** Disconnected here now: the tokens issued until now, and those of its consent, are refused. */
     revoke(subject, clientId) {
       database.run(`INSERT INTO idp_connections (provider, subject, client_id, revoked_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT (provider, subject, client_id) DO UPDATE SET revoked_at = excluded.revoked_at`,
+        ON CONFLICT (provider, subject, client_id) DO UPDATE SET revoked_at = excluded.revoked_at, revoked_sid = sid`,
       provider, String(subject), String(clientId), iso(clock()));
     },
-    /** When it was disconnected, in milliseconds, or null. */
-    revokedAt(subject, clientId) {
-      const row = database.get('SELECT revoked_at FROM idp_connections WHERE provider = ? AND subject = ? AND client_id = ?',
-        provider, String(subject), String(clientId));
-      return row?.revoked_at ? Date.parse(row.revoked_at) : null;
+    /** Whether a token of that client is refused: issued before it was disconnected, or of the consent disconnected. */
+    refuses(subject, clientId, { iat = 0, sid = null } = {}) {
+      const row = rowOf(subject, clientId);
+      if (!row?.revoked_at) return false;
+      if ((Number(iat) || 0) * 1000 <= Date.parse(row.revoked_at)) return true;
+      return Boolean(sid && row.revoked_sid && sid === row.revoked_sid);
     },
   };
 }
@@ -188,7 +208,7 @@ function freeUsername(seed, taken) {
  *   `workosUsers(accounts)` makes all of them on the suite's accounts.
  * @param {object} options.sessions
  *   open(res, userId, { workosSessionId, req }) opens the app's browser session
- * @param {object} [options.connections]  used, lastUsed, revoke, revokedAt: the AI clients that
+ * @param {object} [options.connections]  used, of, revoke, refuses: the AI clients that
  *   come to the MCP (`workosConnections(database)`); without it, nothing is listed or refused
  * @param {boolean} [options.secureCookies]
  * @param {string} [options.stateCookie]   name of the cookie holding state and PKCE verifier
@@ -199,7 +219,7 @@ export function createWorkosAccounts({
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
-  const forThisApp = (resource) => String(resource || '').replace(/\/+$/, '') === RESOURCE;
+  const forThisApp = (resource) => [RESOURCE, BASE_URL].includes(String(resource || '').replace(/\/+$/, ''));
   const ADMIN_EMAIL = String(adminEmail || '').trim().toLowerCase();
 
   const stateCookieHeader = (value, maxAge) => [
@@ -299,11 +319,8 @@ export function createWorkosAccounts({
   async function userFromToken(token) {
     const data = await workos.verifyToken(token);
     if (!data) return null;
-    if (connections && data.client_id) {
-      // Disconnected in the app: what AuthKit issued before that is no one, even if it hasn't expired.
-      const revokedAt = connections.revokedAt(data.sub, data.client_id);
-      if (revokedAt && (Number(data.iat) || 0) * 1000 <= revokedAt) return null;
-    }
+    // Disconnected in the app: what AuthKit issued before that, or since with the same consent, is no one.
+    if (connections && data.client_id && connections.refuses(data.sub, data.client_id, data)) return null;
     let user = users.byWorkosId(data.sub);
     if (!user) {
       const account = await workos.account(data.sub);
@@ -311,45 +328,63 @@ export function createWorkosAccounts({
     }
     // An account the admin disabled is no one, whatever AuthKit says.
     if (!user || user.disabled_at) return null;
-    if (connections && data.client_id) connections.used(data.sub, data.client_id);
+    if (connections && data.client_id) connections.used(data.sub, data.client_id, data.sid || null);
     return user;
   }
 
   /**
    * The AI clients a person has authorized for this app, so they can be seen
    * and disconnected here without going to WorkOS: those whose authorization
-   * names this app's /mcp, and those whose tokens have come here (should
-   * WorkOS keep one authorization per client, it names only one of the apps).
-   * `[{ id, application_id, client_id, client_name, last_used_at }]`.
+   * names this app's /mcp. Claude is one client for every app, with an
+   * authorization per app; one without a resource is taken as this app's if
+   * that client has come here. One disconnected here is no longer listed,
+   * until a token of a new consent comes.
+   * `[{ id, application_id, client_id, client_name, last_used_at }]`, and
+   * every authorization of the person in `all`.
    * @throws {WorkosUnavailable}
    */
-  async function connectionsOf(userId) {
-    const subject = users.workosIdOf?.(userId);
-    if (!subject) return [];
-    const used = connections?.lastUsed(subject) || {};
-    return (await workos.authorizedApplications(subject))
-      .filter((a) => forThisApp(a.resource) || (a.client_id && a.client_id in used))
+  async function authorizationsOf(subject) {
+    const here = connections?.of(subject) || {};
+    const all = await workos.authorizedApplications(subject);
+    const mine = all
+      .filter((a) => forThisApp(a.resource) || (!a.resource && a.client_id && a.client_id in here))
+      .filter((a) => {
+        const row = here[a.client_id];
+        return !row?.revoked_at || (row.last_used_at && row.last_used_at > row.revoked_at);
+      })
       .map((a) => ({
         id: a.id, application_id: a.application_id, client_id: a.client_id,
-        client_name: a.name || a.client_id || appName, last_used_at: (a.client_id && used[a.client_id]) || null,
+        client_name: a.name || a.client_id || appName, last_used_at: here[a.client_id]?.last_used_at || null,
       }));
+    return { mine, all };
+  }
+
+  async function connectionsOf(userId) {
+    const subject = users.workosIdOf?.(userId);
+    return subject ? (await authorizationsOf(subject)).mine : [];
   }
 
   /**
-   * Disconnects one of those clients: the authorization withdrawn at WorkOS
-   * and, here, the tokens it was given refused from now on. False if the
-   * person has no such connection with this app.
-   * @returns {Promise<false|{ client_id, client_name }>}
+   * Disconnects one of those clients: here, its tokens are refused from now
+   * on, even refreshed; at WorkOS, its authorization is withdrawn unless the
+   * client is still authorized for another app, since WorkOS withdraws a
+   * client from every app at once. False if the person has no such
+   * connection with this app.
+   * @returns {Promise<false|{ client_id, client_name, everywhere }>}
    * @throws {WorkosUnavailable}
    */
   async function revokeConnection(userId, id) {
-    const connection = (await connectionsOf(userId)).find((c) => c.id === id);
+    const subject = users.workosIdOf?.(userId);
+    if (!subject) return false;
+    const { mine, all } = await authorizationsOf(subject);
+    const connection = mine.find((c) => c.id === id);
     if (!connection) return false;
-    const subject = users.workosIdOf(userId);
-    await workos.revokeApplication(subject, connection.application_id || connection.client_id);
+    const sameClient = (a) => (connection.application_id ? a.application_id === connection.application_id : a.client_id === connection.client_id);
+    const elsewhere = all.some((a) => a.id !== connection.id && sameClient(a) && !forThisApp(a.resource));
     if (connection.client_id) connections?.revoke(subject, connection.client_id);
-    log(`[workos] user #${userId} disconnected ${connection.client_name}`);
-    return { client_id: connection.client_id, client_name: connection.client_name };
+    if (!elsewhere) await workos.revokeApplication(subject, connection.application_id || connection.client_id);
+    log(`[workos] user #${userId} disconnected ${connection.client_name}${elsewhere ? ' here (still authorized for other apps)' : ''}`);
+    return { client_id: connection.client_id, client_name: connection.client_name, everywhere: !elsewhere };
   }
 
   /** The MCP's 401 header: where the metadata is, so the client opens AuthKit. */
