@@ -271,6 +271,33 @@ test('held over ☰ it asks for the drawer, and the end of the drag is announced
   }
 });
 
+test('the start says what was picked up and where it may go, and looks again once a drawer is in', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const p = page();
+    const starts = [];
+    const onStart = (ev) => starts.push(ev.detail);
+    document.addEventListener('kit-dragstart', onStart);
+    p.work.box = { top: -100, bottom: -60, left: 0, right: 260 };   // in a closed drawer, off the screen
+    pointer(p.first, 'pointerdown', 400, 110);
+    pointer(p.first, 'pointermove', 100, 160);
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0].item, p.first);
+    assert.equal(starts[0].targets, '[data-drop]');
+    // The frame opens its drawer: Work slides in under the pointer, which doesn't move.
+    assert.equal(p.work.getAttribute('data-drop-state'), null);
+    p.work.box = { top: 150, bottom: 170, left: 0, right: 260 };
+    mock.timers.tick(300);
+    assert.equal(p.work.getAttribute('data-drop-state'), 'ok');
+    pointer(p.first, 'pointerup', 100, 160);
+    assert.deepEqual(p.dropped, [['1', 'work']]);
+    document.removeEventListener('kit-dragstart', onStart);
+    p.drag.destroy();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test('near the bottom of the list it scrolls by itself', () => {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   try {

@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.36.1 — 2026-10-06
+
+- **On a phone the drawer opens as soon as something is picked up.** The sidebar is a closed
+  drawer there, and opening it meant holding the dragged note or task over ☰, which nothing told:
+  on an iPhone there was nowhere to drop it. Now the frame opens the drawer when a drag starts whose
+  places are in it (`kit-dragstart` carries `detail.item` and `detail.targets`) and closes it when
+  the drag ends; the drag looks again under a still finger once the drawer has slid in. Where the
+  sidebar stays, nothing changes.
+
 ## 0.36.0 — 2026-10-06
 
 - **Drag and drop in the web kit** (`drag.js`). `makeDraggable(container, { items, check, onDrop })`
