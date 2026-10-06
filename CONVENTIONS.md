@@ -126,6 +126,7 @@ Compose files use only the current names.
 | Next | 3458 | 3458 in the container, 3459 on the NAS |
 | Focus | 3460 | 3457 in the code, 3458 on the NAS: to move |
 | Tracker | 3461 | 3000 in the container, 3080 on the NAS: to move |
+| Notes | 3462 | 3462 |
 | Show Lab | 8780 | nginx, 8780 on the NAS |
 
 ## 6. Deployment and development
