@@ -191,9 +191,10 @@ makeDraggable(list, {
   with it.
 - **Escape** puts it back; letting go anywhere else does nothing; the click the release would make
   doesn't open the row. Near the top or bottom of whatever scrolls under the pointer, it scrolls.
-- **On a phone** the sidebar is a drawer: held over ☰ for a moment it opens (the frame marks the
-  button with `data-drag-spring`), and it closes again when the drag ends.
-- `document` hears `kit-dragstart` and `kit-dragend`, and `<html>` has `data-kit-dragging` meanwhile:
+- **On a phone** the sidebar is a closed drawer: the frame opens it as soon as something is picked
+  up whose places are in it, and closes it when the drag ends, dropped or not. Held over ☰
+  (`data-drag-spring`) it opens too.
+- `document` hears `kit-dragstart` (with `detail.item` and `detail.targets`) and `kit-dragend`, and `<html>` has `data-kit-dragging` meanwhile:
   an app's own gestures (a swipe on the row, a refresh that redraws the list) wait.
 - It is never the only way: a keyboard or a screen reader can't drag, so what can be dropped
   somewhere can also be moved from a menu. After a move, a notice with *Undo*.
