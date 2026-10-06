@@ -112,6 +112,13 @@ export function openSettings(options) {
       items.set(section.id, item);
       list.append(item);
     }
+    // Signing out at the foot of the list, where it is seen on any screen: the account button
+    // of the frame opens Settings, with no menu of its own any more.
+    if (onSignOut) {
+      list.append(el('button', { type: 'button', class: 'kit-settings__item kit-settings__item--out', onClick: onSignOut },
+        el('span', { class: 'kit-settings__icon' }, icon('logout')),
+        el('span', { class: 'kit-settings__text' }, el('span', { class: 'kit-settings__label', text: t('kit.account.signOut') }))));
+    }
   }
 
   /** Opens a section: built the first time and kept, so what was typed survives a visit to another. */
@@ -277,7 +284,6 @@ export function openSettings(options) {
       parts.push(block(null, hint(t('kit.security.provider'))));
     }
     parts.push(sessionsBlock());
-    if (onSignOut) parts.push(block(null, row(button(t('kit.account.signOut'), onSignOut))));
     return parts;
   }
 

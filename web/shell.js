@@ -47,9 +47,14 @@ export function createShell({
     return dot;
   };
   const accountButtons = [];
+  // The person opens Settings, where everything about the account is, signing out included; a
+  // menu only when the app has entries of its own for it or there is no Settings.
+  const direct = Boolean(onSettings) && !accountItems.length;
   const accountButton = (withText) => {
-    const button = el('button', { type: 'button', class: 'kit-account', 'aria-haspopup': 'menu', 'aria-label': t('kit.account.menu') });
-    button.addEventListener('click', () => openAccountMenu(button));
+    const button = direct
+      ? el('button', { type: 'button', class: 'kit-account', 'aria-label': t('kit.account.settings') })
+      : el('button', { type: 'button', class: 'kit-account', 'aria-haspopup': 'menu', 'aria-label': t('kit.account.menu') });
+    button.addEventListener('click', () => (direct ? onSettings() : openAccountMenu(button)));
     accountButtons.push({ button, withText });
     return button;
   };
