@@ -462,7 +462,7 @@ or their account made again there) keeps their account, linked by its verified e
 says the old id is gone (v0.32.0). The AI clients AuthKit authorized for the app are listed in
 Settings beside the built-in OAuth's, with their last use here, and disconnected from there: the
 authorization is withdrawn at WorkOS and the access tokens it had issued are refused here until
-they expire (`idp_connections`, v0.35.0). `oidc` (**done**, v0.13.0):
+they expire (`idp_connections`, v0.35.0). Each app lists only the authorizations for its own `/mcp`, and disconnecting one leaves the client connected to the other apps: WorkOS withdraws a client from all of them at once, so the app refuses that consent itself (v0.35.1). `oidc` (**done**, v0.13.0):
 any OpenID Connect provider (Authentik, Keycloak, Zitadel, Google, Entra), so a self-hoster gets
 single sign-on across the apps — which replaces the identity bridge once planned between Projects
 and Tasks. `oidc.js` signs in with PKCE, a state and a nonce, checks the ID token against the

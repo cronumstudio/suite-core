@@ -418,7 +418,7 @@ export function registerProfileApi(router, {
             throw new HttpError(503, 'provider_unavailable');
           }
           if (!done) throw notFound('app_not_found');
-          record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name });
+          record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name, ...(done.everywhere === false ? { everywhere: false } : {}) });
           sendJson(ctx.res, 200, { ok: true });
           return;
         }

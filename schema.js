@@ -28,7 +28,7 @@ import { twoFactorSchema } from './two-factor.js';
 import { pushSchema } from './push.js';
 import { dataImportsSchema } from './portability.js';
 import { idempotencySchema } from './idempotency.js';
-import { connectionsSchema } from './workos-accounts.js';
+import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -53,4 +53,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 15, name: 'idempotency-keys', up: idempotencySchema },
   // The AI clients that come with an AuthKit token: last use, and disconnected here (workos-accounts.js).
   { version: 16, name: 'idp-connections', up: connectionsSchema },
+  // And the consent behind each one: Claude is one client for every app (workos-accounts.js).
+  { version: 17, name: 'idp-connection-consents', up: connectionConsentsSchema },
 ]);

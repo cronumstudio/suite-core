@@ -8,7 +8,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { createWorkosClient, workosConfigFromEnv, WorkosUnavailable } from '../workos.js';
-import { createWorkosAccounts, connectionsSchema, workosConnections } from '../workos-accounts.js';
+import { createWorkosAccounts, connectionsSchema, connectionConsentsSchema, workosConnections } from '../workos-accounts.js';
 import { openDatabase } from '../db.js';
 
 let passed = 0;
@@ -38,12 +38,17 @@ const ACCOUNTS = {
 };
 const codes = new Map();
 let jwksHits = 0;
-// Bob's authorized clients: Claude for this app, ChatGPT for another, Cursor last given for another
-// one but used here; and the authorizations withdrawn.
+// Bob's authorizations, as WorkOS lists them: Claude, one client, for this app and two others;
+// ChatGPT for another; Cursor and Zed without a resource, only Cursor used here. WorkOS withdraws
+// a client from every app at once.
+const CLAUDE = { id: 'conn_claude', client_id: 'client_claude', name: 'Claude' };
 const AUTHORIZED = () => [
-  { id: 'aca_claude', oauth_resource: `${base}/mcp/`, application: { id: 'conn_claude', client_id: 'client_claude', name: 'Claude' } },
+  { id: 'aca_claude_here', oauth_resource: `${base}/mcp/`, application: CLAUDE },
+  { id: 'aca_claude_next', oauth_resource: 'https://next.example/mcp', application: CLAUDE },
+  { id: 'aca_claude_notes', oauth_resource: 'https://notes.example/mcp', application: CLAUDE },
   { id: 'aca_gpt', oauth_resource: 'https://other.example/mcp', application: { id: 'conn_gpt', client_id: 'client_gpt', name: 'ChatGPT' } },
-  { id: 'aca_cursor', oauth_resource: 'https://next.example/mcp', application: { id: 'conn_cursor', client_id: 'client_cursor', name: 'Cursor' } },
+  { id: 'aca_cursor', oauth_resource: null, application: { id: 'conn_cursor', client_id: 'client_cursor', name: 'Cursor' } },
+  { id: 'aca_zed', oauth_resource: null, application: { id: 'conn_zed', client_id: 'client_zed', name: 'Zed' } },
 ];
 const withdrawn = [];
 
@@ -121,6 +126,7 @@ const workos = createWorkosClient({
 });
 const database = openDatabase({ path: ':memory:' });
 connectionsSchema(database);
+connectionConsentsSchema(database);
 const connections = workosConnections(database);
 accounts = createWorkosAccounts({
   baseUrl: base, appName: 'Test app', workos, adminEmail: 'ada@example.com', users, connections,
@@ -202,26 +208,33 @@ try {
   const bobId = bobUser.id;
   check('A token from a client is noted as its use',
     (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_cursor', iat: now - 10 })))?.id === bobId
-    && Boolean(connections.lastUsed('user_bob').client_cursor));
+    && Boolean(connections.of('user_bob').client_cursor?.last_used_at));
   const listed = await accounts.connectionsOf(bobId);
-  check('Listed: those for this app and those used here, not those of another app',
-    listed.map((c) => c.client_name).join() === 'Claude,Cursor', listed.map((c) => c.client_name).join());
+  check('Listed: only this app’s authorization of Claude, not the other apps’, and Cursor, used here without a resource',
+    listed.map((c) => c.id).join() === 'aca_claude_here,aca_cursor', listed.map((c) => c.id).join());
   check('With when they were last used here', Boolean(listed.find((c) => c.client_id === 'client_cursor')?.last_used_at)
     && listed.find((c) => c.client_id === 'client_claude')?.last_used_at === null);
   check('An account without WorkOS has none', (await accounts.connectionsOf(9999)).length === 0);
-  const claudeBefore = tokenOf('user_bob', { client_id: 'client_claude', iat: now - 5 });
+  const claudeBefore = tokenOf('user_bob', { client_id: 'client_claude', sid: 'consent_1', iat: now - 5 });
   check('Before disconnecting, Claude’s token works', (await accounts.userFromToken(claudeBefore))?.id === bobId);
   check('Another app’s connection can’t be disconnected from here',
-    (await accounts.revokeConnection(bobId, 'aca_gpt')) === false && withdrawn.length === 0);
-  const done = await accounts.revokeConnection(bobId, 'aca_claude');
-  check('Disconnecting withdraws the authorization at WorkOS', done?.client_name === 'Claude'
-    && withdrawn.at(-1)?.join() === 'user_bob,conn_claude', JSON.stringify(withdrawn));
-  check('And it is no longer listed', !(await accounts.connectionsOf(bobId)).some((c) => c.client_id === 'client_claude'));
+    (await accounts.revokeConnection(bobId, 'aca_gpt')) === false
+    && (await accounts.revokeConnection(bobId, 'aca_claude_next')) === false && withdrawn.length === 0);
+  const done = await accounts.revokeConnection(bobId, 'aca_claude_here');
+  check('Disconnecting Claude here leaves it authorized at WorkOS for the other apps',
+    done?.client_name === 'Claude' && done.everywhere === false && withdrawn.length === 0, JSON.stringify({ done, withdrawn }));
+  check('And it is no longer listed here', !(await accounts.connectionsOf(bobId)).some((c) => c.client_id === 'client_claude'));
   check('A token Claude already had is refused, though it hasn’t expired', (await accounts.userFromToken(claudeBefore)) === null);
-  check('One issued after connecting again works',
-    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_claude', iat: now + 5 })))?.id === bobId);
+  check('So is a refreshed one, of the same consent',
+    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_claude', sid: 'consent_1', iat: now + 5 }))) === null);
+  check('One of a new consent (connected again) works, and is listed again',
+    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_claude', sid: 'consent_2', iat: now + 5 })))?.id === bobId
+    && (await accounts.connectionsOf(bobId)).some((c) => c.id === 'aca_claude_here'));
+  const cursor = await accounts.revokeConnection(bobId, 'aca_cursor');
+  check('A client authorized only here is withdrawn at WorkOS too',
+    cursor?.everywhere === true && withdrawn.at(-1)?.join() === 'user_bob,conn_cursor', JSON.stringify(withdrawn));
   check('Other clients are untouched',
-    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_cursor', iat: now - 10 })))?.id === bobId);
+    (await accounts.userFromToken(tokenOf('user_bob', { client_id: 'client_claude', sid: 'consent_2', iat: now + 5 })))?.id === bobId);
 
   console.log('\nMetadata and sign-out');
   const prm = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();

@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.35.1 — 2026-10-06
+
+- **Each app sees only its own connections.** Claude is one client for every app, with an
+  authorization per app, and 0.35.0 also listed any authorization of a client that had come to
+  the app: every app showed Claude's connections to all of them. Now an app lists the
+  authorizations that name its `/mcp`; one without a resource only if its client has come there.
+- **Disconnecting in one app leaves the others connected.** WorkOS withdraws a client from every
+  app at once, so while Claude is still authorized for another app the authorization isn't
+  withdrawn there: the app refuses the consent that was disconnected (the tokens' `sid`, the same
+  when Claude refreshes its token and new when it connects again). Migration 17: `sid` and
+  `revoked_sid` in `idp_connections`. A client authorized only for this app is withdrawn at WorkOS
+  as before. The connections store's `lastUsed()`/`revokedAt()` become `of()`/`refuses()`.
+
 ## 0.35.0 — 2026-10-05
 
 - **The AI clients connected through WorkOS, in the app.** With WorkOS, Claude or ChatGPT are
