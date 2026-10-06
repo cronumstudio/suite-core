@@ -638,8 +638,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   background: var(--kit-panel); border: 1px solid var(--kit-border); color: var(--kit-muted);
 }
 .kit-settings__item[aria-current="page"] .kit-settings__icon { color: var(--kit-accent); }
-.kit-settings__item--out { margin-top: 12px; color: var(--kit-danger); }
-.kit-settings__item--out .kit-settings__icon { color: var(--kit-danger); }
 .kit-settings__text { flex: 1; min-width: 0; line-height: 1.3; }
 .kit-settings__text small { display: block; color: var(--kit-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kit-settings__chevron { color: var(--kit-muted); }

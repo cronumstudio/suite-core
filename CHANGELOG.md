@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.37.1 — 2026-10-06
+
+- **Sign out closes the profile** in Settings, under the name, the address and the username, where
+  most apps have it, instead of at the foot of the list of sections, which keeps only sections.
+
 ## 0.37.0 — 2026-10-06
 
 - **The person's button opens Settings.** It opened a menu whose entries were Settings,
