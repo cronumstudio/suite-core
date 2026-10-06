@@ -224,5 +224,5 @@ test('the configuration: BILLING_PROVIDER=stripe with its two secrets, checked o
   assert.equal(ok.install.billing.apiBase, 'https://api.stripe.com');
   const live = resolveConfig(product, env({ STRIPE_SECRET_KEY: 'sk_live_1', STRIPE_WEBHOOK_SECRET: 'whsec_1', BASE_URL: 'http://localhost:3000' }));
   assert.ok(live.warnings.some((w) => /live key but BASE_URL is not https/.test(w)));
-  assert.ok(resolveConfig(product, env({ BILLING_PROVIDER: 'paypal' })).errors.some((e) => /use stripe or remote/.test(e)));
+  assert.ok(resolveConfig(product, env({ BILLING_PROVIDER: 'paypal' })).errors.some((e) => /use stripe, paddle or remote/.test(e)));
 });

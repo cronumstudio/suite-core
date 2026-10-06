@@ -20,6 +20,7 @@ import { workosConfigFromEnv } from './workos.js';
 import { oidcConfigFromEnv } from './oidc.js';
 import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { vapidKeyErrors } from './push.js';
+import { PADDLE_API } from './paddle.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -232,8 +233,35 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
           warnings.push('STRIPE_SECRET_KEY is a live key but BASE_URL is not https: Stripe will not reach the webhook');
         }
       }
-    } else errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": use stripe or remote`);
+    } else if (env.BILLING_PROVIDER === 'paddle') {
+      const environment = env.PADDLE_ENV || 'production';
+      const missing = ['PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET'].filter((name) => !env[name]);
+      if (missing.length) errors.push(`BILLING_PROVIDER=paddle needs ${missing.join(' and ')}`);
+      else if (!PADDLE_API[environment]) errors.push(`PADDLE_ENV "${env.PADDLE_ENV}": use sandbox or production`);
+      else if (!/^pdl_(sdbx|live)_apikey_\S+$/.test(env.PADDLE_API_KEY)) errors.push('PADDLE_API_KEY must be a Paddle API key (pdl_sdbx_apikey_…, pdl_live_apikey_…)');
+      // A sandbox key against the live API (or the other way round) only fails at the first checkout.
+      else if ((environment === 'sandbox') !== env.PADDLE_API_KEY.startsWith('pdl_sdbx_')) {
+        errors.push(`PADDLE_API_KEY is a ${env.PADDLE_API_KEY.startsWith('pdl_sdbx_') ? 'sandbox' : 'live'} key but PADDLE_ENV is ${environment}`);
+      } else if (!/^pdl_ntfset_\S+$/.test(env.PADDLE_WEBHOOK_SECRET)) errors.push('PADDLE_WEBHOOK_SECRET must be the secret of the app\'s notification destination (pdl_ntfset_…)');
+      else if (env.PADDLE_CHECKOUT_URL && !/^https:\/\/[^/\s]+\/\S*$/.test(env.PADDLE_CHECKOUT_URL)
+        && !(environment === 'sandbox' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/\S*$/.test(env.PADDLE_CHECKOUT_URL))) {
+        errors.push(`PADDLE_CHECKOUT_URL "${env.PADDLE_CHECKOUT_URL}" must be an https address (the page with Paddle.js)`);
+      } else {
+        billing = {
+          provider: 'paddle', apiKey: env.PADDLE_API_KEY, webhookSecret: env.PADDLE_WEBHOOK_SECRET, environment,
+          apiBase: String(env.PADDLE_API_BASE || PADDLE_API[environment]).replace(/\/+$/, ''),
+          checkoutUrl: env.PADDLE_CHECKOUT_URL || '',
+        };
+      }
+    } else errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": use stripe, paddle or remote`);
+    // Who joined before this date pays the founder's price of the products that have one.
+    if (billing && env.EARLY_ACCESS_UNTIL) {
+      const until = Date.parse(env.EARLY_ACCESS_UNTIL);
+      if (Number.isNaN(until)) errors.push(`EARLY_ACCESS_UNTIL "${env.EARLY_ACCESS_UNTIL}" is not a date (2026-12-01)`);
+      else billing.earlyAccessUntil = new Date(until).toISOString();
+    }
   }
+  const products = productsFor(isObject(p.products) ? p.products : {}, billing, errors);
 
   const install = {
     baseUrl,
@@ -272,7 +300,39 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     features: isObject(p.features) ? p.features : {},
     plans: isObject(p.plans) ? p.plans : null,
     defaultPlan: p.defaultPlan ?? null,
-    products: isObject(p.products) ? p.products : {},
+    products,
     install, errors, warnings,
   };
+}
+
+/**
+ * The products with the prices of this install's provider. A product may give
+ * a price per Paddle environment, `price: { sandbox: 'pri_…', production: 'pri_…' }`,
+ * since the sandbox and the live account have their own ids: the one of
+ * PADDLE_ENV is kept (the live one when billing is off). Paddle's ids are
+ * checked here, so a price copied wrong stops the start instead of a checkout.
+ */
+function productsFor(products, billing, errors) {
+  const environment = billing?.provider === 'paddle' ? billing.environment : 'production';
+  const pick = (key, field, value) => {
+    if (!isObject(value)) return value;
+    for (const name of Object.keys(value)) {
+      if (!PADDLE_API[name]) errors.push(`products.${key}.${field}: "${name}" is not sandbox or production`);
+    }
+    return value[environment] ?? null;
+  };
+  const out = {};
+  for (const [key, spec] of Object.entries(products)) {
+    if (!isObject(spec)) { out[key] = spec; continue; }
+    const resolved = { ...spec };
+    for (const field of ['price', 'founderPrice']) {
+      if (spec[field] === undefined) continue;
+      resolved[field] = pick(key, field, spec[field]);
+      if (billing?.provider === 'paddle' && resolved[field] != null && !/^pri_[a-z0-9]{26}$/.test(resolved[field])) {
+        errors.push(`products.${key}.${field}: "${resolved[field]}" is not a Paddle price id (pri_…)`);
+      }
+    }
+    out[key] = resolved;
+  }
+  return out;
 }

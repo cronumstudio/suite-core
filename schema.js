@@ -21,7 +21,7 @@ import { usersSchema, identitiesSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
-import { billingSchema } from './billing.js';
+import { billingSchema, billingPendingSchema } from './billing.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
@@ -55,4 +55,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 16, name: 'idp-connections', up: connectionsSchema },
   // And the consent behind each one: Claude is one client for every app (workos-accounts.js).
   { version: 17, name: 'idp-connection-consents', up: connectionConsentsSchema },
+  // What was paid for by someone with no account here yet, and refunded periods (billing.js).
+  { version: 18, name: 'billing-pending', up: billingPendingSchema },
 ]);

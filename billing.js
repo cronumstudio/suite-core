@@ -13,25 +13,38 @@
  *   subscription past due           → nothing changes: the grant lapses on its own
  *   subscription canceled or ended  → the grant ends now
  *   one-off purchase                → the plan for good, or for the product's days
- *   refund                          → the purchase's grant ends now
+ *   refund                          → the purchase's grant ends now; a subscription's too,
+ *                                     and the period it paid for doesn't bring it back
  *
  * Providers retry and may deliver out of order: each event is applied once
  * (`billing_events`), and a subscription event older than the state already
  * known for it is ignored (`billing_subscriptions`).
  *
+ * Who pays. An event says it, best first, by:
+ *   1. `identity`, who the person is where they sign in ({ provider: 'workos', subject: 'user_01…' }):
+ *      the same in every app of the suite, so one subscription bought in one app reaches all of
+ *      them, each with its own database and its own webhook. Someone who hasn't opened this app
+ *      yet has no account here: the event waits (`billing_pending`) and is applied when that
+ *      identity first signs in (`claim`, from the accounts' `whenLinked`).
+ *   2. the customer already linked here to an account (`billing_customers`);
+ *   3. `subject` ("user:12"), the app's own id, which only means something in the install that
+ *      made the checkout: a copy of the install renumbers accounts (portability.js), so it comes
+ *      last, after the customer, which the copy carries with the new ids.
+ *
  * A provider adapter is:
  *   {
  *     id: 'stripe',
- *     checkoutUrl({ subject, customer, product, price, kind, email, returnUrl }) → Promise<url>,
+ *     checkoutUrl({ subject, identity, customer, product, price, kind, email, returnUrl }) → Promise<url>,
  *     portalUrl({ customer, returnUrl }) → Promise<url>,
  *     parseWebhook({ headers, body }) → Promise<event | event[] | null>   (throws on a bad signature)
  *   }
  * and an event, whatever the provider called it:
- *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, subject?: { type, id },
- *     customer?, ref, product?, status?, periodEnd?, quantity? }
+ *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
+ *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity? }
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
+import { ensureColumn } from './migrate.js';
 
 const DAY = 24 * 3600 * 1000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -68,6 +81,26 @@ export function billingSchema(d) {
     received_at TEXT NOT NULL,
     PRIMARY KEY (provider, event_id)
   )`);
+}
+
+/**
+ * Migration 18: what was paid for by someone who has no account here yet, kept
+ * until they first sign in, and the period a subscription's refund paid back.
+ */
+export function billingPendingSchema(d) {
+  d.exec(`CREATE TABLE IF NOT EXISTS billing_pending (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider          TEXT NOT NULL,
+    identity_provider TEXT NOT NULL,
+    identity_subject  TEXT NOT NULL,
+    ref               TEXT NOT NULL,
+    event             TEXT NOT NULL,
+    occurred_at       TEXT NOT NULL,
+    received_at       TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS ix_billing_pending_identity ON billing_pending (identity_provider, identity_subject);
+  CREATE INDEX IF NOT EXISTS ix_billing_pending_ref ON billing_pending (provider, ref)`);
+  ensureColumn(d, 'billing_subscriptions', 'refunded_until', 'refunded_until TEXT');
 }
 
 /* ------------------------------ signatures ------------------------------ */
@@ -127,7 +160,10 @@ export function signedProvider({ id = 'remote', secret, baseUrl = '' }) {
 /* -------------------------------- billing ------------------------------- */
 
 const SUBSCRIPTION_KEEPS = new Set(['active', 'trialing']);
-const SUBSCRIPTION_ENDS = new Set(['canceled', 'ended', 'unpaid', 'incomplete_expired']);
+// Paused (Paddle) is not paid for either: resumed, it is active again.
+const SUBSCRIPTION_ENDS = new Set(['canceled', 'ended', 'unpaid', 'incomplete_expired', 'paused']);
+/** An event waiting for someone who never comes is dropped after this long. */
+const PENDING_DAYS = 400;
 
 /**
  * @param {object} options
@@ -136,14 +172,19 @@ const SUBSCRIPTION_ENDS = new Set(['canceled', 'ended', 'unpaid', 'incomplete_ex
  * @param {object} [options.provider]     an adapter; without one billing is off
  * @param {object} [options.products]     what can be bought:
  *   { 'pro-monthly': { plan: 'pro', kind: 'subscription', price: 'price_…' },
+ *     'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_…', founderPrice: 'pri_…' },
  *     'pro-lifetime': { plan: 'pro', kind: 'once' }, 'pro-pass': { plan: 'pro', kind: 'once', days: 30 },
  *     'family-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } }
+ *   A founder's price is chosen here, for whoever `isFounder` says: the browser only names the product.
+ * @param {object} [options.identities]   who people are where they sign in:
+ *   { of(userId) → { provider, subject } | null, user(provider, subject) → userId | null }
+ * @param {(user) => boolean|Promise<boolean>} [options.isFounder]   who gets the founder's price
  * @param {number} [options.graceDays]    after the paid period, before a subscription lapses
  * @param {object} [options.audit]
  */
 export function createBilling({
   database, entitlements, provider = null, products = {}, graceDays = 3, audit = null,
-  clock = () => Date.now(), log = console.log,
+  identities = null, isFounder = () => false, clock = () => Date.now(), log = console.log,
 }) {
   const errors = [];
   const planIds = new Set(entitlements.describe().plans.map((p) => p.id));
@@ -153,9 +194,15 @@ export function createBilling({
     if (!spec || !planIds.has(spec.plan)) { errors.push(`Product "${key}": plan "${spec?.plan}" is not in the catalog`); continue; }
     if (!['subscription', 'once'].includes(spec.kind)) { errors.push(`Product "${key}": kind must be "subscription" or "once"`); continue; }
     if (spec.days != null && !(Number.isInteger(spec.days) && spec.days > 0)) errors.push(`Product "${key}": days must be a whole number above 0`);
-    // Stripe sells prices: each product says which one (price_…).
-    if (provider?.needsPrice && !spec.price) errors.push(`Product "${key}": ${provider.id} needs its price (price_…)`);
-    catalog[key] = { key, plan: spec.plan, kind: spec.kind, days: spec.days ?? null, for: spec.for === 'organization' ? 'organization' : 'user', price: spec.price ?? null, name: spec.name ?? null };
+    // Stripe and Paddle sell prices: each product says which one (price_…, pri_…).
+    if (provider?.needsPrice && !spec.price) errors.push(`Product "${key}": ${provider.id} needs its price`);
+    for (const field of ['price', 'founderPrice']) {
+      if (spec[field] != null && typeof spec[field] !== 'string') errors.push(`Product "${key}": ${field} must be the provider's price id`);
+    }
+    catalog[key] = {
+      key, plan: spec.plan, kind: spec.kind, days: spec.days ?? null, for: spec.for === 'organization' ? 'organization' : 'user',
+      price: spec.price ?? null, founderPrice: spec.founderPrice ?? null, name: spec.name ?? null,
+    };
   }
   const enabled = Boolean(provider) && !errors.length;
   const source = provider?.id || 'billing';
@@ -176,8 +223,18 @@ export function createBilling({
     return row ? { type: row.subject_type, id: row.subject_id } : null;
   };
 
-  function linkCustomer(subject, customer) {
-    if (!customer || customerOf(subject)) return;
+  /**
+   * Links a provider's customer to an account. `takeOver`: the event said who
+   * by their identity, which outranks a link made before (one a copy of the
+   * install or an older checkout may have got wrong).
+   */
+  function linkCustomer(subject, customer, { takeOver = false } = {}) {
+    if (!customer) return;
+    const owner = subjectOfCustomer(customer);
+    if (owner && owner.type === subject.type && owner.id === subject.id) return;
+    if (owner && !takeOver) return;
+    if (owner) database.run('DELETE FROM billing_customers WHERE provider = ? AND customer_id = ?', source, customer);
+    if (customerOf(subject)) return;
     database.run(`INSERT OR IGNORE INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at)
       VALUES (?, ?, ?, ?, ?)`, subject.type, subject.id, source, customer, iso(clock()));
   }
@@ -218,6 +275,8 @@ export function createBilling({
     if (SUBSCRIPTION_KEEPS.has(event.status)) {
       const end = Date.parse(event.periodEnd);
       if (Number.isNaN(end)) throw badRequest('field_invalid', { field: 'period_end' });
+      // A period paid back doesn't give the plan again; the next one paid for does.
+      if (known?.refunded_until && end <= Date.parse(known.refunded_until)) return 'refunded';
       return holdPlan(subject, product, event.ref, iso(end + graceDays * DAY), event.quantity);
     }
     if (SUBSCRIPTION_ENDS.has(event.status)) {
@@ -236,9 +295,54 @@ export function createBilling({
     return 'granted';
   }
 
+  /** A refund: the grant ends, and a subscription's refunded period can't bring it back. */
+  function applyRefund(event) {
+    database.run(`UPDATE billing_subscriptions SET refunded_until = COALESCE(period_end, ?)
+      WHERE provider = ? AND ref = ?`, event.occurredAt, source, event.ref);
+    return entitlements.revoke({ source, externalRef: event.ref }) ? 'revoked' : 'nothing';
+  }
+
+  /** A subscription or a purchase, for an account here. */
+  function applyTo(event, subject, { byIdentity = false } = {}) {
+    linkCustomer(subject, event.customer, { takeOver: byIdentity });
+    const product = catalog[event.product];
+    if (!product) {
+      log(`[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
+      return 'ignored';
+    }
+    if (event.type === 'subscription') return applySubscription(event, subject, product);
+    if (event.type === 'purchase') return applyPurchase(event, subject, product);
+    return 'ignored';
+  }
+
+  const validSubject = (s) => (s?.type && Number.isInteger(s.id)
+    ? { type: s.type === 'organization' ? 'organization' : 'user', id: s.id } : null);
+
+  /** Who an event is for here (see the top of this file), or that it has to wait for them. */
+  function whoIs(event) {
+    const { identity } = event;
+    if (identity?.provider && identity.subject && identities) {
+      const userId = identities.user(String(identity.provider), String(identity.subject));
+      return userId ? { subject: { type: 'user', id: userId }, byIdentity: true } : { waits: identity };
+    }
+    // An event that names a person by an identity this app can't look up is not
+    // for an id of its own: that would be the id in whichever app made the checkout.
+    const linked = subjectOfCustomer(event.customer);
+    if (linked) return { subject: linked };
+    return { subject: identity?.subject ? null : validSubject(event.subject) };
+  }
+
+  /** Keeps an event until that identity has an account here. */
+  function hold(event, identity) {
+    database.run(`INSERT INTO billing_pending (provider, identity_provider, identity_subject, ref, event, occurred_at, received_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`, source, String(identity.provider), String(identity.subject),
+    event.ref, JSON.stringify(event), event.occurredAt, iso(clock()));
+    return 'pending';
+  }
+
   /**
    * Applies one event, once. Returns what it did: granted, extended, changed,
-   * revoked, kept, stale, duplicate, ignored or nothing.
+   * revoked, refunded, kept, stale, pending, duplicate, ignored or nothing.
    */
   function apply(event) {
     if (!event?.id || !event.type || !event.ref) throw badRequest('invalid_event');
@@ -246,32 +350,59 @@ export function createBilling({
     const normalized = { ...event, ref: String(event.ref), occurredAt: iso(Number.isNaN(at) ? clock() : at) };
     return database.tx(() => {
       if (database.get('SELECT 1 FROM billing_events WHERE provider = ? AND event_id = ?', source, String(event.id))) return 'duplicate';
+      database.run('DELETE FROM billing_pending WHERE received_at < ?', iso(clock() - PENDING_DAYS * DAY));
       let outcome = 'ignored';
-      const subject = normalized.subject?.type && Number.isInteger(normalized.subject.id)
-        ? { type: normalized.subject.type === 'organization' ? 'organization' : 'user', id: normalized.subject.id }
-        : subjectOfCustomer(normalized.customer);
+      let subject = null;
       if (normalized.type === 'refund') {
-        outcome = entitlements.revoke({ source, externalRef: normalized.ref }) ? 'revoked' : 'nothing';
-      } else if (subject) {
-        linkCustomer(subject, normalized.customer);
-        const product = catalog[normalized.product];
-        if (!product) {
-          log(`[billing] ${source} event ${event.id}: unknown product "${normalized.product}", ignored`);
-        } else if (normalized.type === 'subscription') {
-          outcome = applySubscription(normalized, subject, product);
-        } else if (normalized.type === 'purchase') {
-          outcome = applyPurchase(normalized, subject, product);
-        }
+        // A refund names no one: if what it refunds is waiting for someone, it waits with it.
+        const waiting = database.get(`SELECT identity_provider AS provider, identity_subject AS subject FROM billing_pending
+          WHERE provider = ? AND ref = ? LIMIT 1`, source, normalized.ref);
+        outcome = waiting ? hold(normalized, waiting) : applyRefund(normalized);
       } else {
-        log(`[billing] ${source} event ${event.id}: no known subject, ignored`);
+        const who = whoIs(normalized);
+        if (who.waits) {
+          outcome = hold(normalized, who.waits);
+        } else if (who.subject) {
+          subject = who.subject;
+          outcome = applyTo(normalized, subject, { byIdentity: who.byIdentity });
+        } else {
+          log(`[billing] ${source} event ${event.id}: no known subject, ignored`);
+        }
       }
       database.run('INSERT INTO billing_events (provider, event_id, type, outcome, received_at) VALUES (?, ?, ?, ?, ?)',
         source, String(event.id), normalized.type, outcome, iso(clock()));
-      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate'].includes(outcome)) {
+      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending'].includes(outcome)) {
         record(`billing.${outcome}`, subject, { provider: source, product: normalized.product ?? null, ref: normalized.ref });
       }
       return outcome;
     });
+  }
+
+  /**
+   * What was waiting for someone who now has an account here (their first
+   * sign-in), applied in the order it happened. Runs inside the sign-in's
+   * transaction: an event that fails is noted and dropped, never the sign-in.
+   * Returns how many were applied.
+   */
+  function claim(identityProvider, identitySubject, userId) {
+    const rows = database.all(`SELECT * FROM billing_pending WHERE provider = ? AND identity_provider = ?
+      AND identity_subject = ? ORDER BY occurred_at, id`, source, String(identityProvider), String(identitySubject));
+    const subject = { type: 'user', id: userId };
+    for (const row of rows) {
+      database.run('DELETE FROM billing_pending WHERE id = ?', row.id);
+      let outcome;
+      try {
+        const event = JSON.parse(row.event);
+        outcome = database.tx(() => (event.type === 'refund' ? applyRefund(event) : applyTo(event, subject, { byIdentity: true })));
+        if (!['ignored', 'nothing', 'kept', 'stale'].includes(outcome)) {
+          record(`billing.${outcome}`, subject, { provider: source, product: event.product ?? null, ref: event.ref });
+        }
+        database.run('UPDATE billing_events SET outcome = ? WHERE provider = ? AND event_id = ?', outcome, source, String(event.id));
+      } catch (err) {
+        log(`[billing] ${source} pending event ${row.id} for user #${userId} could not be applied: ${err.message}`);
+      }
+    }
+    return rows.length;
   }
 
   /* ------------------------------- the web ------------------------------ */
@@ -280,7 +411,23 @@ export function createBilling({
     if (!enabled) throw notFound('billing_off');
   }
 
-  async function checkoutUrl(subject, productKey, { email = null, returnUrl }) {
+  /** Whether this person pays a founder's price: never an error, at worst the regular one. */
+  async function founder(user) {
+    if (!user) return false;
+    try {
+      return Boolean(await isFounder(user));
+    } catch (err) {
+      log(`[billing] could not tell whether user #${user.id} is a founder: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * The provider's checkout for a product. `user` is who asks (for a group,
+   * its admin): the founder's price is theirs to have, and an email is only
+   * handed to the provider when it is verified.
+   */
+  async function checkoutUrl(subject, productKey, { email = null, returnUrl, user = null }) {
     mustBeOn();
     const product = catalog[productKey];
     if (!product) throw badRequest('product_unknown', { product: productKey });
@@ -290,8 +437,10 @@ export function createBilling({
       AND subject_type = ? AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, subject.type, subject.id)) {
       throw new HttpError(409, 'already_subscribed');
     }
+    const price = product.founderPrice && await founder(user) ? product.founderPrice : product.price;
+    const identity = subject.type === 'user' ? identities?.of(subject.id) ?? null : null;
     return provider.checkoutUrl({
-      subject, customer: customerOf(subject), product: product.key, price: product.price, kind: product.kind, email, returnUrl,
+      subject, identity, customer: customerOf(subject), product: product.key, price, kind: product.kind, email, returnUrl,
     });
   }
 
@@ -313,8 +462,8 @@ export function createBilling({
   }
 
   /** What can be bought, for a pricing page: never the provider's price ids. */
-  const offer = () => Object.values(catalog).map(({ key, plan, kind, days, for: forWhom, name }) => ({
-    key, plan, kind, days, for: forWhom, name,
+  const offer = () => Object.values(catalog).map(({ key, plan, kind, days, for: forWhom, name, founderPrice }) => ({
+    key, plan, kind, days, for: forWhom, name, founder_price: Boolean(founderPrice),
   }));
 
   const subscriptionsOf = (subject) => database.all(`SELECT ref, product, status, quantity, period_end, updated_at
@@ -322,7 +471,7 @@ export function createBilling({
   source, subject.type, subject.id);
 
   return {
-    enabled, errors, provider: source, offer, apply, checkoutUrl, portalUrl, handleWebhook,
+    enabled, errors, provider: source, offer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf,
   };
 }
@@ -346,13 +495,16 @@ export function registerBillingApi(router, { billing, organizations = null, base
     return { subject: { type: 'organization', id }, body };
   }
 
-  router.get('/api/billing/products', (ctx) => {
-    sendJson(ctx.res, 200, { provider: billing.provider, products: billing.offer() });
+  // `founder`: whether the person asking gets the founder's price of the products that have one.
+  router.get('/api/billing/products', async (ctx) => {
+    sendJson(ctx.res, 200, { provider: billing.provider, products: billing.offer(), founder: await billing.founder(ctx.user) });
   });
 
   router.post('/api/billing/checkout', async (ctx) => {
     const { subject, body } = await subjectOf(ctx);
-    const url = await billing.checkoutUrl(subject, body.product, { email: ctx.user.email ?? null, returnUrl: back('/?billing=done') });
+    // Only an email that is theirs: the provider may file the purchase under it.
+    const email = ctx.user.email && ctx.user.email_verified_at ? ctx.user.email : null;
+    const url = await billing.checkoutUrl(subject, body.product, { email, user: ctx.user, returnUrl: back('/?billing=done') });
     sendJson(ctx.res, 200, { url });
   });
 

@@ -110,7 +110,7 @@ names are the same in every app:
 | `PUID`, `PGID` | Owner of the data folder when the container cannot write to it |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push; generated when empty |
 | `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install |
-| `BILLING_PROVIDER`, `STRIPE_*` | Billing; off when empty |
+| `BILLING_PROVIDER`, `STRIPE_*`, `PADDLE_*`, `EARLY_ACCESS_UNTIL` | Billing (`stripe`, `paddle`, `remote`); off when empty. Until that date, the founder's price |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 
 Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`

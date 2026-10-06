@@ -8,7 +8,9 @@
  *   manifest.json        what it is: app, version, schema, scope, date, counts
  *   data/users.json      the accounts in it and their profile —never a password—
  *   data/<table>.json    the rows of every table the app declares, as they are
- *   suite/grants.json    (whole install) the plans the administrator gave
+ *   suite/grants.json    (whole install) the plans given: by the administrator or paid for
+ *   suite/billing.json   (whole install) who each account is at the payment provider, and its
+ *                        subscriptions, so that payments still find them (billing.js)
  *   files/<path>         the attachments, byte for byte
  *
  * The app says what its data is —its tables, which column points at which
@@ -325,6 +327,9 @@ function fromJson(value) {
 }
 
 const isId = (value) => Number.isSafeInteger(value) && value > 0;
+/** Where a grant came from (admin, paddle, stripe…), and how long a payment provider's id may be. */
+const SOURCE = /^[a-z0-9_-]{1,40}$/;
+const MAX_REF = 200;
 
 /**
  * How many values JSON text can hold at most. Every value but the first comes
@@ -443,6 +448,7 @@ export function createPortability({
     let kept;
     let leftOut;
     let grants = [];
+    let billing = null;
     const versions = schemaVersions();
     database.exec('BEGIN');
     try {
@@ -452,8 +458,20 @@ export function createPortability({
       ({ kept, leftOut } = selectRows(model, scope === 'install' ? rowsOfDb : rowsNear([userId]), inside,
         { account: scope === 'account' ? userId : null }));
       if (scope === 'install' && database.columnsOf('entitlement_grants').length) {
-        grants = database.all(`SELECT subject_id, plan, feature, value, quantity, source, starts_at, ends_at, created_at, note
-          FROM entitlement_grants WHERE subject_type = 'user' AND source = 'admin' AND revoked_at IS NULL ORDER BY id`);
+        // Every source, not only the administrator's: a paid plan moves with its account,
+        // which the new install numbers anew (audit sc-data-48).
+        grants = database.all(`SELECT subject_id, plan, feature, value, quantity, source, external_ref, starts_at, ends_at,
+          created_at, note FROM entitlement_grants WHERE subject_type = 'user' AND revoked_at IS NULL ORDER BY id`);
+      }
+      if (scope === 'install' && database.columnsOf('billing_customers').length) {
+        const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
+        billing = {
+          customers: database.all(`SELECT subject_id, provider, customer_id, created_at FROM billing_customers
+            WHERE subject_type = 'user' ORDER BY subject_id`),
+          subscriptions: database.all(`SELECT subject_id, provider, ref, product, status, quantity, period_end, occurred_at,
+            updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions WHERE subject_type = 'user' ORDER BY updated_at`),
+        };
+        if (!billing.customers.length && !billing.subscriptions.length) billing = null;
       }
     } finally {
       database.exec('COMMIT');
@@ -471,6 +489,7 @@ export function createPortability({
         if (rows.length) await zip.add(`data/${table.name}.json`, json(rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toJson(v)])))));
       }
       if (grants.length) await zip.add('suite/grants.json', json(grants));
+      if (billing) await zip.add('suite/billing.json', json(billing));
       const files = { count: 0, bytes: 0, missing: 0 };
       const added = new Set();
       for (const table of model.tables.filter((t) => t.file)) {
@@ -604,14 +623,54 @@ export function createPortability({
     return rows.map((raw) => {
       if (!isObject(raw) || !isId(raw.subject_id)) throw invalidData('grants');
       const grant = {};
-      for (const column of ['subject_id', 'plan', 'feature', 'value', 'quantity', 'starts_at', 'ends_at', 'created_at', 'note']) {
+      for (const column of ['subject_id', 'plan', 'feature', 'value', 'quantity', 'source', 'external_ref', 'starts_at', 'ends_at', 'created_at', 'note']) {
         const clean = fromJson(raw[column] ?? null);
         if (clean === undefined || clean instanceof Buffer) throw invalidData('grants', { column });
         grant[column] = clean;
       }
       if ((grant.plan == null) === (grant.feature == null)) throw invalidData('grants');
+      // Copies made before suite-core 0.38 only carried the administrator's, without saying so.
+      grant.source ??= 'admin';
+      if (!SOURCE.test(String(grant.source))) throw invalidData('grants', { column: 'source' });
+      if (grant.external_ref != null && (typeof grant.external_ref !== 'string' || grant.external_ref.length > MAX_REF)) {
+        throw invalidData('grants', { column: 'external_ref' });
+      }
       return grant;
     });
+  }
+
+  /** suite/billing.json: plain rows, every id a provider's and every account one of the copy. */
+  function checkBilling(raw) {
+    if (raw == null) return { customers: [], subscriptions: [] };
+    if (!isObject(raw) || !Array.isArray(raw.customers ?? []) || !Array.isArray(raw.subscriptions ?? [])) throw invalidData('billing');
+    const text = (value, max, column, { optional = false } = {}) => {
+      if (value == null && optional) return null;
+      if (typeof value !== 'string' || !value || value.length > max) throw invalidData('billing', { column });
+      return value;
+    };
+    const owner = (row) => {
+      if (!isObject(row) || !isId(row.subject_id)) throw invalidData('billing', { column: 'subject_id' });
+      if (!SOURCE.test(String(row.provider))) throw invalidData('billing', { column: 'provider' });
+    };
+    const customers = (raw.customers ?? []).map((row) => {
+      owner(row);
+      return {
+        subject_id: row.subject_id, provider: row.provider, customer_id: text(row.customer_id, MAX_REF, 'customer_id'),
+        created_at: text(row.created_at, 40, 'created_at', { optional: true }),
+      };
+    });
+    const subscriptions = (raw.subscriptions ?? []).map((row) => {
+      owner(row);
+      if (row.quantity != null && !Number.isSafeInteger(row.quantity)) throw invalidData('billing', { column: 'quantity' });
+      return {
+        subject_id: row.subject_id, provider: row.provider, ref: text(row.ref, MAX_REF, 'ref'),
+        product: text(row.product, 40, 'product'), status: text(row.status, 40, 'status'), quantity: row.quantity ?? null,
+        period_end: text(row.period_end, 40, 'period_end', { optional: true }),
+        occurred_at: text(row.occurred_at, 40, 'occurred_at'), updated_at: text(row.updated_at, 40, 'updated_at'),
+        refunded_until: text(row.refunded_until, 40, 'refunded_until', { optional: true }),
+      };
+    });
+    return { customers, subscriptions };
   }
 
   /**
@@ -650,7 +709,8 @@ export function createPortability({
       const tables = new Map();
       for (const table of model.tables) tables.set(table.name, checkRows(table, (await readJsonEntry(`data/${table.name}.json`)) ?? []));
       const grants = manifest.scope === 'install' ? checkGrants((await readJsonEntry('suite/grants.json')) ?? []) : [];
-      return { zip, manifest, users, tables, grants };
+      const billing = checkBilling(manifest.scope === 'install' ? await readJsonEntry('suite/billing.json') : null);
+      return { zip, manifest, users, tables, grants, billing };
     } catch (err) {
       await zip.close();
       throw err;
@@ -992,21 +1052,45 @@ export function createPortability({
           }
         }
 
-        // The plans the administrator gave there, to whoever came along.
+        // The plans given there, by the administrator or paid for, to whoever came along.
         let grantsImported = 0;
         if (mode === 'install' && archive.grants.length && database.columnsOf('entitlement_grants').length) {
           for (const grant of archive.grants) {
             const userId = userMap.get(grant.subject_id);
             if (!userId) continue;
+            // A payment's grant already here (its webhook came first) isn't doubled.
+            if (grant.external_ref != null && database.get(`SELECT 1 FROM entitlement_grants WHERE source = ?
+              AND external_ref = ? AND revoked_at IS NULL`, grant.source, grant.external_ref)) continue;
             try {
               database.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, feature, value, quantity, source,
-                starts_at, ends_at, created_at, note) VALUES ('user', ?, ?, ?, ?, ?, 'admin', ?, ?, ?, ?)`,
-              userId, grant.plan, grant.feature, grant.value, grant.quantity, grant.starts_at ?? iso(), grant.ends_at,
-              grant.created_at ?? iso(), grant.note);
+                external_ref, starts_at, ends_at, created_at, note) VALUES ('user', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              userId, grant.plan, grant.feature, grant.value, grant.quantity, grant.source, grant.external_ref,
+              grant.starts_at ?? iso(), grant.ends_at, grant.created_at ?? iso(), grant.note);
             } catch (err) {
               throw invalidData('grants', { reason: String(err.message || '').slice(0, 120) });
             }
             grantsImported += 1;
+          }
+        }
+
+        // Who each account is at the payment provider, under its id here: a renewal finds them by it,
+        // not by the id the copy had, which here may be someone else's (audit sc-data-48).
+        let billingImported = 0;
+        if (mode === 'install' && database.columnsOf('billing_customers').length) {
+          const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
+          for (const row of archive.billing.customers) {
+            const userId = userMap.get(row.subject_id);
+            if (!userId) continue;
+            billingImported += database.run(`INSERT OR IGNORE INTO billing_customers (subject_type, subject_id, provider,
+              customer_id, created_at) VALUES ('user', ?, ?, ?, ?)`, userId, row.provider, row.customer_id, row.created_at ?? iso()).changes;
+          }
+          for (const row of archive.billing.subscriptions) {
+            const userId = userMap.get(row.subject_id);
+            if (!userId) continue;
+            billingImported += database.run(`INSERT OR IGNORE INTO billing_subscriptions (provider, ref, subject_type, subject_id,
+              product, status, quantity, period_end, occurred_at, updated_at${refunded ? ', refunded_until' : ''})
+              VALUES (?, ?, 'user', ?, ?, ?, ?, ?, ?, ?${refunded ? ', ?' : ''})`, row.provider, row.ref, userId, row.product,
+            row.status, row.quantity, row.period_end, row.occurred_at, row.updated_at, ...(refunded ? [row.refunded_until] : [])).changes;
           }
         }
 
@@ -1030,7 +1114,7 @@ export function createPortability({
             source: sourceId, user_id: userId, username: accounts.byId(userId)?.username ?? null, created: created.includes(userId),
           })),
           skipped: [...choices].filter(([, c]) => c.action === 'skip').map(([sourceId]) => sources.get(sourceId).username),
-          imported: { ...counts, grants: grantsImported },
+          imported: { ...counts, grants: grantsImported, billing: billingImported },
           file_tables: model.tables.filter((t) => t.file).map((t) => t.name),
           replaced,
           left_out: { tables: leftOut, files: problems },
