@@ -126,13 +126,23 @@ export function createShell({
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); });
-  // Something dragged and held over ☰ opens the drawer, so it can be dropped on a list there
-  // (drag.js); the drawer goes when the drag ends, dropped or not, as it came for it.
+  // On a phone the sidebar is a closed drawer, and a note or a task picked up from the list
+  // (drag.js) would have nowhere to go: the drawer opens as the drag starts, when its places
+  // are in it, and goes when the drag ends, dropped or not, as it came for it. Held over ☰
+  // it opens too. Where the sidebar stays (a tablet, a computer) the ☰ isn't shown and nothing moves.
   let drawerForDrag = false;
-  element.addEventListener('kit-drag-spring', (ev) => {
-    if (!ev.target.closest('.kit-bar__menu') || element.hasAttribute('data-drawer')) return;
+  const drawerIsClosed = () => !element.hasAttribute('data-drawer')
+    && getComputedStyle(bar.querySelector('.kit-bar__menu')).display !== 'none';
+  const openForDrag = () => {
     element.setAttribute('data-drawer', '');
     drawerForDrag = true;
+  };
+  document.addEventListener('kit-dragstart', (ev) => {
+    const { item, targets } = ev.detail || {};
+    if (item && element.contains(item) && targets && nav.querySelector(targets) && drawerIsClosed()) openForDrag();
+  });
+  element.addEventListener('kit-drag-spring', (ev) => {
+    if (ev.target.closest('.kit-bar__menu') && !element.hasAttribute('data-drawer')) openForDrag();
   });
   document.addEventListener('kit-dragend', () => {
     if (drawerForDrag) closeDrawer();
