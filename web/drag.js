@@ -35,6 +35,7 @@ const THRESHOLD = 6;      // pixels the mouse moves before it is a drag and not 
 const HOLD_MS = 380;      // how long a finger holds still before it picks up
 const SLOP = 10;          // pixels a finger may wander while holding: more is a scroll
 const SPRING_MS = 550;    // how long over ☰ before the drawer opens
+const SETTLE_MS = 280;    // the drawer's slide (kit.css), and a little more
 const EDGE = 56;          // the strip at each end of a scrolling box that scrolls it
 const MAX_SPEED = 14;     // pixels per tick, right at the edge
 const TICK_MS = 16;
@@ -192,7 +193,10 @@ export function makeDraggable(container, {
     s.spring = spring;
     if (spring) {
       s.springTimer = setTimeout(() => {
-        if (session === s) spring.dispatchEvent(new CustomEvent('kit-drag-spring', { bubbles: true }));
+        if (session !== s) return;
+        spring.dispatchEvent(new CustomEvent('kit-drag-spring', { bubbles: true }));
+        // What opened slides in under a finger that may not move again: look once it is there.
+        s.springTimer = setTimeout(() => { if (session === s) follow(); }, SETTLE_MS);
       }, SPRING_MS);
     }
   }

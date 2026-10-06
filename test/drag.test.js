@@ -257,7 +257,12 @@ test('held over ☰ it asks for the drawer, and the end of the drag is announced
     pointer(p.first, 'pointermove', 22, 21);
     mock.timers.tick(300);
     assert.deepEqual(springs, ['open']);
+    // The drawer slides in under a finger that stays still: once it is there, its notebook counts.
+    p.work.box = { top: 0, bottom: 40, left: 0, right: 260 };
+    mock.timers.tick(300);
+    assert.equal(p.work.getAttribute('data-drop-state'), 'ok');
     pointer(p.first, 'pointerup', 22, 21);
+    assert.deepEqual(p.dropped, [['1', 'work']]);
     assert.deepEqual(ends, ['end']);
     document.removeEventListener('kit-dragend', onEnd);
     p.drag.destroy();
