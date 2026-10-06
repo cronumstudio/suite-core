@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.36.1 — 2026-10-06
+
+- **A swipe from the edge stays in the app.** Safari took a swipe from the left edge as back in the
+  history, which left the app for the page before, and one from the right as forward. Now the start
+  edge does what the bar's button beside it does —opens the drawer, or goes back from a detail to
+  its list— and the end edge does nothing; an open drawer closes with a swipe the other way. Safari
+  is only stopped by cancelling the touch as it begins, so a touch that starts within 20 px of an
+  edge does the tap and the vertical scroll by hand, and an edge is only taken when there is
+  something to do or a page to leave (`navigation.canGoBack`/`canGoForward` where they exist).
+  While something is being dragged (`drag.js`) the edges stand aside.
+- **Settings: the list and the open section scroll on their own.** Side by side, from 720 px, they
+  scrolled together and a long section carried the list away. Each column has its own scroll now;
+  on a phone, where they are two screens, the page scrolls as before.
+- **The account menu doesn't repeat who you are.** Opened from the sidebar, whose button already
+  shows the name and address, it no longer has them on top; from the bar's avatar, which is only
+  the initials, it still does.
+
 ## 0.36.0 — 2026-10-06
 
 - **Drag and drop in the web kit** (`drag.js`). `makeDraggable(container, { items, check, onDrop })`

@@ -139,6 +139,81 @@ export function createShell({
     drawerForDrag = false;
   });
 
+  /* ------------------------------- edge swipes ------------------------------ */
+  /*
+   * Safari takes a swipe from the screen's edge as back or forward in the
+   * history, which leaves the app for whatever page came before. Here the
+   * start edge does what the bar's button beside it does —opens the drawer,
+   * or goes back from a detail— and the end edge does nothing. Only a
+   * touchstart cancelled at once stops Safari, and that also cancels the tap
+   * and the scroll, so a touch taken at an edge does them by hand: a tap is
+   * passed on as a click, a vertical drag scrolls what is under the finger.
+   * An edge is only taken when there is something to do or to stop.
+   */
+  const EDGE = 20;
+  let swipe = null;
+  const visible = (node) => node.offsetParent !== null;
+  const menuButton = bar.querySelector('.kit-bar__menu');
+  const backButton = bar.querySelector('.kit-bar__back');
+  const startAction = (target) => {
+    if (!element.contains(target) || element.hasAttribute('data-drawer')) return null;
+    if (visible(backButton)) return () => (onBack || showList)();
+    if (layout === 'side' && visible(menuButton)) return openDrawer;
+    return null;
+  };
+  const scrollerOf = (node) => {
+    for (let at = node; at && at !== document.body; at = at.parentElement) {
+      const { overflowY } = getComputedStyle(at);
+      if ((overflowY === 'auto' || overflowY === 'scroll') && at.scrollHeight > at.clientHeight) return at;
+    }
+    return document.scrollingElement;
+  };
+  function tap(target) {
+    target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')?.focus();
+    target.click();
+  }
+  document.addEventListener('touchstart', (ev) => {
+    swipe = null;
+    if (ev.touches.length !== 1) return;
+    const { clientX: x, clientY: y } = ev.touches[0];
+    const target = ev.target instanceof Element ? ev.target : ev.target.parentElement;
+    const rtl = getComputedStyle(element).direction === 'rtl';
+    const atStart = rtl ? x > innerWidth - EDGE : x < EDGE;
+    const atEnd = rtl ? x < EDGE : x > innerWidth - EDGE;
+    const action = atStart ? startAction(target) : null;
+    // Without the Navigation API (older Safari) the history is assumed to have somewhere to go.
+    const leaves = (atStart && window.navigation?.canGoBack !== false) || (atEnd && window.navigation?.canGoForward !== false);
+    const taken = Boolean(action) || leaves;
+    if (taken) ev.preventDefault();
+    swipe = { x, y, lastY: y, rtl, target, action, taken, axis: null, done: false, scroller: taken ? scrollerOf(target) : null };
+  }, { passive: false });
+  document.addEventListener('touchmove', (ev) => {
+    if (!swipe || swipe.done || ev.touches.length !== 1) return;
+    const { clientX, clientY } = ev.touches[0];
+    const dx = (clientX - swipe.x) * (swipe.rtl ? -1 : 1);
+    const dy = clientY - swipe.y;
+    if (!swipe.axis && Math.hypot(dx, dy) > 10) swipe.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    if (swipe.axis === 'y' && swipe.taken) swipe.scroller.scrollTop -= clientY - swipe.lastY;
+    swipe.lastY = clientY;
+    if (swipe.axis !== 'x') return;
+    if (swipe.action && dx > 40) {
+      swipe.done = true;
+      swipe.action();
+    } else if (dx < -50 && element.hasAttribute('data-drawer')) {
+      // An open drawer goes back where it came from with the same gesture, from anywhere.
+      swipe.done = true;
+      closeDrawer();
+    }
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (swipe?.taken && !swipe.axis && !swipe.done) tap(swipe.target);
+    swipe = null;
+  });
+  document.addEventListener('touchcancel', () => { swipe = null; });
+  // A finger that picks something up (drag.js) is no longer a swipe nor a tap: the drawer
+  // it opens over ☰ must stay, and letting go must not open the row.
+  document.addEventListener('kit-dragstart', () => { swipe = null; });
+
   function selectTab(id, { silent = false } = {}) {
     for (const [key, buttons] of tabButtons) {
       for (const button of buttons) {
@@ -175,7 +250,10 @@ export function createShell({
       onSignOut ? 'separator' : null,
       onSignOut ? { label: t('kit.account.signOut'), iconName: 'logout', danger: true, onClick: onSignOut } : null,
     ].filter(Boolean);
-    const header = user ? [el('strong', { text: user.display_name || user.username }), user.email || user.username] : null;
+    // The sidebar's button already shows the name and address, so its menu doesn't repeat them;
+    // the bar's button is only the initials, and its menu says who it is.
+    const withText = accountButtons.find((entry) => entry.button === anchor)?.withText;
+    const header = user && !withText ? [el('strong', { text: user.display_name || user.username }), user.email || user.username] : null;
     menu(anchor, items, { header });
   }
 
