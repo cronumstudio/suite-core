@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.40.0 — 2026-10-07
+
+- **One drag for everything, and tabs to reach the drawer.** On a phone the drawer opened as soon
+  as something was picked up, which hid the list where it could also go in order or into another
+  category, so an app needed two drags. With `drawer: 'tabs'` the list stays: a tab at the start
+  edge opens the drawer when held, and one at the end edge, beside the open drawer, closes it, all
+  without letting go (`createShell({ dragTabs })` chooses their icons). `grip` picks up at once by a
+  part of the row while the rest still needs holding. Without `drawer`, nothing changes.
+- **Where it landed.** `onDrop` gets `x`, `y` and `top`, the gap's, so the app can keep the moved
+  row in sight after the list is drawn again.
+- What opens something when held (☰, the tabs) is marked `data-spring-armed` while it waits.
+
 ## 0.39.1 — 2026-10-07
 
 - **Updating says so at once.** Bringing in the new version takes a few seconds (the new service
