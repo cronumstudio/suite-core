@@ -515,6 +515,8 @@
   "kit.areYouSure": "Are you sure?",
   "kit.saved": "Saved.",
   "kit.menu": "Menu",
+  "kit.side.fold": "Hide the sidebar",
+  "kit.side.unfold": "Show the sidebar",
   "kit.saveState.saving": "Saving…",
   "kit.saveState.saved": "Saved",
   "kit.saveState.offline": "Offline, kept on this device",

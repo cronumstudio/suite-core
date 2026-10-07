@@ -321,14 +321,26 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
-test('with a sidebar, the person\'s button is only in it: the bar has one only in the top layout', () => {
+test('one frame: the person\'s button only at the sidebar\'s foot, and no top bar with tabs', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
-  const sideButtons = shell.match(/accountButton\(true\)/g) || [];
-  const barButtons = shell.match(/accountButton\(false\)/g) || [];
-  assert.equal(sideButtons.length, 1, 'one at the sidebar\'s foot');
-  assert.equal(barButtons.length, 1, 'at most one in the bar');
-  assert.match(shell, /layout === 'top' \? accountButton\(false\) : null/,
-    'the side layout (a sidebar, or a drawer on a phone) has none in the bar');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.equal((shell.match(/class: 'kit-account'/g) || []).length, 2, 'one button, a direct one or a menu');
+  assert.match(shell, /el\('div', \{ class: 'kit-side__foot' \}, account\)/, 'at the sidebar\'s foot, in the drawer on a phone');
+  assert.doesNotMatch(shell, /layout === 'top'|kit-bottom|kit-bar__tab/, 'the top layout was Next\'s, and Next has a sidebar now');
+  assert.doesNotMatch(css, /data-layout="top"|\.kit-bottom|\.kit-bar__tab|\.kit-bar__brand/);
+});
+
+test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(shell, /const foldKey = `\$\{app\.id \|\| app\.name\.toLowerCase\(\)\}\.sidebar`/, 'Projects\' key from before');
+  assert.match(shell, /localStorage\.setItem\(foldKey, value \? 'collapsed' : 'visible'\)/);
+  // Every rule for the folded frame is inside a container query from 640 px: on a phone the
+  // sidebar is a drawer whatever was chosen on a computer.
+  const outside = css.replace(/@container kit-app \(min-width: (?:640|960)px\) \{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
+  assert.doesNotMatch(outside, /\[data-folded\]/);
+  assert.match(css, /\[data-folded\] \.kit-bar__menu \{ display: inline-grid; \}/, '☰ brings it back');
+  assert.match(css, /\[data-folded\] \.kit-bar__create \{ display: inline-flex; \}/, 'what creates goes to the bar');
 });
 
 test('every file the service worker caches for the kit exists', () => {

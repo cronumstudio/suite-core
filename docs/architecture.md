@@ -743,8 +743,8 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
   catalogs, never caching `/api`, `/mcp`, `/auth`, `/oauth`, `/version`.
 
 **Since v0.34.0 the kit is whole**, with the shared interface approved on 2026-10-05; how an app
-uses it is in [web-kit.md](web-kit.md). The frame (`shell.js`) has a sidebar or a top bar with tabs,
-the same pieces in both, a drawer and two screens on a phone; sign-in (`signin.js`) puts the
+uses it is in [web-kit.md](web-kit.md). The frame (`shell.js`) has a sidebar, which folds away on
+a computer, and a drawer and two screens on a phone; sign-in (`signin.js`) puts the
 product's colour large beside the form; Settings (`settings.js`) is a list of sections, one screen
 each on a phone, with the app's own among them and About in every app; dialogs are sheets from the
 bottom on a phone. `tokens.css` brings the brand and each product's accent by `<html data-app>`,

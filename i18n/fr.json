@@ -515,6 +515,8 @@
   "kit.areYouSure": "Vous êtes sûr ?",
   "kit.saved": "Enregistré.",
   "kit.menu": "Menu",
+  "kit.side.fold": "Masquer le panneau latéral",
+  "kit.side.unfold": "Afficher le panneau latéral",
   "kit.saveState.saving": "Enregistrement…",
   "kit.saveState.saved": "Enregistré",
   "kit.saveState.offline": "Hors ligne, gardé sur cet appareil",
