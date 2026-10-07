@@ -284,6 +284,13 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
+test('with the sidebar beside the page, the person\'s button is only in it', () => {
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  const tablet = /@container kit-app \(min-width: 640px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
+  assert.match(tablet, /\.kit-app\[data-layout="side"\] \.kit-bar \.kit-account \{ display: none; \}/,
+    'from 640 px the sidebar shows; the bar must not repeat its account button');
+});
+
 test('every file the service worker caches for the kit exists', () => {
   const sw = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
   const files = [.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
