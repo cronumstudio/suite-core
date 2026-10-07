@@ -111,13 +111,13 @@ export function createShell({
   const tab = (kind, name) => el('div', {
     class: `kit-drag-tab kit-drag-tab--${kind}`, 'data-drag-spring': '', 'aria-hidden': 'true',
   }, icon(name));
-  const tabs = layout === 'side'
+  const edgeTabs = layout === 'side'
     ? [tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back')]
     : [];
 
   const shell = el('div', { class: 'kit-shell' },
     layout === 'side' ? side : null, layout === 'side' ? scrim : null, bar, banners, list, detail,
-    layout === 'top' ? bottom : null, fab, ...tabs);
+    layout === 'top' ? bottom : null, fab, ...edgeTabs);
   const element = el('div', { class: 'kit-app', 'data-layout': layout, 'data-panes': panes, 'data-screen': 'list' }, shell);
   root.append(element);
 
