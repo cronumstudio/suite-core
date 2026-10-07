@@ -29,7 +29,7 @@ const HANDOVER_MS = 3000;
  * @param {Function} [options.fetch]      for tests
  * @param {Function} [options.loadLocal]  () → { version } of this tab; default: import('/js/app-version.js')
  * @param {number}   [options.every]
- * @returns {{ check: (opts?) => Promise<boolean|null>, stop: () => void, dismiss: () => void, loaded: () => object }}
+ * @returns {{ check: (opts?) => Promise<boolean|null>, stop: () => void, dismiss: () => void, loaded: () => object, latest: () => object }}
  */
 export function watchUpdates({
   onUpdate, fetch: get = (...args) => globalThis.fetch(...args), every = CHECK_EVERY,
@@ -40,6 +40,8 @@ export function watchUpdates({
   timers = globalThis, doc = globalThis.document, now = Date.now,
 }) {
   let loaded = null;
+  // What the server said last time it was asked: { app, version, built }.
+  let latest = null;
   // Closed by the person: quiet until the next round of checks, then shown again if still new.
   let quietUntil = 0;
 
@@ -70,6 +72,7 @@ export function watchUpdates({
     const mine = await local();
     let theirs;
     try { theirs = await server(); } catch { return null; }
+    latest = theirs;
     if (!mine?.version) return null;
     const isNew = theirs.version !== mine.version;
     if (isNew && (announce || now() >= quietUntil)) onUpdate?.(theirs, mine);
@@ -85,6 +88,7 @@ export function watchUpdates({
   return {
     check,
     loaded: () => loaded,
+    latest: () => latest,
     dismiss: () => { quietUntil = now() + every; },
     stop: () => {
       timers.clearInterval(timer);

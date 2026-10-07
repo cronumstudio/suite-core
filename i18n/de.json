@@ -478,7 +478,7 @@
   "kit.data.discard": "Verwerfen",
   "kit.data.done": "Importiert: {what}.",
   "kit.about.checking": "Server wird gefragt…",
-  "kit.about.upToDate": "Du bist auf dem neuesten Stand.",
+  "kit.about.upToDate": "Du bist auf dem neuesten Stand",
   "kit.about.check": "Nach Updates suchen",
   "kit.account.signOut": "Abmelden",
   "kit.update.available": "Eine neue Version ist verfügbar.",

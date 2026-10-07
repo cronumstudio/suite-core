@@ -610,7 +610,7 @@ export function openSettings(options) {
    * the new version can be checked by hand here.
    */
   function about() {
-    const serverLine = el('div');
+    const serverLine = el('div', { class: 'kit-fact__value' });
     let running = el('div', { class: 'kit-fact' });
     let liveFact = el('div', { class: 'kit-fact' });
     // What runs and the live channel are known a moment after opening: painted again after each check.
@@ -624,9 +624,20 @@ export function openSettings(options) {
       clear(serverLine).append(hint(t('kit.about.checking')));
       const isNew = options.updates ? await options.updates.check({ announce: true }) : null;
       paintFacts();
-      clear(serverLine).append(isNew === null ? hint(t('kit.about.unknown'))
-        : isNew ? row(el('span', { text: t('kit.about.newVersion') }), button(t('kit.about.update'), (event) => options.applyUpdate?.(event), 'primary'))
-          : hint(t('kit.about.upToDate')));
+      clear(serverLine).append(...(isNew === null ? [hint(t('kit.about.unknown'))]
+        : isNew ? newest() : [el('strong', { class: 'kit-fact__ok', text: t('kit.about.upToDate') })]));
+    };
+    // The number the server has, and the button to bring it in. The same number as the one running
+    // means a new build of it: its date tells them apart.
+    const newest = () => {
+      const theirs = options.updates?.latest?.() || null;
+      const loaded = options.updates?.loaded?.() || null;
+      const sameNumber = theirs?.app && theirs.app === loaded?.app;
+      return [
+        el('strong', { text: theirs?.app ? `v${theirs.app}` : t('kit.about.newVersion') }),
+        sameNumber && theirs.built ? el('span', { class: 'kit-hint', text: formatDateTime(theirs.built) }) : null,
+        button(t('kit.about.update'), (event) => options.applyUpdate?.(event), 'primary'),
+      ].filter(Boolean);
     };
     const source = app.source || `https://github.com/cronumstudio/${app.id}`;
     const facts = el('div', { class: 'kit-facts' },

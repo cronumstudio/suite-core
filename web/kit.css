@@ -715,6 +715,12 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-fact > span { color: var(--kit-muted); font-size: 13px; flex: 1 1 150px; }
 .kit-fact > strong { font-weight: 600; font-variant-numeric: tabular-nums; }
 .kit-fact small { flex-basis: 100%; color: var(--kit-muted); font-size: 12px; font-family: var(--kit-font-mono); }
+.kit-fact__value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.kit-fact__value > strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.kit-fact__value > .kit-hint { margin: 0; }
+.kit-fact__ok { color: var(--kit-ok); }
+/* An app's own `a { color: inherit }` (Next) mustn't turn the source link into plain text. */
+.kit-fact a { color: var(--kit-accent); }
 .kit-about { display: flex; align-items: center; gap: 14px; }
 .kit-about img { width: 54px; height: 54px; border-radius: 14px; }
 .kit-about strong { display: block; font: 700 22px/1 var(--kit-font-display); letter-spacing: -.03em; }
