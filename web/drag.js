@@ -50,6 +50,7 @@ const SETTLE_MS = 320;    // the drawer's slide (--kit-slide-time, kit.css), and
 const EDGE = 56;          // the strip at each end of a scrolling box that scrolls it
 const MAX_SPEED = 14;     // pixels per tick, right at the edge
 const TICK_MS = 16;
+const CLOSE_MS = 260;     // a gap left behind closes (kit.css), and is gone even if no animation ends
 const EDGE_SHARE = 0.3;   // of a row that also takes things inside, the top and bottom shares that go around it
 
 // Inside a row these keep their own job; the row itself may be a link or a button.
@@ -151,7 +152,7 @@ export function makeDraggable(container, {
     session = {
       item, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
       touch, holding: touch && !grip, active: false, timer: null, place: null, zone: null, verdict: null,
-      verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, height: 0,
+      verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, closing: new Set(), height: 0,
       spring: null, springTimer: null, scroller: null, scrollTimer: null,
     };
     if (session.holding) session.timer = setTimeout(() => { if (session && !session.active) start(); }, HOLD_MS);
@@ -297,21 +298,48 @@ export function makeDraggable(container, {
   /** Where it would land: a dashed gap the size of what is carried, which the rows make room for. */
   function openGap(place, zone, verdict) {
     const s = session;
-    if (!place || !verdict?.ok || !BETWEEN.has(zone)) { s.gap?.remove(); return; }
+    if (!place || !verdict?.ok || !BETWEEN.has(zone)) { closeGap(); return; }
     const last = zone === 'end' ? lastPlace() : null;
     const parent = zone === 'end' ? (last?.parentElement || container) : place.parentElement;
-    // A list takes only items: in one the gap is an item too.
-    const tag = /^(UL|OL)$/.test(parent.tagName) ? 'li' : 'div';
-    if (s.gap?.tagName !== tag.toUpperCase()) {
-      s.gap?.remove();
+    // Already there (behind one row is in front of the next): it stays open, only its indent may change.
+    const there = s.gap?.parentElement && (zone === 'before' ? beside(place, 'previousElementSibling') === s.gap
+      : zone === 'after' ? beside(place, 'nextElementSibling') === s.gap
+        : (last ? beside(last, 'nextElementSibling') === s.gap : container.lastElementChild === s.gap));
+    if (!there) {
+      closeGap();
+      // A list takes only items: in one the gap is an item too.
+      const tag = /^(UL|OL)$/.test(parent.tagName) ? 'li' : 'div';
       s.gap = el(tag, { class: gapKind === 'thin' ? 'kit-drop-gap kit-drop-gap--thin' : 'kit-drop-gap', 'aria-hidden': 'true' });
+      if (gapKind !== 'thin') s.gap.style.height = `${s.height}px`;
+      if (zone === 'before') place.before(s.gap);
+      else if (zone === 'after') place.after(s.gap);
+      else if (last) last.after(s.gap);
+      else container.append(s.gap);
     }
-    if (gapKind !== 'thin') s.gap.style.height = `${s.height}px`;
     s.gap.style.marginInlineStart = verdict.indent ? `${Math.round(verdict.indent)}px` : '';
-    if (zone === 'before') place.before(s.gap);
-    else if (zone === 'after') place.after(s.gap);
-    else if (last) last.after(s.gap);
-    else container.append(s.gap);
+  }
+
+  /** The node beside `node` that way, past the gaps still closing. */
+  function beside(node, way) {
+    let at = node[way];
+    while (at?.classList?.contains('kit-drop-gap--closing')) at = at[way];
+    return at;
+  }
+
+  /**
+   * The gap it leaves closes as the new one opens (kit.css), so the rows between
+   * slide to their place instead of jumping; while it closes it is no place.
+   */
+  function closeGap() {
+    const s = session;
+    const gap = s.gap;
+    s.gap = null;
+    if (!gap?.parentElement) return;
+    gap.classList.add('kit-drop-gap--closing');
+    s.closing.add(gap);
+    const done = () => { gap.remove(); s.closing.delete(gap); };
+    gap.addEventListener('animationend', done, { once: true });
+    setTimeout(done, CLOSE_MS);
   }
 
   function springOver(spring) {
@@ -380,6 +408,7 @@ export function makeDraggable(container, {
     if (!s.active) return;
     s.ghost.remove();
     s.gap?.remove();
+    s.closing.forEach((gap) => gap.remove());
     s.item.classList.remove('kit-drag-source');
     s.place?.removeAttribute('data-drop-state');
     document.documentElement.removeAttribute('data-kit-dragging');

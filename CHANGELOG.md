@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.40.4 — 2026-10-07
+
+- **The rows slide while something is dragged.** The gap where it would land appeared and
+  vanished at once, and the rows jumped by a whole row each time it moved. Now it grows where it is
+  going while the one it leaves shrinks, so the rows between slide to their place; one closing is
+  no place to drop on, and the same slot (behind one row, in front of the next) keeps its gap.
+
 ## 0.40.3 — 2026-10-07
 
 - **About says which version is the latest.** The row is "Latest version" and says "You are up to

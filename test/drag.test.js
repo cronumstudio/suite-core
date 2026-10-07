@@ -78,6 +78,12 @@ FakeElement.prototype.after = function (node) {
   node.remove?.();
   insertAt(this.parentElement, node, this.parentElement.childNodes.indexOf(this) + 1);
 };
+const siblings = (node) => node.parentElement?.childNodes.filter((n) => n.nodeType === 1) || [];
+Object.defineProperties(FakeElement.prototype, {
+  previousElementSibling: { get() { const all = siblings(this); return all[all.indexOf(this) - 1] || null; } },
+  nextElementSibling: { get() { const all = siblings(this); return all[all.indexOf(this) + 1] || null; } },
+  lastElementChild: { get() { return this.children.at(-1) || null; } },
+});
 FakeElement.prototype.querySelectorAll = function (selector) {
   return this.all().filter((node) => matches(node, selector));
 };
@@ -399,8 +405,10 @@ function rows(options = {}) {
   });
   return p;
 }
-const gapIn = (list) => list.children.find((node) => node.className.includes('kit-drop-gap'));
-const order = (list) => list.children.map((node) => node.getAttribute('data-id') || 'gap');
+// The open gap; one closing is on its way out (kit.css animates it) and counts for nothing.
+const closing = (node) => node.className.includes('kit-drop-gap--closing');
+const gapIn = (list) => list.children.find((node) => node.className.includes('kit-drop-gap') && !closing(node));
+const order = (list) => list.children.filter((node) => !closing(node)).map((node) => node.getAttribute('data-id') || 'gap');
 
 test('between two rows a gap the size of the row opens where it would land', () => {
   const p = rows({ detail: 'at the top level' });
@@ -603,5 +611,30 @@ test('the card is placed by its size once it says where it falls, so a longer te
   } finally {
     win.innerWidth = 1000;
     Object.defineProperty(FakeElement.prototype, 'offsetWidth', width);
+  }
+});
+
+test('the gap it leaves closes as the new one opens, and is gone soon after; the same slot keeps its gap', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const p = rows();
+    pointer(p.a, 'pointerdown', 200, 110);
+    pointer(p.a, 'pointermove', 200, 150);           // in front of b
+    const first = gapIn(p.list);
+    pointer(p.a, 'pointermove', 200, 130);           // behind a, its own row: nothing, it stays
+    assert.equal(gapIn(p.list), first);
+    pointer(p.a, 'pointermove', 200, 175);           // behind b
+    assert.notEqual(gapIn(p.list), first, 'a new gap where it goes');
+    assert.ok(first.className.includes('kit-drop-gap--closing') && first.parentElement, 'the old one closing, still there');
+    mock.timers.tick(300);
+    assert.equal(first.parentElement, null, 'and gone');
+    const second = gapIn(p.list);
+    pointer(p.a, 'pointermove', 200, 185);           // in front of c: the same slot as behind b
+    assert.equal(gapIn(p.list), second, 'the same gap, not one closing and another opening');
+    pointer(p.a, 'pointerup', 200, 185);
+    assert.equal(p.list.children.filter((n) => n.className.includes('kit-drop-gap')).length, 0, 'none left after the drop');
+    p.drag.destroy();
+  } finally {
+    mock.timers.reset();
   }
 });
