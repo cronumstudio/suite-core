@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.40.3 — 2026-10-07
+
+- **About says which version is the latest.** The row is "Latest version" and says "You are up to
+  date" in green, or the number the server has (`v1.47.0`) beside the Update button, where it only
+  said there was a new one. The same number as the one running is a new build of it, and shows its
+  date. `watchUpdates()` keeps what the server answered: `latest()` → `{ app, version, built }`.
+- **The source link keeps the app's colour.** An app's own `a { color: inherit }` (Next) turned it
+  into plain text; the kit now colours the links in About itself.
+
 ## 0.40.2 — 2026-10-07
 
 - **The drag's card stays inside the screen with a long title.** Its one column grew with the

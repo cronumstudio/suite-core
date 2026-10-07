@@ -247,6 +247,21 @@ test('update: a different fingerprint is announced; closing it keeps it quiet fo
     timers: fakeTimers(), doc: null,
   });
   assert.equal(await offline.check(), null, 'without a server, nothing is known');
+  assert.equal(offline.latest(), null);
+});
+
+test('update: the server\'s version number is kept for About', async () => {
+  let server = { app: '1.2.3', version: 'aaa' };
+  const watcher = watchUpdates({
+    fetch: async () => ({ ok: true, json: async () => server }),
+    loadLocal: async () => ({ app: '1.2.3', version: 'aaa' }),
+    timers: fakeTimers(), doc: null,
+  });
+  await watcher.check();
+  assert.equal(watcher.latest().app, '1.2.3');
+  server = { app: '1.3.0', version: 'bbb' };
+  assert.equal(await watcher.check(), true);
+  assert.equal(watcher.latest().app, '1.3.0');
 });
 
 test('update: the button says at once that it is updating, and pressing again starts nothing new', async () => {
