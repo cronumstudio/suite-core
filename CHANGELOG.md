@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.40.2 — 2026-10-07
+
+- **The drag's card stays inside the screen with a long title.** Its one column grew with the
+  text, so the ellipsis never came and "After …" ran past the card's edge; and the card was placed
+  by its size before its words changed, so one that grew stood out of the screen until the next
+  move, which a finger holding still never makes. Now the column is the card's width, where it
+  falls goes down to a second line before it is cut (the second line, too), and the card is placed
+  once it says what it says.
+
 ## 0.40.1 — 2026-10-07
 
 - **The drag's tabs answer at once and are easier to reach.** Reaching one opens or closes the
