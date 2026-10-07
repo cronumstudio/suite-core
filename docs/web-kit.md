@@ -122,7 +122,9 @@ moves to the detail and the bar's back button returns (`onBack`, or `showList()`
 drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
 drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
 edge does nothing instead of its forward. With `panes: 'single'` there is one view in
-`shell.list`. The person's button opens Settings (`onSettings`), where Sign out closes the profile.
+`shell.list`. The person's button is at the sidebar's foot, with their name (in the drawer on a
+phone); only the top layout, without a sidebar, has it in the bar. It opens Settings
+(`onSettings`), where Sign out closes the profile.
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
 Settings, Administration (for admins, at `/admin`) and Sign out.
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.

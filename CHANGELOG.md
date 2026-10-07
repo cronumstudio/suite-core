@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.38.0 — 2026-10-06
+## 0.38.0 — 2026-10-07
 
 - **Paddle as the billing provider** (`paddle.js`, `BILLING_PROVIDER=paddle`), the merchant of
   record that sells Cronum Work: `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET` (the app's own
@@ -42,6 +42,21 @@ change an interface and a patch never does. Apps pin a version through the submo
   (`modules.billing` and `products`) and an install without `BILLING_PROVIDER`, or whose plans
   have no "pro", still starts: billing is off there and sells nothing. With a provider, a product
   whose plan isn't in the catalog stops the start as before.
+
+## 0.37.3 — 2026-10-07
+
+- **No account button in the bar of the side layout, at any width.** 0.37.2 hid it only where
+  the sidebar stays beside the page; on a phone the avatar was still in the bar's corner, and only
+  disappeared under the open drawer, which has the person's button at its foot already. The frame
+  no longer makes it: in the side layout the person is at the sidebar's foot (in the drawer on a
+  phone), and only the top layout, which has no sidebar, has it in the bar.
+
+## 0.37.2 — 2026-10-07
+
+- **One account button with the sidebar beside the page.** From 640 to 959 px (a tablet, a narrow
+  window) the sidebar stays beside the page with the person's button at its foot, and the bar above
+  the page showed their avatar too: the same button twice. The bar's one is hidden wherever the
+  sidebar shows; on a phone, where the sidebar is a drawer, the bar keeps it.
 
 ## 0.37.1 — 2026-10-06
 

@@ -284,6 +284,16 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
+test('with a sidebar, the person\'s button is only in it: the bar has one only in the top layout', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const sideButtons = shell.match(/accountButton\(true\)/g) || [];
+  const barButtons = shell.match(/accountButton\(false\)/g) || [];
+  assert.equal(sideButtons.length, 1, 'one at the sidebar\'s foot');
+  assert.equal(barButtons.length, 1, 'at most one in the bar');
+  assert.match(shell, /layout === 'top' \? accountButton\(false\) : null/,
+    'the side layout (a sidebar, or a drawer on a phone) has none in the bar');
+});
+
 test('every file the service worker caches for the kit exists', () => {
   const sw = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
   const files = [.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
