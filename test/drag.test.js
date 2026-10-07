@@ -492,3 +492,69 @@ test('a thin gap moves nothing: no height of its own', () => {
   pointer(p.a, 'pointerup', 200, 150);
   p.drag.destroy();
 });
+
+/* ------------------------------ one drag for all ------------------------------ */
+
+test('with a grip beside the held row, a finger picks up at once there and after holding elsewhere', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const p = rows({ drag: { grip: '[data-grip]' } });
+    const grip = el('span', { 'data-grip': '' });
+    p.a.append(grip);
+    const touch = { pointerType: 'touch' };
+    pointer(grip, 'pointerdown', 380, 110, touch);
+    pointer(p.a, 'pointermove', 380, 150, touch);
+    assert.ok(ghost(), 'the grip: at once');
+    pointer(p.a, 'pointerup', 380, 150, touch);
+    pointer(p.a, 'pointerdown', 200, 110, touch);
+    pointer(p.a, 'pointermove', 200, 150, touch);
+    assert.equal(ghost(), undefined, 'the rest of the row, moved at once: a scroll');
+    pointer(p.a, 'pointerdown', 200, 110, touch);
+    mock.timers.tick(400);
+    assert.ok(ghost(), 'held: picked up');
+    pointer(p.a, 'pointerup', 200, 110, touch);
+    p.drag.destroy();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('the start says what the drawer should do, and the drop where it landed', () => {
+  const p = rows({ drag: { drawer: (node) => (node.getAttribute('data-id') === 'a' ? 'tabs' : 'open') } });
+  const starts = [];
+  const onStart = (ev) => starts.push(ev.detail.drawer);
+  document.addEventListener('kit-dragstart', onStart);
+  const dropped = [];
+  p.drag.destroy();
+  const drag = makeDraggable(p.list, {
+    items: '[data-id]', targets: '[data-id]', zones: 'between',
+    drawer: (node) => (node.getAttribute('data-id') === 'a' ? 'tabs' : 'open'),
+    label: () => 'x', check: () => ({ ok: true, text: 'y' }),
+    onDrop: (node, place, where) => dropped.push(where),
+  });
+  pointer(p.a, 'pointerdown', 200, 110);
+  pointer(p.a, 'pointermove', 200, 185);
+  const gap = gapIn(p.list);
+  gap.box = { top: 180, bottom: 220, left: 0, right: 400 };
+  pointer(p.a, 'pointerup', 200, 186);
+  assert.deepEqual(dropped, [{ zone: 'before', x: 200, y: 186, top: 180 }]);
+  pointer(p.b, 'pointerdown', 200, 150);
+  pointer(p.b, 'pointermove', 200, 200);
+  pointer(p.b, 'pointerup', 200, 200);
+  assert.deepEqual(starts, ['tabs', 'open']);
+  document.removeEventListener('kit-dragstart', onStart);
+  drag.destroy();
+});
+
+test('held over a place that opens something, it is marked armed until the pointer leaves', () => {
+  const p = page();
+  pointer(p.first, 'pointerdown', 400, 110);
+  pointer(p.first, 'pointermove', 20, 20);
+  assert.ok(p.menuButton.hasAttribute('data-spring-armed'));
+  pointer(p.first, 'pointermove', 100, 150);
+  assert.ok(!p.menuButton.hasAttribute('data-spring-armed'));
+  pointer(p.first, 'pointermove', 20, 20);
+  pointer(p.first, 'pointerup', 20, 20);
+  assert.ok(!p.menuButton.hasAttribute('data-spring-armed'), 'nor after the drag');
+  p.drag.destroy();
+});

@@ -234,6 +234,21 @@ makeDraggable(list, {
   beside a chart's bars, take `gap: 'thin'`: a dashed line that moves nothing.
 - The gap is a node among the rows while it is open: striping with `:nth-child(even of [data-id])`
   rather than `:nth-child(even)` keeps the colours still.
+- **Where it landed.** `onDrop` also gets `x` and `y`, where it was let go, and `top`, that of the
+  gap (null without one): the list is drawn again after a move, and keeping the moved row at `top`
+  keeps it under the finger instead of somewhere the eye has to look for.
+
+**One drag for everything.** A task may go in order, into another category and onto a list of the
+sidebar in the same drag: its places are all of them, and `check` says which is which.
+
+- `grip` names a part of the row that picks it up at once, a finger too; the rest of the row still
+  needs holding (`handle` is the same, but the only way to pick it up).
+- `drawer: 'tabs'` (or `(item) → 'tabs' | 'open'`): on a phone the drawer doesn't open as it is
+  picked up, because there is somewhere to put it in the list. A tab shows at the start edge; held
+  there, the drawer opens. With the drawer open, a tab at the end edge, beside it, closes it again,
+  without letting go. `createShell({ dragTabs: { open: 'menu', back: 'back' } })` chooses their icons.
+- Whatever opens something when held (☰, the tabs: `data-drag-spring`) has `data-spring-armed`
+  while the pointer waits over it.
 
 ### Markdown
 

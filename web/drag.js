@@ -19,12 +19,15 @@
  *
  * With a mouse it starts when the pointer has really moved; with a finger, after
  * holding it still for a moment, because otherwise every attempt to scroll
- * the list would pick up a row (unless the app gives a grip, `handle`, which
- * only drags). Escape puts it back. Near the top or the bottom of whatever
- * scrolls under the pointer, it scrolls by itself. On a phone the sidebar is a
- * drawer, closed: the frame opens it as soon as something is picked up that can
- * be dropped there (shell.js, on `kit-dragstart`), and closes it when the drag
- * ends. Held over ☰ (`data-drag-spring`) it opens too.
+ * the list would pick up a row: a grip picks up at once, either the only way
+ * (`handle`) or beside the held row (`grip`). Escape puts it back. Near the top
+ * or the bottom of whatever scrolls under the pointer, it scrolls by itself. On
+ * a phone the sidebar is a drawer, closed: the frame opens it as soon as
+ * something is picked up that can be dropped there (shell.js, on
+ * `kit-dragstart`), and closes it when the drag ends. When it may also stay in
+ * the list (`drawer: 'tabs'`), the frame shows a tab at the edge instead, which
+ * opens the drawer when held, and another beside the open drawer closes it.
+ * Held over ☰ (`data-drag-spring`) it opens too.
  *
  * A place may also be split by the height of the pointer, for putting things
  * in order: in front of a row or behind it (`zones: 'between'`), or also
@@ -98,7 +101,12 @@ function scrollerOf(node) {
  * @param {object} options
  * @param {string} options.items             what can be picked up, inside the container
  * @param {string} [options.handle]          the grip inside an item; without one, the whole item
+ * @param {string} [options.grip]            with the whole item, a part of it that picks it up at
+ *                                           once, a finger too, without holding
  * @param {string} [options.skip]            parts of an item that don't pick it up (a grip that reorders)
+ * @param {string|Function} [options.drawer] on a phone, what the closed drawer does when the places
+ *                                           are in it: 'open' (the default) or 'tabs', when it may
+ *                                           also stay in the list; or (item) → one of them
  * @param {string} [options.targets]         the places, anywhere on the page
  * @param {Function} [options.canDrag]       (item) → false leaves it where it is (a notebook only to read)
  * @param {string|Function} [options.zones] how a place is split: 'whole' (the default), 'between'
@@ -114,12 +122,14 @@ function scrollerOf(node) {
  *                                           what letting go there does, or why not, a second line,
  *                                           and the gap's indent in pixels; null when the place has
  *                                           nothing to do with it
- * @param {Function} options.onDrop          (item, place, { zone }) → called only when check said ok
+ * @param {Function} options.onDrop          (item, place, { zone, x, y, top }) → called only when check
+ *                                           said ok; x and y where it was let go, top that of the gap
+ *                                           (null without one): where it lands, to keep it in sight
  * @returns {{ destroy: Function }}
  */
 export function makeDraggable(container, {
-  items, handle = null, skip = null, targets = '[data-drop]', canDrag = () => true,
-  zones = 'whole', end: belowLast = false, gap: gapKind = 'full', label, check, onDrop,
+  items, handle = null, grip: quick = null, skip = null, targets = '[data-drop]', canDrag = () => true,
+  zones = 'whole', end: belowLast = false, gap: gapKind = 'full', drawer = 'open', label, check, onDrop,
 }) {
   let session = null;
   container.classList.add('kit-draggable');
@@ -128,8 +138,10 @@ export function makeDraggable(container, {
     if (session || ev.button || !ev.isPrimary) return;
     const item = ev.target.closest?.(items);
     if (!item || !container.contains(item)) return;
-    const grip = handle ? ev.target.closest(handle) : null;
-    if (handle && (!grip || !item.contains(grip))) return;
+    const held = handle || quick;
+    const found = held ? ev.target.closest(held) : null;
+    const grip = found && item.contains(found) ? found : null;
+    if (handle && !grip) return;
     if (skip && ev.target.closest(skip)) return;
     const control = ev.target.closest(CONTROLS);
     if (control && control !== item && item.contains(control) && !grip) return;
@@ -138,7 +150,7 @@ export function makeDraggable(container, {
     const touch = ev.pointerType === 'touch';
     session = {
       item, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
-      touch, holding: touch && !handle, active: false, timer: null, place: null, zone: null, verdict: null,
+      touch, holding: touch && !grip, active: false, timer: null, place: null, zone: null, verdict: null,
       verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, height: 0,
       spring: null, springTimer: null, scroller: null, scrollTimer: null,
     };
@@ -188,7 +200,8 @@ export function makeDraggable(container, {
     document.documentElement.setAttribute('data-kit-dragging', '');
     if (s.touch) navigator.vibrate?.(8);
     // Who picked up what, and where it may go: the frame opens its drawer if those places are in it.
-    document.dispatchEvent(new CustomEvent('kit-dragstart', { detail: { item: s.item, targets } }));
+    const asked = typeof drawer === 'function' ? drawer(s.item) : drawer;
+    document.dispatchEvent(new CustomEvent('kit-dragstart', { detail: { item: s.item, targets, drawer: asked } }));
     follow();
     // The drawer slides in under a finger that may not move again: look once it is there.
     s.settleTimer = setTimeout(() => { if (session === s) follow(); }, SETTLE_MS);
@@ -294,8 +307,10 @@ export function makeDraggable(container, {
     const s = session;
     if (spring === s.spring) return;
     clearTimeout(s.springTimer);
+    s.spring?.removeAttribute('data-spring-armed');
     s.spring = spring;
     if (spring) {
+      spring.setAttribute('data-spring-armed', '');
       s.springTimer = setTimeout(() => {
         if (session !== s) return;
         spring.dispatchEvent(new CustomEvent('kit-drag-spring', { bubbles: true }));
@@ -323,14 +338,16 @@ export function makeDraggable(container, {
 
   function onPointerUp(ev) {
     if (!session || ev.pointerId !== session.pointerId) return;
-    const { active, item, place, zone, verdict } = session;
+    const { active, item, place, zone, verdict, gap } = session;
+    // Where it lands, read before the gap goes: the app may keep it there in sight.
+    const top = gap?.parentElement ? gap.getBoundingClientRect().top : null;
     end();
     if (!active) return;
     // The release would also be a click on the row (opening it) or on the place.
     const swallow = (click) => { click.stopPropagation(); click.preventDefault(); };
     window.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
-    if (place && verdict?.ok) onDrop(item, place, { zone });
+    if (place && verdict?.ok) onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
   }
 
   function cancel(ev) { if (session && (!ev?.pointerId || ev.pointerId === session.pointerId)) end(); }
@@ -343,6 +360,7 @@ export function makeDraggable(container, {
     clearTimeout(s.springTimer);
     clearTimeout(s.settleTimer);
     clearInterval(s.scrollTimer);
+    s.spring?.removeAttribute('data-spring-armed');
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', cancel);

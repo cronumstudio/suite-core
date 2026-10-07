@@ -36,7 +36,7 @@ import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
  */
 export function createShell({
   layout = 'side', panes = 'split', app, create = null, tabs = [], onSettings = null, onSignOut = null,
-  onBack = null, accountItems = [], root = document.body,
+  onBack = null, accountItems = [], root = document.body, dragTabs = {},
 }) {
   let user = null;
   const appIcon = (size) => el('img', { class: 'kit-appicon', src: app.icon || '/icons/favicon.svg', alt: '', width: size, height: size });
@@ -106,9 +106,18 @@ export function createShell({
   const detail = el('section', { class: 'kit-pane kit-pane--detail' });
   const fab = create ? el('button', { type: 'button', class: 'kit-fab', 'aria-label': create.label, onClick: create.onClick }, icon('plus')) : null;
 
+  // While something is carried on a phone, a tab at each edge: the start one opens the drawer
+  // when held, the end one, beside the open drawer, closes it, without letting go (drag.js).
+  const tab = (kind, name) => el('div', {
+    class: `kit-drag-tab kit-drag-tab--${kind}`, 'data-drag-spring': '', 'aria-hidden': 'true',
+  }, icon(name));
+  const tabs = layout === 'side'
+    ? [tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back')]
+    : [];
+
   const shell = el('div', { class: 'kit-shell' },
     layout === 'side' ? side : null, layout === 'side' ? scrim : null, bar, banners, list, detail,
-    layout === 'top' ? bottom : null, fab);
+    layout === 'top' ? bottom : null, fab, ...tabs);
   const element = el('div', { class: 'kit-app', 'data-layout': layout, 'data-panes': panes, 'data-screen': 'list' }, shell);
   root.append(element);
 
@@ -134,26 +143,37 @@ export function createShell({
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); });
   // On a phone the sidebar is a closed drawer, and a note or a task picked up from the list
-  // (drag.js) would have nowhere to go: the drawer opens as the drag starts, when its places
-  // are in it, and goes when the drag ends, dropped or not, as it came for it. Held over ☰
-  // it opens too. Where the sidebar stays (a tablet, a computer) the ☰ isn't shown and nothing moves.
+  // (drag.js) would have nowhere to go. When its only places are in the drawer, the drawer opens
+  // as the drag starts. When it may also go somewhere in the list (in order, another category:
+  // `drawer: 'tabs'`), the list stays and a tab shows at the start edge: held there, the drawer
+  // opens, and a tab at the end edge, beside it, closes it again. Held over ☰ it opens too. The
+  // drawer goes when the drag ends, dropped or not, if it came for it. Where the sidebar stays
+  // (a tablet, a computer) the ☰ isn't shown and nothing of this happens.
   let drawerForDrag = false;
-  const drawerIsClosed = () => !element.hasAttribute('data-drawer')
-    && getComputedStyle(bar.querySelector('.kit-bar__menu')).display !== 'none';
+  const asDrawer = () => getComputedStyle(bar.querySelector('.kit-bar__menu')).display !== 'none';
+  const drawerIsClosed = () => !element.hasAttribute('data-drawer') && asDrawer();
   const openForDrag = () => {
     element.setAttribute('data-drawer', '');
     drawerForDrag = true;
   };
   document.addEventListener('kit-dragstart', (ev) => {
-    const { item, targets } = ev.detail || {};
-    if (item && element.contains(item) && targets && nav.querySelector(targets) && drawerIsClosed()) openForDrag();
+    const { item, targets, drawer = 'open' } = ev.detail || {};
+    if (!item || !element.contains(item) || !targets || !nav.querySelector(targets) || !drawerIsClosed()) return;
+    if (drawer === 'tabs') element.setAttribute('data-drag-tabs', '');
+    else openForDrag();
   });
   element.addEventListener('kit-drag-spring', (ev) => {
-    if (ev.target.closest('.kit-bar__menu') && !element.hasAttribute('data-drawer')) openForDrag();
+    const open = element.hasAttribute('data-drawer');
+    if (!open && ev.target.closest('.kit-bar__menu, .kit-drag-tab--open')) openForDrag();
+    else if (open && ev.target.closest('.kit-drag-tab--back')) {
+      closeDrawer();
+      drawerForDrag = false;
+    }
   });
   document.addEventListener('kit-dragend', () => {
     if (drawerForDrag) closeDrawer();
     drawerForDrag = false;
+    element.removeAttribute('data-drag-tabs');
   });
 
   /* ------------------------------- edge swipes ------------------------------ */

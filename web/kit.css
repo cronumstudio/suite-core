@@ -414,6 +414,21 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   display: block; box-sizing: border-box; list-style: none; flex: none; margin: 0; padding: 0;
   border: 2px dashed var(--kit-accent); border-radius: 10px; background: var(--kit-accent-soft);
 }
+/* Something held over a place that opens what is behind it (☰, a tab) says it is about to. */
+[data-drag-spring][data-spring-armed] { filter: brightness(1.12); }
+/* On a phone, while a task is carried that may also stay in the list: a tab at the start edge opens
+   the drawer when held, and one at the end edge, beside the open drawer, closes it (shell.js). */
+.kit-drag-tab {
+  display: none; position: absolute; top: 50%; z-index: 40; width: 36px; height: 104px; margin-top: -52px;
+  align-items: center; justify-content: center; background: var(--kit-accent); color: var(--kit-on-accent);
+  box-shadow: var(--kit-shadow-high); transition: width .15s ease;
+}
+.kit-drag-tab .kit-icon { width: 20px; height: 20px; }
+.kit-drag-tab--open { inset-inline-start: 0; border-start-end-radius: 16px; border-end-end-radius: 16px; }
+.kit-drag-tab--back { inset-inline-end: 0; border-start-start-radius: 16px; border-end-start-radius: 16px; }
+.kit-drag-tab[data-spring-armed] { width: 46px; }
+.kit-app[data-drag-tabs]:not([data-drawer]) .kit-drag-tab--open,
+.kit-app[data-drag-tabs][data-drawer] .kit-drag-tab--back { display: flex; }
 /* Rows level with something beside them (a chart's bars) can't move: a dashed line, and nothing moves. */
 .kit-drop-gap--thin { height: 0; border: 0; border-radius: 0; background: none; outline: 1px dashed var(--kit-accent); outline-offset: 0; }
 
