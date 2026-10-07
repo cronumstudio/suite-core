@@ -126,11 +126,14 @@ function scrollerOf(node) {
  * @param {Function} options.onDrop          (item, place, { zone, x, y, top }) → called only when check
  *                                           said ok; x and y where it was let go, top that of the gap
  *                                           (null without one): where it lands, to keep it in sight
+ * @param {Function} [options.onHold]      (item) → a finger that held it and let go without moving
+ *                                           didn't drag it: what a long press does there (its menu)
  * @returns {{ destroy: Function }}
  */
 export function makeDraggable(container, {
   items, handle = null, grip: quick = null, skip = null, targets = '[data-drop]', canDrag = () => true,
   zones = 'whole', end: belowLast = false, gap: gapKind = 'full', drawer = 'open', label, check, onDrop,
+  onHold = null,
 }) {
   let session = null;
   container.classList.add('kit-draggable');
@@ -151,7 +154,7 @@ export function makeDraggable(container, {
     const touch = ev.pointerType === 'touch';
     session = {
       item, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
-      touch, holding: touch && !grip, active: false, timer: null, place: null, zone: null, verdict: null,
+      touch, holding: touch && !grip, carried: false, active: false, timer: null, place: null, zone: null, verdict: null,
       verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, closing: new Set(), height: 0,
       spring: null, springTimer: null, scroller: null, scrollTimer: null,
     };
@@ -175,6 +178,8 @@ export function makeDraggable(container, {
       if (moved < THRESHOLD) return;
       start();
     }
+    // Picked up by holding, it is only being carried once the finger has gone somewhere.
+    if (session.holding && Math.hypot(ev.clientX - session.x0, ev.clientY - session.y0) > SLOP) session.carried = true;
     ev.preventDefault();
     follow();
   }
@@ -379,7 +384,7 @@ export function makeDraggable(container, {
 
   function onPointerUp(ev) {
     if (!session || ev.pointerId !== session.pointerId) return;
-    const { active, item, place, zone, verdict, gap } = session;
+    const { active, item, place, zone, verdict, gap, holding, carried } = session;
     // Where it lands, read before the gap goes: the app may keep it there in sight.
     const top = gap?.parentElement ? gap.getBoundingClientRect().top : null;
     end();
@@ -388,6 +393,8 @@ export function makeDraggable(container, {
     const swallow = (click) => { click.stopPropagation(); click.preventDefault(); };
     window.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+    // Held and let go where it was: a long press, not a move (as on a phone's home screen).
+    if (holding && !carried && onHold) { onHold(item); return; }
     if (place && verdict?.ok) onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
   }
 

@@ -653,3 +653,42 @@ test('a gap takes back the space its list puts between rows, so the rows do not 
     globalThis.getComputedStyle = computed;
   }
 });
+
+test('held with a finger and let go where it was is a long press, not a move', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const p = page();
+    p.drag.destroy();
+    const held = [];
+    const dropped = [];
+    const drag = makeDraggable(p.notes, {
+      items: '[data-note]', label: () => 'x', check: () => ({ ok: true, text: 'y' }),
+      onDrop: (row, place) => dropped.push(place.getAttribute('data-notebook')),
+      onHold: (row) => held.push(row.getAttribute('data-note')),
+    });
+    const touch = { pointerType: 'touch' };
+    pointer(p.first, 'pointerdown', 400, 110, touch);
+    mock.timers.tick(400);
+    assert.ok(ghost(), 'picked up');
+    pointer(p.first, 'pointermove', 403, 112, touch);       // a finger never stays quite still
+    pointer(p.first, 'pointerup', 403, 112, touch);
+    assert.deepEqual(held, ['1'], 'let go there: its menu');
+    // Held, then carried somewhere: a move, as before.
+    pointer(p.first, 'pointerdown', 400, 110, touch);
+    mock.timers.tick(400);
+    pointer(p.first, 'pointermove', 100, 150, touch);
+    pointer(p.first, 'pointerup', 100, 150, touch);
+    assert.deepEqual(dropped, ['work']);
+    assert.deepEqual(held, ['1']);
+    // Carried away and brought back is still a move that went nowhere, not a long press.
+    pointer(p.first, 'pointerdown', 400, 110, touch);
+    mock.timers.tick(400);
+    pointer(p.first, 'pointermove', 400, 200, touch);
+    pointer(p.first, 'pointermove', 400, 110, touch);
+    pointer(p.first, 'pointerup', 400, 110, touch);
+    assert.deepEqual(held, ['1']);
+    drag.destroy();
+  } finally {
+    mock.timers.reset();
+  }
+});

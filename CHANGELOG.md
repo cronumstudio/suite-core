@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.42.0 — 2026-10-07
+
+- **A long press and a drag on the same row.** `onHold(item)`: a finger that held a row and let
+  go without moving it pressed long, it didn't move anything, and the app does what a long press
+  does there (a list's menu). A finger that went somewhere carried it, as before. So a row can be
+  picked up by holding it anywhere, without a grip to find.
+
 ## 0.41.0 — 2026-10-07
 
 - **One frame for every app, and its sidebar folds away.** Next, the only app with a top bar and

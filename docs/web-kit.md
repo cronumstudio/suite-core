@@ -253,6 +253,9 @@ sidebar in the same drag: its places are all of them, and `check` says which is 
 
 - `grip` names a part of the row that picks it up at once, a finger too; the rest of the row still
   needs holding (`handle` is the same, but the only way to pick it up).
+- `onHold(item)`: a finger that held a row and let go without moving it didn't drag it, it pressed
+  long, and `onHold` does what a long press does there (its menu). So the whole row can be what
+  picks up, with no grip to look for, and the long press keeps its job.
 - `drawer: 'tabs'` (or `(item) → 'tabs' | 'open'`): on a phone the drawer doesn't open as it is
   picked up, because there is somewhere to put it in the list. A tab shows at the start edge; held
   there, the drawer opens. With the drawer open, a tab at the end edge, beside it, closes it again,
