@@ -12,9 +12,10 @@
  * task lists (- [ ] / - [x]), quotes (>), fenced code (``` or ~~~), rules
  * (---), tables, and inline **strong**, *emphasis*, ~~struck~~, `code`,
  * [links](url "title"), <autolinks>, bare https:// addresses and
- * ![images](src). Two marks beyond CommonMark, as Obsidian, Bear and Typora
- * write them, because Markdown has no other way to say them: ==highlighted==
- * and ++underlined++.
+ * ![images](src), with backslash escapes (\*) and the entities editors write
+ * (&lt; &gt; &amp; &quot; &apos; &nbsp; and numeric ones). Two marks beyond
+ * CommonMark, as Obsidian, Bear and Typora write them, because Markdown has
+ * no other way to say them: ==highlighted== and ++underlined++.
  *
  * Links go only to http, https and mailto, or within the app (a path, a
  * #fragment); anything else (javascript:, data:, vbscript:…) is shown as
@@ -132,6 +133,35 @@ const INTRAWORD = new Set(['_', '+', '=']);
 /** The marks that come only in pairs, and what each one is. */
 const DOUBLE = { '~': 'del', '=': 'mark', '+': 'u' };
 
+/** The entities editors write: the ones HTML needs escaped, the hard space, and any by number. */
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
+const ENTITY = /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/y;
+
+/** The entity at `at`: its character and length, or null. A number no character has is U+FFFD. */
+function readEntity(text, at) {
+  ENTITY.lastIndex = at;
+  const match = ENTITY.exec(text);
+  if (!match) return null;
+  const [whole, dec, hex, name] = match;
+  if (name) return { char: NAMED_ENTITIES[name], length: whole.length };
+  const code = dec ? Number.parseInt(dec, 10) : Number.parseInt(hex, 16);
+  const valid = code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+  return { char: valid ? String.fromCodePoint(code) : '\ufffd', length: whole.length };
+}
+
+/** A line's text as it reads: escapes and entities undone (not code spans, which titles rarely have). */
+function unescapeText(text) {
+  let out = '';
+  for (let i = 0; i < text.length;) {
+    if (text[i] === '\\' && PUNCTUATION.test(text[i + 1] ?? '')) { out += text[i + 1]; i += 2; continue; }
+    const entity = text[i] === '&' ? readEntity(text, i) : null;
+    if (entity) { out += entity.char; i += entity.length; continue; }
+    out += text[i];
+    i++;
+  }
+  return out;
+}
+
 const BARE_URL = /^https?:\/\/[^\s<>]*[^\s<>.,:;"')\]!?*_~]/;
 
 /** Inline content as nodes: { type: text | code | em | strong | del | mark | u | link | image | br, … }. */
@@ -241,6 +271,11 @@ export function parseInline(text) {
       }
       if (!matched) { buffer += c.repeat(run); i += run; }
       continue;
+    }
+
+    if (c === '&') {
+      const entity = readEntity(text, i);
+      if (entity) { buffer += entity.char; i += entity.length; continue; }
     }
 
     buffer += c;
@@ -437,10 +472,14 @@ export function toggleTask(source, n, done) {
   return lines.join('\n');
 }
 
-/** A note's title: its first line with words, without the marks of a heading. */
+/**
+ * A note's title: its first line with words, without the marks of a heading,
+ * and with its escapes and entities undone (an editor writes "\~12", and
+ * "&nbsp;" for a line it leaves empty).
+ */
 export function titleOf(source) {
-  const line = String(source ?? '').split('\n').find((l) => l.trim()) || '';
-  return line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/\s+#+\s*$/, '').trim();
+  const line = String(source ?? '').split('\n').find((l) => unescapeText(l).trim()) || '';
+  return unescapeText(line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/\s+#+\s*$/, '')).trim();
 }
 
 /** The words of a note without its marks: for previews and snippets. */
