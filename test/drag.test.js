@@ -65,6 +65,22 @@ FakeElement.prototype.remove = function () {
   this.parentElement.childNodes = this.parentElement.childNodes.filter((node) => node !== this);
   this.parentElement = null;
 };
+// Putting a node beside another, as the gap between two rows is put.
+function insertAt(parent, node, index) {
+  node.remove?.();
+  parent.childNodes.splice(index, 0, node);
+  node.parentElement = parent;
+}
+FakeElement.prototype.before = function (node) {
+  insertAt(this.parentElement, node, this.parentElement.childNodes.indexOf(this));
+};
+FakeElement.prototype.after = function (node) {
+  node.remove?.();
+  insertAt(this.parentElement, node, this.parentElement.childNodes.indexOf(this) + 1);
+};
+FakeElement.prototype.querySelectorAll = function (selector) {
+  return this.all().filter((node) => matches(node, selector));
+};
 
 class Target {
   constructor() { this.listeners = {}; }
@@ -82,7 +98,7 @@ document.removeEventListener = docEvents.removeEventListener.bind(docEvents);
 document.dispatchEvent = docEvents.dispatchEvent.bind(docEvents);
 
 const { el } = await import('../web/dom.js');
-const { makeDraggable, edgeSpeed } = await import('../web/drag.js');
+const { makeDraggable, edgeSpeed, zoneAt } = await import('../web/drag.js');
 
 /** A list of two notes and a sidebar of three notebooks, each with its box on the screen. */
 function page() {
@@ -335,4 +351,144 @@ test('canDrag leaves a row where it is, and destroy lets go of the list', () => 
   assert.equal(ghost(), undefined, 'a note only to read stays');
   pointer(p.first, 'pointerup', 100, 150);
   onlyTwo.destroy();
+});
+
+/* ------------------------------ in order, by zones ------------------------------ */
+
+test('the zones of a place by the height of the pointer', () => {
+  assert.equal(zoneAt('whole', 0.1), 'whole');
+  assert.equal(zoneAt(undefined, 0.9), 'whole');
+  assert.equal(zoneAt('between', 0.49), 'before');
+  assert.equal(zoneAt('between', 0.5), 'after');
+  assert.equal(zoneAt('around', 0.2), 'before');
+  assert.equal(zoneAt('around', 0.5), 'inside');
+  assert.equal(zoneAt('around', 0.8), 'after');
+});
+
+/** A list of three rows that are at once what is picked up and where it goes. */
+function rows(options = {}) {
+  document.body.childNodes = [];
+  document.documentElement.attributes.clear();
+  const list = el('ul', {});
+  list.box = { top: 100, bottom: 220, left: 0, right: 400 };
+  const row = (id, top) => {
+    const node = el('li', { 'data-id': id, text: `task ${id}` });
+    node.box = { top, bottom: top + 40, left: 0, right: 400 };
+    return node;
+  };
+  const [a, b, c] = [row('a', 100), row('b', 140), row('c', 180)];
+  list.append(a, b, c);
+  document.body.append(list);
+  const p = { list, a, b, c, dropped: [], asked: [], under: null };
+  // The boxes don't move when the gap opens; `p.under` plays what the pointer finds instead.
+  document.elementFromPoint = (x, y) => p.under
+    || [a, b, c].find((node) => node.parentElement && y >= node.box.top && y < node.box.bottom && x >= 0 && x < 400)
+    || null;
+  p.drag = makeDraggable(list, {
+    items: '[data-id]',
+    targets: '[data-id]',
+    zones: 'between',
+    label: (node) => node.getAttribute('data-id'),
+    check: (node, place, { zone }) => {
+      p.asked.push([place === list ? 'list' : place.getAttribute('data-id'), zone]);
+      if (place.getAttribute?.('data-id') === 'c' && zone === 'after' && options.lastIsShut) return { ok: false, text: 'not there' };
+      return { ok: true, text: `${zone} ${place === list ? 'all' : place.getAttribute('data-id')}`, detail: options.detail, indent: options.indent };
+    },
+    onDrop: (node, place, { zone }) => p.dropped.push([node.getAttribute('data-id'), place === list ? 'list' : place.getAttribute('data-id'), zone]),
+    ...options.drag,
+  });
+  return p;
+}
+const gapIn = (list) => list.children.find((node) => node.className.includes('kit-drop-gap'));
+const order = (list) => list.children.map((node) => node.getAttribute('data-id') || 'gap');
+
+test('between two rows a gap the size of the row opens where it would land', () => {
+  const p = rows({ detail: 'at the top level' });
+  pointer(p.a, 'pointerdown', 200, 110);
+  pointer(p.a, 'pointermove', 200, 185);
+  assert.deepEqual(order(p.list), ['a', 'b', 'gap', 'c'], 'in front of c');
+  const gap = gapIn(p.list);
+  assert.equal(gap.tagName, 'LI', 'a list takes only items');
+  assert.equal(gap.style.height, '40px');
+  assert.equal(gap.getAttribute('aria-hidden'), 'true');
+  assert.equal(p.c.getAttribute('data-drop-state'), null, 'the gap says where, the row does not light up');
+  assert.match(ghost().textContent, /before c/);
+  assert.match(ghost().textContent, /at the top level/, 'the second line');
+
+  pointer(p.a, 'pointermove', 200, 205);
+  assert.deepEqual(order(p.list), ['a', 'b', 'c', 'gap'], 'behind c');
+  // The rows made room: over the gap, or over nothing between them, it still goes there.
+  p.under = gap;
+  pointer(p.a, 'pointermove', 200, 215);
+  p.under = null;
+  pointer(p.a, 'pointermove', 200, 110);
+  assert.deepEqual(order(p.list), ['a', 'b', 'c', 'gap'], 'over its own row, among the rest: it stays');
+  assert.deepEqual(p.asked, [['c', 'before'], ['c', 'after']], 'each zone asked once, never its own row');
+
+  pointer(p.a, 'pointerup', 200, 110);
+  assert.deepEqual(p.dropped, [['a', 'c', 'after']]);
+  assert.equal(gapIn(p.list), undefined, 'the gap goes with the drag');
+  p.drag.destroy();
+});
+
+test('where it may not land no gap opens, and leaving the list closes it', () => {
+  const p = rows({ lastIsShut: true });
+  pointer(p.a, 'pointerdown', 200, 110);
+  pointer(p.a, 'pointermove', 200, 205);
+  assert.equal(gapIn(p.list), undefined);
+  assert.ok(ghost().className.includes('kit-drag-ghost--no'));
+  assert.match(ghost().textContent, /not there/);
+  pointer(p.a, 'pointermove', 200, 150);
+  assert.deepEqual(order(p.list), ['a', 'gap', 'b', 'c']);
+  pointer(p.a, 'pointermove', 600, 500);
+  assert.equal(gapIn(p.list), undefined, 'out of the list');
+  pointer(p.a, 'pointerup', 600, 500);
+  assert.deepEqual(p.dropped, []);
+  p.drag.destroy();
+});
+
+test('around: inside a row lights it up, its edges open the gap with the indent asked for', () => {
+  const p = rows({ indent: 14.4, drag: { zones: (place) => (place.getAttribute('data-id') === 'c' ? 'between' : 'around') } });
+  pointer(p.c, 'pointerdown', 200, 190);
+  pointer(p.c, 'pointermove', 200, 120);
+  assert.equal(p.a.getAttribute('data-drop-state'), 'ok');
+  assert.equal(gapIn(p.list), undefined);
+  pointer(p.c, 'pointermove', 200, 136);
+  assert.equal(p.a.getAttribute('data-drop-state'), null);
+  assert.deepEqual(order(p.list), ['a', 'gap', 'b', 'c']);
+  assert.equal(gapIn(p.list).style.marginInlineStart, '14px');
+  pointer(p.c, 'pointermove', 200, 120);
+  pointer(p.c, 'pointerup', 200, 120);
+  assert.deepEqual(p.dropped, [['c', 'a', 'inside']]);
+  p.drag.destroy();
+});
+
+test('with end, below the last row is the end of the list', () => {
+  const p = rows({ drag: { end: true } });
+  pointer(p.b, 'pointerdown', 200, 150);
+  pointer(p.b, 'pointermove', 200, 400);
+  assert.deepEqual(order(p.list), ['a', 'b', 'c', 'gap']);
+  assert.match(ghost().textContent, /end all/);
+  pointer(p.b, 'pointerup', 200, 400);
+  assert.deepEqual(p.dropped, [['b', 'list', 'end']]);
+  // To the side, it is not the end of this list.
+  pointer(p.b, 'pointerdown', 200, 150);
+  pointer(p.b, 'pointermove', 600, 400);
+  assert.equal(gapIn(p.list), undefined);
+  pointer(p.b, 'pointerup', 600, 400);
+  assert.equal(p.dropped.length, 1);
+  p.drag.destroy();
+});
+
+test('a thin gap moves nothing: no height of its own', () => {
+  const p = rows({ drag: { gap: 'thin' } });
+  pointer(p.a, 'pointerdown', 200, 110);
+  pointer(p.a, 'pointermove', 200, 150);
+  const gap = gapIn(p.list);
+  assert.ok(gap.className.includes('kit-drop-gap--thin'));
+  assert.equal(gap.style.height, undefined);
+  win.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault() {} });
+  assert.equal(gapIn(p.list), undefined, 'Escape closes it');
+  pointer(p.a, 'pointerup', 200, 150);
+  p.drag.destroy();
 });
