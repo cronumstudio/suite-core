@@ -210,6 +210,21 @@ export function makeDraggable(container, {
   /** The ghost to the pointer, and what is under it now. */
   function follow() {
     const s = session;
+    const under = document.elementFromPoint(s.x, s.y);
+    springOver(under?.closest?.('[data-drag-spring]') || null);
+    aim(under);
+    scrollNear(under);
+    place();
+  }
+
+  /**
+   * The card to the pointer, measured once it says what it says now: placed by
+   * its size before the words changed, a card that grew stood out of the screen
+   * until the next move, and a finger holding still makes none.
+   */
+  function place() {
+    const s = session;
+    if (!s) return;
     const { offsetWidth: width, offsetHeight: height } = s.ghost;
     // Above the finger, which would hide it; beside and below the mouse arrow.
     let x = s.touch ? s.x - width / 2 : s.x + 14;
@@ -217,10 +232,6 @@ export function makeDraggable(container, {
     x = Math.max(4, Math.min(x, window.innerWidth - width - 4));
     y = Math.max(4, Math.min(y, window.innerHeight - height - 4));
     s.ghost.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-    const under = document.elementFromPoint(s.x, s.y);
-    springOver(under?.closest?.('[data-drag-spring]') || null);
-    aim(under);
-    scrollNear(under);
   }
 
   /** The place under the pointer, and which part of it. */

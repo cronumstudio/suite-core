@@ -576,3 +576,32 @@ test('a place marked at-once opens what is behind it as soon as it is reached', 
     mock.timers.reset();
   }
 });
+
+test('the card is placed by its size once it says where it falls, so a longer text never stands out of the screen', () => {
+  const width = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'offsetWidth');
+  // A card as wide as what it says, up to 300.
+  Object.defineProperty(FakeElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get() { return this.className.includes('kit-drag-ghost') ? Math.min(300, 20 + 6 * this.textContent.length) : 120; },
+  });
+  try {
+    const p = rows();
+    p.drag.destroy();
+    const drag = makeDraggable(p.list, {
+      items: '[data-id]', targets: '[data-id]', zones: 'between', label: () => 'x',
+      check: (node, place) => ({ ok: true, text: place.getAttribute('data-id') === 'c' ? 'after a task whose title goes on and on and on and on and on' : 'after b' }),
+      onDrop: () => {},
+    });
+    win.innerWidth = 375;
+    pointer(p.a, 'pointerdown', 360, 110, { pointerType: 'mouse' });
+    pointer(p.a, 'pointermove', 360, 150);   // over b: a short text
+    pointer(p.a, 'pointermove', 360, 185);   // over c, in one move: a long one
+    const [x] = /translate\((-?\d+)px/.exec(ghost().style.transform).slice(1).map(Number);
+    assert.equal(x, 375 - 300 - 4, 'against the right edge, by the width it has with its words');
+    pointer(p.a, 'pointerup', 360, 185);
+    drag.destroy();
+  } finally {
+    win.innerWidth = 1000;
+    Object.defineProperty(FakeElement.prototype, 'offsetWidth', width);
+  }
+});
