@@ -130,6 +130,25 @@ test('titles and plain text for lists and previews', () => {
   assert.equal(titleOf('Plain first line'), 'Plain first line');
   assert.equal(plainText('# Title\n\nSome **bold** and [a link](https://x.example).\n\n- one\n- two'),
     'Title Some bold and a link. one two');
+  // What an editor such as Tiptap writes: escapes, and entities for HTML and empty lines.
+  assert.equal(titleOf('\\~12 tortitas \\*sin\\* az\\_car\n\nbody'), '~12 tortitas *sin* az_car');
+  assert.equal(titleOf('&nbsp;\n\n# A &lt;b&gt; &amp; co\\#'), 'A <b> & co#');
+  assert.equal(plainText('Uses &lt;b&gt;bold&lt;/b&gt; &amp; `&lt;kept&gt;`\n\n&nbsp;\n\nend'),
+    'Uses <b>bold</b> & &lt;kept&gt; end');
+});
+
+test('entities: the named ones editors write and any by number', () => {
+  const text = (source) => parseInline(source).map((n) => n.text).join('');
+  assert.equal(text('a&nbsp;b'), 'a\u00a0b');
+  assert.equal(text('&quot;&apos;&#169;&#x1F600;'), '"\'\u00a9\u{1f600}');
+  assert.equal(text('&#0; &#xD800; &#1114112;'), '\ufffd \ufffd \ufffd');
+  assert.equal(text('&copy; &amp &AMP; \\&amp;'), '&copy; &amp &AMP; &amp;');
+  assert.deepEqual(parseInline('`&lt;`'), [{ type: 'code', text: '&lt;' }]);
+  // Decoded, an entity is text: it never becomes a mark or a tag.
+  assert.deepEqual(parseInline('&#42;not em&#42;'), [{ type: 'text', text: '*not em*' }]);
+  const md = renderMarkdown('&lt;img src=x onerror=alert(1)&gt;');
+  assert.equal(md.find('img').length, 0);
+  assert.equal(md.textContent, '<img src=x onerror=alert(1)>');
 });
 
 test('nothing in the kit writes HTML from strings', () => {

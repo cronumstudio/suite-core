@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.44.0 — 2026-10-07
+
+- **Markdown as editors write it.** `parseInline()` decodes the entities an editor such as Tiptap
+  writes: `&lt;` `&gt;` `&amp;` `&quot;` `&apos;` `&nbsp;` and numeric ones (one no character has is
+  U+FFFD), never inside code; a decoded entity is text and never a mark or a tag. So the reading
+  view, `plainText()` and what the apps show of a note read `&lt;b&gt;` as `<b>`, and `&nbsp;` (a
+  line left empty) as a space. `titleOf()` undoes escapes and entities too (`\~12 tortitas` →
+  `~12 tortitas`) and skips a first line that is only `&nbsp;`.
+
 ## 0.43.0 — 2026-10-07
 
 - **Highlighted and underlined text in Markdown.** `renderMarkdown()` reads `==highlighted==` as
