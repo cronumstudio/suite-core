@@ -16,7 +16,7 @@ const { createOutbox, tempId, isTempId } = await import('../web/outbox.js');
 const { memoryLocal } = await import('../web/local.js');
 const { Offline, SessionExpired, ApiError } = await import('../web/api.js');
 const { connectLive } = await import('../web/live.js');
-const { watchUpdates } = await import('../web/update.js');
+const { watchUpdates, applyUpdate } = await import('../web/update.js');
 
 /* --------------------------------- outbox --------------------------------- */
 
@@ -247,6 +247,28 @@ test('update: a different fingerprint is announced; closing it keeps it quiet fo
     timers: fakeTimers(), doc: null,
   });
   assert.equal(await offline.check(), null, 'without a server, nothing is known');
+});
+
+test('update: the button says at once that it is updating, and pressing again starts nothing new', async () => {
+  const replaced = [];
+  let asked = 0;
+  globalThis.window = { location: { href: 'https://tasks.example/lists/3', replace: (to) => replaced.push(to) } };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+    serviceWorker: { getRegistrations: async () => { asked += 1; return []; }, addEventListener() {} },
+  } });
+  const { el } = await import('../web/dom.js');
+  const button = el('button', { class: 'kit-btn', text: 'Update' });
+  const first = applyUpdate({ currentTarget: button });
+  assert.equal(button.getAttribute('aria-busy'), 'true', 'busy before anything is awaited');
+  assert.equal(button.find('span')[0]?.className, 'kit-spinner');
+  assert.notEqual(button.textContent, 'Update');
+  const second = applyUpdate({ currentTarget: button });
+  assert.equal(second, first, 'the same update, not a second one');
+  await first;
+  assert.equal(asked, 1);
+  assert.equal(replaced.length, 1);
+  assert.match(replaced[0], /^\/lists\/3\?fresh=\d+$/);
+  delete globalThis.window;
 });
 
 /* --------------------------------- colours -------------------------------- */

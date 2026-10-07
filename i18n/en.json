@@ -524,6 +524,7 @@
   "kit.live.connecting": "Reconnecting…",
   "kit.live.closed": "Not connected: changes from other devices arrive when you reload",
   "kit.update.apply": "Update",
+  "kit.update.applying": "Updating…",
   "kit.update.availableNamed": "There is a new version of {app}.",
   "kit.offline.banner": {
     "=0": "Offline. Showing what was last loaded.",

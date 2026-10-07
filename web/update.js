@@ -17,6 +17,9 @@
  *   const updates = watchUpdates({ onUpdate: () => shell.showBanner('update', {…, action: { onClick: applyUpdate } }) });
  */
 
+import { el } from './dom.js';
+import { t } from './i18n.js';
+
 const CHECK_EVERY = 10 * 60 * 1000;
 const HANDOVER_MS = 3000;
 
@@ -90,14 +93,38 @@ export function watchUpdates({
   };
 }
 
+let updating = null;
+
 /**
  * Brings the new code in: the new service worker first (waiting for it to
  * take control, three seconds at most), then a reload that skips any cache
  * in between. The caches aren't wiped here: the new worker drops the old
  * ones when it takes over, and wiping them took the page itself away, and
  * with it opening offline until the next version.
+ *
+ * That takes a few seconds, so the button pressed (the click's
+ * `currentTarget`) says at once that it is updating, and pressing again
+ * doesn't start it over: a button that didn't change was pressed two or
+ * three times more.
+ *
+ * @param {Event} [event]  the click, to mark its button
+ * @returns {Promise<void>} the same one while an update is under way
  */
-export async function applyUpdate() {
+export function applyUpdate(event) {
+  const button = event?.currentTarget;
+  if (button?.setAttribute) showBusy(button);
+  updating ??= bringNewCode();
+  return updating;
+}
+
+function showBusy(button) {
+  button.setAttribute('aria-busy', 'true');
+  button.setAttribute('aria-disabled', 'true');
+  button.textContent = '';
+  button.append(el('span', { class: 'kit-spinner', 'aria-hidden': 'true' }), t('kit.update.applying'));
+}
+
+async function bringNewCode() {
   try {
     const sw = navigator.serviceWorker;
     if (sw) {
