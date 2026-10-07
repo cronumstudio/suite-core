@@ -515,6 +515,8 @@
   "kit.areYouSure": "Sicher?",
   "kit.saved": "Gespeichert.",
   "kit.menu": "Menü",
+  "kit.side.fold": "Seitenleiste ausblenden",
+  "kit.side.unfold": "Seitenleiste einblenden",
   "kit.saveState.saving": "Wird gespeichert …",
   "kit.saveState.saved": "Gespeichert",
   "kit.saveState.offline": "Offline, auf diesem Gerät gespeichert",

@@ -215,8 +215,8 @@ let openMenuNode = null;
 
 /**
  * A menu under (or above) `anchor`: items are { label, iconName, onClick,
- * href, external, danger }, or 'separator'; `header` is a node on top (who is
- * signed in). Arrows move, Escape and a click outside close it.
+ * href, external, danger }, or 'separator'; `header` is a node on top (what
+ * the menu is about). Arrows move, Escape and a click outside close it.
  */
 export function menu(anchor, items, { header = null } = {}) {
   closeMenu();

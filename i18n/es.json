@@ -515,6 +515,8 @@
   "kit.areYouSure": "¿Seguro?",
   "kit.saved": "Guardado.",
   "kit.menu": "Menú",
+  "kit.side.fold": "Ocultar el panel lateral",
+  "kit.side.unfold": "Mostrar el panel lateral",
   "kit.saveState.saving": "Guardando…",
   "kit.saveState.saved": "Guardado",
   "kit.saveState.offline": "Sin conexión, guardado en este dispositivo",

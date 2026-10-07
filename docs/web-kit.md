@@ -10,7 +10,7 @@ Tasks' lists— and takes everything else from here.
 
 | Question | Answer |
 | --- | --- |
-| Structure | The kit has both, with the same pieces: a **sidebar** for apps with many lists (Tasks, Notes, Projects) and a **top bar with tabs** for apps with a few views (Next, Focus, Tracker, Talk) |
+| Structure | One frame: a **sidebar** with the app's views, what it creates and the person at its foot, in every app (Tasks, Notes, Projects, Next). It folds away on a tablet or a computer for more room. A top bar with tabs for apps with a few views was dropped in v0.41.0, when Next, the only one that used it, moved to the sidebar |
 | Sign-in | The **product's colour large**, the form beside it; stacked on a phone; "by Cronum Studio" under it |
 | Settings | A **list of sections**; on a phone each section is a screen of its own |
 | Dialogs on a phone | A **sheet that rises from the bottom**; centred on a computer |
@@ -94,7 +94,7 @@ confirmEmailFromLink();
 
 const local = openLocal('notes', ['notes', 'notebooks']);
 const shell = createShell({
-  layout: 'side', panes: 'split', app,
+  panes: 'split', app,
   create: { label: t('notes.new'), onClick: newNote },
   onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
     onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
@@ -117,17 +117,27 @@ const outbox = createOutbox({ local, onCount: (n) => …, onConflict: keepConfli
 
 `createShell()` builds the frame into `document.body`: `shell.nav` (the sidebar's content),
 `shell.list` and `shell.detail` (a list and what is open from it: side by side from 960 px, two
-screens below), `shell.actions` (buttons in the bar), `shell.banners`. On a phone, `showDetail()`
+screens below), `shell.actions` (buttons in the bar), `shell.banners`. The sidebar has the app's
+name and icon, the live dot, the `create` button and the person at its foot. On a phone, `showDetail()`
 moves to the detail and the bar's back button returns (`onBack`, or `showList()`); the sidebar is a
 drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
 drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
 edge does nothing instead of its forward. With `panes: 'single'` there is one view in
 `shell.list`. The person's button is at the sidebar's foot, with their name (in the drawer on a
-phone); only the top layout, without a sidebar, has it in the bar. It opens Settings
+phone). It opens Settings
 (`onSettings`), where Sign out closes the profile.
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
 Settings, Administration (for admins, at `/admin`) and Sign out.
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
+
+From 640 px the sidebar sits beside the views and can be **folded away**: the button at its head
+folds it, the bar comes back with ☰ to unfold it (a swipe from the edge does too) and the `create`
+button moves into the bar. The device remembers it per app, under `<app.id>.sidebar`
+(`'collapsed'` or `'visible'`). `onFold(folded)` says the views' width changed, for whatever is drawn
+to it (a Gantt, a timeline); `shell.folded` says how it is. Something picked up while it is folded
+brings it over the views as a drawer, as on a phone. An app that lays out its own columns from
+960 px (Tasks, Projects) gives their `[data-folded]` version too; on a phone nothing of this
+applies, whatever was chosen on a computer.
 
 ### Sign-in and settings
 

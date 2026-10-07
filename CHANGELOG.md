@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.41.0 — 2026-10-07
+
+- **One frame for every app, and its sidebar folds away.** Next, the only app with a top bar and
+  tabs, moves to the sidebar like the rest, so the top layout goes: `layout`, `tabs`, `selectTab`,
+  the bottom bar on a phone, the bar's brand and account button, and their CSS. `data-layout="side"`
+  stays on the frame for the apps' own CSS. From 640 px the sidebar can be folded away with the
+  button at its head, as only Projects could: the bar comes back with ☰ to unfold it and the
+  `create` button, and the device remembers it per app (`<app.id>.sidebar`, Projects' own key and
+  values, so its choice carries over). `onFold(folded)` tells the app its views' width changed.
+
 ## 0.40.5 — 2026-10-07
 
 - **No hop at the end of the gap's slide.** A list with space between its rows (flex or grid

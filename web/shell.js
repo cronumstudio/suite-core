@@ -1,15 +1,16 @@
 /**
- * The frame of every app: a sidebar (Tasks, Notes, Projects: many lists) or
- * a top bar with tabs (Next, Focus, Tracker, Talk: a few views), with the
- * same pieces in both —the app's name and icon, the live dot, the account
- * menu, the banners and the button that creates—.
+ * The frame of every app: a sidebar with the app's name and icon, the live
+ * dot, the button that creates, the app's own entries and the person at its
+ * foot; the banners; and the app's views beside it.
  *
  * On a phone the sidebar is a drawer, and a list and what is open from it are
- * two screens (`showDetail()`, and back); the top bar's tabs go to the bottom,
- * within reach of the thumb. kit.css lays it out by the frame's own width.
+ * two screens (`showDetail()`, and back). On a tablet or a computer it stays
+ * beside the views, and can be folded away for more room: the button at its
+ * head folds it, ☰ in the bar that then shows brings it back, and the choice
+ * is remembered on the device. kit.css lays it out by the frame's own width.
  *
  *   const shell = createShell({
- *     layout: 'side', panes: 'split', app: { name: 'Notes', icon: '/icons/favicon.svg' },
+ *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
  *     onSettings: openSettings, onSignOut: signOut,
  *   });
@@ -21,86 +22,66 @@ import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 
+/** From this width the sidebar sits beside the views instead of over them (kit.css). */
+const BESIDE = 640;
+
 /**
  * @param {object} options
- * @param {'side'|'top'} [options.layout]
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
- * @param {object} options.app               { name, icon, href }
+ * @param {object} options.app               { id, name, icon }: the id names what the device remembers
  * @param {object} [options.create]          { label, onClick }: the button that creates
- * @param {Array}  [options.tabs]            top layout: [{ id, label, iconName, onSelect }]
  * @param {Function} [options.onSettings]
  * @param {Function} [options.onSignOut]
  * @param {Function} [options.onBack]        the detail's back button (default: showList)
+ * @param {Function} [options.onFold]        (folded) the sidebar folded or came back: the views' width changed
  * @param {Array}  [options.accountItems]    the app's own entries of the account menu
  * @param {Node}   [options.root]
  */
 export function createShell({
-  layout = 'side', panes = 'split', app, create = null, tabs = [], onSettings = null, onSignOut = null,
-  onBack = null, accountItems = [], root = document.body, dragTabs = {},
+  panes = 'split', app, create = null, onSettings = null, onSignOut = null,
+  onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
 }) {
   let user = null;
   const appIcon = (size) => el('img', { class: 'kit-appicon', src: app.icon || '/icons/favicon.svg', alt: '', width: size, height: size });
-  const liveDots = [];
-  const liveDot = () => {
-    const dot = el('span', { class: 'kit-live', 'data-state': 'closed', role: 'status', title: t('kit.live.closed') });
-    liveDots.push(dot);
-    return dot;
-  };
-  const accountButtons = [];
   // The person opens Settings, where everything about the account is, signing out included; a
   // menu only when the app has entries of its own for it or there is no Settings.
   const direct = Boolean(onSettings) && !accountItems.length;
-  const accountButton = (withText) => {
-    const button = direct
-      ? el('button', { type: 'button', class: 'kit-account', 'aria-label': t('kit.account.settings') })
-      : el('button', { type: 'button', class: 'kit-account', 'aria-haspopup': 'menu', 'aria-label': t('kit.account.menu') });
-    button.addEventListener('click', () => (direct ? onSettings() : openAccountMenu(button)));
-    accountButtons.push({ button, withText });
-    return button;
-  };
+  const account = direct
+    ? el('button', { type: 'button', class: 'kit-account', 'aria-label': t('kit.account.settings') })
+    : el('button', { type: 'button', class: 'kit-account', 'aria-haspopup': 'menu', 'aria-label': t('kit.account.menu') });
+  account.addEventListener('click', () => (direct ? onSettings() : openAccountMenu(account)));
 
   /* --------------------------------- pieces --------------------------------- */
 
+  const live = el('span', { class: 'kit-live', 'data-state': 'closed', role: 'status', title: t('kit.live.closed') });
+  const fold = el('button', {
+    type: 'button', class: 'kit-icon-btn kit-side__fold', title: t('kit.side.fold'), 'aria-label': t('kit.side.fold'),
+    onClick: () => setFolded(true),
+  }, icon('back'));
   const nav = el('nav', { class: 'kit-side__nav', 'aria-label': app.name });
   const side = el('aside', { class: 'kit-side' },
-    el('div', { class: 'kit-side__head' }, appIcon(30), el('span', { class: 'kit-appname', text: app.name }), liveDot()),
+    el('div', { class: 'kit-side__head' }, appIcon(30), el('span', { class: 'kit-appname', text: app.name }), live, fold),
     create ? el('div', { class: 'kit-side__create' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,
     nav,
-    el('div', { class: 'kit-side__foot' }, accountButton(true)));
+    el('div', { class: 'kit-side__foot' }, account));
   const scrim = el('div', { class: 'kit-scrim', onClick: () => closeDrawer() });
 
   const title = el('span', { class: 'kit-bar__title' });
   const actions = el('div', { class: 'kit-bar__actions' });
-  const tabButtons = new Map();
-  const tabStrip = el('nav', { class: 'kit-bar__tabs', 'aria-label': app.name });
-  const bottom = el('nav', { class: 'kit-bottom', 'aria-label': app.name });
-  for (const tab of tabs) {
-    const top = el('button', { type: 'button', class: 'kit-bar__tab', text: tab.label, onClick: () => selectTab(tab.id) });
-    const below = el('button', { type: 'button', class: 'kit-bottom__tab', onClick: () => selectTab(tab.id) },
-      icon(tab.iconName || 'grid'), el('span', { text: tab.label }));
-    tabButtons.set(tab.id, [top, below]);
-    tabStrip.append(top);
-    bottom.append(below);
-  }
-  const bar = el('header', { class: 'kit-bar' },
-    el('button', {
-      type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
-      onClick: () => toggleDrawer(),
-    }, icon('menu')),
-    el('button', { type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)() }, icon('back')),
-    el('a', { class: 'kit-bar__brand', href: app.href || '/?app' }, appIcon(28), el('span', { class: 'kit-appname', text: app.name })),
-    tabStrip,
-    title,
-    actions,
-    layout === 'top' && create ? el('button', {
-      type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small kit-bar__create', onClick: create.onClick,
-    }, icon('plus'), create.label) : null,
-    layout === 'top' ? liveDot() : null,
-    // The person's button: the sidebar has it at its foot, with the name —on a phone, in the
-    // drawer—, so only the top layout, which has no sidebar, puts it in the bar.
-    layout === 'top' ? accountButton(false) : null);
+  const menuButton = el('button', {
+    type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
+    onClick: () => toggleDrawer(),
+  }, icon('menu'));
+  const backButton = el('button', {
+    type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
+  }, icon('back'));
+  // With the sidebar folded away, its button that creates comes to the bar.
+  const barCreate = create ? el('button', {
+    type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small kit-bar__create', onClick: create.onClick,
+  }, icon('plus'), create.label) : null;
+  const bar = el('header', { class: 'kit-bar' }, menuButton, backButton, title, actions, barCreate);
   const banners = el('div', { class: 'kit-banners' });
   const list = el('section', { class: 'kit-pane kit-pane--list' });
   const detail = el('section', { class: 'kit-pane kit-pane--detail' });
@@ -113,15 +94,33 @@ export function createShell({
   const tab = (kind, name) => el('div', {
     class: `kit-drag-tab kit-drag-tab--${kind}`, 'data-drag-spring': 'at-once', 'aria-hidden': 'true',
   }, el('span', { class: 'kit-drag-tab__pill' }, icon(name)));
-  const edgeTabs = layout === 'side'
-    ? [tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back')]
-    : [];
 
   const shell = el('div', { class: 'kit-shell' },
-    layout === 'side' ? side : null, layout === 'side' ? scrim : null, bar, banners, list, detail,
-    layout === 'top' ? bottom : null, fab, ...edgeTabs);
-  const element = el('div', { class: 'kit-app', 'data-layout': layout, 'data-panes': panes, 'data-screen': 'list' }, shell);
+    side, scrim, bar, banners, list, detail, fab, tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back'));
+  // `data-layout` stays for the apps' own CSS, which names it.
+  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list' }, shell);
   root.append(element);
+
+  /* --------------------------------- folding -------------------------------- */
+
+  // Kept per app and device under `<id>.sidebar`, 'collapsed' or 'visible' (Projects' own key and
+  // values from before the kit folded it, so nobody's choice is lost).
+  const foldKey = `${app.id || app.name.toLowerCase()}.sidebar`;
+  const beside = () => (element.clientWidth || window.innerWidth) >= BESIDE;
+  /** Folded and beside the views: below that width the sidebar is a drawer, folded or not. */
+  const folded = () => element.hasAttribute('data-folded') && beside();
+  function paintFolded(value) {
+    element.toggleAttribute('data-folded', value);
+    if (value) menuButton.title = t('kit.side.unfold');
+    else menuButton.removeAttribute('title');
+  }
+  function setFolded(value) {
+    try { localStorage.setItem(foldKey, value ? 'collapsed' : 'visible'); } catch { /* private mode */ }
+    closeDrawer();
+    paintFolded(value);
+    onFold?.(value);
+  }
+  try { paintFolded(localStorage.getItem(foldKey) === 'collapsed'); } catch { /* private mode */ }
 
   /* --------------------------------- screens -------------------------------- */
 
@@ -136,7 +135,9 @@ export function createShell({
   }
 
   function openDrawer() {
-    element.setAttribute('data-drawer', '');
+    // Folded beside the views, what would open it over them (☰, a swipe from the edge) unfolds it.
+    if (folded()) setFolded(false);
+    else element.setAttribute('data-drawer', '');
     nav.querySelector('[aria-current="page"], a, button')?.focus();
   }
   function closeDrawer() { element.removeAttribute('data-drawer'); }
@@ -150,9 +151,10 @@ export function createShell({
   // `drawer: 'tabs'`), the list stays and a tab shows at the start edge: held there, the drawer
   // opens, and a tab at the end edge, beside it, closes it again. Held over ☰ it opens too. The
   // drawer goes when the drag ends, dropped or not, if it came for it. Where the sidebar stays
-  // (a tablet, a computer) the ☰ isn't shown and nothing of this happens.
+  // (a tablet, a computer) the ☰ isn't shown and nothing of this happens; folded away there, it
+  // comes over the views as on a phone for the drag, and stays folded.
   let drawerForDrag = false;
-  const asDrawer = () => getComputedStyle(bar.querySelector('.kit-bar__menu')).display !== 'none';
+  const asDrawer = () => getComputedStyle(menuButton).display !== 'none';
   const drawerIsClosed = () => !element.hasAttribute('data-drawer') && asDrawer();
   const openForDrag = () => {
     element.setAttribute('data-drawer', '');
@@ -192,12 +194,10 @@ export function createShell({
   const EDGE = 20;
   let swipe = null;
   const visible = (node) => node.offsetParent !== null;
-  const menuButton = bar.querySelector('.kit-bar__menu');
-  const backButton = bar.querySelector('.kit-bar__back');
   const startAction = (target) => {
     if (!element.contains(target) || element.hasAttribute('data-drawer')) return null;
     if (visible(backButton)) return () => (onBack || showList)();
-    if (layout === 'side' && visible(menuButton)) return openDrawer;
+    if (visible(menuButton)) return openDrawer;
     return null;
   };
   const scrollerOf = (node) => {
@@ -253,27 +253,15 @@ export function createShell({
   // it opens over ☰ must stay, and letting go must not open the row.
   document.addEventListener('kit-dragstart', () => { swipe = null; });
 
-  function selectTab(id, { silent = false } = {}) {
-    for (const [key, buttons] of tabButtons) {
-      for (const button of buttons) {
-        if (key === id) button.setAttribute('aria-current', 'page');
-        else button.removeAttribute('aria-current');
-      }
-    }
-    if (!silent) tabs.find((tab) => tab.id === id)?.onSelect?.();
-  }
-
   /* --------------------------------- account -------------------------------- */
 
   function paintAccount() {
-    for (const { button, withText } of accountButtons) {
-      clear(button);
-      button.append(avatar(user?.display_name || user?.username || ''));
-      if (withText && user) {
-        button.append(el('span', { class: 'kit-account__text' },
-          el('strong', { text: user.display_name || user.username }),
-          el('small', { text: user.email || user.username })));
-      }
+    clear(account);
+    account.append(avatar(user?.display_name || user?.username || ''));
+    if (user) {
+      account.append(el('span', { class: 'kit-account__text' },
+        el('strong', { text: user.display_name || user.username }),
+        el('small', { text: user.email || user.username })));
     }
   }
 
@@ -289,11 +277,8 @@ export function createShell({
       onSignOut ? 'separator' : null,
       onSignOut ? { label: t('kit.account.signOut'), iconName: 'logout', danger: true, onClick: onSignOut } : null,
     ].filter(Boolean);
-    // The sidebar's button already shows the name and address, so its menu doesn't repeat them;
-    // the bar's button is only the initials, and its menu says who it is.
-    const withText = accountButtons.find((entry) => entry.button === anchor)?.withText;
-    const header = user && !withText ? [el('strong', { text: user.display_name || user.username }), user.email || user.username] : null;
-    menu(anchor, items, { header });
+    // The button already shows the name and address, so its menu doesn't repeat them.
+    menu(anchor, items);
   }
 
   /* --------------------------------- notices -------------------------------- */
@@ -314,18 +299,16 @@ export function createShell({
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
-    for (const dot of liveDots) {
-      dot.dataset.state = state;
-      dot.title = t(`kit.live.${state}`);
-      dot.setAttribute('aria-label', t(`kit.live.${state}`));
-    }
+    live.dataset.state = state;
+    live.title = t(`kit.live.${state}`);
+    live.setAttribute('aria-label', t(`kit.live.${state}`));
   }
 
   return {
     element, nav, list, detail, actions, banners,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
-    selectTab: (id) => selectTab(id, { silent: true }),
+    get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
     setUser: (next) => { user = next; paintAccount(); },
     setLive, showBanner, hideBanner,
