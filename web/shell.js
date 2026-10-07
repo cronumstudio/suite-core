@@ -98,7 +98,9 @@ export function createShell({
       type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small kit-bar__create', onClick: create.onClick,
     }, icon('plus'), create.label) : null,
     layout === 'top' ? liveDot() : null,
-    accountButton(false));
+    // The person's button: the sidebar has it at its foot, with the name —on a phone, in the
+    // drawer—, so only the top layout, which has no sidebar, puts it in the bar.
+    layout === 'top' ? accountButton(false) : null);
   const banners = el('div', { class: 'kit-banners' });
   const list = el('section', { class: 'kit-pane kit-pane--list' });
   const detail = el('section', { class: 'kit-pane kit-pane--detail' });
