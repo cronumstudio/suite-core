@@ -108,9 +108,11 @@ export function createShell({
 
   // While something is carried on a phone, a tab at each edge: the start one opens the drawer
   // when held, the end one, beside the open drawer, closes it, without letting go (drag.js).
+  // Reaching one is enough, no waiting (`at-once`), and it takes more than what is drawn: a
+  // finger carrying something doesn't aim at a strip a few pixels wide against the edge.
   const tab = (kind, name) => el('div', {
-    class: `kit-drag-tab kit-drag-tab--${kind}`, 'data-drag-spring': '', 'aria-hidden': 'true',
-  }, icon(name));
+    class: `kit-drag-tab kit-drag-tab--${kind}`, 'data-drag-spring': 'at-once', 'aria-hidden': 'true',
+  }, el('span', { class: 'kit-drag-tab__pill' }, icon(name)));
   const edgeTabs = layout === 'side'
     ? [tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back')]
     : [];

@@ -13,6 +13,9 @@
 
 :root {
   color-scheme: light;
+  /* The drawer and what slides with it: quick to start, soft to land. */
+  --kit-slide-time: .28s;
+  --kit-slide: cubic-bezier(.32, .72, 0, 1);
   --kit-hue: var(--app, #7A7064);
   --kit-accent: var(--app-accent, var(--app, #16130E));
   --kit-on-accent: var(--app-on, #FFFFFF);
@@ -108,6 +111,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 [dir="rtl"] .kit-icon[data-directional] { transform: scaleX(-1); }
 
 @media (prefers-reduced-motion: reduce) {
+  :root { --kit-slide-time: 0s; }
   *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
 }
 
@@ -417,18 +421,30 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* Something held over a place that opens what is behind it (☰, a tab) says it is about to. */
 [data-drag-spring][data-spring-armed] { filter: brightness(1.12); }
 /* On a phone, while a task is carried that may also stay in the list: a tab at the start edge opens
-   the drawer when held, and one at the end edge, beside the open drawer, closes it (shell.js). */
+   the drawer as soon as the finger reaches it, and one at the end edge, beside the open drawer, closes
+   it (shell.js). Each takes more than its drawn pill, and slides in from its edge and out again. */
 .kit-drag-tab {
-  display: none; position: absolute; top: 50%; z-index: 40; width: 36px; height: 104px; margin-top: -52px;
-  align-items: center; justify-content: center; background: var(--kit-accent); color: var(--kit-on-accent);
-  box-shadow: var(--kit-shadow-high); transition: width .15s ease;
+  position: absolute; top: 50%; z-index: 40; width: 60px; height: 180px; margin-top: -90px;
+  display: flex; align-items: center; visibility: hidden; pointer-events: none;
+  transition: visibility 0s linear var(--kit-slide-time);
 }
-.kit-drag-tab .kit-icon { width: 20px; height: 20px; }
-.kit-drag-tab--open { inset-inline-start: 0; border-start-end-radius: 16px; border-end-end-radius: 16px; }
-.kit-drag-tab--back { inset-inline-end: 0; border-start-start-radius: 16px; border-end-start-radius: 16px; }
-.kit-drag-tab[data-spring-armed] { width: 46px; }
+.kit-drag-tab--open { inset-inline-start: 0; justify-content: flex-start; }
+.kit-drag-tab--back { inset-inline-end: 0; justify-content: flex-end; }
+.kit-drag-tab__pill {
+  display: flex; align-items: center; justify-content: center; width: 38px; height: 112px;
+  background: var(--kit-accent); color: var(--kit-on-accent); box-shadow: var(--kit-shadow-high); opacity: 0;
+  transition: transform var(--kit-slide-time) var(--kit-slide), opacity .18s ease, width .15s ease;
+}
+.kit-drag-tab__pill .kit-icon { width: 20px; height: 20px; }
+.kit-drag-tab--open .kit-drag-tab__pill { border-start-end-radius: 18px; border-end-end-radius: 18px; transform: translateX(-110%); }
+.kit-drag-tab--back .kit-drag-tab__pill { border-start-start-radius: 18px; border-end-start-radius: 18px; transform: translateX(110%); }
+[dir="rtl"] .kit-drag-tab--open .kit-drag-tab__pill { transform: translateX(110%); }
+[dir="rtl"] .kit-drag-tab--back .kit-drag-tab__pill { transform: translateX(-110%); }
 .kit-app[data-drag-tabs]:not([data-drawer]) .kit-drag-tab--open,
-.kit-app[data-drag-tabs][data-drawer] .kit-drag-tab--back { display: flex; }
+.kit-app[data-drag-tabs][data-drawer] .kit-drag-tab--back { visibility: visible; pointer-events: auto; transition-delay: 0s; }
+.kit-app[data-drag-tabs]:not([data-drawer]) .kit-drag-tab--open .kit-drag-tab__pill,
+.kit-app[data-drag-tabs][data-drawer] .kit-drag-tab--back .kit-drag-tab__pill { transform: none; opacity: 1; }
+.kit-drag-tab[data-spring-armed] .kit-drag-tab__pill { width: 48px; }
 /* Rows level with something beside them (a chart's bars) can't move: a dashed line, and nothing moves. */
 .kit-drop-gap--thin { height: 0; border: 0; border-radius: 0; background: none; outline: 1px dashed var(--kit-accent); outline-offset: 0; }
 
@@ -489,11 +505,13 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-side {
   position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 30; width: min(290px, 86%);
   display: flex; flex-direction: column; min-height: 0; background: var(--kit-side);
-  padding-top: var(--kit-safe-top); transform: translateX(-105%); transition: transform .22s ease; visibility: hidden;
+  padding-top: var(--kit-safe-top); transform: translateX(-105%); visibility: hidden;
+  /* Closing, it stays visible until it has slid out; opening, it is visible from the start. */
+  transition: transform var(--kit-slide-time) var(--kit-slide), visibility 0s linear var(--kit-slide-time);
 }
 [dir="rtl"] .kit-side { transform: translateX(105%); }
-.kit-app[data-drawer] .kit-side { transform: none; visibility: visible; box-shadow: var(--kit-shadow-high); }
-.kit-scrim { position: absolute; inset: 0; z-index: 25; background: var(--kit-scrim); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.kit-app[data-drawer] .kit-side { transform: none; visibility: visible; box-shadow: var(--kit-shadow-high); transition-delay: 0s; }
+.kit-scrim { position: absolute; inset: 0; z-index: 25; background: var(--kit-scrim); opacity: 0; pointer-events: none; transition: opacity var(--kit-slide-time) ease; }
 .kit-app[data-drawer] .kit-scrim { opacity: 1; pointer-events: auto; }
 .kit-side__head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
 .kit-side__head .kit-appname { flex: 1; }
