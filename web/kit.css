@@ -401,16 +401,19 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* Physical left and top on purpose: it follows the pointer, whose coordinates are physical. */
 .kit-drag-ghost {
   position: fixed; top: 0; left: 0; z-index: 1100; pointer-events: none; display: grid; gap: 3px;
+  /* One column no wider than the card: a long title is cut, not carried past its edge. */
+  grid-template-columns: minmax(0, 1fr);
   max-width: min(300px, calc(100vw - 8px)); padding: 9px 13px; border-radius: 12px;
   background: var(--kit-panel); color: var(--kit-text); border: 1px solid var(--kit-border);
   box-shadow: var(--kit-shadow-high); font-size: 14px; line-height: 1.3;
 }
 .kit-drag-ghost > strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kit-drag-ghost__where { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 500; color: var(--kit-accent); }
-.kit-drag-ghost__where > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kit-drag-ghost__where .kit-icon { width: 14px; height: 14px; }
+.kit-drag-ghost__where { display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; font-weight: 500; color: var(--kit-accent); }
+/* Where it falls goes down to a second line before it is cut: "After …" is the part that has to be read. */
+.kit-drag-ghost__where > span { min-width: 0; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.kit-drag-ghost__where .kit-icon { width: 14px; height: 14px; flex: none; margin-top: 1px; }
 .kit-drag-ghost--no .kit-drag-ghost__where { color: var(--kit-danger); }
-.kit-drag-ghost__detail { font-size: 12px; color: var(--kit-muted); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.kit-drag-ghost__detail { font-size: 12px; color: var(--kit-muted); overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 [data-drop-state="ok"] { background: var(--kit-accent-soft) !important; box-shadow: inset 0 0 0 2px var(--kit-accent); }
 [data-drop-state="no"] { box-shadow: inset 0 0 0 1.5px var(--kit-border); opacity: .7; }
 /* Between two rows: where it would sit, as a dashed gap the size of the row, which the rest make room for. */
