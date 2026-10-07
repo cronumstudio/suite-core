@@ -40,7 +40,7 @@ Object.defineProperties(FakeElement.prototype, Object.getOwnPropertyDescriptors(
       contains: (name) => list().includes(name),
     };
   },
-  get style() { return (this._style ||= {}); },
+  get style() { return (this._style ||= { setProperty(name, value) { this[name] = value; } }); },
   get offsetWidth() { return 120; },
   get offsetHeight() { return 40; },
   getBoundingClientRect() { return this.box || { top: 0, bottom: 0, left: 0, right: 0 }; },
@@ -636,5 +636,20 @@ test('the gap it leaves closes as the new one opens, and is gone soon after; the
     p.drag.destroy();
   } finally {
     mock.timers.reset();
+  }
+});
+
+test('a gap takes back the space its list puts between rows, so the rows do not hop as it opens and closes', () => {
+  const computed = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = (node) => ({ ...computed(node), rowGap: node.tagName === 'UL' ? '6px' : 'normal' });
+  try {
+    const p = rows();
+    pointer(p.a, 'pointerdown', 200, 110);
+    pointer(p.a, 'pointermove', 200, 150);
+    assert.equal(gapIn(p.list).style['--kit-gap-space'], '6px');
+    pointer(p.a, 'pointerup', 200, 150);
+    p.drag.destroy();
+  } finally {
+    globalThis.getComputedStyle = computed;
   }
 });

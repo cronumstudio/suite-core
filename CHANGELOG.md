@@ -13,6 +13,13 @@ change an interface and a patch never does. Apps pin a version through the submo
   `create` button, and the device remembers it per app (`<app.id>.sidebar`, Projects' own key and
   values, so its choice carries over). `onFold(folded)` tells the app its views' width changed.
 
+## 0.40.5 — 2026-10-07
+
+- **No hop at the end of the gap's slide.** A list with space between its rows (flex or grid
+  `gap`) puts that space beside the gap at once, so the rows slid and then hopped by it as a gap
+  closed (and as one opened). The gap now takes it back with a negative margin while it is shut
+  (`--kit-gap-space`, read from the list).
+
 ## 0.40.4 — 2026-10-07
 
 - **The rows slide while something is dragged.** The gap where it would land appeared and
