@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.40.1 — 2026-10-07
+
+- **The drag's tabs answer at once and are easier to reach.** Reaching one opens or closes the
+  drawer without waiting (`data-drag-spring="at-once"`), and each takes 60 × 180 px, more than its
+  drawn pill, so the finger needn't go right to the edge.
+- **Smoother.** The tabs slide in from their edge and out again instead of appearing and vanishing,
+  and the drawer slides out when it closes too, where it used to vanish at once (its visibility
+  waits for the slide); opening and closing share one curve, quick to start and soft to land
+  (`--kit-slide-time`, `--kit-slide`). With reduced motion, none of it moves.
+
 ## 0.40.0 — 2026-10-07
 
 - **One drag for everything, and tabs to reach the drawer.** On a phone the drawer opened as soon

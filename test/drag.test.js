@@ -275,7 +275,7 @@ test('held over ☰ it asks for the drawer, and the end of the drag is announced
     assert.deepEqual(springs, ['open']);
     // The drawer slides in under a finger that stays still: once it is there, its notebook counts.
     p.work.box = { top: 0, bottom: 40, left: 0, right: 260 };
-    mock.timers.tick(300);
+    mock.timers.tick(350);
     assert.equal(p.work.getAttribute('data-drop-state'), 'ok');
     pointer(p.first, 'pointerup', 22, 21);
     assert.deepEqual(p.dropped, [['1', 'work']]);
@@ -303,7 +303,7 @@ test('the start says what was picked up and where it may go, and looks again onc
     // The frame opens its drawer: Work slides in under the pointer, which doesn't move.
     assert.equal(p.work.getAttribute('data-drop-state'), null);
     p.work.box = { top: 150, bottom: 170, left: 0, right: 260 };
-    mock.timers.tick(300);
+    mock.timers.tick(350);
     assert.equal(p.work.getAttribute('data-drop-state'), 'ok');
     pointer(p.first, 'pointerup', 100, 160);
     assert.deepEqual(p.dropped, [['1', 'work']]);
@@ -557,4 +557,22 @@ test('held over a place that opens something, it is marked armed until the point
   pointer(p.first, 'pointerup', 20, 20);
   assert.ok(!p.menuButton.hasAttribute('data-spring-armed'), 'nor after the drag');
   p.drag.destroy();
+});
+
+test('a place marked at-once opens what is behind it as soon as it is reached', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const p = page();
+    p.menuButton.setAttribute('data-drag-spring', 'at-once');
+    const springs = [];
+    p.menuButton.addEventListener('kit-drag-spring', () => springs.push('open'));
+    pointer(p.first, 'pointerdown', 400, 110);
+    pointer(p.first, 'pointermove', 20, 20);
+    mock.timers.tick(1);
+    assert.deepEqual(springs, ['open'], 'no waiting');
+    pointer(p.first, 'pointerup', 20, 20);
+    p.drag.destroy();
+  } finally {
+    mock.timers.reset();
+  }
 });
