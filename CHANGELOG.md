@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.37.2 — 2026-10-07
+
+- **One account button with the sidebar beside the page.** From 640 to 959 px (a tablet, a narrow
+  window) the sidebar stays beside the page with the person's button at its foot, and the bar above
+  the page showed their avatar too: the same button twice. The bar's one is hidden wherever the
+  sidebar shows; on a phone, where the sidebar is a drawer, the bar keeps it.
+
 ## 0.37.1 — 2026-10-06
 
 - **Sign out closes the profile** in Settings, under the name, the address and the username, where
