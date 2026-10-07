@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.39.0 — 2026-10-07
+
+- **Dragging in order: before, inside or after a row.** `makeDraggable()` dropped only on a whole
+  place; now `zones` splits each place by the height of the pointer —`'between'` (before, after)
+  or `'around'` (before, inside, after), chosen place by place if need be— and `check` and `onDrop`
+  get `{ zone }`. The rows of a list can be at once what is picked up and where it goes, for
+  reordering it or a tree; `end` makes the space below the last row the end of the list.
+- **A gap where it would land.** Before or after a row, a dashed gap as tall as the row carried
+  opens and the rows below make room for it; inside a row, it lights up as a whole place does.
+  `gap: 'thin'` draws a line that moves nothing, for rows level with a chart. `check` may add a
+  second line to the card (`detail`) and indent the gap (`indent`), for the level of a tree.
+
 ## 0.38.0 — 2026-10-07
 
 - **Paddle as the billing provider** (`paddle.js`, `BILLING_PROVIDER=paddle`), the merchant of

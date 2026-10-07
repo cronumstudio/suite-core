@@ -202,6 +202,39 @@ makeDraggable(list, {
 - It is never the only way: a keyboard or a screen reader can't drag, so what can be dropped
   somewhere can also be moved from a menu. After a move, a notice with *Undo*.
 
+**In order: before, inside, after.** To reorder a list or a tree, the rows are at once what is
+picked up and where it goes, and `zones` splits each place by the height of the pointer:
+
+```js
+makeDraggable(list, {
+  items: '[data-id]',
+  targets: '[data-id]',                                    // its own row is never a place
+  zones: (row, item) => (canNest(row) ? 'around' : 'between'),   // or one for all
+  end: true,                                               // below the last row: (list, { zone: 'end' })
+  label: (row) => titleOf(row),
+  check: (row, place, { zone }) => ({                      // asked once per place and zone
+    ok: true,
+    text: t('app.drag.after', { title: titleOf(place) }),
+    detail: t('app.drag.topLevel'),                        // a second, quieter line
+    indent: 14,                                            // the gap's indent, in pixels
+  }),
+  onDrop: (row, place, { zone }) => move(row, place, zone),
+});
+```
+
+- `zones`: `'whole'` (the default, as above), `'between'` (the top half is `before`, the bottom
+  half `after`) or `'around'` (`before` in the top 30 %, `inside` in the middle, `after` in the
+  bottom 30 %); a function chooses place by place, so a row that can't take anything inside offers
+  only its edges.
+- **The gap.** Before or after a row, where it would land opens as a dashed gap as tall as the
+  row carried (`.kit-drop-gap`, an `li` in a list), and the rows below make room for it. Over the
+  gap, or over nothing among those rows, it still goes there, so the rows moving under the pointer
+  don't close it. Where `check` says no, no gap opens and the card says why. `inside` and `whole`
+  light up the place, as before. Rows that must stay level with something beside them, as the names
+  beside a chart's bars, take `gap: 'thin'`: a dashed line that moves nothing.
+- The gap is a node among the rows while it is open: striping with `:nth-child(even of [data-id])`
+  rather than `:nth-child(even)` keeps the colours still.
+
 ### Markdown
 
 `renderMarkdown(text, { onTaskToggle })` draws a note with `el()` —headings, lists, task lists,

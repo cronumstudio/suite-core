@@ -406,8 +406,16 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-drag-ghost__where > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kit-drag-ghost__where .kit-icon { width: 14px; height: 14px; }
 .kit-drag-ghost--no .kit-drag-ghost__where { color: var(--kit-danger); }
+.kit-drag-ghost__detail { font-size: 12px; color: var(--kit-muted); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 [data-drop-state="ok"] { background: var(--kit-accent-soft) !important; box-shadow: inset 0 0 0 2px var(--kit-accent); }
 [data-drop-state="no"] { box-shadow: inset 0 0 0 1.5px var(--kit-border); opacity: .7; }
+/* Between two rows: where it would sit, as a dashed gap the size of the row, which the rest make room for. */
+.kit-drop-gap {
+  display: block; box-sizing: border-box; list-style: none; flex: none; margin: 0; padding: 0;
+  border: 2px dashed var(--kit-accent); border-radius: 10px; background: var(--kit-accent-soft);
+}
+/* Rows level with something beside them (a chart's bars) can't move: a dashed line, and nothing moves. */
+.kit-drop-gap--thin { height: 0; border: 0; border-radius: 0; background: none; outline: 1px dashed var(--kit-accent); outline-offset: 0; }
 
 /* ------------------------------- app frame -------------------------------- */
 /*

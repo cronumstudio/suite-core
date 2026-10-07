@@ -26,6 +26,13 @@
  * be dropped there (shell.js, on `kit-dragstart`), and closes it when the drag
  * ends. Held over ☰ (`data-drag-spring`) it opens too.
  *
+ * A place may also be split by the height of the pointer, for putting things
+ * in order: in front of a row or behind it (`zones: 'between'`), or also
+ * inside it (`'around'`, a tree). There, where it would land opens as a dashed
+ * gap the size of what is carried, and the rows make room for it; the app
+ * says with `check(item, place, { zone })` what each zone would do, as with a
+ * whole place. The rows can be at once what is picked up and where it goes.
+ *
  * It is never the only way: the keyboard and a screen reader can't drag, so
  * whatever can be dropped somewhere can also be moved from a menu.
  */
@@ -40,6 +47,7 @@ const SETTLE_MS = 280;    // the drawer's slide (kit.css), and a little more: th
 const EDGE = 56;          // the strip at each end of a scrolling box that scrolls it
 const MAX_SPEED = 14;     // pixels per tick, right at the edge
 const TICK_MS = 16;
+const EDGE_SHARE = 0.3;   // of a row that also takes things inside, the top and bottom shares that go around it
 
 // Inside a row these keep their own job; the row itself may be a link or a button.
 const CONTROLS = 'button, a, input, select, textarea, label, [contenteditable=""], [contenteditable="true"]';
@@ -57,6 +65,20 @@ export function edgeSpeed(top, bottom, y, zone = EDGE, max = MAX_SPEED) {
   const force = Math.round(max * (1 - Math.max(0, nearest) / zone)) || 1;
   return fromTop <= fromBottom ? -force : force;
 }
+
+/**
+ * Which part of a place the pointer is on, `rel` being its height there (0 at
+ * the top, 1 at the bottom): the whole of it, or in front of it and behind it,
+ * or also inside, in the middle.
+ */
+export function zoneAt(kind, rel) {
+  if (kind === 'between') return rel < 0.5 ? 'before' : 'after';
+  if (kind === 'around') return rel < EDGE_SHARE ? 'before' : (rel > 1 - EDGE_SHARE ? 'after' : 'inside');
+  return 'whole';
+}
+
+/** The zones that open a gap: in front of a place, behind it, or after the last one. */
+const BETWEEN = new Set(['before', 'after', 'end']);
 
 /** The nearest box above `node` that scrolls up and down and has somewhere to go. */
 function scrollerOf(node) {
@@ -79,14 +101,25 @@ function scrollerOf(node) {
  * @param {string} [options.skip]            parts of an item that don't pick it up (a grip that reorders)
  * @param {string} [options.targets]         the places, anywhere on the page
  * @param {Function} [options.canDrag]       (item) → false leaves it where it is (a notebook only to read)
+ * @param {string|Function} [options.zones] how a place is split: 'whole' (the default), 'between'
+ *                                           (before, after) or 'around' (before, inside, after); or
+ *                                           (place, item) → one of them, place by place
+ * @param {boolean} [options.end]            below the last place, in the container's column, is a
+ *                                           place too: the container, with the zone 'end'
+ * @param {string} [options.gap]             'full' (the default): the gap is as tall as the item;
+ *                                           'thin': a dashed line that moves nothing (rows that
+ *                                           must stay level with something beside them)
  * @param {Function} options.label           (item) → the text that travels with the pointer
- * @param {Function} options.check           (item, place) → { ok, text }: what letting go there does, or
- *                                           why not; null when the place has nothing to do with it
- * @param {Function} options.onDrop          (item, place) → called only when check said ok
+ * @param {Function} options.check           (item, place, { zone }) → { ok, text, detail, indent }:
+ *                                           what letting go there does, or why not, a second line,
+ *                                           and the gap's indent in pixels; null when the place has
+ *                                           nothing to do with it
+ * @param {Function} options.onDrop          (item, place, { zone }) → called only when check said ok
  * @returns {{ destroy: Function }}
  */
 export function makeDraggable(container, {
-  items, handle = null, skip = null, targets = '[data-drop]', canDrag = () => true, label, check, onDrop,
+  items, handle = null, skip = null, targets = '[data-drop]', canDrag = () => true,
+  zones = 'whole', end: belowLast = false, gap: gapKind = 'full', label, check, onDrop,
 }) {
   let session = null;
   container.classList.add('kit-draggable');
@@ -105,8 +138,9 @@ export function makeDraggable(container, {
     const touch = ev.pointerType === 'touch';
     session = {
       item, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
-      touch, holding: touch && !handle, active: false, timer: null, place: null, verdict: null,
-      verdicts: new Map(), ghost: null, where: null, spring: null, springTimer: null, scroller: null, scrollTimer: null,
+      touch, holding: touch && !handle, active: false, timer: null, place: null, zone: null, verdict: null,
+      verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, height: 0,
+      spring: null, springTimer: null, scroller: null, scrollTimer: null,
     };
     if (session.holding) session.timer = setTimeout(() => { if (session && !session.active) start(); }, HOLD_MS);
     window.addEventListener('pointermove', onPointerMove);
@@ -143,9 +177,12 @@ export function makeDraggable(container, {
     s.active = true;
     clearTimeout(s.timer);
     s.where = el('span', { class: 'kit-drag-ghost__where' });
+    s.detail = el('span', { class: 'kit-drag-ghost__detail' });
     s.ghost = el('div', { class: 'kit-drag-ghost', 'aria-hidden': 'true' },
-      el('strong', { text: label(s.item) || '' }), s.where);
+      el('strong', { text: label(s.item) || '' }), s.where, s.detail);
     s.where.hidden = true;
+    s.detail.hidden = true;
+    s.height = s.item.offsetHeight;
     document.body.append(s.ghost);
     s.item.classList.add('kit-drag-source');
     document.documentElement.setAttribute('data-kit-dragging', '');
@@ -169,25 +206,88 @@ export function makeDraggable(container, {
     s.ghost.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     const under = document.elementFromPoint(s.x, s.y);
     springOver(under?.closest?.('[data-drag-spring]') || null);
-    aimAt(under?.closest?.(targets) || null);
+    aim(under);
     scrollNear(under);
   }
 
-  function aimAt(place) {
+  /** The place under the pointer, and which part of it. */
+  function aim(under) {
     const s = session;
-    if (place === s.place) return;
+    const hit = under?.closest?.(targets) || null;
+    let place = hit && hit !== s.item && !s.item.contains(hit) ? hit : null;
+    // Over the gap opened for it, or over no other place among the rows that made room for it,
+    // it still goes there: the rows moved under the pointer to open it, and must not close it.
+    if (s.gap?.parentElement && (under?.closest?.('.kit-drop-gap') || (!place && over(s.gap.parentElement)))) return;
+    let zone = null;
+    if (place) {
+      const kind = typeof zones === 'function' ? zones(place, s.item) : zones;
+      const { top, bottom } = place.getBoundingClientRect();
+      zone = zoneAt(kind, (s.y - top) / ((bottom - top) || 1));
+    } else if (belowLast && belowTheLast()) {
+      place = container;
+      zone = 'end';
+    }
+    aimAt(place, zone);
+  }
+
+  function over(node) {
+    const r = node.getBoundingClientRect();
+    return session.x >= r.left && session.x <= r.right && session.y >= r.top && session.y <= r.bottom;
+  }
+
+  const lastPlace = () => [...container.querySelectorAll(targets)].filter((node) => node !== session.item).pop() || null;
+
+  /** In the container's column, below its last place. */
+  function belowTheLast() {
+    const s = session;
+    const box = container.getBoundingClientRect();
+    if (s.x < box.left || s.x > box.right) return false;
+    const last = lastPlace();
+    return s.y > (last ? last.getBoundingClientRect().bottom : box.top);
+  }
+
+  function aimAt(place, zone) {
+    const s = session;
+    if (place === s.place && zone === s.zone) return;
     s.place?.removeAttribute('data-drop-state');
     s.place = place;
+    s.zone = zone;
     let verdict = null;
     if (place) {
-      if (!s.verdicts.has(place)) s.verdicts.set(place, check(s.item, place) || null);
-      verdict = s.verdicts.get(place);
+      if (!s.verdicts.has(place)) s.verdicts.set(place, new Map());
+      const byZone = s.verdicts.get(place);
+      if (!byZone.has(zone)) byZone.set(zone, check(s.item, place, { zone }) || null);
+      verdict = byZone.get(zone);
     }
     s.verdict = verdict;
     s.ghost.classList.toggle('kit-drag-ghost--no', Boolean(verdict && !verdict.ok));
     s.where.hidden = !verdict;
     s.where.replaceChildren(...(verdict ? [icon(verdict.ok ? 'chevron' : 'x'), el('span', { text: verdict.text })] : []));
-    if (place && verdict) place.setAttribute('data-drop-state', verdict.ok ? 'ok' : 'no');
+    s.detail.hidden = !verdict?.detail;
+    s.detail.textContent = verdict?.detail || '';
+    // Between two rows the gap says where; a whole place, or inside one, lights up.
+    if (place && verdict && !BETWEEN.has(zone)) place.setAttribute('data-drop-state', verdict.ok ? 'ok' : 'no');
+    openGap(place, zone, verdict);
+  }
+
+  /** Where it would land: a dashed gap the size of what is carried, which the rows make room for. */
+  function openGap(place, zone, verdict) {
+    const s = session;
+    if (!place || !verdict?.ok || !BETWEEN.has(zone)) { s.gap?.remove(); return; }
+    const last = zone === 'end' ? lastPlace() : null;
+    const parent = zone === 'end' ? (last?.parentElement || container) : place.parentElement;
+    // A list takes only items: in one the gap is an item too.
+    const tag = /^(UL|OL)$/.test(parent.tagName) ? 'li' : 'div';
+    if (s.gap?.tagName !== tag.toUpperCase()) {
+      s.gap?.remove();
+      s.gap = el(tag, { class: gapKind === 'thin' ? 'kit-drop-gap kit-drop-gap--thin' : 'kit-drop-gap', 'aria-hidden': 'true' });
+    }
+    if (gapKind !== 'thin') s.gap.style.height = `${s.height}px`;
+    s.gap.style.marginInlineStart = verdict.indent ? `${Math.round(verdict.indent)}px` : '';
+    if (zone === 'before') place.before(s.gap);
+    else if (zone === 'after') place.after(s.gap);
+    else if (last) last.after(s.gap);
+    else container.append(s.gap);
   }
 
   function springOver(spring) {
@@ -223,14 +323,14 @@ export function makeDraggable(container, {
 
   function onPointerUp(ev) {
     if (!session || ev.pointerId !== session.pointerId) return;
-    const { active, item, place, verdict } = session;
+    const { active, item, place, zone, verdict } = session;
     end();
     if (!active) return;
     // The release would also be a click on the row (opening it) or on the place.
     const swallow = (click) => { click.stopPropagation(); click.preventDefault(); };
     window.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
-    if (place && verdict?.ok) onDrop(item, place);
+    if (place && verdict?.ok) onDrop(item, place, { zone });
   }
 
   function cancel(ev) { if (session && (!ev?.pointerId || ev.pointerId === session.pointerId)) end(); }
@@ -250,6 +350,7 @@ export function makeDraggable(container, {
     document.removeEventListener('touchmove', onTouchMove, { passive: false });
     if (!s.active) return;
     s.ghost.remove();
+    s.gap?.remove();
     s.item.classList.remove('kit-drag-source');
     s.place?.removeAttribute('data-drop-state');
     document.documentElement.removeAttribute('data-kit-dragging');
