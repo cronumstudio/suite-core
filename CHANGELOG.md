@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.39.1 — 2026-10-07
+
+- **Updating says so at once.** Bringing in the new version takes a few seconds (the new service
+  worker installs and takes control before the reload), and the button didn't change meanwhile,
+  so it was pressed two or three times more. `applyUpdate(event)` now turns the button pressed
+  into "Updating…" with a spinner (`aria-busy`) before anything is awaited, and pressing again
+  returns the update under way instead of starting another. The banner's button passes the click
+  as it is; Settings → About passes it too. New text: `kit.update.applying`.
+
 ## 0.39.0 — 2026-10-07
 
 - **Dragging in order: before, inside or after a row.** `makeDraggable()` dropped only on a whole

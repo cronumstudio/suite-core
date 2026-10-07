@@ -524,6 +524,7 @@
   "kit.live.connecting": "Verbindung wird wiederhergestellt …",
   "kit.live.closed": "Nicht verbunden: Änderungen von anderen Geräten kommen beim Neuladen",
   "kit.update.apply": "Aktualisieren",
+  "kit.update.applying": "Wird aktualisiert…",
   "kit.update.availableNamed": "Es gibt eine neue Version von {app}.",
   "kit.offline.banner": {
     "=0": "Offline. Angezeigt wird der zuletzt geladene Stand.",

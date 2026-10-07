@@ -524,6 +524,7 @@
   "kit.live.connecting": "Reconectando…",
   "kit.live.closed": "Sin conexión en directo: los cambios de otros dispositivos llegan al recargar",
   "kit.update.apply": "Actualizar",
+  "kit.update.applying": "Actualizando…",
   "kit.update.availableNamed": "Hay una versión nueva de {app}.",
   "kit.offline.banner": {
     "=0": "Sin conexión. Se ve lo último que se cargó.",

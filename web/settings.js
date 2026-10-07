@@ -625,7 +625,7 @@ export function openSettings(options) {
       const isNew = options.updates ? await options.updates.check({ announce: true }) : null;
       paintFacts();
       clear(serverLine).append(isNew === null ? hint(t('kit.about.unknown'))
-        : isNew ? row(el('span', { text: t('kit.about.newVersion') }), button(t('kit.about.update'), () => options.applyUpdate?.(), 'primary'))
+        : isNew ? row(el('span', { text: t('kit.about.newVersion') }), button(t('kit.about.update'), (event) => options.applyUpdate?.(event), 'primary'))
           : hint(t('kit.about.upToDate')));
     };
     const source = app.source || `https://github.com/cronumstudio/${app.id}`;

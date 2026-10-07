@@ -524,6 +524,7 @@
   "kit.live.connecting": "Reconnexion…",
   "kit.live.closed": "Pas de connexion en direct : les changements des autres appareils arrivent au rechargement",
   "kit.update.apply": "Mettre à jour",
+  "kit.update.applying": "Mise à jour…",
   "kit.update.availableNamed": "Une nouvelle version de {app} est disponible.",
   "kit.offline.banner": {
     "=0": "Hors ligne. Affichage des dernières données chargées.",
