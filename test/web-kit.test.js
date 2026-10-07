@@ -373,3 +373,16 @@ test('a session or a device without a browser to name says so, not a dash', asyn
   assert.equal(deviceName(null, 'Unidentified browser'), 'Unidentified browser');
   assert.equal(deviceName(''), '—', 'without a text of its own, as before');
 });
+
+test('every file of the web kit parses: one that does not stops the whole app before it draws', async () => {
+  // Most of the kit is only run by these tests in part, through a fake DOM; a name declared twice
+  // in shell.js once left every app on a blank page with nothing here noticing.
+  const { spawnSync } = await import('node:child_process');
+  const dir = new URL('../web/', import.meta.url);
+  const files = fs.readdirSync(dir).filter((name) => name.endsWith('.js'));
+  assert.ok(files.includes('shell.js') && files.includes('drag.js'));
+  for (const name of files) {
+    const run = spawnSync(process.execPath, ['--check', new URL(name, dir).pathname.replace(/^\/([A-Za-z]:)/, '$1')], { encoding: 'utf8' });
+    assert.equal(run.status, 0, `${name}: ${run.stderr}`);
+  }
+});
