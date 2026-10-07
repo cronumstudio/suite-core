@@ -311,6 +311,8 @@ export function makeDraggable(container, {
       const tag = /^(UL|OL)$/.test(parent.tagName) ? 'li' : 'div';
       s.gap = el(tag, { class: gapKind === 'thin' ? 'kit-drop-gap kit-drop-gap--thin' : 'kit-drop-gap', 'aria-hidden': 'true' });
       if (gapKind !== 'thin') s.gap.style.height = `${s.height}px`;
+      // The space the list puts between its rows, which the gap takes back while it opens and closes (kit.css).
+      s.gap.style.setProperty('--kit-gap-space', `${parseFloat(getComputedStyle(parent).rowGap) || 0}px`);
       if (zone === 'before') place.before(s.gap);
       else if (zone === 'after') place.after(s.gap);
       else if (last) last.after(s.gap);
