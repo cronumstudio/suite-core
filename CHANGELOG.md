@@ -3,6 +3,46 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.38.0 — 2026-10-07
+
+- **Paddle as the billing provider** (`paddle.js`, `BILLING_PROVIDER=paddle`), the merchant of
+  record that sells Cronum Work: `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET` (the app's own
+  notification destination), `PADDLE_ENV` (`sandbox` | `production`, matching the key) and
+  `PADDLE_CHECKOUT_URL` (the page with Paddle.js), checked on start. The checkout is a transaction
+  made through the API, with the person's customer (found or made by their verified email) and
+  `custom_data: { workos_user_id, email, product }`; its payment link opens that page with
+  `return` and `_ptxn`. The portal is a customer portal session. Subscription, transaction and
+  adjustment notifications become the suite's events; the `Paddle-Signature` is checked with five
+  minutes of tolerance. No SDK, plain `fetch`.
+- **One subscription for every app.** An event may say who pays by their `identity` (their WorkOS
+  id), the same in every app, and billing finds the account by it, never by the app's own id,
+  which differs from app to app. Someone who hasn't opened an app yet gets what they paid for at
+  their first sign-in there: the event waits in `billing_pending` (migration 18) until the identity
+  is linked to an account (`accounts.whenLinked`, new) and `billing.claim()` applies it in order.
+  An identity outranks an older link of the customer to someone else. `createBilling` takes
+  `identities` and `isFounder`; `createSuite` gives them from the accounts and WorkOS.
+- **The founder's price, chosen on the server.** A product may have a `founderPrice`; whoever
+  joined before `EARLY_ACCESS_UNTIL` (their WorkOS account's date, or the account's here) pays it,
+  never because the browser asks. Without that date nobody does. `GET /api/billing/products` says
+  `founder` for the person asking and `founder_price` per product.
+- **A refunded period doesn't give the plan back.** A full refund or chargeback of a subscription
+  ends its grant, and a later event for the same period (Paddle doesn't cancel on a refund) leaves
+  it ended (`refunded_until`); the next period paid for gives it again. `paused` ends it too.
+- **Prices per environment.** A product's `price` (and `founderPrice`) may be
+  `{ sandbox: 'pri_…', production: 'pri_…' }`; the one of `PADDLE_ENV` is used, and Paddle's ids are
+  checked on start.
+- **Moving an install keeps who pays** (audit sc-data-48). The copy of a whole install carries the
+  customers, the subscriptions and every grant, the paid ones too (`suite/billing.json`,
+  `suite/grants.json` with `source` and `external_ref`), under the new ids; and an event that names
+  an account by its old id goes to whoever the customer is linked to here. Before, the paid plan
+  was lost in the move and a renewal could give it, and the portal with the payer's invoices and
+  card, to whoever had their old id.
+- Checkout hands the provider the person's email only when it is verified.
+- **Products without a provider don't stop the start.** An app may declare what it sells
+  (`modules.billing` and `products`) and an install without `BILLING_PROVIDER`, or whose plans
+  have no "pro", still starts: billing is off there and sells nothing. With a provider, a product
+  whose plan isn't in the catalog stops the start as before.
+
 ## 0.37.3 — 2026-10-07
 
 - **No account button in the bar of the side layout, at any width.** 0.37.2 hid it only where

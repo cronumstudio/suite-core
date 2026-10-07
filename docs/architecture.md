@@ -70,6 +70,7 @@ suite-core/
   entitlements.js       done   features, plans and grants; can() / limit() / require()
   billing.js            done   payments turned into grants: provider interface, signed webhooks
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
+  paddle.js             done   Paddle Billing as that provider: transactions, customer portal, webhooks
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -192,8 +193,8 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote` so far) with `BILLING_SECRET` and `BILLING_URL`, `MAIL_PROVIDER` (`log` |
-`smtp`) with `MAIL_*`; later `VAPID_*` and `STRIPE_*`. Three product settings may be overridden
+`BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, and `EARLY_ACCESS_UNTIL`, `MAIL_PROVIDER` (`log` |
+`smtp`) with `MAIL_*`; `VAPID_*`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
 names the new one, and `BASE_URL` is required when `NODE_ENV=production`.
@@ -352,7 +353,18 @@ CREATE TABLE billing_subscriptions (     -- the latest known state of each subsc
   period_end   TEXT,
   occurred_at  TEXT NOT NULL,            -- of the event it came from: older ones are ignored
   updated_at   TEXT NOT NULL,
+  refunded_until TEXT,                   -- a refunded period, which doesn't give the plan back
   PRIMARY KEY (provider, ref)
+);
+CREATE TABLE billing_pending (           -- paid for by an identity with no account here yet
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider          TEXT NOT NULL,
+  identity_provider TEXT NOT NULL,       -- 'workos'
+  identity_subject  TEXT NOT NULL,       -- 'user_01…'
+  ref               TEXT NOT NULL,
+  event             TEXT NOT NULL,       -- the normalized event, applied at the first sign-in
+  occurred_at       TEXT NOT NULL,
+  received_at       TEXT NOT NULL
 );
 CREATE TABLE billing_events (            -- each webhook event applied once
   provider    TEXT NOT NULL,
@@ -535,23 +547,43 @@ and the customer portal and reports through a signed webhook. A provider adapter
 ```js
 {
   id: 'stripe',
-  checkoutUrl({ subject, customer, product, price, email, returnUrl }),  // hosted checkout page
+  checkoutUrl({ subject, identity, customer, product, price, email, returnUrl }),  // hosted checkout page
   portalUrl({ customer, returnUrl }),                                    // manage or cancel
   parseWebhook({ headers, body }),       // verify the signature → normalized events
 }
 ```
 
 Whatever the provider calls them, events arrive normalized as
-`{ id, type: 'subscription' | 'purchase' | 'refund', occurredAt, subject?, customer?, ref, product?,
-status?, periodEnd?, quantity? }` and become grants with `source` = the provider and
-`external_ref` = the subscription or order:
+`{ id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?, subject?, customer?, ref,
+product?, status?, periodEnd?, quantity? }` and become grants with `source` = the provider and
+`external_ref` = the subscription or order.
+
+**Who pays**, best first: `identity` (`{ provider: 'workos', subject: 'user_01…' }`), who the person
+is where they sign in, the same in every app; then the customer already linked here; last `subject`
+("user:12"), the app's own id, which only means something in the install that made the checkout.
+One subscription is for the whole suite (Cronum Work) and every app has its own database and its
+own webhook: each finds the person by their identity. Someone who hasn't opened that app yet has
+no account there, so the event waits in `billing_pending` and is applied, in order, when that
+identity is first linked to an account (`accounts.whenLinked` → `billing.claim`), that is, at their
+first sign-in; a refund of what is waiting waits with it, and what nobody claims goes after 400
+days. An identity outranks an older link of the customer to someone else. The copy of a whole
+install carries customers, subscriptions and paid grants with the new ids (portability.js), so a
+renewal that still says an old id can't reach whoever has it after the move (audit sc-data-48).
+
+**The founder's price.** A product may have a `founderPrice` besides its `price`; the server
+chooses it for whoever `isFounder` says —in `createSuite`, whoever joined before
+`EARLY_ACCESS_UNTIL`: their WorkOS account's date, the same for every app, or else the account's
+here—, never because the browser asks. Without that date nobody pays it. `GET
+/api/billing/products` says `founder: true|false` for the person asking and `founder_price` per
+product, never the price ids.
 
 - A subscription that is `active` or `trialing` holds its plan until the end of the paid period
   plus `graceDays` (3), so a failed renewal lapses on its own; a renewal moves that end on the same
   grant. `past_due` changes nothing; `canceled` or `ended` ends it now. A change of product or of
   seats (`quantity`) replaces the grant.
 - A one-off purchase grants its plan for good, or for the product's `days` (a pass); a refund
-  ends it.
+  ends it. A subscription's refund ends its grant too, and the period it paid back doesn't bring
+  it back (`refunded_until`); the next period paid for does. `paused` is not paid for either.
 - Each event is applied once (`billing_events`), and a subscription event older than the state
   already known (`billing_subscriptions`) is ignored: providers retry and reorder.
 
@@ -581,6 +613,25 @@ subscription events (the period end read from the subscription or, in newer API 
 item), `checkout.session.completed` and `.async_payment_succeeded` of a paid one-off payment
 become purchases, and a full `charge.refunded` a refund; everything else is acknowledged and
 ignored. The webhook to set in Stripe's dashboard is `BASE_URL/api/billing/webhook`.
+
+**Paddle** (`paddle.js`, **done**, v0.38.0; the merchant of record chosen on 2026-10-02: it charges
+each country's VAT, invoices and refunds). `BILLING_PROVIDER=paddle`, `PADDLE_API_KEY`
+(pdl_sdbx_apikey_… or pdl_live_apikey_…), `PADDLE_WEBHOOK_SECRET` (pdl_ntfset_…, the secret of
+the app's own notification destination), `PADDLE_ENV` (`sandbox` | `production`, matching the
+key) and, optionally, `PADDLE_CHECKOUT_URL`, the page with Paddle.js that pays a transaction
+(without it, the account's default payment link); all checked on start. A product's prices may be
+given per environment, `price: { sandbox: 'pri_…', production: 'pri_…' }`, since each has its
+own ids; the one of `PADDLE_ENV` is used. The checkout is a transaction made through the API, with
+`custom_data: { workos_user_id, email, product }` (`subject` instead without WorkOS) and the
+person's customer, found or made by their verified email; Paddle answers its payment link,
+`PADDLE_CHECKOUT_URL?return=…&_ptxn=txn_…` (`&env=sandbox` in the sandbox). The portal is a
+customer portal session. Paddle copies the transaction's `custom_data` to the subscription, so
+`subscription.created/updated/canceled/paused/resumed/activated` say who; a
+`transaction.completed` without a subscription is a purchase; an approved full refund or chargeback
+(`adjustment.created/updated`) is a refund, of the subscription or of the transaction. The
+signature is `Paddle-Signature: ts=…;h1=…`, HMAC-SHA256 of `ts:body`, five minutes of tolerance and
+any h1 while a secret rotates. Each app has its own notification destination at
+`BASE_URL/api/billing/webhook`, with the subscription, transaction and adjustment events.
 
 ## 10. Organizations
 
@@ -850,4 +901,4 @@ first, then Tasks, then the rest.
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
-| `billing.js`, `stripe.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe) | prices and a pricing page when the first paid plan exists (Stripe Tax on in the dashboard); Next keeps it off |
+| `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |

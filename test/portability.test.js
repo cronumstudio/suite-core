@@ -225,7 +225,7 @@ test('someone’s copy takes their lists with everything in them, and says what 
 
   assert.equal(manifest.format, 'cronum-suite-export');
   assert.deepEqual([manifest.scope, manifest.app.id, manifest.app.version, manifest.account.username], ['account', 'demo', '1.0.0', 'ana']);
-  assert.deepEqual(manifest.schema, { app: 1, suite: 17 });
+  assert.deepEqual(manifest.schema, { app: 1, suite: 18 });
   assert.deepEqual(await json('manifest.json'), manifest);
 
   const users = await json('data/users.json');
@@ -459,6 +459,52 @@ test('a whole install into a clean one: accounts by email, new or left out; shar
   // The migration: when Ben signs in with WorkOS and that email, the account is his (workos-accounts.js).
   assert.equal(cloud.suite.accounts.unlinkedByEmail('workos', 'ben@example.com').id, ben.id);
   await rejectsWith(cloud.portability.applyFile(file, { mode: 'install', user: anaHere }), 'import_already_applied');
+});
+
+test('a whole install carries who pays: a renewal after the move reaches the same person under the new id (audit sc-data-48)', async (t) => {
+  const source = install(t);
+  seedSource(source);
+  // A gap in the ids, as when an account is deleted: after the move the ids no longer match.
+  const ghost = source.suite.accounts.create({ username: 'ghost', displayName: 'Ghost' }, { quiet: true });
+  source.db.run('DELETE FROM users WHERE id = ?', ghost.id);
+  const luis = source.suite.accounts.create({ username: 'luis', displayName: 'Luis', email: 'luis@example.com' }, { quiet: true });
+  const at = '2026-05-01T10:00:00.000Z';
+  source.db.run(`INSERT INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at)
+    VALUES ('user', ?, 'remote', 'cus_ANA', ?)`, luis.id, at);
+  source.db.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, period_end,
+    occurred_at, updated_at) VALUES ('remote', 'sub_LUIS', 'user', ?, 'full-yearly', 'active', '2027-05-01T10:00:00.000Z', ?, ?)`,
+  luis.id, at, at);
+  source.db.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, external_ref, starts_at, ends_at, created_at)
+    VALUES ('user', ?, 'full', 'remote', 'sub_LUIS', ?, '2027-05-04T10:00:00.000Z', ?)`, luis.id, at, at);
+  const file = path.join(source.dir, 'install.zip');
+  await exportTo(source, file, { scope: 'install' });
+
+  // Two people were already there: the copy's accounts come after them.
+  const target = install(t);
+  target.suite.accounts.create({ username: 'zoe', displayName: 'Zoe' });
+  target.suite.accounts.create({ username: 'yan', displayName: 'Yan' });
+  const result = await target.portability.applyFile(file, { mode: 'install' });
+  assert.equal(target.db.get('SELECT username FROM users WHERE id = ?', luis.id).username, 'carl', 'Luis’s old id is Carl’s here');
+  assert.equal(result.imported.billing, 2, 'the customer and the subscription');
+  const luisHere = target.db.get("SELECT id FROM users WHERE username = 'luis'").id;
+  assert.notEqual(luisHere, luis.id, 'renumbered');
+  assert.equal(target.db.get("SELECT subject_id FROM billing_customers WHERE customer_id = 'cus_ANA'").subject_id, luisHere);
+  assert.equal(target.db.get("SELECT subject_id FROM billing_subscriptions WHERE ref = 'sub_LUIS'").subject_id, luisHere);
+  assert.equal(target.db.get("SELECT subject_id FROM entitlement_grants WHERE source = 'remote'").subject_id, luisHere, 'the paid plan moves too');
+
+  // The renewal still says the old id, which here is someone else's: the customer decides.
+  const { createBilling } = await import('../billing.js');
+  const billing = createBilling({
+    database: target.db, entitlements: target.suite.entitlements, log: () => {},
+    provider: { id: 'remote', checkoutUrl: async () => '', portalUrl: async () => '', parseWebhook: async () => null },
+    products: { 'full-yearly': { plan: 'full', kind: 'subscription' } },
+  });
+  assert.equal(billing.apply({
+    id: 'evt_renewal', type: 'subscription', occurredAt: '2027-05-01T10:00:00.000Z', subject: { type: 'user', id: luis.id },
+    customer: 'cus_ANA', ref: 'sub_LUIS', product: 'full-yearly', status: 'active', periodEnd: '2028-05-01T10:00:00.000Z',
+  }), 'extended');
+  assert.equal(target.db.get("SELECT COUNT(*) AS n FROM entitlement_grants WHERE source = 'remote' AND subject_id <> ?", luisHere).n, 0);
+  assert.equal(billing.customerOf({ type: 'user', id: luis.id }), null, 'Carl doesn’t get the portal of that customer');
 });
 
 test('an account left out takes what is only theirs; what they shared with others loses them', async (t) => {

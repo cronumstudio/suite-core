@@ -95,9 +95,10 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * @param {(userId) => void} [options.onRemove]
  * @param {string[]} [options.roles]            instance roles
  *
- * More can be hooked later with `whenCreated` and `whenRemoved` (organizations
- * do, to hand over the groups of whoever goes). They run inside the same
- * transaction as the change: if one throws, nothing happened.
+ * More can be hooked later with `whenCreated`, `whenRemoved` (organizations
+ * do, to hand over the groups of whoever goes) and `whenLinked` (billing).
+ * They run inside the same transaction as the change: if one throws, nothing
+ * happened.
  */
 export function createAccounts({
   database, sessions = null, minPasswordLength = 10, extraColumns = () => ({}),
@@ -105,6 +106,13 @@ export function createAccounts({
 }) {
   const created = [onCreate];
   const removed = [onRemove];
+  /**
+   * Who hears that an account was linked to one at a provider: made with it,
+   * linked by its email or moved to a new id. Inside the same transaction, like
+   * whenCreated: billing gives then what was paid for by that identity before
+   * it had an account here.
+   */
+  const linked = [];
   /**
    * Who hears that an account changed (its email confirmed, a new password,
    * the second step, what the admin changed): the live channel tells the
@@ -209,8 +217,11 @@ export function createAccounts({
    * account only: linking it twice fails on the table's unique key, which is
    * what settles two sign-ins racing to create the same person.
    */
-  const insertIdentity = (userId, provider, subject, email) => database.run(`INSERT INTO user_identities
-    (user_id, provider, subject, email, created_at) VALUES (?, ?, ?, ?, ?)`, userId, provider, String(subject), email, iso(clock()));
+  function insertIdentity(userId, provider, subject, email) {
+    database.run(`INSERT INTO user_identities (user_id, provider, subject, email, created_at)
+      VALUES (?, ?, ?, ?, ?)`, userId, provider, String(subject), email, iso(clock()));
+    for (const hook of linked) hook({ userId: Number(userId), provider, subject: String(subject) });
+  }
 
   function linkIdentity(userId, provider, subject, { email = null } = {}) {
     database.tx(() => {
@@ -440,6 +451,7 @@ export function createAccounts({
     setVerifiedEmail, fromIdentity, freeUsername,
     whenCreated: (hook) => { created.push(hook); },
     whenRemoved: (hook) => { removed.push(hook); },
+    whenLinked: (hook) => { linked.push(hook); },
     whenChanged: (hook) => { changes.push(hook); },
     changed,
   };

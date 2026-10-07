@@ -40,6 +40,7 @@ import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import { createBilling, signedProvider, registerBillingApi } from './billing.js';
 import { stripeProvider } from './stripe.js';
+import { paddleProvider } from './paddle.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
@@ -171,15 +172,55 @@ export function createSuite({
       secretKey: install.billing.secretKey, webhookSecret: install.billing.webhookSecret,
       apiBase: install.billing.apiBase, products: config.products, log,
     })
-      : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
+      : install.billing.provider === 'paddle' ? paddleProvider({
+        apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
+        environment: install.billing.environment, apiBase: install.billing.apiBase,
+        checkoutUrl: install.billing.checkoutUrl, products: config.products, log,
+      })
+        : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
+  const workosClient = install.authProvider === 'workos' ? createWorkosClient(install.workos) : null;
+  const workosPeople = install.authProvider === 'workos' ? workosUsers(accounts, { database }) : null;
+  // Who someone is where they sign in: what a subscription is bought for, the
+  // same in every app of the suite (billing.js).
+  const identities = install.authProvider === 'local' ? null : {
+    of: (userId) => {
+      const subject = workosPeople ? workosPeople.workosIdOf(userId)
+        : accounts.identitiesOf(userId).find((i) => i.provider === install.authProvider)?.subject;
+      return subject ? { provider: install.authProvider, subject } : null;
+    },
+    user: (provider, subject) => {
+      if (provider !== install.authProvider) return null;
+      return (workosPeople ? workosPeople.byWorkosId(subject) : accounts.byIdentity(provider, subject))?.id ?? null;
+    },
+  };
+  /**
+   * The founder's price is for whoever joined during the early access: their
+   * account at WorkOS (the same for every app) or, without it, here, made before
+   * EARLY_ACCESS_UNTIL. Without that date nobody pays it.
+   */
+  async function isFounder(user) {
+    const until = install.billing?.earlyAccessUntil;
+    if (!until) return false;
+    let joined = user.created_at;
+    const workosId = workosPeople?.workosIdOf(user.id);
+    if (workosId) joined = (await workosClient.account(workosId))?.created_at || joined;
+    const at = Date.parse(joined);
+    return !Number.isNaN(at) && at < Date.parse(until);
+  }
   const billing = config.modules.billing ? createBilling({
-    database, entitlements, products: config.products, audit, log, provider: billingProvider,
+    database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
   }) : null;
+  // What was paid for before someone had an account here is theirs when they arrive.
+  if (billing?.enabled && identities) {
+    accounts.whenLinked(({ userId, provider, subject }) => billing.claim(provider, subject, userId));
+  }
 
   // A misspelled catalog could leave a barrier open, or charge for nothing.
   const late = [
     ...entitlements.errors.map((e) => `The plan catalog (PLANS) has errors: ${e}`),
-    ...(billing?.errors || []).map((e) => `The products (billing) have errors: ${e}`),
+    // Only with a provider: without one billing is off and its products sell nothing, so an
+    // install whose plans don't include the products' (no PLANS with "pro") still starts.
+    ...(billingProvider ? billing?.errors || [] : []).map((e) => `The products (billing) have errors: ${e}`),
   ];
   if (late.length) {
     if (!exitOnError) database.close();
@@ -189,11 +230,11 @@ export function createSuite({
   const workos = install.authProvider === 'workos' ? createWorkosAccounts({
     baseUrl: install.baseUrl,
     appName: config.app.name,
-    workos: createWorkosClient(install.workos),
+    workos: workosClient,
     adminEmail: install.admin.email,
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_auth`,
-    users: workosUsers(accounts, { database }),
+    users: workosPeople,
     connections: workosConnections(database),
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
