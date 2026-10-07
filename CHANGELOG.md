@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.37.3 — 2026-10-07
+
+- **No account button in the bar of the side layout, at any width.** 0.37.2 hid it only where
+  the sidebar stays beside the page; on a phone the avatar was still in the bar's corner, and only
+  disappeared under the open drawer, which has the person's button at its foot already. The frame
+  no longer makes it: in the side layout the person is at the sidebar's foot (in the drawer on a
+  phone), and only the top layout, which has no sidebar, has it in the bar.
+
 ## 0.37.2 — 2026-10-07
 
 - **One account button with the sidebar beside the page.** From 640 to 959 px (a tablet, a narrow

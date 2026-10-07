@@ -538,9 +538,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
     border-inline-end: 1px solid var(--kit-border);
   }
   .kit-app[data-layout="side"] .kit-scrim, .kit-app[data-layout="side"] .kit-bar__menu { display: none; }
-  /* The sidebar beside the page already has the person's button, with the name: the bar's
-     avatar would be the same button twice on the same screen. */
-  .kit-app[data-layout="side"] .kit-bar .kit-account { display: none; }
   .kit-app[data-layout="top"] .kit-shell {
     grid-template-rows: auto auto minmax(0, 1fr);
     grid-template-areas: "bar" "banners" "main";

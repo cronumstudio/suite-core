@@ -284,11 +284,14 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
-test('with the sidebar beside the page, the person\'s button is only in it', () => {
-  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  const tablet = /@container kit-app \(min-width: 640px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
-  assert.match(tablet, /\.kit-app\[data-layout="side"\] \.kit-bar \.kit-account \{ display: none; \}/,
-    'from 640 px the sidebar shows; the bar must not repeat its account button');
+test('with a sidebar, the person\'s button is only in it: the bar has one only in the top layout', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const sideButtons = shell.match(/accountButton\(true\)/g) || [];
+  const barButtons = shell.match(/accountButton\(false\)/g) || [];
+  assert.equal(sideButtons.length, 1, 'one at the sidebar\'s foot');
+  assert.equal(barButtons.length, 1, 'at most one in the bar');
+  assert.match(shell, /layout === 'top' \? accountButton\(false\) : null/,
+    'the side layout (a sidebar, or a drawer on a phone) has none in the bar');
 });
 
 test('every file the service worker caches for the kit exists', () => {
