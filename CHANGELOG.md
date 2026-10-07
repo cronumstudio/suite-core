@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.43.0 — 2026-10-07
+
+- **Highlighted and underlined text in Markdown.** `renderMarkdown()` reads `==highlighted==` as
+  `<mark>` and `++underlined++` as `<u>`, the marks Obsidian, Bear and Typora use, since Markdown
+  has no other way to say them. Like `_`, neither opens or closes inside a word, so `C++` and
+  `a==b` stay text. The highlight is a highlighter's yellow in every app (`--kit-md-mark`).
+
 ## 0.42.0 — 2026-10-07
 
 - **A long press and a drag on the same row.** `onHold(item)`: a finger that held a row and let

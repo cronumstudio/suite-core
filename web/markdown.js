@@ -12,7 +12,9 @@
  * task lists (- [ ] / - [x]), quotes (>), fenced code (``` or ~~~), rules
  * (---), tables, and inline **strong**, *emphasis*, ~~struck~~, `code`,
  * [links](url "title"), <autolinks>, bare https:// addresses and
- * ![images](src).
+ * ![images](src). Two marks beyond CommonMark, as Obsidian, Bear and Typora
+ * write them, because Markdown has no other way to say them: ==highlighted==
+ * and ++underlined++.
  *
  * Links go only to http, https and mailto, or within the app (a path, a
  * #fragment); anything else (javascript:, data:, vbscript:…) is shown as
@@ -117,16 +119,22 @@ function findClose(text, from, delim) {
     while (begin > from && text[begin - 1] === char) begin--;
     if (end - begin !== delim.length) { j = end - 1; continue; }
     if (isSpace(text[j - 1])) continue;
-    // `_` inside a word (snake_case) is a letter, not emphasis.
-    if (char === '_' && isWord(text[end])) continue;
+    // `_` inside a word (snake_case) is a letter, not emphasis; so are `+` and `=` (C++, a==b).
+    if (INTRAWORD.has(char) && isWord(text[end])) continue;
     return j;
   }
   return -1;
 }
 
+/** Marks that never open or close inside a word. */
+const INTRAWORD = new Set(['_', '+', '=']);
+
+/** The marks that come only in pairs, and what each one is. */
+const DOUBLE = { '~': 'del', '=': 'mark', '+': 'u' };
+
 const BARE_URL = /^https?:\/\/[^\s<>]*[^\s<>.,:;"')\]!?*_~]/;
 
-/** Inline content as nodes: { type: text | code | em | strong | del | link | image | br, … }. */
+/** Inline content as nodes: { type: text | code | em | strong | del | mark | u | link | image | br, … }. */
 export function parseInline(text) {
   const out = [];
   let buffer = '';
@@ -209,11 +217,11 @@ export function parseInline(text) {
       }
     }
 
-    if (c === '*' || c === '_' || c === '~') {
+    if (c === '*' || c === '_' || c in DOUBLE) {
       let run = 0;
       while (text[i + run] === c) run++;
-      const opensWord = !isSpace(text[i + run]) && !(c === '_' && isWord(text[i - 1]));
-      const tries = c === '~' ? (run === 2 ? [2] : []) : run >= 3 ? [2, 1] : [run];
+      const opensWord = !isSpace(text[i + run]) && !(INTRAWORD.has(c) && isWord(text[i - 1]));
+      const tries = c in DOUBLE ? (run === 2 ? [2] : []) : run >= 3 ? [2, 1] : [run];
       let matched = false;
       if (opensWord) {
         for (const size of tries) {
@@ -223,7 +231,7 @@ export function parseInline(text) {
           if (close > start + size) {
             buffer += c.repeat(run - size);
             flush();
-            const type = c === '~' ? 'del' : size === 2 ? 'strong' : 'em';
+            const type = DOUBLE[c] || (size === 2 ? 'strong' : 'em');
             out.push({ type, children: parseInline(text.slice(start + size, close)) });
             i = close + size;
             matched = true;
@@ -464,6 +472,8 @@ function inlineNodes(nodes, options) {
       case 'em': return el('em', {}, inlineNodes(node.children, options));
       case 'strong': return el('strong', {}, inlineNodes(node.children, options));
       case 'del': return el('del', {}, inlineNodes(node.children, options));
+      case 'mark': return el('mark', {}, inlineNodes(node.children, options));
+      case 'u': return el('u', {}, inlineNodes(node.children, options));
       case 'link': {
         const href = safeHref(node.href);
         const children = inlineNodes(node.children, options);

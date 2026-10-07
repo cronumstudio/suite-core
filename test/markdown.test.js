@@ -55,6 +55,13 @@ test('inline: strong, emphasis, struck, code, links, breaks; snake_case stays', 
   assert.deepEqual(types(nested[0].children), ['text', 'em', 'text']);
   assert.deepEqual(parseInline('snake_case_name and 2 * 3 * 4'), [{ type: 'text', text: 'snake_case_name and 2 * 3 * 4' }]);
   assert.deepEqual(parseInline('a \\*literal\\*'), [{ type: 'text', text: 'a *literal*' }]);
+  assert.deepEqual(types(parseInline('==seen== and ++under++ and ==**both**==')),
+    ['mark', 'text', 'u', 'text', 'mark']);
+  assert.equal(parseInline('==**both**==')[0].children[0].type, 'strong');
+  // Inside a word, in code-like text, or with a space after, they are only characters.
+  for (const plain of ['C++ and C++', 'if a==b or b==c', 'x ++ y ++ z', '= = and ===long===', 'a \\==b==']) {
+    assert.ok(parseInline(plain).every((n) => n.type === 'text'), plain);
+  }
   const link = parseInline('see [the brief](https://example.com/a_(b) "Brief") now')[1];
   assert.equal(link.href, 'https://example.com/a_(b)');
   assert.equal(link.title, 'Brief');
@@ -75,6 +82,9 @@ test('drawn with el(): the tree as elements, tasks tickable only when asked', ()
   box.dispatch('change');
   assert.deepEqual(ticks, [[2, true]]);
   assert.equal(node.find('strong')[0].textContent, 'Ana');
+  const marks = renderMarkdown('==seen== and ++under++');
+  assert.equal(marks.find('mark')[0].textContent, 'seen');
+  assert.equal(marks.find('u')[0].textContent, 'under');
   const readOnly = renderMarkdown('- [x] done');
   assert.ok(readOnly.find('input')[0].hasAttribute('disabled'));
 });
