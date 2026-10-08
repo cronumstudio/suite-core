@@ -519,8 +519,29 @@ the organization in context (`starts_at <= now < ends_at`, not revoked): a plan 
 plan's values, a feature grant its single value. When sources disagree, the most generous wins:
 `true` beats `false` for flags, and for limits `null` (no cap) beats any number and a larger number
 beats a smaller one. The instance admin gets every feature. A plan that disappears from the catalog
-counts as the default plan: nobody is left with nothing, and nothing is ever deleted when someone
-drops to a smaller plan — they just cannot add more.
+counts as the default plan: nobody is left with nothing. Dropping to a smaller plan takes nothing
+away at once: past a cap they just cannot add more, and what a plan keeps for a number of days
+counts those days from when the more generous plan ended, not from when each thing was done:
+
+```js
+entitlements.cutoff(owner, 'retention.days')        // → ISO date (older goes) | null (nothing goes)
+entitlements.countDaily(user, 'mcp.calls_per_day')  // → { allowed, used, limit, plan, more }
+```
+
+`cutoff()` is null while the days since the end of the last grant that kept things longer have not
+passed, and `now − days` after that. Each app sweeps its own data with it, by the plan of whoever
+owns the list, project or notebook, in the function it hands to `createApp({ sweep })`: run a
+minute after the start and then every six hours, with the clean-ups. `countDaily()` spends one use of the day (UTC) and counts
+nothing it refuses; the transport uses it for `mcp.calls_per_day`, a brake on abuse that answers a
+sentence the assistant can pass on (`dailyLimitText()`), never a switch.
+
+**The suite's catalog.** The hosted suite's plans are written once, in `plans.js`, and an install
+names them: `PLANS=cronum-work`. Each app reads only the features it declares, and a feature it
+declares that the catalog doesn't set stops the start, so a new barrier always comes with its
+value. The features every app names the same are there too (`COMMON_FEATURES`: `retention.days`,
+`storage.mb`, `assign`, `publish`, `templates`, `mcp`, `mcp.calls_per_day`), for an app's
+`features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
+every default: a self-hosted copy has everything.
 
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The

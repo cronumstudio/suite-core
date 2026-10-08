@@ -16,7 +16,7 @@
  */
 import { sessionsSchema } from './sessions.js';
 import { rateLimitSchema } from './rate-limit.js';
-import { entitlementsSchema } from './entitlements.js';
+import { entitlementsSchema, entitlementUsageSchema } from './entitlements.js';
 import { usersSchema, identitiesSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
@@ -60,4 +60,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 18, name: 'billing-pending', up: billingPendingSchema },
   // Paddle's sandbox and live account apart: what there is so far is the sandbox's (paddle.js).
   { version: 19, name: 'paddle-environments', up: paddleEnvironmentsSchema },
+  // Daily limits spent per person, such as calls from assistants (entitlements.js countDaily).
+  { version: 20, name: 'entitlement-usage', up: entitlementUsageSchema },
 ]);
