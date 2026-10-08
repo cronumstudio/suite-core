@@ -357,6 +357,114 @@ test('the kit writes no text for people in its code, and every key it uses exist
   const web = new URL('../web/', import.meta.url);
   assert.deepEqual(hardcodedTexts([fs.realpathSync(web)]), []);
   assert.deepEqual(unknownKeys(catalogsOf().en, [fs.realpathSync(web)]), []);
+  assert.deepEqual(hardcodedTexts([fs.realpathSync(new URL('../', import.meta.url))], { server: true }), [], 'nor its server, in another language');
+});
+
+/** Writes `files` ({ name: text }) to a folder of their own and lints it. */
+async function lint(files, options) {
+  const { hardcodedTexts } = await import('../tools/i18n.mjs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-lint-'));
+  for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+  try {
+    return hardcodedTexts([dir], options);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('the lint catches texts in any language wherever people read them, and sentences anywhere', async () => {
+  // From Tasks' own lint, which this one replaces: each line on its own, and what it must find.
+  const planted = [
+    ["el('button', { text: 'Guardar', title: t('common.close') });", 'Guardar'],
+    ["toast('Tarea añadida', { error: false });", 'Tarea añadida'],
+    ["const note = 'canción';", 'canción'],
+    ["el('div', { title: open ? 'Cerrar' : 'Abrir' });", 'Abrir'],
+    ["await confirmDialog('¿Borrar la lista?', { danger: true });", '¿Borrar la lista?'],
+    ["button.setAttribute('aria-label', 'Cerrar ventana');", 'Cerrar ventana'],
+    ["el('input', { placeholder: `Añadir a ${list.name}` });", 'Añadir a'],
+    ["el('span', { 'aria-label': 'Close' });", 'Close'],
+    ["const message = 'Something went wrong';", 'Something went wrong'],
+    ["const label = 'Gemüse';", 'Gemüse'],
+    ["node.textContent = 'Saved';", 'Saved'],
+  ];
+  const files = Object.fromEntries(planted.map(([line], i) => [`planted-${i}.js`, line]));
+  const found = await lint(files);
+  for (const [line, text] of planted) assert.ok(found.some((f) => f.includes(text)), line);
+});
+
+test('…and leaves alone comments, regular expressions, icons, names, keys, placeholders, comparisons and t()', async () => {
+  const innocent = [
+    '// Guardar la tarea: ¿por qué? Un comentario en español no cuenta',
+    "/* title: 'Hola', toast('Adiós') */ const spanishWords = /mañana|demain|morgen/i; const half = total / 2;",
+    "el('button', { class: 'icon-btn primary', type: 'button', text: '✕', 'aria-label': t('common.close') });",
+    'el(\'span\', { text: `${icon} ${name} (${count})`, title: `${file.name} · ${size}` });',
+    'el(\'span\', { text: `@${user.username}`, title: `#${task.number}` });',
+    "el('option', { value: 'es', text: 'Español' }); el('option', { value: 'en', text: 'English' }); el('option', { value: 'fr', text: 'Français' });",
+    'const key = `grupo:${group.id}`; const folded = `seccion:${list.id}:${category.id}`;',
+    "if (text === 'Hola' || title !== 'Bye') { units = text === 'modals.units.factory' ? 'pc,g,kg' : text; }",
+    "toast(t('app.task.moved', { list: 'Home' })); throw new Error('Something went wrong'); console.warn('Could not reach it');",
+    'const row = `${items.map((item) => `${item.name}`).join(\', \')} ${cond ? `${a}` : \'\'}`; const quote = "it\'s";',
+    "const url = 'https://example.com/a'; const hello = isOk ? 'ok' : 'fail'; el('p', { text: t('views.empty.generic') });",
+    "el('span', { text: 'PDF' }); el('a', { title: `${a}\\n${b}` }); const stamp = `${day}Z`; const base = 'https://';",
+    "el('p', { text: 'Bonjour' }); // i18n-exempt: the sample of a greeting",
+  ];
+  assert.deepEqual(await lint(Object.fromEntries(innocent.map((line, i) => [`innocent-${i}.js`, line]))), []);
+});
+
+test('in the HTML, the text inside an element from the catalog is the catalog’s, and each attribute needs its own key', async () => {
+  const page = [
+    '<!DOCTYPE html>', '<html lang="en" data-app="{{app.id}}">', '<head><title>{{app.name}}</title></head>', '<body>',
+    '<button class="x">Save</button>',
+    '<span data-i18n="common.cancel"><b>Cancel</b></span>',
+    '<input placeholder="Search" data-i18n-attr="aria-label:common.search">',
+    '<img alt="" src="x"><a title="Close" data-i18n-attr="title:common.close"></a>',
+    '<p>Tasks</p><h1>&times;</h1>',
+    '<p>',
+    '  Two lines',
+    '  of text</p>',
+    '</body>',
+  ].join('\n');
+  assert.deepEqual(await lint({ 'page.html': page }), ['page.html:5: Save', 'page.html:7: Search', 'page.html:11: Two lines of text']);
+});
+
+test('on the server only another language counts, never for the developer, and data files can be skipped', async () => {
+  const server = [
+    "const tool = { title: 'Add a task', description: 'Adds a task to a list. Approximate names are fine.' };",
+    "sendPush(user, { title: 'Tarea añadida', body: t('notices.task', { title }) });",
+    "throw new Error('Algo falló');",
+    "console.log('[db] migración hecha');",
+    'const rows = db.all(`SELECT * FROM item WHERE title GLOB \'[ñ]*\'`);',
+    "const ME = new Set(['me', 'yo', 'mí']); // i18n-exempt: words the server reads, in every language",
+  ].join('\n');
+  const files = { 'server.js': server, 'seeds.js': "export const SEEDS = { es: ['Plátanos'], fr: ['Pastèque'] };" };
+  assert.deepEqual(await lint(files, { server: true, skip: ['seeds.js'] }), ['server.js:2: Tarea añadida']);
+  assert.deepEqual((await lint(files, { server: true })).filter((f) => f.startsWith('seeds.js')).length, 2, 'without skip, the seeds count');
+  assert.ok((await lint({ 'server.js': server })).some((f) => f.includes('Adds a task')), 'in the browser, an English sentence counts too');
+});
+
+test('the lint keeps every character in its place, so a finding says its line, and says it from the command line', async () => {
+  const { scanLiterals } = await import('../tools/i18n.mjs');
+  const source = "const a = /[`'\"]/g; // it's\nconst b = `one ${f({ x: 'y' })}\n${`nested`} two`;\n/* c */ const d = 'e\\'f';\n";
+  assert.equal(scanLiterals(source).masked.length, source.length);
+  assert.deepEqual(await lint({ 'multi.js': "\n\nel('p', {\n  text:\n    `Several\n    lines`,\n});\n" }), ['multi.js:5: Several lines']);
+
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-lint-'));
+  fs.writeFileSync(path.join(dir, 'seeds.js'), "export const SEEDS = ['Plátanos'];");
+  const tool = fileURLToPath(new URL('../tools/i18n.mjs', import.meta.url));
+  const run = (...args) => spawnSync(process.execPath, [tool, 'hardcoded', ...args], { encoding: 'utf8' });
+  const caught = run('--server', dir);
+  const skipped = run('--server', '--skip', 'seeds.js', dir);
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(caught.status, 1);
+  assert.match(caught.stderr, /seeds\.js:1: Plátanos/);
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.match(skipped.stdout, /No text written in the code/);
 });
 
 test('the lint finds texts written in the code, and leaves keys, names and exemptions alone', async () => {

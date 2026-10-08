@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.49.0 — 2026-10-08
+
+- **One check of texts written in the code, for the whole suite and its servers.** `tools/i18n.mjs
+  hardcoded` takes Tasks' stricter lint, which Tasks ran apart: it reads the code instead of its
+  lines (`scanLiterals()`), so comments and regular expressions no longer count and a text over
+  several lines or behind a condition (`open ? 'Close' : 'Open'`) does. Besides texts given as
+  text, titles, labels and notices, it catches `setAttribute('aria-label', …)`, `confirmDialog()`,
+  a word in another language anywhere and a sentence that is not an error's message. In the HTML,
+  an element inside one with `data-i18n` is the catalog's, and each read attribute needs its own
+  key in `data-i18n-attr`. `--server` (`{ server: true }`) checks a server, where only another
+  language counts (its English is for the developer and the assistant), with `--skip` for data
+  such as seeds; errors, the console and SQL never count. Keys, paths, URLs, acronyms and what the
+  server fills in (`{{app.name}}`) pass. Projects, Next and Notes pass it as they are.
+
 ## 0.48.0 — 2026-10-08
 
 - **Paddle's sandbox and live account apart.** Billing writes the provider's id on customers,

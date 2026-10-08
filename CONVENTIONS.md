@@ -145,8 +145,9 @@ Compose files use only the current names.
 
 - `npm test` runs everything with nothing to install: a smoke test with a temporary database, a
   random port and a real server; the suite's conformance checks; translation parity, keys in use
-  and texts written in the code (`tools/i18n.mjs hardcoded public`; a line that must keep one says
-  `i18n-exempt` and why); the version check. New behaviour comes with its check; a step that adds none has not been understood.
+  and texts written in the code (`tools/i18n.mjs hardcoded public`, and
+  `hardcoded --server server` for anything in another language on the server; a line that must
+  keep one says `i18n-exempt` and why); the version check. New behaviour comes with its check; a step that adds none has not been understood.
 - Before a change to anything a phone shows (audio, wake lock, safe areas, installation), it is
   tried on a real device: emulators lie about those.
 

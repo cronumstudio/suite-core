@@ -296,8 +296,15 @@ code runs in each app's tests:
 
 ```
 node server/suite/tools/i18n.mjs hardcoded public
+node server/suite/tools/i18n.mjs hardcoded --server --skip catalog.js server
 ```
 
-It reads strings given as text, titles, labels and notices in `.js`, and the text and the read
-attributes of `.html` outside script, style and code. Brand and product names pass; a line with
-`i18n-exempt` (and why) is skipped.
+In the browser's `.js` it reads the code, not its lines: comments and regular expressions are left
+out, and a literal counts when it is in another language (letters English doesn't use), when people
+read it (an element's text, title, label, placeholder or alt, `setAttribute`, `toast()`,
+`confirmDialog()`, either side of a condition) or when it is a sentence that isn't an error's
+message or for the console. In `.html` it reads the text between tags, unless an element around it
+has `data-i18n`, and every read attribute not covered by `data-i18n-attr`. On the server
+(`--server`) only another language counts, since its English is for the developer and the assistant
+(MCP), and `--skip` leaves out data such as seeds in every language. Brand and product names, keys,
+paths, URLs and acronyms pass; a line with `i18n-exempt` (and why) is skipped.
