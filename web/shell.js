@@ -304,6 +304,8 @@ export function createShell({
   /** The modules beside this one, as the host lists them for this person (GET /api/modules at its root). */
   function paintRail({ host = {}, modules = [] } = {}) {
     if (!modules.some((m) => m.mount === mount)) return dropRail();   // not a module of this host
+    // The host's home opens the module used last.
+    try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
     if (shown.length < 2) return dropRail();
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
