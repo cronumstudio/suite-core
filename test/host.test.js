@@ -99,11 +99,25 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(where.install, 'http://127.0.0.1/alpha');
   assert.deepEqual(where.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' });
 
-  // What each module is, for the host's pages.
-  assert.deepEqual((await call('GET', '/api/modules')).data.modules, [
-    { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1' },
-    { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg' },
-  ]);
+  // What each module is, for the host's pages, and which ones this person uses: all until they choose.
+  assert.deepEqual((await call('GET', '/api/modules')).data, {
+    host: { name: 'Work', icon: '/icons/work.svg' },
+    chosen: false,
+    modules: [
+      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', active: true },
+      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', active: true },
+    ],
+  });
+  assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' },
+    'a module tells the kit it is in a host');
+  assert.equal((await call('GET', '/api/auth/config')).data.app.host, undefined, 'the host itself isn’t a module');
+  assert.equal((await call('PUT', '/api/me/modules', { active: [] })).data.error, 'field_required', 'at least one');
+  assert.equal((await call('PUT', '/api/me/modules', { active: ['beta', 'gamma'] })).data.field, 'modules', 'only modules there are');
+  const chosen = await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual([chosen.data.chosen, ...chosen.data.modules.map((m) => `${m.mount}:${m.active}`)], [true, 'alpha:false', 'beta:true']);
+  assert.deepEqual((await call('GET', '/api/modules')).data.modules.map((m) => m.active), [false, true], 'kept');
+  assert.equal((await call('GET', '/alpha/')).status, 200, 'a module turned off still opens: its data is there');
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
 
   // Each module's own catalogs, version and kit, at its path.
   const catalog = await call('GET', '/alpha/i18n/en.json');
@@ -145,7 +159,7 @@ test('a host serves each module at its own path, with one sign-in, one database 
   // One database: the suite's tables once, each module's own, each module's migrations in its scope.
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.db')), ['work.db']);
   const { database } = host.suite;
-  assert.deepEqual(database.all('SELECT DISTINCT scope FROM schema_migrations ORDER BY scope').map((r) => r.scope), ['alpha', 'beta', 'suite']);
+  assert.deepEqual(database.all('SELECT DISTINCT scope FROM schema_migrations ORDER BY scope').map((r) => r.scope), ['alpha', 'beta', 'host', 'suite']);
   for (const table of ['alpha_items', 'beta_items', 'users', 'sessions']) assert.ok(database.columnsOf(table).length, table);
 
   // One table of accounts: a new one gets each module's columns and wakes each module's hooks.

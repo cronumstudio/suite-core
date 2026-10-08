@@ -89,6 +89,7 @@
   "fields.email_verified": "Email confirmado",
   "fields.expires_at": "Caducidad",
   "fields.invitation": "Invitación",
+  "fields.modules": "Módulos",
   "fields.name": "Nombre",
   "fields.password": "Contraseña",
   "fields.period_end": "Fin del periodo",
@@ -609,5 +610,15 @@
   "errors.idempotency_key_invalid": "Ese cambio llegó con una clave que el servidor no acepta.",
   "errors.idempotency_key_reused": "La clave de ese cambio ya se usó para otra cosa.",
   "errors.idempotency_in_progress": "Ese cambio aún se está guardando.",
-  "errors.lost_creation": "Era sobre algo cuya creación nunca llegó al servidor."
+  "errors.lost_creation": "Era sobre algo cuya creación nunca llegó al servidor.",
+  "kit.modules.rail": "Módulos",
+  "kit.modules.home": "Elegir qué usas",
+  "kit.modules.title": "Módulos",
+  "kit.modules.hint": "Activa lo que usas.",
+  "kit.modules.one": "Con uno solo, la app abre directamente en él. Con dos o más, cambias de uno a otro desde la columna del lateral; en el móvil, desde ☰.",
+  "kit.modules.off": "Un módulo desactivado conserva tus datos: solo sale de tus menús.",
+  "kit.modules.last": "Al menos uno se queda activo.",
+  "kit.modules.icons": "Iconos en la pantalla de inicio",
+  "kit.modules.install": "Cada módulo puede tener su propio icono, que abre directamente en él: abre el módulo e instálalo desde el menú del navegador.",
+  "kit.modules.open": "Abrir {name}"
 }

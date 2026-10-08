@@ -53,12 +53,17 @@ export function openSettings(options) {
   };
   const local = (state.user?.auth_provider || config.provider || 'local') === 'local';
   const modules = config.app?.modules || {};
+  // A module of a host (Cronum Work): the person chooses which modules they use.
+  const host = config.app?.host || null;
+  let inUse = [];
 
   /* -------------------------------- sections -------------------------------- */
 
   const all = [
     { group: t('kit.settings.groups.account'), id: 'profile', iconName: 'user', label: t('kit.profile.title'),
       hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() },
+    host ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
+      hint: () => inUse.filter((m) => m.active).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
     { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
       hint: () => `${LANGUAGE_NAMES[currentLanguage()] || currentLanguage()} · ${t(`kit.appearance.theme.${state.user?.theme || 'system'}`)}`,
       render: () => appearance() },
@@ -417,6 +422,58 @@ export function openSettings(options) {
    * WorkOS pasting it is enough and the apps connected that way are listed,
    * each one disconnectable here; manual tokens for clients that can't sign in.
    */
+  /**
+   * Which modules of the host this person uses (PUT /api/me/modules at the host's root). One
+   * stays on; one turned off keeps its data and only leaves their menus. Each can have its own
+   * icon on a phone's home screen, installed from its own page.
+   */
+  function moduleChoice() {
+    const switches = el('div', { class: 'kit-stack' });
+    const icons = el('div', { class: 'kit-row' });
+    const paint = (answer) => {
+      inUse = answer.modules || [];
+      clear(switches);
+      for (const m of inUse) {
+        const row = switchRow(m.name, {
+          checked: m.active,
+          onChange: async (on) => {
+            const active = inUse.filter((x) => (x.mount === m.mount ? on : x.active)).map((x) => x.mount);
+            if (!active.length) {
+              toast(t('kit.modules.last'), { error: true });
+              throw new Error('one stays on');   // the switch goes back
+            }
+            try {
+              const res = await fetch('/api/me/modules', {
+                method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active }),
+              });
+              if (!res.ok) throw new Error(String(res.status));
+              paint(await res.json());
+              paintList();
+            } catch (err) {
+              toast(t('errors.generic'), { error: true });
+              throw err;
+            }
+          },
+        });
+        row.classList.add('kit-switch-row--swatch');
+        row.firstChild.prepend(el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
+        switches.append(row);
+      }
+      clear(icons);
+      for (const m of inUse.filter((x) => x.active)) {
+        icons.append(el('a', { class: 'kit-btn kit-btn--small', href: m.path, target: '_blank', rel: 'noopener' },
+          el('img', { src: m.icon, alt: '', width: 18, height: 18 }), t('kit.modules.open', { name: m.name })));
+      }
+    };
+    fetch('/api/modules', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then(paint, fail);
+    return el('div', {},
+      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off'))),
+      block(t('kit.modules.icons'), hint(t('kit.modules.install')), icons));
+  }
+
   function ai() {
     const endpoint = el('code', { text: `${window.location.origin}/mcp` });
     const intro = hint(t('kit.ai.intro', { app: app.name }));

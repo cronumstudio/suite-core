@@ -368,8 +368,9 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at \} from '\.\/base\.js'/, file);
-    assert.doesNotMatch(code, /fetch\(['`]\/|import\(['`]\/|get\(['`]\/version/, file);
+    assert.match(code, /import \{ at(?:, BASE)? \} from '\.\/base\.js'/, file);
+    // Only the host's own routes are asked at the root: which modules someone uses.
+    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
 });
 

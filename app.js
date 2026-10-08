@@ -460,6 +460,8 @@ export function createApp({
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
+      // A module of a host (host.js) says where it is, for the kit to show the others beside it.
+      ...(config.host ? { host: config.host } : {}),
     },
   });
   if (install.authProvider === 'local') {

@@ -52,7 +52,7 @@ import { createLive } from './live.js';
 import { createUploads } from './uploads.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
-import { sendJson, securityHeaders } from './http.js';
+import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from './http.js';
 import { watchCode } from './watcher.js';
 
 const HOUR = 3600 * 1000;
@@ -76,7 +76,26 @@ const RESERVED = new Set([
   'authorize', 'token', 'js', 'css', 'icons', 'fonts',
 ]);
 /** Scopes migrations already use: a module's app id can't be one of them. */
-const TAKEN_SCOPES = new Set(['app', 'suite']);
+const TAKEN_SCOPES = new Set(['app', 'suite', 'host']);
+
+/**
+ * The host's own tables, under the scope `host`: only a host has them, so an
+ * app on its own never gets them in its database.
+ */
+export const HOST_MIGRATIONS = Object.freeze([
+  {
+    version: 1,
+    name: 'modules-in-use',
+    // Which modules each person turned on. No row: they haven't chosen yet, and use every one.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_modules (
+      user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      module    TEXT NOT NULL,
+      active    INTEGER NOT NULL DEFAULT 1,
+      chosen_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, module)
+    )`),
+  },
+]);
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
 
@@ -185,6 +204,7 @@ export async function createHost({
   const { config } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
+  migrate(suite.database, HOST_MIGRATIONS, { scope: 'host', log });
 
   /**
    * The suite a module gets: the host's, with what is the module's own in place
@@ -332,10 +352,48 @@ export async function createHost({
     mount: m.mount, path: `/${m.mount}/`, id: m.config.app.id, name: m.config.app.name,
     color: m.config.app.color, icon: mountedPath(m.mount, m.config.app.icon),
   }));
+
+  /**
+   * The modules someone uses: every one until they choose (`chosen: false`,
+   * the host's page asks), then the ones they turned on. A module they turn
+   * off keeps its data and still opens at its path; it leaves their menus.
+   */
+  function modulesOf(user) {
+    const rows = user ? suite.database.all('SELECT module, active FROM host_modules WHERE user_id = ?', user.id) : [];
+    const chosen = rows.length > 0;
+    const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
+    return {
+      host: { name: config.app.name, icon: config.app.icon },
+      chosen,
+      // A module added to the host after someone chose comes on for them: nothing hides by itself.
+      modules: listed.map((m) => ({ ...m, active: chosen ? on.get(m.mount) ?? true : true })),
+    };
+  }
+
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log,
     routes: (api) => {
-      api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, { modules: listed }));
+      api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
+      api.put('/api/me/modules', async (ctx) => {
+        if (!ctx.user) throw unauthorized();
+        const body = await readJson(ctx.req);
+        const active = Array.isArray(body.active) ? [...new Set(body.active.map(String))] : null;
+        if (!active) throw badRequest('field_invalid', { field: 'modules' });
+        const unknown = active.filter((mount) => !byMount.has(mount));
+        if (unknown.length) throw badRequest('field_invalid', { field: 'modules' });
+        if (!active.length) throw badRequest('field_required', { field: 'modules' });
+        const at = new Date().toISOString();
+        suite.database.tx(() => {
+          for (const { mount } of listed) {
+            suite.database.run(`INSERT INTO host_modules (user_id, module, active, chosen_at) VALUES (?, ?, ?, ?)
+              ON CONFLICT (user_id, module) DO UPDATE SET active = excluded.active, chosen_at = excluded.chosen_at`,
+            ctx.user.id, mount, active.includes(mount) ? 1 : 0, at);
+          }
+        });
+        // Their open tabs, in every module, repaint their menus.
+        suite.accounts.changed(ctx.user.id);
+        sendJson(ctx.res, 200, modulesOf(ctx.user));
+      });
       if (typeof routes === 'function') routes(api);
     },
   });
