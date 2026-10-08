@@ -530,7 +530,8 @@ entitlements.countDaily(user, 'mcp.calls_per_day')  // → { allowed, used, limi
 
 `cutoff()` is null while the days since the end of the last grant that kept things longer have not
 passed, and `now − days` after that. Each app sweeps its own data with it, by the plan of whoever
-owns the list, project or notebook. `countDaily()` spends one use of the day (UTC) and counts
+owns the list, project or notebook, in the function it hands to `createApp({ sweep })`: run a
+minute after the start and then every six hours, with the clean-ups. `countDaily()` spends one use of the day (UTC) and counts
 nothing it refuses; the transport uses it for `mcp.calls_per_day`, a brake on abuse that answers a
 sentence the assistant can pass on (`dailyLimitText()`), never a switch.
 

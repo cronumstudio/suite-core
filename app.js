@@ -67,6 +67,7 @@ import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
 
 const HOUR = 3600 * 1000;
+const MINUTE_BEFORE_SWEEP = 60 * 1000;
 /** The suite's browser code, served at /suite/. */
 const WEB_DIR = fileURLToPath(new URL('./web/', import.meta.url));
 
@@ -439,6 +440,7 @@ function inCatalogDir(pathname) {
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
+  sweep = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -777,6 +779,16 @@ export function createApp({
     const cleanUp = safely('clean-up', () => { suite.purge(); portability?.purge(); });
     cleanUp();
     timers.push(setInterval(cleanUp, 6 * HOUR).unref());
+    if (sweep) {
+      // What a plan keeps for a while only (entitlements.cutoff): the app's own sweep, a minute
+      // after the start so a start is never slowed by it, and then with the clean-ups.
+      const sweepPlans = safely('sweep', () => {
+        const removed = sweep();
+        if (removed && Object.values(removed).some(Boolean)) log(`${tag} swept ${JSON.stringify(removed)}`);
+      });
+      timers.push(setTimeout(sweepPlans, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(sweepPlans, 6 * HOUR).unref());
+    }
     if (oauth) {
       const purgeOAuth = safely('OAuth clean-up', () => oauth.purge());
       purgeOAuth();

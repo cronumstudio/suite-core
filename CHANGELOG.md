@@ -22,6 +22,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   `entitlement_usage`); listing tools and prompts doesn't count, nor does what is refused. Once
   they are used up the assistant reads a sentence it can pass on, with when they come back and which
   plan has more (`dailyLimitText()`). `createMcpServer({ quota })` takes the check.
+- **The apps' sweeps on the suite's timers.** `createApp({ sweep })` runs the app's function for
+  what a plan keeps only a while a minute after the start and then every six hours with the
+  clean-ups, logging what it removed and surviving a failure, instead of each app keeping its own
+  timers.
 ## 0.51.0 — 2026-10-08
 
 - **One way to translate, the same in every app.** Each app kept its own copies: Tasks and
