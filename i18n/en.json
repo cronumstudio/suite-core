@@ -89,6 +89,7 @@
   "fields.email_verified": "Email confirmed",
   "fields.expires_at": "Expiry",
   "fields.invitation": "Invitation",
+  "fields.modules": "Modules",
   "fields.name": "Name",
   "fields.password": "Password",
   "fields.period_end": "End of the period",
@@ -609,5 +610,15 @@
   "errors.idempotency_key_invalid": "That change came with a key the server doesn’t accept.",
   "errors.idempotency_key_reused": "That change’s key was already used for something else.",
   "errors.idempotency_in_progress": "That change is still being saved.",
-  "errors.lost_creation": "It was about something whose creation never reached the server."
+  "errors.lost_creation": "It was about something whose creation never reached the server.",
+  "kit.modules.rail": "Modules",
+  "kit.modules.home": "Choose what you use",
+  "kit.modules.title": "Modules",
+  "kit.modules.hint": "Turn on what you use.",
+  "kit.modules.one": "With only one on, the app opens straight in it. With two or more, you move between them from the column at the side; on a phone, from ☰.",
+  "kit.modules.off": "A module turned off keeps your data: it only leaves your menus.",
+  "kit.modules.last": "At least one stays on.",
+  "kit.modules.icons": "Home screen icons",
+  "kit.modules.install": "Each module can have an icon of its own that opens straight in it: open the module and install it from the browser’s menu.",
+  "kit.modules.open": "Open {name}"
 }

@@ -9,6 +9,10 @@
  * head folds it, ☰ in the bar that then shows brings it back, and the choice
  * is remembered on the device. kit.css lays it out by the frame's own width.
  *
+ * As a module of a host (suite-core host.js, Cronum Work), the modules the
+ * person uses go in a rail at the start of the sidebar, and so in the drawer
+ * on a phone: one tap to another module. With one module only, nothing shows.
+ *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
@@ -20,7 +24,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at } from './base.js';
+import { at, BASE } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
@@ -282,6 +286,66 @@ export function createShell({
     menu(anchor, items);
   }
 
+  /* --------------------------------- modules -------------------------------- */
+
+  // This page's module, when it is one of a host's: its path's single segment.
+  const mount = /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(BASE)?.[1] || null;
+  let rail = null;
+
+  /** Takes the rail away, and the sidebar's content back to where it was. */
+  function dropRail() {
+    if (!rail) return;
+    rail.remove();
+    rail = null;
+    side.removeAttribute('data-rail');
+    element.removeAttribute('data-rail');
+  }
+
+  /** The modules beside this one, as the host lists them for this person (GET /api/modules at its root). */
+  function paintRail({ host = {}, modules = [] } = {}) {
+    if (!modules.some((m) => m.mount === mount)) return dropRail();   // not a module of this host
+    // The host's home opens the module used last.
+    try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
+    const shown = modules.filter((m) => m.active || m.mount === mount);
+    if (shown.length < 2) return dropRail();
+    const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
+      // The host's home: where the modules are chosen.
+      el('a', { class: 'kit-rail__home', href: '/?modules', title: t('kit.modules.home'), 'aria-label': t('kit.modules.home') },
+        host.icon ? el('img', { src: host.icon, alt: '', width: 32, height: 32 }) : icon('grid')),
+      ...shown.map((m) => el('a', {
+        class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,
+        style: m.color ? `--module: ${m.color}` : null,
+      }, el('img', { src: m.icon, alt: '', width: 28, height: 28 }), el('span', { class: 'kit-rail__name', text: m.name }))));
+    if (!side.querySelector(':scope > .kit-side__main')) {
+      const main = el('div', { class: 'kit-side__main' });
+      while (side.firstChild) main.append(side.firstChild);
+      side.append(main);
+    }
+    if (rail) rail.replaceWith(next);
+    else side.prepend(next);
+    rail = next;
+    side.setAttribute('data-rail', '');
+    element.setAttribute('data-rail', '');
+    return rail;
+  }
+
+  /** Asks the host again: someone may have turned a module on or off in another tab. */
+  async function refreshModules() {
+    if (!mount) return null;
+    try {
+      const res = await fetch('/api/modules', { credentials: 'same-origin' });
+      if (!res.ok) return null;
+      return paintRail(await res.json());
+    } catch {
+      return null;   // offline: the rail stays as it was
+    }
+  }
+  if (mount) {
+    refreshModules();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); });
+    document.addEventListener('kit-modules', () => refreshModules());
+  }
+
   /* --------------------------------- notices -------------------------------- */
 
   const shown = new Map();
@@ -312,7 +376,7 @@ export function createShell({
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
     setUser: (next) => { user = next; paintAccount(); },
-    setLive, showBanner, hideBanner,
+    setLive, showBanner, hideBanner, refreshModules,
   };
 }
 

@@ -99,11 +99,25 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(where.install, 'http://127.0.0.1/alpha');
   assert.deepEqual(where.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' });
 
-  // What each module is, for the host's pages.
-  assert.deepEqual((await call('GET', '/api/modules')).data.modules, [
-    { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1' },
-    { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg' },
-  ]);
+  // What each module is, for the host's pages, and which ones this person uses: all until they choose.
+  assert.deepEqual((await call('GET', '/api/modules')).data, {
+    host: { name: 'Work', icon: '/icons/work.svg' },
+    chosen: false,
+    modules: [
+      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', active: true },
+      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', active: true },
+    ],
+  });
+  assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' },
+    'a module tells the kit it is in a host');
+  assert.equal((await call('GET', '/api/auth/config')).data.app.host, undefined, 'the host itself isn’t a module');
+  assert.equal((await call('PUT', '/api/me/modules', { active: [] })).data.error, 'field_required', 'at least one');
+  assert.equal((await call('PUT', '/api/me/modules', { active: ['beta', 'gamma'] })).data.field, 'modules', 'only modules there are');
+  const chosen = await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual([chosen.data.chosen, ...chosen.data.modules.map((m) => `${m.mount}:${m.active}`)], [true, 'alpha:false', 'beta:true']);
+  assert.deepEqual((await call('GET', '/api/modules')).data.modules.map((m) => m.active), [false, true], 'kept');
+  assert.equal((await call('GET', '/alpha/')).status, 200, 'a module turned off still opens: its data is there');
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
 
   // Each module's own catalogs, version and kit, at its path.
   const catalog = await call('GET', '/alpha/i18n/en.json');
@@ -145,7 +159,7 @@ test('a host serves each module at its own path, with one sign-in, one database 
   // One database: the suite's tables once, each module's own, each module's migrations in its scope.
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.db')), ['work.db']);
   const { database } = host.suite;
-  assert.deepEqual(database.all('SELECT DISTINCT scope FROM schema_migrations ORDER BY scope').map((r) => r.scope), ['alpha', 'beta', 'suite']);
+  assert.deepEqual(database.all('SELECT DISTINCT scope FROM schema_migrations ORDER BY scope').map((r) => r.scope), ['alpha', 'beta', 'host', 'suite']);
   for (const table of ['alpha_items', 'beta_items', 'users', 'sessions']) assert.ok(database.columnsOf(table).length, table);
 
   // One table of accounts: a new one gets each module's columns and wakes each module's hooks.
@@ -192,6 +206,79 @@ test('a host serves each module at its own path, with one sign-in, one database 
   // A module's own jobs start with the host and stop with it.
   assert.equal(alphaModule.events.started, 1);
   assert.equal(alphaModule.events.stopped, 0);
+});
+
+test('one MCP for every module: its tools with the module’s name, its plans, and only the modules someone uses', async (t) => {
+  const { call } = await startHost(t);
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  assert.equal((await call('GET', '/mcp-info')).data.endpoint, 'http://127.0.0.1/mcp', 'one endpoint, the host’s');
+  let id = 0;
+  const mcp = async (method, params = {}) => {
+    id += 1;
+    const res = await call('POST', '/mcp', { jsonrpc: '2.0', id, method, params }, { Authorization: `Bearer ${token}` });
+    return res.data;
+  };
+  const init = (await mcp('initialize', { protocolVersion: '2025-06-18' })).result;
+  assert.equal(init.serverInfo.name, 'work');
+  assert.match(init.instructions, /^Work holds the user's Alpha and Beta in one place/);
+  assert.match(init.instructions, /Alpha keeps items: alpha_add_item adds one, alpha_list_items lists them\./, 'a module’s brief, with the host’s names');
+  assert.match(init.instructions, /Beta keeps other items\./);
+  assert.doesNotMatch(init.instructions, /paragraph/, 'without a brief, the first paragraph only');
+  assert.ok(init.instructions.length <= 2048);
+
+  const listed = (await mcp('tools/list')).result.tools.map((tool) => tool.name);
+  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items']);
+  const text = async (name, args = {}) => (await mcp('tools/call', { name, arguments: args })).result.content[0].text;
+  assert.equal(await text('alpha_add_item', { text: 'From the AI' }), 'Added.');
+  assert.equal(await text('alpha_list_items'), '["From the AI"]');
+  assert.equal(await text('beta_list_items'), '[]', 'the same tool in another module, on its own table');
+  assert.equal(await text('add_item', { text: 'Old name' }), 'Added.', 'a name only one module has still answers');
+  assert.equal(await text('new_item', { text: 'Older name' }), 'Added.', 'and so do its old names');
+  assert.match(await text('list_items'), /Unknown tool/, 'a name two modules have needs the module');
+  assert.equal(await text('alpha_add_item', { text: 'boom' }), 'That item cannot be added.', 'errors read as the module says');
+  assert.deepEqual((await mcp('prompts/list')).result.prompts.map((p) => p.name), ['beta_setup']);
+  assert.ok((await mcp('prompts/get', { name: 'beta_setup' })).result.messages.length);
+
+  // Beta only: alpha leaves the list and the instructions, and its tools say how to bring it back.
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await mcp('tools/list')).result.tools.map((tool) => tool.name), ['beta_list_items']);
+  assert.match(await text('alpha_list_items'), /Alpha is turned off for this person: they can turn it on in Work, Settings › Modules\./);
+  const only = (await mcp('initialize', { protocolVersion: '2025-06-18' })).result.instructions;
+  assert.match(only, /^Work holds the user's Beta in one place/);
+  assert.doesNotMatch(only, /Alpha keeps/);
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
+  assert.equal((await call('GET', '/alpha/mcp')).status, 404, 'no MCP of its own inside a host: one for all, at the root');
+});
+
+test('the calls of the day from assistants count once for the whole app, whichever module they go to', async (t) => {
+  const config = { ...HOST, features: { 'mcp.calls_per_day': { type: 'limit', default: 2, label: 'calls a day' } } };
+  const { call } = await startHost(t, { config });
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  // Someone with a plan: the instance's administrator is never limited.
+  await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' });
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  let id = 0;
+  const text = async (name, args = {}) => (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } },
+    { Authorization: `Bearer ${token}` })).data.result.content[0].text;
+  assert.equal(await text('alpha_add_item', { text: 'One' }), 'Added.');
+  assert.equal(await text('beta_list_items'), '[]');
+  assert.match(await text('alpha_list_items'), /^Daily limit reached: .* 2 calls a day from an assistant to Work/);
+});
+
+test('the host’s instructions keep under what assistants read, whole parts only', async () => {
+  const { hostInstructions } = await import('../host.js');
+  const modules = ['one', 'two', 'three'].map((mount) => ({
+    mount, config: { app: { name: mount.toUpperCase() } }, parts: { mcp: { brief: `${mount} `.repeat(300).trim() } },
+  }));
+  const lines = [];
+  const text = hostInstructions({ modules, hostName: 'Host', log: (line) => lines.push(line) });
+  assert.ok(text.length <= 2048, String(text.length));
+  assert.match(text, /^Host holds the user's ONE, TWO and THREE/);
+  assert.ok(text.includes('one one') && !text.includes('three three'), 'the parts that fit, whole');
+  assert.match(lines.join(), /don't fit in 2048 characters/);
 });
 
 test('a host with an icon but no page of its own still opens on its first module', async (t) => {

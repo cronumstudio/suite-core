@@ -1001,7 +1001,30 @@ await app.listen();
 
 A host and its modules run **one copy of suite-core**: an `HttpError` thrown by a module must be
 the one the host's `createApp()` knows. A module whose `server/suite` is another copy, or that
-never calls `joinHost()`, stops the host's start, saying so. Not yet in the host: one `/mcp` with
-every module's tools (each prefixed by the host when it mounts the module), push notices kept to
-the module that sent them, and coming back to the module after signing in with a provider.
+never calls `joinHost()`, stops the host's start, saying so. Not yet in the host: push notices
+kept to the module that sent them, and coming back to the module after signing in with a provider.
+
+### 21.1 Each person's modules
+
+The host's own tables have their own scope, `host`, and an app on its own never gets them. The
+first, `host_modules`, keeps which modules each person turned on: no row, they haven't chosen and
+use every one; a module added to the host after they chose comes on for them. `GET /api/modules`
+answers `{ host, chosen, modules: [{ mount, path, name, color, icon, active }] }` for the host's
+pages and the kit's shell, which draws a rail with the active ones (a drawer on phones) when the
+page is a module's; `PUT /api/me/modules { active: [mount…] }` sets them, at least one, from
+Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
+only leaves that person's menus and MCP.
+
+### 21.2 One MCP
+
+The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address). Each module's
+`createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
+module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
+whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
+The names the module had on its own, and those its `legacyTools` lists, are still answered, never
+announced. The instructions are written per person from each used module's `mcp.brief` (or its
+instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
+longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
+from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
+`PLANS`): one count per person for the whole app, whichever module a call goes to.
 

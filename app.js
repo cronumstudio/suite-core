@@ -462,6 +462,8 @@ export function createApp({
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
+      // A module of a host (host.js) says where it is, for the kit to show the others beside it.
+      ...(config.host ? { host: config.host } : {}),
     },
   });
   if (install.authProvider === 'local') {
@@ -516,7 +518,10 @@ export function createApp({
     legacyTools: mcp.legacyTools,
     legacyParams: mcp.legacyParams,
     describeError: mcp.describeError,
-    allows: entitlements.allows,
+    // A host gives its own: its modules' plans, and the modules each person uses (host.js).
+    allows: mcp.allows || entitlements.allows,
+    ...(mcp.visible ? { visible: mcp.visible } : {}),
+    // In a host this is its /mcp: the calls of the day count once for the whole app.
     quota: mcpQuota,
     authenticate: (token) => suite.authenticateToken(token),
     // With OAuth, the 401 says where the metadata is: that is what makes Claude

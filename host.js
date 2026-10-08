@@ -52,7 +52,7 @@ import { createLive } from './live.js';
 import { createUploads } from './uploads.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
-import { sendJson, securityHeaders } from './http.js';
+import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from './http.js';
 import { watchCode } from './watcher.js';
 
 const HOUR = 3600 * 1000;
@@ -76,7 +76,26 @@ const RESERVED = new Set([
   'authorize', 'token', 'js', 'css', 'icons', 'fonts',
 ]);
 /** Scopes migrations already use: a module's app id can't be one of them. */
-const TAKEN_SCOPES = new Set(['app', 'suite']);
+const TAKEN_SCOPES = new Set(['app', 'suite', 'host']);
+
+/**
+ * The host's own tables, under the scope `host`: only a host has them, so an
+ * app on its own never gets them in its database.
+ */
+export const HOST_MIGRATIONS = Object.freeze([
+  {
+    version: 1,
+    name: 'modules-in-use',
+    // Which modules each person turned on. No row: they haven't chosen yet, and use every one.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_modules (
+      user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      module    TEXT NOT NULL,
+      active    INTEGER NOT NULL DEFAULT 1,
+      chosen_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, module)
+    )`),
+  },
+]);
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
 
@@ -108,6 +127,118 @@ export function mountManifest(manifest, mount) {
     out.share_target = { ...manifest.share_target, action: at(manifest.share_target.action) };
   }
   return out;
+}
+
+/**
+ * What Claude Code reads of the server's instructions and of a tool's
+ * description: the rest is cut, without a sign.
+ */
+export const MCP_TEXT_MAX = 2048;
+
+const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
+
+/**
+ * The host's instructions for an assistant: one line about the host, then
+ * each module's own, short (`mcp.brief`, a text or `(name) => text` that gets
+ * each tool's name as the host gives it; without it, the first paragraph of
+ * its instructions). Whole parts only, as many as fit.
+ */
+export function hostInstructions({ modules, hostName, max = MCP_TEXT_MAX, log = () => {} }) {
+  if (!modules.length) return '';
+  const names = modules.map((m) => m.config.app.name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  const parts = [`${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
+    + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')}).`];
+  for (const m of modules) {
+    const spec = m.parts.mcp;
+    const name = (tool) => `${m.mount}_${tool}`;
+    parts.push(typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions));
+  }
+  let text = '';
+  const left = [];
+  for (const part of parts.filter(Boolean)) {
+    const next = text ? `${text}\n\n${part}` : part;
+    if (next.length <= max) text = next;
+    else left.push(part.slice(0, 40));
+  }
+  if (left.length) log(`[mcp] the instructions don't fit in ${max} characters; left out: ${left.join(' | ')}…`);
+  return text;
+}
+
+/**
+ * One MCP for every module of a host, at the host's /mcp: each module's tools
+ * with its path before their name (`tasks_add_task`), checked against that
+ * module's plan features, and only those of the modules each person uses in
+ * their list. A module's tool also answers to its own name when no other
+ * module has one like it, and to its old names: an assistant used to the app
+ * on its own still reaches it (not announced). Prompts the same way. Null
+ * when no module brings tools.
+ */
+export function hostMcp({ modules, uses = () => true, hostName = 'The app', log = () => {} }) {
+  const entries = [];
+  for (const m of modules) {
+    for (const tool of m.parts?.mcp?.tools || []) entries.push({ m, tool, name: `${m.mount}_${tool.name}` });
+  }
+  if (!entries.length) return null;
+  const names = new Set(entries.map((e) => e.name));
+  const count = new Map();
+  for (const { tool } of entries) count.set(tool.name, (count.get(tool.name) || 0) + 1);
+  const legacyTools = {};
+  for (const { tool, name } of entries) {
+    if (count.get(tool.name) === 1 && !names.has(tool.name)) legacyTools[tool.name] = name;
+  }
+  for (const m of modules) {
+    for (const [old, current] of Object.entries(m.parts?.mcp?.legacyTools || {})) {
+      const target = `${m.mount}_${current}`;
+      if (!names.has(target)) continue;
+      legacyTools[`${m.mount}_${old}`] = target;
+      const elsewhere = modules.some((other) => other !== m && (other.parts?.mcp?.tools || []).some((t) => t.name === old || other.parts?.mcp?.legacyTools?.[old]));
+      if (!elsewhere && !names.has(old) && !count.has(old)) legacyTools[old] = target;
+    }
+  }
+  const legacyParams = Object.assign({}, ...modules.map((m) => m.parts?.mcp?.legacyParams || {}));
+  const byMount = new Map(modules.map((m) => [m.mount, m]));
+
+  const tools = entries.map(({ m, tool, name }) => ({
+    ...tool,
+    name,
+    module: m.mount,
+    // A module's errors read as that module says, for the assistant to pass on.
+    handler: async (principal, args) => {
+      try {
+        return await tool.handler(principal, args);
+      } catch (error) {
+        const text = m.parts.mcp.describeError?.(error);
+        if (text) return { isError: true, content: [{ type: 'text', text }] };
+        throw error;
+      }
+    },
+  }));
+  const allows = (principal, tool) => {
+    const m = byMount.get(tool.module);
+    if (!m) return true;
+    if (!uses(principal, m.mount)) {
+      return `${m.config.app.name} is turned off for this person: they can turn it on in ${hostName}, Settings › Modules.`;
+    }
+    return m.view.entitlements.allows(principal, tool);
+  };
+  const visible = (principal, tool) => !principal || uses(principal, tool.module);
+
+  const sources = modules.filter((m) => m.parts?.mcp?.prompts);
+  const prompts = sources.length ? {
+    list: (principal) => sources.filter((m) => !principal || uses(principal, m.mount))
+      .flatMap((m) => m.parts.mcp.prompts.list().map((p) => ({ ...p, name: `${m.mount}_${p.name}` }))),
+    get: (name, args, principal) => {
+      const m = sources.find((s) => String(name).startsWith(`${s.mount}_`));
+      if (!m || (principal && !uses(principal, m.mount))) return null;
+      return m.parts.mcp.prompts.get(name.slice(m.mount.length + 1), args);
+    },
+  } : null;
+
+  const instructions = (principal) => hostInstructions({
+    modules: modules.filter((m) => m.parts?.mcp && (!principal || uses(principal, m.mount))), hostName, log,
+  });
+  return { instructions, tools, prompts, legacyTools, legacyParams, allows, visible };
 }
 
 /**
@@ -185,6 +316,7 @@ export async function createHost({
   const { config } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
+  migrate(suite.database, HOST_MIGRATIONS, { scope: 'host', log });
 
   /**
    * The suite a module gets: the host's, with what is the module's own in place
@@ -332,10 +464,53 @@ export async function createHost({
     mount: m.mount, path: `/${m.mount}/`, id: m.config.app.id, name: m.config.app.name,
     color: m.config.app.color, icon: mountedPath(m.mount, m.config.app.icon),
   }));
+
+  /**
+   * The modules someone uses: every one until they choose (`chosen: false`,
+   * the host's page asks), then the ones they turned on. A module they turn
+   * off keeps its data and still opens at its path; it leaves their menus.
+   */
+  function modulesOf(user) {
+    const rows = user ? suite.database.all('SELECT module, active FROM host_modules WHERE user_id = ?', user.id) : [];
+    const chosen = rows.length > 0;
+    const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
+    return {
+      host: { name: config.app.name, icon: config.app.icon },
+      chosen,
+      // A module added to the host after someone chose comes on for them: nothing hides by itself.
+      modules: listed.map((m) => ({ ...m, active: chosen ? on.get(m.mount) ?? true : true })),
+    };
+  }
+
+  /** Whether someone uses a module: every one until they choose. */
+  const uses = (user, mount) => modulesOf(user).modules.some((m) => m.mount === mount && m.active);
+
+  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log });
+
   const root = createApp({
-    suite, publicDir, version, handleSignals: false, log,
+    suite, publicDir, version, handleSignals: false, log, mcp,
     routes: (api) => {
-      api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, { modules: listed }));
+      api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
+      api.put('/api/me/modules', async (ctx) => {
+        if (!ctx.user) throw unauthorized();
+        const body = await readJson(ctx.req);
+        const active = Array.isArray(body.active) ? [...new Set(body.active.map(String))] : null;
+        if (!active) throw badRequest('field_invalid', { field: 'modules' });
+        const unknown = active.filter((mount) => !byMount.has(mount));
+        if (unknown.length) throw badRequest('field_invalid', { field: 'modules' });
+        if (!active.length) throw badRequest('field_required', { field: 'modules' });
+        const at = new Date().toISOString();
+        suite.database.tx(() => {
+          for (const { mount } of listed) {
+            suite.database.run(`INSERT INTO host_modules (user_id, module, active, chosen_at) VALUES (?, ?, ?, ?)
+              ON CONFLICT (user_id, module) DO UPDATE SET active = excluded.active, chosen_at = excluded.chosen_at`,
+            ctx.user.id, mount, active.includes(mount) ? 1 : 0, at);
+          }
+        });
+        // Their open tabs, in every module, repaint their menus.
+        suite.accounts.changed(ctx.user.id);
+        sendJson(ctx.res, 200, modulesOf(ctx.user));
+      });
       if (typeof routes === 'function') routes(api);
     },
   });
@@ -390,6 +565,12 @@ export async function createHost({
     const rest = url.pathname.slice(mount.length + 1).replace(/^\/{2,}/, '/');
     if (!rest) {
       redirect(res, 308, `/${mount}/${url.search}`);
+      return undefined;
+    }
+    // One MCP for every module, at the root: a client given a module's address learns where it is.
+    if (rest === '/mcp' || rest.startsWith('/mcp/')) {
+      securityHeaders(res, { https: install.https });
+      sendJson(res, 404, { error: 'not_found', mcp: `${install.baseUrl}/mcp` });
       return undefined;
     }
     // One admin panel for the whole host, at the root.
