@@ -73,7 +73,7 @@ function app(t, { now = '2026-11-01T10:00:00Z', paddle = fakePaddle(), founderUn
   const entitlements = createEntitlements({
     database, appId: 'test', clock: () => time.now,
     features: { assign: { type: 'flag', default: true } },
-    plans: { gratis: { name: 'Free', features: { assign: false } }, pro: { name: 'Pro', features: {} } },
+    plans: { free: { name: 'Free', features: { assign: false } }, pro: { name: 'Pro', features: {} } },
     plansJson: null, defaultPlanOverride: null, organizationsOf: () => [],
   });
   const logs = [];
@@ -257,7 +257,7 @@ test('Paddle\'s errors go to the log, never to the person paying', async (t) => 
 test('a subscription: bought, renewed, cancelled at the end of the period, and ended', async (t) => {
   const { deliver, signIn, planOf, clock, database } = app(t);
   const ada = signIn(ADA, 'ada');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
   assert.equal(await deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' })), 'granted');
   assert.equal(planOf(ada), 'pro');
   assert.equal(await deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' })), 'duplicate');
@@ -275,12 +275,12 @@ test('a subscription: bought, renewed, cancelled at the end of the period, and e
   })), 'extended');
   assert.equal(planOf(ada), 'pro');
   assert.equal(await deliver(subscriptionEvent('evt_4', { type: 'subscription.canceled', status: 'canceled', occurredAt: '2028-11-01T10:00:01Z' })), 'revoked');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
   // An older update arriving late doesn't bring it back.
   assert.equal(await deliver(subscriptionEvent('evt_late', {
     type: 'subscription.updated', occurredAt: '2027-12-02T10:00:00Z', endsAt: '2028-11-01T10:00:00Z',
   })), 'stale');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
 });
 
 test('paused is not paid for; resumed, Pro again; a founder\'s price is still Pro', async (t) => {
@@ -289,7 +289,7 @@ test('paused is not paid for; resumed, Pro again; a founder\'s price is still Pr
   await deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z', price: PRICES.founder }));
   assert.equal(planOf(ada), 'pro');
   assert.equal(await deliver(subscriptionEvent('evt_2', { type: 'subscription.paused', status: 'paused', occurredAt: '2026-12-01T10:00:00Z' })), 'revoked');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
   assert.equal(await deliver(subscriptionEvent('evt_3', {
     type: 'subscription.resumed', occurredAt: '2027-01-01T10:00:00Z', endsAt: '2028-01-01T10:00:00Z',
   })), 'granted');
@@ -301,12 +301,12 @@ test('a refund takes Pro back, and the period it paid back doesn\'t return it; t
   const ada = signIn(ADA, 'ada');
   await deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' }));
   assert.equal(await deliver(refundEvent('evt_r', { occurredAt: '2026-11-05T10:00:00Z' })), 'revoked');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
   // Paddle may still say the subscription is active for that period (the refund doesn't cancel it).
   assert.equal(await deliver(subscriptionEvent('evt_2', {
     type: 'subscription.updated', occurredAt: '2026-11-05T10:00:01Z', endsAt: '2027-11-01T10:00:00Z',
   })), 'refunded');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
   assert.equal(await deliver(subscriptionEvent('evt_3', {
     type: 'subscription.updated', occurredAt: '2027-11-01T10:00:01Z', endsAt: '2028-11-01T10:00:00Z',
   })), 'granted', 'renewed and paid: Pro again');
@@ -318,7 +318,7 @@ test('a chargeback takes Pro back too; created already approved', async (t) => {
   const ada = signIn(ADA, 'ada');
   await deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' }));
   assert.equal(await deliver(refundEvent('evt_cb', { type: 'adjustment.created', action: 'chargeback', occurredAt: '2026-11-09T10:00:00Z' })), 'revoked');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
 });
 
 test('a one-off purchase: transaction.completed without a subscription, for the product\'s days; refunded, gone', async (t) => {
@@ -339,7 +339,7 @@ test('a one-off purchase: transaction.completed without a subscription, for the 
     event_id: 'evt_r', event_type: 'adjustment.updated', occurred_at: '2026-11-02T10:00:00Z',
     data: { id: 'adj_2', action: 'refund', type: 'full', status: 'approved', transaction_id: 'txn_once', subscription_id: null },
   }), 'revoked');
-  assert.equal(planOf(ada), 'gratis');
+  assert.equal(planOf(ada), 'free');
 });
 
 /* ------------------------- one subscription, every app ------------------------ */
@@ -357,7 +357,7 @@ test('one subscription for every app: each applies it by the WorkOS id, and one 
   const bought = subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' });
   assert.equal(await tasks.deliver(bought), 'granted');
   assert.equal(await next.deliver(bought), 'pending', 'Ada hasn\'t opened Next yet');
-  assert.equal(next.planOf(bea), 'gratis', 'not to whoever has her id in Tasks');
+  assert.equal(next.planOf(bea), 'free', 'not to whoever has her id in Tasks');
   // A renewal while she still hasn't: it waits too, in order.
   const renewed = subscriptionEvent('evt_2', { type: 'subscription.updated', occurredAt: '2027-11-01T10:00:01Z', endsAt: '2028-11-01T10:00:00Z' });
   assert.equal(await next.deliver(renewed), 'pending');
@@ -375,8 +375,8 @@ test('one subscription for every app: each applies it by the WorkOS id, and one 
   const ended = subscriptionEvent('evt_3', { type: 'subscription.canceled', status: 'canceled', occurredAt: '2028-11-01T10:00:01Z' });
   assert.equal(await tasks.deliver(ended), 'revoked');
   assert.equal(await next.deliver(ended), 'revoked');
-  assert.equal(tasks.planOf(adaInTasks), 'gratis');
-  assert.equal(next.planOf(adaInNext), 'gratis');
+  assert.equal(tasks.planOf(adaInTasks), 'free');
+  assert.equal(next.planOf(adaInNext), 'free');
 });
 
 test('a refund of what is still waiting waits with it: at the first sign-in, nothing is given', async (t) => {
@@ -384,7 +384,7 @@ test('a refund of what is still waiting waits with it: at the first sign-in, not
   await next.deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' }));
   assert.equal(await next.deliver(refundEvent('evt_r', { occurredAt: '2026-11-03T10:00:00Z' })), 'pending');
   const ada = next.signIn(ADA, 'ada');
-  assert.equal(next.planOf(ada), 'gratis');
+  assert.equal(next.planOf(ada), 'free');
   assert.equal(next.database.get("SELECT outcome FROM billing_events WHERE event_id = 'evt_r'").outcome, 'revoked');
 });
 
@@ -395,7 +395,7 @@ test('the identity outranks an older link: a customer linked to someone else her
   const ada = tasks.signIn(ADA, 'ada');
   assert.equal(await tasks.deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' })), 'granted');
   assert.equal(tasks.planOf(ada), 'pro');
-  assert.equal(tasks.planOf(other), 'gratis');
+  assert.equal(tasks.planOf(other), 'free');
   assert.equal(tasks.billing.customerOf({ type: 'user', id: ada.id }), 'ctm_01ada');
   assert.equal(tasks.billing.customerOf({ type: 'user', id: other.id }), null, 'Carl no longer opens Ada\'s portal');
 });
