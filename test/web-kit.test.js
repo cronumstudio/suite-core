@@ -647,3 +647,57 @@ test('every file of the web kit parses: one that does not stops the whole app be
     assert.equal(run.status, 0, `${name}: ${run.stderr}`);
   }
 });
+
+/* ---------------------------------- links ---------------------------------- */
+
+test('links: the row of a host module’s item, its chips in each state, hidden on its own', async () => {
+  const { mountOf, chipText, linkChip, linksRow } = await import('../web/links.js');
+  assert.equal(mountOf('/tasks/'), 'tasks');
+  assert.equal(mountOf('/'), null);
+  assert.deepEqual(chipText({ state: 'open', title: 'Review', app: 'Beta' }), { text: 'Review', note: 'Beta' });
+  assert.deepEqual(chipText({ state: 'gone', app: 'Beta' }), { text: 'kit.links.goneIn', note: null }, 'gone, its title unknown');
+  assert.equal(chipText({ state: 'gone', title: 'Old', app: 'Beta' }).text, 'Old', 'gone, to whoever linked it');
+  assert.deepEqual(chipText({ state: 'hidden', app: 'Beta' }), { text: 'kit.links.hidden', note: 'kit.links.noAccess' });
+
+  const done = linkChip({ id: 4, together: true, item: { ref: 'beta:item:3', state: 'done', title: 'Review', app: 'Beta', color: '#7C3AED', url: '/beta/?item=3' } },
+    { onMenu: () => {} });
+  assert.equal(done.getAttribute('data-state'), 'done');
+  assert.equal(done.getAttribute('style'), '--module: #7C3AED');
+  assert.equal(done.find('a')[0].getAttribute('href'), '/beta/?item=3', 'opens it in its module');
+  assert.equal(done.find('button').length, 1, 'its "…"');
+  const hidden = linkChip({ id: 5, item: { ref: 'beta:item:9', state: 'hidden', app: 'Beta', url: '/beta/?item=9' } });
+  assert.equal(hidden.find('a').length, 0, 'what someone can’t open is no link');
+  assert.match(hidden.textContent, /kit\.links\.hidden/);
+
+  const asked = [];
+  let modules = [
+    { mount: 'alpha', name: 'Alpha', active: true, links: { item: { creates: true } } },
+    { mount: 'beta', name: 'Beta', active: true, links: { item: { creates: true } } },
+  ];
+  const fetch = async (path) => {
+    asked.push(path);
+    const data = path === '/api/modules' ? { modules }
+      : { links: [{ id: 4, together: true, item: { ref: 'beta:item:3', state: 'open', title: 'Review', app: 'Beta', url: '/beta/?item=3' } }] };
+    return { ok: true, status: 200, json: async () => data };
+  };
+
+  const alone = linksRow({ ref: 'alpha:item:1', base: '/', fetch });
+  await alone.show('alpha:item:1');
+  assert.equal(alone.element.hidden, true);
+  assert.deepEqual(asked, [], 'on its own it asks nothing');
+
+  const row = linksRow({ base: '/alpha/', fetch });
+  await row.show('alpha:item:1', 'Write');
+  assert.equal(row.element.hidden, false);
+  assert.deepEqual(asked, ['/api/modules', '/api/links?ref=alpha%3Aitem%3A1'], 'at the host’s root, not the module’s');
+  assert.equal(row.element.find('a')[0].getAttribute('href'), '/beta/?item=3');
+  assert.equal(row.refresh([{ event: 'links', data: { ref: 'alpha:item:2' } }]), null, 'another item’s links: nothing to read');
+  await row.refresh([{ event: 'links', data: { ref: 'alpha:item:1' } }]);
+  assert.equal(asked.length, 3);
+
+  // Nobody to link with (only this module on): no row.
+  modules = [modules[0], { ...modules[1], active: false }];
+  const solo = linksRow({ base: '/alpha/', fetch });
+  await solo.show('alpha:item:1');
+  assert.equal(solo.element.hidden, true);
+});

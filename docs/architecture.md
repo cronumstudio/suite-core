@@ -1046,4 +1046,12 @@ relative to the module (`?list=27&task=389`). A thing is named by a ref, `module
   get a `links` event `{ ref, link }` for whoever sees it. On its own an app has no `suite.links`.
 - **For assistants**, the host's MCP adds `linked_items` and `link_item` (link, or create in another
   module and link) for whoever uses two modules with things to link.
+- **In the page**, the kit's `web/links.js`: `linksRow({ ref, title })` is the "Linked" row of an
+  item's panel, one chip per link in the other module's colour that opens it there (crossed out when
+  done, dashed when gone or out of reach), each with its menu (open, complete together, remove, with
+  undo), and "+ Link": "Add to Tasks…" for each kind another module can create (`offer` keeps it to
+  some), and "Link existing…" to search one. It asks the host's root, `GET /api/modules` saying what
+  each module can link (`links: { task: { creates } }`); `row.show(ref, title)` when the panel shows
+  another item and `row.refresh(events)` from the live channel (`events: ['links']`). On its own an
+  app gets a hidden row, and nothing is asked.
 

@@ -104,8 +104,8 @@ test('a host serves each module at its own path, with one sign-in, one database 
     host: { name: 'Work', icon: '/icons/work.svg' },
     chosen: false,
     modules: [
-      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', active: true },
-      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', active: true },
+      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } }, active: true },
+      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', links: { item: { creates: true } }, active: true },
     ],
   });
   assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' },

@@ -483,6 +483,8 @@ export async function createHost({
   const listed = joined.map((m) => ({
     mount: m.mount, path: `/${m.mount}/`, id: m.config.app.id, name: m.config.app.name,
     color: m.config.app.color, icon: mountedPath(m.mount, m.config.app.icon),
+    // What can be linked of it (links.js), and whether "Add to…" can create it there.
+    links: Object.fromEntries(Object.entries(m.parts.cards || {}).map(([type, card]) => [type, { creates: typeof card.create === 'function' }])),
   }));
 
   /**

@@ -56,6 +56,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   something that changed (a `links` event in the module's live channel). Two MCP tools,
   `linked_items` and `link_item`, for whoever uses two modules with things to link. On its own an
   app has no `suite.links`.
+- **The kit's links row** (`web/links.js`, `linksRow()`): the "Linked" row of an item, its chips in
+  the other module's colour, "+ Link" with "Add to…" and "Link existing…", in the four languages.
+  `GET /api/modules` says what each module can link. The service worker keeps `links.js` with the
+  rest of the kit. On its own an app's row stays hidden and asks nothing.
 
 ## 0.51.0 — 2026-10-08
 
