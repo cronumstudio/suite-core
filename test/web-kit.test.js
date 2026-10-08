@@ -686,14 +686,19 @@ test('links: the row of a host module’s item, its chips in each state, hidden 
   assert.equal(alone.element.hidden, true);
   assert.deepEqual(asked, [], 'on its own it asks nothing');
 
-  const row = linksRow({ base: '/alpha/', fetch });
+  const loaded = [];
+  const row = linksRow({ base: '/alpha/', fetch, onLoad: (links) => loaded.push(links.length) });
   await row.show('alpha:item:1', 'Write');
   assert.equal(row.element.hidden, false);
   assert.deepEqual(asked, ['/api/modules', '/api/links?ref=alpha%3Aitem%3A1'], 'at the host’s root, not the module’s');
   assert.equal(row.element.find('a')[0].getAttribute('href'), '/beta/?item=3');
+  assert.deepEqual(loaded, [1], 'the page hears what it read');
   assert.equal(row.refresh([{ event: 'links', data: { ref: 'alpha:item:2' } }]), null, 'another item’s links: nothing to read');
   await row.refresh([{ event: 'links', data: { ref: 'alpha:item:1' } }]);
   assert.equal(asked.length, 3);
+  row.destroy();
+  await row.refresh();
+  assert.deepEqual(loaded, [1, 1], 'a row let go reads no more');
 
   // Nobody to link with (only this module on): no row.
   modules = [modules[0], { ...modules[1], active: false }];

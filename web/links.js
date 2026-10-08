@@ -100,10 +100,13 @@ export function linkChip(link, { onMenu = null } = {}) {
  * @param {string} [options.ref]      the item, as `module:type:id`
  * @param {string} [options.title]    its title, the default for what is created from it
  * @param {Array} [options.offer]     [{ module, type }]: what "Add to…" offers (default: all it can)
+ * @param {Function} [options.onLoad] (links) after each read: what the page does with them (a hint)
  * @param {string} [options.base]     for tests: the page's base
  * @param {Function} [options.fetch]  for tests
  */
-export function linksRow({ ref = null, title = '', offer = null, base = BASE, fetch: fetcher = (...args) => globalThis.fetch(...args) } = {}) {
+export function linksRow({
+  ref = null, title = '', offer = null, onLoad = null, base = BASE, fetch: fetcher = (...args) => globalThis.fetch(...args),
+} = {}) {
   const mount = mountOf(base);
   const call = (method, path, body) => hostCall(fetcher, method, path, body);
   const chips = el('div', { class: 'kit-linked__chips' });
@@ -116,6 +119,7 @@ export function linksRow({ ref = null, title = '', offer = null, base = BASE, fe
   let modules = null;   // the host's, as this person uses them; asked once, and again when they change
   let shown = [];
   let asking = 0;
+  let destroyed = false;
 
   /** The kinds of things in the other modules this person uses: [{ module, type, name, creates }]. */
   const kinds = () => (modules || [])
@@ -140,6 +144,7 @@ export function linksRow({ ref = null, title = '', offer = null, base = BASE, fe
   /** Reads the item's links again; an answer for an item no longer shown is dropped. */
   async function load() {
     const ask = ++asking;
+    if (destroyed) return;
     if (!mount || !current.ref) {
       element.hidden = true;
       return;
@@ -161,6 +166,7 @@ export function linksRow({ ref = null, title = '', offer = null, base = BASE, fe
     if (ask !== asking) return;
     shown = data?.links || [];
     paint();
+    onLoad?.(shown);
   }
 
   /* ---------------------------------- a link --------------------------------- */
@@ -355,10 +361,11 @@ export function linksRow({ ref = null, title = '', offer = null, base = BASE, fe
   });
 
   // Someone turned a module on or off (Settings › Modules, shell.js): which links show may change.
-  globalThis.document?.addEventListener?.('kit-modules', async () => {
+  const onModules = async () => {
     await loadModules();
     load();
-  });
+  };
+  globalThis.document?.addEventListener?.('kit-modules', onModules);
 
   if (current.ref) load();
 
@@ -379,5 +386,11 @@ export function linksRow({ ref = null, title = '', offer = null, base = BASE, fe
       return load();
     },
     get links() { return shown; },
+    /** A row that goes with its dialog: it stops listening, and an answer still on its way is dropped. */
+    destroy() {
+      destroyed = true;
+      asking += 1;
+      globalThis.document?.removeEventListener?.('kit-modules', onModules);
+    },
   };
 }
