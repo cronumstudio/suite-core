@@ -430,25 +430,38 @@ export function openSettings(options) {
   function moduleChoice() {
     const switches = el('div', { class: 'kit-stack' });
     const icons = el('div', { class: 'kit-row' });
+    // What the switches say now: two pressed one after the other both count.
+    const shownOn = () => [...switches.querySelectorAll('.kit-switch')]
+      .filter((s) => s.getAttribute('aria-checked') === 'true').map((s) => s.dataset.mount);
+    // One change at a time, in the order they were made: the last one sent is what stays.
+    let sending = Promise.resolve();
+    const send = (active) => {
+      sending = sending.catch(() => {}).then(async () => {
+        const res = await fetch('/api/me/modules', {
+          method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        return res.json();
+      });
+      return sending;
+    };
     const paint = (answer) => {
       inUse = answer.modules || [];
       clear(switches);
       for (const m of inUse) {
         const row = switchRow(m.name, {
           checked: m.active,
-          onChange: async (on) => {
-            const active = inUse.filter((x) => (x.mount === m.mount ? on : x.active)).map((x) => x.mount);
+          onChange: async () => {
+            const active = shownOn();
             if (!active.length) {
               toast(t('kit.modules.last'), { error: true });
               throw new Error('one stays on');   // the switch goes back
             }
             try {
-              const res = await fetch('/api/me/modules', {
-                method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ active }),
-              });
-              if (!res.ok) throw new Error(String(res.status));
-              paint(await res.json());
+              const answer = await send(active);
+              // A later change still on its way repaints when it arrives.
+              if (shownOn().join() === active.join()) paint(answer);
               paintList();
               // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
               document.dispatchEvent(new CustomEvent('kit-modules'));
@@ -458,6 +471,7 @@ export function openSettings(options) {
             }
           },
         });
+        row.querySelector('.kit-switch').dataset.mount = m.mount;
         row.classList.add('kit-switch-row--swatch');
         row.firstChild.prepend(el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
         switches.append(row);
