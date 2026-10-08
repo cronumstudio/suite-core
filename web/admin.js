@@ -92,7 +92,8 @@ async function start() {
   let prefs = {};
   try { prefs = typeof me?.prefs === 'string' ? JSON.parse(me.prefs) : (me?.prefs || {}); } catch { /* none */ }
   const languages = state.config.app?.languages || ['en'];
-  await loadLanguage(pickLanguage([me?.locale, prefs.lang, navigator.languages || [], navigator.language], languages))
+  // The admin panel follows the account; the choice the app keeps in this browser is the app's to make.
+  await loadLanguage(pickLanguage([me?.locale, prefs.lang, navigator.languages || [], navigator.language], languages), { remember: false })
     .catch(() => {});
   applyTheme(me?.theme);
   document.title = `${t('admin.title')} · ${state.config.app?.name || ''}`;

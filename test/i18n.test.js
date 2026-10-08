@@ -8,9 +8,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  LANGUAGES, SUITE_CATALOGS, flatten, unflatten, mergeCatalogs, negotiate, translator, createTexts,
+  LANGUAGES, SUITE_CATALOGS, flatten, unflatten, mergeCatalogs, negotiate, translator, createTexts, appTexts,
 } from '../i18n.js';
-import { parity, catalogsOf } from '../tools/i18n.mjs';
+import { parity, catalogsOf, appChecks } from '../tools/i18n.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+/** A folder of its own with `files` ({ 'public/i18n/en.json': … }); removed by the caller. */
+function folder(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-i18n-'));
+  for (const [name, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    fs.writeFileSync(path.join(dir, name), typeof content === 'string' ? content : JSON.stringify(content));
+  }
+  return dir;
+}
 
 test('negotiation follows the order and the q values', () => {
   assert.equal(negotiate('es-ES,es;q=0.9,en;q=0.8'), 'es');
@@ -119,4 +133,118 @@ test('every error the suite can send has its sentence, and every field it names 
   assert.deepEqual([...codes].filter((c) => !english[`errors.${c}`]), [], 'errors without a sentence');
   const fields = new Set([...code.matchAll(/field: '([a-z_]+)'/g)].map((m) => m[1]));
   assert.deepEqual([...fields].filter((f) => !english[`fields.${f}`]), [], 'fields without a name');
+});
+
+/* ------------------------- an app's texts on the server ------------------------ */
+
+test('appTexts: the app’s catalogs over the suite’s, English key by key, read again when a file changes', () => {
+  const dir = folder({
+    'en.json': { 'notices.due': '{title} is due', 'errors.bad_credentials': 'Not you?', 'x.count': { one: '{n} task', other: '{n} tasks' } },
+    'es.json': { 'notices.due': '{title} vence', 'x.count': { one: '{n} tarea', other: '{n} tareas' } },
+  });
+  try {
+    const texts = appTexts(dir, { defaultLanguage: '' });
+    const es = texts.translator('es');
+    assert.equal(es('notices.due', { title: 'Pan' }), 'Pan vence');
+    assert.equal(es('x.count', { n: 12000 }), `${new Intl.NumberFormat('es').format(12000)} tareas`);
+    assert.equal(es('errors.not_found'), SUITE_CATALOGS.es['errors.not_found'], 'the suite’s texts come with it');
+    assert.equal(texts.translator('en')('errors.bad_credentials'), 'Not you?', 'the app’s text wins');
+    assert.equal(texts.translator('fr')('notices.due', { title: 'Pain' }), 'Pain is due', 'French has none: English');
+    assert.equal(texts.translator('xx'), texts.translator('en'), 'an unknown language is English');
+    assert.equal(texts.translator('es'), es, 'the same translator while nothing changes');
+    const seen = texts.fromCatalog('names', 'es', (t) => ({ due: t('notices.due', { title: '' }) }));
+    assert.equal(texts.fromCatalog('names', 'es', () => assert.fail('computed again')), seen);
+
+    const later = new Date(Date.now() + 5000);
+    fs.writeFileSync(path.join(dir, 'es.json'), JSON.stringify({ 'notices.due': '{title}: hoy' }));
+    fs.utimesSync(path.join(dir, 'es.json'), later, later);
+    assert.notEqual(texts.translator('es'), es, 'a changed file is read again');
+    assert.equal(texts.translator('es')('notices.due', { title: 'Pan' }), 'Pan: hoy');
+    const field = Object.keys(SUITE_CATALOGS.es).find((key) => key.startsWith('fields.'));
+    assert.equal(texts.errorSentence('field_too_long', { field: field.slice('fields.'.length), max: 200 }, 'es'),
+      SUITE_CATALOGS.es['errors.field_too_long'].replace('{field}', SUITE_CATALOGS.es[field]).replace('{max}', '200'));
+    assert.equal(texts.errorSentence('no_such_code'), null);
+    assert.equal(appTexts(pathToFileURL(`${dir}/`)).translator('es')('notices.due', { title: 'Pan' }), 'Pan: hoy', 'a URL is a folder too');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('appTexts: whose language wins, with the installation’s default as the last resort (from Tasks’ tests)', () => {
+  const D = 'D';
+  const CASES = [
+    // [user, Accept-Language, languageFor, userLanguage]
+    [{ prefs: { lang: 'fr' } }, 'de', 'fr', 'fr'],
+    [{ prefs: { lang: 'auto', lang_seen: 'de' }, locale: 'es' }, 'en-GB,en;q=0.9', 'en', 'de'],
+    [{ prefs: { lang_seen: 'de' }, locale: 'fr' }, null, 'de', 'de'],
+    [{ prefs: '{"lang_seen":"fr"}', locale: 'es' }, null, 'fr', 'fr'],
+    [{ locale: 'fr_CA' }, null, 'fr', 'fr'],
+    [{}, null, D, D],
+    [null, 'de-AT,de;q=0.9', 'de', D],
+    [{ prefs: { lang: 'xx' } }, 'fr', 'fr', D],
+    [{}, 'pt-BR,pt;q=0.9,es;q=0.8', 'es', D],
+    [{}, 'en;q=0,fr;q=0.5', 'fr', D],
+    [{ prefs: { lang_seen: 'de' } }, 'xx, yy', 'de', 'de'],
+    [{}, '*', D, D],
+    [{ prefs: '{oops', locale: 'de' }, null, 'de', 'de'],
+    [{ prefs: { lang: 'es', lang_seen: 'de' }, locale: 'fr' }, 'en', 'es', 'es'],
+  ];
+  for (const [setting, expected] of [[undefined, 'en'], ['es', 'es'], ['de-AT', 'de'], ['xx', 'en'], ['FR', 'fr']]) {
+    const texts = appTexts(os.tmpdir(), { defaultLanguage: setting ?? '' });
+    assert.equal(texts.DEFAULT_LANGUAGE, expected, `DEFAULT_LANGUAGE=${setting}`);
+    assert.equal(texts.negotiateLanguage(['xx']), expected);
+    for (const [user, header, byRequest, byUser] of CASES) {
+      const req = { headers: header ? { 'accept-language': header } : {} };
+      assert.equal(texts.languageFor(req, user), byRequest === D ? expected : byRequest, JSON.stringify([setting, user, header]));
+      assert.equal(texts.userLanguage(user), byUser === D ? expected : byUser, JSON.stringify([setting, user]));
+    }
+    assert.equal(texts.textsFor({ headers: { 'accept-language': 'de' } }).lang, 'de');
+  }
+  assert.equal(appTexts(os.tmpdir()).savedLanguage({ prefs: { lang: 'auto' } }), null);
+});
+
+/* --------------------------- an app's checks, at once -------------------------- */
+
+test('appChecks: an app passes when its catalogs are flat and agree, its keys exist and nothing is written in its code', () => {
+  const good = folder({
+    'public/i18n/en.json': { 'app.hello': 'Hello', 'app.count': { one: '{n} note', other: '{n} notes' } },
+    'public/i18n/es.json': { 'app.hello': 'Hola', 'app.count': { one: '{n} nota', other: '{n} notas' } },
+    'public/i18n/fr.json': { 'app.hello': 'Bonjour', 'app.count': { one: '{n} note', other: '{n} notes' } },
+    'public/i18n/de.json': { 'app.hello': 'Hallo', 'app.count': { one: '{n} Notiz', other: '{n} Notizen' } },
+    'public/js/main.js': "el('p', { text: t('app.hello') });",
+    'public/vendor/editor.js': "throw 'Something others wrote';",
+    'server/notices.js': "send({ title: t('app.hello') });",
+    'server/seeds.js': "export const SEEDS = ['Plátanos'];",
+  });
+  const bad = folder({
+    'public/i18n/en.json': { app: { hello: 'Hello', bye: 'Bye' } },
+    'public/i18n/es.json': { app: { hello: 'Hola' } },
+    'public/js/main.js': "el('p', { text: t('app.nowhere') }); toast('Guardado');",
+    'server/notices.js': "send({ title: 'Tarea añadida' });",
+  });
+  try {
+    const passing = appChecks(good, { skip: ['seeds.js'] });
+    assert.equal(passing.length, 5);
+    assert.deepEqual(passing.filter((c) => c.problems.length), []);
+    assert.ok(appChecks(good)[4].problems.some((p) => p.includes('Plátanos')), 'without skip, the seeds count');
+
+    const failing = appChecks(bad).map((c) => c.problems.join(' | '));
+    assert.match(failing[0], /en\.json \| es\.json \| fr\.json: missing/, 'nested, and a language missing');
+    assert.match(failing[1], /es: missing app\.bye/);
+    assert.match(failing[2], /app\.nowhere/);
+    assert.match(failing[3], /Guardado/);
+    assert.match(failing[4], /Tarea añadida/);
+
+    const tool = fileURLToPath(new URL('../tools/i18n.mjs', import.meta.url));
+    const run = (root, ...more) => spawnSync(process.execPath, [tool, 'app', root, ...more], { encoding: 'utf8' });
+    const ok = run(good, '--skip', 'seeds.js');
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    assert.equal((ok.stdout.match(/✓/g) || []).length, 5);
+    const ko = run(bad);
+    assert.equal(ko.status, 1);
+    assert.match(ko.stdout, /✗ No text for people[\s\S]*Guardado/);
+  } finally {
+    fs.rmSync(good, { recursive: true, force: true });
+    fs.rmSync(bad, { recursive: true, force: true });
+  }
 });
