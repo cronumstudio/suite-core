@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.45.0 — 2026-10-08
+
+- **Icons for a text editor's bar.** `list` (lines with a dot in front), `list-ordered` (with
+  numbers), `list-todo` (with a box and a tick) and `table` (a table with its header row), from
+  [Lucide](https://lucide.dev) 1.53.0 (ISC), drawn as one path on the kit's grid.
+
 ## 0.44.0 — 2026-10-07
 
 - **Markdown as editors write it.** `parseInline()` decodes the entities an editor such as Tiptap
