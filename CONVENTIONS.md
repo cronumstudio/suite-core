@@ -199,7 +199,9 @@ release of them must keep working as it does. These rules hold until then, on to
 1. **Tables carry the module's name**: `notes_versions`, `next_branches`, never a generic name
    (`tasks`, `projects`, `files`, `items`, `settings`), which collides in the one database. The
    tables that collide today (`tasks` and `task_files` in Tasks and Projects, `projects` in
-   Projects and Next) are renamed by the move itself, one app at a time.
+   Projects and Next) are renamed by the move itself, one app at a time, **in every app that
+   has them**: a module's first migration creates its tables under their old names and its last
+   renames them, so one app keeping a generic name would take it from another set up after it.
 2. **API routes and MCP tools with names of their own**: a route under the app's own nouns
    (`/api/notebooks/:id/share`, not `/api/share`), a tool named after what it acts on
    (`share_notebook`, not `share`), so the module's tools still read well next to the others'.
