@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.50.0 — 2026-10-08
+## 0.51.0 — 2026-10-08
 
 - **One way to translate, the same in every app.** Each app kept its own copies: Tasks and
   Projects a full translator for the server and one for the browser, Next and Notes simpler ones,
@@ -21,6 +21,14 @@ change an interface and a patch never does. Apps pin a version through the submo
     catalogs in every language, parity, keys in use by the browser and the server, texts in the
     code, another language on the server); `vendor/` folders are others' code and never read.
   - `tools/web-resolve.mjs`: lets Node load an app's browser modules in its tests.
+
+## 0.50.0 — 2026-10-08
+
+- **Plan ids in English: `gratis` is `free`.** Tasks' free plan was the only one with a Spanish
+  id. An install whose `PLANS` still has a plan `gratis`, or whose `DEFAULT_PLAN` is `gratis`, no
+  longer starts: the message names `free`, as a renamed variable does (`OLD_PLAN_IDS` in
+  `entitlements.js`). It is not read as an alias because the app renames its stored grants to
+  `free` in the same release, and an install left on `gratis` would quietly stop matching them.
 
 ## 0.49.0 — 2026-10-08
 
