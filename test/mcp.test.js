@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createMcpServer, MAX_BATCH } from '../mcp.js';
+import { createMcpServer, dailyLimitText, MAX_BATCH } from '../mcp.js';
 
 class Unavailable extends Error {}
 class NotFound extends Error {}
@@ -147,6 +147,33 @@ test('tool calls: arguments, old names, plans and the app’s errors', async (t)
   const failed = await rpc('good-token', 'tools/call', { name: 'find' });
   assert.deepEqual([failed.result.isError, text(failed)], [true, 'No list called "shop".']);
   assert.match(text(await rpc('good-token', 'tools/call', { name: 'nope' })), /Unknown tool/);
+});
+
+test('the calls of the day: once spent, a sentence instead of the tool, and only tool calls count', async (t) => {
+  let left = 2;
+  const { rpc } = await start(t, {
+    quota: (principal, tool) => {
+      assert.equal(principal.name, 'ada');
+      assert.ok(tool.name);
+      if (left <= 0) return 'Daily limit reached.';
+      left -= 1;
+      return true;
+    },
+  });
+  const text = (r) => r.result.content[0].text;
+  await rpc('good-token', 'tools/list');
+  await rpc('good-token', 'ping');
+  assert.equal(left, 2, 'listing tools is no call');
+  assert.equal(text(await rpc('good-token', 'tools/call', { name: 'greet', arguments: { who: 'a' } })), 'Hello a, from ada');
+  assert.equal(text(await rpc('good-token', 'tools/call', { name: 'greet', arguments: { who: 'b' } })), 'Hello b, from ada');
+  const spent = await rpc('good-token', 'tools/call', { name: 'greet', arguments: { who: 'c' } });
+  assert.deepEqual([spent.result.isError, text(spent)], [true, 'Daily limit reached.']);
+  assert.match(text(await rpc('good-token', 'tools/call', { name: 'nope' })), /Unknown tool/, 'an unknown tool spends nothing');
+
+  assert.equal(dailyLimitText({ plan_name: 'Free', limit: 100, more: { id: 'pro', name: 'Pro', limit: 1000 } }, 'Tasks'),
+    "Daily limit reached: the Free plan includes 100 calls a day from an assistant to Tasks, and today's are used up. "
+    + "They start again at 00:00 UTC. The Pro plan includes 1,000 a day. Tell the person, and don't retry today.");
+  assert.match(dailyLimitText({ plan_name: 'Pro', limit: 1000, more: null }, 'Next'), /Pro plan includes 1,000 calls .* 00:00 UTC\. Tell/);
 });
 
 test('batches, notifications, SSE answers and the other methods', async (t) => {
