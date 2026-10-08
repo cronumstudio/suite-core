@@ -1,0 +1,1 @@
+{ "name": "Beta", "start_url": "/?app", "display": "standalone", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }

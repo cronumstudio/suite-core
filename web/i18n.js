@@ -16,6 +16,7 @@
  * app being `<html data-app>`, so the sign-in screen speaks it before anyone has
  * signed in.
  */
+import { at } from './base.js';
 
 /** The languages of the suite. English first: it is the fallback. */
 export const LANGUAGES = ['en', 'es', 'fr', 'de'];
@@ -28,7 +29,7 @@ let english = {};
 const lookup = (dict, key) => dict[key] ?? key.split('.').reduce((node, part) => node?.[part], dict);
 
 async function fetchCatalog(lang) {
-  const res = await fetch(`/i18n/${lang}.json`, { credentials: 'same-origin' });
+  const res = await fetch(at(`/i18n/${lang}.json`), { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`i18n ${lang}: ${res.status}`);
   return res.json();
 }

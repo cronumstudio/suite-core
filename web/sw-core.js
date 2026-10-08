@@ -3,7 +3,7 @@
  * script, because module service workers aren't everywhere yet; an app's
  * /sw.js is a few lines:
  *
- *   importScripts('/suite/sw-core.js');
+ *   importScripts('/suite/sw-core.js');      // or 'suite/sw-core.js', relative to the worker
  *   suiteWorker({
  *     version: 'notes-v1',                       // up when the shell changes: the old cache goes
  *     shell: ['/', '/index.html', '/css/app.css', '/js/main.js', '/js/app-version.js', '/i18n/en.json',
@@ -25,13 +25,22 @@
  *   there is a new version, which is what it exists for.
  * - Pages: network first, with the cached shell offline.
  * - Other files (icons): the copy at once, refreshed behind the scenes.
+ *
+ * Every path above is the app's, read from the worker's scope: an app on its
+ * own has `/`, and a module of a host (suite-core host.js) has its own path,
+ * `/tasks/`, where its /api is /tasks/api. Its cache is named after the scope,
+ * and each worker clears only its own old caches: a host's modules share one
+ * origin, and one module's update must not empty another's copy. A host's own
+ * worker at `/` leaves its modules' paths alone with `skip: ['/tasks/', …]`.
+ * On its own, an app sees nothing different: the scope is `/`, the cache keeps
+ * its name and the paths are the ones it always had.
  */
 
 var SUITE_KIT_FILES = [
   '/suite/tokens.css', '/suite/kit.css',
   '/suite/fonts/geist-latin.woff2', '/suite/fonts/geist-latin-ext.woff2',
   '/suite/fonts/geist-mono-latin.woff2', '/suite/fonts/space-grotesk-latin.woff2',
-  '/suite/theme.js', '/suite/dom.js', '/suite/i18n.js', '/suite/api.js', '/suite/icons.js', '/suite/ui.js',
+  '/suite/theme.js', '/suite/base.js', '/suite/dom.js', '/suite/i18n.js', '/suite/api.js', '/suite/icons.js', '/suite/ui.js',
   '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/local.js', '/suite/outbox.js',
   '/suite/signin.js', '/suite/settings.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js',
 ];
@@ -39,6 +48,38 @@ var SUITE_KIT_FILES = [
 var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];
 var SUITE_EXACT_NEVER = ['/version', '/health'];
 var SUITE_WAIT_MS = 4000;
+
+/** The worker's scope as a path: `/` for an app on its own, `/tasks/` for a module of a host. */
+function suiteScopeOf(registration) {
+  try { return new URL(registration.scope).pathname; } catch (err) { return '/'; }
+}
+var SUITE_SCOPE = suiteScopeOf(self.registration);
+
+/** A path of the site as the app names it (`/tasks/api/x` → `/api/x`), or null outside the scope. */
+function suiteLocal(pathname, scope) {
+  if (scope === '/') return pathname;
+  if (pathname + '/' === scope) return '/';
+  return pathname.indexOf(scope) === 0 ? pathname.slice(scope.length - 1) : null;
+}
+
+/** A path of the app (`/suite/kit.css`) at the scope (`/tasks/suite/kit.css`). */
+function suiteAt(pathname, scope) {
+  return scope === '/' || pathname.indexOf('/') !== 0 || pathname.indexOf('//') === 0 ? pathname : scope + pathname.slice(1);
+}
+
+/** The worker's cache: the version on its own, as it always was; with the scope before it in a host. */
+function suiteCacheName(version, scope) {
+  return scope === '/' ? version : scope + version;
+}
+
+/**
+ * Whether a cache is this worker's to clear when it takes over: every other
+ * one under its scope. Caches of `/` never start with a slash, a module's
+ * always do, so a host's worker and its modules' never clear each other's.
+ */
+function suiteOwnsCache(key, scope) {
+  return scope === '/' ? key.indexOf('/') !== 0 : key.indexOf(scope) === 0;
+}
 
 /** Whether a path is code that changes with a deploy: network first. */
 function suiteIsCode(pathname) {
@@ -74,11 +115,17 @@ function suiteNetworkFirst(network, fallback, wait) {
 }
 
 function suiteWorker(options) {
-  var version = options.version;
-  var shell = (options.shell || []).concat(options.kit === false ? [] : SUITE_KIT_FILES);
+  var scope = options.scope || SUITE_SCOPE;
+  var version = suiteCacheName(options.version, scope);
+  var kitFiles = SUITE_KIT_FILES.map(function (file) { return suiteAt(file, scope); });
+  var shell = (options.shell || []).concat(options.kit === false ? [] : kitFiles);
   var optional = options.optional || [];
   var push = options.push || null;
   var wait = options.wait || SUITE_WAIT_MS;
+  var skip = options.skip || [];
+  var skipped = function (pathname) {
+    return skip.some(function (prefix) { return pathname.indexOf(prefix) === 0 || pathname + '/' === prefix; });
+  };
 
   var store = function (request, response) {
     if (!response || !response.ok) return response;
@@ -105,7 +152,8 @@ function suiteWorker(options) {
   self.addEventListener('activate', function (event) {
     event.waitUntil(caches.keys()
       .then(function (keys) {
-        return Promise.all(keys.filter(function (key) { return key !== version; }).map(function (key) { return caches.delete(key); }));
+        return Promise.all(keys.filter(function (key) { return key !== version && suiteOwnsCache(key, scope); })
+          .map(function (key) { return caches.delete(key); }));
       })
       .then(function () { return self.clients.claim(); }));
   });
@@ -115,16 +163,18 @@ function suiteWorker(options) {
     if (request.method !== 'GET') return;
     var url = new URL(request.url);
     if (url.origin !== self.location.origin) return;
-    if (suiteNeverCached(url.pathname)) return;
+    var local = suiteLocal(url.pathname, scope);
+    // Outside the scope, a path a host's module has, or one that must reach the server: left alone.
+    if (local === null || skipped(url.pathname) || suiteNeverCached(local)) return;
 
     if (request.mode === 'navigate') {
       event.respondWith(suiteNetworkFirst(fetch(request), function () {
-        return caches.match('/index.html').then(function (page) { return page || caches.match('/'); });
+        return caches.match(suiteAt('/index.html', scope)).then(function (page) { return page || caches.match(scope); });
       }, wait));
       return;
     }
 
-    if (suiteIsCode(url.pathname)) {
+    if (suiteIsCode(local)) {
       var network = fetch(request, { cache: 'no-cache' }).then(function (response) { return store(request, response); });
       // The copy may be served first: the network's answer still refreshes it.
       event.waitUntil(network.catch(function () {}));
@@ -161,11 +211,14 @@ function suiteWorker(options) {
   self.addEventListener('notificationclick', function (event) {
     event.notification.close();
     var data = event.notification.data || {};
-    var target = data.url && data.url.indexOf('/') === 0 && data.url.indexOf('//') !== 0 ? data.url : (push.url || '/?app');
+    // A path the server wrote is the app's: in a host it goes under the module's.
+    var given = data.url && data.url.indexOf('/') === 0 && data.url.indexOf('//') !== 0 ? data.url : null;
+    var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/?app', scope));
     event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clients) {
       // The app already open gets the focus and the notice, instead of a second window.
       for (var i = 0; i < clients.length; i++) {
-        if (new URL(clients[i].url).origin === self.location.origin) {
+        var open = new URL(clients[i].url);
+        if (open.origin === self.location.origin && suiteLocal(open.pathname, scope) !== null && !skipped(open.pathname)) {
           clients[i].postMessage({ type: 'notification', data: data });
           return clients[i].focus();
         }
@@ -176,3 +229,8 @@ function suiteWorker(options) {
 }
 
 self.suiteWorker = suiteWorker;
+self.suiteScopeOf = suiteScopeOf;
+self.suiteLocal = suiteLocal;
+self.suiteAt = suiteAt;
+self.suiteCacheName = suiteCacheName;
+self.suiteOwnsCache = suiteOwnsCache;

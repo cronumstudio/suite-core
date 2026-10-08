@@ -23,6 +23,7 @@
 import { el, clear } from './dom.js';
 import { t, formatDateTime, currentLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
+import { at } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, signature, copyText } from './ui.js';
 
@@ -597,7 +598,7 @@ export function openSettings(options) {
     return [
       // A link, not a fetch: the browser saves the zip as it arrives, whatever its size.
       block(t('kit.data.exportTitle'), hint(t('kit.data.exportHint', { app: app.name })),
-        row(el('a', { class: 'kit-btn kit-btn--small', href: '/api/me/export', download: '' }, icon('download'), t('kit.data.export')))),
+        row(el('a', { class: 'kit-btn kit-btn--small', href: at('/api/me/export'), download: '' }, icon('download'), t('kit.data.export')))),
       block(t('kit.data.importTitle'), hint(t('kit.data.importHint')), field(t('kit.data.file'), file), row(check), area),
     ];
   }
@@ -650,7 +651,7 @@ export function openSettings(options) {
     check();
     return [
       block(null, el('div', { class: 'kit-about' },
-        el('img', { src: app.icon || '/icons/favicon.svg', alt: '', width: 54, height: 54 }),
+        el('img', { src: at(app.icon || '/icons/favicon.svg'), alt: '', width: 54, height: 54 }),
         el('div', {}, el('strong', { text: app.name }), app.tagline ? el('p', { text: app.tagline }) : null))),
       block(null, facts),
       ...(options.aboutExtra ? [options.aboutExtra()] : []),

@@ -7,6 +7,7 @@
  * (`api.write`), so sending it twice does it once.
  */
 import { t } from './i18n.js';
+import { at } from './base.js';
 
 export class ApiError extends Error {
   constructor(status, code, data = {}) {
@@ -22,7 +23,8 @@ export class Offline extends Error {}
 async function request(method, path, body, { file = false, key = null } = {}) {
   let res;
   try {
-    res = await fetch(path, {
+    // The app's path at its base: the same on its own, under the module's path in a host (base.js).
+    res = await fetch(at(path), {
       method,
       credentials: 'same-origin',
       // A file goes as the raw body, as the suite's uploads expect: no multipart.

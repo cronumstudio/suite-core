@@ -20,6 +20,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
+import { at } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
@@ -42,7 +43,7 @@ export function createShell({
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
 }) {
   let user = null;
-  const appIcon = (size) => el('img', { class: 'kit-appicon', src: app.icon || '/icons/favicon.svg', alt: '', width: size, height: size });
+  const appIcon = (size) => el('img', { class: 'kit-appicon', src: at(app.icon || '/icons/favicon.svg'), alt: '', width: size, height: size });
   // The person opens Settings, where everything about the account is, signing out included; a
   // menu only when the app has entries of its own for it or there is no Settings.
   const direct = Boolean(onSettings) && !accountItems.length;

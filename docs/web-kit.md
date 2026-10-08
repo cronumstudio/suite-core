@@ -66,7 +66,8 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
 | `outbox.js` | `createOutbox({ local, … })`: changes made offline, sent once each; `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
-| `sw-core.js` | `suiteWorker({ version, shell, optional, push })` for the app's service worker (a classic script) |
+| `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host |
+| `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place |
 
@@ -291,6 +292,12 @@ suiteWorker({
 
 The kit's own files join the shell by themselves. Every file the app adds to `public/js/` goes in
 `shell`.
+
+To run also as a module of a host (architecture §21), the app writes its paths relative to the
+worker (`importScripts('suite/sw-core.js')`, `shell: ['./', 'index.html', 'css/app.css', …]`) and
+registers it at its base (`navigator.serviceWorker.register(at('/sw.js'))`). On its own those are
+the same URLs as before; in a host they are the module's, and the worker reads everything else
+(the API, the kit, its cache's name) from its scope.
 
 ## Texts
 

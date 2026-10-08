@@ -3,6 +3,31 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.53.0 — 2026-10-08
+
+- **Several apps as one: `createHost()`** (`host.js`, architecture §21). One process, one database,
+  one session cookie, one sign-in, one table of accounts and one admin panel, the host's; each app
+  a module at its own path (`/tasks/`, `/notes/`…), with its own tables and migrations (scope: its
+  app id), routes, plan features, live channel, folder of uploads (`DATA_DIR/uploads/<app id>`, so
+  one module's sweep never sees another's files), texts and data for copies. A module is a whole
+  `createApp()` at `/<mount>/`: the host takes the prefix off, so two modules with the same routes
+  don't collide. Its manifest is served rewritten for its place; the app's file doesn't change.
+  `GET /api/modules` lists them for the host's pages; `/<mount>/admin` goes to `/admin`.
+- **`joinHost()`**: an app's `platform.js` tries it before `createSuite()` and gets the host's
+  suite with what is its own in place; anywhere else it is null and nothing changes. A host and its
+  modules run one copy of suite-core; a module that runs another, never joins, reuses an id or a
+  scope, or uses push, billing or organizations with the host's off stops the start, saying so.
+- **The web kit finds its base** (`web/base.js`): `/` on its own, the module's path in a host,
+  read from the kit's own address. `api.js`, the catalogs, the live channel, the new-version check
+  and the kit's links and icons go through `at()`; on its own every path is the one it was. The
+  host's own pages (`/admin`, `/auth/…`, `/mcp`) stay at the root.
+- **The service worker works from its scope** (`sw-core.js`): an app on its own is unchanged (scope
+  `/`, its cache keeps its name, it clears its old caches as before, and now caches `base.js` with
+  the rest of the kit). A module's worker at `/tasks/` treats `/tasks/api/` as the API, names its
+  cache after its path and clears only its own, so modules sharing one origin don't empty each
+  other's copies; the paths a notice opens go under the module's. A host's worker at `/` leaves its
+  modules' paths alone with `skip`.
+
 ## 0.51.0 — 2026-10-08
 
 - **One way to translate, the same in every app.** Each app kept its own copies: Tasks and
