@@ -358,6 +358,21 @@ test('the calls of the day from assistants count once for the whole app, whichev
   assert.match(await text('alpha_list_items'), /^Daily limit reached: .* 2 calls a day from an assistant to Work/);
 });
 
+test('the storage a plan allows is the person’s, added up across the modules', async (t) => {
+  const { host, call, lines } = await startHost(t);
+  const [alpha, beta] = host.modules;
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const admin = host.suite.database.get("SELECT id FROM users WHERE username = 'admin'").id;
+  await call('POST', '/alpha/api/items', { text: 'One' });
+  await call('POST', '/alpha/api/items', { text: 'Two' });
+  await call('POST', '/beta/api/items', { text: 'Three' });
+  assert.equal(alpha.suite.storage.used(admin), 2500, 'what alpha keeps and what beta keeps');
+  assert.equal(beta.suite.storage.used(admin), 2500, 'the same from either module');
+  await call('POST', '/beta/api/items', { text: 'Unreadable' });
+  assert.equal(alpha.suite.storage.used(admin), 2000, 'a module that fails counts nothing, the rest still do');
+  assert.ok(lines.some((line) => /\[beta\] storage of user \d+ failed: unreadable/.test(line)));
+});
+
 test('the host’s instructions keep under what assistants read, whole parts only', async () => {
   const { hostInstructions } = await import('../host.js');
   const modules = ['one', 'two', 'three'].map((mount) => ({

@@ -302,6 +302,21 @@ export async function createHost({
   /** Links between the modules (links.js), made once every module is in; a module's view reaches it late. */
   let links = null;
   let suite = null;
+
+  /** The bytes someone keeps across the modules: what each says with `storage(userId)`. */
+  function storageUsed(userId) {
+    let total = 0;
+    for (const m of joined) {
+      if (typeof m.parts?.storage !== 'function') continue;
+      try {
+        total += Math.max(0, Number(m.parts.storage(userId)) || 0);
+      } catch (error) {
+        // A module that can't say counts nothing now rather than blocking every upload of the rest.
+        log(`[${m.config?.app?.id || m.mount}] storage of user ${userId} failed: ${error.message}`);
+      }
+    }
+    return total;
+  }
   const stop = (errors) => {
     if (!exitOnError) {
       suite?.database.close();
@@ -426,6 +441,13 @@ export async function createHost({
         changed: (type, id) => links?.changed({ module: entry.mount, type, id: String(id) }),
         done: (type, id, isDone, options) => links?.done({ module: entry.mount, type, id: String(id) }, isDone, options),
       },
+      /**
+       * The storage a plan allows (`storage.mb`) is the person's, whichever module keeps their
+       * files: `used(userId)` adds up what every module says it keeps for them
+       * (`createModule().storage`), so a module checks the whole against the limit. On its own
+       * an app has no `storage` and counts its own files, as always.
+       */
+      storage: { used: (userId) => storageUsed(userId) },
     };
     joined.push(entry);
     return entry.view;

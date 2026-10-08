@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.55.0 — 2026-10-08
+
+- **Storage is the person's across a host's modules.** A module says how many bytes it keeps for
+  someone (`createModule().storage(userId)`), and its view's `storage.used(userId)` adds up every
+  module's, so the `storage.mb` of a plan is checked against the whole and not module by module.
+  A module that fails to say counts nothing and is logged. On its own an app has no `storage` and
+  counts its own files, as always.
+
 ## 0.54.0 — 2026-10-08
 
 - **Links between modules** (`links.js`, the host's second migration, `host_links`): a module says

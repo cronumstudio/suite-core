@@ -40,6 +40,8 @@ export function createModule({ mount }) {
       doneRoute(api, { suite, table: 'alpha_items' });
     },
     cards: itemCards({ suite, table: 'alpha_items' }),
+    // As if each item were a 1000-byte photo: what the host adds up for storage.mb.
+    storage: (userId) => 1000 * suite.database.get('SELECT COUNT(*) AS n FROM alpha_items WHERE user_id = ?', userId).n,
     mcp: {
       instructions: ['Alpha keeps items.', 'A second paragraph a host leaves out.'].join(String.fromCharCode(10, 10)),
       // What a host says of alpha, with its tools named as the host names them.

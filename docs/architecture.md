@@ -963,7 +963,9 @@ await host.listen();
   grant of a plan counts in every module and one of `<app id>.<feature>` only in its own); its live
   channel (an account that changes is announced in all of them); its folder of uploads,
   `DATA_DIR/uploads/<app id>`, so that a module's sweep never takes another's files for orphans;
-  its texts and what its data is for copies.
+  its texts and what its data is for copies. What a plan allows of storage (`storage.mb`) is the
+  person's, though: each module says what it keeps for someone (`createModule().storage(userId)`,
+  in bytes) and `suite.storage.used(userId)` adds them up, for a module to check the whole.
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
   module's own with the prefix taken off, so its API answers at `/<mount>/api/…`, the kit at
   `/<mount>/suite/…`, and its catalogs, `app-version.js`, service worker and files at their usual
