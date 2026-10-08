@@ -247,6 +247,12 @@ test('what a host can’t run stops it, and says why', async () => {
     await refused([{ mount: 'odd', entry: fixture('plain', `?id=work&n=${fresh}`) }], /is the host's/);
     await refused([{ mount: 'pushy', entry: fixture('plain', `?id=pushy&uses=push&n=${fresh}`) }], /uses modules\.push, which the host has off/);
     await refused([{ mount: 'typo', entry: fixture('plain', `?id=typo&uses=pigeons&n=${fresh}`) }], /typo: modules\.pigeons is not a module of the suite/);
+    // Fresh folder: the table of the case before must not be there.
+    fs.rmSync(path.join(dir, 'work.db'), { force: true });
+    await refused([
+      { mount: 'one', entry: fixture('plain', `?id=uno&table=things&n=${fresh}`) },
+      { mount: 'two', entry: fixture('plain', `?id=dos&table=things&n=${fresh}`) },
+    ], /two: its table things is \/one\/'s too; one of them must rename it/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -310,6 +310,18 @@ export async function createHost({
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
 
+  // Two modules whose data lives in a table of the same name write in each other's rows: the
+  // second one's first migration found the table there and went on. Said loudly, never served.
+  const owners = new Map();
+  const shared = [];
+  for (const m of joined) {
+    for (const table of Object.keys(m.parts.portable?.tables || {})) {
+      if (owners.has(table)) shared.push(`${m.mount}: its table ${table} is /${owners.get(table)}/'s too; one of them must rename it (suite-core CONVENTIONS.md §9)`);
+      else owners.set(table, m.mount);
+    }
+  }
+  if (shared.length) stop(shared);
+
   /* ------------------------------ the root ------------------------------- */
 
   /** What the host's pages show of each module: where it is and what it looks like. */

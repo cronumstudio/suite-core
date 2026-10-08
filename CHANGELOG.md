@@ -16,7 +16,9 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **`joinHost()`**: an app's `platform.js` tries it before `createSuite()` and gets the host's
   suite with what is its own in place; anywhere else it is null and nothing changes. A host and its
   modules run one copy of suite-core; a module that runs another, never joins, reuses an id or a
-  scope, or uses push, billing or organizations with the host's off stops the start, saying so.
+  scope, or uses push, billing or organizations with the host's off stops the start, saying so;
+  so do two modules whose data (`portable`) lives in a table of the same name, which in one
+  database would write in each other's rows.
 - **The web kit finds its base** (`web/base.js`): `/` on its own, the module's path in a host,
   read from the kit's own address. `api.js`, the catalogs, the live channel, the new-version check
   and the kit's links and icons go through `at()`; on its own every path is the one it was. The
