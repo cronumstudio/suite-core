@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.50.0 — 2026-10-08
+
+- **One way to translate, the same in every app.** Each app kept its own copies: Tasks and
+  Projects a full translator for the server and one for the browser, Next and Notes simpler ones,
+  with nested catalogs in two of them and different checks in each. Now:
+  - `appTexts(dir)` (`i18n.js`): an app's translations on the server, taken from Tasks and
+    Projects: its catalogs over the suite's, read again when a file changes, `DEFAULT_LANGUAGE`,
+    whose language wins (`languageFor`, `userLanguage`), `errorSentence` and `fromCatalog`. An
+    app's `server/i18n.js` is one call.
+  - `web/i18n.js` does what every app did again: `loadLanguage('auto' | lang)` keeps the choice as
+    `<app>.lang` (`{ remember: false }` for the admin panel, which follows the account),
+    `savedLanguage`, `resolveLanguage`, `changeLanguage` (`app:language`), `translateDom`, numbers
+    in texts written by Intl, and cached `dateFormat`, `numberFormat`, `listFormat`,
+    `relativeDay`, `compareText` and `capitalize`. The English catalog is fetched once.
+  - `appChecks(root, { skip })` and `i18n.mjs app`: every check of an app's texts at once (flat
+    catalogs in every language, parity, keys in use by the browser and the server, texts in the
+    code, another language on the server); `vendor/` folders are others' code and never read.
+  - `tools/web-resolve.mjs`: lets Node load an app's browser modules in its tests.
+
 ## 0.49.0 — 2026-10-08
 
 - **One check of texts written in the code, for the whole suite and its servers.** `tools/i18n.mjs
