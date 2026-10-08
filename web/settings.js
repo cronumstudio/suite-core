@@ -484,7 +484,7 @@ export function openSettings(options) {
     };
     fetch('/api/modules', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then(paint, fail);
+      .then((answer) => { paint(answer); paintList(); }, fail);
     return el('div', {},
       block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off'))),
       block(t('kit.modules.icons'), hint(t('kit.modules.install')), icons));
