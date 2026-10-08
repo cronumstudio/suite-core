@@ -27,6 +27,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   cache after its path and clears only its own, so modules sharing one origin don't empty each
   other's copies; the paths a notice opens go under the module's. A host's worker at `/` leaves its
   modules' paths alone with `skip`.
+- **`tools/web-resolve.mjs`** also finds the kit when an app's pages import it relative to their
+  base (`../suite/x.js` from `public/js/`), as an app that runs as a module writes it.
 
 ## 0.51.0 — 2026-10-08
 

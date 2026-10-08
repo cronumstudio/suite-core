@@ -373,6 +373,24 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   }
 });
 
+test('an app’s pages reach the kit relative to their base, in Node too (tools/web-resolve.mjs)', async () => {
+  await import('../tools/web-resolve.mjs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-pages-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'public', 'js'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'public', 'js', 'page.js'),
+      ["export { at } from '../suite/base.js';", "export { el } from '/suite/dom.js';", ''].join('\n'));
+    const page = await import(pathToFileURL(path.join(dir, 'public', 'js', 'page.js')).href);
+    assert.equal(page.at('/api/x'), '/api/x');
+    assert.equal(typeof page.el, 'function');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /** sw-core.js in a sandbox, as a worker registered at `scope` with these caches already there. */
 async function serviceWorker(scope, cacheKeys = []) {
   const vm = await import('node:vm');
