@@ -114,7 +114,9 @@ names are the same in every app:
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 
 Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`
-(`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one.
+(`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one. Plan ids
+are English in every app (`free`, `pro`): the old `gratis`, as a key of `PLANS` or in `DEFAULT_PLAN`,
+stops the start the same way.
 Compose files use only the current names.
 
 **Port registry** (default `PORT`, also the host port unless an install says otherwise):

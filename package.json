@@ -1,6 +1,6 @@
 {
   "name": "suite-core",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "private": true,
   "description": "The platform shared by the Cronum Studio apps: accounts, OAuth for the MCP and, module by module, the rest.",
   "license": "AGPL-3.0-only",
