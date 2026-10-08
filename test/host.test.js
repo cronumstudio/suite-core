@@ -208,6 +208,62 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(alphaModule.events.stopped, 0);
 });
 
+test('one MCP for every module: its tools with the module’s name, its plans, and only the modules someone uses', async (t) => {
+  const { call } = await startHost(t);
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  assert.equal((await call('GET', '/mcp-info')).data.endpoint, 'http://127.0.0.1/mcp', 'one endpoint, the host’s');
+  let id = 0;
+  const mcp = async (method, params = {}) => {
+    id += 1;
+    const res = await call('POST', '/mcp', { jsonrpc: '2.0', id, method, params }, { Authorization: `Bearer ${token}` });
+    return res.data;
+  };
+  const init = (await mcp('initialize', { protocolVersion: '2025-06-18' })).result;
+  assert.equal(init.serverInfo.name, 'work');
+  assert.match(init.instructions, /^Work holds the user's Alpha and Beta in one place/);
+  assert.match(init.instructions, /Alpha keeps items: alpha_add_item adds one, alpha_list_items lists them\./, 'a module’s brief, with the host’s names');
+  assert.match(init.instructions, /Beta keeps other items\./);
+  assert.doesNotMatch(init.instructions, /paragraph/, 'without a brief, the first paragraph only');
+  assert.ok(init.instructions.length <= 2048);
+
+  const listed = (await mcp('tools/list')).result.tools.map((tool) => tool.name);
+  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items']);
+  const text = async (name, args = {}) => (await mcp('tools/call', { name, arguments: args })).result.content[0].text;
+  assert.equal(await text('alpha_add_item', { text: 'From the AI' }), 'Added.');
+  assert.equal(await text('alpha_list_items'), '["From the AI"]');
+  assert.equal(await text('beta_list_items'), '[]', 'the same tool in another module, on its own table');
+  assert.equal(await text('add_item', { text: 'Old name' }), 'Added.', 'a name only one module has still answers');
+  assert.equal(await text('new_item', { text: 'Older name' }), 'Added.', 'and so do its old names');
+  assert.match(await text('list_items'), /Unknown tool/, 'a name two modules have needs the module');
+  assert.equal(await text('alpha_add_item', { text: 'boom' }), 'That item cannot be added.', 'errors read as the module says');
+  assert.deepEqual((await mcp('prompts/list')).result.prompts.map((p) => p.name), ['beta_setup']);
+  assert.ok((await mcp('prompts/get', { name: 'beta_setup' })).result.messages.length);
+
+  // Beta only: alpha leaves the list and the instructions, and its tools say how to bring it back.
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await mcp('tools/list')).result.tools.map((tool) => tool.name), ['beta_list_items']);
+  assert.match(await text('alpha_list_items'), /Alpha is turned off for this person: they can turn it on in Work, Settings › Modules\./);
+  const only = (await mcp('initialize', { protocolVersion: '2025-06-18' })).result.instructions;
+  assert.match(only, /^Work holds the user's Beta in one place/);
+  assert.doesNotMatch(only, /Alpha keeps/);
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
+  assert.equal((await call('GET', '/alpha/mcp')).status, 404, 'no MCP of its own inside a host: one for all, at the root');
+});
+
+test('the host’s instructions keep under what assistants read, whole parts only', async () => {
+  const { hostInstructions } = await import('../host.js');
+  const modules = ['one', 'two', 'three'].map((mount) => ({
+    mount, config: { app: { name: mount.toUpperCase() } }, parts: { mcp: { brief: `${mount} `.repeat(300).trim() } },
+  }));
+  const lines = [];
+  const text = hostInstructions({ modules, hostName: 'Host', log: (line) => lines.push(line) });
+  assert.ok(text.length <= 2048, String(text.length));
+  assert.match(text, /^Host holds the user's ONE, TWO and THREE/);
+  assert.ok(text.includes('one one') && !text.includes('three three'), 'the parts that fit, whole');
+  assert.match(lines.join(), /don't fit in 2048 characters/);
+});
+
 test('a host with an icon but no page of its own still opens on its first module', async (t) => {
   const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
   t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));

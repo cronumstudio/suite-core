@@ -16,6 +16,11 @@
  * Tools and parameters that were renamed keep working through `legacyTools`
  * and `legacyParams`: a client connected before the rename keeps its cached
  * schema and calls the old names until it reconnects. They are not announced.
+ *
+ * What each person sees may depend on them (a host, where everyone uses some
+ * modules): `visible(principal, tool)` keeps a tool out of their list, and
+ * `instructions` may be a function of the principal. Without them every
+ * principal gets the same, as always.
  */
 import crypto from 'node:crypto';
 import { readJson, sendJson, sendText } from './http.js';
@@ -48,7 +53,7 @@ export function bearerToken(req, url = null) {
 /**
  * @param {object} options
  * @param {{name, title, version}} options.serverInfo
- * @param {string} [options.instructions]
+ * @param {string|((principal) => string)} [options.instructions]
  * @param {object[]} options.tools
  * @param {{list(): object[], get(name, args): object|null}} [options.prompts]
  * @param {(token, req) => Promise<object|null>|object|null} options.authenticate
@@ -57,6 +62,7 @@ export function bearerToken(req, url = null) {
  * @param {{checkToken, tokenFailed, tokenSucceeded}} [options.limiter]
  * @param {(error) => boolean} [options.unavailable]   errors meaning "can't check the token now" → 503
  * @param {(principal, tool) => true|string} [options.allows]   plans: true, or the sentence why not
+ * @param {(principal, tool) => boolean} [options.visible]   whether tools/list shows it to them
  * @param {(error) => string|null} [options.describeError]   the app's errors as text for the assistant
  * @param {object} [options.legacyTools]    old name → current name
  * @param {object} [options.legacyParams]   old parameter → current parameter
@@ -65,7 +71,7 @@ export function createMcpServer({
   serverInfo, instructions = '', tools = [], prompts = null,
   authenticate, challenge, oauthOffered = false, limiter = null,
   unavailable = () => false, allows = () => true, describeError = () => null,
-  legacyTools = {}, legacyParams = {}, log = console.error,
+  legacyTools = {}, legacyParams = {}, log = console.error, visible = () => true,
 }) {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
@@ -112,11 +118,12 @@ export function createMcpServer({
         sessions.set(sessionId, { created: Date.now() });
         if (sessions.size > 5000) sessions.delete(sessions.keys().next().value);
         context.sessionId = sessionId;
+        const text = typeof instructions === 'function' ? instructions(principal) : instructions;
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: { listChanged: false }, ...(prompts ? { prompts: { listChanged: false } } : {}) },
           serverInfo,
-          ...(instructions ? { instructions } : {}),
+          ...(text ? { instructions: text } : {}),
         });
       }
       case 'notifications/initialized':
@@ -125,16 +132,16 @@ export function createMcpServer({
       case 'ping':
         return rpcResult(id, {});
       case 'tools/list':
-        return rpcResult(id, { tools: tools.map(descriptor) });
+        return rpcResult(id, { tools: tools.filter((tool) => visible(principal, tool)).map(descriptor) });
       case 'tools/call':
         if (!params.name) return rpcError(id, -32602, 'Missing tool name');
         return rpcResult(id, await callTool(principal, params.name, params.arguments || {}));
       case 'resources/list':
         return rpcResult(id, { resources: [] });
       case 'prompts/list':
-        return rpcResult(id, { prompts: prompts ? prompts.list() : [] });
+        return rpcResult(id, { prompts: prompts ? prompts.list(principal) : [] });
       case 'prompts/get': {
-        const prompt = prompts?.get(params.name, params.arguments);
+        const prompt = prompts?.get(params.name, params.arguments, principal);
         return prompt ? rpcResult(id, prompt) : rpcError(id, -32602, `Unknown prompt: ${params.name}`);
       }
       default:
