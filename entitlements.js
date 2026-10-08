@@ -100,14 +100,19 @@ const unlimitedValue = (type) => (type === 'flag' ? true : null);
  * @param {string} [options.defaultPlanOverride]   DEFAULT_PLAN from the environment
  * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
+ * @param {boolean} [options.othersDeclare]   in a host, a PLANS key this app doesn't declare may be
+ *                                        another module's: it is left out (`ignored`), and the
+ *                                        host checks that someone declares it (host.js)
  */
 export function createEntitlements({
   database, appId, features = {}, plans = null, defaultPlan = null,
   plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN,
   isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [],
-  clock = () => Date.now(),
+  clock = () => Date.now(), othersDeclare = false,
 }) {
   const errors = [];
+  /** Keys of PLANS left out as another module's (othersDeclare): { plan, key }. */
+  const ignored = [];
 
   /* ---------------------------- the features ---------------------------- */
 
@@ -188,7 +193,8 @@ export function createEntitlements({
     for (const [rawKey, value] of Object.entries(given)) {
       const key = aliasOf[rawKey] || rawKey;
       if (!(key in declared)) {
-        errors.push(`Plan "${id}": "${rawKey}" is nothing that can be limited (${Object.keys(declared).join(', ') || 'no features declared'})`);
+        if (othersDeclare) ignored.push({ plan: id, key: rawKey });
+        else errors.push(`Plan "${id}": "${rawKey}" is nothing that can be limited (${Object.keys(declared).join(', ') || 'no features declared'})`);
         continue;
       }
       if (checkValue(`Plan "${id}"`, key, value)) values[key] = value;
@@ -438,7 +444,12 @@ export function createEntitlements({
     several: planIds.length > 1,
   });
 
-  return { errors, of, can, limit, require, allows, cutoff, countDaily, grant, revoke, setPlan, seatsOf, grantsOf, describe };
+  /** Whether a PLANS key is one of this app's features, by its name or an alias. */
+  const knows = (key) => key in declared || key in aliasOf;
+
+  return {
+    errors, ignored, knows, of, can, limit, require, allows, cutoff, countDaily, grant, revoke, setPlan, seatsOf, grantsOf, describe,
+  };
 }
 
 /**

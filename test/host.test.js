@@ -460,6 +460,34 @@ test('what a host can’t run stops it, and says why', async () => {
   }
 });
 
+test('a PLANS JSON names the features of any module; one that none declares stops the start', async (t) => {
+  const dirs = [];
+  let host = null;
+  // The host closes its database before its folder goes (Windows keeps an open file's folder).
+  t.after(async () => {
+    if (host) {
+      await host.close();
+      host.suite.database.close();
+    }
+    for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const env = (plans) => {
+    dirs.push(fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')));
+    return { DATA_DIR: dirs.at(-1), PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: JSON.stringify(plans) };
+  };
+  await assert.rejects(
+    createHost({ config: HOST, modules: modules(), env: env({ free: { name: 'Free', 'itemz.max': 2 } }), handleSignals: false, exitOnError: false, log: () => {} }),
+    (err) => err instanceof SuiteConfigError && /PLANS: plan "free": "itemz\.max" is nothing Work or its modules can limit/.test(err.errors.join('\n')),
+  );
+  // alpha's feature, which neither the host nor beta declares: each reads what is its own.
+  host = await createHost({
+    config: HOST, modules: modules(), env: env({ free: { name: 'Free', 'items.max': 2 } }), handleSignals: false, exitOnError: false, log: () => {},
+  });
+  const someone = { id: 999, role: 'user' };
+  assert.equal(host.modules[0].suite.entitlements.limit(someone, 'items.max'), 2);
+  assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
+});
+
 test('outside a host an app goes on as always', () => {
   assert.equal(joinHost({ config: { app: { id: 'alone', name: 'Alone' } } }), null);
 });

@@ -10,6 +10,12 @@ change an interface and a patch never does. Apps pin a version through the submo
   module's, so the `storage.mb` of a plan is checked against the whole and not module by module.
   A module that fails to say counts nothing and is logged. On its own an app has no `storage` and
   counts its own files, as always.
+- **A PLANS JSON in a host names the features of any of its modules.** Each part (the host and
+  every module) reads the keys it declares and leaves out the others' (`createEntitlements({
+  othersDeclare })`, `createSuite({ othersDeclare })`), and once every module is in, the host stops
+  the start for a key that none declares, as an app on its own does for one it doesn't. Until now
+  a JSON with one module's limits stopped the host. A catalog by name (`PLANS=cronum-work`) was
+  already read this way.
 
 ## 0.54.0 — 2026-10-08
 

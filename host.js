@@ -331,6 +331,8 @@ export async function createHost({
 
   suite = createSuite({
     config: product, migrations, env, log, exitOnError,
+    // A key of PLANS the host doesn't declare may be a module's: checked once they are all in.
+    othersDeclare: true,
     hooks: {
       ...hooks,
       // One table of accounts: a new one gets each module's columns as well as the host's.
@@ -390,6 +392,7 @@ export async function createHost({
       database: suite.database, appId: app.id, features: resolved.features, plans: resolved.plans,
       defaultPlan: resolved.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
       organizationsOf: (user) => (suite.organizations ? suite.organizations.organizationsOf(user) : []),
+      othersDeclare: true,
     });
     if (entitlements.errors.length) {
       throw new SuiteConfigError(entitlements.errors.map((e) => `${entry.mount}: the plan catalog (PLANS) has errors: ${e}`));
@@ -498,6 +501,19 @@ export async function createHost({
     }
   }
   if (shared.length) stop(shared);
+
+  // Each part of the host left out the keys of a PLANS JSON that are another's; one that no part
+  // declares limits nothing anywhere (a typo, a feature that left), as it would on its own.
+  const plansOf = [suite.entitlements, ...joined.map((m) => m.view.entitlements)];
+  const unknownKeys = new Map();
+  for (const { ignored } of plansOf) {
+    for (const { plan, key } of ignored) {
+      if (!plansOf.some((e) => e.knows(key))) {
+        unknownKeys.set(`${plan}:${key}`, `PLANS: plan "${plan}": "${key}" is nothing ${config.app.name} or its modules can limit`);
+      }
+    }
+  }
+  if (unknownKeys.size) stop([...unknownKeys.values()]);
 
   /* ------------------------------ the root ------------------------------- */
 
