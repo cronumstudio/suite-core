@@ -27,6 +27,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   cache after its path and clears only its own, so modules sharing one origin don't empty each
   other's copies; the paths a notice opens go under the module's. A host's worker at `/` leaves its
   modules' paths alone with `skip`.
+- **Copies across a module's move** (`portability.js`): a table renamed since copies were made
+  says the names it had (`tables: { next_projects: { was: ['projects'], … } }`), and a copy with
+  it under one of them comes in under the new one; a mistake there stops the start. A copy says
+  how many of the app's own migrations it had from `migrationScope` (`app` on its own, the
+  module's id in a host, which passes it), so a module's copies and imports compare like an app's.
 - **`tools/web-resolve.mjs`** also finds the kit when an app's pages import it relative to their
   base (`../suite/x.js` from `public/js/`), as an app that runs as a module writes it.
 

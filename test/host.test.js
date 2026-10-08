@@ -166,6 +166,10 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('DELETE', `/api/admin/users/${ana.id}`)).status, 200);
   assert.ok(betaModule.events.removed.includes(ana.id));
 
+  // A module's copies count its own migrations, which a host keeps under its id.
+  const alphaData = alpha.suite.portabilityFor({ tables: { alpha_items: { refs: { user_id: 'users' } } } });
+  assert.equal(alphaData.schemaVersions().app, 1);
+
   // Each module's plan features; the plans are the install's.
   assert.ok('items.max' in alpha.suite.entitlements.of(null).features);
   assert.ok(!('items.max' in beta.suite.entitlements.of(null).features));

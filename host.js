@@ -253,6 +253,8 @@ export async function createHost({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
       app: { id: app.id, name: app.name, version: v }, roles: config.accounts.roles,
       baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
+      // A copy says how many of the module's own migrations it had: in a host they are under its id.
+      migrationScope: app.id,
     });
 
     entry.config = moduleConfig;
