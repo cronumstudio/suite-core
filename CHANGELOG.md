@@ -36,6 +36,26 @@ change an interface and a patch never does. Apps pin a version through the submo
   module's id in a host, which passes it), so a module's copies and imports compare like an app's.
 - **`tools/web-resolve.mjs`** also finds the kit when an app's pages import it relative to their
   base (`../suite/x.js` from `public/js/`), as an app that runs as a module writes it.
+- **Each person chooses their modules** (`host_modules`, the host's first migration): every one
+  until they choose; `GET /api/modules` says which are on, `PUT /api/me/modules` sets them, and
+  Settings › Modules has a switch per module. In a host, the shell draws a rail with the modules
+  someone uses (a drawer on phones) and remembers on the device the one used last. A module turned
+  off keeps its data and still opens at its path.
+- **One MCP for every module** at the host's `/mcp`: each module's tools under its name
+  (`tasks_add_task`), only those of the modules someone uses, and its old names still answered
+  (not announced). The instructions are made per person from each module's `mcp.brief`, whole
+  parts only, under 2048 characters. `/<mount>/mcp` answers 404 with where the MCP is.
+- **Links between modules** (`links.js`, the host's second migration, `host_links`): a module says
+  what can be linked of it in `createModule().cards` (read, search, and optionally create, places,
+  complete, audience); the host keeps each pair once, shows each side's card as its module draws
+  it, and only to whoever could already see it. `GET /api/links?ref=`, `GET /api/links/search`,
+  `POST /api/links`, `POST /api/links/new` (created by the other module, by its rules, and linked
+  in one transaction), `PATCH`/`DELETE /api/links/:id`. "Done together" is per link: a module
+  calls `suite.links.done(type, id, done, { user })` where it completes something, and the other
+  side completes in the same transaction. `suite.links.changed(type, id)` repaints the links of
+  something that changed (a `links` event in the module's live channel). Two MCP tools,
+  `linked_items` and `link_item`, for whoever uses two modules with things to link. On its own an
+  app has no `suite.links`.
 
 ## 0.51.0 — 2026-10-08
 

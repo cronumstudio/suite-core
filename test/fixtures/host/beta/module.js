@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { joinHost } from '../../../../host.js';
-import { itemRoutes, itemTools } from '../items.js';
+import { itemRoutes, itemTools, itemCards, doneRoute } from '../items.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const events = { removed: [] };
@@ -15,7 +15,7 @@ export const suite = joinHost({
   migrations: [{
     version: 1,
     name: 'items',
-    up: (d) => d.exec('CREATE TABLE beta_items (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL)'),
+    up: (d) => d.exec('CREATE TABLE beta_items (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)'),
   }],
   hooks: { onUserRemoved: (id) => events.removed.push(id) },
 });
@@ -24,7 +24,11 @@ export function createModule({ mount }) {
   return {
     publicDir: path.join(HERE, 'public'),
     version: '2.0.0',
-    routes: (api) => itemRoutes(api, { suite, table: 'beta_items', mount, name: 'beta' }),
+    routes: (api) => {
+      itemRoutes(api, { suite, table: 'beta_items', mount, name: 'beta' });
+      doneRoute(api, { suite, table: 'beta_items' });
+    },
+    cards: itemCards({ suite, table: 'beta_items' }),
     mcp: {
       instructions: ['Beta keeps other items.', 'This paragraph stays out in a host.'].join(String.fromCharCode(10, 10)),
       tools: itemTools({ suite, table: 'beta_items', name: 'beta' }),
