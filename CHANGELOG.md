@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.50.0 — 2026-10-08
+## 0.52.0 — 2026-10-08
 
 - **The suite's plans, written once.** `plans.js` holds the catalog of the hosted suite,
   `cronum-work` (Free, Pro and Team, as the note «Beneficios de cada plan» decides them), and an
@@ -22,6 +22,32 @@ change an interface and a patch never does. Apps pin a version through the submo
   `entitlement_usage`); listing tools and prompts doesn't count, nor does what is refused. Once
   they are used up the assistant reads a sentence it can pass on, with when they come back and which
   plan has more (`dailyLimitText()`). `createMcpServer({ quota })` takes the check.
+## 0.51.0 — 2026-10-08
+
+- **One way to translate, the same in every app.** Each app kept its own copies: Tasks and
+  Projects a full translator for the server and one for the browser, Next and Notes simpler ones,
+  with nested catalogs in two of them and different checks in each. Now:
+  - `appTexts(dir)` (`i18n.js`): an app's translations on the server, taken from Tasks and
+    Projects: its catalogs over the suite's, read again when a file changes, `DEFAULT_LANGUAGE`,
+    whose language wins (`languageFor`, `userLanguage`), `errorSentence` and `fromCatalog`. An
+    app's `server/i18n.js` is one call.
+  - `web/i18n.js` does what every app did again: `loadLanguage('auto' | lang)` keeps the choice as
+    `<app>.lang` (`{ remember: false }` for the admin panel, which follows the account),
+    `savedLanguage`, `resolveLanguage`, `changeLanguage` (`app:language`), `translateDom`, numbers
+    in texts written by Intl, and cached `dateFormat`, `numberFormat`, `listFormat`,
+    `relativeDay`, `compareText` and `capitalize`. The English catalog is fetched once.
+  - `appChecks(root, { skip })` and `i18n.mjs app`: every check of an app's texts at once (flat
+    catalogs in every language, parity, keys in use by the browser and the server, texts in the
+    code, another language on the server); `vendor/` folders are others' code and never read.
+  - `tools/web-resolve.mjs`: lets Node load an app's browser modules in its tests.
+
+## 0.50.0 — 2026-10-08
+
+- **Plan ids in English: `gratis` is `free`.** Tasks' free plan was the only one with a Spanish
+  id. An install whose `PLANS` still has a plan `gratis`, or whose `DEFAULT_PLAN` is `gratis`, no
+  longer starts: the message names `free`, as a renamed variable does (`OLD_PLAN_IDS` in
+  `entitlements.js`). It is not read as an alias because the app renames its stored grants to
+  `free` in the same release, and an install left on `gratis` would quietly stop matching them.
 
 ## 0.49.0 — 2026-10-08
 

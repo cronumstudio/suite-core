@@ -37,6 +37,14 @@ import { PLAN_CATALOGS } from './plans.js';
 const iso = (ms) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000;
 
+/**
+ * Plan ids renamed when every app moved them to English (Tasks' "gratis" is "free"). Like a renamed
+ * variable (config.js), the old id is not read in what an install holds —a key of PLANS,
+ * DEFAULT_PLAN—: it stops the start and names the new one. An alias would keep the install on the
+ * old id for good, and the grants the app's migration renamed would no longer match its catalog.
+ */
+const OLD_PLAN_IDS = Object.freeze({ gratis: 'free' });
+
 export function entitlementsSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS entitlement_grants (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,6 +167,13 @@ export function createEntitlements({
     if (plansJson) errors.push('PLANS must be an object with at least one plan: {"free": {…}, "pro": {…}}');
     source = { free: { name: 'Free', features: {} } };
   }
+  if (plansJson) {
+    for (const [old, renamed] of Object.entries(OLD_PLAN_IDS)) {
+      if (Object.hasOwn(source, old)) errors.push(`PLANS: the plan "${old}" is called "${renamed}" now; rename it`);
+    }
+  }
+  const renamedDefault = OLD_PLAN_IDS[defaultPlanOverride];
+  if (renamedDefault) errors.push(`DEFAULT_PLAN: the plan "${defaultPlanOverride}" is called "${renamedDefault}" now; set DEFAULT_PLAN=${renamedDefault}`);
 
   const catalog = {};
   for (const [id, raw] of Object.entries(source)) {
@@ -184,7 +199,7 @@ export function createEntitlements({
   }
   const planIds = Object.keys(catalog);
   const fallbackPlan = defaultPlanOverride || defaultPlan || planIds[0];
-  if (!catalog[fallbackPlan]) {
+  if (!catalog[fallbackPlan] && !renamedDefault) {
     errors.push(`The default plan "${fallbackPlan}" is not in the catalog (${planIds.join(', ')})`);
   }
   /** Catalog order is from least to most: with two plans active, the later one is the one shown. */

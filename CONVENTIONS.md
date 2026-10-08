@@ -114,7 +114,9 @@ names are the same in every app:
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 
 Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`
-(`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one.
+(`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one. Plan ids
+are English in every app (`free`, `pro`): the old `gratis`, as a key of `PLANS` or in `DEFAULT_PLAN`,
+stops the start the same way.
 Compose files use only the current names.
 
 **Port registry** (default `PORT`, also the host port unless an install says otherwise):
@@ -144,10 +146,10 @@ Compose files use only the current names.
 ## 7. Tests
 
 - `npm test` runs everything with nothing to install: a smoke test with a temporary database, a
-  random port and a real server; the suite's conformance checks; translation parity, keys in use
-  and texts written in the code (`tools/i18n.mjs hardcoded public`, and
-  `hardcoded --server server` for anything in another language on the server; a line that must
-  keep one says `i18n-exempt` and why); the version check. New behaviour comes with its check; a step that adds none has not been understood.
+  random port and a real server; the suite's conformance checks; the suite's checks of the app's
+  texts (`tools/i18n.mjs app .`, also `npm run i18n`: flat catalogs that agree, keys in use, texts
+  written in the code, anything in another language on the server; a line that must keep one says
+  `i18n-exempt` and why); the version check. New behaviour comes with its check; a step that adds none has not been understood.
 - Before a change to anything a phone shows (audio, wake lock, safe areas, installation), it is
   tried on a real device: emulators lie about those.
 

@@ -70,12 +70,31 @@ test('without a catalog: one plan, everything allowed (the open-source default)'
 test('the old flat PLANS of Tasks, with its Spanish keys, still reads', (t) => {
   const database = setup(t);
   const e = createEntitlements({ database, appId: 'tasks', features: FEATURES, plansJson: JSON.stringify({
-    gratis: { nombre: 'Gratis', listas_max: 5, adjuntos: false }, pro: { nombre: 'Pro' },
+    free: { nombre: 'Gratis', listas_max: 5, adjuntos: false }, pro: { nombre: 'Pro' },
   }) });
   assert.deepEqual(e.errors, []);
   assert.equal(e.of(ada).plan.name, 'Gratis');
   assert.equal(e.limit(ada, 'lists.max'), 5);
   assert.equal(e.can(ada, 'attachments'), false);
+});
+
+test('the old plan id "gratis" in PLANS or DEFAULT_PLAN stops the start, naming "free"', (t) => {
+  const database = setup(t);
+  const inPlans = createEntitlements({ database, appId: 'tasks', features: FEATURES, plansJson: JSON.stringify({
+    gratis: { name: 'Free' }, pro: { name: 'Pro' },
+  }), defaultPlanOverride: '' });
+  assert.deepEqual(inPlans.errors, ['PLANS: the plan "gratis" is called "free" now; rename it']);
+
+  // Without PLANS too, and only that error: not also "not in the catalog".
+  const asDefault = createEntitlements({
+    database, appId: 'tasks', features: FEATURES, plans: { free: { name: 'Free' } }, plansJson: '', defaultPlanOverride: 'gratis',
+  });
+  assert.deepEqual(asDefault.errors, ['DEFAULT_PLAN: the plan "gratis" is called "free" now; set DEFAULT_PLAN=free']);
+
+  const renamed = createEntitlements({ database, appId: 'tasks', features: FEATURES, plansJson: JSON.stringify({
+    free: { name: 'Free' }, pro: { name: 'Pro' },
+  }), defaultPlanOverride: 'free' });
+  assert.deepEqual(renamed.errors, []);
 });
 
 test('grants: a window, the most generous wins, the admin is never limited', (t) => {
@@ -141,7 +160,7 @@ test('PLANS=cronum-work: the suite’s catalog, read for the features the app ha
   assert.ok(loose.errors.some((m) => /plan "free" says nothing of "boards.max"/.test(m)));
   assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-play' }).errors[0], /no catalog of the suite \(cronum-work\)/);
   assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-work', defaultPlanOverride: 'gratis' }).errors[0],
-    /default plan "gratis"/, 'an old DEFAULT_PLAN stops the start, naming the plans there are');
+    /DEFAULT_PLAN=free/, 'an old DEFAULT_PLAN stops the start, naming the new one');
 });
 
 test('the suite’s catalog: every plan sets every feature, and each one gives at least what the one before it', () => {
