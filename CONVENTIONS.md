@@ -162,3 +162,92 @@ Compose files use only the current names.
   `CLAUDE.local.md`), take it into account and mark what gets solved. Refer to a task by the number
   the app shows (`nº 12`), not by its internal id.
 - Log the progress in Next at every milestone: what was done and the next step.
+
+## 9. While the apps become modules of one app
+
+Tasks, Projects, Next and Notes are becoming modules of one app: one process, one database, one
+session, each module at its own path (`/tasks/`, `/notes/`…), mounted by suite-core's host. Until
+the move is done, the four apps keep running on their own, people use them every day, and every
+release of them must keep working as it does. These rules hold until then, on top of the rest.
+
+**What an app that is live never changes**
+
+- **`app.id`** (`tasks`, `proyectos`, `next`, `notes`). It names the database file, the session
+  cookie and the browser's storage keys, and importing a copy checks it: a new id starts on an
+  empty database and signs everyone out. A module's path in the host (`/projects/`) is the host's
+  choice, not a new id.
+- **Addresses registered somewhere else**: `/auth/callback` (the identity provider); `/mcp`,
+  `/.well-known/*` and `/oauth/*` (people's AI connectors); `/api/billing/webhook` (the payment
+  provider).
+- **The service worker and the manifest**: the URL and scope of `/sw.js`, and the manifest's
+  `id`, `start_url` and `scope`. A phone takes an app with new ones for a different app, and its
+  push subscriptions are lost.
+- **Its API routes**: new ones go next to the old ones, always under `/api/`, and the old ones keep
+  answering. The kit's offline queue (`outbox.js`) drops a saved change whose route answers 404,
+  and a tab with the old code in its cache keeps calling the old routes. Outside `/api/`, `/mcp`,
+  `/auth/`, `/oauth/` and `/.well-known/`, the service worker answers a GET from its cache.
+- **The MCP tools it announces**: `tools/list` keeps today's names and parameters. Aliases
+  (`legacyTools`) answer but are not announced, so a renamed tool disappears for whoever
+  reconnects, and with it people's connectors and their standing instructions. The prefix a
+  module's tools carry in the host's single `/mcp` is put on by the host when it mounts the
+  module; the app on its own doesn't change.
+- **The plan features it declares**: with the suite's catalog (`PLANS=cronum-work`, `plans.js`),
+  an app that declares a key the catalog doesn't have doesn't start, and aliases don't count there.
+
+**New work in an app**
+
+1. **Tables carry the module's name**: `notes_versions`, `next_branches`, never a generic name
+   (`tasks`, `projects`, `files`, `items`, `settings`), which collides in the one database. The
+   tables that collide today (`tasks` and `task_files` in Tasks and Projects, `projects` in
+   Projects and Next) are renamed by the move itself, one app at a time, **in every app that
+   has them**: a module's first migration creates its tables under their old names and its last
+   renames them, so one app keeping a generic name would take it from another set up after it.
+2. **API routes and MCP tools with names of their own**: a route under the app's own nouns
+   (`/api/notebooks/:id/share`, not `/api/share`), a tool named after what it acts on
+   (`share_notebook`, not `share`), so the module's tools still read well next to the others'.
+3. **Every new table goes into `portable.js`**: the app's declaration of its data copies an
+   account and the whole install, and it is how the data moves into the one database. A table
+   left out is lost in the move.
+4. **Plan features**: a new key goes first into the catalog (`plans.js`): suite-core is released
+   with it, and only then the app that declares it. The keys every app shares (`retention.days`,
+   `storage.mb`, `assign`, `mcp`, `mcp.calls_per_day`…) carry no prefix, and an app's own key is
+   named after its things (`lists.max`, `notebooks.max`); in the host, the module's prefix is the
+   host's business (`entitlements.js` reads `<app>.<key>` in grants). A key an app already
+   declares is never renamed.
+5. **The browser builds no absolute path of its own** (`/js/…`, `/api/…`, `/icons/…`): a module
+   lives at `/<path>/` in the host, and the paths of today become relative app by app.
+6. **What the browser keeps** (`localStorage` keys, IndexedDB and cache names) starts with the
+   app's id: in the host every module shares one origin.
+7. **Files go through `suite.uploads`**, never a path built by hand under `DATA_DIR`: in the host
+   each module has its own folder, and a module's sweep must not see another's files.
+
+**suite-core while this lasts**
+
+- **Only changes that add**: `createHost()` next to `createApp()`, which stays as it is; what is
+  new for modules sits behind options that didn't exist, so with today's options everything
+  behaves as before. Every change is a new version with its tag.
+- **An app's `server/suite` points at a tagged commit of suite-core's `main`**, never at a branch's:
+  the deployment clones it when it builds. While an app waits on a branch's commit, that suite-core
+  pull request is merged with a merge commit, not squashed, so the commit stays in `main`.
+- **Moving an app's submodule up** brings every change and every suite migration since the version
+  it had, written by other sessions, and they will run on that app's production database: read the
+  CHANGELOG from that version on before doing it.
+- **A new suite migration takes the next number on `main` when it is merged**, not when the branch
+  started: two branches with the same number and different names leave an app that can't start.
+- **A change reaches production as soon as any session moves an app's submodule up.** Before
+  merging one, run `npm test` in all four apps with `server/suite` at that commit.
+- **A version number is never one an open pull request already uses**: go above it.
+
+**Releasing an app while this lasts**
+
+- Small changes that keep working with what was there before, with their tests, and a pull request
+  with the CI green.
+- Before merging, bring the latest `main` into the branch with a merge (§4: pushed history is never
+  rewritten, so no rebase and no `push --force` on a pushed branch), with a version nobody uses.
+- With migrations, try the release first on a recent copy of the production database.
+- **A migration in production has no way back**: once a release applies one (the app's or
+  suite-core's), the release before no longer starts, because `migrate.js` refuses a database with
+  migrations it doesn't know. If something goes wrong after deploying, a release without
+  migrations is reverted with a pull request; one with migrations is fixed forward.
+- Merging deploys. After it, check `/health`, `/version`, the new behaviour, the MCP and that
+  people's data is still there.
