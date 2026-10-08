@@ -56,7 +56,7 @@ import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
 import { createUploads } from './uploads.js';
 import { createPortability, registerPortabilityApi } from './portability.js';
-import { createMcpServer } from './mcp.js';
+import { createMcpServer, dailyLimitText } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
 } from './api.js';
@@ -67,6 +67,7 @@ import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
 
 const HOUR = 3600 * 1000;
+const MINUTE_BEFORE_SWEEP = 60 * 1000;
 /** The suite's browser code, served at /suite/. */
 const WEB_DIR = fileURLToPath(new URL('./web/', import.meta.url));
 
@@ -439,6 +440,7 @@ function inCatalogDir(pathname) {
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
+  sweep = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -496,6 +498,18 @@ export function createApp({
 
   /* --------------------------------- MCP ---------------------------------- */
 
+  /**
+   * Calls from assistants per person and day, when the app declares
+   * `mcp.calls_per_day`: a brake on abuse, never a switch, so the sentence says
+   * when they come back and which plan has more, for the assistant to tell.
+   */
+  const mcpQuota = (user) => {
+    if (!entitlements.describe().features['mcp.calls_per_day']) return true;
+    const day = entitlements.countDaily(user, 'mcp.calls_per_day');
+    if (day.allowed) return true;
+    return dailyLimitText(day, config.app.name);
+  };
+
   const mcpServer = mcp && config.modules.mcp ? createMcpServer({
     serverInfo: { name: config.app.id, title: config.app.name, version, ...(mcp.serverInfo || {}) },
     instructions: mcp.instructions,
@@ -507,6 +521,8 @@ export function createApp({
     // A host gives its own: its modules' plans, and the modules each person uses (host.js).
     allows: mcp.allows || entitlements.allows,
     ...(mcp.visible ? { visible: mcp.visible } : {}),
+    // In a host this is its /mcp: the calls of the day count once for the whole app.
+    quota: mcpQuota,
     authenticate: (token) => suite.authenticateToken(token),
     // With OAuth, the 401 says where the metadata is: that is what makes Claude
     // open the sign-in window instead of giving up.
@@ -768,6 +784,16 @@ export function createApp({
     const cleanUp = safely('clean-up', () => { suite.purge(); portability?.purge(); });
     cleanUp();
     timers.push(setInterval(cleanUp, 6 * HOUR).unref());
+    if (sweep) {
+      // What a plan keeps for a while only (entitlements.cutoff): the app's own sweep, a minute
+      // after the start so a start is never slowed by it, and then with the clean-ups.
+      const sweepPlans = safely('sweep', () => {
+        const removed = sweep();
+        if (removed && Object.values(removed).some(Boolean)) log(`${tag} swept ${JSON.stringify(removed)}`);
+      });
+      timers.push(setTimeout(sweepPlans, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(sweepPlans, 6 * HOUR).unref());
+    }
     if (oauth) {
       const purgeOAuth = safely('OAuth clean-up', () => oauth.purge());
       purgeOAuth();

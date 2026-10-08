@@ -11,8 +11,9 @@
  * Three pieces, none of which knows the others:
  *
  * · The catalog: the features the app can limit (declared in its code, typed)
- *   and the plans (in suite.config.js, or PLANS for one install). Validated on
- *   start: a misspelled key must never leave a barrier open silently.
+ *   and the plans (in suite.config.js, or PLANS for one install: a JSON, or the
+ *   name of a catalog of plans.js, such as `cronum-work`). Validated on start: a
+ *   misspelled key must never leave a barrier open silently.
  * · The grants (`entitlement_grants`), written by the admin panel today and by a
  *   billing webhook or a central service tomorrow. Enforcement only ever reads
  *   this table, so no app depends on another service being up to answer.
@@ -21,16 +22,20 @@
  *
  * When sources disagree, the most generous wins: a flag is on if any source
  * turns it on, and a limit is the largest (no limit beats any number). The
- * instance admin is never limited. Nothing is ever deleted when someone drops
- * to a smaller plan: they just can't add more.
+ * instance admin is never limited. Dropping to a smaller plan takes nothing
+ * away at once: past a cap, they just can't add more; and what a plan keeps
+ * for a number of days (`retention.days`) counts those days from when the more
+ * generous plan ended (`cutoff()`), not from when each thing was done.
  *
  * Inside an app, features have short names (`attachments`). Across apps —a
  * product that covers the whole suite— they carry the app's id
  * (`tasks.attachments`); grants for other apps are ignored here.
  */
 import { HttpError } from './http.js';
+import { PLAN_CATALOGS } from './plans.js';
 
 const iso = (ms) => new Date(ms).toISOString();
+const DAY = 24 * 3600 * 1000;
 
 /**
  * Plan ids renamed when every app moved them to English (Tasks' "gratis" is "free"). Like a renamed
@@ -62,6 +67,17 @@ export function entitlementsSchema(d) {
   CREATE INDEX IF NOT EXISTS ix_grants_ref ON entitlement_grants (source, external_ref)`);
 }
 
+/** What a daily limit has used, per person and UTC day (`countDaily()`). */
+export function entitlementUsageSchema(d) {
+  d.exec(`CREATE TABLE IF NOT EXISTS entitlement_usage (
+    user_id INTEGER NOT NULL,
+    feature TEXT NOT NULL,
+    day     TEXT NOT NULL,
+    used    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, feature, day)
+  )`);
+}
+
 /** The most generous of two values of one feature. */
 function generous(type, a, b) {
   if (type === 'flag') return Boolean(a) || Boolean(b);
@@ -79,7 +95,8 @@ const unlimitedValue = (type) => (type === 'flag' ? true : null);
  * @param {object} [options.plans]        { id: { name, features: { key: value } } }; the flat form
  *                                        { id: { name, key: value } } is read too
  * @param {string} [options.defaultPlan]
- * @param {string} [options.plansJson]    PLANS from the environment, overriding `plans`
+ * @param {string} [options.plansJson]    PLANS from the environment, overriding `plans`: a JSON,
+ *                                        or the name of a catalog of plans.js (`cronum-work`)
  * @param {string} [options.defaultPlanOverride]   DEFAULT_PLAN from the environment
  * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
@@ -123,7 +140,23 @@ export function createEntitlements({
   /* ----------------------------- the catalog ---------------------------- */
 
   let source = plans;
-  if (plansJson) {
+  const named = String(plansJson || '').trim();
+  if (/^[a-z0-9-]+$/.test(named)) {
+    // A catalog of the suite, read for the features this app has: the rest is other apps'.
+    // Every feature the app declares must have its value there, or it would be left unlimited.
+    if (!PLAN_CATALOGS[named]) errors.push(`PLANS "${named}" is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')}) and no JSON`);
+    else {
+      source = {};
+      for (const [id, plan] of Object.entries(PLAN_CATALOGS[named])) {
+        const values = {};
+        for (const key of Object.keys(declared)) {
+          if (key in plan.features) values[key] = plan.features[key];
+          else errors.push(`PLANS "${named}": plan "${id}" says nothing of "${key}"; give it a value in suite-core's plans.js`);
+        }
+        source[id] = { name: plan.name, features: values };
+      }
+    }
+  } else if (plansJson) {
     try {
       source = JSON.parse(plansJson);
     } catch (err) {
@@ -176,14 +209,26 @@ export function createEntitlements({
 
   const localKey = (key) => (key?.startsWith(`${appId}.`) ? key.slice(appId.length + 1) : key);
 
-  function activeGrants(user, organizationId) {
-    const now = iso(clock());
+  /** The user and the organizations whose grants count for them, as a WHERE clause. */
+  function subjectsOf(user, organizationId) {
     const organizations = [...new Set([...(organizationsOf(user) || []), ...(organizationId ? [organizationId] : [])])];
     const subjects = [['user', user.id], ...organizations.map((id) => ['organization', id])];
-    const clauses = subjects.map(() => '(subject_type = ? AND subject_id = ?)').join(' OR ');
+    return { clauses: subjects.map(() => '(subject_type = ? AND subject_id = ?)').join(' OR '), values: subjects.flat() };
+  }
+
+  function activeGrants(user, organizationId) {
+    const now = iso(clock());
+    const { clauses, values } = subjectsOf(user, organizationId);
     return database.all(`SELECT * FROM entitlement_grants WHERE (${clauses})
       AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?) AND revoked_at IS NULL
-      ORDER BY id`, ...subjects.flat(), now, now);
+      ORDER BY id`, ...values, now, now);
+  }
+
+  /** A grant's value of one feature, or undefined when it says nothing of it. */
+  function grantValue(grant, key) {
+    if (grant.plan) return catalog[localKey(grant.plan)]?.features[key];
+    if (localKey(grant.feature) !== key) return undefined;
+    try { return JSON.parse(grant.value); } catch { return undefined; }
   }
 
   /**
@@ -235,6 +280,61 @@ export function createEntitlements({
   function limit(user, feature, context) {
     known(feature);
     return of(user, context).features[feature];
+  }
+
+  /**
+   * Before when something done or deleted goes, for a limit in days such as
+   * `retention.days`: an ISO date, or null when nothing goes (no limit). The
+   * days count from the later of the thing's own date and the end of the last
+   * grant that kept it longer: someone back on Free after Pro keeps everything
+   * for those days from the day Pro ended. Since the end of that grant is the
+   * same for everything, it comes down to this: nothing goes until those days
+   * have passed since it ended, and then whatever is older than them.
+   */
+  function cutoff(user, feature, { organizationId = null } = {}) {
+    if (known(feature).type !== 'limit') throw new Error(`cutoff: "${feature}" is not a limit`);
+    const days = limit(user, feature, { organizationId });
+    if (days === null) return null;
+    const now = clock();
+    const edge = now - days * DAY;
+    const { clauses, values } = subjectsOf(user, organizationId);
+    const ended = database.all(`SELECT * FROM entitlement_grants WHERE (${clauses}) AND starts_at <= ?
+      AND (ends_at IS NOT NULL OR revoked_at IS NOT NULL)`, ...values, iso(now));
+    for (const grant of ended) {
+      const value = grantValue(grant, feature);
+      if (value === undefined || (value !== null && !(value > days))) continue;
+      const end = Math.min(...[grant.ends_at, grant.revoked_at].filter(Boolean).map(Date.parse));
+      if (end <= now && end > edge) return null;
+    }
+    return iso(edge);
+  }
+
+  /**
+   * Spends one of today's uses (UTC) of a daily limit, such as
+   * `mcp.calls_per_day`: `{ allowed, used, limit, plan, plan_name, more }`,
+   * where `more` is the next plan of the catalog that allows more ({ id, name,
+   * limit }) or null. What is refused is not counted. No limit, nothing counted.
+   */
+  function countDaily(user, feature, { organizationId = null } = {}) {
+    if (known(feature).type !== 'limit') throw new Error(`countDaily: "${feature}" is not a limit`);
+    const entitled = of(user, { organizationId });
+    const value = entitled.features[feature];
+    const base = { limit: value, plan: entitled.plan.id, plan_name: entitled.plan.name };
+    if (value === null) return { allowed: true, used: null, ...base, more: null };
+    const day = iso(clock()).slice(0, 10);
+    const better = planIds.slice(rank(entitled.plan.id) + 1).map((id) => catalog[id])
+      .find((plan) => plan.features[feature] === null || plan.features[feature] > value);
+    const more = better ? { id: better.id, name: better.name, limit: better.features[feature] } : null;
+    return database.tx(() => {
+      const row = database.get('SELECT used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day = ?', user.id, feature, day);
+      const used = Number(row?.used || 0);
+      if (used >= value) return { allowed: false, used, ...base, more };
+      // The first use of a day clears the earlier ones: only today's count is ever needed.
+      if (!row) database.run('DELETE FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day < ?', user.id, feature, day);
+      database.run(`INSERT INTO entitlement_usage (user_id, feature, day, used) VALUES (?, ?, ?, 1)
+        ON CONFLICT (user_id, feature, day) DO UPDATE SET used = used + 1`, user.id, feature, day);
+      return { allowed: true, used: used + 1, ...base, more };
+    });
   }
 
   /**
@@ -338,7 +438,7 @@ export function createEntitlements({
     several: planIds.length > 1,
   });
 
-  return { errors, of, can, limit, require, allows, grant, revoke, setPlan, seatsOf, grantsOf, describe };
+  return { errors, of, can, limit, require, allows, cutoff, countDaily, grant, revoke, setPlan, seatsOf, grantsOf, describe };
 }
 
 /**

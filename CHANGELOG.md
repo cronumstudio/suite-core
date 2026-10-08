@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.54.0 — 2026-10-08
+
+- **Links between modules** (`links.js`, the host's second migration, `host_links`): a module says
+  what can be linked of it in `createModule().cards` (read, search, and optionally create, places,
+  complete, audience); the host keeps each pair once, shows each side's card as its module draws
+  it, and only to whoever could already see it. `GET /api/links?ref=`, `GET /api/links/search`,
+  `POST /api/links`, `POST /api/links/new` (created by the other module, by its rules, and linked
+  in one transaction), `PATCH`/`DELETE /api/links/:id`. "Done together" is per link: a module
+  calls `suite.links.done(type, id, done, { user })` where it completes something, and the other
+  side completes in the same transaction. `suite.links.changed(type, id)` repaints the links of
+  something that changed (a `links` event in the module's live channel). Two MCP tools,
+  `linked_items` and `link_item`, for whoever uses two modules with things to link. On its own an
+  app has no `suite.links`.
+- **The kit's links row** (`web/links.js`, `linksRow()`): the "Linked" row of an item, its chips in
+  the other module's colour, "+ Link" with "Add to…" and "Link existing…", in the four languages.
+  `GET /api/modules` says what each module can link. The service worker keeps `links.js` with the
+  rest of the kit. On its own an app's row stays hidden and asks nothing.
+
 ## 0.53.0 — 2026-10-08
 
 - **Several apps as one: `createHost()`** (`host.js`, architecture §21). One process, one database,
@@ -44,22 +62,32 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **One MCP for every module** at the host's `/mcp`: each module's tools under its name
   (`tasks_add_task`), only those of the modules someone uses, and its old names still answered
   (not announced). The instructions are made per person from each module's `mcp.brief`, whole
-  parts only, under 2048 characters. `/<mount>/mcp` answers 404 with where the MCP is.
-- **Links between modules** (`links.js`, the host's second migration, `host_links`): a module says
-  what can be linked of it in `createModule().cards` (read, search, and optionally create, places,
-  complete, audience); the host keeps each pair once, shows each side's card as its module draws
-  it, and only to whoever could already see it. `GET /api/links?ref=`, `GET /api/links/search`,
-  `POST /api/links`, `POST /api/links/new` (created by the other module, by its rules, and linked
-  in one transaction), `PATCH`/`DELETE /api/links/:id`. "Done together" is per link: a module
-  calls `suite.links.done(type, id, done, { user })` where it completes something, and the other
-  side completes in the same transaction. `suite.links.changed(type, id)` repaints the links of
-  something that changed (a `links` event in the module's live channel). Two MCP tools,
-  `linked_items` and `link_item`, for whoever uses two modules with things to link. On its own an
-  app has no `suite.links`.
-- **The kit's links row** (`web/links.js`, `linksRow()`): the "Linked" row of an item, its chips in
-  the other module's colour, "+ Link" with "Add to…" and "Link existing…", in the four languages.
-  `GET /api/modules` says what each module can link. The service worker keeps `links.js` with the
-  rest of the kit. On its own an app's row stays hidden and asks nothing.
+  parts only, under 2048 characters. `/<mount>/mcp` answers 404 with where the MCP is. The calls of
+  the day from assistants (`mcp.calls_per_day`, in the host's plans) count once for the whole app.
+
+## 0.52.0 — 2026-10-08
+
+- **The suite's plans, written once.** `plans.js` holds the catalog of the hosted suite,
+  `cronum-work` (Free, Pro and Team, as the note «Beneficios de cada plan» decides them), and an
+  install names it with `PLANS=cronum-work` instead of copying a JSON into each app. An app reads
+  only the features it declares; one it declares that the catalog doesn't set stops the start, as
+  it would be left unlimited. `COMMON_FEATURES` and `pick()` give the features every app names the
+  same: `retention.days`, `storage.mb`, `assign`, `publish`, `templates`, `mcp` and
+  `mcp.calls_per_day`. A PLANS JSON keeps working as before.
+- **What Free keeps for some days counts them from when Pro ended.** `entitlements.cutoff(user,
+  feature)` says before when something done or deleted goes: null while the days since the end of
+  the last grant that kept things longer have not passed (or with no limit), `now − days` after
+  that. Dropping to a smaller plan no longer means nothing is ever deleted: it means nothing is
+  deleted at once. Each app sweeps its own data with it.
+- **Calls from assistants per day.** With `mcp.calls_per_day` declared, the MCP transport spends one
+  of the person's calls of the day (UTC) on each tool call (`entitlements.countDaily()`, migration 20
+  `entitlement_usage`); listing tools and prompts doesn't count, nor does what is refused. Once
+  they are used up the assistant reads a sentence it can pass on, with when they come back and which
+  plan has more (`dailyLimitText()`). `createMcpServer({ quota })` takes the check.
+- **The apps' sweeps on the suite's timers.** `createApp({ sweep })` runs the app's function for
+  what a plan keeps only a while a minute after the start and then every six hours with the
+  clean-ups, logging what it removed and surviving a failure, instead of each app keeping its own
+  timers.
 
 ## 0.51.0 — 2026-10-08
 

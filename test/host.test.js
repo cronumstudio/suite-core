@@ -333,6 +333,23 @@ test('links between modules: each sees what they could see, created where it liv
   assert.ok(listed.some((x) => x.name === 'link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
 });
 
+test('the calls of the day from assistants count once for the whole app, whichever module they go to', async (t) => {
+  const config = { ...HOST, features: { 'mcp.calls_per_day': { type: 'limit', default: 2, label: 'calls a day' } } };
+  const { call } = await startHost(t, { config });
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  // Someone with a plan: the instance's administrator is never limited.
+  await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' });
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  let id = 0;
+  const text = async (name, args = {}) => (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } },
+    { Authorization: `Bearer ${token}` })).data.result.content[0].text;
+  assert.equal(await text('alpha_add_item', { text: 'One' }), 'Added.');
+  assert.equal(await text('beta_list_items'), '[]');
+  assert.match(await text('alpha_list_items'), /^Daily limit reached: .* 2 calls a day from an assistant to Work/);
+});
+
 test('the host’s instructions keep under what assistants read, whole parts only', async () => {
   const { hostInstructions } = await import('../host.js');
   const modules = ['one', 'two', 'three'].map((mount) => ({
