@@ -19,6 +19,7 @@
 
 import { el } from './dom.js';
 import { t } from './i18n.js';
+import { at } from './base.js';
 
 const CHECK_EVERY = 10 * 60 * 1000;
 const HANDOVER_MS = 3000;
@@ -27,14 +28,14 @@ const HANDOVER_MS = 3000;
  * @param {object} options
  * @param {Function} options.onUpdate     (server) → show the notice
  * @param {Function} [options.fetch]      for tests
- * @param {Function} [options.loadLocal]  () → { version } of this tab; default: import('/js/app-version.js')
+ * @param {Function} [options.loadLocal]  () → { version } of this tab; default: the app's js/app-version.js, at its base
  * @param {number}   [options.every]
  * @returns {{ check: (opts?) => Promise<boolean|null>, stop: () => void, dismiss: () => void, loaded: () => object, latest: () => object }}
  */
 export function watchUpdates({
   onUpdate, fetch: get = (...args) => globalThis.fetch(...args), every = CHECK_EVERY,
   loadLocal = async () => {
-    const mod = await import('/js/app-version.js');
+    const mod = await import(at('/js/app-version.js'));
     return { app: mod.APP_NAME_VERSION, version: mod.APP_VERSION, built: mod.APP_BUILT };
   },
   timers = globalThis, doc = globalThis.document, now = Date.now,
@@ -58,7 +59,7 @@ export function watchUpdates({
   }
 
   async function server() {
-    const res = await get('/version', { cache: 'no-store' });
+    const res = await get(at('/version'), { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }

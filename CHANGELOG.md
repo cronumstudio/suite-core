@@ -3,6 +3,50 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.53.0 — 2026-10-08
+
+- **Several apps as one: `createHost()`** (`host.js`, architecture §21). One process, one database,
+  one session cookie, one sign-in, one table of accounts and one admin panel, the host's; each app
+  a module at its own path (`/tasks/`, `/notes/`…), with its own tables and migrations (scope: its
+  app id), routes, plan features, live channel, folder of uploads (`DATA_DIR/uploads/<app id>`, so
+  one module's sweep never sees another's files), texts and data for copies. A module is a whole
+  `createApp()` at `/<mount>/`: the host takes the prefix off, so two modules with the same routes
+  don't collide. Its manifest is served rewritten for its place; the app's file doesn't change.
+  `GET /api/modules` lists them for the host's pages; `/<mount>/admin` goes to `/admin`.
+- **`joinHost()`**: an app's `platform.js` tries it before `createSuite()` and gets the host's
+  suite with what is its own in place; anywhere else it is null and nothing changes. A host and its
+  modules run one copy of suite-core; a module that runs another, never joins, reuses an id or a
+  scope, or uses push, billing or organizations with the host's off stops the start, saying so;
+  so do two modules whose data (`portable`) lives in a table of the same name, which in one
+  database would write in each other's rows.
+- **The web kit finds its base** (`web/base.js`): `/` on its own, the module's path in a host,
+  read from the kit's own address. `api.js`, the catalogs, the live channel, the new-version check
+  and the kit's links and icons go through `at()`; on its own every path is the one it was. The
+  host's own pages (`/admin`, `/auth/…`, `/mcp`) stay at the root.
+- **The service worker works from its scope** (`sw-core.js`): an app on its own is unchanged (scope
+  `/`, its cache keeps its name, it clears its old caches as before, and now caches `base.js` with
+  the rest of the kit). A module's worker at `/tasks/` treats `/tasks/api/` as the API, names its
+  cache after its path and clears only its own, so modules sharing one origin don't empty each
+  other's copies; the paths a notice opens go under the module's. A host's worker at `/` leaves its
+  modules' paths alone with `skip`.
+- **Copies across a module's move** (`portability.js`): a table renamed since copies were made
+  says the names it had (`tables: { next_projects: { was: ['projects'], … } }`), and a copy with
+  it under one of them comes in under the new one; a mistake there stops the start. A copy says
+  how many of the app's own migrations it had from `migrationScope` (`app` on its own, the
+  module's id in a host, which passes it), so a module's copies and imports compare like an app's.
+- **`tools/web-resolve.mjs`** also finds the kit when an app's pages import it relative to their
+  base (`../suite/x.js` from `public/js/`), as an app that runs as a module writes it.
+- **Each person chooses their modules** (`host_modules`, the host's first migration): every one
+  until they choose; `GET /api/modules` says which are on, `PUT /api/me/modules` sets them, and
+  Settings › Modules has a switch per module. In a host, the shell draws a rail with the modules
+  someone uses (a drawer on phones) and remembers on the device the one used last. A module turned
+  off keeps its data and still opens at its path.
+- **One MCP for every module** at the host's `/mcp`: each module's tools under its name
+  (`tasks_add_task`), only those of the modules someone uses, and its old names still answered
+  (not announced). The instructions are made per person from each module's `mcp.brief`, whole
+  parts only, under 2048 characters. `/<mount>/mcp` answers 404 with where the MCP is. The calls of
+  the day from assistants (`mcp.calls_per_day`, in the host's plans) count once for the whole app.
+
 ## 0.52.0 — 2026-10-08
 
 - **The suite's plans, written once.** `plans.js` holds the catalog of the hosted suite,
@@ -26,6 +70,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   what a plan keeps only a while a minute after the start and then every six hours with the
   clean-ups, logging what it removed and surviving a failure, instead of each app keeping its own
   timers.
+
 ## 0.51.0 — 2026-10-08
 
 - **One way to translate, the same in every app.** Each app kept its own copies: Tasks and

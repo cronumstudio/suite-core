@@ -1,0 +1,12 @@
+{
+  "name": "Alpha",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [
+    { "src": "/icons/icon-192.png?v=1", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "shortcuts": [{ "name": "New item", "url": "/?new=1" }]
+}

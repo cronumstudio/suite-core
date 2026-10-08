@@ -18,6 +18,7 @@
  *     onState: (state) => shell.setLive(state),
  *   });
  */
+import { at } from './base.js';
 
 const GROUP_MS = 300;
 const FIRST_WAIT = 2000;
@@ -35,7 +36,7 @@ const MAX_WAIT = 60000;
  * @param {Function} [options.EventSource] for tests
  */
 export function connectLive({ onChange = () => {}, onResync = () => {}, onAccount = () => {}, onState = () => {} } = {}, {
-  url = '/api/events', events = [], EventSource: Source = globalThis.EventSource, timers = globalThis,
+  url = at('/api/events'), events = [], EventSource: Source = globalThis.EventSource, timers = globalThis,
 } = {}) {
   let source = null;
   let state = 'closed';

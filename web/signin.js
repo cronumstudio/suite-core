@@ -17,6 +17,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { api, errorMessage } from './api.js';
+import { at } from './base.js';
 import { signature, toast } from './ui.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
@@ -59,7 +60,7 @@ export async function signIn({ app, config = null, root = document.body }) {
     const card = el('div', { class: 'kit-signin__card' });
     const screen = el('main', { class: 'kit-signin' },
       el('section', { class: 'kit-signin__hero' },
-        el('img', { src: app.icon || '/icons/favicon.svg', alt: '', width: 76, height: 76 }),
+        el('img', { src: at(app.icon || '/icons/favicon.svg'), alt: '', width: 76, height: 76 }),
         el('h1', { text: app.name }),
         app.tagline ? el('p', { text: app.tagline }) : null),
       el('div', { class: 'kit-signin__side' },

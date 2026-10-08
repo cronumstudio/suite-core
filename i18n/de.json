@@ -89,6 +89,7 @@
   "fields.email_verified": "E-Mail bestätigt",
   "fields.expires_at": "Ablauf",
   "fields.invitation": "Einladung",
+  "fields.modules": "Module",
   "fields.name": "Name",
   "fields.password": "Passwort",
   "fields.period_end": "Ende des Zeitraums",
@@ -609,5 +610,15 @@
   "errors.idempotency_key_invalid": "Diese Änderung kam mit einem Schlüssel, den der Server nicht annimmt.",
   "errors.idempotency_key_reused": "Der Schlüssel dieser Änderung wurde schon für etwas anderes verwendet.",
   "errors.idempotency_in_progress": "Diese Änderung wird noch gespeichert.",
-  "errors.lost_creation": "Sie betraf etwas, dessen Erstellung den Server nie erreicht hat."
+  "errors.lost_creation": "Sie betraf etwas, dessen Erstellung den Server nie erreicht hat.",
+  "kit.modules.rail": "Module",
+  "kit.modules.home": "Auswählen, was du nutzt",
+  "kit.modules.title": "Module",
+  "kit.modules.hint": "Schalte ein, was du nutzt.",
+  "kit.modules.one": "Mit nur einem öffnet die App direkt darin. Mit zwei oder mehr wechselst du über die Spalte am Rand; auf dem Handy über ☰.",
+  "kit.modules.off": "Ein ausgeschaltetes Modul behält deine Daten: Es verschwindet nur aus deinen Menüs.",
+  "kit.modules.last": "Mindestens eines bleibt an.",
+  "kit.modules.icons": "Symbole auf dem Startbildschirm",
+  "kit.modules.install": "Jedes Modul kann ein eigenes Symbol haben, das direkt darin öffnet: Öffne das Modul und installiere es über das Menü des Browsers.",
+  "kit.modules.open": "{name} öffnen"
 }

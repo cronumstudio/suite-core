@@ -56,10 +56,11 @@ suite-core/
   jwt.js                done   JWTs checked against a provider's published keys (RS256, ES256)
   config.js             done   loads and validates suite.config.js + the environment
   app.js                done   createSuite() wires the modules; createApp() dispatches in the order of §11
+  host.js               done   createHost(): several apps as one, each a module at its own path (§21)
   watcher.js            done   hot reload by polling, for code mounted over SMB
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
   db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
-  migrate.js            done   numbered migrations with scopes (suite, app)
+  migrate.js            done   numbered migrations with scopes (suite, app, and each module's id in a host)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes, AES-256-GCM
   accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
   sessions.js           done   browser sessions: sliding, rotated, revocable
@@ -128,6 +129,10 @@ registers the suite's routes before the app's, the MCP endpoint with the app's t
 the app's static files; it also creates the first administrator, runs the periodic clean-ups,
 watches the code with `HOT_RELOAD=true` and shuts down in order. An app can still use a module on
 its own, with adapters to its own tables, while it moves over.
+
+The same app can also run as a module of a host, several apps as one (§21): its `platform.js`
+then tries `joinHost()` first, and a `server/module.js` hands the host what `index.js` hands
+`createApp()`. On its own, nothing of that runs.
 
 ## 5. The configuration file
 
@@ -761,7 +766,11 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
 - `tokens.css` with the design tokens of the Cronum style guide, so every app shares one look and
   each one keeps its accent.
 - `sw-core.js`, imported by each app's service worker: shell caching, network-first for code and
-  catalogs, never caching `/api`, `/mcp`, `/auth`, `/oauth`, `/version`.
+  catalogs, never caching `/api`, `/mcp`, `/auth`, `/oauth`, `/version`. Its paths are read from
+  the worker's scope, so the same file serves a module of a host at `/tasks/` (§21).
+- `base.js` (v0.53.0): where the app is served from, read from the kit's own address: `/` on its
+  own, `/tasks/` as a module of a host. The kit's requests go through its `at()`, and an app's
+  own code can use it too: on its own every path stays what it was.
 
 **Since v0.34.0 the kit is whole**, with the shared interface approved on 2026-10-05; how an app
 uses it is in [web-kit.md](web-kit.md). The frame (`shell.js`) has a sidebar, which folds away on
@@ -922,4 +931,100 @@ first, then Tasks, then the rest.
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
+| `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
 | `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
+
+## 21. Several apps as one: the host
+
+**Done in v0.53.0** (`host.js`), for Cronum Work: Tasks, Projects, Next and Notes as modules of one
+app, each at its own path, which each person turns on as they like, while each app still runs on
+its own exactly as before.
+
+```js
+const host = await createHost({
+  config: product,                                   // the host's own suite.config.js
+  modules: [
+    { mount: 'tasks', entry: new URL('./modules/tasks/server/module.js', import.meta.url) },
+    { mount: 'projects', entry: new URL('./modules/projects/server/module.js', import.meta.url) },
+  ],
+  publicDir,                                         // the host's own pages at /, if any
+});
+await host.listen();
+```
+
+- **What is the host's, once for all**: the process, the database (`DATA_DIR/<host id>.db`), the
+  session cookie and the sign-in, the table of accounts and their hooks, API tokens, OAuth and the
+  identity provider (`/auth/*`, `/.well-known/*`, the consent screen, with the host's name and
+  colour), mail, the brake, the audit log, `/admin`, `/health` and `/version`. The suite's modules
+  that are one object for everyone (push, billing, organizations) are switched on in the host's
+  configuration; a module that uses one the host has off doesn't start.
+- **What each module keeps**: its tables and its migrations, run after the suite's in a scope named
+  after its app id; its routes; its plan features (the plans themselves are the install's, so a
+  grant of a plan counts in every module and one of `<app id>.<feature>` only in its own); its live
+  channel (an account that changes is announced in all of them); its folder of uploads,
+  `DATA_DIR/uploads/<app id>`, so that a module's sweep never takes another's files for orphans;
+  its texts and what its data is for copies.
+- **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
+  module's own with the prefix taken off, so its API answers at `/<mount>/api/…`, the kit at
+  `/<mount>/suite/…`, and its catalogs, `app-version.js`, service worker and files at their usual
+  paths under the module's. Two modules with the same routes don't collide. `/<mount>/admin` goes
+  to the host's `/admin`. A module's `install.baseUrl` ends in its path, so the links it writes
+  point into it, and `config.host` says where it is. `GET /api/modules` lists the modules for the
+  host's own pages; without pages, `/` opens the first module.
+- **Its manifest** is served rewritten for its place (`id`, `start_url`, `scope`, icons and
+  shortcuts under `/<mount>/`); the app's file doesn't change, because on its own those values are
+  the identity of the copies already installed on people's phones.
+- **In the browser**, the kit finds its base by itself (`web/base.js`) and `sw-core.js` works from
+  the worker's scope: a module's cache is named after its path, and each worker clears only its own
+  old caches, since the modules share one origin. A host's own worker at `/` leaves its modules'
+  paths alone with `skip`. An app's own code becomes a module by taking its paths relative to its
+  base (no `/js/…`, `/api/…` or `/sw.js` written as they are).
+
+An app becomes a module in three small moves, none of which changes it on its own:
+
+```js
+// server/platform.js
+export const suite = joinHost({ config: product, migrations: MIGRATIONS, hooks })
+  ?? createSuite({ config: product, migrations: MIGRATIONS, hooks });
+
+// server/module.js: what index.js gave createApp, plus the app's own jobs
+export function createModule() {
+  return { publicDir, routes: api, serializeUser, version: APP_VERSION, portable, sweep, start: startJobs };
+}
+
+// server/index.js
+const parts = createModule();
+const app = createApp({ suite, ...parts, mcp });
+const stop = parts.start?.();
+await app.listen();
+```
+
+A host and its modules run **one copy of suite-core**: an `HttpError` thrown by a module must be
+the one the host's `createApp()` knows. A module whose `server/suite` is another copy, or that
+never calls `joinHost()`, stops the host's start, saying so. Not yet in the host: push notices
+kept to the module that sent them, and coming back to the module after signing in with a provider.
+
+### 21.1 Each person's modules
+
+The host's own tables have their own scope, `host`, and an app on its own never gets them. The
+first, `host_modules`, keeps which modules each person turned on: no row, they haven't chosen and
+use every one; a module added to the host after they chose comes on for them. `GET /api/modules`
+answers `{ host, chosen, modules: [{ mount, path, name, color, icon, active }] }` for the host's
+pages and the kit's shell, which draws a rail with the active ones (a drawer on phones) when the
+page is a module's; `PUT /api/me/modules { active: [mount…] }` sets them, at least one, from
+Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
+only leaves that person's menus and MCP.
+
+### 21.2 One MCP
+
+The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address). Each module's
+`createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
+module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
+whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
+The names the module had on its own, and those its `legacyTools` lists, are still answered, never
+announced. The instructions are written per person from each used module's `mcp.brief` (or its
+instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
+longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
+from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
+`PLANS`): one count per person for the whole app, whichever module a call goes to.
+

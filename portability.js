@@ -121,6 +121,9 @@ export function dataImportsSchema(d) {
  * of megabytes reached everyone the list was shared with. Text without a
  * limit is cut at MAX_TEXT.
  *
+ * A table renamed since copies were made says the names it had, `was: ['projects']`,
+ * and a copy that has it under one of them still comes in.
+ *
  * A reference to a table declared later, or to the same one, is set after
  * every row exists, so its column must allow NULL. Every table needs a NOT NULL
  * reference to an account or to an earlier table: that is how whose rows they
@@ -166,8 +169,13 @@ export function describeData(database, declaration = {}) {
         errors.push(`${name}: file.folder must be a column that points at users`);
       }
     }
+    const was = [spec.was ?? []].flat();
+    for (const old of was) {
+      if (typeof old !== 'string' || !/^[a-z_][a-z0-9_]*$/.test(old) || old === 'users') errors.push(`${name}.was: "${old}" is not a table's name`);
+      else if (names.includes(old)) errors.push(`${name}.was: "${old}" is a table declared now`);
+    }
     tables.push({
-      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file,
+      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was,
       clean: typeof spec.clean === 'function' ? spec.clean : null,
       limits: limitsOf(spec.limits, columns, name, errors),
     });
@@ -189,10 +197,18 @@ export function describeData(database, declaration = {}) {
     }
   }
   const userLimits = limitsOf(declaration.users?.limits, new Map(appColumns.map((c) => [c, true])), 'users', errors);
+  const formerly = new Map();
+  for (const table of tables) {
+    for (const old of table.was) {
+      if (formerly.has(old)) errors.push(`${table.name}.was: "${old}" is ${formerly.get(old).name}'s old name too`);
+      formerly.set(old, table);
+    }
+  }
   if (errors.length) throw new Error(`The app's data declaration (portable) has errors:\n  ${errors.join('\n  ')}`);
   return {
     tables,
     byName: new Map(tables.map((t) => [t.name, t])),
+    formerly,
     userColumns: [...USER_COLUMNS.filter((c) => inUsers.has(c)), ...appColumns],
     appColumns,
     userLimits,
@@ -358,11 +374,13 @@ function countValues(bytes) {
  * @param {string[]} [options.roles]      the install's roles: an unknown one comes in as 'user'
  * @param {string} options.dataDir        pending imports wait in DATA_DIR/imports
  * @param {object} options.declaration    what the app's data is (see describeData)
+ * @param {string} [options.migrationScope]  where the app's migrations are recorded: `app` on its
+ *   own, its id as a module of a host; a copy says how many it had, under `schema.app`
  */
 export function createPortability({
   database, accounts, uploads = null, entitlements = null, live = null, audit = null, app, roles = ['admin', 'user'],
   baseUrl = null, authProvider = 'local', dataDir, declaration, log = console.log, clock = () => Date.now(),
-  limits = {},
+  limits = {}, migrationScope = 'app',
 }) {
   const model = describeData(database, declaration);
   const importsDir = path.join(dataDir, 'imports');
@@ -415,7 +433,7 @@ export function createPortability({
   function schemaVersions() {
     const rows = database.all('SELECT scope, MAX(version) AS version FROM schema_migrations GROUP BY scope');
     const of = (scope) => rows.find((r) => r.scope === scope)?.version ?? 0;
-    return { app: of('app'), suite: of('suite') };
+    return { app: of(migrationScope), suite: of('suite') };
   }
 
   /* ---------------------------------- busy ---------------------------------- */
@@ -688,7 +706,9 @@ export function createPortability({
       // Data this install doesn't know would be lost without anybody noticing: better to say so.
       for (const entry of zip.entries) {
         const table = /^data\/(.+)\.json$/.exec(entry.name)?.[1];
-        if (table && table !== 'users' && !model.byName.has(table)) throw invalidData(table, { reason: 'unknown_table' });
+        if (table && table !== 'users' && !model.byName.has(table) && !model.formerly.has(table)) {
+          throw invalidData(table, { reason: 'unknown_table' });
+        }
       }
       let budget = max.data[by];
       let values = max.values[by];
@@ -707,7 +727,12 @@ export function createPortability({
       const users = checkUsers((await readJsonEntry('data/users.json')) ?? []);
       if (!users.length || (manifest.scope === 'account' && users.length !== 1)) throw invalidData('users');
       const tables = new Map();
-      for (const table of model.tables) tables.set(table.name, checkRows(table, (await readJsonEntry(`data/${table.name}.json`)) ?? []));
+      for (const table of model.tables) {
+        // A copy made before the table was renamed has it under a name it had (`was`).
+        let rows = await readJsonEntry(`data/${table.name}.json`);
+        for (const old of table.was) rows ??= await readJsonEntry(`data/${old}.json`);
+        tables.set(table.name, checkRows(table, rows ?? []));
+      }
       const grants = manifest.scope === 'install' ? checkGrants((await readJsonEntry('suite/grants.json')) ?? []) : [];
       const billing = checkBilling(manifest.scope === 'install' ? await readJsonEntry('suite/billing.json') : null);
       return { zip, manifest, users, tables, grants, billing };

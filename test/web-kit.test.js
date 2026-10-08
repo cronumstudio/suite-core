@@ -350,6 +350,132 @@ test('every file the service worker caches for the kit exists', () => {
   for (const file of files) assert.ok(fs.existsSync(new URL(`../web/${file.replace('/suite/', '')}`, import.meta.url)), file);
 });
 
+/* ------------------------------ the app's base ----------------------------- */
+
+test('the kit finds its base by itself: / on its own, the module’s path in a host', async () => {
+  const { baseOf, pathAt, at, BASE } = await import('../web/base.js');
+  assert.equal(baseOf('https://tasks.example/suite/base.js'), '/');
+  assert.equal(baseOf('https://work.example/tasks/suite/base.js'), '/tasks/');
+  assert.equal(baseOf('file:///C:/code/suite-core/web/base.js'), '/', 'not a web page: as on its own');
+  assert.equal(baseOf('not a url'), '/');
+  assert.equal(BASE, '/');
+  assert.equal(at('/api/me'), '/api/me', 'on its own, every path as it always was');
+  assert.equal(pathAt('/tasks/', '/api/me'), '/tasks/api/me');
+  assert.equal(pathAt('/tasks/', '/i18n/es.json'), '/tasks/i18n/es.json');
+  assert.equal(pathAt('/tasks/', 'icons/a.svg'), 'icons/a.svg', 'relative: already the module’s');
+  assert.equal(pathAt('/tasks/', '//cdn.example/x'), '//cdn.example/x');
+  assert.equal(pathAt('/tasks/', 'https://x.example/y'), 'https://x.example/y');
+  // What the kit asks the server goes through it; nothing fetches a path of the site directly.
+  for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
+    const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
+    assert.match(code, /import \{ at(?:, BASE)? \} from '\.\/base\.js'/, file);
+    // Only the host's own routes are asked at the root: which modules someone uses.
+    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`])|import\(['`]\/|get\(['`]\/version/, file);
+  }
+});
+
+test('an app’s pages reach the kit relative to their base, in Node too (tools/web-resolve.mjs)', async () => {
+  await import('../tools/web-resolve.mjs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-pages-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'public', 'js'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'public', 'js', 'page.js'),
+      ["export { at } from '../suite/base.js';", "export { el } from '/suite/dom.js';", ''].join('\n'));
+    const page = await import(pathToFileURL(path.join(dir, 'public', 'js', 'page.js')).href);
+    assert.equal(page.at('/api/x'), '/api/x');
+    assert.equal(typeof page.el, 'function');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** sw-core.js in a sandbox, as a worker registered at `scope` with these caches already there. */
+async function serviceWorker(scope, cacheKeys = []) {
+  const vm = await import('node:vm');
+  const listeners = {};
+  const deleted = [];
+  const installed = [];
+  const opened = [];
+  const self = {
+    registration: { scope },
+    location: { origin: new URL(scope).origin },
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    skipWaiting: () => Promise.resolve(),
+    clients: { claim: () => Promise.resolve(), matchAll: async () => [], openWindow: async (url) => { opened.push(url); } },
+  };
+  const caches = {
+    keys: async () => cacheKeys,
+    delete: async (key) => { deleted.push(key); return true; },
+    open: async () => ({ addAll: async (requests) => { installed.push(...requests.map((r) => r.url)); }, add: async () => {}, put: async () => {} }),
+    match: async () => undefined,
+  };
+  const context = vm.createContext({
+    self, caches, URL, Promise, setTimeout, clearTimeout,
+    Request: class { constructor(url, init) { this.url = url; this.init = init; } },
+    Response: { error: () => ({ error: true }) },
+    fetch: async () => ({ ok: true, clone() { return this; } }),
+  });
+  vm.runInContext(fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8'), context);
+  const fire = async (type, event) => {
+    let waited = null;
+    listeners[type]({ waitUntil: (p) => { waited = p; }, ...event });
+    await waited;
+  };
+  /** Whether the worker answers a GET itself (cache or network first), or leaves it to the browser. */
+  const answers = (url, mode = 'cors') => {
+    let answered = false;
+    listeners.fetch({ request: { method: 'GET', url, mode }, respondWith: () => { answered = true; }, waitUntil: () => {} });
+    return answered;
+  };
+  return { self, fire, answers, deleted, installed, opened };
+}
+
+test('the service worker of an app on its own works as it always did', async () => {
+  const alone = await serviceWorker('https://tasks.example/', ['tasks-v24', 'tasks-v25']);
+  alone.self.suiteWorker({ version: 'tasks-v25', shell: ['/', '/js/main.js'] });
+  await alone.fire('install', {});
+  assert.ok(alone.installed.includes('/suite/kit.css') && alone.installed.includes('/suite/base.js'));
+  assert.ok(alone.installed.includes('/js/main.js'));
+  await alone.fire('activate', {});
+  assert.deepEqual(alone.deleted, ['tasks-v24'], 'the cache keeps its name; the old one goes');
+  assert.equal(alone.answers('https://tasks.example/api/lists'), false);
+  assert.equal(alone.answers('https://tasks.example/version'), false);
+  assert.equal(alone.answers('https://tasks.example/js/main.js'), true);
+});
+
+test('a module’s service worker keeps to its path: its API, its caches, its notices', async () => {
+  const keys = ['/tasks/tasks-v1', '/tasks/tasks-v2', '/notes/notes-v1', 'work-v1'];
+  const tasks = await serviceWorker('https://work.example/tasks/', keys);
+  tasks.self.suiteWorker({ version: 'tasks-v2', shell: ['./', 'js/main.js'], push: { title: 'Tasks' } });
+  await tasks.fire('install', {});
+  assert.ok(tasks.installed.includes('/tasks/suite/kit.css'), 'the kit at the module’s path');
+  assert.ok(tasks.installed.includes('./'), 'the app’s own shell, relative to the worker');
+  await tasks.fire('activate', {});
+  assert.deepEqual(tasks.deleted, ['/tasks/tasks-v1'], 'another module’s cache, and the host’s, stay');
+  assert.equal(tasks.answers('https://work.example/tasks/api/lists'), false, 'its API always reaches the server');
+  assert.equal(tasks.answers('https://work.example/tasks/version'), false);
+  assert.equal(tasks.answers('https://work.example/api/me'), false, 'outside its scope: not its business');
+  assert.equal(tasks.answers('https://work.example/notes/js/main.js'), false);
+  assert.equal(tasks.answers('https://work.example/tasks/js/main.js'), true);
+  assert.equal(tasks.answers('https://work.example/tasks/list/3', 'navigate'), true);
+  // A path the server wrote for a notice is the app's: it opens inside the module.
+  await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/?list=3' } } });
+  await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4' } } });
+  await tasks.fire('notificationclick', { notification: { close() {}, data: {} } });
+  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/?app']);
+
+  const host = await serviceWorker('https://work.example/', keys);
+  host.self.suiteWorker({ version: 'work-v2', shell: ['/'], skip: ['/tasks/', '/notes/'] });
+  await host.fire('activate', {});
+  assert.deepEqual(host.deleted, ['work-v1'], 'the host’s worker clears only its own');
+  assert.equal(host.answers('https://work.example/tasks/js/main.js'), false, 'its modules’ paths are theirs');
+  assert.equal(host.answers('https://work.example/tasks'), false);
+  assert.equal(host.answers('https://work.example/js/shell.js'), true);
+});
+
 /* ------------------------------ texts in code ----------------------------- */
 
 test('the kit writes no text for people in its code, and every key it uses exists', async () => {

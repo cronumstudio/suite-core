@@ -228,6 +228,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-switch[aria-checked="true"]::after { inset-inline-start: 19px; }
 .kit-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .kit-switch-row small { display: block; color: var(--kit-muted); font-size: 12.5px; }
+.kit-switch-row--swatch > span:first-child { display: flex; align-items: center; gap: 8px; }
 
 /* One choice among a few, side by side (the theme). */
 .kit-segmented { display: inline-flex; flex-wrap: wrap; padding: 3px; border-radius: 10px; background: var(--kit-hover); gap: 2px; }
@@ -468,7 +469,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
  * back to unfold it. Container queries, so the frame answers to its own width.
  */
 
-.kit-app { container: kit-app / inline-size; position: fixed; inset: 0; background: var(--kit-bg); }
+.kit-app {
+  container: kit-app / inline-size; position: fixed; inset: 0; background: var(--kit-bg);
+  /* The sidebar's width beside the views; an app laying out its own columns uses it too. */
+  --kit-side-width: 260px;
+}
 .kit-shell {
   position: absolute; inset: 0; display: grid; overflow: hidden;
   grid-template-columns: minmax(0, 1fr);
@@ -555,7 +560,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* A tablet: the sidebar stays; the list and its detail are still two screens. */
 @container kit-app (min-width: 640px) {
   .kit-app[data-layout="side"] .kit-shell {
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: var(--kit-side-width) minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr);
     grid-template-areas: "side bar" "side banners" "side main";
   }
@@ -572,7 +577,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* A computer: the list and its detail side by side. */
 @container kit-app (min-width: 960px) {
   .kit-app[data-layout="side"][data-panes="split"] .kit-shell {
-    grid-template-columns: 260px minmax(260px, 340px) minmax(0, 1fr);
+    grid-template-columns: var(--kit-side-width) minmax(260px, 340px) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas: "side banners banners" "side list detail";
   }
@@ -603,7 +608,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   .kit-app[data-layout="side"][data-folded] .kit-side { display: none; }
   .kit-app[data-layout="side"][data-folded] .kit-scrim { display: block; }
   .kit-app[data-layout="side"][data-folded][data-drawer] .kit-side {
-    display: flex; position: absolute; inset-block: 0; inset-inline-start: 0; width: 260px; box-shadow: var(--kit-shadow-high);
+    display: flex; position: absolute; inset-block: 0; inset-inline-start: 0; width: var(--kit-side-width); box-shadow: var(--kit-shadow-high);
   }
   .kit-app[data-layout="side"][data-folded][data-drawer] .kit-side__fold { display: none; }
 }
@@ -615,6 +620,40 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   }
   /* The detail is beside the list here: nothing to go back from. */
   .kit-app[data-layout="side"][data-panes="split"][data-folded] .kit-bar__back { display: none; }
+}
+
+/*
+ * The modules of a host (shell.js, in Cronum Work): a rail at the start of the
+ * sidebar with each module the person uses, and the host's home above them. It
+ * comes with the sidebar, so on a phone it is in the drawer. Ink in both themes,
+ * as the brand's frame around the products' colours.
+ */
+.kit-app[data-rail] { --kit-side-width: 326px; }
+.kit-side__main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.kit-side[data-rail] { flex-direction: row; padding-top: 0; width: min(356px, 92%); }
+.kit-side[data-rail] .kit-side__main { padding-top: var(--kit-safe-top); }
+.kit-rail {
+  flex: none; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 4px; overflow-y: auto;
+  padding: calc(12px + var(--kit-safe-top)) 0 calc(12px + var(--kit-safe-bottom)); background: var(--cr-ink);
+}
+.kit-rail__home { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 8px; border-radius: 12px; color: var(--cr-cream); }
+.kit-rail__home img { width: 32px; height: 32px; border-radius: 9px; display: block; }
+.kit-rail__module {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 58px; padding: 6px 2px;
+  border-radius: 12px; color: var(--cr-stone-dark); text-decoration: none;
+}
+.kit-rail__module img { width: 28px; height: 28px; border-radius: 8px; display: block; }
+.kit-rail__name { font: 500 10.5px/1.2 var(--kit-font); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-rail__module:hover, .kit-rail__home:hover { background: rgba(255, 247, 230, .08); }
+.kit-rail__module[aria-current="page"] { background: rgba(255, 247, 230, .12); color: var(--cr-cream); }
+/* The module open now: its colour at the rail's edge. */
+.kit-rail__module[aria-current="page"]::before {
+  content: ''; position: absolute; inset-inline-start: -4px; inset-block: 10px; width: 4px; border-radius: 0 4px 4px 0;
+  background: var(--module, var(--cr-cream));
+}
+.kit-rail a:focus-visible { outline: 2px solid var(--cr-cream); outline-offset: 1px; }
+@container kit-app (min-width: 640px) {
+  .kit-app[data-layout="side"] .kit-side[data-rail] { width: auto; }
 }
 
 /* -------------------------------- sign-in --------------------------------- */

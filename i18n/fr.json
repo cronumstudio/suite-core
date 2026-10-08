@@ -89,6 +89,7 @@
   "fields.email_verified": "E-mail confirmé",
   "fields.expires_at": "Expiration",
   "fields.invitation": "Invitation",
+  "fields.modules": "Modules",
   "fields.name": "Nom",
   "fields.password": "Mot de passe",
   "fields.period_end": "Fin de la période",
@@ -609,5 +610,15 @@
   "errors.idempotency_key_invalid": "Cette modification est arrivée avec une clé que le serveur n’accepte pas.",
   "errors.idempotency_key_reused": "La clé de cette modification a déjà servi pour autre chose.",
   "errors.idempotency_in_progress": "Cette modification est encore en cours d’enregistrement.",
-  "errors.lost_creation": "Elle portait sur quelque chose dont la création n’est jamais arrivée au serveur."
+  "errors.lost_creation": "Elle portait sur quelque chose dont la création n’est jamais arrivée au serveur.",
+  "kit.modules.rail": "Modules",
+  "kit.modules.home": "Choisir ce que vous utilisez",
+  "kit.modules.title": "Modules",
+  "kit.modules.hint": "Activez ce que vous utilisez.",
+  "kit.modules.one": "Avec un seul, l’app s’ouvre directement dessus. Avec deux ou plus, vous passez de l’un à l’autre depuis la colonne latérale ; sur un téléphone, depuis ☰.",
+  "kit.modules.off": "Un module désactivé garde vos données : il quitte seulement vos menus.",
+  "kit.modules.last": "Il en reste au moins un activé.",
+  "kit.modules.icons": "Icônes sur l’écran d’accueil",
+  "kit.modules.install": "Chaque module peut avoir sa propre icône, qui l’ouvre directement : ouvrez le module et installez-le depuis le menu du navigateur.",
+  "kit.modules.open": "Ouvrir {name}"
 }

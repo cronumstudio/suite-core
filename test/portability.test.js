@@ -18,6 +18,7 @@ import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
 import { describeData, selectRows, ownership } from '../portability.js';
 import { openDatabase } from '../db.js';
+import { SUITE_MIGRATIONS } from '../schema.js';
 import { runDataCli } from '../tools/data-cli.js';
 
 const PRODUCT = {
@@ -190,7 +191,42 @@ test('the declaration is checked against the database: a mistake stops the start
   assert.throws(() => describeData(database, {
     tables: { lists: { refs: { owner_id: 'users' } }, tasks: { refs: { list_id: 'lists' } }, files: { refs: { task_id: 'tasks', user_id: 'users' }, file: { folder: 'task_id' } } },
   }), /file.folder/);
+  // A renamed table says the names it had: never one declared now, nor another's.
+  assert.throws(() => describeData(database, { tables: { groups: { refs: { user_id: 'users' } }, lists: { was: 'groups', refs: { owner_id: 'users' } } } }),
+    /lists\.was: "groups" is a table declared now/);
+  assert.throws(() => describeData(database, { tables: { groups: { was: 'teams', refs: { user_id: 'users' } }, lists: { was: ['teams'], refs: { owner_id: 'users' } } } }),
+    /"teams" is groups's old name too/);
+  assert.throws(() => describeData(database, { tables: { groups: { was: 'Bad Name', refs: { user_id: 'users' } } } }), /is not a table's name/);
   database.close();
+});
+
+test('a copy made before a table was renamed comes in under its new name', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const file = path.join(source.dir, 'ana.zip');
+  await exportTo(source, file, { scope: 'account', userId: s.ana.id });
+
+  // The same app a release later: its groups are its collections now.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-data-'));
+  const suite = createSuite({
+    config: PRODUCT, log: () => {}, exitOnError: false, env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1' },
+    migrations: [...MIGRATIONS, { version: 2, name: 'collections', up: (d) => d.exec('ALTER TABLE groups RENAME TO collections') }],
+  });
+  t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const { groups, ...rest } = DATA.tables;
+  const renamed = {
+    ...DATA,
+    tables: { collections: { ...groups, was: ['groups'] }, ...rest, lists: { refs: { owner_id: 'users', group_id: 'collections' } } },
+  };
+  const portability = suite.portabilityFor(renamed, { version: '2.0.0' });
+  const me = suite.accounts.create({ username: 'ana', displayName: 'Ana', role: 'user' }, { quiet: true });
+  const plan = await portability.planFile(file, { mode: 'account', user: me });
+  assert.equal(plan.copy.tables.collections, 1);
+  await portability.applyFile(file, { mode: 'account', user: me });
+  const home = suite.database.get("SELECT * FROM collections WHERE name = 'Home'");
+  assert.equal(home.user_id, me.id);
+  assert.equal(suite.database.get("SELECT group_id FROM lists WHERE name = 'Shopping'").group_id, home.id, 'and what pointed at it, still does');
+  assert.deepEqual(portability.schemaVersions(), { app: 2, suite: SUITE_MIGRATIONS.length });
 });
 
 test('whose rows: required references decide, optional ones are emptied, shares stay behind', () => {
