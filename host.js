@@ -130,6 +130,118 @@ export function mountManifest(manifest, mount) {
 }
 
 /**
+ * What Claude Code reads of the server's instructions and of a tool's
+ * description: the rest is cut, without a sign.
+ */
+export const MCP_TEXT_MAX = 2048;
+
+const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
+
+/**
+ * The host's instructions for an assistant: one line about the host, then
+ * each module's own, short (`mcp.brief`, a text or `(name) => text` that gets
+ * each tool's name as the host gives it; without it, the first paragraph of
+ * its instructions). Whole parts only, as many as fit.
+ */
+export function hostInstructions({ modules, hostName, max = MCP_TEXT_MAX, log = () => {} }) {
+  if (!modules.length) return '';
+  const names = modules.map((m) => m.config.app.name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  const parts = [`${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
+    + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')}).`];
+  for (const m of modules) {
+    const spec = m.parts.mcp;
+    const name = (tool) => `${m.mount}_${tool}`;
+    parts.push(typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions));
+  }
+  let text = '';
+  const left = [];
+  for (const part of parts.filter(Boolean)) {
+    const next = text ? `${text}\n\n${part}` : part;
+    if (next.length <= max) text = next;
+    else left.push(part.slice(0, 40));
+  }
+  if (left.length) log(`[mcp] the instructions don't fit in ${max} characters; left out: ${left.join(' | ')}…`);
+  return text;
+}
+
+/**
+ * One MCP for every module of a host, at the host's /mcp: each module's tools
+ * with its path before their name (`tasks_add_task`), checked against that
+ * module's plan features, and only those of the modules each person uses in
+ * their list. A module's tool also answers to its own name when no other
+ * module has one like it, and to its old names: an assistant used to the app
+ * on its own still reaches it (not announced). Prompts the same way. Null
+ * when no module brings tools.
+ */
+export function hostMcp({ modules, uses = () => true, hostName = 'The app', log = () => {} }) {
+  const entries = [];
+  for (const m of modules) {
+    for (const tool of m.parts?.mcp?.tools || []) entries.push({ m, tool, name: `${m.mount}_${tool.name}` });
+  }
+  if (!entries.length) return null;
+  const names = new Set(entries.map((e) => e.name));
+  const count = new Map();
+  for (const { tool } of entries) count.set(tool.name, (count.get(tool.name) || 0) + 1);
+  const legacyTools = {};
+  for (const { tool, name } of entries) {
+    if (count.get(tool.name) === 1 && !names.has(tool.name)) legacyTools[tool.name] = name;
+  }
+  for (const m of modules) {
+    for (const [old, current] of Object.entries(m.parts?.mcp?.legacyTools || {})) {
+      const target = `${m.mount}_${current}`;
+      if (!names.has(target)) continue;
+      legacyTools[`${m.mount}_${old}`] = target;
+      const elsewhere = modules.some((other) => other !== m && (other.parts?.mcp?.tools || []).some((t) => t.name === old || other.parts?.mcp?.legacyTools?.[old]));
+      if (!elsewhere && !names.has(old) && !count.has(old)) legacyTools[old] = target;
+    }
+  }
+  const legacyParams = Object.assign({}, ...modules.map((m) => m.parts?.mcp?.legacyParams || {}));
+  const byMount = new Map(modules.map((m) => [m.mount, m]));
+
+  const tools = entries.map(({ m, tool, name }) => ({
+    ...tool,
+    name,
+    module: m.mount,
+    // A module's errors read as that module says, for the assistant to pass on.
+    handler: async (principal, args) => {
+      try {
+        return await tool.handler(principal, args);
+      } catch (error) {
+        const text = m.parts.mcp.describeError?.(error);
+        if (text) return { isError: true, content: [{ type: 'text', text }] };
+        throw error;
+      }
+    },
+  }));
+  const allows = (principal, tool) => {
+    const m = byMount.get(tool.module);
+    if (!m) return true;
+    if (!uses(principal, m.mount)) {
+      return `${m.config.app.name} is turned off for this person: they can turn it on in ${hostName}, Settings › Modules.`;
+    }
+    return m.view.entitlements.allows(principal, tool);
+  };
+  const visible = (principal, tool) => !principal || uses(principal, tool.module);
+
+  const sources = modules.filter((m) => m.parts?.mcp?.prompts);
+  const prompts = sources.length ? {
+    list: (principal) => sources.filter((m) => !principal || uses(principal, m.mount))
+      .flatMap((m) => m.parts.mcp.prompts.list().map((p) => ({ ...p, name: `${m.mount}_${p.name}` }))),
+    get: (name, args, principal) => {
+      const m = sources.find((s) => String(name).startsWith(`${s.mount}_`));
+      if (!m || (principal && !uses(principal, m.mount))) return null;
+      return m.parts.mcp.prompts.get(name.slice(m.mount.length + 1), args);
+    },
+  } : null;
+
+  const instructions = (principal) => hostInstructions({
+    modules: modules.filter((m) => m.parts?.mcp && (!principal || uses(principal, m.mount))), hostName, log,
+  });
+  return { instructions, tools, prompts, legacyTools, legacyParams, allows, visible };
+}
+
+/**
  * The suite of an app inside a host that is loading it, or null anywhere else
  * —the app on its own—, where the app goes on with createSuite() as always.
  * Same options as createSuite: the app's suite.config.js, its migrations and
@@ -370,8 +482,13 @@ export async function createHost({
     };
   }
 
+  /** Whether someone uses a module: every one until they choose. */
+  const uses = (user, mount) => modulesOf(user).modules.some((m) => m.mount === mount && m.active);
+
+  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log });
+
   const root = createApp({
-    suite, publicDir, version, handleSignals: false, log,
+    suite, publicDir, version, handleSignals: false, log, mcp,
     routes: (api) => {
       api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
       api.put('/api/me/modules', async (ctx) => {
@@ -448,6 +565,12 @@ export async function createHost({
     const rest = url.pathname.slice(mount.length + 1).replace(/^\/{2,}/, '/');
     if (!rest) {
       redirect(res, 308, `/${mount}/${url.search}`);
+      return undefined;
+    }
+    // One MCP for every module, at the root: a client given a module's address learns where it is.
+    if (rest === '/mcp' || rest.startsWith('/mcp/')) {
+      securityHeaders(res, { https: install.https });
+      sendJson(res, 404, { error: 'not_found', mcp: `${install.baseUrl}/mcp` });
       return undefined;
     }
     // One admin panel for the whole host, at the root.

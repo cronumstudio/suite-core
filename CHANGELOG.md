@@ -36,6 +36,16 @@ change an interface and a patch never does. Apps pin a version through the submo
   module's id in a host, which passes it), so a module's copies and imports compare like an app's.
 - **`tools/web-resolve.mjs`** also finds the kit when an app's pages import it relative to their
   base (`../suite/x.js` from `public/js/`), as an app that runs as a module writes it.
+- **Each person chooses their modules** (`host_modules`, the host's first migration): every one
+  until they choose; `GET /api/modules` says which are on, `PUT /api/me/modules` sets them, and
+  Settings › Modules has a switch per module. In a host, the shell draws a rail with the modules
+  someone uses (a drawer on phones) and remembers on the device the one used last. A module turned
+  off keeps its data and still opens at its path.
+- **One MCP for every module** at the host's `/mcp`: each module's tools under its name
+  (`tasks_add_task`), only those of the modules someone uses, and its old names still answered
+  (not announced). The instructions are made per person from each module's `mcp.brief`, whole
+  parts only, under 2048 characters. `/<mount>/mcp` answers 404 with where the MCP is. The calls of
+  the day from assistants (`mcp.calls_per_day`, in the host's plans) count once for the whole app.
 
 ## 0.52.0 — 2026-10-08
 
