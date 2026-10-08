@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.50.0 — 2026-10-08
+
+- **The suite's plans, written once.** `plans.js` holds the catalog of the hosted suite,
+  `cronum-work` (Free, Pro and Team, as the note «Beneficios de cada plan» decides them), and an
+  install names it with `PLANS=cronum-work` instead of copying a JSON into each app. An app reads
+  only the features it declares; one it declares that the catalog doesn't set stops the start, as
+  it would be left unlimited. `COMMON_FEATURES` and `pick()` give the features every app names the
+  same: `retention.days`, `storage.mb`, `assign`, `publish`, `templates`, `mcp` and
+  `mcp.calls_per_day`. A PLANS JSON keeps working as before.
+- **What Free keeps for some days counts them from when Pro ended.** `entitlements.cutoff(user,
+  feature)` says before when something done or deleted goes: null while the days since the end of
+  the last grant that kept things longer have not passed (or with no limit), `now − days` after
+  that. Dropping to a smaller plan no longer means nothing is ever deleted: it means nothing is
+  deleted at once. Each app sweeps its own data with it.
+- **Calls from assistants per day.** With `mcp.calls_per_day` declared, the MCP transport spends one
+  of the person's calls of the day (UTC) on each tool call (`entitlements.countDaily()`, migration 20
+  `entitlement_usage`); listing tools and prompts doesn't count, nor does what is refused. Once
+  they are used up the assistant reads a sentence it can pass on, with when they come back and which
+  plan has more (`dailyLimitText()`). `createMcpServer({ quota })` takes the check.
+
 ## 0.49.0 — 2026-10-08
 
 - **One check of texts written in the code, for the whole suite and its servers.** `tools/i18n.mjs

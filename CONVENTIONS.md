@@ -109,7 +109,7 @@ names are the same in every app:
 | `HOT_RELOAD` | Restart when `server/` changes (development and the NAS setup) |
 | `PUID`, `PGID` | Owner of the data folder when the container cannot write to it |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push; generated when empty |
-| `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install |
+| `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install: a JSON, or the suite's catalog by name (`cronum-work`, suite-core `plans.js`) |
 | `BILLING_PROVIDER`, `STRIPE_*`, `PADDLE_*`, `EARLY_ACCESS_UNTIL` | Billing (`stripe`, `paddle`, `remote`); off when empty. Until that date, the founder's price |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 

@@ -11,7 +11,8 @@
  * A tool is `{ name, title, description, inputSchema, handler(principal, args) }`
  * and may declare the `feature` it needs: with `allows(principal, tool)` the
  * app's plans decide, before the tool runs, and the assistant gets a sentence
- * it can pass on instead of a failure.
+ * it can pass on instead of a failure. `quota(principal, tool)` spends one of
+ * the person's calls of the day the same way, after `allows`.
  *
  * Tools and parameters that were renamed keep working through `legacyTools`
  * and `legacyParams`: a client connected before the rename keeps its cached
@@ -36,6 +37,18 @@ const textResult = (text, isError = false) => ({
   ...(isError ? { isError: true } : {}), content: [{ type: 'text', text }],
 });
 
+/**
+ * What an assistant reads when the calls of the day are used up
+ * (entitlements.js countDaily): a sentence to pass on, with when they come
+ * back and which plan has more, and the hint not to keep trying.
+ */
+export function dailyLimitText({ plan_name: planName, limit, more }, appName) {
+  const better = !more ? ''
+    : ` The ${more.name} plan includes ${more.limit === null ? 'unlimited calls' : `${more.limit.toLocaleString('en')} a day`}.`;
+  return `Daily limit reached: the ${planName} plan includes ${limit.toLocaleString('en')} calls a day from an assistant `
+    + `to ${appName}, and today's are used up. They start again at 00:00 UTC.${better} Tell the person, and don't retry today.`;
+}
+
 /** The token of a request: the Authorization header, the X-MCP-Token header, or ?token=. */
 export function bearerToken(req, url = null) {
   const header = req.headers.authorization;
@@ -57,6 +70,7 @@ export function bearerToken(req, url = null) {
  * @param {{checkToken, tokenFailed, tokenSucceeded}} [options.limiter]
  * @param {(error) => boolean} [options.unavailable]   errors meaning "can't check the token now" → 503
  * @param {(principal, tool) => true|string} [options.allows]   plans: true, or the sentence why not
+ * @param {(principal, tool) => true|string} [options.quota]    a call of the day spent: true, or the sentence why not
  * @param {(error) => string|null} [options.describeError]   the app's errors as text for the assistant
  * @param {object} [options.legacyTools]    old name → current name
  * @param {object} [options.legacyParams]   old parameter → current parameter
@@ -64,7 +78,7 @@ export function bearerToken(req, url = null) {
 export function createMcpServer({
   serverInfo, instructions = '', tools = [], prompts = null,
   authenticate, challenge, oauthOffered = false, limiter = null,
-  unavailable = () => false, allows = () => true, describeError = () => null,
+  unavailable = () => false, allows = () => true, quota = () => true, describeError = () => null,
   legacyTools = {}, legacyParams = {}, log = console.error,
 }) {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -90,6 +104,8 @@ export function createMcpServer({
     if (!tool) return textResult(`Unknown tool: ${name}`, true);
     const allowed = allows(principal, tool);
     if (allowed !== true) return textResult(String(allowed || 'Your plan does not include this.'), true);
+    const spent = quota(principal, tool);
+    if (spent !== true) return textResult(String(spent || 'The calls of today are used up.'), true);
     try {
       return await tool.handler(principal, withCurrentParams(args));
     } catch (error) {

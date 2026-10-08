@@ -13,6 +13,7 @@ import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { createEntitlements, importUserPlans } from '../entitlements.js';
+import { PLAN_CATALOGS, COMMON_FEATURES, pick } from '../plans.js';
 import { HttpError } from '../http.js';
 
 const DAY = 24 * 3600 * 1000;
@@ -122,6 +123,105 @@ test('grants: a window, the most generous wins, the admin is never limited', (t)
   // Cancelled at the provider: revoked by its reference.
   assert.equal(e.revoke({ source: 'stripe', externalRef: 'order_9' }), 1);
   assert.equal(e.can(ada, 'attachments'), false);
+});
+
+test('PLANS=cronum-work: the suite’s catalog, read for the features the app has', (t) => {
+  const database = setup(t);
+  const features = { ...pick(COMMON_FEATURES, ['retention.days', 'assign', 'mcp', 'mcp.calls_per_day']), 'lists.max': FEATURES['lists.max'] };
+  const e = createEntitlements({ database, appId: 'tasks', features, plansJson: 'cronum-work' });
+  assert.deepEqual(e.errors, []);
+  assert.deepEqual(e.describe().plans.map((p) => [p.id, p.name]), [['free', 'Free'], ['pro', 'Pro'], ['team', 'Team']]);
+  assert.equal(e.describe().defaultPlan, 'free');
+  assert.deepEqual(e.of(ada).features, { 'retention.days': 90, assign: false, mcp: true, 'mcp.calls_per_day': 100, 'lists.max': 20 });
+  e.grant({ subjectId: 1, plan: 'pro', source: 'paddle' });
+  assert.deepEqual(e.of(ada).features, { 'retention.days': null, assign: true, mcp: true, 'mcp.calls_per_day': 1000, 'lists.max': null });
+
+  // A feature the catalog doesn't set would be left unlimited: the start stops instead.
+  const loose = createEntitlements({ database, appId: 'x', features: { ...features, 'boards.max': { type: 'limit' } }, plansJson: 'cronum-work' });
+  assert.ok(loose.errors.some((m) => /plan "free" says nothing of "boards.max"/.test(m)));
+  assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-play' }).errors[0], /no catalog of the suite \(cronum-work\)/);
+  assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-work', defaultPlanOverride: 'gratis' }).errors[0],
+    /default plan "gratis"/, 'an old DEFAULT_PLAN stops the start, naming the plans there are');
+});
+
+test('the suite’s catalog: every plan sets every feature, and each one gives at least what the one before it', () => {
+  for (const [name, plans] of Object.entries(PLAN_CATALOGS)) {
+    const ids = Object.keys(plans);
+    const keys = Object.keys(plans[ids[0]].features);
+    for (const key of Object.keys(COMMON_FEATURES)) assert.ok(keys.includes(key), `${name}: ${key}`);
+    for (let i = 1; i < ids.length; i++) {
+      const [before, after] = [plans[ids[i - 1]].features, plans[ids[i]].features];
+      assert.deepEqual(Object.keys(after).sort(), [...keys].sort(), `${name}/${ids[i]} sets the same features`);
+      for (const key of keys) {
+        const more = typeof before[key] === 'boolean' ? (!before[key] || after[key])
+          : after[key] === null || (before[key] !== null && after[key] >= before[key]);
+        assert.ok(more, `${name}: ${ids[i]} gives no less ${key} than ${ids[i - 1]}`);
+      }
+    }
+  }
+  assert.throws(() => pick(COMMON_FEATURES, ['nope']), /not a common feature/);
+});
+
+test('cutoff: what Free keeps 90 days counts them from when Pro ended', (t) => {
+  const database = setup(t);
+  let now = Date.parse('2026-03-01T12:00:00Z');
+  const features = pick(COMMON_FEATURES, ['retention.days', 'assign']);
+  const e = createEntitlements({ database, appId: 'tasks', features, plansJson: 'cronum-work', clock: () => now });
+  const edge = (days) => new Date(now - days * DAY).toISOString();
+  assert.equal(e.cutoff(ada, 'retention.days'), edge(90), 'always on Free: older than 90 days goes');
+  assert.equal(e.cutoff(root, 'retention.days'), null, 'the admin keeps everything');
+  assert.throws(() => e.cutoff(ada, 'assign'), /not a limit/);
+
+  // Pro for a month: nothing goes while it lasts, nor for 90 days after it ends.
+  e.grant({ subjectId: 1, plan: 'pro', source: 'paddle', externalRef: 'sub_1', endsAt: new Date(now + 30 * DAY).toISOString() });
+  assert.equal(e.cutoff(ada, 'retention.days'), null);
+  now += 31 * DAY;
+  assert.equal(e.of(ada).plan.id, 'free');
+  assert.equal(e.cutoff(ada, 'retention.days'), null, 'a day after Pro ended');
+  now += 88 * DAY;
+  assert.equal(e.cutoff(ada, 'retention.days'), null, '89 days after');
+  now += 2 * DAY;
+  assert.equal(e.cutoff(ada, 'retention.days'), edge(90), '91 days after: back to the plain 90 days');
+
+  // Revoked (a cancellation, a refund) counts as its end too, and so does a single feature given for a while.
+  e.grant({ subjectId: 1, plan: 'pro', source: 'paddle', externalRef: 'sub_2' });
+  now += DAY;
+  e.revoke({ source: 'paddle', externalRef: 'sub_2' });
+  now += DAY;
+  assert.equal(e.cutoff(ada, 'retention.days'), null, 'cancelled yesterday');
+  now += 100 * DAY;
+  e.grant({ subjectId: 1, feature: 'retention.days', value: 365, source: 'promo', endsAt: new Date(now + DAY).toISOString() });
+  now += 2 * DAY;
+  assert.equal(e.cutoff(ada, 'retention.days'), null, 'a year of keeping, ended yesterday');
+  // Something less generous ending changes nothing.
+  now += 100 * DAY;
+  e.grant({ subjectId: 1, feature: 'retention.days', value: 30, source: 'admin', endsAt: new Date(now + DAY).toISOString() });
+  now += 2 * DAY;
+  assert.equal(e.cutoff(ada, 'retention.days'), edge(90));
+});
+
+test('countDaily: calls of the day per person, refused ones not counted, back the next day', (t) => {
+  const database = setup(t);
+  let now = Date.parse('2026-03-01T23:00:00Z');
+  const features = pick(COMMON_FEATURES, ['mcp.calls_per_day']);
+  const e = createEntitlements({ database, appId: 'tasks', features,
+    plansJson: JSON.stringify({ free: { name: 'Free', 'mcp.calls_per_day': 2 }, plus: { name: 'Plus', 'mcp.calls_per_day': 1 }, pro: { name: 'Pro', 'mcp.calls_per_day': 5 } }),
+    clock: () => now });
+  assert.deepEqual(e.errors, []);
+  assert.equal(e.countDaily(ada, 'mcp.calls_per_day').used, 1);
+  assert.equal(e.countDaily(ada, 'mcp.calls_per_day').allowed, true);
+  const spent = e.countDaily(ada, 'mcp.calls_per_day');
+  assert.deepEqual(spent, { allowed: false, used: 2, limit: 2, plan: 'free', plan_name: 'Free', more: { id: 'pro', name: 'Pro', limit: 5 } },
+    'the next plan with more, skipping one with less');
+  assert.equal(e.countDaily(ada, 'mcp.calls_per_day').used, 2, 'a refused call is not counted');
+  assert.equal(e.countDaily({ id: 3, role: 'user' }, 'mcp.calls_per_day').allowed, true, 'each person has their own');
+  assert.deepEqual(e.countDaily(root, 'mcp.calls_per_day'), { allowed: true, used: null, limit: null, plan: 'free', plan_name: 'Free', more: null });
+
+  now += 2 * 3600 * 1000;   // past midnight UTC
+  assert.equal(e.countDaily(ada, 'mcp.calls_per_day').used, 1);
+  assert.deepEqual(database.all('SELECT day FROM entitlement_usage WHERE user_id = 1').map((r) => r.day), ['2026-03-02'], 'yesterday is cleared');
+  e.grant({ subjectId: 1, plan: 'pro', source: 'paddle' });
+  assert.deepEqual([e.countDaily(ada, 'mcp.calls_per_day').limit, e.countDaily(ada, 'mcp.calls_per_day').more], [5, null]);
 });
 
 test('an organization’s plan covers its members', (t) => {
