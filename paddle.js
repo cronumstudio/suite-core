@@ -256,6 +256,29 @@ export function paddleProvider({
   }
 
   return {
-    id: 'paddle', needsPrice: true, environment, checkoutUrl: checkout, portalUrl, parseWebhook, translate,
+    id: providerId(environment), needsPrice: true, environment, checkoutUrl: checkout, portalUrl, parseWebhook, translate,
   };
+}
+
+/**
+ * The provider's id, which billing.js writes on customers, subscriptions,
+ * events and grants: one per environment. The sandbox's customers and
+ * subscriptions don't exist in the live account, so an install that moves
+ * from one to the other must not find the old ones (a sandbox customer handed
+ * to the live API fails the checkout; a sandbox subscription would say
+ * "already subscribed").
+ */
+export const providerId = (environment) => (environment === 'sandbox' ? 'paddle-sandbox' : 'paddle');
+
+/**
+ * Migration 19: before 0.48.0 both environments wrote "paddle", and the only
+ * Paddle data any install has from then is the sandbox's (the live account
+ * sold nothing before this version), so it becomes "paddle-sandbox".
+ */
+export function paddleEnvironmentsSchema(d) {
+  const has = (table) => d.columnsOf(table).length > 0;
+  for (const table of ['billing_customers', 'billing_subscriptions', 'billing_events', 'billing_pending']) {
+    if (has(table)) d.run(`UPDATE ${table} SET provider = 'paddle-sandbox' WHERE provider = 'paddle'`);
+  }
+  if (has('entitlement_grants')) d.run("UPDATE entitlement_grants SET source = 'paddle-sandbox' WHERE source = 'paddle'");
 }

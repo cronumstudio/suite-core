@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.48.0 — 2026-10-08
+
+- **Paddle's sandbox and live account apart.** Billing writes the provider's id on customers,
+  subscriptions, events and grants, and both environments wrote `paddle`: an install moved from the
+  sandbox to the live account (`PADDLE_ENV`) found a sandbox customer, which the live API doesn't
+  know, and the checkout failed; a sandbox subscription still active would have answered
+  "already subscribed". Now the sandbox is `paddle-sandbox` and the live account `paddle`
+  (`providerId()`), and migration 19 marks what was written before as the sandbox's: the live
+  account sold nothing before this version.
+
 ## 0.47.0 — 2026-10-08
 
 - **Undo and redo.** `undo-2` and `redo-2`, from [Lucide](https://lucide.dev) 1.53.0 (ISC), one

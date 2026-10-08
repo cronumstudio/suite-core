@@ -20,7 +20,7 @@ import { createAccounts } from '../accounts.js';
 import { createEntitlements } from '../entitlements.js';
 import { createBilling } from '../billing.js';
 import { resolveConfig } from '../config.js';
-import { paddleProvider, verifyPaddleSignature, signPaddlePayload } from '../paddle.js';
+import { paddleProvider, verifyPaddleSignature, signPaddlePayload, providerId } from '../paddle.js';
 
 const DAY = 24 * 3600 * 1000;
 const SECRET = 'pdl_ntfset_01k0000000000000000000000_secretofthedestination';
@@ -266,7 +266,7 @@ test('a subscription: bought, renewed, cancelled at the end of the period, and e
   assert.equal(await deliver(subscriptionEvent('evt_2', {
     type: 'subscription.updated', occurredAt: '2027-11-01T10:00:01Z', endsAt: '2028-11-01T10:00:00Z',
   })), 'extended');
-  const grant = database.get("SELECT * FROM entitlement_grants WHERE source = 'paddle'");
+  const grant = database.get("SELECT * FROM entitlement_grants WHERE source = 'paddle-sandbox'");
   assert.equal(grant.ends_at, new Date(Date.parse('2028-11-01T10:00:00Z') + 3 * DAY).toISOString(), 'the paid period and three days of grace');
   // Cancelled in the portal: active until the period ends.
   assert.equal(await deliver(subscriptionEvent('evt_3', {
@@ -365,7 +365,7 @@ test('one subscription for every app: each applies it by the WorkOS id, and one 
 
   const adaInNext = next.signIn(ADA, 'ada');
   assert.equal(next.planOf(adaInNext), 'pro', 'Pro at her first sign-in');
-  const grant = next.database.get("SELECT * FROM entitlement_grants WHERE source = 'paddle' AND revoked_at IS NULL");
+  const grant = next.database.get("SELECT * FROM entitlement_grants WHERE source = 'paddle-sandbox' AND revoked_at IS NULL");
   assert.equal(grant.subject_id, adaInNext.id);
   assert.equal(grant.ends_at, new Date(Date.parse('2028-11-01T10:00:00Z') + 3 * DAY).toISOString(), 'with the latest period');
   assert.equal(next.database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 0);
@@ -412,6 +412,51 @@ test('an identity that never comes: the event is dropped after a while; a broken
   const ada = next.signIn(ADA, 'ada');
   assert.ok(ada.id, 'signed in all the same');
   assert.ok(next.logs.some((line) => /could not be applied/.test(line)));
+});
+
+/* ----------------------------- environments ----------------------------- */
+
+test('sandbox and live apart: moving an install to live finds none of the sandbox\'s customers or subscriptions', async (t) => {
+  const sandbox = app(t);
+  const ada = sandbox.signIn(ADA, 'ada');
+  await sandbox.deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' }));
+  assert.equal(sandbox.billing.provider, 'paddle-sandbox');
+  assert.equal(sandbox.billing.customerOf({ type: 'user', id: ada.id }), 'ctm_01ada');
+
+  // The same database, now with the live account.
+  const paddle = fakePaddle();
+  const live = paddleProvider({
+    apiKey: 'pdl_live_apikey_test', webhookSecret: SECRET, environment: 'production', products: PRODUCTS, fetch: paddle.fetch,
+  });
+  assert.equal(live.id, 'paddle');
+  assert.deepEqual([providerId('sandbox'), providerId('production')], ['paddle-sandbox', 'paddle']);
+  const billing = createBilling({
+    database: sandbox.database, entitlements: sandbox.entitlements, provider: live, products: PRODUCTS, log: () => {},
+    identities: { of: () => ({ provider: 'workos', subject: ADA }), user: () => ada.id },
+  });
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), null, 'no sandbox customer for the live API');
+  await billing.checkoutUrl({ type: 'user', id: ada.id }, 'pro-yearly', { email: 'ada@example.com', user: ada, returnUrl: 'x' });
+  assert.equal(paddle.calls.at(-1).body.customer_id, 'ctm_new0', 'a live customer, found or made by email');
+});
+
+test('migration 19: what Paddle wrote before 0.48.0 was the sandbox\'s', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-paddle-env-'));
+  const database = openDatabase({ dataDir: dir, name: 'test' });
+  t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  migrate(database, SUITE_MIGRATIONS.filter((m) => m.version <= 18), { scope: 'suite', log: () => {} });
+  const at = '2026-10-08T13:22:24.000Z';
+  database.run(`INSERT INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at)
+    VALUES ('user', 1, 'paddle', 'ctm_old', ?), ('user', 2, 'stripe', 'cus_1', ?)`, at, at);
+  database.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, occurred_at, updated_at)
+    VALUES ('paddle', 'sub_old', 'user', 1, 'pro-yearly', 'canceled', ?, ?)`, at, at);
+  database.run("INSERT INTO billing_events (provider, event_id, type, outcome, received_at) VALUES ('paddle', 'evt_old', 'subscription', 'granted', ?)", at);
+  database.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, external_ref, starts_at, created_at)
+    VALUES ('user', 1, 'pro', 'paddle', 'sub_old', ?, ?)`, at, at);
+  migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+  assert.deepEqual(database.all('SELECT provider FROM billing_customers ORDER BY subject_id').map((r) => r.provider), ['paddle-sandbox', 'stripe']);
+  assert.equal(database.get('SELECT provider FROM billing_subscriptions').provider, 'paddle-sandbox');
+  assert.equal(database.get('SELECT provider FROM billing_events').provider, 'paddle-sandbox');
+  assert.equal(database.get('SELECT source FROM entitlement_grants').source, 'paddle-sandbox');
 });
 
 /* ---------------------------- configuration ---------------------------- */
