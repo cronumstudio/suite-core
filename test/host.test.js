@@ -194,6 +194,16 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(alphaModule.events.stopped, 0);
 });
 
+test('a host with an icon but no page of its own still opens on its first module', async (t) => {
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
+  t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(publicDir, 'icons'));
+  fs.writeFileSync(path.join(publicDir, 'icons', 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const { call } = await startHost(t, { publicDir });
+  assert.equal((await call('GET', '/')).headers.get('location'), '/alpha/');
+  assert.equal((await call('GET', '/icons/favicon.svg')).status, 200);
+});
+
 test('a host with pages of its own serves them at the root, and its own routes', async (t) => {
   const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
   t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));

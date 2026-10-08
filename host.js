@@ -147,7 +147,8 @@ function moduleListErrors(modules) {
  * @param {Array}  options.modules      [{ mount, entry }]: each module's path and its server/module.js
  * @param {Array}  [options.migrations] the host's own tables, under the scope `app`
  * @param {object} [options.hooks]      as createSuite's; extraColumns joins the modules' own
- * @param {string} [options.publicDir]  the host's own pages at the root; without them, / goes to the first module
+ * @param {string} [options.publicDir]  the host's own files at the root; without an index.html there, / goes to
+ *   the first module
  * @param {Function} [options.routes]   (router) => { … }: the host's own routes at /api/
  * @param {string} [options.version]
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
@@ -309,6 +310,8 @@ export async function createHost({
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
+  /** A page at the root (the host's own index.html); files alone, such as its icons, aren't one. */
+  const hasHome = Boolean(publicDir) && fs.existsSync(path.join(publicDir, 'index.html'));
 
   // Two modules whose data lives in a table of the same name write in each other's rows: the
   // second one's first migration found the table there and went on. Said loudly, never served.
@@ -376,8 +379,8 @@ export async function createHost({
     const mount = url.pathname.split('/')[1];
     const m = byMount.get(mount);
     if (!m) {
-      // Without pages of its own, the host opens on its first module.
-      if (!publicDir && url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
+      // Without a page of its own, the host opens on its first module.
+      if (!hasHome && url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
         redirect(res, 302, `/${joined[0].mount}/${url.search}`);
         return undefined;
       }
