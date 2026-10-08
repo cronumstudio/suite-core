@@ -60,6 +60,8 @@ export function itemCards({ suite, table }) {
       places: () => [{ id: 'inbox', name: 'Inbox' }],
       complete: (user, id, done) => {
         suite.database.run(`UPDATE ${table} SET done = ? WHERE id = ?`, done ? 1 : 0, Number(id));
+        // One the module won't complete, refused after writing: nothing of it may stay.
+        if (suite.database.get(`SELECT text FROM ${table} WHERE id = ?`, Number(id))?.text === 'Locked') throw new Error('locked');
         suite.links?.done('item', id, done, { user });
       },
       audience: (id) => [suite.database.get(`SELECT user_id FROM ${table} WHERE id = ?`, Number(id))?.user_id].filter(Boolean),

@@ -331,6 +331,14 @@ test('links between modules: each sees what they could see, created where it liv
     /^Linked: Beta item beta:item:5: "From Claude" \(open\)/);
   const listed = (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/list' }, { Authorization: `Bearer ${token}` })).data.result.tools;
   assert.ok(listed.some((x) => x.name === 'link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
+
+  // A side its module won't complete stays as it was, all of it; the one completed here still is.
+  await call('POST', '/alpha/api/items', { text: 'Second' });
+  await call('POST', '/beta/api/items', { text: 'Locked' });
+  assert.equal((await call('POST', '/api/links', { from: 'alpha:item:2', to: 'beta:item:6', together: true })).status, 201);
+  assert.equal((await call('POST', '/alpha/api/items/2/done')).status, 200);
+  assert.deepEqual([host.suite.database.get('SELECT done FROM alpha_items WHERE id = 2').done,
+    host.suite.database.get('SELECT done FROM beta_items WHERE id = 6').done], [1, 0]);
 });
 
 test('the calls of the day from assistants count once for the whole app, whichever module they go to', async (t) => {

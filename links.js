@@ -262,9 +262,13 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
       database.tx(() => {
         for (const row of rowsOf(ref)) {
           const other = otherSide(row, ref);
-          if (row.together) {
+          if (row.together && !propagating.has(formatRef(other)) && (!user || uses(user, other.module))) {
             const provider = providerOf(other);
-            if (!propagating.has(formatRef(other))) provider?.complete?.(user, other.id, Boolean(isDone));
+            // A side this person can't complete (not theirs to change, deleted) stays as it was, in
+            // a savepoint of its own: what they completed still is, and nothing is left half-done.
+            try {
+              database.tx(() => provider?.complete?.(user, other.id, Boolean(isDone)));
+            } catch { /* left as it was */ }
           }
           announce(row);
         }
