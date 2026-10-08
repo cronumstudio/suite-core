@@ -22,6 +22,7 @@ import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema } from './billing.js';
+import { paddleEnvironmentsSchema } from './paddle.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
@@ -57,4 +58,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 17, name: 'idp-connection-consents', up: connectionConsentsSchema },
   // What was paid for by someone with no account here yet, and refunded periods (billing.js).
   { version: 18, name: 'billing-pending', up: billingPendingSchema },
+  // Paddle's sandbox and live account apart: what there is so far is the sandbox's (paddle.js).
+  { version: 19, name: 'paddle-environments', up: paddleEnvironmentsSchema },
 ]);
