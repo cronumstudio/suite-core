@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.47.0 — 2026-10-08
+
+- **Undo and redo.** `undo-2` and `redo-2`, from [Lucide](https://lucide.dev) 1.53.0 (ISC), one
+  path each, for an editor's bar.
+
 ## 0.46.0 — 2026-10-08
 
 - **The rest of an editor's bar, all from Lucide.** `bold`, `italic`, `strikethrough`, `heading`
