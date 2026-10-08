@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.46.0 — 2026-10-08
+
+- **The rest of an editor's bar, all from Lucide.** `bold`, `italic`, `strikethrough`, `heading`
+  and `heading-1` to `heading-3`, `code-xml`, `list-indent-increase` and `list-indent-decrease`,
+  from [Lucide](https://lucide.dev) 1.53.0 (ISC), one path each. `link` is now Lucide's too, so a
+  bar made of these icons is of one family; it changes little in the apps that already use it.
+
 ## 0.45.0 — 2026-10-08
 
 - **Icons for a text editor's bar.** `list` (lines with a dot in front), `list-ordered` (with
