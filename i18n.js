@@ -14,7 +14,9 @@
  * plus exact ones like "=0"), picked with the `n` variable. A key missing in a
  * language falls back to English, key by key.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** The languages of the suite. English first: it is the fallback. */
 export const LANGUAGES = ['en', 'es', 'fr', 'de'];
@@ -141,6 +143,138 @@ function chosenLanguage(user) {
   } catch {
     return null;
   }
+}
+
+/**
+ * An app's translations on the server, the same for every app: its catalogs in
+ * `dir` (`<lang>.json`, the very files the browser gets, merged over the
+ * suite's), the language of each person, and t(). What the server writes for
+ * people (push notices, the first lists of an account, the OAuth consent
+ * screen, the sentence an assistant reads for an error) comes from here, so
+ * every text has a single place. An app's server/i18n.js is
+ * `export const { … } = appTexts(new URL('../public/i18n/', import.meta.url))`.
+ *
+ * The catalogs are read again when a file changes (public/ may be edited live),
+ * at the cost of a stat per call, and each translator is built once per
+ * language and handed out again while its files are unchanged: callers can tell
+ * whether anything changed by comparing identities (`fromCatalog`).
+ *
+ * The language used when nothing says which one a person reads (no choice, no
+ * browser header as with MCP clients and scripts, no account locale) is English,
+ * unless the installation says otherwise with DEFAULT_LANGUAGE (en, es, fr or de).
+ */
+export function appTexts(dir, { defaultLanguage = process.env.DEFAULT_LANGUAGE, languages = LANGUAGES } = {}) {
+  const folder = dir instanceof URL ? fileURLToPath(dir) : String(dir);
+  const configured = String(defaultLanguage || '').trim().slice(0, 2).toLowerCase();
+  const DEFAULT_LANGUAGE = languages.includes(configured) ? configured : 'en';
+  const order = [DEFAULT_LANGUAGE, ...languages.filter((lang) => lang !== DEFAULT_LANGUAGE)];
+
+  /** The first supported language among the preferences, in order; the installation's default if none. */
+  const negotiateLanguage = (preferences) => negotiate(preferences, order);
+
+  // Whether a file exists is tracked apart from its mtime: images built to be reproducible stamp
+  // every file with the epoch (mtime 0), and those are catalogs too.
+  const files = new Map();
+  const NO_CATALOG = Object.freeze({});
+  const catalog = (lang) => {
+    const file = path.join(folder, `${lang}.json`);
+    let exists = false;
+    let mtime = 0;
+    try { mtime = statSync(file).mtimeMs; exists = true; } catch { /* no file */ }
+    const hit = files.get(lang);
+    if (hit && hit.exists === exists && hit.mtime === mtime) return hit.dict;
+    let dict = NO_CATALOG;
+    if (exists) {
+      try { dict = flatten(JSON.parse(readFileSync(file, 'utf8'))); } catch { /* keep it empty */ }
+    }
+    files.set(lang, { exists, mtime, dict });
+    return dict;
+  };
+
+  const translators = new Map();
+  /** t(key, vars) for a language: the app's texts first, then the suite's, English key by key after them. */
+  function translatorFor(lang) {
+    const language = languages.includes(lang) ? lang : 'en';
+    const en = catalog('en');
+    const dict = language === 'en' ? en : catalog(language);
+    const hit = translators.get(language);
+    if (hit && hit.en === en && hit.dict === dict) return hit.t;
+    const t = translator(language, SUITE_CATALOGS, language === 'en' ? { en } : { en, [language]: dict });
+    translators.set(language, { en, dict, t });
+    return t;
+  }
+
+  const derived = new Map();
+  /**
+   * Anything computed from the catalogs of a language, kept until a catalog file
+   * changes: `compute(t)` runs again only when the translator is a new one. It
+   * must not be something callers mutate (they copy it on the way out).
+   */
+  function fromCatalog(name, lang, compute) {
+    const language = languages.includes(lang) ? lang : 'en';
+    const t = translatorFor(language);
+    const key = `${name}:${language}`;
+    const hit = derived.get(key);
+    if (hit && hit.t === t) return hit.value;
+    const value = compute(t);
+    derived.set(key, { t, value });
+    return value;
+  }
+
+  const prefsOf = (user) => {
+    if (!user) return {};
+    try {
+      return typeof user.prefs === 'string' ? JSON.parse(user.prefs || '{}') : (user.prefs || {});
+    } catch {
+      return {};
+    }
+  };
+  const locale = (user) => String(user?.locale ?? '').replace('_', '-');
+
+  /** The language a person chose in their settings ('auto' or none → null). */
+  const savedLanguage = (user) => (languages.includes(prefsOf(user).lang) ? prefsOf(user).lang : null);
+
+  /**
+   * The last language their browser resolved (the web app reports it when it
+   * differs as prefs.lang_seen): for where no browser takes part. Never
+   * overrides a saved choice.
+   */
+  const seenLanguage = (user) => (languages.includes(prefsOf(user).lang_seen) ? prefsOf(user).lang_seen : null);
+
+  /**
+   * The language of a person outside of a browser request (MCP, notices): their
+   * choice, the last one their browser used, the locale their account was
+   * created with, else the installation's default.
+   */
+  const userLanguage = (user) => negotiateLanguage([savedLanguage(user), seenLanguage(user), locale(user)]);
+
+  /** The language for a request: their choice, the browser's, what we know of them, the default. */
+  const languageFor = (req, user = null) => negotiateLanguage([
+    savedLanguage(user), req?.headers?.['accept-language'], seenLanguage(user), locale(user),
+  ]);
+
+  /** Both at once: what the suite's screens (the OAuth consent) ask for. */
+  const textsFor = (req, user = null) => {
+    const lang = languageFor(req, user);
+    return { lang, t: translatorFor(lang) };
+  };
+
+  /**
+   * An error as a sentence in a language: `errors.<code>` with the details the
+   * server sent (`field` named in the language, `max`, …), for what cannot leave
+   * the wording to the browser, like what an assistant reads. → null when no
+   * sentence is known for the code.
+   */
+  function errorSentence(code, extra = {}, lang = 'en') {
+    const t = translatorFor(lang);
+    const sentence = t(`errors.${code}`, { ...extra, ...(extra.field ? { field: t(`fields.${extra.field}`) } : {}) });
+    return sentence === `errors.${code}` ? null : sentence;
+  }
+
+  return {
+    LANGUAGES: languages, DEFAULT_LANGUAGE, negotiateLanguage, translator: translatorFor, fromCatalog,
+    savedLanguage, seenLanguage, userLanguage, languageFor, textsFor, errorSentence,
+  };
 }
 
 /**

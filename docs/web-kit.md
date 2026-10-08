@@ -54,7 +54,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `$`, `$$`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings |
-| `i18n.js` | `loadLanguage`, `pickLanguage`, `t(key, vars)` with plurals, `formatDateTime` |
+| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`), `savedLanguage`, `changeLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key; `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
@@ -74,7 +74,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 
 ```js
 import { el } from '/suite/dom.js';
-import { t, loadLanguage, pickLanguage } from '/suite/i18n.js';
+import { t, loadLanguage, savedLanguage } from '/suite/i18n.js';
 import { api } from '/suite/api.js';
 import { createShell, navItem, navSection } from '/suite/shell.js';
 import { signIn, signOut, confirmEmailFromLink } from '/suite/signin.js';
@@ -86,9 +86,13 @@ import { createOutbox } from '/suite/outbox.js';
 
 const config = await api.get('/api/auth/config');
 let { user } = await api.get('/api/auth/me');
-await loadLanguage(pickLanguage([user?.prefs?.lang, navigator.languages], config.app.languages));
+// The account's choice ('auto' follows the browser); before signing in, the one this browser keeps.
+await loadLanguage(user?.prefs?.lang || savedLanguage());
 const app = { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg?v=1', tagline: t('app.tagline') };
-if (!user) user = await signIn({ app, config });
+if (!user) {
+  user = await signIn({ app, config });
+  if (user.prefs?.lang) await loadLanguage(user.prefs.lang);
+}
 tidyAddress();
 confirmEmailFromLink();
 
@@ -291,12 +295,25 @@ The kit's own files join the shell by themselves. Every file the app adds to `pu
 ## Texts
 
 Every text a person reads comes from the catalogs: the kit's are `kit.*` in suite-core's
-`i18n/<lang>.json`, merged with the app's at `/i18n/<lang>.json`. The check of texts written in the
-code runs in each app's tests:
+`i18n/<lang>.json`, merged with the app's at `/i18n/<lang>.json`. Every app does it the same way:
+
+- **Catalogs**: `public/i18n/<lang>.json`, flat (dotted keys), in the four languages.
+- **Browser**: `t()` and the rest from `/suite/i18n.js`, nothing of its own. Before signing in the
+  app loads `savedLanguage()` (what this browser keeps as `<app>.lang`, `'auto'` by default), and
+  then the account's choice; Settings calls `loadLanguage` or `changeLanguage` (`app:language`
+  tells the app to draw itself again). An app keeps only what is its own domain, like how Next
+  groups its dates (`dates.js`), built on `dateFormat` and the others.
+- **Server**: `server/i18n.js` is `appTexts(new URL('../public/i18n/', import.meta.url))` from
+  `i18n.js`: `translator(lang)`, `languageFor(req, user)`, `userLanguage(user)`, `textsFor`,
+  `errorSentence`, `fromCatalog`, with `DEFAULT_LANGUAGE` as the last resort.
+- **Tests**: `appChecks(root, { skip })` from `tools/i18n.mjs` (`npm run i18n`: `node
+  server/suite/tools/i18n.mjs app .`), and `tools/web-resolve.mjs` to load browser modules in Node.
+
+The checks are flat catalogs that agree (keys, placeholders, plural forms), the keys the browser and
+the server use, and texts written in the code:
 
 ```
-node server/suite/tools/i18n.mjs hardcoded public
-node server/suite/tools/i18n.mjs hardcoded --server --skip catalog.js server
+node server/suite/tools/i18n.mjs app . --skip catalog.js
 ```
 
 In the browser's `.js` it reads the code, not its lines: comments and regular expressions are left

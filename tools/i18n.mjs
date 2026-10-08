@@ -2,6 +2,7 @@
  * Catalog checks, for the suite's own texts and for each app's (taken from
  * Focus's tools/i18n.mjs):
  *
+ *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]…  all of the below for an app, as its tests run them
  *   node server/suite/tools/i18n.mjs parity [dir]            every language says the same things
  *   node server/suite/tools/i18n.mjs used <dir> <src>…       every key the code uses exists
  *   node server/suite/tools/i18n.mjs hardcoded <src>…        no text for people written in the code
@@ -20,7 +21,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LANGUAGES, SUITE_CATALOGS, flatten } from '../i18n.js';
+import { LANGUAGES, SUITE_CATALOGS, flatten, isNested } from '../i18n.js';
 
 const isPlural = (value) => value && typeof value === 'object';
 const markers = (value) => [...new Set(String(value).match(/\{\w+\}/g) ?? [])].sort().join(',');
@@ -86,7 +87,8 @@ export function parity(catalogs) {
 
 /**
  * Source files (.js, .mjs, .html) under the given folders, leaving out tests,
- * the suite and the files `skip` names (by name or by the end of their path).
+ * the suite, others' code (vendor) and the files `skip` names (by name or by the
+ * end of their path).
  */
 function sources(dirs, skip = []) {
   const files = [];
@@ -99,7 +101,7 @@ function sources(dirs, skip = []) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!['node_modules', '.git', 'test', 'suite', 'i18n'].includes(entry.name)) walk(full);
+        if (!['node_modules', '.git', 'test', 'suite', 'i18n', 'vendor'].includes(entry.name)) walk(full);
       } else if (/\.(?:m?js|html)$/.test(entry.name)) files.push(full);
     }
   };
@@ -388,12 +390,58 @@ export function hardcodedTexts(dirs, { allow = [], skip = [], server = false } =
   return found;
 }
 
+/* -------------------------------- an app's -------------------------------- */
+
+/**
+ * Every check of an app's texts, the same for every app: its catalogs
+ * (`<root>/public/i18n`, flat, every language saying what English says), the
+ * keys its browser and server use, and no text written in its browser's code
+ * or HTML, nor in another language on its server. `skip` leaves out data files
+ * (seeds in every language); others' code under a `vendor` folder is never read.
+ * → [{ name, problems }], for the app's tests to turn into checks.
+ */
+export function appChecks(root, { skip = [], allow = [] } = {}) {
+  const dir = path.join(root, 'public', 'i18n');
+  const publicDir = path.join(root, 'public');
+  const serverDir = path.join(root, 'server');
+  const catalogs = catalogsOf(dir);
+  const nested = LANGUAGES.flatMap((lang) => {
+    try {
+      return isNested(JSON.parse(readFileSync(path.join(dir, `${lang}.json`), 'utf8'))) ? [`${lang}.json`] : [];
+    } catch (err) {
+      return [`${lang}.json: ${err.code === 'ENOENT' ? 'missing' : err.message}`];
+    }
+  });
+  return [
+    { name: 'The catalogs in public/i18n are there for every language, and flat: dotted keys, a text or plural forms each', problems: nested },
+    { name: 'Every language says what English says: the same keys, placeholders and plural forms, nothing left undone', problems: parity(catalogs) },
+    { name: 'Every key the browser and the server use (t(), data-i18n, data-i18n-attr) is in the catalogs', problems: unknownKeys(catalogs.en, [publicDir, serverDir]) },
+    { name: 'No text for people is written in the browser’s code or in the HTML', problems: hardcodedTexts([publicDir], { allow, skip }) },
+    { name: 'Nothing on the server is written in another language: what people read comes from the catalogs', problems: hardcodedTexts([serverDir], { server: true, allow, skip }) },
+  ];
+}
+
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   const [command = 'parity', ...args] = process.argv.slice(2);
   const [dir, ...rest] = args;
   try {
     let problems;
-    if (command === 'hardcoded') {
+    if (command === 'app') {
+      const skip = [];
+      let root = '.';
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--skip') skip.push(args[++i]);
+        else root = args[i];
+      }
+      const checks = appChecks(path.resolve(root), { skip });
+      for (const { name, problems: found } of checks) {
+        console.log(`${found.length ? '✗' : '✓'} ${name}`);
+        for (const problem of found.slice(0, 20)) console.log(`    ${problem}`);
+      }
+      problems = checks.flatMap((check) => check.problems);
+      if (problems.length) process.exitCode = 1;
+      problems = [];
+    } else if (command === 'hardcoded') {
       const options = { server: false, skip: [] };
       const folders = [];
       for (let i = 0; i < args.length; i++) {
@@ -406,7 +454,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
       problems = command === 'parity' ? parity(catalogs)
         : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-          : [`Use: parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…>`];
+          : [`Use: app [root] [--skip <file>]… | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…>`];
       if (!problems.length) {
         console.log(command === 'parity'
           ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`
