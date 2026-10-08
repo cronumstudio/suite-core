@@ -450,6 +450,8 @@ export function openSettings(options) {
               if (!res.ok) throw new Error(String(res.status));
               paint(await res.json());
               paintList();
+              // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
+              document.dispatchEvent(new CustomEvent('kit-modules'));
             } catch (err) {
               toast(t('errors.generic'), { error: true });
               throw err;

@@ -343,6 +343,7 @@ export function createShell({
   if (mount) {
     refreshModules();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); });
+    document.addEventListener('kit-modules', () => refreshModules());
   }
 
   /* --------------------------------- notices -------------------------------- */
