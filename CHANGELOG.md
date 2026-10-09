@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.63.0 — 2026-10-09
+
+- **Icons for pictures**: `image` and `camera` (Lucide's, in one path like the rest), for an editor
+  that inserts a picture from the camera roll, the camera or a file (Notes' attachments). The
+  paperclip was already `clip`. Nothing changes for an app that doesn't use them. (0.62.0 is an
+  open pull request's.)
+
 ## 0.61.0 — 2026-10-09
 
 - **The drawer follows the finger on a phone.** From the start edge it comes out as far as the
