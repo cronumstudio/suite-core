@@ -638,7 +638,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-side__app:hover, .kit-side__app[aria-expanded="true"] { background: var(--kit-hover); }
 .kit-side__app .kit-appname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.kit-side__app .kit-icon { width: 16px; height: 16px; flex: none; color: var(--kit-muted); transition: transform .15s ease; }
+.kit-side__app .kit-icon { width: 16px; height: 16px; flex: none; color: var(--kit-muted); }
 .kit-side__app[aria-expanded="true"] .kit-icon { transform: rotate(180deg); }
 .kit-side__app:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: 1px; }
 .kit-side__foot[hidden] { display: none; }
