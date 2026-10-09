@@ -817,20 +817,21 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
  * keyboard.js, while the keyboard is up: what is fixed to the full screen takes
  * the part of it left in view (--kit-view-top, --kit-view-h), so its top doesn't
  * slide out of reach and its foot doesn't stay under the keyboard. The frame and
- * Settings fill it; a dialog sits in its middle, and on a phone, as a sheet, on
- * the keyboard; the notices just above it. The home indicator is under the
- * keyboard: nothing keeps room for it.
+ * Settings fill it; a modal dialog (the kit's, or an app's own <dialog>) sits in
+ * its middle, and on a phone, as a sheet, on the keyboard; the notices just above
+ * it. The home indicator is under the keyboard: nothing keeps room for it. An
+ * app's own layers that are not a <dialog> read the same attribute.
  */
 :root[data-kit-keyboard] { --kit-safe-bottom: 0px; }
 :root[data-kit-keyboard] .kit-app,
 :root[data-kit-keyboard] .kit-settings-page { top: var(--kit-view-top); bottom: auto; height: var(--kit-view-h); }
-:root[data-kit-keyboard] .kit-dialog {
+:root[data-kit-keyboard] dialog:modal {
   inset-block: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) / 2); translate: 0 -50%;
   margin-block: 0; max-height: calc(var(--kit-view-h) - 24px);
 }
 :root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - 16px); translate: 0 -100%; }
 @media (max-width: 640px) {
-  :root[data-kit-keyboard] .kit-dialog { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
+  :root[data-kit-keyboard] dialog:modal { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
 }
 
 /* ------------------------------- signature -------------------------------- */

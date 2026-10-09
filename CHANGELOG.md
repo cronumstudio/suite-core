@@ -6,7 +6,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 ## 0.57.0 — 2026-10-09
 
 - **The phone's keyboard** (`web/keyboard.js`): `fitToKeyboard({ reveal })` fits the frame, Settings,
-  the dialogs and the notices to the part of the screen the keyboard leaves (`<html
+  the modal dialogs (the kit's and an app's own `<dialog>`) and the notices to the part of the screen the keyboard leaves (`<html
   data-kit-keyboard>`, `--kit-view-top`, `--kit-view-h`), so the browser sliding the view up no
   longer takes the bar, an editor's tools or a sheet's buttons out of reach; the focused field is
   kept in sight. `focusOnTap(area, { focus, skip })` starts typing without that slide. Tasks' fix

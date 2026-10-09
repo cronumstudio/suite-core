@@ -162,7 +162,8 @@ focusOnTap(document.querySelector('#add-input'));  // optional, for a field at t
 With `fitToKeyboard()`, while the keyboard is up for a text field, `<html>` has
 `data-kit-keyboard` and `--kit-view-top` / `--kit-view-h`, the part of the screen left in view
 (`visualViewport`, followed frame by frame while the keyboard moves). kit.css fits `.kit-app` and
-Settings to it, puts a dialog in its middle (on a phone, the sheet on the keyboard), the notices
+Settings to it, puts a modal dialog (the kit's or an app's own `<dialog>`) in its middle (on a
+phone, the sheet on the keyboard), the notices
 just above the keyboard, and `--kit-safe-bottom` to 0. An app's own rules for what sits at the
 foot of its views can read the same attribute. Without a keyboard nothing is touched.
 
