@@ -1013,7 +1013,7 @@ answers `{ host, chosen, modules: [{ mount, path, name, color, icon, active }] }
 pages and the kit's shell, which draws a rail with the active ones (a drawer on phones) when the
 page is a module's; `PUT /api/me/modules { active: [mount…] }` sets them, at least one, from
 Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
-only leaves that person's menus and MCP.
+only leaves that person's menus, MCP and links.
 
 ### 21.2 One MCP
 
@@ -1027,4 +1027,54 @@ instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TE
 longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
 from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
 `PLANS`): one count per person for the whole app, whichever module a call goes to.
+
+### 21.3 Links between modules
+
+`links.js`, with the host's second migration (`host_links`). A step of Next linked with a task of
+Tasks, a note with a phase of Projects: one table, the person's own session and permissions, and
+the module that owns each thing decides about it. A module says what can be linked of it:
+
+```js
+// server/module.js
+cards: {
+  task: {
+    read: (user, id) => card | 'gone' | null,      // null: it exists and this person can't see it
+    search: (user, text) => [card…],                // what this person may link
+    create: (user, { title, place }) => id,         // optional: "Add to Tasks", by the module's rules
+    places: (user) => [{ id, name }],               // optional: where create() may put it
+    complete: (user, id, done) => {},               // optional: what "done together" does here
+    audience: (id) => [userId…],                    // optional: who sees it, for live notices
+  },
+},
+```
+
+A card is `{ id, title, state: 'open' | 'done' | 'cancelled', due?, where?, url? }`, its url
+relative to the module (`?list=27&task=389`). A thing is named by a ref, `module:type:id`
+(`tasks:task:389`): the module's path, its kind, and its id, never the number people see.
+
+- **Each pair once**, in a fixed order, whichever way it was linked. `GET /api/links?ref=` lists
+  the links of something with the other side's card, as its module draws it and only to whoever
+  could already see it: something they can't open is `hidden`, with no title; something deleted is
+  `gone`, with its last title only to whoever linked it. A link shows while the person uses both
+  modules, and nothing of a module they turned off can be linked or created (403 `module_off`).
+- **Created where it lives**: `POST /api/links/new { from, module, type, data, together }` asks the
+  other module to create it, by its own rules, and links it in the same transaction ("Send to
+  Tasks"); `GET /api/links/search?module&type&q` lists what may be linked and the places to create
+  in. `POST /api/links { from, to, together }` links what exists; `PATCH /api/links/:id
+  { together }` and `DELETE /api/links/:id` change or remove a link, never the things.
+- **Done together** is per link. The module calls, where it completes something,
+  `suite.links?.done('task', id, true, { user })` inside its own transaction, and the other side's
+  `complete()` runs in it; a chain of such links completes once each. `suite.links?.changed(type,
+  id)` repaints the links of something that changed or was deleted: both modules' live channels
+  get a `links` event `{ ref, link }` for whoever sees it. On its own an app has no `suite.links`.
+- **For assistants**, the host's MCP adds `linked_items` and `link_item` (link, or create in another
+  module and link) for whoever uses two modules with things to link.
+- **In the page**, the kit's `web/links.js`: `linksRow({ ref, title })` is the "Linked" row of an
+  item's panel, one chip per link in the other module's colour that opens it there (crossed out when
+  done, dashed when gone or out of reach), each with its menu (open, complete together, remove, with
+  undo), and "+ Link": "Add to Tasks…" for each kind another module can create (`offer` keeps it to
+  some), and "Link existing…" to search one. It asks the host's root, `GET /api/modules` saying what
+  each module can link (`links: { task: { creates } }`); `row.show(ref, title)` when the panel shows
+  another item and `row.refresh(events)` from the live channel (`events: ['links']`). On its own an
+  app gets a hidden row, and nothing is asked.
 

@@ -234,18 +234,23 @@ export function menu(anchor, items, { header = null } = {}) {
     return node;
   });
   const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries);
-  document.body.append(node);
+  // Under a modal dialog the rest of the page is inert: a menu opened from one goes inside it.
+  (anchor.closest?.('dialog[open]') || document.body).append(node);
   openMenuNode = node;
 
-  // Below the anchor when it fits, else above; never off the screen.
+  // Below the anchor when it fits, else above; never off the screen. Measured from where (0, 0)
+  // lands, as a dialog that moves (a sheet rising) is the menu's frame and not the window.
+  node.style.left = '0px';
+  node.style.top = '0px';
+  const origin = node.getBoundingClientRect();
   const box = anchor.getBoundingClientRect();
   const width = Math.min(Math.max(node.offsetWidth, 220), window.innerWidth - 16);
   node.style.width = `${width}px`;
-  node.style.left = `${Math.min(Math.max(8, box.left), window.innerWidth - width - 8)}px`;
+  node.style.left = `${Math.min(Math.max(8, box.left), window.innerWidth - width - 8) - origin.left}px`;
   if (box.bottom + node.offsetHeight + 8 > window.innerHeight && box.top > node.offsetHeight + 8) {
-    node.style.top = `${box.top - node.offsetHeight - 6}px`;
+    node.style.top = `${box.top - node.offsetHeight - 6 - origin.top}px`;
   } else {
-    node.style.top = `${Math.min(box.bottom + 6, window.innerHeight - node.offsetHeight - 8)}px`;
+    node.style.top = `${Math.min(box.bottom + 6, window.innerHeight - node.offsetHeight - 8) - origin.top}px`;
   }
   anchor.setAttribute('aria-expanded', 'true');
 

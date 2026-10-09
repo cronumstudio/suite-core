@@ -43,3 +43,46 @@ export function itemTools({ suite, table, name, add = false }) {
   }
   return tools;
 }
+
+/** What can be linked of a test module's items (suite-core links.js): read, search, create, complete. */
+export function itemCards({ suite, table }) {
+  const card = (row) => ({ id: row.id, title: row.text, state: row.done ? 'done' : 'open', where: 'Items', url: `?item=${row.id}` });
+  return {
+    item: {
+      read: (user, id) => {
+        const row = suite.database.get(`SELECT * FROM ${table} WHERE id = ?`, Number(id));
+        if (!row) return 'gone';
+        if (user && row.user_id !== user.id) return null;
+        return card(row);
+      },
+      search: (user, text) => suite.database.all(`SELECT * FROM ${table} WHERE user_id = ? AND text LIKE ? ORDER BY id`, user.id, `%${text}%`).map(card),
+      create: (user, data) => suite.database.run(`INSERT INTO ${table} (user_id, text) VALUES (?, ?)`, user.id, String(data.title)).lastInsertRowid,
+      places: () => [{ id: 'inbox', name: 'Inbox' }],
+      complete: (user, id, done) => {
+        suite.database.run(`UPDATE ${table} SET done = ? WHERE id = ?`, done ? 1 : 0, Number(id));
+        // One the module won't complete, refused after writing: nothing of it may stay.
+        if (suite.database.get(`SELECT text FROM ${table} WHERE id = ?`, Number(id))?.text === 'Locked') throw new Error('locked');
+        suite.links?.done('item', id, done, { user });
+      },
+      audience: (id) => [suite.database.get(`SELECT user_id FROM ${table} WHERE id = ?`, Number(id))?.user_id].filter(Boolean),
+    },
+  };
+}
+
+/** Marks an item done, as a module would, telling its links. */
+export function doneRoute(api, { suite, table }) {
+  api.post('/api/items/:id/done', (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    suite.database.tx(() => {
+      suite.database.run(`UPDATE ${table} SET done = 1 WHERE id = ? AND user_id = ?`, Number(ctx.params.id), ctx.user.id);
+      suite.links?.done('item', ctx.params.id, true, { user: ctx.user });
+    });
+    sendJson(ctx.res, 200, { ok: true });
+  });
+  api.delete('/api/items/:id', (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    suite.database.run(`DELETE FROM ${table} WHERE id = ? AND user_id = ?`, Number(ctx.params.id), ctx.user.id);
+    suite.links?.changed('item', ctx.params.id);
+    sendJson(ctx.res, 200, { ok: true });
+  });
+}

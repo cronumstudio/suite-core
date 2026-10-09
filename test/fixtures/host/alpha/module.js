@@ -6,7 +6,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { joinHost } from '../../../../host.js';
-import { itemRoutes, itemTools } from '../items.js';
+import { itemRoutes, itemTools, itemCards, doneRoute } from '../items.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const events = { created: [], removed: [], started: 0, stopped: 0 };
@@ -21,7 +21,7 @@ export const suite = joinHost({
     version: 1,
     name: 'items',
     up: (d) => {
-      d.exec('CREATE TABLE alpha_items (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL)');
+      d.exec('CREATE TABLE alpha_items (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, text TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)');
       d.exec('ALTER TABLE users ADD COLUMN alpha_badge TEXT');
     },
   }],
@@ -35,7 +35,11 @@ export function createModule({ mount }) {
   return {
     publicDir: path.join(HERE, 'public'),
     version: '1.0.0',
-    routes: (api) => itemRoutes(api, { suite, table: 'alpha_items', mount, name: 'alpha' }),
+    routes: (api) => {
+      itemRoutes(api, { suite, table: 'alpha_items', mount, name: 'alpha' });
+      doneRoute(api, { suite, table: 'alpha_items' });
+    },
+    cards: itemCards({ suite, table: 'alpha_items' }),
     mcp: {
       instructions: ['Alpha keeps items.', 'A second paragraph a host leaves out.'].join(String.fromCharCode(10, 10)),
       // What a host says of alpha, with its tools named as the host names them.

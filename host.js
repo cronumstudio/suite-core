@@ -54,6 +54,7 @@ import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
 import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from './http.js';
 import { watchCode } from './watcher.js';
+import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -95,6 +96,8 @@ export const HOST_MIGRATIONS = Object.freeze([
       PRIMARY KEY (user_id, module)
     )`),
   },
+  // Links between the modules' things (links.js).
+  { version: 2, name: 'links', up: linksSchema },
 ]);
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
@@ -174,12 +177,14 @@ export function hostInstructions({ modules, hostName, max = MCP_TEXT_MAX, log = 
  * on its own still reaches it (not announced). Prompts the same way. Null
  * when no module brings tools.
  */
-export function hostMcp({ modules, uses = () => true, hostName = 'The app', log = () => {} }) {
+export function hostMcp({ modules, uses = () => true, hostName = 'The app', log = () => {}, links = null }) {
   const entries = [];
   for (const m of modules) {
     for (const tool of m.parts?.mcp?.tools || []) entries.push({ m, tool, name: `${m.mount}_${tool.name}` });
   }
-  if (!entries.length) return null;
+  // The host's own tools link things between modules: there when two modules have things to link.
+  const linkable = links ? modules.filter((m) => m.parts?.cards) : [];
+  if (!entries.length && linkable.length < 2) return null;
   const names = new Set(entries.map((e) => e.name));
   const count = new Map();
   for (const { tool } of entries) count.set(tool.name, (count.get(tool.name) || 0) + 1);
@@ -222,7 +227,10 @@ export function hostMcp({ modules, uses = () => true, hostName = 'The app', log 
     }
     return m.view.entitlements.allows(principal, tool);
   };
-  const visible = (principal, tool) => !principal || uses(principal, tool.module);
+  // A module's tools for whoever uses it; the links', for whoever uses two modules with things to link.
+  const linking = (principal) => linkable.filter((m) => uses(principal, m.mount)).length >= 2;
+  const visible = (principal, tool) => !principal || (tool.module ? uses(principal, tool.module) : linking(principal));
+  if (linkable.length >= 2) tools.push(...linkTools({ links, modules: () => linkable }));
 
   const sources = modules.filter((m) => m.parts?.mcp?.prompts);
   const prompts = sources.length ? {
@@ -291,6 +299,8 @@ export async function createHost({
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
+  /** Links between the modules (links.js), made once every module is in; a module's view reaches it late. */
+  let links = null;
   let suite = null;
   const stop = (errors) => {
     if (!exitOnError) {
@@ -406,6 +416,16 @@ export async function createHost({
       // The host's to do, once for everyone.
       ensureAdmin: () => null,
       purge: () => {},
+      /**
+       * What a module tells the links of its own things (links.js), from where it changes them:
+       * `changed('task', 389)` repaints the links that point at it; `done('task', 389, true,
+       * { user })` does that and completes the other side of links with "done together", in the
+       * same transaction. On its own an app has no `links`: `suite.links?.done(…)` is nothing there.
+       */
+      links: {
+        changed: (type, id) => links?.changed({ module: entry.mount, type, id: String(id) }),
+        done: (type, id, isDone, options) => links?.done({ module: entry.mount, type, id: String(id) }, isDone, options),
+      },
     };
     joined.push(entry);
     return entry.view;
@@ -463,6 +483,8 @@ export async function createHost({
   const listed = joined.map((m) => ({
     mount: m.mount, path: `/${m.mount}/`, id: m.config.app.id, name: m.config.app.name,
     color: m.config.app.color, icon: mountedPath(m.mount, m.config.app.icon),
+    // What can be linked of it (links.js), and whether "Add to…" can create it there.
+    links: Object.fromEntries(Object.entries(m.parts.cards || {}).map(([type, card]) => [type, { creates: typeof card.create === 'function' }])),
   }));
 
   /**
@@ -485,12 +507,19 @@ export async function createHost({
   /** Whether someone uses a module: every one until they choose. */
   const uses = (user, mount) => modulesOf(user).modules.some((m) => m.mount === mount && m.active);
 
-  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log });
+  links = createLinks({
+    database: suite.database, modules: () => joined, uses,
+    // A notice in the module's own channel, for its open tabs to repaint the link.
+    notify: (mount, audience, data) => byMount.get(mount)?.view.live.publish({ audience, event: 'links', data }),
+  });
+
+  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log, links });
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp,
     routes: (api) => {
       api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
+      registerLinksApi(api, { links });
       api.put('/api/me/modules', async (ctx) => {
         if (!ctx.user) throw unauthorized();
         const body = await readJson(ctx.req);

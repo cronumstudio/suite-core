@@ -6,6 +6,11 @@
 class FakeText {
   constructor(text) { this.nodeType = 3; this.data = String(text); }
   get textContent() { return this.data; }
+  remove() {
+    if (!this.parentNode) return;
+    this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1);
+    this.parentNode = null;
+  }
 }
 
 export class FakeElement {
@@ -27,17 +32,30 @@ export class FakeElement {
   hasAttribute(name) { return this.attributes.has(name); }
   removeAttribute(name) { this.attributes.delete(name); }
   append(...nodes) {
-    for (const node of nodes) this.childNodes.push(typeof node === 'string' ? new FakeText(node) : node);
+    for (const node of nodes) {
+      const child = typeof node === 'string' ? new FakeText(node) : node;
+      // A node lives in one place: appended elsewhere, it leaves where it was (and clear() can empty).
+      child.parentNode?.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1);
+      child.parentNode = this;
+      this.childNodes.push(child);
+    }
   }
   appendChild(node) { this.append(node); return node; }
-  remove() {}
+  remove() {
+    if (!this.parentNode) return;
+    this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1);
+    this.parentNode = null;
+  }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   dispatch(type, event = {}) { for (const fn of this.listeners[type] || []) fn({ type, currentTarget: this, target: this, ...event }); }
 
   get children() { return this.childNodes.filter((node) => node.nodeType === 1); }
   get firstChild() { return this.childNodes[0] || null; }
   get textContent() { return this.childNodes.map((node) => node.textContent).join(''); }
-  set textContent(text) { this.childNodes = [new FakeText(text)]; }
+  set textContent(text) {
+    this.childNodes = [];
+    this.append(String(text));
+  }
   get className() { return this.getAttribute('class') || ''; }
   set className(value) { this.setAttribute('class', value); }
 

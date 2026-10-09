@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.54.0 — 2026-10-08
+
+- **Links between modules** (`links.js`, the host's second migration, `host_links`): a module says
+  what can be linked of it in `createModule().cards` (read, search, and optionally create, places,
+  complete, audience); the host keeps each pair once, shows each side's card as its module draws
+  it, and only to whoever could already see it. `GET /api/links?ref=`, `GET /api/links/search`,
+  `POST /api/links`, `POST /api/links/new` (created by the other module, by its rules, and linked
+  in one transaction), `PATCH`/`DELETE /api/links/:id`. "Done together" is per link: a module
+  calls `suite.links.done(type, id, done, { user })` where it completes something, and the other
+  side completes in the same transaction. `suite.links.changed(type, id)` repaints the links of
+  something that changed (a `links` event in the module's live channel). Two MCP tools,
+  `linked_items` and `link_item`, for whoever uses two modules with things to link. On its own an
+  app has no `suite.links`.
+- **The kit's links row** (`web/links.js`, `linksRow()`): the "Linked" row of an item, its chips in
+  the other module's colour, "+ Link" with "Add to…" and "Link existing…", in the four languages.
+  `GET /api/modules` says what each module can link. The service worker keeps `links.js` with the
+  rest of the kit. On its own an app's row stays hidden and asks nothing.
+
 ## 0.53.0 — 2026-10-08
 
 - **Several apps as one: `createHost()`** (`host.js`, architecture §21). One process, one database,

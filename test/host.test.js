@@ -104,8 +104,8 @@ test('a host serves each module at its own path, with one sign-in, one database 
     host: { name: 'Work', icon: '/icons/work.svg' },
     chosen: false,
     modules: [
-      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', active: true },
-      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', active: true },
+      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } }, active: true },
+      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', links: { item: { creates: true } }, active: true },
     ],
   });
   assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' },
@@ -228,7 +228,7 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.ok(init.instructions.length <= 2048);
 
   const listed = (await mcp('tools/list')).result.tools.map((tool) => tool.name);
-  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items']);
+  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'linked_items', 'link_item']);
   const text = async (name, args = {}) => (await mcp('tools/call', { name, arguments: args })).result.content[0].text;
   assert.equal(await text('alpha_add_item', { text: 'From the AI' }), 'Added.');
   assert.equal(await text('alpha_list_items'), '["From the AI"]');
@@ -249,6 +249,96 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.doesNotMatch(only, /Alpha keeps/);
   await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
   assert.equal((await call('GET', '/alpha/mcp')).status, 404, 'no MCP of its own inside a host: one for all, at the root');
+});
+
+test('links between modules: each sees what they could see, created where it lives, done together, live', async (t) => {
+  const { host, call } = await startHost(t);
+  const [alpha, beta] = host.modules;
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  await call('POST', '/alpha/api/items', { text: 'Write the proposal' });
+  await call('POST', '/beta/api/items', { text: 'Review it' });
+  await call('POST', '/beta/api/items', { text: 'Unrelated' });
+
+  // Linking what exists, once per pair, whichever way it is made.
+  const made = await call('POST', '/api/links', { from: 'alpha:item:1', to: 'beta:item:1' });
+  assert.equal(made.status, 201);
+  assert.deepEqual(made.data.link.item, {
+    ref: 'beta:item:1', module: 'beta', type: 'item', app: 'Beta', color: '#7C3AED',
+    title: 'Review it', state: 'open', where: 'Items', url: '/beta/?item=1',
+  });
+  assert.equal((await call('POST', '/api/links', { from: 'beta:item:1', to: 'alpha:item:1' })).data.link.id, made.data.link.id, 'the same pair, once');
+  assert.equal((await call('GET', '/api/links?ref=beta:item:1')).data.links[0].item.title, 'Write the proposal', 'seen from both sides');
+  assert.equal((await call('POST', '/api/links', { from: 'alpha:item:1', to: 'gamma:item:1' })).data.error, 'field_invalid');
+
+  // Creating it in the other module, by that module, and linked with "done together".
+  const added = await call('POST', '/api/links/new', { from: 'alpha:item:1', module: 'beta', type: 'item', together: true });
+  assert.equal(added.status, 201);
+  assert.equal(added.data.link.item.title, 'Write the proposal', 'by default, the title it comes from');
+  assert.equal(added.data.link.together, true);
+  const found = await call('GET', '/api/links/search?module=beta&type=item&q=Rev');
+  assert.deepEqual(found.data.items.map((i) => i.title), ['Review it']);
+  assert.deepEqual(found.data.places, [{ id: 'inbox', name: 'Inbox' }]);
+
+  // Done together: completing one side completes the other in the same transaction; a plain link only shows it.
+  const told = [];
+  const publish = beta.suite.live.publish;
+  beta.suite.live.publish = (event) => { told.push(event); return publish(event); };
+  await call('POST', '/alpha/api/items/1/done');
+  const betaRows = host.suite.database.all('SELECT id, text, done FROM beta_items ORDER BY id');
+  assert.deepEqual(betaRows.map((r) => [r.text, r.done]), [['Review it', 0], ['Unrelated', 0], ['Write the proposal', 1]]);
+  assert.ok(told.some((e) => e.event === 'links' && e.data.ref === 'beta:item:1'), 'beta’s open tabs repaint the link');
+  assert.equal((await call('GET', '/api/links?ref=beta:item:3')).data.links[0].item.state, 'done');
+
+  // Someone else sees only what they could already see.
+  await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' });
+  let anaCookie = '';
+  const asAna = async (method, pathname, body) => {
+    const res = await fetch(`http://127.0.0.1:${host.server.address().port}${pathname}`, {
+      method, headers: { 'Content-Type': 'application/json', ...(anaCookie ? { Cookie: anaCookie } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('work_sid='));
+    if (set) anaCookie = set.split(';')[0];
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
+  await asAna('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  assert.equal((await asAna('GET', '/api/links?ref=alpha:item:1')).status, 404, 'not hers: not even that it is there');
+  await asAna('POST', '/beta/api/items', { text: 'Ana’s' });
+  assert.equal((await asAna('POST', '/api/links', { from: 'beta:item:4', to: 'alpha:item:1' })).status, 404, 'nor link to it');
+  assert.deepEqual((await asAna('GET', '/api/links/search?module=alpha&type=item&q=')).data.items, []);
+
+  // Deleted: shown as such, with its last title to whoever linked it.
+  await call('DELETE', '/beta/api/items/1');
+  const gone = (await call('GET', '/api/links?ref=alpha:item:1')).data.links.find((l) => l.item.ref === 'beta:item:1');
+  assert.deepEqual([gone.item.state, gone.item.title], ['gone', 'Review it']);
+  assert.equal((await call('DELETE', `/api/links/${gone.id}`)).status, 200);
+  assert.equal((await call('GET', '/api/links?ref=alpha:item:1')).data.links.length, 1);
+
+  // A module turned off: its links hide, and nothing is created there.
+  await call('PUT', '/api/me/modules', { active: ['alpha'] });
+  assert.deepEqual((await call('GET', '/api/links?ref=alpha:item:1')).data.links, []);
+  assert.equal((await call('POST', '/api/links/new', { from: 'alpha:item:1', module: 'beta', type: 'item' })).data.error, 'module_off');
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
+  assert.equal((await call('GET', '/api/links?ref=alpha:item:1')).data.links.length, 1, 'and they come back');
+
+  // The same from an assistant, through the host's own tools.
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  let id = 0;
+  const tool = async (name, args) => (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } },
+    { Authorization: `Bearer ${token}` })).data.result.content[0].text;
+  assert.match(await tool('linked_items', { item: { module: 'alpha', type: 'item', id: '1' } }), /Beta item beta:item:3: "Write the proposal" \(done\) in Items \[done together\]/);
+  assert.match(await tool('link_item', { from: { module: 'alpha', type: 'item', id: '1' }, create: { module: 'beta', type: 'item', title: 'From Claude' } }),
+    /^Linked: Beta item beta:item:5: "From Claude" \(open\)/);
+  const listed = (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/list' }, { Authorization: `Bearer ${token}` })).data.result.tools;
+  assert.ok(listed.some((x) => x.name === 'link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
+
+  // A side its module won't complete stays as it was, all of it; the one completed here still is.
+  await call('POST', '/alpha/api/items', { text: 'Second' });
+  await call('POST', '/beta/api/items', { text: 'Locked' });
+  assert.equal((await call('POST', '/api/links', { from: 'alpha:item:2', to: 'beta:item:6', together: true })).status, 201);
+  assert.equal((await call('POST', '/alpha/api/items/2/done')).status, 200);
+  assert.deepEqual([host.suite.database.get('SELECT done FROM alpha_items WHERE id = 2').done,
+    host.suite.database.get('SELECT done FROM beta_items WHERE id = 6').done], [1, 0]);
 });
 
 test('the calls of the day from assistants count once for the whole app, whichever module they go to', async (t) => {
