@@ -874,3 +874,14 @@ test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing
   assert.match(css, /\.kit-app:not\(\[data-screen="detail"\]\):has\(\.kit-pane--list \.kit-head\) \.kit-bar,\s*\.kit-app\[data-screen="detail"\]:has\(\.kit-pane--detail \.kit-head\) \.kit-bar \{ display: none; \}/);
   assert.match(css, /\.kit-app\[data-panes="split"\] \.kit-head \.kit-bar__back \{ display: none; \}/, 'side by side, nothing goes back');
 });
+
+test('the drawer follows the finger on a phone, and opens or closes by how far it went', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(shell, /const drawer = beside\(\) \? null/, 'beside the views the edge unfolds the sidebar, as before');
+  assert.match(shell, /dragDrawer\(swipe\.drawer, dx, swipe\.rtl\);/, 'drawn where the finger is while it moves');
+  assert.match(shell, /const commitDistance = \(width\) => Math\.min\(90, width \* 0\.28\);/);
+  assert.match(shell, /Math\.abs\(dx\) >= \(cancelled \? CANCEL_COMMIT : commitDistance\(width\)\)/, 'the finger\'s path decides, and less when the system takes the gesture away');
+  assert.match(shell, /requestAnimationFrame\(settle\);\s*setTimeout\(settle, 80\);/, 'a page that isn\'t drawing doesn\'t leave the drawer halfway');
+  assert.match(css, /\.kit-app\[data-drawer-drag\] \.kit-side, \.kit-app\[data-drawer-drag\] \.kit-scrim \{ transition: none; \}/);
+});

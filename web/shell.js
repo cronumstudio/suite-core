@@ -232,8 +232,22 @@ export function createShell({
    * and the scroll, so a touch taken at an edge does them by hand: a tap is
    * passed on as a click, a vertical drag scrolls what is under the finger.
    * An edge is only taken when there is something to do or to stop.
+   *
+   * The drawer follows the finger: from the start edge it comes out as far as
+   * the finger goes, over the open drawer it goes back the same way, and on
+   * lifting the finger it opens or closes by how far the finger went. It was
+   * Tasks' own gesture; the other apps' drawer came out all at once.
    */
   const EDGE = 20;
+  /** How far a finger goes sideways before the drawer follows it. */
+  const DRAG_ARM = 12;
+  /**
+   * How far the finger has to go for the drawer to open or close: the finger's path, not where
+   * the drawer ends, so closing costs the same as opening. When the system takes the gesture
+   * away midway, the intention that had begun is honoured, past a tremor.
+   */
+  const commitDistance = (width) => Math.min(90, width * 0.28);
+  const CANCEL_COMMIT = 35;
   let swipe = null;
   const visible = (node) => node.offsetParent !== null;
   // In the bar or in a view's head: whichever shows.
@@ -268,7 +282,16 @@ export function createShell({
     const leaves = (atStart && window.navigation?.canGoBack !== false) || (atEnd && window.navigation?.canGoForward !== false);
     const taken = Boolean(action) || leaves;
     if (taken) ev.preventDefault();
-    swipe = { x, y, lastY: y, rtl, target, action, taken, axis: null, done: false, scroller: taken ? scrollerOf(target) : null };
+    // The drawer to drag, on a phone (beside the views, folded, the edge unfolds the sidebar): out
+    // from the edge where ☰ would open it, back from anywhere when open.
+    const open = element.hasAttribute('data-drawer');
+    const drawer = beside() ? null
+      : open && element.contains(target) ? 'close'
+        : action && !showing('.kit-bar__back') ? 'open' : null;
+    swipe = {
+      x, y, lastY: y, rtl, target, action, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
+      scroller: taken ? scrollerOf(target) : null,
+    };
   }, { passive: false });
   document.addEventListener('touchmove', (ev) => {
     if (!swipe || swipe.done || ev.touches.length !== 1) return;
@@ -279,23 +302,85 @@ export function createShell({
     if (swipe.axis === 'y' && swipe.taken) swipe.scroller.scrollTop -= clientY - swipe.lastY;
     swipe.lastY = clientY;
     if (swipe.axis !== 'x') return;
+    if (swipe.drawer) {
+      if (!swipe.dragging) {
+        if (Math.abs(dx) < DRAG_ARM) return;
+        // The other way is nothing to do: the closed drawer can't go further in, nor the open one out.
+        if ((swipe.drawer === 'open') !== (dx > 0)) {
+          swipe.done = true;
+          return;
+        }
+        swipe.dragging = true;
+        element.setAttribute('data-drawer-drag', '');
+      }
+      ev.preventDefault();
+      swipe.dx = dx;
+      dragDrawer(swipe.drawer, dx, swipe.rtl);
+      return;
+    }
     if (swipe.action && dx > 40) {
       swipe.done = true;
       swipe.action();
     } else if (dx < -50 && element.hasAttribute('data-drawer')) {
-      // An open drawer goes back where it came from with the same gesture, from anywhere.
+      // Beside the views, the drawer a drag brought over them goes back with the same gesture.
       swipe.done = true;
       closeDrawer();
     }
-  }, { passive: true });
+  }, { passive: false });
   document.addEventListener('touchend', () => {
-    if (swipe?.taken && !swipe.axis && !swipe.done) tap(swipe.target);
+    if (swipe?.dragging) letGoDrawer(swipe, false);
+    else if (swipe?.taken && !swipe.axis && !swipe.done) tap(swipe.target);
     swipe = null;
   });
-  document.addEventListener('touchcancel', () => { swipe = null; });
+  document.addEventListener('touchcancel', () => {
+    if (swipe?.dragging) letGoDrawer(swipe, true);
+    swipe = null;
+  });
   // A finger that picks something up (drag.js) is no longer a swipe nor a tap: the drawer
   // it opens over ☰ must stay, and letting go must not open the row.
-  document.addEventListener('kit-dragstart', () => { swipe = null; });
+  document.addEventListener('kit-dragstart', () => {
+    if (swipe?.dragging) letGoDrawer(swipe, true);
+    swipe = null;
+  });
+
+  /** The drawer where the finger is: drawn by hand (no transition) while it leads. */
+  function dragDrawer(mode, dx, rtl) {
+    const width = side.getBoundingClientRect().width || 300;
+    // 0 is open, -width closed, measured from the start edge.
+    const offset = mode === 'open' ? Math.max(-width, Math.min(0, -width + dx)) : Math.max(-width, Math.min(0, dx));
+    // The kit hides the closed drawer (visibility) and the scrim lets taps through: shown by hand.
+    side.style.transform = `translateX(${rtl ? -offset : offset}px)`;
+    side.style.visibility = 'visible';
+    scrim.style.opacity = String(1 + offset / width);
+    scrim.style.pointerEvents = 'auto';
+  }
+
+  /** The finger lifted (or was taken away): open or closed by how far it went, from where it is. */
+  function letGoDrawer({ drawer: mode, dx }, cancelled) {
+    const width = side.getBoundingClientRect().width || 300;
+    const enough = Math.abs(dx) >= (cancelled ? CANCEL_COMMIT : commitDistance(width));
+    const open = mode === 'open' ? enough : !enough;
+    // The click that may come behind the finger would land on the scrim, closing what just opened.
+    const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', swallow, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 400);
+    // The CSS takes over on the next frame, so the slide goes on from where the finger left it;
+    // and by a timer too, as a page that isn't drawing would leave the drawer halfway.
+    let done = false;
+    const settle = () => {
+      if (done) return;
+      done = true;
+      element.removeAttribute('data-drawer-drag');
+      Object.assign(side.style, { transform: '', visibility: '' });
+      Object.assign(scrim.style, { opacity: '', pointerEvents: '' });
+      if (open) {
+        element.setAttribute('data-drawer', '');
+        nav.focus({ preventScroll: true });
+      } else closeDrawer();
+    };
+    requestAnimationFrame(settle);
+    setTimeout(settle, 80);
+  }
 
   /* --------------------------------- account -------------------------------- */
 

@@ -128,7 +128,8 @@ name and icon, the live dot, the `create` button and the person at its foot. On 
 moves to the detail and the bar's back button returns (`onBack`, or `showList()`); the sidebar is a
 drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
 drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
-edge does nothing instead of its forward. Opened by a finger or the mouse, the drawer takes the
+edge does nothing instead of its forward. On a phone the drawer follows the finger, out from the
+edge and back over it, and opens or closes by how far the finger went. Opened by a finger or the mouse, the drawer takes the
 focus itself, with no ring drawn; opened with Enter or Space on ☰ (`openDrawer({ keyboard: true })`),
 the focus goes to the current entry. With `panes: 'single'` there is one view in
 `shell.list`. The person's button is at the sidebar's foot, with their name (in the drawer on a
