@@ -491,13 +491,13 @@ export function createShell({
    *
    * @param {object} [options]
    * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ and create over a list, ← over a detail
-   * @param {string} [options.title]
-   * @param {Node} [options.lead]             before the title (a list's icon, a note's notebook)
+   * @param {string|null} [options.title]   null: none, where the view says it itself (a note's first line)
+   * @param {Node|Node[]} [options.lead]      before the title (a list's icon, a note's notebook)
    * @param {Node|Node[]} [options.actions]   after it, at the end (⋯, a pin)
    * @param {Node} [options.below]            under the line, in the head (a search, chips, a toolbar)
    */
   function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null } = {}) {
-    const heading = el('h1', { class: 'kit-head__title', text });
+    const heading = text === null ? el('span', { class: 'kit-head__title' }) : el('h1', { class: 'kit-head__title', text });
     let start = null;
     if (pane === 'detail') start = backToggle();
     else {
@@ -508,7 +508,7 @@ export function createShell({
       el('div', { class: 'kit-head__row' },
         start, lead, heading, el('div', { class: 'kit-head__actions' }, own), pane === 'list' ? createButton() : null),
       below);
-    return { element: node, setTitle: (value) => { heading.textContent = value || ''; } };
+    return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
   }
 
   return {
