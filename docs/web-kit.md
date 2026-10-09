@@ -134,6 +134,11 @@ phone). It opens Settings
 (`onSettings`), where Sign out closes the profile.
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
 Settings, Administration (for admins, at `/admin`) and Sign out.
+As a module of a host (a page under `/<mount>/`, Cronum Work), the person's button gives way. From
+640 px a rail at the sidebar's start has the host's home, the modules the person uses (one too) and
+Settings at its foot. On a phone the drawer has no rail: the app's icon and name at its head open a
+menu with the other modules and, last, what the person's button opened (Settings). So does a
+computer's when the host couldn't be asked (offline), until it answers.
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
 From 640 px the sidebar sits beside the views and can be **folded away**: the button at its head

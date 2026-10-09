@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.58.0 — 2026-10-09
+
+- **In a host, Settings moves to the rail, and on a phone the app's icon changes module.** From
+  640 px the rail has Settings at its foot (or the account's menu, for an app with entries of its
+  own), and shows with one module too. On a phone the drawer no longer carries the rail and keeps
+  its own width: the app's icon and name at its head open a menu with the other modules the person
+  uses and, last, Settings. The person's button at the sidebar's foot gives way in a host. An app
+  on its own is drawn as before.
+- `menu()` items take an `image` (a picture's address) in place of an icon; the kit has a
+  `chevron-down` icon.
+
 ## 0.57.0 — 2026-10-09
 
 - **The phone's keyboard** (`web/keyboard.js`): `fitToKeyboard({ reveal })` fits the frame, Settings,

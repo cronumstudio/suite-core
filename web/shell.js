@@ -9,9 +9,12 @@
  * head folds it, ☰ in the bar that then shows brings it back, and the choice
  * is remembered on the device. kit.css lays it out by the frame's own width.
  *
- * As a module of a host (suite-core host.js, Cronum Work), the modules the
- * person uses go in a rail at the start of the sidebar, and so in the drawer
- * on a phone: one tap to another module. With one module only, nothing shows.
+ * As a module of a host (suite-core host.js, Cronum Work), the person's button
+ * at the sidebar's foot gives way, and Settings is reached another way. Where
+ * the sidebar stays (a tablet, a computer), a rail at its start has the host's
+ * home, the modules the person uses and Settings at its foot. On a phone the
+ * drawer keeps its width without the rail: the app's icon and name at its head
+ * are a button whose menu has the other modules and, last, Settings.
  *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
@@ -64,13 +67,17 @@ export function createShell({
     onClick: () => setFolded(true),
   }, icon('back'));
   const nav = el('nav', { class: 'kit-side__nav', 'aria-label': app.name });
+  const headIcon = appIcon(30);
+  const headName = el('span', { class: 'kit-appname', text: app.name });
+  const head = el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
+  const foot = el('div', { class: 'kit-side__foot' }, account);
   const side = el('aside', { class: 'kit-side' },
-    el('div', { class: 'kit-side__head' }, appIcon(30), el('span', { class: 'kit-appname', text: app.name }), live, fold),
+    head,
     create ? el('div', { class: 'kit-side__create' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,
     nav,
-    el('div', { class: 'kit-side__foot' }, account));
+    foot);
   const scrim = el('div', { class: 'kit-scrim', onClick: () => closeDrawer() });
 
   const title = el('span', { class: 'kit-bar__title' });
@@ -270,27 +277,75 @@ export function createShell({
     }
   }
 
-  function openAccountMenu(anchor) {
-    if (anchor.getAttribute('aria-expanded') === 'true') {
-      closeMenu();
-      return;
-    }
-    const items = [
+  /** The account menu's entries; with Settings and nothing of the app's own, Settings alone. */
+  function accountMenuItems() {
+    const settings = onSettings ? { label: t('kit.account.settings'), iconName: 'sliders', onClick: () => { closeDrawer(); onSettings(); } } : null;
+    if (direct) return [settings];
+    return [
       ...accountItems,
-      onSettings ? { label: t('kit.account.settings'), iconName: 'sliders', onClick: onSettings } : null,
+      settings,
       user?.role === 'admin' ? { label: t('kit.account.admin'), iconName: 'shield', href: '/admin', external: true } : null,
       onSignOut ? 'separator' : null,
       onSignOut ? { label: t('kit.account.signOut'), iconName: 'logout', danger: true, onClick: onSignOut } : null,
     ].filter(Boolean);
-    // The button already shows the name and address, so its menu doesn't repeat them.
+  }
+
+  /** A menu from `anchor`, or none if it was open: a second tap closes it. */
+  function toggleMenu(anchor, items) {
+    if (anchor.getAttribute('aria-expanded') === 'true') {
+      closeMenu();
+      return;
+    }
     menu(anchor, items);
   }
+
+  // The button already shows the name and address, so its menu doesn't repeat them.
+  const openAccountMenu = (anchor) => toggleMenu(anchor, accountMenuItems());
 
   /* --------------------------------- modules -------------------------------- */
 
   // This page's module, when it is one of a host's: its path's single segment.
   const mount = /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(BASE)?.[1] || null;
   let rail = null;
+  let switcher = null;
+  let hosted = false;     // drawn as a host's module
+  let answered = false;   // the host said (or failed to say) which modules: the rail is known
+  let others = [];        // the other modules the person uses, for the switcher's menu
+
+  /** As a host's module (`on`) the person's button gives way; off, it is as in an app on its own. */
+  function asModule(on) {
+    hosted = on;
+    element.toggleAttribute('data-module', on);
+    foot.hidden = on;
+    syncSwitcher();
+  }
+
+  /**
+   * The app's icon and name are the switcher where the rail doesn't show: on a phone, or where
+   * the host didn't answer with one (offline), so Settings is always one tap away. Beside the
+   * views it waits for the host's answer, so the rail doesn't come with a switcher that goes.
+   */
+  function syncSwitcher() {
+    const want = hosted && !(beside() && (rail || !answered));
+    if (want && !switcher) {
+      switcher = el('button', {
+        type: 'button', class: 'kit-side__app', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+        'aria-label': t('kit.modules.switch', { name: app.name }),
+        onClick: () => toggleMenu(switcher, [
+          ...others.map((m) => ({ label: m.name, image: m.icon, href: m.path })),
+          others.length ? 'separator' : null,
+          ...accountMenuItems(),
+        ].filter(Boolean)),
+      });
+      head.prepend(switcher);
+      switcher.append(headIcon, headName, icon('chevron-down'));
+    } else if (!want && switcher) {
+      if (switcher.getAttribute('aria-expanded') === 'true') closeMenu();
+      head.prepend(headIcon, headName);
+      switcher.remove();
+      switcher = null;
+    }
+  }
 
   /** Takes the rail away, and the sidebar's content back to where it was. */
   function dropRail() {
@@ -303,11 +358,16 @@ export function createShell({
 
   /** The modules beside this one, as the host lists them for this person (GET /api/modules at its root). */
   function paintRail({ host = {}, modules = [] } = {}) {
-    if (!modules.some((m) => m.mount === mount)) return dropRail();   // not a module of this host
+    if (!modules.some((m) => m.mount === mount)) {   // not a module of this host
+      dropRail();
+      return asModule(false);
+    }
     // The host's home opens the module used last.
     try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
-    if (shown.length < 2) return dropRail();
+    others = shown.filter((m) => m.mount !== mount);
+    // With one module too: the rail has Settings, and the host's home to choose more.
+    const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
       // The host's home: where the modules are chosen.
       el('a', { class: 'kit-rail__home', href: '/?modules', title: t('kit.modules.home'), 'aria-label': t('kit.modules.home') },
@@ -315,7 +375,13 @@ export function createShell({
       ...shown.map((m) => el('a', {
         class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,
         style: m.color ? `--module: ${m.color}` : null,
-      }, el('img', { src: m.icon, alt: '', width: 28, height: 28 }), el('span', { class: 'kit-rail__name', text: m.name }))));
+      }, el('img', { src: m.icon, alt: '', width: 28, height: 28 }), el('span', { class: 'kit-rail__name', text: m.name }))),
+      // Settings at its foot, in place of the person's button.
+      onSettings || accountItems.length || onSignOut ? el('button', {
+        type: 'button', class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,
+        ...(direct ? {} : { 'aria-haspopup': 'menu' }),
+        onClick: (ev) => (direct ? onSettings() : openAccountMenu(ev.currentTarget)),
+      }, icon('sliders')) : null);
     if (!side.querySelector(':scope > .kit-side__main')) {
       const main = el('div', { class: 'kit-side__main' });
       while (side.firstChild) main.append(side.firstChild);
@@ -326,6 +392,7 @@ export function createShell({
     rail = next;
     side.setAttribute('data-rail', '');
     element.setAttribute('data-rail', '');
+    asModule(true);
     return rail;
   }
 
@@ -334,14 +401,26 @@ export function createShell({
     if (!mount) return null;
     try {
       const res = await fetch('/api/modules', { credentials: 'same-origin' });
+      if (res.status === 404) {   // no host there: an app on its own under a path
+        dropRail();
+        return asModule(false);
+      }
       if (!res.ok) return null;
       return paintRail(await res.json());
     } catch {
       return null;   // offline: the rail stays as it was
+    } finally {
+      answered = true;
+      syncSwitcher();
     }
   }
   if (mount) {
+    // Under a module's path it is a host's, almost surely: as one from the start, so the
+    // person's button doesn't show and go once the host answers.
+    asModule(true);
     refreshModules();
+    // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
+    window.addEventListener('resize', syncSwitcher);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); });
     document.addEventListener('kit-modules', () => refreshModules());
   }

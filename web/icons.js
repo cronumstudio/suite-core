@@ -17,6 +17,7 @@ export const PATHS = Object.freeze({
   card: 'M3 6h18v12H3zM3 10h18M7 15h3',
   check: 'M5 12.5l4.5 4.5L19 7',
   chevron: 'M9 18l6-6-6-6',
+  'chevron-down': 'M6 9l6 6 6-6',
   clip: 'M20.5 11.5l-8.2 8.2a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   'code-xml': 'M18 16l4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16',
