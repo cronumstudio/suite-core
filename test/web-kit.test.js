@@ -858,7 +858,19 @@ test('the drawer opened by a finger takes the focus itself, with no ring on the 
   assert.match(shell, /if \(keyboard\) nav\.querySelector\('\[aria-current="page"\], a, button'\)\?\.focus\(\);\s*else nav\.focus\(\{ preventScroll: true \}\);/);
   assert.match(shell, /class: 'kit-side__nav', 'aria-label': app\.name, tabindex: '-1'/, 'the drawer can take the focus');
   assert.match(shell, /byKeys = ev\.key === 'Enter' \|\| ev\.key === ' ';/, 'the keyboard is Enter or Space on ☰, not any click without a pointer');
-  assert.match(shell, /if \(visible\(menuButton\)\) return \(\) => openDrawer\(\);/, 'a swipe from the edge is a finger');
+  assert.match(shell, /if \(showing\('\.kit-bar__menu'\)\) return \(\) => openDrawer\(\);/, 'a swipe from the edge is a finger');
   assert.match(css, /\.kit-nav__item:focus-visible \{ outline-offset: -2px; \}/, 'the ring inside the entry: the list would cut it');
   assert.match(css, /\.kit-side__nav:focus \{ outline: none; \}/);
+});
+
+test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing one doesn\'t show the bar', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, actions: own = \[\], below = null \} = \{\}\)/);
+  assert.match(shell, /if \(pane === 'detail'\) start = backToggle\(\);/, '← over a detail, ☰ over a list');
+  assert.match(shell, /pane === 'list' \? createButton\(\) : null/, 'the button that creates at the end of a list\'s head');
+  assert.match(shell, /element, nav, list, detail, actions, banners, head: viewHead,/, 'the shell gives it');
+  assert.match(shell, /if \(showing\('\.kit-bar__back'\)\) return/, 'a swipe from the edge finds the button that shows, in the bar or a head');
+  assert.match(css, /\.kit-app:not\(\[data-screen="detail"\]\):has\(\.kit-pane--list \.kit-head\) \.kit-bar,\s*\.kit-app\[data-screen="detail"\]:has\(\.kit-pane--detail \.kit-head\) \.kit-bar \{ display: none; \}/);
+  assert.match(css, /\.kit-app\[data-panes="split"\] \.kit-head \.kit-bar__back \{ display: none; \}/, 'side by side, nothing goes back');
 });

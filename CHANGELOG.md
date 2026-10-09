@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.60.0 — 2026-10-09
+
+- **A view's head, the same in every app** (`shell.head({ pane, title, lead, actions, below })`):
+  the view's title and the app's actions, and, wherever the sidebar isn't beside the views, ☰ at
+  its start and the button that creates at its end (← over a phone's detail). A pane showing one
+  takes the bar's place, so the bar no longer holds a line for one button, and each view is laid
+  out alike in every app and on any screen. An app that shows no head keeps the bar as before.
+- The bar's ☰, ← and create are made by the same functions for the bar and every head; a swipe
+  from the edge does what the one showing does, wherever it is. The create button's words are in
+  `.kit-bar__create-label`, so a narrow head can show its + alone.
+
 ## 0.59.0 — 2026-10-09
 
 - **The drawer opened by a finger shows no ring.** Opening the drawer with ☰ or a swipe from the
