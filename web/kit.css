@@ -823,6 +823,8 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
  * app's own layers that are not a <dialog> read the same attribute.
  */
 :root[data-kit-keyboard] { --kit-safe-bottom: 0px; }
+/* A field scrolled back into view is not left touching the keyboard's edge. */
+:root[data-kit-keyboard] :is(input, textarea):focus { scroll-margin-block: 12px; }
 :root[data-kit-keyboard] .kit-app,
 :root[data-kit-keyboard] .kit-settings-page { top: var(--kit-view-top); bottom: auto; height: var(--kit-view-h); }
 :root[data-kit-keyboard] dialog:modal {
