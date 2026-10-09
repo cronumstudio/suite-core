@@ -70,6 +70,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place |
+| `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
 
 ## Starting an app
 
@@ -143,6 +144,38 @@ to it (a Gantt, a timeline); `shell.folded` says how it is. Something picked up 
 brings it over the views as a drawer, as on a phone. An app that lays out its own columns from
 960 px (Tasks, Projects) gives their `[data-folded]` version too; on a phone nothing of this
 applies, whatever was chosen on a computer.
+
+### The phone's keyboard
+
+On a phone the keyboard doesn't make the page shorter: it covers its lower part, and the browser
+slides the whole view up to keep what is typed in in sight. The frame, Settings and the sheets are
+fixed to the full screen, so their top (the bar, an editor's tools, a sheet's title) slides out
+of reach and their foot (a sheet's buttons) stays under the keyboard.
+
+```js
+import { fitToKeyboard, focusOnTap } from '../suite/keyboard.js';
+
+fitToKeyboard();                                   // once, at the start
+focusOnTap(document.querySelector('#add-input'));  // optional, for a field at the screen's foot
+```
+
+With `fitToKeyboard()`, while the keyboard is up for a text field, `<html>` has
+`data-kit-keyboard` and `--kit-view-top` / `--kit-view-h`, the part of the screen left in view
+(`visualViewport`, followed frame by frame while the keyboard moves). kit.css fits `.kit-app` and
+Settings to it, puts a modal dialog (the kit's or an app's own `<dialog>`) in its middle (on a
+phone, the sheet on the keyboard), the notices
+just above the keyboard, and `--kit-safe-bottom` to 0. An app's own rules for what sits at the
+foot of its views can read the same attribute. Without a keyboard nothing is touched.
+
+When the keyboard takes room, the focused text box or text area is scrolled back into view. An
+editor of the app's own (contenteditable) passes `reveal(field)`, which puts its caret in sight
+(clear of what covers it, as a sticky toolbar) and returns true; Notes' gives Tiptap's.
+
+`focusOnTap(area)` focuses `area` on the tap that starts typing with `preventScroll`, so the
+browser doesn't slide the view and the frame only shrinks. Only where the caret's place doesn't
+matter (an empty field to add to) or the app puts it at the finger: `focus(point)` does it and
+returns false to leave the tap to the browser (Notes: `posAtCoords`). A tap while already typing,
+a finger that moves, a long press and what `skip` matches (a checkbox, a link) are the browser's.
 
 ### Sign-in and settings
 

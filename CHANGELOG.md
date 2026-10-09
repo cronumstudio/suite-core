@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.57.0 — 2026-10-09
+
+- **The phone's keyboard** (`web/keyboard.js`): `fitToKeyboard({ reveal })` fits the frame, Settings,
+  the modal dialogs (the kit's and an app's own `<dialog>`) and the notices to the part of the screen the keyboard leaves (`<html
+  data-kit-keyboard>`, `--kit-view-top`, `--kit-view-h`), so the browser sliding the view up no
+  longer takes the bar, an editor's tools or a sheet's buttons out of reach; the focused field is
+  kept in sight. `focusOnTap(area, { focus, skip })` starts typing without that slide. Tasks' fix
+  (its nº60) and Notes' (0.8.1), for every app. Nothing changes for an app that doesn't call it:
+  the rules in kit.css only apply with the attribute. The service worker keeps `keyboard.js` with
+  the rest of the kit.
+
 ## 0.55.0 — 2026-10-08
 
 - **Storage is the person's across a host's modules.** A module says how many bytes it keeps for
