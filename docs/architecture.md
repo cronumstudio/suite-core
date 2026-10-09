@@ -63,6 +63,7 @@ suite-core/
   migrate.js            done   numbered migrations with scopes (suite, app, and each module's id in a host)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes, AES-256-GCM
   accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
+  account-deletion.js   done   someone deleting their own account: disabled now, gone after its days
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
@@ -872,6 +873,28 @@ kit's), then Notes is built on it whole, then the others as they move to English
   ceilings (entries inflated no further than they declare); in someone's own import no other
   account or role is touched and the plan's limits hold. `tools/data-cli.js` does the same from
   the command line, which is how a whole install moves without a browser or a proxy's upload limit.
+  Someone can also **erase their own data** and keep the account (`POST /api/me/erase`, v0.61.0):
+  first the app hands over what others share with them (the declaration's `handOver(userId)`: a
+  shared list passes to one of the people it is shared with), then goes, in one transaction,
+  exactly what their own copy would take and "replace" empties, and its files once committed.
+- **Deleting one's own account** (**done**, v0.61.0, `account-deletion.js`; the GDPR's right to
+  erasure). `POST /api/me/deletion` (`confirm: true`, and with a password here the password and
+  the second step's code, as erasing one's data asks) disables the account at once —sessions and
+  devices end, and tokens and connected assistants are refused, as for any disabled account— and
+  keeps it `accounts.deletionDays` (30) with `users.delete_after` (migration 21). Signing in to it
+  before then, with the password (`/api/auth/login` answers `deletion_pending` with a ticket
+  signed with the session secret, 15 minutes, after the code when it has a second step) or at the
+  provider (`/?account_deletion=<ticket>&until=<date>`), offers it back: `POST /api/auth/restore`
+  enables it as it was and signs in. An account the admin disabled is never offered back, and the
+  admin enabling one that waits takes the deletion back. The clean-ups (hourly, once for a host)
+  delete the accounts whose days are over with `accounts.remove()`, so every hook runs (each app
+  hands over what others share and deletes its files), and the audit keeps only `account.delete`
+  of account #n. Where this install is all a person has at the providers
+  (`accounts.deleteAtProviders`: Cronum Work), the subscriptions they pay for stop renewing when
+  they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when the
+  account goes, and the WorkOS user is deleted first (an account whose identity can't be deleted
+  waits for the next sweep); never where other apps share those accounts or that subscription. A
+  message says until when, when mail leaves the server. The last administrator can't ask.
 
 ## 17. Security baseline
 

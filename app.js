@@ -46,6 +46,7 @@ import { createWorkosAccounts, workosUsers, workosConnections } from './workos-a
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
 import { createAccountMail } from './account-mail.js';
+import { createAccountDeletion, deletionTicket } from './account-deletion.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { brandedPage } from './oauth-page.js';
@@ -59,6 +60,7 @@ import { createPortability, registerPortabilityApi } from './portability.js';
 import { createMcpServer, dailyLimitText } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
+  identityCheck,
 } from './api.js';
 import {
   HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
@@ -239,6 +241,7 @@ export function createSuite({
     stateCookie: `${config.app.id.replace(/-/g, '_')}_auth`,
     users: workosPeople,
     connections: workosConnections(database),
+    pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId: workosSessionId });
@@ -255,6 +258,7 @@ export function createSuite({
     adminEmail: install.admin.email,
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_oidc`,
+    pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     sessions: {
       open: (res, userId, { idpSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId });
@@ -326,6 +330,12 @@ export function createSuite({
     database, accounts, mailer, texts, baseUrl: install.baseUrl,
     appName: config.app.name, limiter, audit, signup: config.accounts.signup,
     localPasswords: install.authProvider === 'local', roles: config.accounts.roles, log,
+  });
+
+  // Someone deleting their own account: disabled now, gone after the install's days (account-deletion.js).
+  const deletion = createAccountDeletion({
+    accounts, sign: sessions.sign, days: config.accounts.deletionDays, atProviders: config.accounts.deleteAtProviders,
+    idp, billing, audit, mailer, texts, appName: config.app.name, baseUrl: install.baseUrl, log,
   });
 
   /**
@@ -406,7 +416,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor, idempotency,
+    portabilityFor, idempotency, deletion,
   };
 }
 
@@ -446,10 +456,11 @@ export function createApp({
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
-    billing, workos, idp, oauth, mailer, accountMail,
+    billing, workos, idp, oauth, mailer, accountMail, deletion,
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
+  const localPasswords = install.authProvider === 'local';
   const serialize = serializeUser || ((user) => (user ? accounts.publicUser(user) : null));
 
   /* --------------------------- the suite's routes --------------------------- */
@@ -460,7 +471,7 @@ export function createApp({
   const api = createRouter();
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
-    mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor,
+    mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
@@ -474,8 +485,8 @@ export function createApp({
     });
   }
   registerProfileApi(api, {
-    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp,
-    localPasswords: install.authProvider === 'local', alsoAt: profile.alsoAt || {},
+    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion,
+    localPasswords, alsoAt: profile.alsoAt || {},
   });
   if (config.modules.admin) {
     registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp });
@@ -490,7 +501,11 @@ export function createApp({
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
-  if (portability) registerPortabilityApi(api, { portability, audit, limiter, log });
+  if (portability) {
+    registerPortabilityApi(api, {
+      portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords }),
+    });
+  }
 
   let appApi = routes;
   if (typeof routes === 'function') {
@@ -800,6 +815,12 @@ export function createApp({
       const purgeOAuth = safely('OAuth clean-up', () => oauth.purge());
       purgeOAuth();
       timers.push(setInterval(purgeOAuth, HOUR).unref());
+    }
+    if (deletion) {
+      // The accounts whose owners asked to delete them, once their days are over: every hour.
+      const sweepAccounts = () => deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
+      timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(sweepAccounts, HOUR).unref());
     }
     if (handleSignals) {
       // close() also ends the live channels, which would otherwise keep the server open until the timeout.

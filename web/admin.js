@@ -164,7 +164,10 @@ async function renderUsers(main) {
         el('td', {},
           el('strong', { text: user.display_name }),
           el('small', { text: `@${user.username}` }),
-          user.disabled ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.disabledBadge') }) : null),
+          // Its owner asked to delete it: the day it goes. Enabling it takes the deletion back.
+          user.delete_after
+            ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.deletingBadge', { date: formatDate(user.delete_after) }) })
+            : user.disabled ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.disabledBadge') }) : null),
         el('td', {},
           user.email ? el('span', { text: user.email }) : el('span', { class: 'kit-hint', text: '—' }),
           user.email && !user.email_verified ? el('small', { text: t('admin.users.unconfirmed') }) : null),
