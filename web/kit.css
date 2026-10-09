@@ -812,6 +812,27 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-codes code { font-family: var(--kit-font-mono); }
 .kit-instruction { white-space: pre-wrap; margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--kit-hover); font: 13px/1.5 var(--kit-font-mono); overflow-wrap: anywhere; }
 
+/* -------------------------- the phone's keyboard -------------------------- */
+/*
+ * keyboard.js, while the keyboard is up: what is fixed to the full screen takes
+ * the part of it left in view (--kit-view-top, --kit-view-h), so its top doesn't
+ * slide out of reach and its foot doesn't stay under the keyboard. The frame and
+ * Settings fill it; a dialog sits in its middle, and on a phone, as a sheet, on
+ * the keyboard; the notices just above it. The home indicator is under the
+ * keyboard: nothing keeps room for it.
+ */
+:root[data-kit-keyboard] { --kit-safe-bottom: 0px; }
+:root[data-kit-keyboard] .kit-app,
+:root[data-kit-keyboard] .kit-settings-page { top: var(--kit-view-top); bottom: auto; height: var(--kit-view-h); }
+:root[data-kit-keyboard] .kit-dialog {
+  inset-block: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) / 2); translate: 0 -50%;
+  margin-block: 0; max-height: calc(var(--kit-view-h) - 24px);
+}
+:root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - 16px); translate: 0 -100%; }
+@media (max-width: 640px) {
+  :root[data-kit-keyboard] .kit-dialog { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
+}
+
 /* ------------------------------- signature -------------------------------- */
 
 #admin:empty + .kit-signature { display: none; }
