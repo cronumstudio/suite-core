@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.59.0 — 2026-10-09
+
+- **The drawer opened by a finger shows no ring.** Opening the drawer with ☰ or a swipe from the
+  edge put the focus on the current entry, and on a phone that drew the focus ring around it, its
+  top cut under the create button by the list's scroll (Notes #41). Now a finger or the mouse
+  gives the focus to the drawer itself (`tabindex="-1"`, nothing drawn); Enter or Space on ☰ still
+  goes to the current entry. `openDrawer({ keyboard })` and `toggleDrawer({ keyboard })` take it;
+  called without it, as apps do, it is a finger's. An entry's ring is drawn inside it, so the list
+  never cuts it.
+
 ## 0.58.0 — 2026-10-09
 
 - **In a host, Settings moves to the rail, and on a phone the app's icon changes module.** From

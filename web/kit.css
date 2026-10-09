@@ -532,6 +532,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   border: 0; background: none; color: var(--kit-text); text-decoration: none; text-align: start; cursor: pointer;
 }
 .kit-nav__item:hover { background: var(--kit-hover); }
+/* The list scrolls and would cut a ring drawn outside the entry: it goes inside. The drawer itself
+   takes the focus when a finger opens it, with nothing drawn. */
+.kit-nav__item:focus-visible { outline-offset: -2px; }
+.kit-side__nav:focus { outline: none; }
 .kit-nav__item[aria-current="page"] { background: var(--kit-accent-soft); font-weight: 600; }
 .kit-nav__item .kit-icon { color: var(--kit-muted); width: 17px; height: 17px; }
 .kit-nav__item[aria-current="page"] .kit-icon { color: var(--kit-accent); }

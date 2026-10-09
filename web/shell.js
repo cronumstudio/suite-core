@@ -66,7 +66,8 @@ export function createShell({
     type: 'button', class: 'kit-icon-btn kit-side__fold', title: t('kit.side.fold'), 'aria-label': t('kit.side.fold'),
     onClick: () => setFolded(true),
   }, icon('back'));
-  const nav = el('nav', { class: 'kit-side__nav', 'aria-label': app.name });
+  // tabindex: the drawer opened by a finger takes the focus itself (openDrawer).
+  const nav = el('nav', { class: 'kit-side__nav', 'aria-label': app.name, tabindex: '-1' });
   const headIcon = appIcon(30);
   const headName = el('span', { class: 'kit-appname', text: app.name });
   const head = el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
@@ -82,9 +83,17 @@ export function createShell({
 
   const title = el('span', { class: 'kit-bar__title' });
   const actions = el('div', { class: 'kit-bar__actions' });
+  // ☰ pressed with Enter or Space: the click that follows is the keyboard's. Not a click without
+  // a pointer, which a tap at the screen's edge passed on is too.
+  let byKeys = false;
   const menuButton = el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
-    onClick: () => toggleDrawer(),
+    onKeydown: (ev) => { byKeys = ev.key === 'Enter' || ev.key === ' '; },
+    onClick: () => {
+      const keyboard = byKeys;
+      byKeys = false;
+      toggleDrawer({ keyboard });
+    },
   }, icon('menu'));
   const backButton = el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
@@ -146,14 +155,21 @@ export function createShell({
     closeDrawer();
   }
 
-  function openDrawer() {
+  /**
+   * Opened from the keyboard, the focus goes to the current entry, to go on from there. Opened by
+   * a finger or the mouse (☰, a swipe from the edge), it goes to the drawer itself: on a phone a
+   * ring around the current entry looked like a frame drawn on it, its top cut under the create
+   * button (Notes #41).
+   */
+  function openDrawer({ keyboard = false } = {}) {
     // Folded beside the views, what would open it over them (☰, a swipe from the edge) unfolds it.
     if (folded()) setFolded(false);
     else element.setAttribute('data-drawer', '');
-    nav.querySelector('[aria-current="page"], a, button')?.focus();
+    if (keyboard) nav.querySelector('[aria-current="page"], a, button')?.focus();
+    else nav.focus({ preventScroll: true });
   }
   function closeDrawer() { element.removeAttribute('data-drawer'); }
-  function toggleDrawer() { if (element.hasAttribute('data-drawer')) closeDrawer(); else openDrawer(); }
+  function toggleDrawer(how) { if (element.hasAttribute('data-drawer')) closeDrawer(); else openDrawer(how); }
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); });
@@ -209,7 +225,7 @@ export function createShell({
   const startAction = (target) => {
     if (!element.contains(target) || element.hasAttribute('data-drawer')) return null;
     if (visible(backButton)) return () => (onBack || showList)();
-    if (visible(menuButton)) return openDrawer;
+    if (visible(menuButton)) return () => openDrawer();
     return null;
   };
   const scrollerOf = (node) => {
