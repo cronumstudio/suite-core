@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.61.0 — 2026-10-09
+
+- **The drawer follows the finger on a phone.** From the start edge it comes out as far as the
+  finger goes, over the open drawer it goes back the same way, and on lifting the finger it opens
+  or closes by how far the finger went (the finger's path, so closing costs the same as opening; a
+  little less when the system takes the gesture away). It was Tasks' own gesture (its
+  edge-swipe.js); in the other apps the drawer came out all at once past 40 px. The click that may
+  follow the finger is swallowed, and the CSS takes over from where the finger left the drawer.
+  Beside the views (a tablet, folded) the edge still unfolds the sidebar, as before.
+
 ## 0.60.0 — 2026-10-09
 
 - **A view's head, the same in every app** (`shell.head({ pane, title, lead, actions, below })`):

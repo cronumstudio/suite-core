@@ -518,6 +518,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-app[data-drawer] .kit-side { transform: none; visibility: visible; box-shadow: var(--kit-shadow-high); transition-delay: 0s; }
 .kit-scrim { position: absolute; inset: 0; z-index: 25; background: var(--kit-scrim); opacity: 0; pointer-events: none; transition: opacity var(--kit-slide-time) ease; }
 .kit-app[data-drawer] .kit-scrim { opacity: 1; pointer-events: auto; }
+/* A finger drags the drawer (shell.js): it is where the finger is, and slides only once it lets go. */
+.kit-app[data-drawer-drag] .kit-side, .kit-app[data-drawer-drag] .kit-scrim { transition: none; }
 .kit-side__head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
 .kit-side__head .kit-appname { flex: 1; }
 /* Folding is for where the sidebar sits beside the views; in the drawer it would mean nothing. */
