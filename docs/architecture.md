@@ -1014,9 +1014,9 @@ The host's own tables have their own scope, `host`, and an app on its own never 
 first, `host_modules`, keeps which modules each person turned on: no row, they haven't chosen and
 use every one; a module added to the host after they chose comes on for them. `GET /api/modules`
 answers `{ host, chosen, modules: [{ mount, path, name, color, icon, active }] }` for the host's
-pages and the kit's shell, which turns the app's icon at the sidebar's head into a menu of the
-other active ones and Settings, and where the sidebar stays (from 640 px) draws a rail with them,
-when the page is a module's; `PUT /api/me/modules { active: [mount…] }` sets them, at least one, from
+pages and the kit's shell, which draws a rail with the active ones and Settings where the sidebar
+stays (from 640 px) and, on a phone, turns the app's icon at the drawer's head into a menu of the
+other active ones and Settings, when the page is a module's; `PUT /api/me/modules { active: [mount…] }` sets them, at least one, from
 Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
 only leaves that person's menus, MCP and links.
 
