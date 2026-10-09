@@ -172,7 +172,7 @@ export function createOidcClient({
  */
 export function createOidcAccounts({
   baseUrl, oidc, accounts, adminEmail = '', sessions, secureCookies = false, stateCookie = 'suite_oidc',
-  log = console.log,
+  pendingDeletion = null, log = console.log,
 }) {
   const BASE_URL = noSlash(baseUrl);
   const REDIRECT = `${BASE_URL}/auth/callback`;
@@ -240,6 +240,11 @@ export function createOidcAccounts({
           emailVerified: claims.email_verified === true || claims.email_verified === 'true',
           displayName: claims.name ?? null, username: claims.preferred_username ?? null,
         }, { adminEmail });
+        // Its owner asked to delete it: no session, the offer to take it back (account-deletion.js).
+        if (user.disabled_at && user.delete_after && pendingDeletion) {
+          redirect(res, `/?account_deletion=${encodeURIComponent(pendingDeletion(user))}&until=${encodeURIComponent(user.delete_after)}`);
+          return true;
+        }
         // An account the admin disabled stays out, whatever the provider says.
         if (user.disabled_at) {
           log(`[oidc] user #${user.id} is disabled: not signed in`);

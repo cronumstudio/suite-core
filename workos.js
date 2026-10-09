@@ -143,6 +143,19 @@ export function createWorkosClient({
     if (!ok && status !== 404) throw new Error(`WorkOS did not revoke the session (${status})`);
   }
 
+  /**
+   * Deletes a WorkOS user (`user_…`): their sign-in, sessions and the clients
+   * they authorized go with it. Gone already (404) is done too.
+   */
+  async function deleteUser(id) {
+    const { ok, status } = await request(`${API_URL}/user_management/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (ok || status === 404) return;
+    if (status >= 500 || status === 429) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    throw new Error(`WorkOS did not delete the user (${status})`);
+  }
+
   /** A WorkOS user by id (`user_…`), or null. */
   async function account(id) {
     const { ok, status, body } = await request(
@@ -277,7 +290,7 @@ export function createWorkosClient({
 
   return {
     authkitDomain: AUTHKIT,
-    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, account, knows,
+    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, account, knows,
     authorizedApplications, revokeApplication, verifyToken, resourceMetadata, authorizationServerMetadata,
   };
 }

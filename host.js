@@ -702,6 +702,12 @@ export async function createHost({
       purgeOAuth();
       timers.push(setInterval(purgeOAuth, HOUR).unref());
     }
+    if (suite.deletion) {
+      // The accounts whose owners asked to delete them, once their days are over: once for every module.
+      const sweepAccounts = () => suite.deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
+      timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
+      timers.push(setInterval(sweepAccounts, HOUR).unref());
+    }
     for (const m of joined) {
       // What a plan keeps for a while only: the module's sweep, as createApp runs it for the app alone.
       if (typeof m.parts.sweep === 'function') {

@@ -11,6 +11,11 @@
  * a disabled account can't sign in and its sessions end; changing a password
  * closes the other sessions; a password hash made with less than today's cost
  * is redone at the next sign-in.
+ *
+ * Someone can ask for their own account to be deleted: it is disabled at once
+ * and kept `delete_after` a grace period (account-deletion.js deletes it then),
+ * so that whoever asked by mistake, or never asked because someone else was in
+ * their session, can sign in and take it back.
  */
 import { badRequest, notFound, conflict } from './http.js';
 import { hashPassword, verifyPassword, needsRehash } from './crypto.js';
@@ -51,6 +56,14 @@ export function usersSchema(d) {
   if (d.columnsOf('users').includes('created_at')) {
     d.exec("UPDATE users SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at) WHERE created_at NOT LIKE '%T%' AND strftime('%s', created_at) IS NOT NULL");
   }
+}
+
+/**
+ * When an account its owner asked to delete goes for good: until then it is
+ * disabled, and signing in offers to take it back.
+ */
+export function accountDeletionSchema(d) {
+  ensureColumn(d, 'users', 'delete_after', 'delete_after TEXT');
 }
 
 /**
@@ -145,10 +158,22 @@ export function createAccounts({
     created_at: isoOf(user.created_at), last_login_at: isoOf(user.last_login_at),
     disabled: Boolean(user.disabled_at), has_password: Boolean(user.password_hash && user.password_hash !== '!'),
     two_factor: Boolean(user.two_factor_at),
+    // Its owner asked to delete it: it goes for good then, unless they take it back.
+    ...(user.delete_after ? { delete_after: isoOf(user.delete_after) } : {}),
   });
 
   const activeAdmins = () => Number(database.get(
     "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled_at IS NULL").n);
+
+  /**
+   * A disabled account's sessions end, and its devices go too: notices carry
+   * task titles and list names, and an app picks whom to notify from that
+   * table without asking who is disabled.
+   */
+  function shutOut(id) {
+    sessions?.closeAllOf(id);
+    if (database.columnsOf('push_subscriptions').length) database.run('DELETE FROM push_subscriptions WHERE user_id = ?', id);
+  }
 
   function checkPassword(password) {
     if (typeof password !== 'string') throw badRequest('field_invalid', { field: 'password' });
@@ -385,12 +410,9 @@ export function createAccounts({
       if (fields.disabled !== undefined && Boolean(fields.disabled) !== Boolean(user.disabled_at)) {
         if (fields.disabled && user.role === 'admin' && activeAdmins() <= 1) throw conflict('last_admin');
         sets.push('disabled_at = ?'); params.push(fields.disabled ? iso(clock()) : null);
-        if (fields.disabled) {
-          sessions?.closeAllOf(id);
-          // Its devices go too: notices carry task titles and list names, and an
-          // app picks whom to notify from this table without asking who is disabled.
-          if (database.columnsOf('push_subscriptions').length) database.run('DELETE FROM push_subscriptions WHERE user_id = ?', id);
-        }
+        // The admin enabling an account its owner asked to delete takes the deletion back too.
+        if (!fields.disabled && user.delete_after) sets.push('delete_after = NULL');
+        if (fields.disabled) shutOut(id);
       }
       if (sets.length) {
         database.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...params, id);
@@ -413,10 +435,13 @@ export function createAccounts({
    * The account of a username and password, or null. A disabled account never
    * signs in; a hash below today's cost is redone now that the password is known.
    * With `signIn: false` the sign-in isn't noted yet (a second step comes).
+   * With `pending: true` an account waiting to be deleted is returned as well,
+   * for the caller to offer it back (it has `delete_after`): it doesn't sign in.
    */
-  function verify(username, password, { signIn = true } = {}) {
+  function verify(username, password, { signIn = true, pending = false } = {}) {
     const user = byUsername(username);
-    if (!user?.password_hash || user.password_hash === '!' || user.disabled_at) {
+    const waiting = pending && user?.disabled_at && user.delete_after;
+    if (!user?.password_hash || user.password_hash === '!' || (user.disabled_at && !waiting)) {
       // Same work either way: the time taken doesn't say whether the account exists.
       verifyPassword(String(password || ''), 'scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
       return null;
@@ -442,10 +467,43 @@ export function createAccounts({
     });
   }
 
+  /**
+   * Its owner asks to delete the account: disabled now (sessions and devices
+   * out, as when the admin disables it) and deleted for good once `days` have
+   * passed. Asked again, it keeps the first date. Never the last administrator.
+   */
+  function requestDeletion(id, { days = 30 } = {}) {
+    const user = mustExist(id);
+    if (user.delete_after) return user;
+    if (user.disabled_at) throw conflict('account_disabled');
+    if (user.role === 'admin' && activeAdmins() <= 1) throw conflict('last_admin');
+    const now = clock();
+    database.tx(() => {
+      database.run('UPDATE users SET disabled_at = ?, delete_after = ? WHERE id = ?',
+        iso(now), iso(now + days * 24 * 60 * 60 * 1000), id);
+      shutOut(id);
+    });
+    changed(id);
+    return byId(id);
+  }
+
+  /** The owner takes the account back before it goes: enabled again, as it was. False if it wasn't waiting. */
+  function cancelDeletion(id) {
+    const done = database.run(`UPDATE users SET disabled_at = NULL, delete_after = NULL
+      WHERE id = ? AND delete_after IS NOT NULL`, id).changes > 0;
+    if (done) changed(id);
+    return done;
+  }
+
+  /** The accounts whose grace period is over, the oldest request first. */
+  const dueForDeletion = () => database.all(`SELECT * FROM users
+    WHERE delete_after IS NOT NULL AND delete_after <= ? ORDER BY delete_after, id`, iso(clock()));
+
   const list = () => database.all('SELECT * FROM users ORDER BY id');
 
   return {
     create, update, setPassword, checkPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
+    requestDeletion, cancelDeletion, dueForDeletion,
     byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
     linkedByEmail, relinkIdentity,
     setVerifiedEmail, fromIdentity, freeUsername,

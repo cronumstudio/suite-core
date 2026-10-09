@@ -109,11 +109,19 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     signup: env.SIGNUP || ac.signup || 'admin',
     minPasswordLength: ac.minPasswordLength ?? 10,
     roles: Array.isArray(ac.roles) ? [...ac.roles] : ['admin', 'user'],
+    // Someone deleting their own account: how long it waits, disabled, before it goes for good.
+    deletionDays: ac.deletionDays ?? 30,
+    // When it goes, whether the person also goes at the identity provider (WorkOS) and their
+    // subscriptions end: only where this install is all the person has there (Cronum Work), never
+    // where other apps sign in with the same provider's accounts or share a subscription.
+    deleteAtProviders: ac.deleteAtProviders ?? false,
   };
   if (!['admin', 'invite', 'open'].includes(accounts.signup)) {
     errors.push(`${env.SIGNUP ? 'SIGNUP' : 'accounts.signup'} "${accounts.signup}": use admin, invite or open`);
   }
   if (!wholeNumber(accounts.minPasswordLength, 6, 128)) errors.push('accounts.minPasswordLength: a whole number from 6 to 128');
+  if (!wholeNumber(accounts.deletionDays, 0, 365)) errors.push('accounts.deletionDays: a whole number of days from 0 to 365');
+  if (typeof accounts.deleteAtProviders !== 'boolean') errors.push('accounts.deleteAtProviders: true or false');
   if (!accounts.roles.includes('admin')) errors.push('accounts.roles must include "admin"');
 
   const se = isObject(p.sessions) ? p.sessions : {};

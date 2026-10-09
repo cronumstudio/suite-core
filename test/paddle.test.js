@@ -56,6 +56,8 @@ function fakePaddle({ customers = [] } = {}) {
       data = { id: 'txn_01test', checkout: { url: `${base}${base.includes('?') ? '&' : '?'}_ptxn=txn_01test` } };
     } else if (/^\/customers\/[^/]+\/portal-sessions$/.test(pathname)) {
       data = { id: 'cpls_1', urls: { general: { overview: 'https://customer-portal.paddle.com/cpl_1?token=x' } } };
+    } else if (/^\/subscriptions\/[^/]+(\/cancel)?$/.test(pathname)) {
+      data = { id: pathname.split('/')[2] };
     }
     return { ok: Boolean(data), status: data ? 200 : 404, json: async () => ({ data }) };
   };
@@ -281,6 +283,25 @@ test('a subscription: bought, renewed, cancelled at the end of the period, and e
     type: 'subscription.updated', occurredAt: '2027-12-02T10:00:00Z', endsAt: '2028-11-01T10:00:00Z',
   })), 'stale');
   assert.equal(planOf(ada), 'free');
+});
+
+test('someone deleting their account: their subscription stops renewing, renews again, and ends (account-deletion.js)', async (t) => {
+  const { deliver, signIn, billing, paddle, database } = app(t);
+  const ada = signIn(ADA, 'ada');
+  const bob = signIn('user_01JBOB0000000000000000000B', 'bob');
+  await deliver(subscriptionEvent('evt_1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' }));
+  const before = paddle.calls.length;
+  assert.equal(await billing.stopRenewals(ada.id), 1);
+  assert.equal(await billing.keepRenewals(ada.id), 1);
+  assert.equal(await billing.endSubscriptions(ada.id), 1);
+  assert.deepEqual(paddle.calls.slice(before).map((c) => [c.method, c.pathname, c.body]), [
+    ['POST', '/subscriptions/sub_01ada/cancel', { effective_from: 'next_billing_period' }],
+    ['PATCH', '/subscriptions/sub_01ada', { scheduled_change: null }],
+    ['POST', '/subscriptions/sub_01ada/cancel', { effective_from: 'immediately' }],
+  ]);
+  assert.equal(await billing.stopRenewals(bob.id), 0, 'someone without a subscription: nothing to ask Paddle');
+  database.run("UPDATE billing_subscriptions SET status = 'canceled'");
+  assert.equal(await billing.endSubscriptions(ada.id), 0, 'one already over is left alone');
 });
 
 test('paused is not paid for; resumed, Pro again; a founder\'s price is still Pro', async (t) => {

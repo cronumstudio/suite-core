@@ -184,6 +184,22 @@ export function paddleProvider({
     return url;
   }
 
+  /**
+   * A subscription that stops: at the end of the period already paid (it
+   * won't renew), or `now`. Paddle answers the subscription's change through
+   * the webhook, as when the person cancels in the portal.
+   */
+  async function cancelSubscription(ref, { now = false } = {}) {
+    await call('POST', `/subscriptions/${encodeURIComponent(ref)}/cancel`, {
+      effective_from: now ? 'immediately' : 'next_billing_period',
+    });
+  }
+
+  /** A cancellation scheduled for the period's end taken back: it renews again. */
+  async function keepSubscription(ref) {
+    await call('PATCH', `/subscriptions/${encodeURIComponent(ref)}`, { scheduled_change: null });
+  }
+
   /** Who an entity's custom_data says pays: their WorkOS id, or the subject of an install without it. */
   function whoOf(customData) {
     const workosId = customData?.workos_user_id;
@@ -257,6 +273,7 @@ export function paddleProvider({
 
   return {
     id: providerId(environment), needsPrice: true, environment, checkoutUrl: checkout, portalUrl, parseWebhook, translate,
+    cancelSubscription, keepSubscription,
   };
 }
 

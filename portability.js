@@ -112,6 +112,7 @@ export function dataImportsSchema(d) {
  *     users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
  *              prefs(prefs, { ids, current, created }) { … } },
  *     check({ user, counts, replaced }) { … },   // limits of the plan, for someone's own import
+ *     handOver(userId) { … },        // before someone's own data is erased: what others share passes on
  *   }
  *
  * `limits` are what the app's own screens accept, per column: a number is the
@@ -428,6 +429,54 @@ export function createPortability({
   };
   /** What an account owns alone, per table: what its own copy takes and "replace" empties. */
   const ownedBy = (userId) => selectRows(model, rowsNear([userId]), (id) => id === userId).kept;
+
+  /**
+   * Deletes what an account owns alone, inside the caller's transaction, and
+   * adds its files to `files` for the caller to remove once committed.
+   * → rows deleted per table.
+   */
+  function emptyAccount(userId, files) {
+    const counts = {};
+    const owned = ownedBy(userId);
+    for (const table of [...model.tables].reverse()) {
+      const rows = owned.get(table.name);
+      if (!rows.length) continue;
+      if (table.file) files.push(...rows.map((r) => r[table.file.path]));
+      const where = table.key.map((c) => `${quote(c)} = ?`).join(' AND ');
+      const remove = database.db.prepare(`DELETE FROM ${quote(table.name)} WHERE ${where}`);
+      for (const row of rows) remove.run(...table.key.map((c) => row[c]));
+      counts[table.name] = (counts[table.name] || 0) + rows.length;
+    }
+    return counts;
+  }
+
+  /**
+   * Someone erases their own data here and keeps the account (Settings → Your
+   * data). First the app hands over what others share with them
+   * (`declaration.handOver`: a shared list passes to one of the people it is
+   * shared with), then goes exactly what their own copy would take and
+   * "replace" empties, and its files once committed. Everyone resyncs: a
+   * list handed over has a new owner. → { erased: { table: n } }
+   */
+  function erase(user, { req = null } = {}) {
+    const release = begin(`user:${user.id}`);
+    try {
+      const files = [];
+      const erased = database.tx(() => {
+        declaration.handOver?.(user.id);
+        return emptyAccount(user.id, files);
+      });
+      for (const file of files) uploads?.remove(file);
+      audit?.record({
+        action: 'data.erase', actor: user, req,
+        meta: { rows: Object.values(erased).reduce((a, b) => a + b, 0), files: files.length },
+      });
+      live?.publish({ audience: null, event: 'resync', data: {} });
+      return { erased };
+    } finally {
+      release();
+    }
+  }
 
   /** The versions of this database's schema, the app's and the suite's. */
   function schemaVersions() {
@@ -984,15 +1033,8 @@ export function createPortability({
         const replaced = {};
         for (const choice of choices.values()) {
           if (choice.action !== 'map' || !choice.replace) continue;
-          const owned = ownedBy(choice.userId);
-          for (const table of [...model.tables].reverse()) {
-            const rows = owned.get(table.name);
-            if (!rows.length) continue;
-            if (table.file) replacedFiles.push(...rows.map((r) => r[table.file.path]));
-            const where = table.key.map((c) => `${quote(c)} = ?`).join(' AND ');
-            const remove = database.db.prepare(`DELETE FROM ${quote(table.name)} WHERE ${where}`);
-            for (const row of rows) remove.run(...table.key.map((c) => row[c]));
-            replaced[table.name] = (replaced[table.name] || 0) + rows.length;
+          for (const [name, n] of Object.entries(emptyAccount(choice.userId, replacedFiles))) {
+            replaced[name] = (replaced[name] || 0) + n;
           }
         }
 
@@ -1327,7 +1369,7 @@ export function createPortability({
   }
 
   return {
-    model, max, prepareExport, receive, apply, discard, planFile, applyFile, purge, begin,
+    model, max, prepareExport, receive, apply, discard, planFile, applyFile, purge, begin, erase,
     /** For tests and tools: the pieces under the service. */
     readArchive, schemaVersions,
   };
@@ -1339,9 +1381,13 @@ export function createPortability({
  * `GET /api/me/export` (someone's own copy), `POST /api/me/import` (upload →
  * what it would do), `POST /api/me/import/:id` (apply, `{ replace }`) and
  * `DELETE /api/me/import/:id`; and the same under `/api/admin/` for the whole
- * install, whose apply takes `{ accounts: [decisions] }`.
+ * install, whose apply takes `{ accounts: [decisions] }`. `POST /api/me/erase`
+ * empties someone's own data, asked again who they are (`confirm`, api.js
+ * identityCheck).
  */
-export function registerPortabilityApi(router, { portability, audit = null, limiter = null, log = console.log }) {
+export function registerPortabilityApi(router, {
+  portability, audit = null, limiter = null, confirm = null, log = console.log,
+}) {
   const signedIn = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
@@ -1398,6 +1444,14 @@ export function registerPortabilityApi(router, { portability, audit = null, limi
     portability.discard(ctx.params.id, { mode: 'account', user: signedIn(ctx) });
     sendJson(ctx.res, 204, null);
   });
+  if (confirm) {
+    router.post('/api/me/erase', async (ctx) => {
+      const user = signedIn(ctx);
+      const body = await readJson(ctx.req);
+      confirm(ctx, user, body);
+      sendJson(ctx.res, 200, portability.erase(user, { req: ctx.req }));
+    });
+  }
 
   router.get('/api/admin/export', (ctx) => download(ctx, { scope: 'install', user: admin(ctx) }));
   router.post('/api/admin/import', async (ctx) => {
