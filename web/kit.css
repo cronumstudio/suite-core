@@ -342,6 +342,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-menu__item:hover, .kit-menu__item:focus-visible { background: var(--kit-hover); outline: none; }
 .kit-menu__item .kit-icon { width: 17px; height: 17px; color: var(--kit-muted); }
+.kit-menu__image { width: 20px; height: 20px; border-radius: 6px; flex: none; display: block; margin-inline: -1px; }
 .kit-menu__item--danger, .kit-menu__item--danger .kit-icon { color: var(--kit-danger); }
 .kit-menu__item .kit-menu__end { margin-inline-start: auto; }
 .kit-menu__sep { height: 1px; background: var(--kit-border); margin: 4px 6px; }
@@ -623,17 +624,32 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 
 /*
- * The modules of a host (shell.js, in Cronum Work): a rail at the start of the
- * sidebar with each module the person uses, and the host's home above them. It
- * comes with the sidebar, so on a phone it is in the drawer. Ink in both themes,
- * as the brand's frame around the products' colours.
+ * The modules of a host (shell.js, in Cronum Work). The app's icon and name at
+ * the sidebar's head are a button whose menu has the other modules and
+ * Settings: on a phone, that is how one changes module, and the drawer keeps
+ * all its width. Where the sidebar stays, a rail at its start has each module
+ * the person uses, the host's home above them and Settings at its foot. The
+ * person's button at the sidebar's foot gives way to both. The rail is ink in
+ * both themes, as the brand's frame around the products' colours.
  */
+.kit-side__app {
+  display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; margin: -5px -6px; padding: 5px 6px;
+  border: 0; border-radius: 10px; background: none; color: var(--kit-text); cursor: pointer; text-align: start;
+}
+.kit-side__app:hover, .kit-side__app[aria-expanded="true"] { background: var(--kit-hover); }
+.kit-side__app .kit-appname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kit-side__app .kit-icon { width: 16px; height: 16px; flex: none; color: var(--kit-muted); transition: transform .15s ease; }
+.kit-side__app[aria-expanded="true"] .kit-icon { transform: rotate(180deg); }
+.kit-side__app:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: 1px; }
+.kit-side__foot[hidden] { display: none; }
+/* Without the foot, what ends the sidebar keeps clear of the phone's bottom edge. */
+.kit-app[data-module] .kit-side__nav { padding-bottom: calc(10px + var(--kit-safe-bottom)); }
 .kit-app[data-rail] { --kit-side-width: 326px; }
 .kit-side__main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.kit-side[data-rail] { flex-direction: row; padding-top: 0; width: min(356px, 92%); }
+.kit-side[data-rail] { flex-direction: row; padding-top: 0; }
 .kit-side[data-rail] .kit-side__main { padding-top: var(--kit-safe-top); }
 .kit-rail {
-  flex: none; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 4px; overflow-y: auto;
+  flex: none; width: 66px; display: none; flex-direction: column; align-items: center; gap: 4px; overflow-y: auto;
   padding: calc(12px + var(--kit-safe-top)) 0 calc(12px + var(--kit-safe-bottom)); background: var(--cr-ink);
 }
 .kit-rail__home { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 8px; border-radius: 12px; color: var(--cr-cream); }
@@ -651,9 +667,15 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   content: ''; position: absolute; inset-inline-start: -4px; inset-block: 10px; width: 4px; border-radius: 0 4px 4px 0;
   background: var(--module, var(--cr-cream));
 }
-.kit-rail a:focus-visible { outline: 2px solid var(--cr-cream); outline-offset: 1px; }
+.kit-rail__settings {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin-top: auto; border: 0; border-radius: 12px;
+  background: none; color: var(--cr-stone-dark); cursor: pointer;
+}
+.kit-rail__settings .kit-icon { width: 20px; height: 20px; }
+.kit-rail__settings:hover, .kit-rail__settings[aria-expanded="true"] { background: rgba(255, 247, 230, .08); color: var(--cr-cream); }
+.kit-rail a:focus-visible, .kit-rail button:focus-visible { outline: 2px solid var(--cr-cream); outline-offset: 1px; }
 @container kit-app (min-width: 640px) {
-  .kit-app[data-layout="side"] .kit-side[data-rail] { width: auto; }
+  .kit-rail { display: flex; }
 }
 
 /* ---------------------------------- links ---------------------------------- */

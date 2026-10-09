@@ -214,9 +214,10 @@ export function confirmDialog(text, { title = t('kit.areYouSure'), confirm = t('
 let openMenuNode = null;
 
 /**
- * A menu under (or above) `anchor`: items are { label, iconName, onClick,
- * href, external, danger }, or 'separator'; `header` is a node on top (what
- * the menu is about). Arrows move, Escape and a click outside close it.
+ * A menu under (or above) `anchor`: items are { label, iconName, image,
+ * onClick, href, external, danger }, or 'separator' (`image`, a picture's
+ * address in place of an icon: a module's own); `header` is a node on top
+ * (what the menu is about). Arrows move, Escape and a click outside close it.
  */
 export function menu(anchor, items, { header = null } = {}) {
   closeMenu();
@@ -225,7 +226,9 @@ export function menu(anchor, items, { header = null } = {}) {
     const props = {
       class: `kit-menu__item${item.danger ? ' kit-menu__item--danger' : ''}`, role: 'menuitem', tabindex: '-1',
     };
-    const children = [item.iconName ? icon(item.iconName) : null, el('span', { text: item.label }),
+    const picture = item.image ? el('img', { class: 'kit-menu__image', src: item.image, alt: '', width: 20, height: 20 })
+      : item.iconName ? icon(item.iconName) : null;
+    const children = [picture, el('span', { text: item.label }),
       item.external ? el('span', { class: 'kit-menu__end' }, icon('external')) : null];
     const node = item.href
       ? el('a', { ...props, href: item.href, ...(item.external ? { target: '_blank', rel: 'noopener' } : {}) }, children)

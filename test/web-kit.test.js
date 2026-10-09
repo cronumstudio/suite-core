@@ -330,6 +330,24 @@ test('one frame: the person\'s button only at the sidebar\'s foot, and no top ba
   assert.doesNotMatch(css, /data-layout="top"|\.kit-bottom|\.kit-bar__tab|\.kit-bar__brand/);
 });
 
+test('in a host the app\'s icon changes module, the rail is for where the sidebar stays, and the person\'s button gives way', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  const icons = fs.readFileSync(new URL('../web/icons.js', import.meta.url), 'utf8');
+  // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
+  assert.match(shell, /class: 'kit-side__app', 'aria-haspopup': 'menu'/);
+  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),\s*others\.length \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
+  assert.match(shell, /others = shown\.filter\(\(m\) => m\.mount !== mount\);\s*asModule\(true\);/, 'with one module too: Settings is still under the icon');
+  assert.match(shell, /foot\.hidden = on;/, 'the person\'s button gives way in a host');
+  assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the person\'s button opened');
+  assert.match(shell, /class: 'kit-rail__settings'/, 'Settings at the rail\'s foot');
+  assert.match(icons, /'chevron-down': /);
+  // On a phone no rail: the drawer is the module's alone. Shown only from 640 px.
+  assert.match(css, /\.kit-rail \{[^}]*display: none;/);
+  assert.match(css, /@container kit-app \(min-width: 640px\) \{\s*\.kit-rail \{ display: flex; \}\s*\}/);
+  assert.doesNotMatch(css, /\.kit-side\[data-rail\] \{[^}]*width:/, 'the drawer keeps its own width');
+});
+
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');

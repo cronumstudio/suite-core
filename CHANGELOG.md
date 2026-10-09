@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.56.0 — 2026-10-09
+
+- **In a host, the app's icon changes module.** The icon and name at the sidebar's head open a menu
+  with the other modules the person uses and, last, Settings (or the account's menu, for an app
+  with entries of its own). On a phone that is how one changes module, so the drawer no longer
+  carries the rail and keeps its own width. From 640 px the rail stays, with Settings at its foot.
+  The person's button at the sidebar's foot gives way in a host, with one module or more. An app on
+  its own is drawn as before.
+- `menu()` items take an `image` (a picture's address) in place of an icon; the kit has a
+  `chevron-down` icon.
+
 ## 0.55.0 — 2026-10-08
 
 - **Storage is the person's across a host's modules.** A module says how many bytes it keeps for
