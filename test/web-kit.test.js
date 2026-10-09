@@ -344,6 +344,8 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the person\'s button opened');
   assert.match(shell, /class: 'kit-rail__settings'/, 'Settings at the rail\'s foot');
   assert.match(icons, /'chevron-down': /);
+  assert.match(icons, /\n  camera: '[^']+',\n/, 'the camera and the picture, for attaching (0.63.0)');
+  assert.match(icons, /\n  image: '[^']+',\n/);
   // On a phone no rail: the drawer is the module's alone. Shown only from 640 px.
   assert.match(css, /\.kit-rail \{[^}]*display: none;/);
   assert.match(css, /@container kit-app \(min-width: 640px\) \{\s*\.kit-rail \{ display: flex; \}\s*\}/);
