@@ -14,6 +14,8 @@ export const PATHS = Object.freeze({
   book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5',
   box: 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10',
   calendar: 'M4 5h16v16H4zM4 10h16M9 3v4M15 3v4',
+  // Lucide's camera, its circle drawn as two arcs.
+  camera: 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3zM9 13a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
   card: 'M3 6h18v12H3zM3 10h18M7 15h3',
   check: 'M5 12.5l4.5 4.5L19 7',
   chevron: 'M9 18l6-6-6-6',
@@ -35,6 +37,8 @@ export const PATHS = Object.freeze({
   'heading-2': 'M4 12h8M4 18V6M12 18V6M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1',
   'heading-3': 'M4 12h8M4 18V6M12 18V6M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2',
   home: 'M4 11l8-7 8 7v9h-5v-6H9v6H4z',
+  // Lucide's image: the frame (a rounded rect), the sun and the hill, in one path.
+  image: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 9a2 2 0 1 0 4 0 2 2 0 1 0-4 0M21 15l-3.1-3.1a2 2 0 0 0-2.8 0L6 21',
   inbox: 'M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01',
   italic: 'M19 4h-9M14 20H5M15 4L9 20',

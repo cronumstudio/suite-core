@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.63.0 — 2026-10-09
+
+- **Icons for pictures**: `image` and `camera` (Lucide's, in one path like the rest), for an editor
+  that inserts a picture from the camera roll, the camera or a file (Notes' attachments). The
+  paperclip was already `clip`. Nothing changes for an app that doesn't use them.
+
 ## 0.62.0 — 2026-10-09
 
 - **Someone can delete their own account** (`account-deletion.js`, the GDPR's right to erasure).
