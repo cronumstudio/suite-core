@@ -341,6 +341,46 @@ test('links between modules: each sees what they could see, created where it liv
     host.suite.database.get('SELECT done FROM beta_items WHERE id = 6').done], [1, 0]);
 });
 
+test('links forget what was erased: a module\'s data, an account', async (t) => {
+  const { host, call } = await startHost(t);
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  await call('POST', '/alpha/api/items', { text: 'Plan' });
+  await call('POST', '/beta/api/items', { text: 'Private review' });
+  await call('POST', '/beta/api/items', { text: 'Other' });
+  await call('POST', '/api/links', { from: 'alpha:item:1', to: 'beta:item:1' });
+  await call('POST', '/api/links', { from: 'alpha:item:1', to: 'beta:item:2' });
+  const titles = () => host.suite.database.all('SELECT a_title, b_title FROM host_links ORDER BY id').map((r) => [r.a_title, r.b_title]);
+  assert.deepEqual(titles(), [['Plan', 'Private review'], ['Plan', 'Other']]);
+
+  // Deleted, as anything is: its last title stays, to whoever linked it.
+  await call('DELETE', '/beta/api/items/1');
+  assert.deepEqual(titles()[0], ['Plan', 'Private review']);
+  // Someone's data erased in beta: beta's gone sides forget their titles; what exists keeps its own.
+  assert.deepEqual(host.links.prune({ module: 'beta' }), { forgotten: 1, removed: 0 });
+  assert.deepEqual(titles(), [['Plan', null], ['Plan', 'Other']]);
+  const gone = (await call('GET', '/api/links?ref=alpha:item:1')).data.links.find((l) => l.item.ref === 'beta:item:1');
+  assert.deepEqual([gone.item.state, gone.item.title], ['gone', undefined], 'gone, with nothing of what it was');
+  // Erasing someone's data in a module (Settings › Your data) does it by itself, through the module's portability.
+  await call('DELETE', '/beta/api/items/2');
+  const admin = host.suite.database.get("SELECT * FROM users WHERE username = 'admin'");
+  host.modules[1].suite.portabilityFor({ tables: {} }).erase(admin);
+  assert.deepEqual(titles(), [['Plan', null], ['Plan', null]]);
+
+  // An account deleted: what went with it leaves no link behind (both sides gone: the link goes).
+  await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' });
+  const ana = host.suite.database.get("SELECT id FROM users WHERE username = 'ana'").id;
+  host.suite.database.run("INSERT INTO alpha_items (user_id, text) VALUES (?, 'Ana plan')", ana);
+  host.suite.database.run("INSERT INTO beta_items (user_id, text) VALUES (?, 'Ana review')", ana);
+  const [a, b] = [host.suite.database.get("SELECT id FROM alpha_items WHERE text = 'Ana plan'").id,
+    host.suite.database.get("SELECT id FROM beta_items WHERE text = 'Ana review'").id];
+  host.suite.database.run(`INSERT INTO host_links (a_module, a_type, a_id, b_module, b_type, b_id, a_title, b_title, created_by, created_at)
+    VALUES ('alpha', 'item', ?, 'beta', 'item', ?, 'Ana plan', 'Ana review', ?, ?)`, String(a), String(b), ana, new Date().toISOString());
+  host.suite.accounts.remove(ana);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(host.suite.database.get("SELECT COUNT(*) AS n FROM host_links WHERE a_title = 'Ana plan' OR b_title = 'Ana review'").n, 0);
+  assert.deepEqual(titles(), [['Plan', null], ['Plan', null]], 'the others’ links as they were');
+});
+
 test('the calls of the day from assistants count once for the whole app, whichever module they go to', async (t) => {
   const config = { ...HOST, features: { 'mcp.calls_per_day': { type: 'limit', default: 2, label: 'calls a day' } } };
   const { call } = await startHost(t, { config });

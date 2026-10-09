@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.64.0 — 2026-10-09
+
+- **A host's links forget what was erased.** `links.prune({ module })` drops the title a link keeps
+  of a side that is gone and removes a link whose two sides are gone. The host runs it after
+  someone's data is erased in a module (`createPortability({ onErased })`, new, called once the
+  erase is done; that module's sides) and once an account's removal is done (every side), so
+  neither leaves anything of what went in `host_links`. A plain deletion still shows its last
+  title to whoever linked it. `createHost()` returns `links`.
+
 ## 0.63.0 — 2026-10-09
 
 - **Icons for pictures**: `image` and `camera` (Lucide's, in one path like the rest), for an editor

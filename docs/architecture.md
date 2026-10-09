@@ -1085,6 +1085,9 @@ relative to the module (`?list=27&task=389`). A thing is named by a ref, `module
   could already see it: something they can't open is `hidden`, with no title; something deleted is
   `gone`, with its last title only to whoever linked it. A link shows while the person uses both
   modules, and nothing of a module they turned off can be linked or created (403 `module_off`).
+  Erased data leaves nothing here: after someone's data is erased in a module, and once an
+  account's removal is done, `links.prune()` drops the title of each side that is gone and removes
+  a link whose two sides are (v0.64.0).
 - **Created where it lives**: `POST /api/links/new { from, module, type, data, together }` asks the
   other module to create it, by its own rules, and links it in the same transaction ("Send to
   Tasks"); `GET /api/links/search?module&type&q` lists what may be linked and the places to create

@@ -278,7 +278,44 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     }
   }
 
-  return { of, link, create, update, remove, search, changed, done, cardOf, parseRef, formatRef };
+  /**
+   * Forgets what is gone. A side whose thing no longer exists keeps no title, and a link whose two
+   * sides are gone goes. The host calls it once someone's data is erased (`{ module }`: that
+   * module's sides) or an account is deleted (every side): what was erased leaves nothing behind
+   * here. Until then a deleted thing's last title still shows to whoever linked it.
+   * → { forgotten, removed }
+   */
+  function prune({ module = null } = {}) {
+    let forgotten = 0;
+    let removed = 0;
+    const gone = (side) => {
+      const provider = providerOf(side);
+      if (!provider) return false;   // a module no longer mounted: it may come back
+      try { return provider.read(null, side.id, { system: true }) === 'gone'; } catch { return false; }
+    };
+    const rows = module
+      ? database.all('SELECT * FROM host_links WHERE a_module = ? OR b_module = ?', module, module)
+      : database.all('SELECT * FROM host_links');
+    database.tx(() => {
+      for (const row of rows) {
+        const sides = sidesOf(row);
+        const which = sides.map((side) => gone(side));
+        if (which[0] && which[1]) {
+          database.run('DELETE FROM host_links WHERE id = ?', row.id);
+          removed += 1;
+          continue;
+        }
+        sides.forEach((side, i) => {
+          if (!which[i] || side.title == null || (module && side.module !== module)) return;
+          database.run(`UPDATE host_links SET ${side.column} = NULL WHERE id = ?`, row.id);
+          forgotten += 1;
+        });
+      }
+    });
+    return { forgotten, removed };
+  }
+
+  return { of, link, create, update, remove, search, changed, done, prune, cardOf, parseRef, formatRef };
 }
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
