@@ -726,3 +726,128 @@ test('links: the row of a host module’s item, its chips in each state, hidden 
   await solo.show('alpha:item:1');
   assert.equal(solo.element.hidden, true);
 });
+
+/* ------------------------------ the keyboard ------------------------------ */
+
+test('keyboard: what brings it up, when it is up, and what a tap is', async () => {
+  const { typesIn, keyboardFit, isTap } = await import('../web/keyboard.js');
+  assert.ok(typesIn({ tagName: 'INPUT', type: 'text' }) && typesIn({ tagName: 'INPUT', type: 'search' }) && typesIn({ tagName: 'INPUT' }));
+  assert.ok(typesIn({ tagName: 'TEXTAREA' }) && typesIn({ tagName: 'DIV', isContentEditable: true }));
+  assert.ok(!typesIn({ tagName: 'INPUT', type: 'checkbox' }) && !typesIn({ tagName: 'BUTTON' }) && !typesIn(null));
+  // The iPhone: innerHeight shrinks with the keyboard, so the full height is the root's.
+  assert.deepEqual(keyboardFit({ full: 812, height: 476, typing: true }), { top: 0, height: 476 });
+  assert.deepEqual(keyboardFit({ full: 812, top: 200.4, height: 476.2, typing: true }), { top: 200, height: 476 }, 'slid up');
+  assert.deepEqual(keyboardFit({ full: 812, top: 40, height: 800, typing: true }), { top: 40, height: 800 }, 'only slid: a keyboard too');
+  assert.equal(keyboardFit({ full: 812, height: 740, typing: true }), null, 'the browser’s bars, not a keyboard');
+  assert.equal(keyboardFit({ full: 812, height: 476, typing: false }), null, 'nothing to type in');
+  assert.equal(keyboardFit({ full: 812, top: 100, height: 300, scale: 2, typing: true }), null, 'a pinch-zoom');
+  assert.ok(isTap({ x: 10, y: 10, at: 0 }, { x: 16, y: 14, at: 120 }));
+  assert.ok(!isTap({ x: 10, y: 10, at: 0 }, { x: 10, y: 30, at: 120 }), 'scrolling');
+  assert.ok(!isTap({ x: 10, y: 10, at: 0 }, { x: 10, y: 10, at: 800 }), 'a long press');
+  assert.ok(!isTap(null, { x: 0, y: 0, at: 0 }));
+});
+
+test('keyboard: the page is fitted while it is up, the field kept in sight, and left alone without it', async () => {
+  const { fitToKeyboard } = await import('../web/keyboard.js');
+  const props = new Map();
+  const root = document.documentElement;
+  root.dataset = {};
+  root.clientHeight = 812;
+  root.style = { setProperty: (name, value) => props.set(name, value), removeProperty: (name) => props.delete(name) };
+  const onDocument = {};
+  document.addEventListener = (type, fn) => { (onDocument[type] ||= []).push(fn); };
+  const onView = {};
+  const view = { offsetTop: 0, height: 812, scale: 1, addEventListener: (type, fn) => { (onView[type] ||= []).push(fn); } };
+  globalThis.window = { visualViewport: view, innerHeight: 476 };
+  globalThis.requestAnimationFrame = () => 0;
+  const revealed = [];
+  fitToKeyboard({ reveal: (field) => { revealed.push(field.tagName); return true; } });
+  const fire = (type) => onView[type].forEach((fn) => fn());
+  const state = () => [root.dataset.kitKeyboard ?? '-', props.get('--kit-view-top') ?? '-', props.get('--kit-view-h') ?? '-'].join(' ');
+
+  document.activeElement = { tagName: 'TEXTAREA' };
+  fire('resize');
+  assert.equal(state(), '- - -', 'typing, no keyboard yet');
+  view.height = 600;
+  fire('resize');
+  assert.equal(state(), 'up 0px 600px');
+  view.height = 476;
+  fire('resize');
+  assert.equal(state(), 'up 0px 476px');
+  assert.deepEqual(revealed, ['TEXTAREA', 'TEXTAREA'], 'the field back in sight each time the room shrinks');
+  view.offsetTop = 150;
+  fire('scroll');
+  assert.equal(state(), 'up 150px 476px', 'the view slid up: the frame follows it');
+  view.height = 560;
+  fire('resize');
+  assert.equal(revealed.length, 2, 'more room: nothing to reveal');
+
+  document.activeElement = { tagName: 'BUTTON' };
+  onDocument.focusin.forEach((fn) => fn());
+  assert.equal(state(), '- - -', 'nothing to type in: the frame as always');
+  document.activeElement = { tagName: 'INPUT', type: 'text' };
+  onDocument.focusin.forEach((fn) => fn());
+  assert.equal(state(), 'up 150px 560px');
+  view.offsetTop = 0;
+  view.height = 812;
+  fire('resize');
+  assert.equal(state(), '- - -', 'the keyboard down');
+
+  // Without an app's own reveal, a text box is scrolled into view; called again, nothing is listened to twice.
+  const scrolled = [];
+  fitToKeyboard();
+  assert.equal(onView.resize.length, 1);
+  document.activeElement = { tagName: 'INPUT', type: 'search', scrollIntoView: (how) => scrolled.push(how) };
+  view.height = 476;
+  fire('resize');
+  assert.deepEqual(scrolled, [{ block: 'nearest' }]);
+  view.height = 812;
+  fire('resize');
+  delete globalThis.window;
+  delete globalThis.requestAnimationFrame;
+});
+
+test('keyboard: a tap focuses without the slide; scrolling, a long press, a tap while typing stay the browser’s', async () => {
+  const { focusOnTap } = await import('../web/keyboard.js');
+  const on = {};
+  const focused = [];
+  const area = {
+    addEventListener: (type, fn) => { on[type] = fn; },
+    contains: (node) => node === area,
+    focus: (how) => { focused.push(how); document.activeElement = area; },
+  };
+  const nothing = { closest: () => null };
+  const touch = (type, x, y, at, target = nothing) => {
+    const point = { clientX: x, clientY: y };
+    const ev = { touches: type === 'touchend' ? [] : [point], changedTouches: [point], timeStamp: at, target, prevented: false, preventDefault() { this.prevented = true; } };
+    on[type](ev);
+    return ev;
+  };
+  document.activeElement = null;
+  focusOnTap(area, { skip: 'a[href]' });
+  touch('touchstart', 50, 50, 0);
+  assert.ok(touch('touchend', 52, 51, 100).prevented);
+  assert.deepEqual(focused, [{ preventScroll: true }]);
+  touch('touchstart', 50, 50, 200);
+  assert.ok(!touch('touchend', 50, 50, 260).prevented, 'already typing: the browser places the caret');
+  document.activeElement = null;
+  touch('touchstart', 50, 50, 300);
+  assert.ok(!touch('touchend', 50, 90, 360).prevented, 'scrolling');
+  touch('touchstart', 50, 50, 400);
+  assert.ok(!touch('touchend', 50, 50, 1000).prevented, 'a long press');
+  touch('touchstart', 50, 50, 1100);
+  assert.ok(!touch('touchend', 50, 50, 1150, { closest: (selector) => (selector === 'a[href]' ? {} : null) }).prevented, 'a link');
+  assert.equal(focused.length, 1);
+
+  // An app's own focus gets the point, and may leave the tap to the browser.
+  const editor = { addEventListener: (type, fn) => { on[type] = fn; }, contains: () => false };
+  const points = [];
+  let accept = false;
+  focusOnTap(editor, { focus: (point) => { points.push(point); return accept; } });
+  touch('touchstart', 30, 40, 0);
+  assert.ok(!touch('touchend', 30, 40, 50).prevented, 'declined: the browser’s tap goes on');
+  accept = true;
+  touch('touchstart', 30, 40, 100);
+  assert.ok(touch('touchend', 31, 41, 150).prevented);
+  assert.deepEqual(points, [{ x: 30, y: 40 }, { x: 31, y: 41 }]);
+});
