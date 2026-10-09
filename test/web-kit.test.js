@@ -851,3 +851,14 @@ test('keyboard: a tap focuses without the slide; scrolling, a long press, a tap 
   assert.ok(touch('touchend', 31, 41, 150).prevented);
   assert.deepEqual(points, [{ x: 30, y: 40 }, { x: 31, y: 41 }]);
 });
+
+test('the drawer opened by a finger takes the focus itself, with no ring on the current entry (Notes #41)', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(shell, /if \(keyboard\) nav\.querySelector\('\[aria-current="page"\], a, button'\)\?\.focus\(\);\s*else nav\.focus\(\{ preventScroll: true \}\);/);
+  assert.match(shell, /class: 'kit-side__nav', 'aria-label': app\.name, tabindex: '-1'/, 'the drawer can take the focus');
+  assert.match(shell, /byKeys = ev\.key === 'Enter' \|\| ev\.key === ' ';/, 'the keyboard is Enter or Space on ☰, not any click without a pointer');
+  assert.match(shell, /if \(visible\(menuButton\)\) return \(\) => openDrawer\(\);/, 'a swipe from the edge is a finger');
+  assert.match(css, /\.kit-nav__item:focus-visible \{ outline-offset: -2px; \}/, 'the ring inside the entry: the list would cut it');
+  assert.match(css, /\.kit-side__nav:focus \{ outline: none; \}/);
+});
