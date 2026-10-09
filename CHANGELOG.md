@@ -7,8 +7,33 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 - **Icons for pictures**: `image` and `camera` (Lucide's, in one path like the rest), for an editor
   that inserts a picture from the camera roll, the camera or a file (Notes' attachments). The
-  paperclip was already `clip`. Nothing changes for an app that doesn't use them. (0.62.0 is an
-  open pull request's.)
+  paperclip was already `clip`. Nothing changes for an app that doesn't use them.
+
+## 0.62.0 — 2026-10-09
+
+- **Someone can delete their own account** (`account-deletion.js`, the GDPR's right to erasure).
+  Settings → Your data → Delete my account asks for a typed word and, with a password here, the
+  password and the second step's code (`POST /api/me/deletion`). The account is disabled at once
+  (sessions and devices out; tokens and assistants refused) and goes after
+  `accounts.deletionDays` (30, `users.delete_after`, migration 21), when the hourly clean-up runs
+  `accounts.remove()` with every hook. Signing in before then offers it back
+  (`deletion_pending` with a ticket from the password, `/?account_deletion=…&until=…` from WorkOS
+  or OIDC; `POST /api/auth/restore`). The admin panel says the day it goes, and enabling the
+  account takes the deletion back. A message says until when, if mail leaves the server. The last
+  administrator can't ask.
+- With `accounts.deleteAtProviders: true` (only where the install is all a person has at the
+  providers: Cronum Work) the person's own subscriptions stop renewing when they ask, renew again if
+  they come back and end when the account goes (`billing.stopRenewals`, `keepRenewals`,
+  `endSubscriptions`; Paddle's `cancelSubscription`, `keepSubscription`), and the WorkOS user is
+  deleted first (`workos.deleteUser`, `idp.deleteIdentity`). Off by default: the apps on their own
+  share WorkOS users and a subscription.
+- **Someone can erase their data and keep the account** (Your data → Erase my data,
+  `POST /api/me/erase`, `portability.erase()`): the declaration's new `handOver(userId)` passes on
+  what others share first, then goes what the person's own copy would take, files included.
+  `openSettings({ shareNote })` tells them what the app does with what they share.
+- `identityCheck()` (api.js): the confirmation both ask for, for other routes like them.
+- `/api/auth/config` says `deletion_days`; `publicUser()` carries `delete_after` while an account
+  waits.
 
 ## 0.61.0 — 2026-10-09
 

@@ -19,6 +19,38 @@ import { verifyPassword } from './crypto.js';
 
 const idOf = (value, field = 'id') => int(value, { field, min: 1 });
 const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
+const hasPassword = (user) => Boolean(user.password_hash && user.password_hash !== '!');
+
+/**
+ * The current password, asked again before something that could lock the
+ * person out: with the brake of sign-in, or an open session would be a way
+ * to try passwords without limit.
+ */
+function confirmPassword(limiter, ctx, user, password) {
+  const allowed = limiter ? limiter.checkLogin(ctx.req, user.username) : { allowed: true };
+  if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
+  if (!verifyPassword(String(password ?? ''), user.password_hash)) {
+    limiter?.loginFailed(ctx.req, user.username);
+    throw forbidden('wrong_password');
+  }
+}
+
+/**
+ * Before what can't be undone from the account itself (erasing one's data,
+ * deleting the account): the request says so (`confirm: true`), and an account
+ * with a password here gives it again, with the code of its second step if it
+ * has one. An account that signs in elsewhere has only its open session: the
+ * days an account waits before it goes are its way back.
+ * → (ctx, user, body) => void, or an error.
+ */
+export function identityCheck({ limiter = null, twoFactor = null, localPasswords = true } = {}) {
+  return (ctx, user, body) => {
+    if (body?.confirm !== true) throw badRequest('confirm_required');
+    if (!localPasswords || !hasPassword(user)) return;
+    confirmPassword(limiter, ctx, user, body.password);
+    if (twoFactor?.isEnabled(user.id)) twoFactor.pass(ctx.req, user.id, body.code);
+  };
+}
 
 /**
  * Signing in and out with a username and password, and who is signed in.
@@ -35,10 +67,12 @@ const countOrNull = (value, field) => (value == null ? null : int(value, { field
  * @param {boolean} [deps.mail]           whether mail leaves the server (false: only its log)
  * @param {number} [deps.passwordMin]     the shortest password accepted
  * @param {object} [deps.twoFactor]       from createTwoFactor(): the second step, for whoever turned it on
+ * @param {object} [deps.deletion]        from createAccountDeletion(): an account waiting to be
+ *   deleted is offered back to whoever signs in to it
  */
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
-  mail = true, passwordMin = null, twoFactor = null,
+  mail = true, passwordMin = null, twoFactor = null, deletion = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
@@ -50,11 +84,18 @@ export function registerAuthApi(router, {
     // `two_factor`: whether people can add a code from an app to their password.
     // `app`: which app this is, the languages it speaks and the modules it has on,
     // for the suite's own pages (the admin panel).
+    // `deletion_days`: how long an account someone deletes waits before it goes.
     sendJson(ctx.res, 200, {
       provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
       mail: Boolean(mail), password_min: idp ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
+      ...(deletion ? { deletion_days: deletion.days } : {}),
       ...(app ? { app } : {}),
     });
+  });
+
+  /** Signed in to an account waiting to be deleted: when it goes, and the ticket to take it back. */
+  const pending = (ctx, user) => sendJson(ctx.res, 200, {
+    deletion_pending: true, delete_after: accounts.publicUser(user).delete_after, ticket: deletion.ticketFor(user.id),
   });
 
   /** A session for someone who passed every step. */
@@ -71,7 +112,7 @@ export function registerAuthApi(router, {
     const username = String(body.username || '').trim();
     const allowed = limiter.checkLogin(ctx.req, username);
     if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
-    const user = accounts.verify(username, body.password, { signIn: false });
+    const user = accounts.verify(username, body.password, { signIn: false, pending: Boolean(deletion) });
     if (!user) {
       limiter.loginFailed(ctx.req, username);
       // Not which username: a password typed in the wrong box would end up here.
@@ -84,6 +125,8 @@ export function registerAuthApi(router, {
       sendJson(ctx.res, 200, { two_factor_required: true, challenge: twoFactor.challengeFor(user.id) });
       return;
     }
+    // Waiting to be deleted: no session, the offer to take it back.
+    if (user.delete_after) { pending(ctx, user); return; }
     // With the request, the browser's previous session is closed and the device noted.
     sendJson(ctx.res, 200, { user: serializeUser(signIn(ctx, user)) });
   });
@@ -96,7 +139,8 @@ export function registerAuthApi(router, {
     router.post('/api/auth/login/code', async (ctx) => {
       const body = await readJson(ctx.req);
       const user = accounts.byId(twoFactor.readChallenge(body.challenge));
-      if (!user || user.disabled_at) throw badRequest('challenge_invalid');
+      const waiting = Boolean(deletion && user?.delete_after);
+      if (!user || (user.disabled_at && !waiting)) throw badRequest('challenge_invalid');
       let how;
       try {
         how = twoFactor.pass(ctx.req, user.id, body.code);
@@ -104,6 +148,7 @@ export function registerAuthApi(router, {
         audit?.record({ action: 'auth.login_failed', actor: user, req: ctx.req, meta: { step: 'code' } });
         throw err;
       }
+      if (waiting) { pending(ctx, user); return; }
       const signedIn = signIn(ctx, user, { second_step: how });
       sendJson(ctx.res, 200, {
         user: serializeUser(signedIn),
@@ -123,6 +168,19 @@ export function registerAuthApi(router, {
   router.get('/api/auth/me', (ctx) => {
     sendJson(ctx.res, 200, { user: serializeUser(ctx.user) });
   });
+
+  if (deletion) {
+    /**
+     * Taking back an account waiting to be deleted, with the ticket that
+     * signing in to it gave (the password here, or the provider's page): as it
+     * was, and signed in.
+     */
+    router.post('/api/auth/restore', async (ctx) => {
+      const body = await readJson(ctx.req);
+      const user = await deletion.restore(body.ticket, { req: ctx.req });
+      sendJson(ctx.res, 200, { user: serializeUser(signIn(ctx, user, { restored: true })) });
+    });
+  }
 }
 
 /**
@@ -295,34 +353,44 @@ export function registerAccountMailApi(router, {
  * @param {object} [deps.limiter]       from createRateLimiter(): the brake on the current password
  * @param {object} [deps.twoFactor]     from createTwoFactor(), for the second step's settings
  * @param {boolean} [deps.localPasswords]  false when accounts sign in elsewhere (WorkOS)
+ * @param {object} [deps.deletion]      from createAccountDeletion(): deleting one's own account
  * @param {object} [deps.alsoAt]        older paths an app keeps answering:
  *   `{ tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' }`
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
-  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null,
+  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null, deletion = null,
 }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
   };
-  const hasPassword = (user) => Boolean(user.password_hash && user.password_hash !== '!');
-  /**
-   * The current password, asked again before something that could lock the
-   * person out: with the brake of sign-in, or an open session would be a way
-   * to try passwords without limit.
-   */
-  const confirmPassword = (ctx, user, password) => {
-    const allowed = limiter ? limiter.checkLogin(ctx.req, user.username) : { allowed: true };
-    if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
-    if (!verifyPassword(String(password ?? ''), user.password_hash)) {
-      limiter?.loginFailed(ctx.req, user.username);
-      throw forbidden('wrong_password');
-    }
-  };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
   const at = (path, legacy, add) => [path, ...(legacy ? [legacy] : [])].forEach(add);
+
+  if (deletion && sessions) {
+    const sure = identityCheck({ limiter, twoFactor, localPasswords });
+    /**
+     * Deleting one's own account: disabled now, gone after the days the
+     * install gives (`delete_after`), and this browser signed out, also at the
+     * provider (`logout_url`), so that its next "Sign in" asks who it is.
+     */
+    router.post('/api/me/deletion', async (ctx) => {
+      const user = requireUser(ctx);
+      const body = await readJson(ctx.req);
+      sure(ctx, user, body);
+      if (user.role === 'admin' && accounts?.activeAdmins() <= 1) throw conflict('last_admin');
+      const idpSession = sessions.close(ctx.sessionToken);
+      sessions.clearCookie(ctx.res);
+      const waiting = await deletion.request(user, { req: ctx.req });
+      const logoutUrl = idpSession && idp ? await idp.signOutUrl(idpSession) : null;
+      sendJson(ctx.res, 200, {
+        ok: true, delete_after: accounts?.publicUser(waiting).delete_after ?? waiting.delete_after,
+        ...(logoutUrl ? { logout_url: logoutUrl } : {}),
+      });
+    });
+  }
 
   if (sessions) {
     /** Where the person is signed in: device, address and last use; `current` is this browser. */
@@ -441,7 +509,7 @@ export function registerProfileApi(router, {
       const user = requireUser(ctx);
       if (!localPasswords) throw badRequest('passwords_managed_elsewhere');
       const body = await readJson(ctx.req);
-      if (hasPassword(user)) confirmPassword(ctx, user, body.current_password);
+      if (hasPassword(user)) confirmPassword(limiter, ctx, user, body.current_password);
       accounts.setPassword(user.id, body.password);
       sessions.open(user.id, { req: ctx.req, res: ctx.res });
       record(ctx, 'auth.password', 'user', user.id);
@@ -466,7 +534,7 @@ export function registerProfileApi(router, {
       const user = requireUser(ctx);
       const body = await readJson(ctx.req);
       if (!hasPassword(user)) throw badRequest('no_password');
-      confirmPassword(ctx, user, body.password);
+      confirmPassword(limiter, ctx, user, body.password);
       return { user, body };
     };
 

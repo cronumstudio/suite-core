@@ -261,7 +261,7 @@ test('someone’s copy takes their lists with everything in them, and says what 
 
   assert.equal(manifest.format, 'cronum-suite-export');
   assert.deepEqual([manifest.scope, manifest.app.id, manifest.app.version, manifest.account.username], ['account', 'demo', '1.0.0', 'ana']);
-  assert.deepEqual(manifest.schema, { app: 1, suite: 20 });
+  assert.deepEqual(manifest.schema, { app: 1, suite: 21 });
   assert.deepEqual(await json('manifest.json'), manifest);
 
   const users = await json('data/users.json');
@@ -375,6 +375,45 @@ test('“replace” deletes what the account had first —and its files—, neve
   assert.equal(target.db.get('SELECT COUNT(*) AS n FROM shares WHERE user_id = ?', me.id).n, 1, 'the friend’s list is still shared with her');
   assert.equal(fs.existsSync(target.suite.uploads.resolve(oldPhoto)), false, 'the old photo left the disk');
   assert.deepEqual(target.db.all('SELECT name FROM groups WHERE user_id = ?', me.id).map((g) => g.name), ['Home']);
+});
+
+test('erasing one’s data: what others share passes on first, then goes what the copy would take, files too', (t) => {
+  const box = install(t);
+  const s = seedSource(box);
+  // The app's rule, as Tasks has it: a shared list passes to whoever it is shared with.
+  const handedOver = [];
+  const portability = box.suite.portabilityFor({
+    ...DATA,
+    handOver: (userId) => {
+      for (const list of box.db.all('SELECT id FROM lists WHERE owner_id = ?', userId)) {
+        const heir = box.db.get('SELECT user_id FROM shares WHERE list_id = ? ORDER BY id LIMIT 1', list.id);
+        if (!heir) continue;
+        box.db.run('UPDATE lists SET owner_id = ? WHERE id = ?', heir.user_id, list.id);
+        box.db.run('DELETE FROM shares WHERE list_id = ? AND user_id = ?', list.id, heir.user_id);
+        handedOver.push(list.id);
+      }
+    },
+  }, { version: '1.0.0' });
+  const mine = box.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Private')", s.ana.id).lastInsertRowid;
+  const task = box.db.run("INSERT INTO tasks (list_id, title, created_at) VALUES (?, 'secret', '2026-01-01T00:00:00Z')", mine).lastInsertRowid;
+  const photo = attach(box, s.ana.id, JPEG, 'secret.jpg');
+  box.db.run("INSERT INTO files (task_id, user_id, path, name, mime, size) VALUES (?, ?, ?, 'secret.jpg', 'image/jpeg', 10)", task, s.ana.id, photo);
+  box.events.length = 0;
+
+  const { erased } = portability.erase(s.ana);
+  assert.deepEqual(handedOver, [s.l1], 'Shopping, shared with ben, is his now');
+  assert.equal(box.db.get('SELECT owner_id FROM lists WHERE id = ?', s.l1).owner_id, s.ben.id);
+  assert.equal(box.db.get('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?', s.l1).n, 4, 'with everything in it');
+  assert.ok(fs.existsSync(box.suite.uploads.resolve(s.photo)), 'and its photo');
+  assert.equal(box.db.get('SELECT COUNT(*) AS n FROM lists WHERE id = ?', mine).n, 0, 'her own list is gone');
+  assert.equal(fs.existsSync(box.suite.uploads.resolve(photo)), false, 'and its photo left the disk');
+  assert.deepEqual(erased, { files: 1, tasks: 1, lists: 1, groups: 1 });
+  assert.equal(box.db.get('SELECT group_id FROM lists WHERE id = ?', s.l1).group_id, null, 'out of her group, which went');
+  assert.equal(box.db.get('SELECT COUNT(*) AS n FROM shares WHERE list_id = ? AND user_id = ?', s.l2, s.ana.id).n, 1,
+    'ben’s Garden is still shared with her: what others share is left alone');
+  assert.ok(box.suite.accounts.byId(s.ana.id), 'the account stays');
+  assert.deepEqual(box.events.map((e) => [e.event, e.audience]), [['resync', null]], 'everyone resyncs: a list changed hands');
+  assert.equal(box.suite.audit.list({ action: 'data.erase' })[0].meta.rows, 4);
 });
 
 test('one person’s copy, plan and “replace” read the rows near them, not everybody’s', async (t) => {
@@ -857,6 +896,15 @@ test('the routes: someone’s own data down and up, the whole install for the ad
 
   const config = await (await fetch(`${base}/api/auth/config`)).json();
   assert.equal(config.app.modules.data, true);
+
+  // Erasing one's data: said so, with the password, and only one's own.
+  assert.equal((await (await call(asBen, 'POST', '/api/me/erase', { password: 'ben-password' })).json()).error, 'confirm_required');
+  assert.equal((await (await call(asBen, 'POST', '/api/me/erase', { confirm: true, password: 'nope' })).json()).error, 'wrong_password');
+  const erased = await call(asBen, 'POST', '/api/me/erase', { confirm: true, password: 'ben-password' });
+  assert.deepEqual((await erased.json()).erased, { lists: 1 });
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM lists WHERE owner_id = ?', ben.id).n, 0);
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM lists WHERE owner_id = ?', ana.id).n, 1, 'Ana’s list is hers');
+  assert.equal((await call(asBen, 'GET', '/api/auth/me')).status, 200, 'and Ben is still signed in');
 
   // From the panel, a copy never makes an admin by itself: its admin comes in as a
   // plain user unless whoever applies it says otherwise for that account.

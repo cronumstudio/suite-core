@@ -470,9 +470,26 @@ export function createBilling({
     FROM billing_subscriptions WHERE provider = ? AND subject_type = ? AND subject_id = ? ORDER BY updated_at DESC`,
   source, subject.type, subject.id);
 
+  /**
+   * Someone deleting their account (account-deletion.js): the subscriptions
+   * they pay for themselves stop renewing when they ask, renew again if they
+   * take the account back, and end when it goes. A group's are left alone, and
+   * a provider that can't do it (the remote one) is skipped. → how many.
+   */
+  async function eachLiveSubscription(userId, act) {
+    if (!enabled || typeof provider?.cancelSubscription !== 'function') return 0;
+    const live = database.all(`SELECT ref FROM billing_subscriptions WHERE provider = ? AND subject_type = 'user'
+      AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, userId);
+    for (const { ref } of live) await act(ref);
+    return live.length;
+  }
+  const stopRenewals = (userId) => eachLiveSubscription(userId, (ref) => provider.cancelSubscription(ref));
+  const keepRenewals = (userId) => eachLiveSubscription(userId, (ref) => provider.keepSubscription(ref));
+  const endSubscriptions = (userId) => eachLiveSubscription(userId, (ref) => provider.cancelSubscription(ref, { now: true }));
+
   return {
     enabled, errors, provider: source, offer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
-    customerOf, linkCustomer, subscriptionsOf,
+    customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions,
   };
 }
 

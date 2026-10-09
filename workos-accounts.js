@@ -212,10 +212,12 @@ function freeUsername(seed, taken) {
  *   come to the MCP (`workosConnections(database)`); without it, nothing is listed or refused
  * @param {boolean} [options.secureCookies]
  * @param {string} [options.stateCookie]   name of the cookie holding state and PKCE verifier
+ * @param {(user) => string} [options.pendingDeletion]   the ticket that offers back an account
+ *   its owner asked to delete (account-deletion.js); without it, it is just disabled
  */
 export function createWorkosAccounts({
   baseUrl, appName, workos, adminEmail = '', users, sessions, connections = null,
-  secureCookies = false, stateCookie = 'suite_auth', log = console.log,
+  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
@@ -423,6 +425,11 @@ export function createWorkosAccounts({
       try {
         const { account, sessionId } = await workos.exchangeCode({ code, verifier });
         const user = await localUser(account);
+        // Its owner asked to delete it: no session, the offer to take it back.
+        if (user.disabled_at && user.delete_after && pendingDeletion) {
+          redirect(res, `/?account_deletion=${encodeURIComponent(pendingDeletion(user))}&until=${encodeURIComponent(user.delete_after)}`);
+          return true;
+        }
         // An account the admin disabled stays out, whatever AuthKit says.
         if (user.disabled_at) {
           log(`[workos] user #${user.id} is disabled: not signed in`);
@@ -462,9 +469,18 @@ export function createWorkosAccounts({
     return false;
   }
 
+  /**
+   * The person goes at WorkOS too, when the account here is deleted at their
+   * request and the install says so (config.accounts.deleteAtProviders).
+   */
+  async function deleteIdentity(userId) {
+    const id = users.workosIdOf?.(userId);
+    if (id) await workos.deleteUser(id);
+  }
+
   return {
     id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser,
-    ...(users.workosIdOf ? { connectionsOf, revokeConnection } : {}),
+    ...(users.workosIdOf ? { connectionsOf, revokeConnection, deleteIdentity } : {}),
     signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,
   };
 }

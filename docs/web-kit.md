@@ -208,7 +208,11 @@ notifications (`push: true`), plan (`plan: true`), the app's own `sections`, dat
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
 everything else is the suite's. `aiExtra()` and `aboutExtra()` add a block (Next's standing
-instruction, an app's tips).
+instruction, an app's tips). Your data ends with what goes for good: erasing what one has in the
+app (with `data`) and deleting the account (when the install offers it, `deletion_days`), each
+confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
+there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
+screen offers back an account waiting to be deleted.
 
 ### Offline
 

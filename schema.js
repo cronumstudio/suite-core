@@ -17,7 +17,7 @@
 import { sessionsSchema } from './sessions.js';
 import { rateLimitSchema } from './rate-limit.js';
 import { entitlementsSchema, entitlementUsageSchema } from './entitlements.js';
-import { usersSchema, identitiesSchema } from './accounts.js';
+import { usersSchema, identitiesSchema, accountDeletionSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
@@ -62,4 +62,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 19, name: 'paddle-environments', up: paddleEnvironmentsSchema },
   // Daily limits spent per person, such as calls from assistants (entitlements.js countDaily).
   { version: 20, name: 'entitlement-usage', up: entitlementUsageSchema },
+  // When an account its owner asked to delete goes for good (account-deletion.js).
+  { version: 21, name: 'account-deletion', up: accountDeletionSchema },
 ]);

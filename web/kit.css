@@ -309,6 +309,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-dialog__header h2 { margin: 0; flex: 1; font: 700 18px/1.2 var(--kit-font-display); letter-spacing: -.01em; }
 .kit-dialog__body { padding: 6px 20px 14px; overflow-y: auto; display: grid; gap: 14px; }
 .kit-dialog__body > p { margin: 0; }
+/* Settings → Your data: what goes for good, asked before (settings.js sure()). */
+.kit-sure > p { margin: 0; }
 .kit-dialog__footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; }
 .kit-dialog__grab { display: none; }
 .kit-section { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--kit-border); }
@@ -788,6 +790,7 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-signin__card > p { margin: 0; color: var(--kit-muted); font-size: 14px; }
 .kit-signin__links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
 .kit-signin__notice { margin: 0; padding: 10px 12px; border-radius: 9px; background: var(--kit-accent-soft); font-size: 14px; }
+.kit-signin__notice p { margin: 4px 0 0; }
 .kit-signin__sig { display: flex; justify-content: center; padding: 22px 16px calc(22px + var(--kit-safe-bottom)); }
 @media (min-width: 760px) {
   .kit-signin { flex-direction: row; }

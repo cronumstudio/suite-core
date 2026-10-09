@@ -19,13 +19,17 @@
  * The profile is saved with PATCH /api/me (the app's: what it keeps of a
  * person, its preferences, is its own), with display_name, email, theme and
  * prefs.lang, as Next does.
+ *
+ * `shareNote`: what the app does with what the person shares with others when
+ * their data or their account goes ("Your shared lists pass to…"), said in
+ * Your data before they confirm.
  */
 import { el, clear } from './dom.js';
 import { t, formatDateTime, currentLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, signature, copyText } from './ui.js';
+import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch' };
 
@@ -55,6 +59,8 @@ export function openSettings(options) {
   const modules = config.app?.modules || {};
   // A module of a host (Cronum Work): the person chooses which modules they use.
   const host = config.app?.host || null;
+  // Deleting one's own account: how many days it waits before it goes (none: the install doesn't offer it).
+  const deletionDays = config.deletion_days ?? null;
   let inUse = [];
 
   /* -------------------------------- sections -------------------------------- */
@@ -76,7 +82,9 @@ export function openSettings(options) {
     options.plan ? { group: t('kit.settings.groups.plan'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
       hint: () => t('kit.plan.hint'), render: () => plan() } : null,
     ...sections.map((section) => ({ group: app.name, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' })),
-    modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'), hint: () => t('kit.data.hint'), render: () => data() } : null,
+    modules.data || deletionDays != null
+      ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'), hint: () => t(modules.data ? 'kit.data.hint' : 'kit.data.hintDelete'), render: () => data() }
+      : null,
     state.user?.role === 'admin' ? { group: app.name, id: 'admin', iconName: 'shield', label: t('kit.admin.title'), hint: () => t('kit.admin.hint'), href: '/admin' } : null,
     { group: app.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: app.name }), hint: () => t('kit.about.hint', { app: app.name }), render: () => about() },
   ].filter(Boolean);
@@ -617,9 +625,68 @@ export function openSettings(options) {
   /* ---------------------------------- data ---------------------------------- */
 
   /**
+   * Asks before what can't be undone from here: the word typed, and the
+   * password and code of an account that has them here. `run(body)` is the
+   * request; while it fails the dialog stays open and says why. Resolves with
+   * its answer, or null when the person leaves it.
+   */
+  function sure({ title, lines, confirm, run }) {
+    return new Promise((resolve) => {
+      let answer = null;
+      const word = t('kit.data.confirmWord');
+      const typed = input({ id: 'kit-sure-word', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' });
+      // Not every app tells the browser whether the account has a password: only "none" leaves it out.
+      const pass = local && state.user?.has_password !== false
+        ? input({ id: 'kit-sure-password', type: 'password', autocomplete: 'current-password' }) : null;
+      const code = local ? input({ id: 'kit-sure-code', autocomplete: 'one-time-code', autocapitalize: 'none', spellcheck: 'false', maxlength: '12' }) : null;
+      const codeRow = code ? field(t('kit.twoFactor.codeOrRecovery'), code) : null;
+      if (codeRow) codeRow.hidden = !state.user?.two_factor;
+      const error = el('p', { class: 'kit-error', role: 'alert', hidden: true });
+      const { dialog } = openDialog({
+        title,
+        content: el('div', { class: 'kit-stack kit-sure' },
+          ...lines.filter(Boolean).map((line) => (typeof line === 'string' ? el('p', { text: line }) : line)),
+          field(t('kit.data.typeWord', { word }), typed),
+          pass ? field(t('kit.security.currentPassword'), pass) : null,
+          codeRow,
+          error),
+        actions: [
+          { label: t('kit.cancel') },
+          {
+            label: confirm, danger: true,
+            onClick: async () => {
+              try {
+                answer = await run({
+                  confirm: true, ...(pass ? { password: pass.value } : {}), ...(codeRow && !codeRow.hidden ? { code: code.value.trim() } : {}),
+                });
+                return true;
+              } catch (err) {
+                // A second step the page didn't know of: its code is asked for now.
+                if (err.code === 'code_invalid' && codeRow?.hidden) { codeRow.hidden = false; code.focus(); }
+                error.textContent = errorMessage(err);
+                error.hidden = false;
+                return false;
+              }
+            },
+          },
+        ],
+        onClose: () => resolve(answer),
+      });
+      // The button waits for the word: a slip of the finger is not a decision.
+      const go = dialog.querySelector('.kit-btn--danger');
+      const check = () => { go.disabled = typed.value.trim().toLocaleUpperCase() !== word.toLocaleUpperCase(); };
+      typed.addEventListener('input', check);
+      check();
+      typed.focus();
+    });
+  }
+
+  /**
    * Your data: everything of yours in a zip, and a copy made that way brought
    * in, here or in another install (suite-core portability.js). What a copy
    * brings, and what "replace" would delete, is said before anything changes.
+   * Last, what goes for good: erasing what one has in this app and keeping the
+   * account, and deleting the account, which waits the install's days first.
    */
   function data() {
     const describe = options.describeData || ((tables = {}) => t('kit.data.rows', { n: Object.values(tables).reduce((a, b) => a + b, 0) }));
@@ -668,11 +735,65 @@ export function openSettings(options) {
         row(discard, apply));
     }
 
+    const note = () => (options.shareNote ? hint(options.shareNote) : null);
+    // In a host the account is the host's: deleting it takes every module.
+    const product = host?.name || app.name;
+    const downloadFirst = () => (modules.data
+      ? el('p', {}, t('kit.data.downloadFirst'), ' ', el('a', { class: 'kit-link', href: at('/api/me/export'), download: '', text: t('kit.data.export') }))
+      : null);
+
+    const erase = button(t('kit.data.eraseButton'), async () => {
+      const done = await sure({
+        title: t('kit.data.eraseAsk', { app: app.name }),
+        lines: [t('kit.data.eraseText', { app: app.name }), options.shareNote, downloadFirst()],
+        confirm: t('kit.data.eraseConfirm'),
+        run: (body) => api.post('/api/me/erase', body),
+      });
+      if (!done) return;
+      toast(t('kit.data.erased'));
+      // Everything shown goes with it.
+      setTimeout(() => window.location.reload(), 1200);
+    }, 'danger-quiet');
+
+    const remove = button(t('kit.data.deleteButton'), async () => {
+      const done = await sure({
+        title: t('kit.data.deleteAsk'),
+        lines: [
+          t('kit.data.deleteText', { app: product, n: deletionDays }), options.shareNote,
+          modules.billing ? t('kit.data.deleteBilling') : null, downloadFirst(),
+        ],
+        confirm: t('kit.data.deleteConfirm'),
+        run: async (body) => {
+          // The sign-in screen says until when (signin.js farewell). Left before asking: the
+          // session ends with the request, and the app may reload for that before the answer.
+          const remember = (value) => { try { sessionStorage.setItem('suite.deletion', value); } catch { /* private mode */ } };
+          remember(new Date(Date.now() + deletionDays * 24 * 60 * 60 * 1000).toISOString());
+          try {
+            const answer = await api.post('/api/me/deletion', body);
+            remember(answer.delete_after || '');
+            return answer;
+          } catch (err) {
+            try { sessionStorage.removeItem('suite.deletion'); } catch { /* private mode */ }
+            throw err;
+          }
+        },
+      });
+      if (!done) return;
+      if (done.logout_url) window.location.href = done.logout_url;
+      else window.location.reload();
+    }, 'danger-quiet');
+
     return [
-      // A link, not a fetch: the browser saves the zip as it arrives, whatever its size.
-      block(t('kit.data.exportTitle'), hint(t('kit.data.exportHint', { app: app.name })),
-        row(el('a', { class: 'kit-btn kit-btn--small', href: at('/api/me/export'), download: '' }, icon('download'), t('kit.data.export')))),
-      block(t('kit.data.importTitle'), hint(t('kit.data.importHint')), field(t('kit.data.file'), file), row(check), area),
+      ...(modules.data ? [
+        // A link, not a fetch: the browser saves the zip as it arrives, whatever its size.
+        block(t('kit.data.exportTitle'), hint(t('kit.data.exportHint', { app: app.name })),
+          row(el('a', { class: 'kit-btn kit-btn--small', href: at('/api/me/export'), download: '' }, icon('download'), t('kit.data.export')))),
+        block(t('kit.data.importTitle'), hint(t('kit.data.importHint')), field(t('kit.data.file'), file), row(check), area),
+        block(t('kit.data.eraseTitle'), hint(t('kit.data.eraseHint', { app: app.name })), note(), row(erase)),
+      ] : []),
+      ...(deletionDays != null ? [
+        block(t('kit.data.deleteTitle'), hint(t('kit.data.deleteHint', { app: product, n: deletionDays })), note(), row(remove)),
+      ] : []),
     ];
   }
 

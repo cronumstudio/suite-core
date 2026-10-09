@@ -7,7 +7,10 @@
  *   app when the account has a second step; a forgotten password (when the
  *   install sends mail), the link's new password (/?reset=…), an invitation's
  *   sign-up (/?signup=…) or open sign-up where the install allows it;
- * - WorkOS or OpenID Connect: the provider's page, from a button.
+ * - WorkOS or OpenID Connect: the provider's page, from a button;
+ * - an account its owner asked to delete, signed in to before it goes: the
+ *   offer to take it back (`deletion_pending` from the password, or
+ *   `/?account_deletion=…` from the provider's page).
  *
  *   const user = await signIn({ app: { name: 'Notes', icon: '/icons/favicon.svg', tagline: tagline } });
  *
@@ -15,7 +18,7 @@
  * removed then.
  */
 import { el, clear } from './dom.js';
-import { t } from './i18n.js';
+import { t, formatDateTime } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at } from './base.js';
 import { signature, toast } from './ui.js';
@@ -25,6 +28,23 @@ function dropParam(name) {
   const url = new URL(window.location.href);
   url.searchParams.delete(name);
   window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+}
+
+/**
+ * Just after deleting one's account in Settings: until when it can be taken
+ * back, said once (Settings leaves the date in `suite.deletion` for this tab).
+ */
+function farewell() {
+  let when = null;
+  try {
+    when = sessionStorage.getItem('suite.deletion');
+    sessionStorage.removeItem('suite.deletion');
+  } catch { /* private mode */ }
+  if (when === null) return null;
+  const date = when ? formatDateTime(when, { dateStyle: 'long' }) : '';
+  return el('div', { class: 'kit-signin__notice', role: 'status' },
+    el('strong', { text: date ? t('kit.signin.deleted.title', { date }) : t('kit.signin.deletion.titleSoon') }),
+    el('p', { text: t('kit.signin.deleted.text') }));
 }
 
 /** A failed return from the provider (`?auth_error=…`), read once and taken away. */
@@ -94,10 +114,15 @@ export async function signIn({ app, config = null, root = document.body }) {
 
     /* ------------------------------- the usual -------------------------------- */
 
+    // Said on the first card only: going back to it later, it is old news.
+    let goodbye = farewell();
     function main(message = '') {
+      const notice = goodbye;
+      goodbye = null;
       if (!local) {
         const name = settings.name || '';
         show(
+          notice,
           el('h2', { text: t('kit.signin.title') }),
           message ? el('p', { class: 'kit-error', role: 'alert', text: message }) : null,
           el('a', { class: 'kit-btn kit-btn--primary kit-btn--block', href: '/auth/login', text: name ? t('kit.signin.with', { provider: name }) : t('kit.signin.submit') }),
@@ -110,12 +135,14 @@ export async function signIn({ app, config = null, root = document.body }) {
       const error = errorLine();
       showError(error, message);
       show(
+        notice,
         el('h2', { text: t('kit.signin.title') }),
         form(async () => {
           try {
             const answer = await api.post('/api/auth/login', { username: username.value.trim(), password: password.value });
             password.value = '';
             if (answer?.two_factor_required) code(answer.challenge);
+            else if (answer?.deletion_pending) takeBack(answer.ticket, answer.delete_after);
             else done(answer.user);
           } catch (err) {
             showError(error, errorMessage(err));
@@ -143,6 +170,7 @@ export async function signIn({ app, config = null, root = document.body }) {
         form(async () => {
           try {
             const answer = await api.post('/api/auth/login/code', { challenge, code: field.value.trim() });
+            if (answer?.deletion_pending) { takeBack(answer.ticket, answer.delete_after); return; }
             const left = answer?.recovery_codes_left;
             done(answer.user);
             // A recovery code: how many are left, before they run out.
@@ -158,6 +186,36 @@ export async function signIn({ app, config = null, root = document.body }) {
         error,
         submit(t('kit.signin.code.submit'))),
         back());
+    }
+
+    /* ------------------------- an account going away ------------------------- */
+
+    /**
+     * Signed in to an account its owner asked to delete: when it goes, and
+     * the button to take it back as it was. Leaving it, it goes on that day.
+     */
+    function takeBack(ticket, when) {
+      dropParam('account_deletion');
+      dropParam('until');
+      const error = errorLine();
+      const date = when ? formatDateTime(when, { dateStyle: 'long' }) : '';
+      show(
+        el('h2', { text: date ? t('kit.signin.deletion.title', { date }) : t('kit.signin.deletion.titleSoon') }),
+        el('p', { text: t('kit.signin.deletion.intro') }),
+        form(async () => {
+          try {
+            const answer = await api.post('/api/auth/restore', { ticket });
+            toast(t('kit.signin.deletion.restored'));
+            done(answer.user);
+          } catch (err) {
+            // Too long on this card: signing in again gives another ticket.
+            if (err.code === 'ticket_expired' || err.code === 'ticket_invalid') main(errorMessage(err));
+            else showError(error, errorMessage(err));
+          }
+        },
+        error,
+        submit(t('kit.signin.deletion.restore'))),
+        el('button', { type: 'button', class: 'kit-link', text: t('kit.signin.deletion.leave'), onClick: () => main() }));
     }
 
     /* --------------------------- forgotten password --------------------------- */
@@ -246,6 +304,8 @@ export async function signIn({ app, config = null, root = document.body }) {
 
     if (local && param('reset')) reset(param('reset'));
     else if (local && param('signup')) signup(param('signup'));
+    // Back from the provider's page to an account waiting to be deleted.
+    else if (param('account_deletion')) takeBack(param('account_deletion'), param('until'));
     else main(providerError());
   });
 }
