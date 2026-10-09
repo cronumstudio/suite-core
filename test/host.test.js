@@ -358,6 +358,21 @@ test('the calls of the day from assistants count once for the whole app, whichev
   assert.match(await text('alpha_list_items'), /^Daily limit reached: .* 2 calls a day from an assistant to Work/);
 });
 
+test('the storage a plan allows is the person’s, added up across the modules', async (t) => {
+  const { host, call, lines } = await startHost(t);
+  const [alpha, beta] = host.modules;
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const admin = host.suite.database.get("SELECT id FROM users WHERE username = 'admin'").id;
+  await call('POST', '/alpha/api/items', { text: 'One' });
+  await call('POST', '/alpha/api/items', { text: 'Two' });
+  await call('POST', '/beta/api/items', { text: 'Three' });
+  assert.equal(alpha.suite.storage.used(admin), 2500, 'what alpha keeps and what beta keeps');
+  assert.equal(beta.suite.storage.used(admin), 2500, 'the same from either module');
+  await call('POST', '/beta/api/items', { text: 'Unreadable' });
+  assert.equal(alpha.suite.storage.used(admin), 2000, 'a module that fails counts nothing, the rest still do');
+  assert.ok(lines.some((line) => /\[beta\] storage of user \d+ failed: unreadable/.test(line)));
+});
+
 test('the host’s instructions keep under what assistants read, whole parts only', async () => {
   const { hostInstructions } = await import('../host.js');
   const modules = ['one', 'two', 'three'].map((mount) => ({
@@ -443,6 +458,34 @@ test('what a host can’t run stops it, and says why', async () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a PLANS JSON names the features of any module; one that none declares stops the start', async (t) => {
+  const dirs = [];
+  let host = null;
+  // The host closes its database before its folder goes (Windows keeps an open file's folder).
+  t.after(async () => {
+    if (host) {
+      await host.close();
+      host.suite.database.close();
+    }
+    for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const env = (plans) => {
+    dirs.push(fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')));
+    return { DATA_DIR: dirs.at(-1), PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: JSON.stringify(plans) };
+  };
+  await assert.rejects(
+    createHost({ config: HOST, modules: modules(), env: env({ free: { name: 'Free', 'itemz.max': 2 } }), handleSignals: false, exitOnError: false, log: () => {} }),
+    (err) => err instanceof SuiteConfigError && /PLANS: plan "free": "itemz\.max" is nothing Work or its modules can limit/.test(err.errors.join('\n')),
+  );
+  // alpha's feature, which neither the host nor beta declares: each reads what is its own.
+  host = await createHost({
+    config: HOST, modules: modules(), env: env({ free: { name: 'Free', 'items.max': 2 } }), handleSignals: false, exitOnError: false, log: () => {},
+  });
+  const someone = { id: 999, role: 'user' };
+  assert.equal(host.modules[0].suite.entitlements.limit(someone, 'items.max'), 2);
+  assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
 });
 
 test('outside a host an app goes on as always', () => {

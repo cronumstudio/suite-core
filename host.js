@@ -302,6 +302,21 @@ export async function createHost({
   /** Links between the modules (links.js), made once every module is in; a module's view reaches it late. */
   let links = null;
   let suite = null;
+
+  /** The bytes someone keeps across the modules: what each says with `storage(userId)`. */
+  function storageUsed(userId) {
+    let total = 0;
+    for (const m of joined) {
+      if (typeof m.parts?.storage !== 'function') continue;
+      try {
+        total += Math.max(0, Number(m.parts.storage(userId)) || 0);
+      } catch (error) {
+        // A module that can't say counts nothing now rather than blocking every upload of the rest.
+        log(`[${m.config?.app?.id || m.mount}] storage of user ${userId} failed: ${error.message}`);
+      }
+    }
+    return total;
+  }
   const stop = (errors) => {
     if (!exitOnError) {
       suite?.database.close();
@@ -316,6 +331,8 @@ export async function createHost({
 
   suite = createSuite({
     config: product, migrations, env, log, exitOnError,
+    // A key of PLANS the host doesn't declare may be a module's: checked once they are all in.
+    othersDeclare: true,
     hooks: {
       ...hooks,
       // One table of accounts: a new one gets each module's columns as well as the host's.
@@ -375,6 +392,7 @@ export async function createHost({
       database: suite.database, appId: app.id, features: resolved.features, plans: resolved.plans,
       defaultPlan: resolved.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
       organizationsOf: (user) => (suite.organizations ? suite.organizations.organizationsOf(user) : []),
+      othersDeclare: true,
     });
     if (entitlements.errors.length) {
       throw new SuiteConfigError(entitlements.errors.map((e) => `${entry.mount}: the plan catalog (PLANS) has errors: ${e}`));
@@ -426,6 +444,13 @@ export async function createHost({
         changed: (type, id) => links?.changed({ module: entry.mount, type, id: String(id) }),
         done: (type, id, isDone, options) => links?.done({ module: entry.mount, type, id: String(id) }, isDone, options),
       },
+      /**
+       * The storage a plan allows (`storage.mb`) is the person's, whichever module keeps their
+       * files: `used(userId)` adds up what every module says it keeps for them
+       * (`createModule().storage`), so a module checks the whole against the limit. On its own
+       * an app has no `storage` and counts its own files, as always.
+       */
+      storage: { used: (userId) => storageUsed(userId) },
     };
     joined.push(entry);
     return entry.view;
@@ -476,6 +501,19 @@ export async function createHost({
     }
   }
   if (shared.length) stop(shared);
+
+  // Each part of the host left out the keys of a PLANS JSON that are another's; one that no part
+  // declares limits nothing anywhere (a typo, a feature that left), as it would on its own.
+  const plansOf = [suite.entitlements, ...joined.map((m) => m.view.entitlements)];
+  const unknownKeys = new Map();
+  for (const { ignored } of plansOf) {
+    for (const { plan, key } of ignored) {
+      if (!plansOf.some((e) => e.knows(key))) {
+        unknownKeys.set(`${plan}:${key}`, `PLANS: plan "${plan}": "${key}" is nothing ${config.app.name} or its modules can limit`);
+      }
+    }
+  }
+  if (unknownKeys.size) stop([...unknownKeys.values()]);
 
   /* ------------------------------ the root ------------------------------- */
 

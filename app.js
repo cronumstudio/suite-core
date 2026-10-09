@@ -102,6 +102,7 @@ const EXAMPLE_PASSWORDS = new Set([
  */
 export function createSuite({
   config: given, migrations = [], hooks = {}, env = process.env, log = console.log, exitOnError = true,
+  othersDeclare = false,
 }) {
   const config = given?.install ? given : resolveConfig(given, env);
   const tag = `[${config.app.id || 'app'}]`;
@@ -159,6 +160,7 @@ export function createSuite({
     database, appId: config.app.id, features: config.features, plans: config.plans,
     defaultPlan: config.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
     organizationsOf: (user) => (organizations ? organizations.organizationsOf(user) : []),
+    othersDeclare,
   });
   if (config.modules.organizations) {
     organizations = createOrganizations({

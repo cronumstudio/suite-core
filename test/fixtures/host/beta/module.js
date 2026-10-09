@@ -29,6 +29,11 @@ export function createModule({ mount }) {
       doneRoute(api, { suite, table: 'beta_items' });
     },
     cards: itemCards({ suite, table: 'beta_items' }),
+    // 500 bytes an item; one called 'Unreadable' makes it fail, which counts as nothing.
+    storage: (userId) => {
+      if (suite.database.get("SELECT 1 FROM beta_items WHERE user_id = ? AND text = 'Unreadable'", userId)) throw new Error('unreadable');
+      return 500 * suite.database.get('SELECT COUNT(*) AS n FROM beta_items WHERE user_id = ?', userId).n;
+    },
     mcp: {
       instructions: ['Beta keeps other items.', 'This paragraph stays out in a host.'].join(String.fromCharCode(10, 10)),
       tools: itemTools({ suite, table: 'beta_items', name: 'beta' }),
