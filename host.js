@@ -416,6 +416,8 @@ export async function createHost({
       baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
       // A copy says how many of the module's own migrations it had: in a host they are under its id.
       migrationScope: app.id,
+      // What was erased leaves nothing in the links either (links.js prune).
+      onErased: () => links?.prune({ module: entry.mount }),
     });
 
     entry.config = moduleConfig;
@@ -549,6 +551,11 @@ export async function createHost({
     database: suite.database, modules: () => joined, uses,
     // A notice in the module's own channel, for its open tabs to repaint the link.
     notify: (mount, audience, data) => byMount.get(mount)?.view.live.publish({ audience, event: 'links', data }),
+  });
+  // An account deleted: once its removal is done (the modules' hooks run before its rows go, and
+  // their tables let go of them with it), the links forget what went with it.
+  suite.accounts.whenRemoved(() => {
+    setImmediate(safely('links clean-up', () => links.prune()));
   });
 
   const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log, links });
@@ -766,7 +773,7 @@ export async function createHost({
   }
 
   return {
-    server, handle, listen, close, suite, root,
+    server, handle, listen, close, suite, root, links,
     modules: joined.map((m) => ({ mount: m.mount, id: m.config.app.id, suite: m.view, app: m.app })),
   };
 }

@@ -377,11 +377,13 @@ function countValues(bytes) {
  * @param {object} options.declaration    what the app's data is (see describeData)
  * @param {string} [options.migrationScope]  where the app's migrations are recorded: `app` on its
  *   own, its id as a module of a host; a copy says how many it had, under `schema.app`
+ * @param {(user) => void} [options.onErased]  once someone's data here is erased (a host forgets
+ *   the titles its links keep of it)
  */
 export function createPortability({
   database, accounts, uploads = null, entitlements = null, live = null, audit = null, app, roles = ['admin', 'user'],
   baseUrl = null, authProvider = 'local', dataDir, declaration, log = console.log, clock = () => Date.now(),
-  limits = {}, migrationScope = 'app',
+  limits = {}, migrationScope = 'app', onErased = null,
 }) {
   const model = describeData(database, declaration);
   const importsDir = path.join(dataDir, 'imports');
@@ -472,6 +474,8 @@ export function createPortability({
         meta: { rows: Object.values(erased).reduce((a, b) => a + b, 0), files: files.length },
       });
       live?.publish({ audience: null, event: 'resync', data: {} });
+      // What else keeps something of it (a host's links): told once it is gone.
+      try { onErased?.(user); } catch (error) { log(`[${app.id}] after erasing user ${user.id}: ${error?.stack || error}`); }
       return { erased };
     } finally {
       release();
