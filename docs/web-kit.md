@@ -152,6 +152,17 @@ brings it over the views as a drawer, as on a phone. An app that lays out its ow
 960 px (Tasks, Projects) gives their `[data-folded]` version too; on a phone nothing of this
 applies, whatever was chosen on a computer.
 
+**A view's head** (`shell.head({ pane, title, lead, actions, below })`) is the same in every
+app: the view's title and the app's own actions, and, wherever the sidebar isn't beside the views
+(a phone, or folded away), ☰ at its start and the button that creates at its end; over a phone's
+detail (`pane: 'detail'`), ← instead. It returns `{ element, setTitle }`; the app puts `element`
+at the top of its view (it sticks there while the view scrolls) and makes a new one when it draws
+the view again. A pane showing a head takes the bar's place: one line less, and the same layout in
+every app and on any screen. `lead` goes before the title (a list's icon, a note's notebook),
+`below` under its line, inside the head (a search, chips, a toolbar). In a narrow head (a list
+beside its detail) the create button keeps its + and loses its words. An app that shows no head
+in a pane keeps the bar there, as before.
+
 ### The phone's keyboard
 
 On a phone the keyboard doesn't make the page shorter: it covers its lower part, and the browser

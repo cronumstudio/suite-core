@@ -682,6 +682,41 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   .kit-rail { display: flex; }
 }
 
+/* ------------------------------- view heads ------------------------------- */
+/*
+ * shell.head(): a view's head, the same in every app. The title and the app's
+ * actions; ☰ (← over a phone's detail) and the button that creates follow the
+ * bar's own rules above, by their classes. A pane showing a head takes the
+ * bar's place: the bar gives way, and the head keeps the clock's gap it kept.
+ */
+.kit-head {
+  container: kit-head / inline-size; position: sticky; inset-block-start: 0; z-index: 4;
+  padding: calc(8px + var(--kit-safe-top)) 16px 10px; background: var(--kit-bg); border-bottom: 1px solid var(--kit-border);
+}
+.kit-head__row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 40px; }
+/* ☰ and ← sit on the head's edge, their icon where the title's margin would be. */
+.kit-head__row > .kit-bar__menu, .kit-head__row > .kit-bar__back { margin-inline-start: -8px; }
+.kit-head__title {
+  flex: 1; min-width: 0; margin: 0; font: 700 21px/1.2 var(--kit-font-display); letter-spacing: -.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kit-head__actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.kit-head__actions:empty { display: none; }
+.kit-head .kit-bar__create { margin-inline-start: 4px; }
+/* A narrow head (a list beside its detail) keeps the button's + and loses its words. */
+@container kit-head (max-width: 419px) {
+  .kit-head .kit-bar__create { padding-inline: 8px; }
+  .kit-head .kit-bar__create-label { display: none; }
+}
+
+.kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head) .kit-bar,
+.kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head) .kit-bar { display: none; }
+@container kit-app (min-width: 960px) {
+  /* The list and its detail side by side: the list's head has ☰ and create, and nothing goes back. */
+  .kit-app[data-panes="split"]:has(.kit-pane--list .kit-head) .kit-bar { display: none; }
+  .kit-app[data-panes="split"] .kit-head .kit-bar__back { display: none; }
+}
+
 /* ---------------------------------- links ---------------------------------- */
 /* The "Linked" row of an item (links.js): one chip per link, a dot in the other module's colour. */
 .kit-linked { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }

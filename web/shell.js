@@ -9,6 +9,10 @@
  * head folds it, ☰ in the bar that then shows brings it back, and the choice
  * is remembered on the device. kit.css lays it out by the frame's own width.
  *
+ * Each view can start with the kit's head (`shell.head()`): its title and the
+ * app's actions, with ☰ (or ←) and the button that creates in it wherever the
+ * bar would have shown them. A pane showing one doesn't show the bar.
+ *
  * As a module of a host (suite-core host.js, Cronum Work), the person's button
  * at the sidebar's foot gives way, and Settings is reached another way. Where
  * the sidebar stays (a tablet, a computer), a rail at its start has the host's
@@ -83,26 +87,32 @@ export function createShell({
 
   const title = el('span', { class: 'kit-bar__title' });
   const actions = el('div', { class: 'kit-bar__actions' });
-  // ☰ pressed with Enter or Space: the click that follows is the keyboard's. Not a click without
-  // a pointer, which a tap at the screen's edge passed on is too.
-  let byKeys = false;
-  const menuButton = el('button', {
-    type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
-    onKeydown: (ev) => { byKeys = ev.key === 'Enter' || ev.key === ' '; },
-    onClick: () => {
-      const keyboard = byKeys;
-      byKeys = false;
-      toggleDrawer({ keyboard });
-    },
-  }, icon('menu'));
-  const backButton = el('button', {
+  // The bar's buttons, made again for each view's head (head()): kit.css shows each one where
+  // it applies, in the bar or in a head alike, by its class.
+  const menuToggle = () => {
+    // ☰ pressed with Enter or Space: the click that follows is the keyboard's. Not a click without
+    // a pointer, which a tap at the screen's edge passed on is too.
+    let byKeys = false;
+    return el('button', {
+      type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
+      onKeydown: (ev) => { byKeys = ev.key === 'Enter' || ev.key === ' '; },
+      onClick: () => {
+        const keyboard = byKeys;
+        byKeys = false;
+        toggleDrawer({ keyboard });
+      },
+    }, icon('menu'));
+  };
+  const backToggle = () => el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
   }, icon('back'));
-  // With the sidebar folded away, its button that creates comes to the bar.
-  const barCreate = create ? el('button', {
-    type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small kit-bar__create', onClick: create.onClick,
-  }, icon('plus'), create.label) : null;
-  const bar = el('header', { class: 'kit-bar' }, menuButton, backButton, title, actions, barCreate);
+  // With the sidebar folded away, its button that creates comes to the bar (or to the head).
+  const createButton = () => (create ? el('button', {
+    type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small kit-bar__create', 'aria-label': create.label,
+    onClick: create.onClick,
+  }, icon('plus'), el('span', { class: 'kit-bar__create-label', text: create.label })) : null);
+  const menuButton = menuToggle();
+  const bar = el('header', { class: 'kit-bar' }, menuButton, backToggle(), title, actions, createButton());
   const banners = el('div', { class: 'kit-banners' });
   const list = el('section', { class: 'kit-pane kit-pane--list' });
   const detail = el('section', { class: 'kit-pane kit-pane--detail' });
@@ -130,10 +140,14 @@ export function createShell({
   const beside = () => (element.clientWidth || window.innerWidth) >= BESIDE;
   /** Folded and beside the views: below that width the sidebar is a drawer, folded or not. */
   const folded = () => element.hasAttribute('data-folded') && beside();
+  /** ☰ says what it does: with the sidebar folded beside the views, it brings it back. */
+  const titleMenu = (button) => {
+    if (element.hasAttribute('data-folded')) button.title = t('kit.side.unfold');
+    else button.removeAttribute('title');
+  };
   function paintFolded(value) {
     element.toggleAttribute('data-folded', value);
-    if (value) menuButton.title = t('kit.side.unfold');
-    else menuButton.removeAttribute('title');
+    for (const button of element.querySelectorAll('.kit-bar__menu')) titleMenu(button);
   }
   function setFolded(value) {
     try { localStorage.setItem(foldKey, value ? 'collapsed' : 'visible'); } catch { /* private mode */ }
@@ -222,10 +236,12 @@ export function createShell({
   const EDGE = 20;
   let swipe = null;
   const visible = (node) => node.offsetParent !== null;
+  // In the bar or in a view's head: whichever shows.
+  const showing = (selector) => [...element.querySelectorAll(selector)].some(visible);
   const startAction = (target) => {
     if (!element.contains(target) || element.hasAttribute('data-drawer')) return null;
-    if (visible(backButton)) return () => (onBack || showList)();
-    if (visible(menuButton)) return () => openDrawer();
+    if (showing('.kit-bar__back')) return () => (onBack || showList)();
+    if (showing('.kit-bar__menu')) return () => openDrawer();
     return null;
   };
   const scrollerOf = (node) => {
@@ -464,8 +480,39 @@ export function createShell({
     live.setAttribute('aria-label', t(`kit.live.${state}`));
   }
 
+  /* ---------------------------------- heads --------------------------------- */
+
+  /**
+   * A view's head, the same in every app: its title and the app's own actions, and, wherever the
+   * sidebar isn't beside the views (a phone, or folded away), ☰ at its start and the button that
+   * creates at its end; over a phone's detail, ← instead of ☰. A pane showing one takes the bar's
+   * place (kit.css): one line less, and each view laid out alike in every app and on any screen.
+   * The app puts it at the top of its view, and makes a new one when it draws the view again.
+   *
+   * @param {object} [options]
+   * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ and create over a list, ← over a detail
+   * @param {string} [options.title]
+   * @param {Node} [options.lead]             before the title (a list's icon, a note's notebook)
+   * @param {Node|Node[]} [options.actions]   after it, at the end (⋯, a pin)
+   * @param {Node} [options.below]            under the line, in the head (a search, chips, a toolbar)
+   */
+  function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null } = {}) {
+    const heading = el('h1', { class: 'kit-head__title', text });
+    let start = null;
+    if (pane === 'detail') start = backToggle();
+    else {
+      start = menuToggle();
+      titleMenu(start);
+    }
+    const node = el('header', { class: 'kit-head', 'data-pane': pane },
+      el('div', { class: 'kit-head__row' },
+        start, lead, heading, el('div', { class: 'kit-head__actions' }, own), pane === 'list' ? createButton() : null),
+      below);
+    return { element: node, setTitle: (value) => { heading.textContent = value || ''; } };
+  }
+
   return {
-    element, nav, list, detail, actions, banners,
+    element, nav, list, detail, actions, banners, head: viewHead,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
     get folded() { return folded(); },
