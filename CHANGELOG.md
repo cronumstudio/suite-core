@@ -5,18 +5,30 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.65.0 — 2026-10-10
 
-- **An app with `modules.mcp: false` shows no MCP anywhere.** With WorkOS it no longer serves
+- **An app with `modules.mcp: false` sends AI clients nowhere.** Its `/mcp` and `/mcp/*` answer a
+  JSON 404 without `WWW-Authenticate`, never the app's page (before, an app with `publicDir`
+  served its `index.html` there). With WorkOS it no longer serves
   `/.well-known/oauth-protected-resource[/mcp]` nor `/.well-known/oauth-authorization-server*`
   (`createWorkosAccounts({ mcp })`, new, true by default; `createSuite()` passes
   `modules.mcp`): those paths get the JSON 404 of the discovery paths an install doesn't serve,
   and nobody is sent to AuthKit for a connector that isn't there. Signing in on the web is the
   same.
+- The built-in OAuth for local accounts is `modules.oauth`, not touched: an app without an MCP
+  sets `modules.oauth: false` as well, or that OAuth's metadata and `/oauth/*` stay.
 - `/api/auth/config` says `app.modules.mcp`: whether the app's `/mcp` answers (`modules.mcp` on
   and the app's tools given to `createApp`). Settings leaves out its AI section when it is
   `false`; a server from before this version sends nothing and keeps the section. A host's
-  module says the host's (`createApp({ offersMcp })`, new): its connector is the host's `/mcp`.
-- Nothing changes for an app with its MCP on, as every app has it today. The built-in OAuth for
-  local accounts is not touched: an app without an MCP sets `modules.oauth: false` as well.
+  module says whether the host's `/mcp` answers (`createApp({ offersMcp })`, new, a boolean or a
+  function read on each request): false in a host where no module brings tools and fewer than
+  two bring things to link.
+- The switch is what turns an MCP off, not leaving out the tools: with `modules.mcp` on and no
+  tools there is no `/mcp` and `app.modules.mcp` is `false`, but the WorkOS metadata is still
+  served and `/mcp` is the page, as before.
+- `checkConformance({ mcp: false })` (`--no-mcp`) now checks that `/mcp` and the OAuth metadata
+  for AI clients answer a JSON 404 with no challenge, where it skipped the MCP before. An app that
+  calls it so gets these checks when it moves up to this version; the four apps call it with the
+  MCP on.
+- Nothing changes for an app with its MCP on, as every app has it today.
 
 ## 0.64.0 — 2026-10-09
 
