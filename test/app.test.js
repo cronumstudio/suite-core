@@ -339,6 +339,10 @@ test('an app without an MCP shows AI clients nothing to follow, nor its pages a 
 
   const start = async ({ modules = {}, mcp = { tools } } = {}) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-mcp-'));
+    // A page of its own, as every app has: its fallback answers the paths it doesn't know.
+    const publicDir = path.join(dir, 'public');
+    fs.mkdirSync(publicDir);
+    fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
     const suite = createSuite({
       config: { ...PRODUCT, modules },
       env: {
@@ -347,12 +351,12 @@ test('an app without an MCP shows AI clients nothing to follow, nor its pages a 
       },
       log: () => {}, exitOnError: false,
     });
-    const app = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {}, mcp });
+    const app = createApp({ suite, publicDir, version: '1.0.0', handleSignals: false, log: () => {}, mcp });
     const server = await app.listen();
     t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
     const base = `http://127.0.0.1:${server.address().port}`;
-    return async (method, pathname, headers = {}) => {
-      const res = await fetch(base + pathname, { method, redirect: 'manual', headers });
+    return async (method, pathname, headers = {}, body = undefined) => {
+      const res = await fetch(base + pathname, { method, redirect: 'manual', headers, body });
       const text = await res.text();
       let data = text;
       try { data = JSON.parse(text); } catch { /* not JSON */ }
@@ -372,9 +376,13 @@ test('an app without an MCP shows AI clients nothing to follow, nor its pages a 
       assert.equal(answer.headers.get('www-authenticate'), null, pathname);
     }
     assert.equal((await call('OPTIONS', '/.well-known/oauth-protected-resource/mcp')).status, 404, 'no preflight either');
-    const endpoint = await call('GET', '/mcp');
-    assert.equal(endpoint.status, 404, 'no /mcp');
-    assert.equal(endpoint.headers.get('www-authenticate'), null, 'and no challenge that would open AuthKit');
+    for (const [method, pathname] of [['GET', '/mcp'], ['POST', '/mcp'], ['GET', '/mcp/sse'], ['DELETE', '/mcp']]) {
+      const endpoint = await call(method, pathname, { 'Content-Type': 'application/json' }, method === 'POST' ? '{}' : undefined);
+      assert.equal(endpoint.status, 404, `${method} ${pathname}: no /mcp`);
+      assert.deepEqual(endpoint.data, { error: 'not_found' }, `${method} ${pathname}: JSON, never the app's page`);
+      assert.equal(endpoint.headers.get('www-authenticate'), null, 'and no challenge that would open AuthKit');
+    }
+    assert.match((await call('GET', '/some/view')).data, /<title>Demo<\/title>/, 'the app’s own paths still fall back to its page');
     assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, false, 'its pages offer no AI connector');
     const login = await call('GET', '/auth/login');
     assert.equal(login.status, 302, 'signing in on the web is the same');
@@ -399,6 +407,11 @@ test('an app without an MCP shows AI clients nothing to follow, nor its pages a 
   assert.equal(endpoint.headers.get('www-authenticate'),
     'Bearer resource_metadata="https://demo.example/.well-known/oauth-protected-resource/mcp"');
   assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, true);
-  // On, but the app brings no tools: no /mcp answers, so its pages offer no connector.
-  assert.equal((await (await start({ mcp: null }))('GET', '/api/auth/config')).data.app.modules.mcp, false);
+  // On, but the app brings no tools: no /mcp answers, so its pages offer no connector. The switch
+  // is what turns the MCP off: without it the WorkOS metadata is still served, as before 0.65.0.
+  const toolless = await start({ mcp: null });
+  assert.equal((await toolless('GET', '/api/auth/config')).data.app.modules.mcp, false);
+  assert.equal((await toolless('GET', '/.well-known/oauth-protected-resource/mcp')).status, 200,
+    'leaving out the tools is not turning the MCP off: modules.mcp: false is');
+  assert.match((await toolless('GET', '/mcp')).data, /<title>Demo<\/title>/, 'and its /mcp is the page, as before');
 });

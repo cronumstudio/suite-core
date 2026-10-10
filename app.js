@@ -694,6 +694,12 @@ export function createApp({
         await mcpServer.handle(req, res, url);
         return;
       }
+      // With the MCP switched off, its address is a JSON 404 without a challenge: never the
+      // app's page, which an AI client would take for an endpoint that answers.
+      if (!config.modules.mcp && (pathname === '/mcp' || pathname.startsWith('/mcp/'))) {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
       // How to set up the connector, to check it from the browser. It says
       // nothing that whoever holds a token doesn't already know.
       if (mcpServer && pathname === '/mcp-info') {

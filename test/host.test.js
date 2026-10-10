@@ -261,6 +261,10 @@ test('a host with its MCP off: neither it nor its modules offer an AI connector'
     assert.equal((await call('GET', `/${mount}/api/auth/config`)).data.app.modules.mcp, false, mount);
   }
   assert.equal((await call('GET', '/mcp-info')).status, 404, 'no MCP at the root');
+  const endpoint = await call('POST', '/mcp', {});
+  assert.equal(endpoint.status, 404, 'its address answers a JSON 404');
+  assert.deepEqual(endpoint.data, { error: 'not_found' });
+  assert.equal(endpoint.headers.get('www-authenticate'), null, 'with no challenge');
 });
 
 test('a host whose modules bring no tools: its MCP on, but no /mcp, so none of them offers a connector', async (t) => {

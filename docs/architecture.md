@@ -732,9 +732,20 @@ parameter names keep clients with a cached schema working after a rename (as Nex
 to English). Tool descriptions and results are in English; the instructions ask the assistant to
 answer in the user's language.
 
-An app with `modules.mcp: false` shows no MCP anywhere (v0.65.0): no `/mcp`, no WorkOS metadata
-at `/.well-known/oauth-*` (the discovery paths' JSON 404 answers), `app.modules.mcp: false` in
-`/api/auth/config`, and no AI section in Settings. A host's modules offer the host's `/mcp`.
+An app with `modules.mcp: false` (v0.65.0) answers `/mcp` and `/mcp/*` with a JSON 404 and no
+`WWW-Authenticate`, never its page; with WorkOS it serves no metadata at `/.well-known/oauth-*`
+(the discovery paths' JSON 404 answers); `/api/auth/config` says `app.modules.mcp: false`, and
+Settings has no AI section. Two things are not covered by that switch:
+
+- The built-in OAuth for local accounts is `modules.oauth`, apart: an app without an MCP sets it
+  to `false` as well, or that OAuth still serves its metadata at `/.well-known/oauth-*` and its
+  `/oauth/*` endpoints.
+- The switch turns the MCP off, not leaving out the tools: with `modules.mcp` on and no tools,
+  there is no `/mcp` and `app.modules.mcp` is `false`, but the WorkOS metadata is still served
+  and `/mcp` falls back to the page, as before v0.65.0.
+
+A host's modules offer the host's `/mcp` whenever it exists (some module brings tools, or two
+bring things to link), and none of them does when it doesn't.
 
 ## 14. Translations
 
@@ -920,10 +931,11 @@ Every app gets these from the suite and the conformance tests check them:
   with fake adapters where it talks to an app.
 - `tools/conformance.js` (**done**, v0.29.0) runs against a running app and checks the platform
   behaviour it inherits: headers, `/health` and `/version`, sign-in and sign-out, the brute-force
-  brake, CSRF, the MCP `401` challenge, JSON 404 on discovery paths, translations complete. Only
-  HTTP to the app itself, so it runs the same on a laptop, a NAS, in a container or against
-  production (read-only there: no credentials, `--no-brake`). Each app's smoke test calls it, then
-  tests its own domain, and the shared container checks run it against every image built.
+  brake, CSRF, the MCP `401` challenge (for an app without an MCP, `--no-mcp`: `/mcp` and the
+  OAuth metadata a JSON 404 with no challenge, v0.65.0), JSON 404 on discovery paths, translations
+  complete. Only HTTP to the app itself, so it runs the same on a laptop, a NAS, in a container or
+  against production (read-only there: no credentials, `--no-brake`). Each app's smoke test calls
+  it, then tests its own domain, and the shared container checks run it against every image built.
 
 ## 19. Versions and adoption
 
