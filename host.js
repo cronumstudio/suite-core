@@ -460,6 +460,8 @@ export async function createHost({
 
   /* ----------------------------- the modules ----------------------------- */
 
+  // Whether the host's /mcp answers: known once every module has joined (hostMcp, below).
+  let hostOffersMcp = false;
   for (const spec of modules) {
     // A file URL or a specifier, as import() takes it; an absolute path of this disk becomes one.
     const target = !(spec.entry instanceof URL) && path.isAbsolute(String(spec.entry))
@@ -487,8 +489,8 @@ export async function createHost({
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
       i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
-      // module offers it whenever the host has its MCP on, though the module itself has none.
-      offersMcp: Boolean(config.modules.mcp),
+      // module offers it whenever that answers, though the module itself has none.
+      offersMcp: () => hostOffersMcp,
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
@@ -562,6 +564,8 @@ export async function createHost({
   });
 
   const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log, links });
+  // The same as the root says of itself (createApp): on, and with tools or links to serve.
+  hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp,

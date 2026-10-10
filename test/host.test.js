@@ -263,6 +263,19 @@ test('a host with its MCP off: neither it nor its modules offer an AI connector'
   assert.equal((await call('GET', '/mcp-info')).status, 404, 'no MCP at the root');
 });
 
+test('a host whose modules bring no tools: its MCP on, but no /mcp, so none of them offers a connector', async (t) => {
+  fresh += 1;
+  const { call } = await startHost(t, {
+    modules: [{ mount: 'one', entry: fixture('plain', `?id=one&n=${fresh}`) }, { mount: 'two', entry: fixture('plain', `?id=two&n=${fresh}`) }],
+  });
+  assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, false, 'the root has no /mcp to offer');
+  for (const mount of ['one', 'two']) {
+    assert.equal((await call('GET', `/${mount}/api/auth/config`)).data.app.modules.mcp, false,
+      `${mount}: the host's /mcp isn't there, so its Settings has no AI section`);
+  }
+  assert.equal((await call('GET', '/mcp-info')).status, 404, 'indeed no MCP at the root');
+});
+
 test('links between modules: each sees what they could see, created where it lives, done together, live', async (t) => {
   const { host, call } = await startHost(t);
   const [alpha, beta] = host.modules;

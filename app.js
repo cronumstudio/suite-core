@@ -450,9 +450,11 @@ function inCatalogDir(pathname) {
  * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
- * @param {boolean} [options.offersMcp]   whether the app's pages offer an AI connector
- *   (`modules.mcp` in /api/auth/config, Settings' AI section); by default, whether its /mcp
- *   answers. A host passes its own for its modules, whose MCP is the host's (host.js).
+ * @param {boolean|(() => boolean)} [options.offersMcp]   whether the app's pages offer an AI
+ *   connector (`modules.mcp` in /api/auth/config, Settings' AI section); by default, whether its
+ *   /mcp answers. A host passes a function for its modules, whose MCP is the host's: read on each
+ *   request, it says whether the host's /mcp exists, which is known only once every module has
+ *   joined (host.js).
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
@@ -472,6 +474,10 @@ export function createApp({
 
   // Copies of accounts and of the install, when the app says what its data is.
   const portability = portable ? suite.portabilityFor(portable, { version }) : null;
+  // Whether there is an AI connector to offer: Settings leaves out its section when there isn't.
+  const offersConnector = typeof offersMcp === 'function'
+    ? () => Boolean(offersMcp())
+    : () => Boolean(offersMcp ?? (mcp && config.modules.mcp));
 
   const api = createRouter();
   registerAuthApi(api, {
@@ -481,8 +487,8 @@ export function createApp({
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: {
         organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
-        // Whether there is an AI connector to offer: Settings leaves out its section when there isn't.
-        mcp: Boolean(offersMcp ?? (mcp && config.modules.mcp)),
+        // Read each time the config is sent: a host's module learns late whether the host has one.
+        get mcp() { return offersConnector(); },
       },
       // A module of a host (host.js) says where it is, for the kit to show the others beside it.
       ...(config.host ? { host: config.host } : {}),
