@@ -12,7 +12,9 @@
  * Who pays travels in the transaction's `custom_data`, which Paddle copies to
  * the subscription it makes and sends back in every webhook:
  *
- *   { workos_user_id: 'user_01…', email, product: 'pro-yearly' }
+ *   { workos_user_id: 'user_01…', email, product: 'pro-yearly', app?: 'work' }
+ *
+ * (`app` only when billing.js is given one: which app sold it.)
  *
  * The WorkOS id, and not the app's own id of the person, because one
  * subscription (Cronum Work) is for every app of the suite and each app has its
@@ -28,6 +30,16 @@
  * Everything else is acknowledged and ignored. Paddle retries and may deliver
  * out of order: billing.js applies each event once and never lets an older one
  * undo a newer.
+ *
+ * One Paddle account may sell other products (Tracker next to Cronum Work), and
+ * every notification destination gets every event. Two options keep another
+ * product's sales out, both off by default:
+ *   strictPrices       the product comes only from this install's price ids
+ *                      (`price`, `founderPrice`, `oldPrices`), never from
+ *                      `custom_data.product`, which another product may name the same
+ *   paddleProductIds   the Paddle products (pro_…) this install sells: an event
+ *                      whose items are all of other products is marked foreign,
+ *                      with nothing of who paid
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest } from './http.js';
@@ -83,22 +95,46 @@ const isoOf = (value) => {
  * @param {string} [options.checkoutUrl]   the page with Paddle.js that pays a transaction; empty, the
  *   account's default payment link
  * @param {object} [options.products]      the app's products, to recognise a price changed in the portal
+ * @param {boolean} [options.strictPrices] the product only from the products' prices (see above)
+ * @param {string[]} [options.paddleProductIds]   the Paddle products this install sells (see above)
  * @param {string} [options.apiBase]       the environment's API, or a stand-in for tests
  * @param {Function} [options.fetch]
  */
 export function paddleProvider({
   apiKey, webhookSecret, environment = 'production', checkoutUrl = '', products = {},
+  strictPrices = false, paddleProductIds = null,
   apiBase = PADDLE_API[environment], fetch = globalThis.fetch, clock = () => Date.now(), log = console.log,
 }) {
   if (!apiKey) throw new Error('paddleProvider: an API key is needed');
   if (!webhookSecret) throw new Error('paddleProvider: the notification destination\'s secret is needed');
   if (!PADDLE_API[environment]) throw new Error(`paddleProvider: environment "${environment}" is not sandbox or production`);
+  if (typeof strictPrices !== 'boolean') throw new Error('paddleProvider: strictPrices is true or false');
+  // An empty list would make every sale of the account foreign, this install's too.
+  if (paddleProductIds !== null && !(Array.isArray(paddleProductIds) && paddleProductIds.length
+    && paddleProductIds.every((id) => typeof id === 'string' && /^pro_[a-z0-9]{26}$/.test(id)))) {
+    throw new Error('paddleProvider: paddleProductIds is a list of at least one Paddle product id (pro_…)');
+  }
+  const ownProducts = paddleProductIds ? new Set(paddleProductIds) : null;
   const base = String(apiBase).replace(/\/+$/, '');
-  // A founder's price is the same product as the regular one: both are recognised.
+  // A founder's price is the same product as the regular one: both are recognised, and so are
+  // the old prices that subscriptions bought before a change of price still renew on.
   const productOfPrice = {};
   for (const [key, spec] of Object.entries(products || {})) {
-    for (const price of [spec?.price, spec?.founderPrice]) if (price) productOfPrice[price] = key;
+    const old = Array.isArray(spec?.oldPrices) ? spec.oldPrices : [];
+    for (const price of [spec?.price, spec?.founderPrice, ...old]) if (price) productOfPrice[price] = key;
   }
+  /** The product of a price; without strictPrices, what custom_data names when the price is unknown. */
+  const productOf = (price, customData) => (strictPrices ? productOfPrice[price] : productOfPrice[price] || customData?.product);
+  /** Whether a notification's items are all of Paddle products this install doesn't sell. */
+  const othersOnly = (items) => {
+    if (!ownProducts) return false;
+    const ids = (Array.isArray(items) ? items : []).map((item) => item?.price?.product_id).filter((id) => typeof id === 'string');
+    return ids.length > 0 && !ids.some((id) => ownProducts.has(id));
+  };
+  /** Another product's event: what billing.js needs to keep it once, and nothing of who paid. */
+  const foreignEvent = (notification, type, occurredAt, ref) => ({
+    id: notification.event_id, type, occurredAt, ref, foreign: true,
+  });
 
   async function call(method, path, body = undefined) {
     let res;
@@ -144,13 +180,14 @@ export function paddleProvider({
    * names a price.
    */
   async function checkout({
-    subject, identity = null, customer = null, product, price, email = null, returnUrl,
+    subject, identity = null, customer = null, product, price, email = null, returnUrl, app = null,
   }) {
     if (!price) throw badRequest('product_unknown', { product });
     const customData = {
       ...(identity?.provider === 'workos' ? { workos_user_id: identity.subject } : { subject: `${subject.type}:${subject.id}` }),
       ...(email ? { email } : {}),
       product,
+      ...(app ? { app } : {}),
     };
     const customerId = customer || (email ? await customerByEmail(email) : null);
     const page = checkoutUrl ? new URL(checkoutUrl) : null;
@@ -200,12 +237,18 @@ export function paddleProvider({
     await call('PATCH', `/subscriptions/${encodeURIComponent(ref)}`, { scheduled_change: null });
   }
 
-  /** Who an entity's custom_data says pays: their WorkOS id, or the subject of an install without it. */
+  /**
+   * Who an entity's custom_data says pays: their WorkOS id, or the subject of an install without it;
+   * and which app sold it, when the checkout said (only then, so events stay as they were).
+   */
   function whoOf(customData) {
     const workosId = customData?.workos_user_id;
+    const app = customData?.app;
     return {
       identity: typeof workosId === 'string' && /^user_[A-Za-z0-9]{10,64}$/.test(workosId) ? { provider: 'workos', subject: workosId } : null,
       subject: subjectFrom(customData?.subject),
+      // Any text counts, cut short: one that isn't this app's id is another app's.
+      ...(typeof app === 'string' && app ? { app: app.slice(0, 64) } : {}),
     };
   }
 
@@ -217,13 +260,14 @@ export function paddleProvider({
     const customer = object.customer_id ?? null;
 
     if (/^subscription\.(created|updated|canceled|paused|resumed|activated|past_due|trialing)$/.test(type)) {
+      if (othersOnly(object.items)) return foreignEvent(notification, 'subscription', occurredAt, object.id);
       const item = object.items?.[0] || {};
       const price = item.price?.id || null;
       return {
         id: notification.event_id, type: 'subscription', occurredAt, customer,
         ...whoOf(object.custom_data),
         ref: object.id,
-        product: productOfPrice[price] || object.custom_data?.product,
+        product: productOf(price, object.custom_data),
         status: object.status,
         periodEnd: isoOf(object.current_billing_period?.ends_at),
         quantity: item.quantity ?? null,
@@ -233,12 +277,13 @@ export function paddleProvider({
     if (type === 'transaction.completed') {
       // A subscription's transactions are followed by its own subscription.* events.
       if (object.subscription_id) return null;
+      if (othersOnly(object.items)) return foreignEvent(notification, 'purchase', occurredAt, object.id);
       const price = object.items?.[0]?.price?.id || null;
       return {
         id: notification.event_id, type: 'purchase', occurredAt, customer,
         ...whoOf(object.custom_data),
         ref: object.id,
-        product: productOfPrice[price] || object.custom_data?.product,
+        product: productOf(price, object.custom_data),
         quantity: object.items?.[0]?.quantity ?? null,
       };
     }

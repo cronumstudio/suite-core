@@ -660,6 +660,35 @@ signature is `Paddle-Signature: ts=…;h1=…`, HMAC-SHA256 of `ts:body`, five m
 any h1 while a secret rotates. Each app has its own notification destination at
 `BASE_URL/api/billing/webhook`, with the subscription, transaction and adjustment events.
 
+**Another product's sales** (v0.66.0). One Paddle account may sell more than one product (Cronum
+Work, and Tracker on its own), and every destination of the account gets every event, often for
+people this app knows by the same WorkOS id. Before this version such an event linked the person's
+customer here, waited 400 days in `billing_pending` for someone who never opens the app, and was
+granted when a product of the other one had a key of this catalog's name (`custom_data.product`
+was read for a price this install doesn't know). Four guards, set in `suite.config.js` and all off
+by default:
+
+```js
+billing: {
+  ignoreUnknownProducts: true,  // an event (not a refund) for a product not in `products` is 'foreign'
+  app: 'work',                  // custom_data.app on the checkout; an event that names another app is foreign
+  strictPrices: true,           // Paddle: the product only from the products' prices, never custom_data.product
+  paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] },   // Paddle: other products' events are foreign
+},
+```
+
+A foreign event is decided before anything about who pays, so no customer is linked, nothing
+waits and nothing is granted; only its id, type and outcome are kept in `billing_events`, and the
+log names the event only. What waited from before the guard was on is foreign when its person
+arrives (`claim`). Refunds are not checked: a refund names no product, and one of another
+product's sale finds nothing here to take back. `app` is one value for every install that sells a
+subscription together (Tasks, Next and Work all say `work`), or each would find the others' sales
+foreign; an event without one, sold before checkouts said it, is judged by its product alone.
+With `strictPrices`, a product lists the prices it no longer sells that subscriptions still renew
+on as `oldPrices` (a list, or one per environment), or their renewals would be foreign. The
+Paddle products may be given per environment, like prices, and with Paddle on the ones of
+`PADDLE_ENV` must be there.
+
 ## 10. Organizations
 
 An organization answers "whose is this and who pays": a group of people who share data, roles and
@@ -955,7 +984,7 @@ first, then Tasks, then the rest.
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
-| `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
+| `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
 
 ## 21. Several apps as one: the host
 
