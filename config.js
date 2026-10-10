@@ -21,6 +21,7 @@ import { oidcConfigFromEnv } from './oidc.js';
 import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { vapidKeyErrors } from './push.js';
 import { PADDLE_API } from './paddle.js';
+import { redirectUriProblem } from './devices.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -36,12 +37,18 @@ export const MODULES = Object.freeze({
   push: false,
   // Files people attach (uploads.js), under DATA_DIR/uploads: the app's routes use suite.uploads.
   uploads: false,
+  // Tokens for an app on a phone, connected through the system browser (devices.js), and their routes.
+  devices: false,
 });
 
 const PRODUCT_KEYS = new Set([
   'app', 'modules', 'accounts', 'sessions', 'organizations', 'tokens', 'rateLimits',
   'features', 'plans', 'defaultPlan', 'products', 'trustProxy',
+  'devices',
 ]);
+
+/** suite.config.js `devices`: how an app on a phone connects (devices.js). */
+const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays']);
 
 /**
  * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
@@ -147,10 +154,39 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const tokens = { prefix: tk.prefix ?? 'mcp_' };
   if (!/^[a-z]{2,10}_$/.test(tokens.prefix)) errors.push('tokens.prefix: a few lowercase letters and _ ("mcp_")');
 
+  // Device tokens: their own prefix, so neither kind of token is ever taken for the other, and the
+  // addresses the system browser may hand a code back to. Both become part of the installed apps:
+  // with the module on they must be given, never guessed.
+  const dv = isObject(p.devices) ? p.devices : {};
+  if (p.devices !== undefined && !isObject(p.devices)) errors.push("devices: an object, such as { prefix: 'appdev_', redirectUris: ['com.example.app:/auth'] }");
+  for (const key of Object.keys(dv)) {
+    if (!DEVICE_KEYS.has(key)) errors.push(`devices.${key} is not a setting (a typo?)`);
+  }
+  const devices = {
+    prefix: dv.prefix ?? null,
+    redirectUris: Array.isArray(dv.redirectUris) ? [...new Set(dv.redirectUris)] : [],
+    idleDays: dv.idleDays ?? 90,
+  };
+  if (devices.prefix !== null && !/^[a-z]{2,10}_$/.test(String(devices.prefix))) {
+    errors.push('devices.prefix: a few lowercase letters and _ ("appdev_")');
+  } else if (devices.prefix !== null && devices.prefix === tokens.prefix) {
+    errors.push(`devices.prefix must differ from tokens.prefix ("${tokens.prefix}"): a device token is not an API token`);
+  }
+  if (dv.redirectUris !== undefined && !Array.isArray(dv.redirectUris)) errors.push("devices.redirectUris: a list, such as ['com.example.app:/auth']");
+  for (const uri of devices.redirectUris) {
+    const problem = redirectUriProblem(uri);
+    if (problem) errors.push(`devices.redirectUris: "${String(uri).slice(0, 80)}" is not valid: ${problem}`);
+  }
+  if (!wholeNumber(devices.idleDays, 1, 3650)) errors.push('devices.idleDays: a whole number of days from 1 to 3650');
+  if (modules.devices && devices.prefix === null) errors.push('modules.devices needs devices.prefix: how the app’s device tokens start ("appdev_")');
+  if (modules.devices && !devices.redirectUris.length) {
+    errors.push('modules.devices needs devices.redirectUris: where the system browser hands the code back to the app (com.example.app:/auth)');
+  }
+
   const rl = isObject(p.rateLimits) ? p.rateLimits : {};
-  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, code: 5, importTo: 10, ...rl };
+  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, code: 5, importTo: 10, devices: 30, ...rl };
   for (const [key, value] of Object.entries(rateLimits)) {
-    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup', 'code', 'importTo'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
+    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup', 'code', 'importTo', 'devices'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
     else if (!wholeNumber(value, 1, 100000)) errors.push(`rateLimits.${key} must be a whole number`);
   }
 
@@ -304,7 +340,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   };
 
   return {
-    app, modules, accounts, sessions, organizations, tokens, rateLimits,
+    app, modules, accounts, sessions, organizations, tokens, devices, rateLimits,
     features: isObject(p.features) ? p.features : {},
     plans: isObject(p.plans) ? p.plans : null,
     defaultPlan: p.defaultPlan ?? null,

@@ -709,5 +709,17 @@
   "kit.links.kinds.phase": "Phase",
   "kit.links.kinds.note": "Note",
   "kit.links.kinds.notebook": "Carnet",
-  "kit.links.kinds.item": "Élément"
+  "kit.links.kinds.item": "Élément",
+  "errors.device_code_invalid": "Ce code de connexion n’est plus valable. Recommencez la connexion de l’appareil.",
+  "errors.device_not_allowed": "Ce compte ne peut pas connecter d’appareils ici.",
+  "errors.device_not_found": "Cet appareil n’est plus connecté.",
+  "errors.too_many_devices": "Vous avez déjà {max} appareils connectés. Déconnectez d’abord celui que vous n’utilisez plus.",
+  "errors.redirect_uri_not_allowed": "Cette app ne peut pas être connectée d’ici : son adresse de retour n’est pas connue de ce serveur.",
+  "fields.code_challenge": "Défi de connexion",
+  "fields.code_challenge_method": "Méthode du défi",
+  "fields.code_verifier": "Preuve de connexion",
+  "fields.redirect_uri": "Adresse de retour",
+  "fields.platform": "Plateforme",
+  "fields.app_version": "Version de l’app",
+  "fields.state": "État de la demande"
 }

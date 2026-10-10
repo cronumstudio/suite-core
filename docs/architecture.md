@@ -66,6 +66,7 @@ suite-core/
   account-deletion.js   done   someone deleting their own account: disabled now, gone after its days
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
+  devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats
@@ -163,6 +164,8 @@ export default {
   },
   sessions: { idleDays: 30, maxDays: 365 },   // cookieName: '<app id>_sid' unless given
   tokens: { prefix: 'mcp_' },     // how the app's API tokens start
+  // Only with modules.devices: an app on a phone (section 7). Both values end up in the installed apps.
+  devices: { prefix: 'appdev_', redirectUris: ['com.example.app:/auth'], idleDays: 90 },
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
@@ -280,6 +283,33 @@ CREATE TABLE api_tokens (
 );
 
 -- oauth_clients, oauth_grants, oauth_tokens: see OAUTH_SCHEMA in oauth.js (done).
+
+-- An app on a phone, with modules.devices (devices.js, migration 22). Not `devices`: Focus has
+-- a table of its own by that name.
+CREATE TABLE device_tokens (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,            -- what the person called it when connecting it
+  platform     TEXT,                     -- 'ios', 'android'
+  app_version  TEXT,
+  token_hash   TEXT NOT NULL UNIQUE,     -- sha256; the value is shown once, to the app
+  prefix       TEXT NOT NULL,            -- devices.prefix when it was made
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,                     -- at most once a minute; idleDays after it, it ends
+  revoked_at   TEXT
+);
+CREATE TABLE device_codes (              -- what the browser hands back to the app: five minutes, once
+  code_hash      TEXT PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_challenge TEXT NOT NULL,          -- PKCE S256
+  redirect_uri   TEXT NOT NULL,          -- one of devices.redirectUris, exactly
+  name           TEXT NOT NULL,
+  platform       TEXT,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL,
+  used_at        TEXT,                   -- spent by its first exchange, right or wrong
+  device_id      INTEGER REFERENCES device_tokens(id) ON DELETE SET NULL   -- revoked if the code comes back
+);
 
 CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX ix_login_attempts ON login_attempts (bucket, at);
@@ -448,6 +478,28 @@ everything else consumes that shape:
 It looks, in order, at the session cookie, then `Authorization: Bearer` (a manual API token, then
 a built-in OAuth access token, then an AuthKit JWT), then a device token (Focus kiosks and ESP32,
 Tracker's native emitter). There is no second path for any client.
+
+**Device tokens** (**done**, v0.67.0, `devices.js`, with `modules.devices`): what an app on a phone
+holds instead of a session (Tracker's native app). The app opens the system browser on its own
+connect page with a PKCE challenge (S256) and the address to come back to, a private-use scheme of
+its own (RFC 8252); the person signs in there as on the web and says yes; the page asks
+`POST /api/devices/codes` (session only, the address one of `devices.redirectUris`, exactly) for a
+code of five minutes and sends the browser back with it (`redirect_to`, with the `state`); the app
+exchanges the code, its verifier and the address at `POST /api/devices/token` for a token that starts
+with `devices.prefix` (never `tokens.prefix`), shown once and kept as a hash. A code is spent by its
+first exchange, right or wrong, and one that comes back after that was copied: the device it gave is
+revoked. Only failed exchanges count against an address (`rateLimits.devices`, 30), so a fleet of
+phones connected from one office is never stopped. A token ends when it is revoked (Settings,
+`DELETE /api/me/devices/:id`; or the app signing out, `DELETE /api/devices/current` with the token),
+after `devices.idleDays` (90) without use, and with the account; a disabled account's are refused,
+as its API tokens are. No route of the suite takes one, the MCP included: `ctx.user` only ever comes
+from the session cookie. The app accepts a device on the routes it chooses with
+`suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
+connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
+(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host.
+Focus pairs its kiosks the other way round (a code shown on the signed-in screen and typed or
+scanned on the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header)
+and keeps its own pairing; the tables are named so that both live in its database.
 
 **Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
 limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).
@@ -685,7 +737,7 @@ apps learned the hard way:
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
-   `/api/push/*`, `/api/billing/*`.
+   `/api/push/*`, `/api/billing/*`, and with `modules.devices` `/api/devices/*` and `/api/me/devices`.
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
@@ -943,6 +995,7 @@ first, then Tasks, then the rest.
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser; v0.34.0: texts written in the code; v0.49.0: Tasks' stricter scan for everyone, and the server; v0.51.0: one translator for every app, `appTexts` on the server and the kit's in the browser, and `appChecks`) | adopted by Tasks, Projects, Next and Notes; each app's tests run `appChecks` |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
+| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE) | Tracker's native app (its steps A2 and A3); Focus keeps its own pairing |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
 | `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
 | `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |

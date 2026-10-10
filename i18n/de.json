@@ -709,5 +709,17 @@
   "kit.links.kinds.phase": "Phase",
   "kit.links.kinds.note": "Notiz",
   "kit.links.kinds.notebook": "Notizbuch",
-  "kit.links.kinds.item": "Eintrag"
+  "kit.links.kinds.item": "Eintrag",
+  "errors.device_code_invalid": "Dieser Verbindungscode gilt nicht mehr. Verbinde das Gerät noch einmal von vorn.",
+  "errors.device_not_allowed": "Mit diesem Konto kannst du hier keine Geräte verbinden.",
+  "errors.device_not_found": "Dieses Gerät ist nicht mehr verbunden.",
+  "errors.too_many_devices": "Du hast schon {max} Geräte verbunden. Trenne zuerst eines, das du nicht mehr nutzt.",
+  "errors.redirect_uri_not_allowed": "Diese App lässt sich von hier aus nicht verbinden: Ihre Rücksprungadresse kennt dieser Server nicht.",
+  "fields.code_challenge": "Verbindungs-Challenge",
+  "fields.code_challenge_method": "Challenge-Verfahren",
+  "fields.code_verifier": "Verbindungsnachweis",
+  "fields.redirect_uri": "Rücksprungadresse",
+  "fields.platform": "Plattform",
+  "fields.app_version": "App-Version",
+  "fields.state": "Anfragestatus"
 }

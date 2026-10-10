@@ -261,7 +261,7 @@ test('someone’s copy takes their lists with everything in them, and says what 
 
   assert.equal(manifest.format, 'cronum-suite-export');
   assert.deepEqual([manifest.scope, manifest.app.id, manifest.app.version, manifest.account.username], ['account', 'demo', '1.0.0', 'ana']);
-  assert.deepEqual(manifest.schema, { app: 1, suite: 21 });
+  assert.deepEqual(manifest.schema, { app: 1, suite: 22 });
   assert.deepEqual(await json('manifest.json'), manifest);
 
   const users = await json('data/users.json');

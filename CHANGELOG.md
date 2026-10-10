@@ -3,6 +3,41 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.67.0 — 2026-10-11
+
+- **Device tokens** (`devices.js`, `modules.devices`, off by default): an app on a phone signs in
+  without a password or a session of its own. It opens the system browser on the app's connect page
+  with a PKCE challenge (S256) and its return address; the person signs in there and says yes; the
+  page asks `POST /api/devices/codes` (session only; the address must be one of
+  `devices.redirectUris`, exactly) for a five-minute code and its `redirect_to`; the app exchanges
+  the code, its verifier and the address at `POST /api/devices/token` (rate-limited per address,
+  failures only, `rateLimits.devices` 30; audited) for a token that starts with `devices.prefix`,
+  shown once and kept as a hash. A code is spent by its first exchange, right or wrong; one that
+  comes back after that revokes the device it gave. `GET /api/me/devices` and
+  `DELETE /api/me/devices/:id` (session only) list and revoke them; `DELETE /api/devices/current`
+  (the device's own bearer) signs a device out. A token ends after `devices.idleDays` (90) without
+  use and with the account (`ON DELETE CASCADE`); a disabled account's are refused.
+- `suite.devices`: `issueCode()`, `exchange()`, `authenticate(req)` (the account with its
+  `device_id`, or null; last use noted at most once a minute), `isActive(id)`, `list(userId)`,
+  `revoke(userId, id)`. No route of the suite takes a device token, the MCP included: an app accepts
+  one only on the routes it chooses, with `authenticate(req)`.
+- `createApp({ devices: { canConnect(user) } })`: whom the app lets connect a phone (Tracker's
+  allowlist), asked when the code is issued, when it is exchanged and on every use. It must answer
+  at once; a promise is refused.
+- suite.config.js `devices: { prefix, redirectUris, idleDays }`. With the module on, `prefix` (never
+  `tokens.prefix`) and at least one return address are required: both end up in the installed apps.
+  An address is a reverse-domain private-use scheme (`com.example.app:/auth`, RFC 8252), https, or
+  http on loopback, without a fragment.
+- **Migration 22** (`device-tokens`): the tables `device_tokens` and `device_codes`, created in every
+  app and empty while the module is off. Not `devices`, which Focus already has.
+- The brake: `checkFailures(kind, req)` and `noteFailure(kind, req)`, for what anyone can try without
+  credentials where only failures count.
+- **For phones; Focus keeps its own pairing.** Focus pairs its kiosks and future screens the other
+  way round (a code shown on the signed-in screen, typed or scanned on the device, bound to one
+  profile with runner-only scopes, sent in its `X-Focus-Device` header), which needs its households,
+  profiles and scopes; that stays in Focus. A module of a host can't turn `modules.devices` on.
+- Nothing changes for an app that doesn't turn the module on, apart from the two empty tables.
+
 ## 0.64.0 — 2026-10-09
 
 - **A host's links forget what was erased.** `links.prune({ module })` drops the title a link keeps

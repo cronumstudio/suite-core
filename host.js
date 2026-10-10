@@ -369,6 +369,8 @@ export async function createHost({
     for (const name of SHARED_MODULES) {
       if (resolved.modules[name] && !config.modules[name]) errors.push(`${entry.mount}: it uses modules.${name}, which the host has off`);
     }
+    // A phone connects to a product on its own (Tracker), with its own prefix and return addresses.
+    if (resolved.modules.devices) errors.push(`${entry.mount}: modules.devices is for an app on its own, not a module of a host`);
     if (errors.length) throw new SuiteConfigError(errors);
 
     const moduleInstall = { ...install, baseUrl: `${install.baseUrl}/${entry.mount}` };
@@ -433,6 +435,7 @@ export async function createHost({
       push: resolved.modules.push ? suite.push : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
       billing: resolved.modules.billing ? suite.billing : null,
+      devices: null,
       // The host's to do, once for everyone.
       ensureAdmin: () => null,
       purge: () => {},
