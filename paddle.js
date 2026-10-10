@@ -39,7 +39,11 @@
  *                      `custom_data.product`, which another product may name the same
  *   paddleProductIds   the Paddle products (pro_…) this install sells: an event
  *                      whose items are all of other products is marked foreign,
- *                      with nothing of who paid
+ *                      with nothing of who paid; one with an item of its own is
+ *                      marked `own`, and when strictPrices finds none of this
+ *                      install's prices in it, `unknownPrice` names the price, so
+ *                      billing.js says a price is missing from the config instead
+ *                      of calling this install's own sale another product's
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest } from './http.js';
@@ -125,11 +129,26 @@ export function paddleProvider({
   }
   /** The product of a price; without strictPrices, what custom_data names when the price is unknown. */
   const productOf = (price, customData) => (strictPrices ? productOfPrice[price] : productOfPrice[price] || customData?.product);
-  /** Whether a notification's items are all of Paddle products this install doesn't sell. */
-  const othersOnly = (items) => {
-    if (!ownProducts) return false;
+  /**
+   * Whose a notification's items are, by their Paddle products: 'other' when every one is of a
+   * product this install doesn't sell, 'own' when one is of its own, null when it can't tell
+   * (no paddleProductIds, or items without a product id).
+   */
+  const ownerOf = (items) => {
+    if (!ownProducts) return null;
     const ids = (Array.isArray(items) ? items : []).map((item) => item?.price?.product_id).filter((id) => typeof id === 'string');
-    return ids.length > 0 && !ids.some((id) => ownProducts.has(id));
+    if (!ids.length) return null;
+    return ids.some((id) => ownProducts.has(id)) ? 'own' : 'other';
+  };
+  /**
+   * The event's product. An item of this install's own Paddle product also says `own`, and when
+   * no product here lists its price (strictPrices) `unknownPrice`: a price left out of the
+   * config, which billing.js reports as such and never as another product's sale.
+   */
+  const productFields = (owner, price, customData) => {
+    const product = productOf(price, customData);
+    if (owner !== 'own') return { product };
+    return { product, own: true, ...(product ? {} : { unknownPrice: price }) };
   };
   /** Another product's event: what billing.js needs to keep it once, and nothing of who paid. */
   const foreignEvent = (notification, type, occurredAt, ref) => ({
@@ -260,14 +279,15 @@ export function paddleProvider({
     const customer = object.customer_id ?? null;
 
     if (/^subscription\.(created|updated|canceled|paused|resumed|activated|past_due|trialing)$/.test(type)) {
-      if (othersOnly(object.items)) return foreignEvent(notification, 'subscription', occurredAt, object.id);
+      const owner = ownerOf(object.items);
+      if (owner === 'other') return foreignEvent(notification, 'subscription', occurredAt, object.id);
       const item = object.items?.[0] || {};
       const price = item.price?.id || null;
       return {
         id: notification.event_id, type: 'subscription', occurredAt, customer,
         ...whoOf(object.custom_data),
         ref: object.id,
-        product: productOf(price, object.custom_data),
+        ...productFields(owner, price, object.custom_data),
         status: object.status,
         periodEnd: isoOf(object.current_billing_period?.ends_at),
         quantity: item.quantity ?? null,
@@ -277,13 +297,14 @@ export function paddleProvider({
     if (type === 'transaction.completed') {
       // A subscription's transactions are followed by its own subscription.* events.
       if (object.subscription_id) return null;
-      if (othersOnly(object.items)) return foreignEvent(notification, 'purchase', occurredAt, object.id);
+      const owner = ownerOf(object.items);
+      if (owner === 'other') return foreignEvent(notification, 'purchase', occurredAt, object.id);
       const price = object.items?.[0]?.price?.id || null;
       return {
         id: notification.event_id, type: 'purchase', occurredAt, customer,
         ...whoOf(object.custom_data),
         ref: object.id,
-        product: productOf(price, object.custom_data),
+        ...productFields(owner, price, object.custom_data),
         quantity: object.items?.[0]?.quantity ?? null,
       };
     }

@@ -322,9 +322,11 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
  * suite.config.js `billing`, all off by default (billing.js and paddle.js say why):
  *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true,
  *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } }
- * The Paddle products may be given per environment, like prices; with Paddle on, the ones of
- * PADDLE_ENV are used and must be there: a guard asked for and left without them would let
- * every other product's sale in.
+ * The Paddle products are given per environment: a sandbox product's id is never the live one's,
+ * so one list for both would be right in one of them and, in the other, make every sale of this
+ * install foreign without a word. With Paddle on, the ones of PADDLE_ENV are used and must be
+ * there: a guard asked for and left without them would let every other product's sale in.
+ * `app`, `strictPrices` and `paddleProductIds` are Paddle's: with another provider, a warning.
  */
 function billingRulesFor(given, install, errors, warnings) {
   const rules = { ignoreUnknownProducts: false, app: null, strictPrices: false, paddleProductIds: null };
@@ -355,14 +357,18 @@ function billingRulesFor(given, install, errors, warnings) {
       }
       ids = ids[environment] ?? null;
     }
-    if (ids != null && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string' && /^pro_[a-z0-9]{26}$/.test(id)))) {
-      errors.push('billing.paddleProductIds: a list of Paddle product ids (pro_…), or one per environment');
+    if (paddle && Array.isArray(given.paddleProductIds)) {
+      errors.push("billing.paddleProductIds: one list per environment, { sandbox: ['pro_…'], production: ['pro_…'] }, as Paddle's product ids differ between them");
+    } else if (ids != null && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string' && /^pro_[a-z0-9]{26}$/.test(id)))) {
+      errors.push('billing.paddleProductIds: a list of Paddle product ids (pro_…) for each environment');
     } else if (paddle && !ids?.length) {
       errors.push(`billing.paddleProductIds: none for PADDLE_ENV ${environment}`);
     } else rules.paddleProductIds = ids?.length ? [...ids] : null;
   }
-  if (install && !paddle && (rules.strictPrices || rules.paddleProductIds)) {
-    warnings.push(`billing.strictPrices and billing.paddleProductIds are Paddle's: with BILLING_PROVIDER=${install.provider} they do nothing`);
+  // Only Paddle's checkout writes the app, and only Paddle's events carry it with a price and a product id.
+  const paddleOnly = ['app', 'strictPrices', 'paddleProductIds'].filter((key) => rules[key]).map((key) => `billing.${key}`);
+  if (install && !paddle && paddleOnly.length) {
+    warnings.push(`${paddleOnly.join(', ')} ${paddleOnly.length > 1 ? 'are' : 'is'} Paddle's: with BILLING_PROVIDER=${install.provider} ${paddleOnly.length > 1 ? 'they do' : 'it does'} nothing`);
   }
   return rules;
 }

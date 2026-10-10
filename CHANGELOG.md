@@ -5,10 +5,6 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.66.0 — 2026-10-10
 
-Merge order: 0.65.0 is another pull request's. If it lands first, this one merges after it, with
-`main` merged in; if the numbers no longer fit when this merges, renumber this entry and
-`package.json` then, never to a version an open pull request uses.
-
 - **Another product's sales are kept out**, for a Paddle account that sells more than Cronum Work
   (Tracker on its own) and sends every event to every app's webhook. Four guards in
   `suite.config.js` `billing`, all off, so nothing changes for an app that says nothing:
@@ -19,18 +15,23 @@ Merge order: 0.65.0 is another pull request's. If it lands first, this one merge
     id), and only the event's id, type and outcome are kept; the log names the event only, the
     audit nothing. What waited from before is foreign when its person arrives (`claim`).
   - `app` (`createBilling({ app })`): the checkout writes `custom_data.app` (Paddle), and an event
-    that names another app is foreign. One value for every install that sells a subscription
-    together (`work` in Tasks, Next and Work); an event without one is judged by its product.
+    that names another app is foreign. It is not `app.id`: one value for every install that sells
+    a subscription together (`work` in Tasks, Next and Work; `tracker` in Tracker). An event
+    without one, sold before checkouts said it, is judged by its product, so `app` goes with the
+    other guards.
   - `strictPrices` (`paddleProvider({ strictPrices })`): the product comes only from this install's
     prices, never from `custom_data.product`, which another product may name the same
     (`pro-monthly`). Products take `oldPrices`, a list or one per environment, for prices no longer
     sold that subscriptions still renew on.
-  - `paddleProductIds` (`paddleProvider({ paddleProductIds })`, a list or one per environment of
-    `pro_…`): a subscription or one-off purchase whose items are all of other Paddle products is
-    foreign, with nothing of who paid. With Paddle on, the list of `PADDLE_ENV` must be there.
+  - `paddleProductIds` (`paddleProvider({ paddleProductIds })`, one list of `pro_…` per
+    environment): a subscription or one-off purchase whose items are all of other Paddle products
+    is foreign, with nothing of who paid. One of this install's own products on a price that no
+    product lists is not: its outcome is `'ignored'`, nothing is granted, and the log names the
+    price to add to `price`, `founderPrice` or `oldPrices` (events gain `own` and `unknownPrice`).
 - Refunds are unchanged: a refund of another product's sale finds nothing here to take back.
 - Every setting is checked on start: a misspelled key, a non-boolean, an `app` that isn't an id, a
-  product id that isn't Paddle's, or a missing list for `PADDLE_ENV` stops it; `strictPrices` or
+  product id that isn't Paddle's, a single `paddleProductIds` list with Paddle on (sandbox and live
+  ids always differ), or none for `PADDLE_ENV` stops it; `app`, `strictPrices` or
   `paddleProductIds` with another provider is a warning. Events gain `app` (when the checkout
   wrote one) and `foreign` (from the provider). No migration.
 

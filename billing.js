@@ -38,8 +38,11 @@
  * about who pays, so no customer is linked, nothing waits in `billing_pending` and only the
  * event's id, type and outcome are kept (`billing_events`). With `app`, the checkout says which
  * app sells (Paddle's `custom_data.app`), and an event that names another is foreign too. A
- * provider may also mark an event `foreign` itself (Paddle's `paddleProductIds`). Off by default:
- * as before, such an event links the customer and waits for its person, then is ignored.
+ * provider may also mark an event `foreign` itself (Paddle's `paddleProductIds`), or `own` when
+ * it knows the event is of this install's product: then a product the catalog can't place is a
+ * price missing from the config (`unknownPrice`), logged as such and `'ignored'`, never foreign.
+ * Off by default: as before, such an event links the customer and waits for its person, then is
+ * ignored.
  *
  * A provider adapter is:
  *   {
@@ -50,7 +53,8 @@
  *   }
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
- *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign? }
+ *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
+ *     own?, unknownPrice? }
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
@@ -326,14 +330,22 @@ export function createBilling({
 
   /**
    * Whether an event (not a refund) is another product's: the provider says so, it names another
-   * app, or —with ignoreUnknownProducts— its product isn't in this catalog. Each check is off
-   * unless its option is on, so by default nothing is foreign.
+   * app, or —with ignoreUnknownProducts— its product isn't in this catalog, unless the provider
+   * knows it is this install's own. Each check is off unless its option is on, so by default
+   * nothing is foreign.
    */
   function isForeign(event) {
     if (event.foreign === true) return true;
     if (app && typeof event.app === 'string' && event.app !== app) return true;
+    // This install's own product (Paddle's paddleProductIds) on a price no product lists: a price
+    // missing from the config, which must not look like another product's sale.
+    if (event.own === true) return false;
     return ignoreUnknownProducts && !Object.hasOwn(catalog, String(event.product ?? ''));
   }
+
+  /** The loud line for this install's own sale on a price none of its products lists. */
+  const unpricedLine = (event) => `[billing] ${source} event ${event.id}: this app's own product, on price ${event.unknownPrice ?? '(none)'}, which none of its products lists (price, founderPrice or oldPrices): not granted until the price is added`;
+  const unpriced = (event) => event.own === true && !Object.hasOwn(catalog, String(event.product ?? ''));
 
   /** A subscription or a purchase, for an account here. */
   function applyTo(event, subject, { byIdentity = false } = {}) {
@@ -343,7 +355,7 @@ export function createBilling({
     linkCustomer(subject, event.customer, { takeOver: byIdentity });
     const product = catalog[event.product];
     if (!product) {
-      log(`[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
+      log(unpriced(event) ? unpricedLine(event) : `[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
       return 'ignored';
     }
     if (event.type === 'subscription') return applySubscription(event, subject, product);
@@ -402,6 +414,7 @@ export function createBilling({
       } else {
         const who = whoIs(normalized);
         if (who.waits) {
+          if (unpriced(normalized)) log(`${unpricedLine(normalized)} (it waits for its person)`);
           outcome = hold(normalized, who.waits);
         } else if (who.subject) {
           subject = who.subject;

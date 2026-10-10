@@ -192,6 +192,10 @@ export default {
     'pro-monthly':  { plan: 'pro', kind: 'subscription' },
     'pro-lifetime': { plan: 'pro', kind: 'once' },
   },
+
+  // What keeps another product's sales out, all off unless given (section 9, "Another product's sales").
+  // `app` is not app.id: one value for every app sold as one subscription (Cronum Work's say 'work').
+  billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } },
 };
 ```
 
@@ -673,7 +677,7 @@ billing: {
   ignoreUnknownProducts: true,  // an event (not a refund) for a product not in `products` is 'foreign'
   app: 'work',                  // custom_data.app on the checkout; an event that names another app is foreign
   strictPrices: true,           // Paddle: the product only from the products' prices, never custom_data.product
-  paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] },   // Paddle: other products' events are foreign
+  paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] },   // Paddle: whose product each event is
 },
 ```
 
@@ -682,12 +686,23 @@ waits and nothing is granted; only its id, type and outcome are kept in `billing
 log names the event only. What waited from before the guard was on is foreign when its person
 arrives (`claim`). Refunds are not checked: a refund names no product, and one of another
 product's sale finds nothing here to take back. `app` is one value for every install that sells a
-subscription together (Tasks, Next and Work all say `work`), or each would find the others' sales
-foreign; an event without one, sold before checkouts said it, is judged by its product alone.
-With `strictPrices`, a product lists the prices it no longer sells that subscriptions still renew
-on as `oldPrices` (a list, or one per environment), or their renewals would be foreign. The
-Paddle products may be given per environment, like prices, and with Paddle on the ones of
-`PADDLE_ENV` must be there.
+subscription together (Tasks, Next and Work all say `work`; Tracker says `tracker`), or each
+would find the others' sales foreign; an event without one, sold before checkouts said it, is
+judged by its product alone. So `app` alone never keeps out the renewals of what was sold before
+it: it goes with `ignoreUnknownProducts` and `paddleProductIds`. Only Paddle's checkout writes it
+(Paddle copies a transaction's `custom_data` to the subscription it makes), so with another
+provider `app`, `strictPrices` and `paddleProductIds` are a warning on start.
+
+`paddleProductIds` says whose product each event is. An event whose items are all of other Paddle
+products is foreign, with nothing of who paid. One of this install's own products whose price no
+product lists (with `strictPrices`) is a price missing from the config, never another product's
+sale: its outcome is `'ignored'`, nothing is granted, and the log names the price to add. So,
+before `strictPrices` goes on, every price that subscriptions still renew on goes in `price`,
+`founderPrice` or `oldPrices` (a list, or one per environment). Without `paddleProductIds`, nothing
+tells the two apart, and `strictPrices` with `ignoreUnknownProducts` calls such a renewal foreign:
+an install sets the three together. Paddle's product ids differ between the sandbox and the live
+account, so `paddleProductIds` is one list per environment; with Paddle on, a single list, or none
+for `PADDLE_ENV`, stops the start.
 
 ## 10. Organizations
 
