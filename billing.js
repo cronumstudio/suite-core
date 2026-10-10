@@ -31,16 +31,30 @@
  *      made the checkout: a copy of the install renumbers accounts (portability.js), so it comes
  *      last, after the customer, which the copy carries with the new ids.
  *
+ * Another product's events. A provider account may sell more than one product (Cronum Work and
+ * Tracker), and it sends every event to every app's webhook: this app hears of sales that aren't
+ * its own, often for people it knows by the same identity. With `ignoreUnknownProducts`, an event
+ * (not a refund) for a product this catalog doesn't have is `'foreign'`: decided before anything
+ * about who pays, so no customer is linked, nothing waits in `billing_pending` and only the
+ * event's id, type and outcome are kept (`billing_events`). With `app`, the checkout says which
+ * app sells (Paddle's `custom_data.app`), and an event that names another is foreign too. A
+ * provider may also mark an event `foreign` itself (Paddle's `paddleProductIds`), or `own` when
+ * it knows the event is of this install's product: then a product the catalog can't place is a
+ * price missing from the config (`unknownPrice`), logged as such and `'ignored'`, never foreign.
+ * Off by default: as before, such an event links the customer and waits for its person, then is
+ * ignored.
+ *
  * A provider adapter is:
  *   {
  *     id: 'stripe',
- *     checkoutUrl({ subject, identity, customer, product, price, kind, email, returnUrl }) → Promise<url>,
+ *     checkoutUrl({ subject, identity, customer, product, price, kind, email, returnUrl, app? }) → Promise<url>,
  *     portalUrl({ customer, returnUrl }) → Promise<url>,
  *     parseWebhook({ headers, body }) → Promise<event | event[] | null>   (throws on a bad signature)
  *   }
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
- *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity? }
+ *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
+ *     own?, unknownPrice? }
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
@@ -176,17 +190,26 @@ const PENDING_DAYS = 400;
  *     'pro-lifetime': { plan: 'pro', kind: 'once' }, 'pro-pass': { plan: 'pro', kind: 'once', days: 30 },
  *     'family-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } }
  *   A founder's price is chosen here, for whoever `isFounder` says: the browser only names the product.
+ *   `oldPrices`: prices it no longer sells that subscriptions may still renew on (Paddle reads them).
  * @param {object} [options.identities]   who people are where they sign in:
  *   { of(userId) → { provider, subject } | null, user(provider, subject) → userId | null }
  * @param {(user) => boolean|Promise<boolean>} [options.isFounder]   who gets the founder's price
  * @param {number} [options.graceDays]    after the paid period, before a subscription lapses
  * @param {object} [options.audit]
+ * @param {boolean} [options.ignoreUnknownProducts]   an event for a product not in `products` is
+ *   another product's ('foreign'), before anything about who pays (see the top of this file)
+ * @param {string} [options.app]   which app sells, written in the checkout (Paddle's custom_data.app);
+ *   an event that names another app is foreign. The same in every install that sells one
+ *   subscription together (the apps of Cronum Work), or their sales would be foreign to each other
  */
 export function createBilling({
   database, entitlements, provider = null, products = {}, graceDays = 3, audit = null,
   identities = null, isFounder = () => false, clock = () => Date.now(), log = console.log,
+  ignoreUnknownProducts = false, app = null,
 }) {
   const errors = [];
+  if (typeof ignoreUnknownProducts !== 'boolean') errors.push('ignoreUnknownProducts must be true or false');
+  if (app !== null && !/^[a-z][a-z0-9-]{1,30}$/.test(String(app))) errors.push(`app "${app}": lowercase letters, digits and -, starting with a letter`);
   const planIds = new Set(entitlements.describe().plans.map((p) => p.id));
   const catalog = {};
   for (const [key, spec] of Object.entries(products || {})) {
@@ -198,6 +221,9 @@ export function createBilling({
     if (provider?.needsPrice && !spec.price) errors.push(`Product "${key}": ${provider.id} needs its price`);
     for (const field of ['price', 'founderPrice']) {
       if (spec[field] != null && typeof spec[field] !== 'string') errors.push(`Product "${key}": ${field} must be the provider's price id`);
+    }
+    if (spec.oldPrices != null && !(Array.isArray(spec.oldPrices) && spec.oldPrices.every((p) => typeof p === 'string' && p))) {
+      errors.push(`Product "${key}": oldPrices must be a list of the provider's price ids`);
     }
     catalog[key] = {
       key, plan: spec.plan, kind: spec.kind, days: spec.days ?? null, for: spec.for === 'organization' ? 'organization' : 'user',
@@ -302,12 +328,34 @@ export function createBilling({
     return entitlements.revoke({ source, externalRef: event.ref }) ? 'revoked' : 'nothing';
   }
 
+  /**
+   * Whether an event (not a refund) is another product's: the provider says so, it names another
+   * app, or —with ignoreUnknownProducts— its product isn't in this catalog, unless the provider
+   * knows it is this install's own. Each check is off unless its option is on, so by default
+   * nothing is foreign.
+   */
+  function isForeign(event) {
+    if (event.foreign === true) return true;
+    if (app && typeof event.app === 'string' && event.app !== app) return true;
+    // This install's own product (Paddle's paddleProductIds) on a price no product lists: a price
+    // missing from the config, which must not look like another product's sale.
+    if (event.own === true) return false;
+    return ignoreUnknownProducts && !Object.hasOwn(catalog, String(event.product ?? ''));
+  }
+
+  /** The loud line for this install's own sale on a price none of its products lists. */
+  const unpricedLine = (event) => `[billing] ${source} event ${event.id}: this app's own product, on price ${event.unknownPrice ?? '(none)'}, which none of its products lists (price, founderPrice or oldPrices): not granted until the price is added`;
+  const unpriced = (event) => event.own === true && !Object.hasOwn(catalog, String(event.product ?? ''));
+
   /** A subscription or a purchase, for an account here. */
   function applyTo(event, subject, { byIdentity = false } = {}) {
+    // Before the customer is linked: another product's customer is nobody's here. This also
+    // covers what was waiting since before the option was on (claim).
+    if (isForeign(event)) return 'foreign';
     linkCustomer(subject, event.customer, { takeOver: byIdentity });
     const product = catalog[event.product];
     if (!product) {
-      log(`[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
+      log(unpriced(event) ? unpricedLine(event) : `[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
       return 'ignored';
     }
     if (event.type === 'subscription') return applySubscription(event, subject, product);
@@ -342,7 +390,8 @@ export function createBilling({
 
   /**
    * Applies one event, once. Returns what it did: granted, extended, changed,
-   * revoked, refunded, kept, stale, pending, duplicate, ignored or nothing.
+   * revoked, refunded, kept, stale, pending, duplicate, ignored, nothing or
+   * foreign (another product's, with the options at the top of this file).
    */
   function apply(event) {
     if (!event?.id || !event.type || !event.ref) throw badRequest('invalid_event');
@@ -358,9 +407,14 @@ export function createBilling({
         const waiting = database.get(`SELECT identity_provider AS provider, identity_subject AS subject FROM billing_pending
           WHERE provider = ? AND ref = ? LIMIT 1`, source, normalized.ref);
         outcome = waiting ? hold(normalized, waiting) : applyRefund(normalized);
+      } else if (isForeign(normalized)) {
+        // Before whoIs(): nothing of the person is looked up, linked or kept for them.
+        outcome = 'foreign';
+        log(`[billing] ${source} event ${event.id}: another product's, ignored`);
       } else {
         const who = whoIs(normalized);
         if (who.waits) {
+          if (unpriced(normalized)) log(`${unpricedLine(normalized)} (it waits for its person)`);
           outcome = hold(normalized, who.waits);
         } else if (who.subject) {
           subject = who.subject;
@@ -371,7 +425,7 @@ export function createBilling({
       }
       database.run('INSERT INTO billing_events (provider, event_id, type, outcome, received_at) VALUES (?, ?, ?, ?, ?)',
         source, String(event.id), normalized.type, outcome, iso(clock()));
-      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending'].includes(outcome)) {
+      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign'].includes(outcome)) {
         record(`billing.${outcome}`, subject, { provider: source, product: normalized.product ?? null, ref: normalized.ref });
       }
       return outcome;
@@ -394,7 +448,7 @@ export function createBilling({
       try {
         const event = JSON.parse(row.event);
         outcome = database.tx(() => (event.type === 'refund' ? applyRefund(event) : applyTo(event, subject, { byIdentity: true })));
-        if (!['ignored', 'nothing', 'kept', 'stale'].includes(outcome)) {
+        if (!['ignored', 'nothing', 'kept', 'stale', 'foreign'].includes(outcome)) {
           record(`billing.${outcome}`, subject, { provider: source, product: event.product ?? null, ref: event.ref });
         }
         database.run('UPDATE billing_events SET outcome = ? WHERE provider = ? AND event_id = ?', outcome, source, String(event.id));
@@ -441,6 +495,7 @@ export function createBilling({
     const identity = subject.type === 'user' ? identities?.of(subject.id) ?? null : null;
     return provider.checkoutUrl({
       subject, identity, customer: customerOf(subject), product: product.key, price, kind: product.kind, email, returnUrl,
+      ...(app ? { app } : {}),
     });
   }
 

@@ -181,6 +181,7 @@ export function createSuite({
         apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
         environment: install.billing.environment, apiBase: install.billing.apiBase,
         checkoutUrl: install.billing.checkoutUrl, products: config.products, log,
+        strictPrices: config.billing?.strictPrices ?? false, paddleProductIds: config.billing?.paddleProductIds ?? null,
       })
         : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
   const workosClient = install.authProvider === 'workos' ? createWorkosClient(install.workos) : null;
@@ -214,6 +215,8 @@ export function createSuite({
   }
   const billing = config.modules.billing ? createBilling({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
+    // Another product's sales (suite.config.js `billing`): off unless the app says.
+    ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
   }) : null;
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {

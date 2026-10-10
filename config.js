@@ -40,8 +40,11 @@ export const MODULES = Object.freeze({
 
 const PRODUCT_KEYS = new Set([
   'app', 'modules', 'accounts', 'sessions', 'organizations', 'tokens', 'rateLimits',
-  'features', 'plans', 'defaultPlan', 'products', 'trustProxy',
+  'features', 'plans', 'defaultPlan', 'products', 'billing', 'trustProxy',
 ]);
+
+/** suite.config.js `billing`: what keeps another product's sales out (billing.js, paddle.js). */
+const BILLING_KEYS = new Set(['ignoreUnknownProducts', 'app', 'strictPrices', 'paddleProductIds']);
 
 /**
  * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
@@ -270,6 +273,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     }
   }
   const products = productsFor(isObject(p.products) ? p.products : {}, billing, errors);
+  const billingRules = billingRulesFor(p.billing, billing, errors, warnings);
 
   const install = {
     baseUrl,
@@ -309,8 +313,64 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     plans: isObject(p.plans) ? p.plans : null,
     defaultPlan: p.defaultPlan ?? null,
     products,
+    billing: billingRules,
     install, errors, warnings,
   };
+}
+
+/**
+ * suite.config.js `billing`, all off by default (billing.js and paddle.js say why):
+ *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true,
+ *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } }
+ * The Paddle products are given per environment: a sandbox product's id is never the live one's,
+ * so one list for both would be right in one of them and, in the other, make every sale of this
+ * install foreign without a word. With Paddle on, the ones of PADDLE_ENV are used and must be
+ * there: a guard asked for and left without them would let every other product's sale in.
+ * `app`, `strictPrices` and `paddleProductIds` are Paddle's: with another provider, a warning.
+ */
+function billingRulesFor(given, install, errors, warnings) {
+  const rules = { ignoreUnknownProducts: false, app: null, strictPrices: false, paddleProductIds: null };
+  if (given === undefined) return rules;
+  if (!isObject(given)) {
+    errors.push('billing: an object, such as { ignoreUnknownProducts: true }');
+    return rules;
+  }
+  for (const key of Object.keys(given)) {
+    if (!BILLING_KEYS.has(key)) errors.push(`billing.${key} is not a setting (a typo?)`);
+  }
+  for (const key of ['ignoreUnknownProducts', 'strictPrices']) {
+    if (given[key] === undefined) continue;
+    if (typeof given[key] !== 'boolean') errors.push(`billing.${key} must be true or false`);
+    else rules[key] = given[key];
+  }
+  if (given.app != null) {
+    if (!/^[a-z][a-z0-9-]{1,30}$/.test(String(given.app))) errors.push('billing.app: lowercase letters, digits and -, starting with a letter');
+    else rules.app = String(given.app);
+  }
+  const paddle = install?.provider === 'paddle';
+  if (given.paddleProductIds != null) {
+    const environment = paddle ? install.environment : 'production';
+    let ids = given.paddleProductIds;
+    if (isObject(ids)) {
+      for (const name of Object.keys(ids)) {
+        if (!PADDLE_API[name]) errors.push(`billing.paddleProductIds: "${name}" is not sandbox or production`);
+      }
+      ids = ids[environment] ?? null;
+    }
+    if (paddle && Array.isArray(given.paddleProductIds)) {
+      errors.push("billing.paddleProductIds: one list per environment, { sandbox: ['pro_…'], production: ['pro_…'] }, as Paddle's product ids differ between them");
+    } else if (ids != null && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string' && /^pro_[a-z0-9]{26}$/.test(id)))) {
+      errors.push('billing.paddleProductIds: a list of Paddle product ids (pro_…) for each environment');
+    } else if (paddle && !ids?.length) {
+      errors.push(`billing.paddleProductIds: none for PADDLE_ENV ${environment}`);
+    } else rules.paddleProductIds = ids?.length ? [...ids] : null;
+  }
+  // Only Paddle's checkout writes the app, and only Paddle's events carry it with a price and a product id.
+  const paddleOnly = ['app', 'strictPrices', 'paddleProductIds'].filter((key) => rules[key]).map((key) => `billing.${key}`);
+  if (install && !paddle && paddleOnly.length) {
+    warnings.push(`${paddleOnly.join(', ')} ${paddleOnly.length > 1 ? 'are' : 'is'} Paddle's: with BILLING_PROVIDER=${install.provider} ${paddleOnly.length > 1 ? 'they do' : 'it does'} nothing`);
+  }
+  return rules;
 }
 
 /**
@@ -338,6 +398,17 @@ function productsFor(products, billing, errors) {
       resolved[field] = pick(key, field, spec[field]);
       if (billing?.provider === 'paddle' && resolved[field] != null && !/^pri_[a-z0-9]{26}$/.test(resolved[field])) {
         errors.push(`products.${key}.${field}: "${resolved[field]}" is not a Paddle price id (pri_…)`);
+      }
+    }
+    // Prices no longer sold that subscriptions still renew on: a list, or one per environment.
+    if (spec.oldPrices !== undefined) {
+      const old = pick(key, 'oldPrices', spec.oldPrices) ?? [];
+      resolved.oldPrices = old;
+      if (!Array.isArray(old)) errors.push(`products.${key}.oldPrices: a list of price ids, or one per environment`);
+      else if (billing?.provider === 'paddle') {
+        for (const price of old) {
+          if (!/^pri_[a-z0-9]{26}$/.test(String(price))) errors.push(`products.${key}.oldPrices: "${price}" is not a Paddle price id (pri_…)`);
+        }
       }
     }
     out[key] = resolved;

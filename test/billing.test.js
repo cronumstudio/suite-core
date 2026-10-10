@@ -234,3 +234,89 @@ test('the routes: offer, checkout, portal, and the signed webhook', async (t) =>
   assert.deepEqual((await call('GET', '/api/billing/subscriptions', { as: ada.id })).body.subscriptions.map((s) => s.product), ['pro-monthly']);
   assert.deepEqual(audit.list({ action: 'billing.' }).map((e) => e.action), ['billing.granted']);
 });
+
+test('another product\'s events: foreign before anything about who pays, with only their id, type and outcome kept', (t) => {
+  const { database, entitlements, audit, clock, billing: plain, ada } = setup(t);
+  const provider = signedProvider({ id: 'guarded', secret: SECRET });
+  const logs = [];
+  const billing = createBilling({
+    database, entitlements, provider, products: PRODUCTS, audit, clock: () => clock.now, log: (line) => logs.push(line),
+    ignoreUnknownProducts: true, app: 'work',
+  });
+  assert.deepEqual(billing.errors, []);
+  const sale = (id, fields) => billing.apply({
+    id, type: 'subscription', ref: `sub_${id}`, subject: { type: 'user', id: ada.id }, customer: `cus_${id}`,
+    status: 'active', periodEnd: '2026-06-01T10:00:00Z', product: 'pro-monthly', ...fields,
+  });
+  assert.equal(sale('e1', { product: 'gold' }), 'foreign', 'a product this catalog doesn\'t have');
+  assert.equal(sale('e2', { product: undefined }), 'foreign', 'or none');
+  assert.equal(sale('e3', { product: 'constructor' }), 'foreign', 'only the catalog\'s own keys');
+  assert.equal(sale('e4', { app: 'tracker' }), 'foreign', 'sold by another app');
+  assert.equal(sale('e5', { foreign: true }), 'foreign', 'the provider says so');
+  assert.equal(billing.apply({ id: 'e6', type: 'purchase', ref: 'order_6', customer: 'cus_e6', product: 'gold' }), 'foreign');
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), null, 'no customer linked');
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM billing_subscriptions WHERE provider = 'guarded'").n, 0);
+  assert.deepEqual(database.all("SELECT event_id, type, outcome FROM billing_events WHERE provider = 'guarded'").map((r) => [r.event_id, r.type, r.outcome]), [
+    ['e1', 'subscription', 'foreign'], ['e2', 'subscription', 'foreign'], ['e3', 'subscription', 'foreign'],
+    ['e4', 'subscription', 'foreign'], ['e5', 'subscription', 'foreign'], ['e6', 'purchase', 'foreign'],
+  ]);
+  assert.equal(audit.list({ action: 'billing.' }).length, 0, 'nothing in the audit');
+  assert.ok(logs.every((line) => !line.includes('cus_')), 'the log names no customer');
+
+  // This app's own sales, with its name or from before checkouts said it; refunds as always.
+  assert.equal(sale('e7', { app: 'work' }), 'granted');
+  assert.equal(sale('e8', {}), 'granted');
+  assert.equal(billing.apply({ id: 'e9', type: 'refund', ref: 'sub_e7' }), 'revoked');
+  assert.equal(billing.apply({ id: 'e10', type: 'refund', ref: 'sub_e1' }), 'nothing');
+  assert.equal(sale('e1', { product: 'gold' }), 'duplicate', 'applied once, like the rest');
+
+  // Without the options, as before: an unknown product links the customer, then is ignored.
+  assert.equal(plain.apply({ id: 'p1', type: 'subscription', ref: 'sub_p1', subject: { type: 'user', id: ada.id }, customer: 'cus_p1', product: 'gold' }), 'ignored');
+  assert.equal(plain.customerOf({ type: 'user', id: ada.id }), 'cus_p1');
+  assert.equal(plain.apply({ id: 'p2', type: 'subscription', ref: 'sub_p2', subject: { type: 'user', id: ada.id }, product: 'pro-monthly',
+    status: 'active', periodEnd: '2026-06-01T10:00:00Z', app: 'tracker', foreign: false }), 'granted', 'an app is only compared where the install has one');
+});
+
+test('what waited for someone since before the guard was on is foreign when they arrive: nothing linked, nothing granted', (t) => {
+  const { database, entitlements, accounts, clock } = setup(t);
+  const provider = signedProvider({ id: 'paddle', secret: SECRET });
+  const nobody = { of: () => null, user: () => null };
+  const before = createBilling({ database, entitlements, provider, products: PRODUCTS, identities: nobody, clock: () => clock.now, log: () => {} });
+  const event = (id, product, ref) => ({
+    id, type: 'subscription', ref, identity: { provider: 'workos', subject: 'user_01JBEA0000000000000000000B' }, customer: 'cus_bea',
+    product, status: 'active', periodEnd: '2026-06-01T10:00:00Z',
+  });
+  assert.equal(before.apply(event('w1', 'tracker-org-monthly', 'sub_other')), 'pending');
+  assert.equal(before.apply(event('w2', 'pro-monthly', 'sub_own')), 'pending');
+
+  const bea = accounts.create({ username: 'bea' });
+  const after = createBilling({
+    database, entitlements, provider, products: PRODUCTS, clock: () => clock.now, log: () => {}, ignoreUnknownProducts: true,
+    identities: { of: () => null, user: () => bea.id },
+  });
+  assert.equal(after.claim('workos', 'user_01JBEA0000000000000000000B', bea.id), 2);
+  assert.deepEqual(database.all('SELECT event_id, outcome FROM billing_events ORDER BY rowid').map((r) => [r.event_id, r.outcome]),
+    [['w1', 'foreign'], ['w2', 'granted']]);
+  assert.equal(entitlements.grantsOf('user', bea.id).length, 1, 'only its own product');
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 0);
+});
+
+test('the guard\'s options are checked; the checkout tells the provider which app sells, only when there is one', async (t) => {
+  const { database, entitlements, ada } = setup(t);
+  const seen = [];
+  const provider = {
+    id: 'stub', checkoutUrl: async (args) => { seen.push(args); return 'https://pay.example/x'; },
+    portalUrl: async () => 'https://pay.example/portal', parseWebhook: async () => null,
+  };
+  const make = (options) => createBilling({ database, entitlements, provider, products: PRODUCTS, log: () => {}, ...options });
+  assert.match(make({ app: 'Cronum Work' }).errors.join(), /app "Cronum Work"/);
+  assert.equal(make({ app: 'Cronum Work' }).enabled, false, 'a misspelled guard never runs half on');
+  assert.match(make({ ignoreUnknownProducts: 'yes' }).errors.join(), /ignoreUnknownProducts/);
+  assert.match(createBilling({ database, entitlements, provider, products: { p: { plan: 'pro', kind: 'once', oldPrices: 'pri_1' } } }).errors.join(),
+    /oldPrices must be a list/);
+
+  await make({ app: 'work' }).checkoutUrl({ type: 'user', id: ada.id }, 'pro-monthly', { user: ada, returnUrl: 'x' });
+  await make({}).checkoutUrl({ type: 'user', id: ada.id }, 'pro-monthly', { user: ada, returnUrl: 'x' });
+  assert.equal(seen[0].app, 'work');
+  assert.equal('app' in seen[1], false, 'as before without one');
+});
