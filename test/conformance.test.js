@@ -9,7 +9,16 @@ import { checkConformance } from '../tools/conformance.js';
 
 const PRODUCT = { app: { id: 'demo', name: 'Demo', port: 3999, languages: ['en', 'es'] } };
 
-async function demoApp(t, catalogs) {
+const HELLO = {
+  instructions: 'Says hello.',
+  tools: [{
+    name: 'hello', title: 'Hello', description: 'Says hello',
+    inputSchema: { type: 'object', properties: {} },
+    handler: () => ({ content: [{ type: 'text', text: 'Hello.' }] }),
+  }],
+};
+
+async function demoApp(t, catalogs, { modules = undefined, mcp = HELLO } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-conformance-'));
   const publicDir = path.join(dir, 'public');
   fs.mkdirSync(path.join(publicDir, 'i18n'), { recursive: true });
@@ -19,21 +28,11 @@ async function demoApp(t, catalogs) {
   }
   const quiet = () => {};
   const suite = createSuite({
-    config: PRODUCT,
+    config: modules ? { ...PRODUCT, modules } : PRODUCT,
     env: { DATA_DIR: dir, PORT: '0', ADMIN_USER: 'checker', ADMIN_PASSWORD: 'checker-password', BASE_URL: 'http://127.0.0.1' },
     log: quiet, exitOnError: false,
   });
-  const app = createApp({
-    suite, publicDir, version: '1.0.0', handleSignals: false, log: quiet,
-    mcp: {
-      instructions: 'Says hello.',
-      tools: [{
-        name: 'hello', title: 'Hello', description: 'Says hello',
-        inputSchema: { type: 'object', properties: {} },
-        handler: () => ({ content: [{ type: 'text', text: 'Hello.' }] }),
-      }],
-    },
-  });
+  const app = createApp({ suite, publicDir, version: '1.0.0', handleSignals: false, log: quiet, mcp });
   const server = await app.listen();
   t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   return `http://127.0.0.1:${server.address().port}`;
@@ -70,6 +69,29 @@ test('without credentials the sign-in checks are skipped, the rest still run', a
   assert.deepEqual(failures(results), []);
   assert.ok(results.some((r) => r.skipped && r.name === 'Sign-in with a password'));
   assert.ok(results.some((r) => !r.skipped && r.name === 'A request with a session cookie from another site is refused (CSRF)'));
+});
+
+test('an app with its MCP off: no /mcp and no OAuth metadata for AI clients, checked when asked', async (t) => {
+  const catalogs = { en: { hello: { title: 'Hello' } }, es: { hello: { title: 'Hola' } } };
+  const baseUrl = await demoApp(t, catalogs, { modules: { mcp: false, oauth: false }, mcp: HELLO });
+  const results = await checkConformance({ baseUrl, brake: false, mcp: false });
+  assert.deepEqual(failures(results), []);
+  const ran = results.filter((r) => !r.skipped).map((r) => r.name);
+  assert.ok(ran.includes('Without an MCP, /mcp is a JSON 404 with no challenge'));
+  assert.ok(ran.includes('Without an MCP, no OAuth metadata for AI clients: a JSON 404 with no challenge'));
+  assert.ok(results.some((r) => r.skipped && r.name === '/mcp without a token is a 401 with a Bearer challenge'));
+
+  // The built-in OAuth for local accounts is a switch of its own: left on, its metadata is named.
+  const withOAuth = await demoApp(t, catalogs, { modules: { mcp: false }, mcp: HELLO });
+  assert.deepEqual(failures(await checkConformance({ baseUrl: withOAuth, brake: false, mcp: false })), [
+    'Without an MCP, no OAuth metadata for AI clients: a JSON 404 with no challenge → '
+      + '/.well-known/oauth-protected-resource 200, /.well-known/oauth-protected-resource/mcp 200, /.well-known/oauth-authorization-server 200',
+  ]);
+  // And an app with its MCP on, checked as if it had none, is told so.
+  const on = await demoApp(t, catalogs);
+  const named = failures(await checkConformance({ baseUrl: on, brake: false, mcp: false })).map((line) => line.split(' → ')[0]);
+  assert.deepEqual(named, ['Without an MCP, /mcp is a JSON 404 with no challenge',
+    'Without an MCP, no OAuth metadata for AI clients: a JSON 404 with no challenge']);
 });
 
 test('a missing translation is named', async (t) => {

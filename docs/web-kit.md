@@ -203,7 +203,8 @@ second step, a forgotten password, the `?reset=` and `?signup=` links and open s
 to WorkOS or an OpenID Connect provider.
 
 `openSettings()` opens the sections every account has —profile, language and theme, password and
-sign-in (two-step verification, sessions), the AI (MCP address, connected apps, tokens),
+sign-in (two-step verification, sessions), the AI (MCP address, connected apps, tokens; only when
+`/api/auth/config` doesn't say `app.modules.mcp: false`, v0.65.0),
 notifications (`push: true`), plan (`plan: true`), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);

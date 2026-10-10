@@ -657,6 +657,34 @@ test('a session or a device without a browser to name says so, not a dash', asyn
   assert.equal(deviceName(''), '—', 'without a text of its own, as before');
 });
 
+test('Settings offers the AI connector only where there is one; a server that says nothing keeps it', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  // Settings listens for Escape on the page; the fake page only needs to take the listener.
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  try {
+    const listed = (config, start = null) => {
+      const root = document.createElement('div');
+      openSettings({ app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, config, root, start });
+      const texts = (className) => root.all().filter((node) => node.className === className).map((node) => node.textContent);
+      return { labels: texts('kit-settings__label'), groups: texts('kit-settings__group'), page: root.all().find((node) => node.className === 'kit-settings__page') };
+    };
+    const ai = t('kit.ai.title');
+    const off = listed({ provider: 'workos', app: { id: 'demo', modules: { organizations: false, billing: false, data: false, mcp: false } } });
+    assert.ok(off.labels.length >= 4, 'the rest is there');
+    assert.ok(!off.labels.includes(ai), 'no AI section without an MCP');
+    assert.ok(!off.groups.includes(t('kit.settings.groups.connections')), 'nor its heading, with nothing else under it');
+    assert.equal(listed({ app: { modules: { mcp: false } } }, 'ai').page.children.length, 0, 'asked for by name, nothing opens');
+    assert.ok(listed({ app: { modules: { mcp: true } } }).labels.includes(ai), 'with an MCP, as always');
+    assert.ok(listed({ app: { modules: { organizations: false, billing: false, data: false } } }).labels.includes(ai),
+      'a server from before the flag keeps it');
+    assert.ok(listed({}).labels.includes(ai), 'and so does a config without the app');
+  } finally {
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
 test('every file of the web kit parses: one that does not stops the whole app before it draws', async () => {
   // Most of the kit is only run by these tests in part, through a fake DOM; a name declared twice
   // in shell.js once left every app on a blank page with nothing here noticing.
