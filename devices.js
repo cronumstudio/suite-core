@@ -312,26 +312,28 @@ export function createDevices({
  * for failures; and a device signs itself out with its own token.
  */
 export function registerDevicesApi(router, { devices, limiter, audit = null }) {
+  /** An answer that carries a secret shown once: never kept to replay an Idempotency-Key (app.js). */
+  const once = (handler) => Object.assign(handler, { answeredOnce: true });
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
   };
 
   /** A code for the connect page to hand back to the app (its body is the PKCE request). */
-  router.post('/api/devices/codes', async (ctx) => {
+  router.post('/api/devices/codes', once(async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);
     sendJson(ctx.res, 201, devices.issueCode(user, {
       codeChallenge: body.code_challenge, codeChallengeMethod: body.code_challenge_method ?? 'S256',
       redirectUri: body.redirect_uri, name: body.name, platform: body.platform ?? null, state: body.state ?? null,
-    }), { 'Cache-Control': 'no-store' });
-  });
+    }));
+  }));
 
   /**
    * The code and its verifier for a token. Only failures count against the
    * address, so a fleet of phones connected from one office is never stopped.
    */
-  router.post('/api/devices/token', async (ctx) => {
+  router.post('/api/devices/token', once(async (ctx) => {
     const brake = limiter.checkFailures('devices', ctx.req);
     if (!brake.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: brake.retryAfter });
     let result;
@@ -345,8 +347,8 @@ export function registerDevicesApi(router, { devices, limiter, audit = null }) {
       throw err;
     }
     // The value travels once, here. After that only its hash remains.
-    sendJson(ctx.res, 200, { token: result.token, token_type: 'Bearer', device: result.device }, { 'Cache-Control': 'no-store' });
-  });
+    sendJson(ctx.res, 200, { token: result.token, token_type: 'Bearer', device: result.device });
+  }));
 
   router.get('/api/me/devices', (ctx) => {
     const user = requireUser(ctx);

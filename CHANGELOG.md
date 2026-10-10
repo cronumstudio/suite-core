@@ -32,6 +32,9 @@ change an interface and a patch never does. Apps pin a version through the submo
   app and empty while the module is off. Not `devices`, which Focus already has.
 - The brake: `checkFailures(kind, req)` and `noteFailure(kind, req)`, for what anyone can try without
   credentials where only failures count.
+- An answer that carries a secret shown once (a device code, a device token) is never kept to replay an
+  `Idempotency-Key`: the database keeps hashes only. A route says so with `handler.answeredOnce`; every
+  other route is replayed as before.
 - **For phones; Focus keeps its own pairing.** Focus pairs its kiosks and future screens the other
   way round (a code shown on the signed-in screen, typed or scanned on the device, bound to one
   profile with runner-only scopes, sent in its `X-Focus-Device` header), which needs its households,

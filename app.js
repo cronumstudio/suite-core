@@ -723,8 +723,10 @@ export function createApp({
           sessionToken: sessions.tokenFrom(req),
           baseUrl: install.baseUrl,
         };
-        // A write with an Idempotency-Key runs once; the same key again gets the same answer.
-        await (suite.idempotency ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
+        // A write with an Idempotency-Key runs once; the same key again gets the same answer. Not one
+        // whose answer is a secret shown once (a device's token, its code): the database keeps hashes only.
+        const replayable = suite.idempotency && !match.handler.answeredOnce;
+        await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
         return;
       }
 

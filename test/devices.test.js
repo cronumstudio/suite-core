@@ -413,6 +413,26 @@ test('exchanging codes: only failures count against the address, and past the li
   assert.ok(stopped.data.retry_after > 0);
 });
 
+test('a code or a token is never kept to replay an Idempotency-Key: the database keeps hashes only', async (t) => {
+  const { suite, web } = await startApp(t, { product: DEVICES_ON });
+  const pair = pkce();
+  const key = { 'Idempotency-Key': 'connect-phone-1' };
+  const ask = { code_challenge: pair.challenge, redirect_uri: BACK, name: 'Bus' };
+  const first = await web('POST', '/api/devices/codes', ask, key);
+  const again = await web('POST', '/api/devices/codes', ask, key);
+  assert.equal(again.headers.get('idempotent-replayed'), null);
+  assert.notEqual(first.data.code, again.data.code, 'a new code, not the first one replayed');
+  // Even sent with a session and a key, which the app never does.
+  const token = await web('POST', '/api/devices/token', { code: first.data.code, code_verifier: pair.verifier, redirect_uri: BACK },
+    { 'Idempotency-Key': 'exchange-1' });
+  assert.equal(token.status, 200);
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM idempotency_keys').n, 0);
+  // An ordinary write with a key is still kept.
+  const apiToken = (await web('POST', '/api/me/tokens', { name: 'Script' })).data;
+  assert.equal((await web('DELETE', `/api/me/tokens/${apiToken.id}`, undefined, { 'Idempotency-Key': 'revoke-1' })).status, 200);
+  assert.deepEqual(suite.database.all('SELECT key FROM idempotency_keys').map((r) => r.key), ['revoke-1']);
+});
+
 test('createApp({ devices: { canConnect } }) refuses whom the app doesn’t let in; without the module it only says so', async (t) => {
   const refused = await startApp(t, { product: DEVICES_ON, appOptions: { devices: { canConnect: (user) => user.username !== 'admin' } } });
   const answer = await refused.web('POST', '/api/devices/codes', { code_challenge: pkce().challenge, redirect_uri: BACK, name: 'Bus' });
