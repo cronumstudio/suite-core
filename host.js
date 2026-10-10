@@ -486,6 +486,9 @@ export async function createHost({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
       i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
+      // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
+      // module offers it whenever the host has its MCP on, though the module itself has none.
+      offersMcp: Boolean(config.modules.mcp),
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));

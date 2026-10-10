@@ -1,7 +1,7 @@
 /**
  * Settings, the same in every app: a list of sections —on a phone, each one
  * a screen of its own— with what every account has (profile, language and
- * theme, password and sign-in, the AI, notifications, plan, data, about) and
+ * theme, password and sign-in, the AI where there is an MCP, notifications, plan, data, about) and
  * the app's own sections among them. Taken from Next's, on the suite's
  * routes: /api/me/*, /api/auth/*, /api/push/*.
  *
@@ -75,8 +75,9 @@ export function openSettings(options) {
       render: () => appearance() },
     { group: t('kit.settings.groups.security'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
       hint: () => t(local ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
-    { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
-      hint: () => t('kit.ai.hint'), render: () => ai() },
+    // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
+    modules.mcp !== false ? { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
+      hint: () => t('kit.ai.hint'), render: () => ai() } : null,
     options.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
       hint: () => t('kit.notifications.hint'), render: () => notifications() } : null,
     options.plan ? { group: t('kit.settings.groups.plan'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),

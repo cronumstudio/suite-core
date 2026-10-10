@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.65.0 — 2026-10-10
+
+- **An app with `modules.mcp: false` shows no MCP anywhere.** With WorkOS it no longer serves
+  `/.well-known/oauth-protected-resource[/mcp]` nor `/.well-known/oauth-authorization-server*`
+  (`createWorkosAccounts({ mcp })`, new, true by default; `createSuite()` passes
+  `modules.mcp`): those paths get the JSON 404 of the discovery paths an install doesn't serve,
+  and nobody is sent to AuthKit for a connector that isn't there. Signing in on the web is the
+  same.
+- `/api/auth/config` says `app.modules.mcp`: whether the app's `/mcp` answers (`modules.mcp` on
+  and the app's tools given to `createApp`). Settings leaves out its AI section when it is
+  `false`; a server from before this version sends nothing and keeps the section. A host's
+  module says the host's (`createApp({ offersMcp })`, new): its connector is the host's `/mcp`.
+- Nothing changes for an app with its MCP on, as every app has it today. The built-in OAuth for
+  local accounts is not touched: an app without an MCP sets `modules.oauth: false` as well.
+
 ## 0.64.0 — 2026-10-09
 
 - **A host's links forget what was erased.** `links.prune({ module })` drops the title a link keeps

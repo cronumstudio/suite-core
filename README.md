@@ -214,14 +214,15 @@ const accounts = createWorkosAccounts({
     create({ username, displayName, role, email, workosId }),        // → user
   },
   sessions: { open(res, userId, { workosSessionId }) },
+  mcp: true,                            // false: an app without an MCP serves no /.well-known/…
 });
 ```
 
 Then, in the app:
 
 - `await accounts.handle(req, res, url)` before other routes: `/auth/login` (`?signup=1` for
-  the sign-up screen), `/auth/callback` and the `/.well-known/…` metadata. A failed return goes
-  to `/?auth_error=failed` or `/?auth_error=unavailable`.
+  the sign-up screen), `/auth/callback` and, unless `mcp: false`, the `/.well-known/…` metadata.
+  A failed return goes to `/?auth_error=failed` or `/?auth_error=unavailable`.
 - On the MCP endpoint: `await accounts.userFromToken(token)` and `accounts.challenge(hadToken)`
   for the `401`. `WorkosUnavailable` means the token couldn't be checked: answer `503`, not `401`.
 - On sign-out, keep the AuthKit session id stored with the app's session and send the browser to

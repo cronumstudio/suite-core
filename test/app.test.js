@@ -281,7 +281,8 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   });
   assert.equal(escape, 404, 'never outside the kit');
   assert.deepEqual((await call('GET', '/api/auth/config')).data.app,
-    { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false } });
+    { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false, mcp: true } },
+    'its /mcp answers: its pages offer the AI connector');
 
   // The OAuth screens, dressed by the suite: the yolk page with the app's icon, name and colour.
   const consent = await call('GET', '/oauth/authorize');
@@ -317,4 +318,87 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   // Signing out.
   assert.equal((await call('POST', '/api/auth/logout')).data.ok, true);
   assert.equal((await call('GET', '/api/auth/me')).data.user, null);
+});
+
+test('an app without an MCP shows AI clients nothing to follow, nor its pages a connector; with one, all as before', async (t) => {
+  // A fake AuthKit on this machine: its metadata only, to see whether anyone is sent to it.
+  let asked = 0;
+  const authkit = http.createServer((req, res) => {
+    asked += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ issuer: `http://127.0.0.1:${authkit.address().port}` }));
+  });
+  await new Promise((resolve) => authkit.listen(0, '127.0.0.1', resolve));
+  t.after(() => authkit.close());
+  const AUTHKIT = `http://127.0.0.1:${authkit.address().port}`;
+  const tools = [{
+    name: 'list_notes', title: 'List notes', description: 'Lists the notes',
+    inputSchema: { type: 'object', properties: {} },
+    handler: () => ({ content: [{ type: 'text', text: '[]' }] }),
+  }];
+
+  const start = async ({ modules = {}, mcp = { tools } } = {}) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-mcp-'));
+    const suite = createSuite({
+      config: { ...PRODUCT, modules },
+      env: {
+        DATA_DIR: dir, PORT: '0', BASE_URL: 'https://demo.example', AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'sk_test',
+        WORKOS_CLIENT_ID: 'client', WORKOS_AUTHKIT_DOMAIN: AUTHKIT, WORKOS_MCP_AUDIENCE: 'https://demo.example/mcp',
+      },
+      log: () => {}, exitOnError: false,
+    });
+    const app = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {}, mcp });
+    const server = await app.listen();
+    t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    return async (method, pathname, headers = {}) => {
+      const res = await fetch(base + pathname, { method, redirect: 'manual', headers });
+      const text = await res.text();
+      let data = text;
+      try { data = JSON.parse(text); } catch { /* not JSON */ }
+      return { status: res.status, data, headers: res.headers };
+    };
+  };
+  const METADATA = ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp',
+    '/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server/mcp'];
+
+  // Off (the app's tools given or not): the generic JSON 404 everywhere an AI client looks.
+  for (const mcp of [{ tools }, null]) {
+    const call = await start({ modules: { mcp: false }, mcp });
+    for (const pathname of METADATA) {
+      const answer = await call('GET', pathname);
+      assert.equal(answer.status, 404, pathname);
+      assert.equal(answer.data.error, 'No OAuth here: use a Bearer token', `${pathname}: JSON, never the app`);
+      assert.equal(answer.headers.get('www-authenticate'), null, pathname);
+    }
+    assert.equal((await call('OPTIONS', '/.well-known/oauth-protected-resource/mcp')).status, 404, 'no preflight either');
+    const endpoint = await call('GET', '/mcp');
+    assert.equal(endpoint.status, 404, 'no /mcp');
+    assert.equal(endpoint.headers.get('www-authenticate'), null, 'and no challenge that would open AuthKit');
+    assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, false, 'its pages offer no AI connector');
+    const login = await call('GET', '/auth/login');
+    assert.equal(login.status, 302, 'signing in on the web is the same');
+    assert.equal(new URL(login.headers.get('location')).pathname, '/user_management/authorize');
+  }
+  assert.equal(asked, 0, 'nobody was sent to AuthKit for metadata');
+
+  // On, as every app has it today: the metadata, the challenge and the flag.
+  const call = await start();
+  const resource = await call('GET', '/.well-known/oauth-protected-resource/mcp');
+  assert.equal(resource.status, 200);
+  assert.equal(resource.data.resource, 'https://demo.example/mcp');
+  assert.deepEqual(resource.data.authorization_servers, [AUTHKIT]);
+  assert.equal((await call('GET', '/.well-known/oauth-protected-resource')).status, 200);
+  assert.equal((await call('OPTIONS', '/.well-known/oauth-protected-resource/mcp')).status, 204);
+  const server = await call('GET', '/.well-known/oauth-authorization-server');
+  assert.equal(server.status, 200);
+  assert.equal(server.data.issuer, AUTHKIT, 'AuthKit’s own, relayed');
+  assert.equal(asked, 1);
+  const endpoint = await call('POST', '/mcp', { 'Content-Type': 'application/json' });
+  assert.equal(endpoint.status, 401);
+  assert.equal(endpoint.headers.get('www-authenticate'),
+    'Bearer resource_metadata="https://demo.example/.well-known/oauth-protected-resource/mcp"');
+  assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, true);
+  // On, but the app brings no tools: no /mcp answers, so its pages offer no connector.
+  assert.equal((await (await start({ mcp: null }))('GET', '/api/auth/config')).data.app.modules.mcp, false);
 });

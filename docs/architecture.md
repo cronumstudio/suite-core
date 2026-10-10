@@ -732,6 +732,10 @@ parameter names keep clients with a cached schema working after a rename (as Nex
 to English). Tool descriptions and results are in English; the instructions ask the assistant to
 answer in the user's language.
 
+An app with `modules.mcp: false` shows no MCP anywhere (v0.65.0): no `/mcp`, no WorkOS metadata
+at `/.well-known/oauth-*` (the discovery paths' JSON 404 answers), `app.modules.mcp: false` in
+`/api/auth/config`, and no AI section in Settings. A host's modules offer the host's `/mcp`.
+
 ## 14. Translations
 
 One implementation for server and browser (`t()` from Focus): flat dotted keys that describe place

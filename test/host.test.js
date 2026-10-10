@@ -111,6 +111,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' },
     'a module tells the kit it is in a host');
   assert.equal((await call('GET', '/api/auth/config')).data.app.host, undefined, 'the host itself isn’t a module');
+  assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.modules.mcp, true,
+    'a module offers the AI connector, the host’s /mcp, though it has none of its own');
+  assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, true);
   assert.equal((await call('PUT', '/api/me/modules', { active: [] })).data.error, 'field_required', 'at least one');
   assert.equal((await call('PUT', '/api/me/modules', { active: ['beta', 'gamma'] })).data.field, 'modules', 'only modules there are');
   const chosen = await call('PUT', '/api/me/modules', { active: ['beta'] });
@@ -249,6 +252,15 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.doesNotMatch(only, /Alpha keeps/);
   await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
   assert.equal((await call('GET', '/alpha/mcp')).status, 404, 'no MCP of its own inside a host: one for all, at the root');
+});
+
+test('a host with its MCP off: neither it nor its modules offer an AI connector', async (t) => {
+  const { call } = await startHost(t, { config: { ...HOST, modules: { ...HOST.modules, mcp: false } } });
+  assert.equal((await call('GET', '/api/auth/config')).data.app.modules.mcp, false);
+  for (const mount of ['alpha', 'beta']) {
+    assert.equal((await call('GET', `/${mount}/api/auth/config`)).data.app.modules.mcp, false, mount);
+  }
+  assert.equal((await call('GET', '/mcp-info')).status, 404, 'no MCP at the root');
 });
 
 test('links between modules: each sees what they could see, created where it lives, done together, live', async (t) => {

@@ -242,6 +242,8 @@ export function createSuite({
     users: workosPeople,
     connections: workosConnections(database),
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
+    // Without an MCP, AI clients find no OAuth metadata to follow.
+    mcp: config.modules.mcp,
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId: workosSessionId });
@@ -448,11 +450,14 @@ function inCatalogDir(pathname) {
  * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
+ * @param {boolean} [options.offersMcp]   whether the app's pages offer an AI connector
+ *   (`modules.mcp` in /api/auth/config, Settings' AI section); by default, whether its /mcp
+ *   answers. A host passes its own for its modules, whose MCP is the host's (host.js).
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
-  sweep = null,
+  sweep = null, offersMcp = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -474,7 +479,11 @@ export function createApp({
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
-      modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
+      modules: {
+        organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
+        // Whether there is an AI connector to offer: Settings leaves out its section when there isn't.
+        mcp: Boolean(offersMcp ?? (mcp && config.modules.mcp)),
+      },
       // A module of a host (host.js) says where it is, for the kit to show the others beside it.
       ...(config.host ? { host: config.host } : {}),
     },
