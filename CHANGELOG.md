@@ -52,6 +52,65 @@ change an interface and a patch never does. Apps pin a version through the submo
   profiles and scopes; that stays in Focus. A module of a host can't turn `modules.devices` on.
 - Nothing changes for an app that doesn't turn the module on, apart from the two empty tables.
 
+## 0.66.0 — 2026-10-10
+
+- **Another product's sales are kept out**, for a Paddle account that sells more than Cronum Work
+  (Tracker on its own) and sends every event to every app's webhook. Four guards in
+  `suite.config.js` `billing`, all off, so nothing changes for an app that says nothing:
+  - `ignoreUnknownProducts` (`createBilling({ ignoreUnknownProducts })`): an event that is not a
+    refund, for a product not in `products`, has the new outcome `'foreign'`. It is decided before
+    anything about who pays: no customer is linked (before, `applyTo` linked it and then ignored
+    the product), nothing waits in `billing_pending` (before, 400 days with the person's WorkOS
+    id), and only the event's id, type and outcome are kept; the log names the event only, the
+    audit nothing. What waited from before is foreign when its person arrives (`claim`).
+  - `app` (`createBilling({ app })`): the checkout writes `custom_data.app` (Paddle), and an event
+    that names another app is foreign. It is not `app.id`: one value for every install that sells
+    a subscription together (`work` in Tasks, Next and Work; `tracker` in Tracker). An event
+    without one, sold before checkouts said it, is judged by its product, so `app` goes with the
+    other guards.
+  - `strictPrices` (`paddleProvider({ strictPrices })`): the product comes only from this install's
+    prices, never from `custom_data.product`, which another product may name the same
+    (`pro-monthly`). Products take `oldPrices`, a list or one per environment, for prices no longer
+    sold that subscriptions still renew on.
+  - `paddleProductIds` (`paddleProvider({ paddleProductIds })`, one list of `pro_…` per
+    environment): a subscription or one-off purchase whose items are all of other Paddle products
+    is foreign, with nothing of who paid. One of this install's own products on a price that no
+    product lists is not: its outcome is `'ignored'`, nothing is granted, and the log names the
+    price to add to `price`, `founderPrice` or `oldPrices` (events gain `own` and `unknownPrice`).
+- Refunds are unchanged: a refund of another product's sale finds nothing here to take back.
+- Every setting is checked on start: a misspelled key, a non-boolean, an `app` that isn't an id, a
+  product id that isn't Paddle's, a single `paddleProductIds` list with Paddle on (sandbox and live
+  ids always differ), or none for `PADDLE_ENV` stops it; `app`, `strictPrices` or
+  `paddleProductIds` with another provider is a warning. Events gain `app` (when the checkout
+  wrote one) and `foreign` (from the provider). No migration.
+
+## 0.65.0 — 2026-10-10
+
+- **An app with `modules.mcp: false` sends AI clients nowhere.** Its `/mcp` and `/mcp/*` answer a
+  JSON 404 without `WWW-Authenticate`, never the app's page (before, an app with `publicDir`
+  served its `index.html` there). With WorkOS it no longer serves
+  `/.well-known/oauth-protected-resource[/mcp]` nor `/.well-known/oauth-authorization-server*`
+  (`createWorkosAccounts({ mcp })`, new, true by default; `createSuite()` passes
+  `modules.mcp`): those paths get the JSON 404 of the discovery paths an install doesn't serve,
+  and nobody is sent to AuthKit for a connector that isn't there. Signing in on the web is the
+  same.
+- The built-in OAuth for local accounts is `modules.oauth`, not touched: an app without an MCP
+  sets `modules.oauth: false` as well, or that OAuth's metadata and `/oauth/*` stay.
+- `/api/auth/config` says `app.modules.mcp`: whether the app's `/mcp` answers (`modules.mcp` on
+  and the app's tools given to `createApp`). Settings leaves out its AI section when it is
+  `false`; a server from before this version sends nothing and keeps the section. A host's
+  module says whether the host's `/mcp` answers (`createApp({ offersMcp })`, new, a boolean or a
+  function read on each request): false in a host where no module brings tools and fewer than
+  two bring things to link.
+- The switch is what turns an MCP off, not leaving out the tools: with `modules.mcp` on and no
+  tools there is no `/mcp` and `app.modules.mcp` is `false`, but the WorkOS metadata is still
+  served and `/mcp` is the page, as before.
+- `checkConformance({ mcp: false })` (`--no-mcp`) now checks that `/mcp` and the OAuth metadata
+  for AI clients answer a JSON 404 with no challenge, where it skipped the MCP before. An app that
+  calls it so gets these checks when it moves up to this version; the four apps call it with the
+  MCP on.
+- Nothing changes for an app with its MCP on, as every app has it today.
+
 ## 0.64.0 — 2026-10-09
 
 - **A host's links forget what was erased.** `links.prune({ module })` drops the title a link keeps

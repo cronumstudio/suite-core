@@ -49,12 +49,12 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `uploads.js` | Files people attach: the type by the first bytes (images, PDF, never SVG), streamed to `DATA_DIR/uploads` without ever leaving half a file, served with headers that keep them from running on the app's domain, and an orphan sweep that refuses when the database looks wrong |
 | `zip.js` | Zip archives with no dependencies (`node:zlib`): written to any stream an entry at a time, ZIP64 past 4 GB or 65,535 entries; read through the central directory with every entry capped at the size it declares and checked against its CRC |
 | `portability.js` | Copies of the data: someone's own ("Download my data" / "Import data") and the whole install's for the admin, as a zip anyone can open, imported into another install with new ids, every reference translated, accounts mapped by email, created or left out, shares, numbers, dates and attachments kept, and a copy that isn't trusted |
-| `tools/conformance.js` | What every app inherits, checked against a running copy over plain HTTP: security headers, `/health` and `/version`, JSON 404s on discovery paths, the MCP `401` challenge and its metadata, every language saying what English says, sign-in and sign-out, the session cookie, CSRF and the brute-force brake. `node tools/conformance.js <url>` (with `CONFORMANCE_USER`/`CONFORMANCE_PASSWORD` for the sign-in checks), or `checkConformance()` from a smoke test |
+| `tools/conformance.js` | What every app inherits, checked against a running copy over plain HTTP: security headers, `/health` and `/version`, JSON 404s on discovery paths, the MCP `401` challenge and its metadata (with `--no-mcp`, that there are none), every language saying what English says, sign-in and sign-out, the session cookie, CSRF and the brute-force brake. `node tools/conformance.js <url>` (with `CONFORMANCE_USER`/`CONFORMANCE_PASSWORD` for the sign-in checks), or `checkConformance()` from a smoke test |
 | `tools/data-cli.js` | The same copies from the command line (each app's `scripts/data.js`): the whole install out, and in with emails, accounts left out and "replace" given as options |
 | `live.js` | Notices for the open tabs over Server-Sent Events (`GET /api/events` with `modules.live`): `publish({ audience, data })` to the people it concerns, heartbeats, and ids so a tab that reconnects gets what it missed, or `resync` |
 | `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, `can()` / `limit()` / `require()`, `cutoff()` for what a plan keeps some days and `countDaily()` for daily limits |
 | `plans.js` | The plans of the hosted suite, once for every app: an install names them with `PLANS=cronum-work`; and the features every app names the same (`COMMON_FEATURES`) |
-| `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans, subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order |
+| `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans, subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order; another product's events kept out when the app says (`billing` in suite.config.js) |
 | `stripe.js` | Stripe as billing's provider (`BILLING_PROVIDER=stripe`): hosted Checkout and Customer Portal with plain `fetch`, the `Stripe-Signature` checked, and its subscription, payment and refund events turned into grants — no SDK |
 | `paddle.js` | Paddle Billing as billing's provider (`BILLING_PROVIDER=paddle`), a merchant of record: a transaction per checkout, paid on a page with Paddle.js, the customer portal, the `Paddle-Signature` checked, and its subscription, transaction and refund events turned into grants for whoever the WorkOS id says, in every app — no SDK |
 | `accounts.js` | The people who can sign in: the `users` table in the suite's shape, creation with the app's own columns, sign-in that refuses disabled accounts and redoes old hashes, rules that hold whoever calls (never without an administrator; disabling or a new password ends sessions), and their identities at other providers (WorkOS, OIDC…) |
@@ -215,14 +215,15 @@ const accounts = createWorkosAccounts({
     create({ username, displayName, role, email, workosId }),        // → user
   },
   sessions: { open(res, userId, { workosSessionId }) },
+  mcp: true,                            // false: an app without an MCP serves no /.well-known/…
 });
 ```
 
 Then, in the app:
 
 - `await accounts.handle(req, res, url)` before other routes: `/auth/login` (`?signup=1` for
-  the sign-up screen), `/auth/callback` and the `/.well-known/…` metadata. A failed return goes
-  to `/?auth_error=failed` or `/?auth_error=unavailable`.
+  the sign-up screen), `/auth/callback` and, unless `mcp: false`, the `/.well-known/…` metadata.
+  A failed return goes to `/?auth_error=failed` or `/?auth_error=unavailable`.
 - On the MCP endpoint: `await accounts.userFromToken(token)` and `accounts.challenge(hadToken)`
   for the `401`. `WorkosUnavailable` means the token couldn't be checked: answer `503`, not `401`.
 - On sign-out, keep the AuthKit session id stored with the app's session and send the browser to

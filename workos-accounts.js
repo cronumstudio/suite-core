@@ -214,10 +214,13 @@ function freeUsername(seed, taken) {
  * @param {string} [options.stateCookie]   name of the cookie holding state and PKCE verifier
  * @param {(user) => string} [options.pendingDeletion]   the ticket that offers back an account
  *   its owner asked to delete (account-deletion.js); without it, it is just disabled
+ * @param {boolean} [options.mcp]   false when the app has no MCP: the OAuth metadata for AI
+ *   clients isn't served, so its paths answer the app's JSON 404 and no client is sent to AuthKit
+ *   for a connector that isn't there. Sign-in on the web is the same either way.
  */
 export function createWorkosAccounts({
   baseUrl, appName, workos, adminEmail = '', users, sessions, connections = null,
-  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, log = console.log,
+  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
@@ -445,6 +448,9 @@ export function createWorkosAccounts({
       }
       return true;
     }
+
+    // Without an MCP there is no resource to describe: these are the AI clients' paths, not the web's.
+    if (!mcp) return false;
 
     if (path === METADATA_PATH || path === `${METADATA_PATH}/mcp`) {
       if (req.method === 'OPTIONS') {

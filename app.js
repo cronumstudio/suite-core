@@ -187,6 +187,7 @@ export function createSuite({
         apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
         environment: install.billing.environment, apiBase: install.billing.apiBase,
         checkoutUrl: install.billing.checkoutUrl, products: config.products, log,
+        strictPrices: config.billing?.strictPrices ?? false, paddleProductIds: config.billing?.paddleProductIds ?? null,
       })
         : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
   const workosClient = install.authProvider === 'workos' ? createWorkosClient(install.workos) : null;
@@ -220,6 +221,8 @@ export function createSuite({
   }
   const billing = config.modules.billing ? createBilling({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
+    // Another product's sales (suite.config.js `billing`): off unless the app says.
+    ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
   }) : null;
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
@@ -248,6 +251,8 @@ export function createSuite({
     users: workosPeople,
     connections: workosConnections(database),
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
+    // Without an MCP, AI clients find no OAuth metadata to follow.
+    mcp: config.modules.mcp,
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId: workosSessionId });
@@ -461,11 +466,16 @@ function inCatalogDir(pathname) {
  *   download and import their data, and the admin the whole install
  * @param {object} [options.devices]      with modules.devices: `{ canConnect(user) → boolean }`, whom
  *   the app lets connect a phone (an allowlist), asked when one connects and on every use
+ * @param {boolean|(() => boolean)} [options.offersMcp]   whether the app's pages offer an AI
+ *   connector (`modules.mcp` in /api/auth/config, Settings' AI section); by default, whether its
+ *   /mcp answers. A host passes a function for its modules, whose MCP is the host's: read on each
+ *   request, it says whether the host's /mcp exists, which is known only once every module has
+ *   joined (host.js).
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
-  sweep = null, devices: deviceRules = null,
+  sweep = null, offersMcp = null, devices: deviceRules = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -480,6 +490,10 @@ export function createApp({
 
   // Copies of accounts and of the install, when the app says what its data is.
   const portability = portable ? suite.portabilityFor(portable, { version }) : null;
+  // Whether there is an AI connector to offer: Settings leaves out its section when there isn't.
+  const offersConnector = typeof offersMcp === 'function'
+    ? () => Boolean(offersMcp())
+    : () => Boolean(offersMcp ?? (mcp && config.modules.mcp));
 
   const api = createRouter();
   registerAuthApi(api, {
@@ -487,7 +501,11 @@ export function createApp({
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
-      modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
+      modules: {
+        organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
+        // Read each time the config is sent: a host's module learns late whether the host has one.
+        get mcp() { return offersConnector(); },
+      },
       // A module of a host (host.js) says where it is, for the kit to show the others beside it.
       ...(config.host ? { host: config.host } : {}),
     },
@@ -698,6 +716,12 @@ export function createApp({
 
       if (mcpServer && (pathname === '/mcp' || pathname.startsWith('/mcp/'))) {
         await mcpServer.handle(req, res, url);
+        return;
+      }
+      // With the MCP switched off, its address is a JSON 404 without a challenge: never the
+      // app's page, which an AI client would take for an endpoint that answers.
+      if (!config.modules.mcp && (pathname === '/mcp' || pathname.startsWith('/mcp/'))) {
+        sendJson(res, 404, { error: 'not_found' });
         return;
       }
       // How to set up the connector, to check it from the browser. It says
