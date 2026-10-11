@@ -34,6 +34,8 @@ export const DEFAULT_LIMITS = Object.freeze({
   code: 5,
   // Someone's own copies opened or applied (portability.js), per account.
   importTo: 10,
+  // Codes that failed to become a device token (devices.js), per address.
+  devices: 30,
 });
 
 export function rateLimitSchema(d) {
@@ -45,7 +47,7 @@ export function rateLimitSchema(d) {
  * @param {object} options
  * @param {object} options.database  the suite's database handle
  * @param {string} [options.secret]  keys the bucket hashes (the session secret)
- * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code, importTo }
+ * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code, importTo, devices }
  * @param {number} [options.windowMs]
  * @param {*} [options.trustProxy]   see proxyHops() in http.js
  */
@@ -152,6 +154,17 @@ export function createRateLimiter({
       add(bucket);
       return { allowed: true };
     },
+
+    /**
+     * Something anyone can try without credentials where only failures count,
+     * per address: 'devices', codes exchanged for a device token. Codes carry
+     * 256 random bits, so what this stops is a script, never a fleet of phones
+     * connected from one office.
+     */
+    checkFailures(kind, req) {
+      return blocked(key(kind, ipOf(req)), max[kind] ?? 10) || { allowed: true };
+    },
+    noteFailure(kind, req) { add(key(kind, ipOf(req))); },
 
     /** The same per recipient ('mail' → mailTo): nobody can bury an inbox in links. */
     allowTo(kind, target) {

@@ -30,6 +30,7 @@ import { pushSchema } from './push.js';
 import { dataImportsSchema } from './portability.js';
 import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
+import { deviceTokensSchema } from './devices.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -64,4 +65,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 20, name: 'entitlement-usage', up: entitlementUsageSchema },
   // When an account its owner asked to delete goes for good (account-deletion.js).
   { version: 21, name: 'account-deletion', up: accountDeletionSchema },
+  // Tokens for an app on a phone and the codes that become them (devices.js, with modules.devices).
+  { version: 22, name: 'device-tokens', up: deviceTokensSchema },
 ]);

@@ -588,15 +588,17 @@ export function registerProfileApi(router, {
  * @param {object} [deps.sessions]      from createSessions()
  * @param {object} [deps.audit]         from createAudit()
  * @param {object} [deps.twoFactor]     from createTwoFactor()
+ * @param {object} [deps.devices]       from createDevices(), with modules.devices
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
-  tokens = null, oauth = null, push = null, idp = null,
+  tokens = null, oauth = null, push = null, idp = null, devices = null,
 }) {
   /**
    * Out everywhere, for a lost phone or a departure: the sessions here and at
-   * the identity provider, the API tokens, the assistants' OAuth grants and the
-   * devices that get notices. Closing the sessions alone left the assistants
+   * the identity provider, the API tokens, the assistants' OAuth grants, the
+   * devices that get notices and, with modules.devices, the device tokens of
+   * the person's phones. Closing the sessions alone left the assistants
    * connected, the notices coming, and the provider's session ready to sign
    * that browser back in with one click.
    */
@@ -606,8 +608,10 @@ export function registerAdminApi(router, {
     const revoked = tokens?.revokeAllOf(id) ?? 0;
     oauth?.forgetUser(id);
     push?.unsubscribe(id);
+    // Only said when the module is on: without it the answer stays as it was.
+    const phones = devices ? { devices: devices.revokeAllOf(id) } : {};
     revokeAtProvider(idp, atProvider);
-    return { closed, tokens: revoked };
+    return { closed, tokens: revoked, ...phones };
   };
   const requireAdmin = (ctx) => {
     if (!ctx.user) throw unauthorized();
@@ -679,11 +683,11 @@ export function registerAdminApi(router, {
     requireAdmin(ctx);
     const id = idOf(ctx.params.id);
     if (!accounts.byId(id)) throw notFound('user_not_found');
-    const { closed, tokens: revoked } = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
+    const out = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
     // Their open tabs look again at who they are, and find nobody.
     accounts.changed?.(id);
-    record(ctx, 'admin.user.signout', 'user', id, { closed, tokens: revoked });
-    sendJson(ctx.res, 200, { ok: true, closed, tokens: revoked });
+    record(ctx, 'admin.user.signout', 'user', id, out);
+    sendJson(ctx.res, 200, { ok: true, ...out });
   });
 
   if (twoFactor) {

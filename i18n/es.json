@@ -402,6 +402,9 @@
   "admin.actions.account_deletion_request": "Pidió borrar su cuenta",
   "admin.actions.account_deletion_cancel": "Recuperó su cuenta",
   "admin.actions.account_delete": "Cuenta borrada a petición de su dueño",
+  "admin.actions.device_create": "Conectó un dispositivo",
+  "admin.actions.device_revoke": "Desconectó un dispositivo",
+  "admin.actions.device_token_failed": "Conexión de dispositivo fallida",
   "push.test": "Los avisos funcionan. Este es un mensaje de prueba.",
   "kit.cancel": "Cancelar",
   "kit.close": "Cerrar",
@@ -709,5 +712,17 @@
   "kit.links.kinds.phase": "Fase",
   "kit.links.kinds.note": "Nota",
   "kit.links.kinds.notebook": "Libreta",
-  "kit.links.kinds.item": "Elemento"
+  "kit.links.kinds.item": "Elemento",
+  "errors.device_code_invalid": "Ese código de conexión ya no vale. Vuelve a conectar el dispositivo desde el principio.",
+  "errors.device_not_allowed": "Esta cuenta no puede conectar dispositivos aquí.",
+  "errors.device_not_found": "Ese dispositivo ya no está conectado.",
+  "errors.too_many_devices": "Ya tienes {max} dispositivos conectados. Desconecta primero alguno que ya no uses.",
+  "errors.redirect_uri_not_allowed": "Esa app no se puede conectar desde aquí: su dirección de vuelta no es una que este servidor conozca.",
+  "fields.code_challenge": "Reto de conexión",
+  "fields.code_challenge_method": "Método del reto",
+  "fields.code_verifier": "Prueba de conexión",
+  "fields.redirect_uri": "Dirección de vuelta",
+  "fields.platform": "Plataforma",
+  "fields.app_version": "Versión de la app",
+  "fields.state": "Estado de la petición"
 }

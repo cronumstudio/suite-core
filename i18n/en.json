@@ -402,6 +402,9 @@
   "admin.actions.account_deletion_request": "Asked to delete their account",
   "admin.actions.account_deletion_cancel": "Took their account back",
   "admin.actions.account_delete": "Account deleted at its owner’s request",
+  "admin.actions.device_create": "Connected a device",
+  "admin.actions.device_revoke": "Disconnected a device",
+  "admin.actions.device_token_failed": "Failed device connection",
   "push.test": "Notifications work. This is a test message.",
   "kit.cancel": "Cancel",
   "kit.close": "Close",
@@ -709,5 +712,17 @@
   "kit.links.kinds.phase": "Phase",
   "kit.links.kinds.note": "Note",
   "kit.links.kinds.notebook": "Notebook",
-  "kit.links.kinds.item": "Item"
+  "kit.links.kinds.item": "Item",
+  "errors.device_code_invalid": "That connection code is no longer valid. Start connecting the device again.",
+  "errors.device_not_allowed": "This account can’t connect devices here.",
+  "errors.device_not_found": "That device is no longer connected.",
+  "errors.too_many_devices": "You already have {max} devices connected. Disconnect one you no longer use first.",
+  "errors.redirect_uri_not_allowed": "That app can’t be connected from here: its return address isn’t one this server knows.",
+  "fields.code_challenge": "Connection challenge",
+  "fields.code_challenge_method": "Challenge method",
+  "fields.code_verifier": "Connection proof",
+  "fields.redirect_uri": "Return address",
+  "fields.platform": "Platform",
+  "fields.app_version": "App version",
+  "fields.state": "Request state"
 }
