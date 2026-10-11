@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.69.0 — 2026-10-12
+## 0.70.0 — 2026-10-12
 
 - **Security: an answer that carries a secret is never kept for an `Idempotency-Key`.** Since
   0.34.0 the first successful answer to a write with a key was kept a day in `idempotency_keys`,
