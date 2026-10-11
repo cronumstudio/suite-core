@@ -67,7 +67,7 @@ suite-core/
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
-  principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
+  principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats
   entitlements.js       done   features, plans and grants; can() / limit() / require()
@@ -472,12 +472,15 @@ already stores `scrypt$N$r$p$salt$hash`. Focus's `accounts` + `persons` map to `
 everything else consumes that shape:
 
 ```js
-{ user, kind: 'session' | 'token' | 'oauth' | 'idp' | 'device', scopes, credentialId }
+{ user, kind: 'session' | 'token' | 'oauth' | 'idp', scopes, credentialId }
 ```
 
 It looks, in order, at the session cookie, then `Authorization: Bearer` (a manual API token, then
-a built-in OAuth access token, then an AuthKit JWT), then a device token (Focus kiosks and ESP32,
-Tracker's native emitter). There is no second path for any client.
+a built-in OAuth access token, then an AuthKit JWT). There is no second path for any of these
+clients. A device token is not one of them: no route of the suite takes it, the MCP included, and
+an app checks it itself on the routes it opens to devices (`suite.devices.authenticate(req)`,
+below), so Tracker's native app reaches only what Tracker chose. Focus keeps its own pairing for
+its kiosks and ESP32 screens, with its `X-Focus-Device` header.
 
 **Device tokens** (**done**, v0.67.0, `devices.js`, with `modules.devices`): what an app on a phone
 holds instead of a session (Tracker's native app). The app opens the system browser on its own
@@ -485,21 +488,25 @@ connect page with a PKCE challenge (S256) and the address to come back to, a pri
 its own (RFC 8252); the person signs in there as on the web and says yes; the page asks
 `POST /api/devices/codes` (session only, the address one of `devices.redirectUris`, exactly) for a
 code of five minutes and sends the browser back with it (`redirect_to`, with the `state`); the app
-exchanges the code, its verifier and the address at `POST /api/devices/token` for a token that starts
-with `devices.prefix` (never `tokens.prefix`), shown once and kept as a hash. A code is spent by its
-first exchange, right or wrong, and one that comes back after that was copied: the device it gave is
-revoked. Only failed exchanges count against an address (`rateLimits.devices`, 30), so a fleet of
+exchanges the code, its verifier and the address at `POST /api/devices/token` for a token that
+starts with `devices.prefix` (never `tokens.prefix` nor the built-in OAuth's `mcpat_`, `mcprt_`,
+`oc_`, `ocs_`), shown once and kept as a hash. A code is spent by its first exchange, right or
+wrong. One that comes back after that with its verifier and its address means the verifier got out
+too (or the app retries an answer it lost), and the device it gave is revoked (OAuth 2.1 §4.1.3);
+without them it is only refused, so whoever saw the code in a history or a log can't disconnect the
+phone. Only failed exchanges count against an address (`rateLimits.devices`, 30), so a fleet of
 phones connected from one office is never stopped. A token ends when it is revoked (Settings,
-`DELETE /api/me/devices/:id`; or the app signing out, `DELETE /api/devices/current` with the token),
+`DELETE /api/me/devices/:id`; the app signing out, `DELETE /api/devices/current` with the token; or
+the admin signing the person out everywhere or setting their password, `devices.revokeAllOf(id)`),
 after `devices.idleDays` (90) without use, and with the account; a disabled account's are refused,
 as its API tokens are. No route of the suite takes one, the MCP included: `ctx.user` only ever comes
 from the session cookie. The app accepts a device on the routes it chooses with
 `suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
 connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
-(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host.
-Focus pairs its kiosks the other way round (a code shown on the signed-in screen and typed or
-scanned on the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header)
-and keeps its own pairing; the tables are named so that both live in its database.
+(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host. Focus
+pairs its kiosks the other way round (a code shown on the signed-in screen and typed or scanned on
+the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header) and keeps
+its own pairing; the tables are named so that both live in its database.
 
 **Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
 limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).

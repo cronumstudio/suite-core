@@ -13,13 +13,17 @@
  * verifier.
  *
  * · A code lasts five minutes and is spent by its first exchange, right or
- *   wrong. One that comes back after being spent was copied: the device it gave
- *   is revoked (OAuth 2.1 §4.1.2 does the same with its grants).
+ *   wrong. One that comes back after being spent with its verifier and its
+ *   address means the verifier got out too (or the app retries an answer it
+ *   lost): the device it gave is revoked (OAuth 2.1 §4.1.3, as oauth.js does
+ *   with its grants). Without them it is only refused: whoever saw the code
+ *   later, in a history or a log, can't disconnect the phone that used it.
  * · A token starts with the product's own prefix (`devices.prefix`, never the
- *   API tokens'), carries 256 random bits and is kept as a hash. It ends when
- *   revoked, from Settings or from the device itself, when it goes unused for
- *   `devices.idleDays` (90), and with the account; a disabled account's are
- *   refused, as its API tokens are.
+ *   API tokens' nor the built-in OAuth's), carries 256 random bits and is kept
+ *   as a hash. It ends when revoked, from Settings or from the device itself,
+ *   when the admin signs the person out everywhere or sets their password, when
+ *   it goes unused for `devices.idleDays` (90), and with the account; a
+ *   disabled account's are refused, as its API tokens are.
  * · No route of the suite takes one: `ctx.user` only ever comes from the
  *   session cookie. An app accepts a device on the routes it chooses with
  *   `authenticate(req)`, and the app can refuse people (`canConnect`, through
@@ -127,6 +131,9 @@ export function createDevices({
     WHERE user_id = ? AND revoked_at IS NULL AND COALESCE(last_used_at, created_at) > ?`,
   userId, iso(clock() - idleMs)).n);
 
+  /** Whether a verifier is the one a code's challenge was made from (RFC 7636 S256: its SHA-256). */
+  const proves = (proof, row) => /^[A-Za-z0-9._~-]{43,128}$/.test(proof) && safeEqual(sha256(proof), row.code_challenge);
+
   const platformOf = (value) => {
     const text = str(value, { field: 'platform', max: 20, allowNull: true });
     if (text && !/^[a-z0-9][a-z0-9_-]*$/i.test(text)) throw badRequest('field_invalid', { field: 'platform' });
@@ -187,7 +194,11 @@ export function createDevices({
       const row = database.get('SELECT * FROM device_codes WHERE code_hash = ?', sha256(given));
       if (!row) return { failed: 'unknown' };
       if (row.used_at) {
-        const revoked = row.device_id
+        // Back after being spent. Only with its verifier and its address does it take the device
+        // it gave: the code alone travels through the browser and can be seen by others, and it
+        // must not be enough to disconnect someone's phone.
+        const proven = row.redirect_uri === redirect && proves(proof, row);
+        const revoked = proven && row.device_id
           ? database.run('UPDATE device_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL', iso(now), row.device_id).changes > 0
           : false;
         return { failed: 'reused', row, revoked: revoked ? row.device_id : null };
@@ -195,10 +206,7 @@ export function createDevices({
       database.run('UPDATE device_codes SET used_at = ? WHERE code_hash = ?', iso(now), row.code_hash);
       if (Date.parse(row.expires_at) <= now) return { failed: 'expired', row };
       if (row.redirect_uri !== redirect) return { failed: 'redirect', row };
-      // RFC 7636 S256: the challenge is the verifier's SHA-256, which is what sha256() gives.
-      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(proof) || !safeEqual(sha256(proof), row.code_challenge)) {
-        return { failed: 'verifier', row };
-      }
+      if (!proves(proof, row)) return { failed: 'verifier', row };
       const user = database.get('SELECT * FROM users WHERE id = ?', row.user_id);
       if (!user || user.disabled_at) return { failed: 'account', row };
       if (!allowed(user)) return { refused: true, row };
@@ -283,6 +291,10 @@ export function createDevices({
   const revoke = (userId, id) => database.run(`UPDATE device_tokens SET revoked_at = ?
     WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, iso(clock()), id, userId).changes > 0;
 
+  /** Revokes all of a person's devices (the admin's "sign out everywhere"): how many were. */
+  const revokeAllOf = (userId) => database.run(`UPDATE device_tokens SET revoked_at = ?
+    WHERE user_id = ? AND revoked_at IS NULL`, iso(clock()), userId).changes;
+
   /**
    * Forgets codes a day after they expired, and devices a month after they
    * were revoked or stopped working: the audit log says what happened.
@@ -296,7 +308,7 @@ export function createDevices({
   }
 
   return {
-    prefix, idleDays, maxPerUser, issueCode, exchange, authenticate, isActive, list, revoke, purge,
+    prefix, idleDays, maxPerUser, issueCode, exchange, authenticate, isActive, list, revoke, revokeAllOf, purge,
     /** createApp's `devices.canConnect(user)`: whether the app lets that person connect devices. */
     setCanConnect(fn) {
       if (typeof fn !== 'function') throw new Error('devices.canConnect must be a function (user) => boolean');

@@ -17,6 +17,7 @@ import { createAudit } from '../audit.js';
 import { createTokens } from '../tokens.js';
 import { createDevices, redirectUriProblem } from '../devices.js';
 import { resolveConfig } from '../config.js';
+import { OAUTH_PREFIXES } from '../oauth.js';
 import { createSuite, createApp } from '../app.js';
 import { randomToken, sha256 } from '../crypto.js';
 
@@ -76,6 +77,13 @@ test('the configuration: off by default, and with the module on, its own prefix 
   ], 'nothing guessed: both become part of the installed apps');
   assert.deepEqual(resolveConfig({ app, modules: { devices: true }, devices: { prefix: 'mcp_', redirectUris: [BACK] } }, {}).errors,
     ['devices.prefix must differ from tokens.prefix ("mcp_"): a device token is not an API token']);
+  // Nor the built-in OAuth's: the MCP refuses whatever starts with devices.prefix, so its tokens would stop working.
+  assert.deepEqual(Object.values(OAUTH_PREFIXES), ['mcpat_', 'mcprt_', 'oc_', 'ocs_']);
+  for (const taken of Object.values(OAUTH_PREFIXES)) {
+    assert.deepEqual(resolveConfig({
+      app, modules: { devices: true }, tokens: { prefix: 'tracker_' }, devices: { prefix: taken, redirectUris: [BACK] },
+    }, {}).errors, [`devices.prefix can't be "${taken}": the built-in OAuth's values start with "${taken}", and the MCP would refuse them`]);
+  }
   const wrong = resolveConfig({
     app, devices: { prefix: 'Dev-', redirectUris: ['javascript:alert(1)', 'http://phone.example/auth', 'https://a.example/#x', 'myapp:/auth'], idleDays: 0, maxDays: 3 },
   }, {});
@@ -148,16 +156,26 @@ test('a code: the wrong verifier, used again, expired, or for another address gi
   assert.equal(code(() => devices.exchange({ code: one.code, verifier: first.verifier, redirectUri: BACK })), '400 device_code_invalid');
   assert.equal(code(() => devices.exchange({ code: one.code, verifier: 'short', redirectUri: BACK })), '400 device_code_invalid');
 
-  // Used again: someone copied it, and the device it gave goes.
+  // Used again with only the code, which travels through the browser and can be seen there:
+  // refused, and the phone that connected with it keeps working.
   const second = pkce();
   const two = issue(second);
   const { token, device } = devices.exchange({ code: two.code, verifier: second.verifier, redirectUri: BACK });
   assert.ok(devices.authenticate(token));
+  assert.equal(code(() => devices.exchange({ code: two.code, verifier: pkce().verifier, redirectUri: BACK })), '400 device_code_invalid');
+  assert.equal(code(() => devices.exchange({ code: two.code, verifier: 'x', redirectUri: 'com.evil.app:/x' })), '400 device_code_invalid');
+  assert.equal(code(() => devices.exchange({ code: two.code, verifier: second.verifier, redirectUri: 'com.evil.app:/x' })), '400 device_code_invalid');
+  assert.ok(devices.authenticate(token), 'a spent code without its verifier and address disconnects nobody');
+  const unproven = audit.list({ action: 'device.' }).map((e) => [e.action, e.meta.reason ?? e.meta.by ?? null, e.meta.revoked ?? null]);
+  assert.deepEqual(unproven.slice(0, 3), [['device.token_failed', 'reused', null], ['device.token_failed', 'reused', null], ['device.token_failed', 'reused', null]]);
+
+  // Used again with its verifier and its address: the verifier got out too (or the app retries an
+  // answer it lost), and the device it gave goes (OAuth 2.1 §4.1.3).
   assert.equal(code(() => devices.exchange({ code: two.code, verifier: second.verifier, redirectUri: BACK })), '400 device_code_invalid');
   assert.equal(devices.authenticate(token), null, 'the device of a code used twice is revoked');
   assert.equal(devices.isActive(device.id), false);
-  const said = audit.list({ action: 'device.' }).map((e) => [e.action, e.meta.reason ?? e.meta.by ?? null]);
-  assert.deepEqual(said.slice(0, 2), [['device.revoke', 'code_reused'], ['device.token_failed', 'reused']]);
+  const said = audit.list({ action: 'device.' }).map((e) => [e.action, e.meta.reason ?? e.meta.by ?? null, e.meta.revoked ?? null]);
+  assert.deepEqual(said.slice(0, 2), [['device.revoke', 'code_reused', null], ['device.token_failed', 'reused', device.id]]);
 
   // Expired: five minutes.
   const third = pkce();
@@ -431,6 +449,46 @@ test('a code or a token is never kept to replay an Idempotency-Key: the database
   const apiToken = (await web('POST', '/api/me/tokens', { name: 'Script' })).data;
   assert.equal((await web('DELETE', `/api/me/tokens/${apiToken.id}`, undefined, { 'Idempotency-Key': 'revoke-1' })).status, 200);
   assert.deepEqual(suite.database.all('SELECT key FROM idempotency_keys').map((r) => r.key), ['revoke-1']);
+});
+
+test('the admin signing someone out everywhere, or setting their password, revokes their phones too', async (t) => {
+  const { suite, web } = await startApp(t, { product: DEVICES_ON });
+  const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password-123' });
+  const connect = (name) => {
+    const pair = pkce();
+    const issued = suite.devices.issueCode(ana, { codeChallenge: pair.challenge, redirectUri: BACK, name });
+    return suite.devices.exchange({ code: issued.code, verifier: pair.verifier, redirectUri: BACK }).token;
+  };
+  const phone = connect('Lost phone');
+  const tablet = connect('Tablet');
+  const script = suite.tokens.create(ana.id, { name: 'Script' }).token;
+  assert.ok(suite.devices.authenticate(phone));
+
+  const out = await web('DELETE', `/api/admin/users/${ana.id}/sessions`);
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.data, { ok: true, closed: 0, tokens: 1, devices: 2 });
+  assert.equal(suite.devices.authenticate(phone), null, 'the lost phone is out');
+  assert.equal(suite.devices.authenticate(tablet), null);
+  assert.equal(suite.tokens.authenticate(script, { scope: 'mcp' }), null, 'as its API tokens are');
+  assert.deepEqual(suite.devices.list(ana.id), []);
+  assert.deepEqual(suite.audit.list({ action: 'admin.user.signout' })[0].meta, { closed: 0, tokens: 1, devices: 2 });
+
+  // A password the admin sets for someone else is that person out everywhere, phones included.
+  const next = connect('New phone');
+  assert.ok(suite.devices.authenticate(next));
+  assert.equal((await web('PATCH', `/api/admin/users/${ana.id}`, { password: 'new-password-456' })).status, 200);
+  assert.equal(suite.devices.authenticate(next), null);
+});
+
+test('the admin’s activity log names every device entry, in every language', () => {
+  const actions = ['device.create', 'device.revoke', 'device.token_failed'];
+  for (const lang of ['en', 'es', 'fr', 'de']) {
+    const catalog = JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
+    for (const action of actions) {
+      const key = `admin.actions.${action.replace(/\./g, '_')}`;
+      assert.ok(catalog[key], `${lang}: ${key}`);
+    }
+  }
 });
 
 test('createApp({ devices: { canConnect } }) refuses whom the app doesn’t let in; without the module it only says so', async (t) => {

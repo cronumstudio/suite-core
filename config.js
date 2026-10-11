@@ -22,6 +22,7 @@ import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { vapidKeyErrors } from './push.js';
 import { PADDLE_API } from './paddle.js';
 import { redirectUriProblem } from './devices.js';
+import { OAUTH_PREFIXES } from './oauth.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -154,7 +155,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const tokens = { prefix: tk.prefix ?? 'mcp_' };
   if (!/^[a-z]{2,10}_$/.test(tokens.prefix)) errors.push('tokens.prefix: a few lowercase letters and _ ("mcp_")');
 
-  // Device tokens: their own prefix, so neither kind of token is ever taken for the other, and the
+  // Device tokens: their own prefix, so no other kind of token is ever taken for one, and the
   // addresses the system browser may hand a code back to. Both become part of the installed apps:
   // with the module on they must be given, never guessed.
   const dv = isObject(p.devices) ? p.devices : {};
@@ -169,8 +170,15 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   };
   if (devices.prefix !== null && !/^[a-z]{2,10}_$/.test(String(devices.prefix))) {
     errors.push('devices.prefix: a few lowercase letters and _ ("appdev_")');
-  } else if (devices.prefix !== null && devices.prefix === tokens.prefix) {
-    errors.push(`devices.prefix must differ from tokens.prefix ("${tokens.prefix}"): a device token is not an API token`);
+  } else if (devices.prefix !== null) {
+    // Either one starting the other is a clash: the MCP refuses whatever starts with devices.prefix.
+    const clashes = (other) => String(other).startsWith(devices.prefix) || devices.prefix.startsWith(String(other));
+    const oauthTaken = Object.values(OAUTH_PREFIXES).find(clashes);
+    if (clashes(tokens.prefix)) {
+      errors.push(`devices.prefix must differ from tokens.prefix ("${tokens.prefix}"): a device token is not an API token`);
+    } else if (oauthTaken) {
+      errors.push(`devices.prefix can't be "${devices.prefix}": the built-in OAuth's values start with "${oauthTaken}", and the MCP would refuse them`);
+    }
   }
   if (dv.redirectUris !== undefined && !Array.isArray(dv.redirectUris)) errors.push("devices.redirectUris: a list, such as ['com.example.app:/auth']");
   for (const uri of devices.redirectUris) {

@@ -12,24 +12,35 @@ change an interface and a patch never does. Apps pin a version through the submo
   `devices.redirectUris`, exactly) for a five-minute code and its `redirect_to`; the app exchanges
   the code, its verifier and the address at `POST /api/devices/token` (rate-limited per address,
   failures only, `rateLimits.devices` 30; audited) for a token that starts with `devices.prefix`,
-  shown once and kept as a hash. A code is spent by its first exchange, right or wrong; one that
-  comes back after that revokes the device it gave. `GET /api/me/devices` and
-  `DELETE /api/me/devices/:id` (session only) list and revoke them; `DELETE /api/devices/current`
+  shown once and kept as a hash. A code is spent by its first exchange, right or wrong. One that
+  comes back after that with its verifier and its address revokes the device it gave (OAuth 2.1
+  §4.1.3: the verifier got out too, or the app retries an answer it lost); without them it is only
+  refused and audited, so whoever saw the code can't disconnect the phone. `GET /api/me/devices`
+  and `DELETE /api/me/devices/:id` (session only) list and revoke them; `DELETE /api/devices/current`
   (the device's own bearer) signs a device out. A token ends after `devices.idleDays` (90) without
   use and with the account (`ON DELETE CASCADE`); a disabled account's are refused.
+- **The admin's "sign out everywhere" takes the phones too.** `DELETE /api/admin/users/:id/sessions`
+  and a password the admin sets for someone else also revoke that person's device tokens
+  (`suite.devices.revokeAllOf(userId)`). With the module on, the answer and the
+  `admin.user.signout` entry say how many (`{ closed, tokens, devices }`); without it they stay
+  `{ closed, tokens }`. `registerAdminApi` takes `devices`.
 - `suite.devices`: `issueCode()`, `exchange()`, `authenticate(req)` (the account with its
   `device_id`, or null; last use noted at most once a minute), `isActive(id)`, `list(userId)`,
-  `revoke(userId, id)`. No route of the suite takes a device token, the MCP included: an app accepts
-  one only on the routes it chooses, with `authenticate(req)`.
+  `revoke(userId, id)`, `revokeAllOf(userId)`. No route of the suite takes a device token, the MCP
+  included: an app accepts one only on the routes it chooses, with `authenticate(req)`.
 - `createApp({ devices: { canConnect(user) } })`: whom the app lets connect a phone (Tracker's
   allowlist), asked when the code is issued, when it is exchanged and on every use. It must answer
   at once; a promise is refused.
-- suite.config.js `devices: { prefix, redirectUris, idleDays }`. With the module on, `prefix` (never
-  `tokens.prefix`) and at least one return address are required: both end up in the installed apps.
-  An address is a reverse-domain private-use scheme (`com.example.app:/auth`, RFC 8252), https, or
-  http on loopback, without a fragment.
+- suite.config.js `devices: { prefix, redirectUris, idleDays }`. With the module on, `prefix` and at
+  least one return address are required: both end up in the installed apps. The prefix can't be
+  `tokens.prefix` nor one of the built-in OAuth's (`mcpat_`, `mcprt_`, `oc_`, `ocs_`, now
+  `OAUTH_PREFIXES` in `oauth.js`), or the MCP would refuse those tokens. An address is a
+  reverse-domain private-use scheme (`com.example.app:/auth`, RFC 8252), https, or http on
+  loopback, without a fragment.
 - **Migration 22** (`device-tokens`): the tables `device_tokens` and `device_codes`, created in every
   app and empty while the module is off. Not `devices`, which Focus already has.
+- The admin's activity log names the new entries in its four languages: `device.create`,
+  `device.revoke` and `device.token_failed`.
 - The brake: `checkFailures(kind, req)` and `noteFailure(kind, req)`, for what anyone can try without
   credentials where only failures count.
 - An answer that carries a secret shown once (a device code, a device token) is never kept to replay an

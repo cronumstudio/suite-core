@@ -502,7 +502,9 @@ export function createApp({
     localPasswords, alsoAt: profile.alsoAt || {},
   });
   if (config.modules.admin) {
-    registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp });
+    registerAdminApi(api, {
+      accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp, devices: suite.devices,
+    });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name });
