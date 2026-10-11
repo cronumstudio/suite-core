@@ -29,7 +29,8 @@ const MADE_UP_USER = 'conformance-nobody';
  * @param {string} [options.username]    an account that signs in with a password, no second step
  * @param {string} [options.password]
  * @param {boolean} [options.brake]      check the brute-force brake (on by default)
- * @param {boolean} [options.mcp]        the app serves /mcp (on by default: all of the suite's do)
+ * @param {boolean} [options.mcp]        the app serves /mcp (on by default: all of the suite's do);
+ *   false checks instead that /mcp and the OAuth metadata for AI clients answer a JSON 404
  * @returns {Promise<Array<{ name: string, ok: boolean, detail: string, skipped?: boolean }>>}
  */
 export async function checkConformance({ baseUrl, username, password, brake = true, mcp = true, fetch = globalThis.fetch }) {
@@ -120,6 +121,18 @@ export async function checkConformance({ baseUrl, username, password, brake = tr
     }
   } else {
     skip('/mcp without a token is a 401 with a Bearer challenge', 'the app serves no /mcp');
+    // Without an MCP nothing sends an AI client on: no endpoint, no metadata to follow (0.65.0).
+    const endpoint = await get('/mcp');
+    check('Without an MCP, /mcp is a JSON 404 with no challenge', endpoint.status === 404 && isJson(endpoint)
+      && !endpoint.headers.get('www-authenticate'),
+    `${endpoint.status} ${endpoint.headers.get('content-type')} "${endpoint.headers.get('www-authenticate') || ''}"`);
+    const served = [];
+    for (const route of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-authorization-server']) {
+      const res = await get(route);
+      if (res.status !== 404 || !isJson(res) || res.headers.get('www-authenticate')) served.push(`${route} ${res.status}`);
+    }
+    check('Without an MCP, no OAuth metadata for AI clients: a JSON 404 with no challenge', served.length === 0, served.join(', '));
   }
 
   /* ------------------------------ translations ------------------------ */
