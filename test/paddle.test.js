@@ -20,6 +20,7 @@ import { createAccounts } from '../accounts.js';
 import { createEntitlements } from '../entitlements.js';
 import { createBilling } from '../billing.js';
 import { resolveConfig } from '../config.js';
+import { createSuite, createApp } from '../app.js';
 import { paddleProvider, verifyPaddleSignature, signPaddlePayload, providerId } from '../paddle.js';
 
 const DAY = 24 * 3600 * 1000;
@@ -36,6 +37,21 @@ const PRODUCTS = {
   'pro-pass': { plan: 'pro', kind: 'once', days: 30, price: PRICES.pass },
 };
 const ADA = 'user_01JADA0000000000000000000A';
+
+/*
+ * Two products on one Paddle account: Cronum Work (the PRODUCTS above, sold by Tasks and Next) and
+ * Tracker, each with its own Paddle product. Every destination of the account gets every event.
+ */
+const WORK_PRODUCT_ID = 'pro_01m46hm0workprodct00000001';
+const TRACKER_PRODUCT_ID = 'pro_01m46hm0trackerprod0000001';
+const TRACKER_PRICES = { monthly: 'pri_01m46hm0trackermonth000001', org: 'pri_01m46hm0trackerorg00000001' };
+const TRACKER_PRODUCTS = {
+  'tracker-pro-monthly': { plan: 'pro', kind: 'subscription', price: TRACKER_PRICES.monthly },
+  'tracker-org-monthly': { plan: 'pro', kind: 'subscription', price: TRACKER_PRICES.org, for: 'organization' },
+};
+/** What each install sets once it keeps the other product's sales out. */
+const WORK_GUARD = { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: [WORK_PRODUCT_ID] };
+const TRACKER_GUARD = { ignoreUnknownProducts: true, app: 'tracker', strictPrices: true, paddleProductIds: [TRACKER_PRODUCT_ID] };
 
 /** A stand-in for Paddle's API: records each call and answers as Paddle does. */
 function fakePaddle({ customers = [] } = {}) {
@@ -64,12 +80,23 @@ function fakePaddle({ customers = [] } = {}) {
   return { calls, fetch };
 }
 
-/** One app of the suite: its own database, accounts, plans and Paddle webhook. */
-function app(t, { now = '2026-11-01T10:00:00Z', paddle = fakePaddle(), founderUntil = null, clock = null, checkoutUrl = '' } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-paddle-'));
-  const database = openDatabase({ dataDir: dir, name: 'test' });
-  t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+/**
+ * One app of the suite: its own database, accounts, plans and Paddle webhook. `guard`: what keeps
+ * another product's sales out, { ignoreUnknownProducts, app } for billing.js and
+ * { strictPrices, paddleProductIds } for paddle.js; none by default, as the apps run today.
+ */
+function app(t, {
+  now = '2026-11-01T10:00:00Z', paddle = fakePaddle(), founderUntil = null, clock = null, checkoutUrl = '',
+  products = PRODUCTS, guard = {}, database: reused = null,
+} = {}) {
+  // `database`: another app()'s, for the same install started again with other options.
+  let database = reused;
+  if (!database) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-paddle-'));
+    database = openDatabase({ dataDir: dir, name: 'test' });
+    t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+    migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+  }
   const time = clock || { now: Date.parse(now) };
   const accounts = createAccounts({ database, clock: () => time.now });
   const entitlements = createEntitlements({
@@ -80,8 +107,10 @@ function app(t, { now = '2026-11-01T10:00:00Z', paddle = fakePaddle(), founderUn
   });
   const logs = [];
   const provider = paddleProvider({
-    apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', checkoutUrl, products: PRODUCTS,
+    apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', checkoutUrl, products,
     fetch: paddle.fetch, clock: () => time.now, log: (line) => logs.push(line),
+    ...(guard.strictPrices !== undefined ? { strictPrices: guard.strictPrices } : {}),
+    ...(guard.paddleProductIds !== undefined ? { paddleProductIds: guard.paddleProductIds } : {}),
   });
   const identities = {
     of: (userId) => {
@@ -91,9 +120,12 @@ function app(t, { now = '2026-11-01T10:00:00Z', paddle = fakePaddle(), founderUn
     user: (provider, subject) => accounts.byIdentity(provider, subject)?.id ?? null,
   };
   const billing = createBilling({
-    database, entitlements, provider, products: PRODUCTS, identities, clock: () => time.now, log: (line) => logs.push(line),
+    database, entitlements, provider, products, identities, clock: () => time.now, log: (line) => logs.push(line),
     isFounder: (user) => Boolean(founderUntil) && Date.parse(user.created_at) < Date.parse(founderUntil),
+    ...(guard.ignoreUnknownProducts !== undefined ? { ignoreUnknownProducts: guard.ignoreUnknownProducts } : {}),
+    ...(guard.app !== undefined ? { app: guard.app } : {}),
   });
+  assert.deepEqual(billing.errors, []);
   accounts.whenLinked(({ userId, provider: p, subject }) => billing.claim(p, subject, userId));
   /** Signs in for the first time with WorkOS: the account is made with its identity. */
   const signIn = (workosId, username) => accounts.create({
@@ -111,27 +143,27 @@ function app(t, { now = '2026-11-01T10:00:00Z', paddle = fakePaddle(), founderUn
   return { database, clock: time, accounts, entitlements, billing, provider, paddle, deliver, planOf, signIn, logs };
 }
 
-/** A subscription.* notification, shaped like Paddle's. */
+/** A subscription.* notification, shaped like Paddle's. `custom`: its whole custom_data instead. */
 function subscriptionEvent(id, {
   type = 'subscription.created', occurredAt, status = 'active', price = PRICES.yearly, endsAt,
-  workosId = ADA, sub = 'sub_01ada', customer = 'ctm_01ada', scheduled = null,
+  workosId = ADA, sub = 'sub_01ada', customer = 'ctm_01ada', scheduled = null, productId = 'pro_01', custom = null,
 }) {
   return {
     event_id: id, event_type: type, occurred_at: occurredAt, notification_id: `ntf_${id}`,
     data: {
       id: sub, status, customer_id: customer, address_id: 'add_01', currency_code: 'EUR',
-      items: [{ status: 'active', quantity: 1, recurring: true, price: { id: price, product_id: 'pro_01' } }],
+      items: [{ status: 'active', quantity: 1, recurring: true, price: { id: price, product_id: productId } }],
       current_billing_period: endsAt ? { starts_at: occurredAt, ends_at: endsAt } : null,
       scheduled_change: scheduled,
-      custom_data: { workos_user_id: workosId, email: 'ada@example.com', product: 'pro-yearly' },
+      custom_data: custom || { workos_user_id: workosId, email: 'ada@example.com', product: 'pro-yearly' },
     },
   };
 }
 
-const refundEvent = (id, { type = 'adjustment.updated', occurredAt, status = 'approved', kind = 'full', action = 'refund' }) => ({
+const refundEvent = (id, { type = 'adjustment.updated', occurredAt, status = 'approved', kind = 'full', action = 'refund', sub = 'sub_01ada' }) => ({
   event_id: id, event_type: type, occurred_at: occurredAt,
   data: {
-    id: 'adj_01', action, type: kind, status, transaction_id: 'txn_01ada', subscription_id: 'sub_01ada',
+    id: 'adj_01', action, type: kind, status, transaction_id: 'txn_01ada', subscription_id: sub,
     customer_id: 'ctm_01ada', items: [], totals: { total: '3500' },
   },
 });
@@ -435,6 +467,307 @@ test('an identity that never comes: the event is dropped after a while; a broken
   assert.ok(next.logs.some((line) => /could not be applied/.test(line)));
 });
 
+/* ------------------------- another product's sales ------------------------- */
+
+const START = '2026-11-01T10:00:00Z';
+const END = '2027-11-01T10:00:00Z';
+const count = (install, table) => install.database.get(`SELECT COUNT(*) AS n FROM ${table}`).n;
+const outcomes = (install) => install.database.all('SELECT event_id, type, outcome FROM billing_events ORDER BY rowid')
+  .map((r) => [r.event_id, r.type, r.outcome]);
+
+/** A Cronum Work sale, as an install that writes custom_data.app sends it (`seller: null`: one from before). */
+const workSale = (id, { price = PRICES.yearly, product = 'pro-yearly', seller = 'work', sub = 'sub_01ada' } = {}) => subscriptionEvent(id, {
+  occurredAt: START, endsAt: END, price, productId: WORK_PRODUCT_ID, sub,
+  custom: { workos_user_id: ADA, email: 'ada@example.com', product, ...(seller ? { app: seller } : {}) },
+});
+/** A Tracker sale to Ada, who also uses Cronum Work: the same WorkOS id, the same Paddle customer. */
+const trackerSale = (id, { product = 'tracker-pro-monthly' } = {}) => subscriptionEvent(id, {
+  occurredAt: START, endsAt: END, price: TRACKER_PRICES.monthly, productId: TRACKER_PRODUCT_ID, sub: 'sub_01trk',
+  custom: { workos_user_id: ADA, email: 'ada@example.com', product, app: 'tracker' },
+});
+/** A Tracker sale to a group: a group's checkout names it by its id in the install that sold it. */
+const trackerGroupSale = (id) => subscriptionEvent(id, {
+  occurredAt: START, endsAt: END, price: TRACKER_PRICES.org, productId: TRACKER_PRODUCT_ID, sub: 'sub_01org', customer: 'ctm_01org',
+  custom: { subject: 'organization:1', product: 'tracker-org-monthly', app: 'tracker' },
+});
+
+test('A · a Work sale in a Tracker install is foreign: no customer linked, nothing of the person kept', async (t) => {
+  // Without the options, as the apps run today: Ada's Work customer is linked in Tracker, and only then ignored.
+  const before = app(t, { products: TRACKER_PRODUCTS });
+  const adaBefore = before.signIn(ADA, 'ada');
+  assert.equal(await before.deliver(workSale('evt_w1')), 'ignored');
+  assert.equal(before.billing.customerOf({ type: 'user', id: adaBefore.id }), 'ctm_01ada');
+
+  // Any one guard keeps it out; an install sets them all.
+  const guards = {
+    all: TRACKER_GUARD,
+    ignoreUnknownProducts: { ignoreUnknownProducts: true },
+    paddleProductIds: { paddleProductIds: [TRACKER_PRODUCT_ID] },
+    app: { app: 'tracker' },
+  };
+  for (const [name, guard] of Object.entries(guards)) {
+    const tracker = app(t, { products: TRACKER_PRODUCTS, guard });
+    const ada = tracker.signIn(ADA, 'ada');
+    assert.equal(await tracker.deliver(workSale('evt_w1')), 'foreign', name);
+    assert.equal(tracker.billing.customerOf({ type: 'user', id: ada.id }), null, `${name}: Ada's Work customer is nobody's here`);
+    for (const table of ['billing_customers', 'billing_subscriptions', 'billing_pending', 'entitlement_grants']) {
+      assert.equal(count(tracker, table), 0, `${name}: nothing in ${table}`);
+    }
+    assert.deepEqual(outcomes(tracker), [['evt_w1', 'subscription', 'foreign']], `${name}: only its id, type and outcome`);
+    const said = tracker.logs.join('\n');
+    assert.ok(said.includes('evt_w1') && !said.includes(ADA) && !said.includes('ctm_01ada') && !said.includes('@'),
+      `${name}: the log says the event, and no one`);
+    assert.equal(tracker.planOf(ada), 'free');
+    // Its own sale still counts.
+    assert.equal(await tracker.deliver(trackerSale('evt_t1')), 'granted', name);
+    assert.equal(tracker.planOf(ada), 'pro');
+  }
+});
+
+test('B · someone who never opened an app: another product\'s sale leaves nothing waiting there, either way', async (t) => {
+  // Without the options, as today: a Work sale waits in Tracker for 400 days, with Ada's WorkOS id.
+  const before = app(t, { products: TRACKER_PRODUCTS });
+  assert.equal(await before.deliver(workSale('evt_w1')), 'pending');
+  assert.equal(before.database.get('SELECT identity_subject FROM billing_pending').identity_subject, ADA);
+
+  const tracker = app(t, { products: TRACKER_PRODUCTS, guard: TRACKER_GUARD });
+  assert.equal(await tracker.deliver(workSale('evt_w1')), 'foreign', 'a Work payer who never opened Tracker');
+  assert.equal(count(tracker, 'billing_pending'), 0);
+  const tasks = app(t, { guard: WORK_GUARD });
+  assert.equal(await tasks.deliver(trackerSale('evt_t1')), 'foreign', 'a Tracker payer who never opened Tasks');
+  assert.equal(count(tasks, 'billing_pending'), 0);
+  // When they do, nothing comes with them.
+  const adaInTracker = tracker.signIn(ADA, 'ada');
+  const adaInTasks = tasks.signIn(ADA, 'ada');
+  assert.equal(tracker.planOf(adaInTracker), 'free');
+  assert.equal(tasks.planOf(adaInTasks), 'free');
+  assert.equal(count(tracker, 'billing_customers') + count(tasks, 'billing_customers'), 0);
+
+  // A sale of its own product still waits for its person: one subscription for every app of Cronum Work.
+  const next = app(t, { guard: WORK_GUARD });
+  assert.equal(await next.deliver(workSale('evt_w2')), 'pending');
+  const adaInNext = next.signIn(ADA, 'ada');
+  assert.equal(next.planOf(adaInNext), 'pro');
+  assert.equal(next.billing.customerOf({ type: 'user', id: adaInNext.id }), 'ctm_01ada');
+  // One sold before checkouts said the app counts too: the app is only compared when it is there.
+  assert.equal(await next.deliver(workSale('evt_w3', { seller: null, sub: 'sub_02ada' })), 'granted');
+});
+
+test('C · a key two products share: the price says whose it is, not custom_data.product, and nothing is granted', async (t) => {
+  // Tracker names a product "pro-monthly" too, with a price of its own.
+  const shared = (id) => trackerSale(id, { product: 'pro-monthly' });
+  // Without the options, as today: Tasks reads custom_data.product and gives Pro for a Tracker sale.
+  const before = app(t);
+  const adaBefore = before.signIn(ADA, 'ada');
+  assert.equal(await before.deliver(shared('evt_t1')), 'granted');
+  assert.equal(before.planOf(adaBefore), 'pro');
+
+  for (const [name, guard] of Object.entries({
+    all: WORK_GUARD,
+    'strictPrices with ignoreUnknownProducts': { strictPrices: true, ignoreUnknownProducts: true },
+    paddleProductIds: { paddleProductIds: [WORK_PRODUCT_ID] },
+    app: { app: 'work' },
+  })) {
+    const tasks = app(t, { guard });
+    const ada = tasks.signIn(ADA, 'ada');
+    assert.equal(await tasks.deliver(shared('evt_t1')), 'foreign', name);
+    assert.equal(tasks.planOf(ada), 'free', `${name}: not granted`);
+    assert.equal(count(tasks, 'billing_customers'), 0, name);
+  }
+  // strictPrices alone doesn't grant either, but the customer is linked first: it goes with ignoreUnknownProducts.
+  const strict = app(t, { guard: { strictPrices: true } });
+  const adaStrict = strict.signIn(ADA, 'ada');
+  assert.equal(await strict.deliver(shared('evt_t1')), 'ignored');
+  assert.equal(strict.planOf(adaStrict), 'free');
+
+  // The other way round: Tracker's own "pro-monthly" is granted there, Work's isn't.
+  const tracker = app(t, { products: { 'pro-monthly': TRACKER_PRODUCTS['tracker-pro-monthly'] }, guard: TRACKER_GUARD });
+  const ada = tracker.signIn(ADA, 'ada');
+  assert.equal(await tracker.deliver(workSale('evt_w1', { price: PRICES.monthly, product: 'pro-monthly' })), 'foreign');
+  assert.equal(tracker.planOf(ada), 'free');
+  assert.equal(await tracker.deliver(shared('evt_t2')), 'granted');
+  assert.equal(tracker.planOf(ada), 'pro');
+});
+
+test('D · a group\'s sale in another install: no customer row for whichever group has that number there', async (t) => {
+  // Without the options, as today: Tasks links Tracker's group customer to its own "organization 1".
+  const before = app(t);
+  assert.equal(await before.deliver(trackerGroupSale('evt_g1')), 'ignored');
+  assert.deepEqual(before.database.all('SELECT subject_type, subject_id, customer_id FROM billing_customers')
+    .map((r) => [r.subject_type, r.subject_id, r.customer_id]), [['organization', 1, 'ctm_01org']]);
+
+  for (const [name, guard] of Object.entries({
+    all: WORK_GUARD,
+    ignoreUnknownProducts: { ignoreUnknownProducts: true },
+    paddleProductIds: { paddleProductIds: [WORK_PRODUCT_ID] },
+    app: { app: 'work' },
+  })) {
+    const tasks = app(t, { guard });
+    assert.equal(await tasks.deliver(trackerGroupSale('evt_g1')), 'foreign', name);
+    for (const table of ['billing_customers', 'billing_subscriptions', 'entitlement_grants']) {
+      assert.equal(count(tasks, table), 0, `${name}: nothing in ${table}`);
+    }
+  }
+  // In Tracker, the group it sold to gets it.
+  const tracker = app(t, { products: TRACKER_PRODUCTS, guard: TRACKER_GUARD });
+  assert.equal(await tracker.deliver(trackerGroupSale('evt_g1')), 'granted');
+  assert.equal(tracker.billing.customerOf({ type: 'organization', id: 1 }), 'ctm_01org');
+  assert.equal(tracker.database.get('SELECT subject_type FROM entitlement_grants').subject_type, 'organization');
+});
+
+test('refunds are not checked: an install\'s own is still taken back, waiting or not; another product\'s finds nothing', async (t) => {
+  const tracker = app(t, { products: TRACKER_PRODUCTS, guard: TRACKER_GUARD });
+  const ada = tracker.signIn(ADA, 'ada');
+  assert.equal(await tracker.deliver(trackerSale('evt_t1')), 'granted');
+  assert.equal(await tracker.deliver(refundEvent('evt_r1', { occurredAt: '2026-11-03T10:00:00Z', sub: 'sub_01trk' })), 'revoked');
+  assert.equal(tracker.planOf(ada), 'free');
+  assert.equal(await tracker.deliver(refundEvent('evt_r2', { occurredAt: '2026-11-04T10:00:00Z' })), 'nothing',
+    'a refund of a Work sale touches nothing here');
+  // In Next, a refund of what still waits for Ada waits with it.
+  const next = app(t, { guard: WORK_GUARD });
+  assert.equal(await next.deliver(workSale('evt_w1')), 'pending');
+  assert.equal(await next.deliver(refundEvent('evt_r3', { occurredAt: '2026-11-03T10:00:00Z' })), 'pending');
+  const adaInNext = next.signIn(ADA, 'ada');
+  assert.equal(next.planOf(adaInNext), 'free');
+  assert.equal(next.database.get("SELECT outcome FROM billing_events WHERE event_id = 'evt_r3'").outcome, 'revoked');
+});
+
+test('with strictPrices, a price no longer sold still renews as its product (oldPrices); the checkout says which app sells', async (t) => {
+  const NEW_YEARLY = 'pri_01m46hm0workyearlynew00001';
+  const products = { ...PRODUCTS, 'pro-yearly': { ...PRODUCTS['pro-yearly'], price: NEW_YEARLY, oldPrices: [PRICES.yearly] } };
+  const paddle = fakePaddle();
+  const tasks = app(t, { products, guard: WORK_GUARD, paddle });
+  const ada = tasks.signIn(ADA, 'ada');
+  assert.equal(await tasks.deliver(workSale('evt_w1')), 'granted', 'bought on the old price');
+  assert.equal(tasks.planOf(ada), 'pro');
+
+  const bob = tasks.signIn('user_01JBOB0000000000000000000B', 'bob');
+  await tasks.billing.checkoutUrl({ type: 'user', id: bob.id }, 'pro-yearly', { user: bob, returnUrl: 'x' });
+  assert.deepEqual(paddle.calls.at(-1).body.custom_data, { workos_user_id: 'user_01JBOB0000000000000000000B', product: 'pro-yearly', app: 'work' });
+  assert.deepEqual(paddle.calls.at(-1).body.items, [{ price_id: NEW_YEARLY, quantity: 1 }], 'sold at the current price');
+});
+
+test('its own Paddle product on a price no product lists: a price missing from the config, said loudly, never foreign', async (t) => {
+  const UNLISTED = 'pri_01m46hm0unlistedprice00001';
+  const renewal = (id, sub) => workSale(id, { price: UNLISTED, sub });
+  const tasks = app(t, { guard: WORK_GUARD });
+  const ada = tasks.signIn(ADA, 'ada');
+  assert.equal(await tasks.deliver(renewal('evt_w1', 'sub_01ada')), 'ignored', 'paddleProductIds knows it is Work\'s');
+  assert.deepEqual(outcomes(tasks), [['evt_w1', 'subscription', 'ignored']], 'not filed as another product\'s');
+  assert.equal(tasks.planOf(ada), 'free', 'not granted on a price it can\'t place');
+  assert.equal(tasks.billing.customerOf({ type: 'user', id: ada.id }), 'ctm_01ada', 'its own customer');
+  const said = tasks.logs.join('\n');
+  assert.ok(said.includes(UNLISTED) && /own product/.test(said) && /oldPrices/.test(said), 'the log names the price to add');
+  assert.ok(!/another product/.test(said));
+
+  // Someone who hasn't opened the app yet: it waits for them, as any own sale, and says so now.
+  const next = app(t, { guard: WORK_GUARD });
+  assert.equal(await next.deliver(renewal('evt_w2', 'sub_02ada')), 'pending');
+  assert.ok(next.logs.some((line) => line.includes(UNLISTED) && /waits/.test(line)));
+
+  // Once the price is listed (oldPrices), the next renewal counts.
+  const listed = { ...PRODUCTS, 'pro-yearly': { ...PRODUCTS['pro-yearly'], oldPrices: [UNLISTED] } };
+  const fixed = app(t, { products: listed, guard: WORK_GUARD });
+  const adaFixed = fixed.signIn(ADA, 'ada');
+  assert.equal(await fixed.deliver(renewal('evt_w3', 'sub_01ada')), 'granted');
+  assert.equal(fixed.planOf(adaFixed), 'pro');
+
+  // Without paddleProductIds nothing tells it is Work's: strictPrices with ignoreUnknownProducts calls it foreign.
+  const blind = app(t, { guard: { strictPrices: true, ignoreUnknownProducts: true } });
+  blind.signIn(ADA, 'ada');
+  assert.equal(await blind.deliver(renewal('evt_w4', 'sub_01ada')), 'foreign', 'which is why P5 sets all three');
+
+  // What the provider says: `own`, and the price only when it found no product for it.
+  const base = { apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', products: PRODUCTS, strictPrices: true };
+  const provider = paddleProvider({ ...base, paddleProductIds: [WORK_PRODUCT_ID] });
+  assert.deepEqual([renewal('e1', 's1'), workSale('e2')].map((n) => provider.translate(n)).map((e) => [e.product, e.own, e.unknownPrice]),
+    [[undefined, true, UNLISTED], ['pro-yearly', true, undefined]]);
+  const plain = paddleProvider(base).translate(renewal('e3', 's3'));
+  assert.equal('own' in plain || 'unknownPrice' in plain, false, 'without paddleProductIds, as before');
+});
+
+test('what waited in an install since before its guard was on is foreign when its person arrives, through Paddle', async (t) => {
+  // Tracker before the guard: a Work sale for Ada, who never opened Tracker, waits with her WorkOS id.
+  const before = app(t, { products: TRACKER_PRODUCTS });
+  assert.equal(await before.deliver(workSale('evt_w1')), 'pending');
+  assert.equal(count(before, 'billing_pending'), 1);
+  // The same install restarted with the guard on: the same database, the new options.
+  const after = app(t, { products: TRACKER_PRODUCTS, guard: TRACKER_GUARD, database: before.database });
+  const ada = after.signIn(ADA, 'ada');
+  assert.deepEqual(outcomes(after), [['evt_w1', 'subscription', 'foreign']]);
+  for (const table of ['billing_customers', 'billing_subscriptions', 'billing_pending', 'entitlement_grants']) {
+    assert.equal(count(after, table), 0, `nothing in ${table}`);
+  }
+  assert.equal(after.planOf(ada), 'free');
+});
+
+test('paddleProvider: a guard it can\'t keep is refused; an event it can\'t tell goes on to the price; another product\'s keeps no one', () => {
+  const base = { apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', products: PRODUCTS };
+  assert.throws(() => paddleProvider({ ...base, paddleProductIds: [] }), /paddleProductIds/, 'an empty list would keep out its own sales');
+  assert.throws(() => paddleProvider({ ...base, paddleProductIds: ['pro_short'] }), /paddleProductIds/);
+  assert.throws(() => paddleProvider({ ...base, paddleProductIds: WORK_PRODUCT_ID }), /paddleProductIds/);
+  assert.throws(() => paddleProvider({ ...base, strictPrices: 'yes' }), /strictPrices/);
+
+  const provider = paddleProvider({ ...base, paddleProductIds: [WORK_PRODUCT_ID] });
+  const unmarked = subscriptionEvent('evt_1', { occurredAt: START, endsAt: END });
+  delete unmarked.data.items[0].price.product_id;
+  assert.equal(provider.translate(unmarked).product, 'pro-yearly');
+  assert.equal(provider.translate(unmarked).foreign, undefined);
+  const other = provider.translate({
+    event_id: 'evt_t', event_type: 'transaction.completed', occurred_at: START,
+    data: {
+      id: 'txn_1', subscription_id: null, customer_id: 'ctm_01ada',
+      items: [{ price: { id: TRACKER_PRICES.monthly, product_id: TRACKER_PRODUCT_ID }, quantity: 1 }],
+      custom_data: { workos_user_id: ADA, email: 'ada@example.com', product: 'tracker-pass' },
+    },
+  });
+  assert.deepEqual(other, { id: 'evt_t', type: 'purchase', occurredAt: '2026-11-01T10:00:00.000Z', ref: 'txn_1', foreign: true });
+  // Without the options an event reads as before: no app unless the checkout wrote one.
+  assert.equal('app' in paddleProvider(base).translate(unmarked), false);
+});
+
+test('createSuite reads the guards from suite.config.js billing: its webhook answers foreign for another product\'s sales', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-paddle-suite-'));
+  const suite = createSuite({
+    config: {
+      app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { billing: true },
+      plans: { free: { name: 'Free', features: {} }, pro: { name: 'Pro', features: {} } },
+      products: { 'pro-yearly': PRODUCTS['pro-yearly'] },
+      billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: { sandbox: [WORK_PRODUCT_ID] } },
+    },
+    env: {
+      DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+      BILLING_PROVIDER: 'paddle', PADDLE_API_KEY: 'pdl_sdbx_apikey_test', PADDLE_WEBHOOK_SECRET: SECRET, PADDLE_ENV: 'sandbox',
+    },
+    log: () => {}, exitOnError: false,
+  });
+  const server = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {} });
+  const listening = await server.listen();
+  t.after(async () => { await server.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const deliver = async (notification) => {
+    const body = JSON.stringify(notification);
+    const res = await fetch(`http://127.0.0.1:${listening.address().port}/api/billing/webhook`, {
+      method: 'POST', body, headers: { 'Content-Type': 'application/json', 'Paddle-Signature': signPaddlePayload(SECRET, body) },
+    });
+    return (await res.json()).outcomes;
+  };
+  const now = new Date().toISOString();
+  const later = new Date(Date.now() + 365 * DAY).toISOString();
+  const sale = (id, { productId = WORK_PRODUCT_ID, price = PRICES.yearly, custom, sub }) => subscriptionEvent(id, {
+    occurredAt: now, endsAt: later, productId, price, custom, sub,
+  });
+  const mine = { subject: 'user:1', product: 'pro-yearly', app: 'work' };
+  assert.deepEqual(await deliver(sale('evt_1', { productId: TRACKER_PRODUCT_ID, custom: mine, sub: 'sub_1' })), ['foreign'], 'paddleProductIds');
+  assert.deepEqual(await deliver(sale('evt_2', { custom: { ...mine, app: 'tracker' }, sub: 'sub_2' })), ['foreign'], 'app');
+  // An item without its product id leaves it to the price.
+  assert.deepEqual(await deliver(sale('evt_3', { productId: null, price: TRACKER_PRICES.monthly, custom: { subject: 'user:1', product: 'pro-yearly' }, sub: 'sub_3' })),
+    ['foreign'], 'strictPrices with ignoreUnknownProducts');
+  assert.deepEqual(await deliver(sale('evt_4', { custom: mine, sub: 'sub_4' })), ['granted'], 'its own sale');
+  assert.deepEqual(await deliver(sale('evt_5', { price: TRACKER_PRICES.monthly, custom: mine, sub: 'sub_5' })), ['ignored'],
+    'its own Paddle product on a price it doesn\'t list: a missing price, not another product\'s');
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM billing_customers').n, 1);
+});
+
 /* ----------------------------- environments ----------------------------- */
 
 test('sandbox and live apart: moving an install to live finds none of the sandbox\'s customers or subscriptions', async (t) => {
@@ -526,4 +859,62 @@ test('the configuration: BILLING_PROVIDER=paddle, its key, its secret, its envir
   assert.ok(wrong.errors.some((e) => /"pri_short" is not a Paddle price id/.test(e)));
   assert.equal(resolveConfig(product, { DATA_DIR: os.tmpdir() }).products['pro-yearly'].price, 'pri_01m492bw9r8hfy34wzxkkcgz48',
     'billing off: the live price, unused');
+});
+
+test('the configuration: billing\'s guards in suite.config.js, all off by default, checked on start', () => {
+  const product = (billing, products = { 'pro-yearly': { plan: 'pro', kind: 'subscription', price: PRICES.yearly } }) => ({
+    app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { billing: true }, products, ...(billing ? { billing } : {}),
+  });
+  const paddle = (extra) => ({
+    DATA_DIR: os.tmpdir(), BILLING_PROVIDER: 'paddle', PADDLE_API_KEY: 'pdl_sdbx_apikey_abc', PADDLE_WEBHOOK_SECRET: SECRET,
+    PADDLE_ENV: 'sandbox', ...extra,
+  });
+  const live = { PADDLE_API_KEY: 'pdl_live_apikey_abc', PADDLE_ENV: 'production' };
+  const off = { ignoreUnknownProducts: false, app: null, strictPrices: false, paddleProductIds: null };
+  assert.deepEqual(resolveConfig(product(null), paddle({})).billing, off, 'nothing changes for an app that says nothing');
+  assert.deepEqual(resolveConfig(product({}), paddle({})).billing, off);
+
+  const LIVE_WORK_PRODUCT_ID = 'pro_01m492bwworkprodct00000001';
+  const guarded = product({ ignoreUnknownProducts: true, app: 'work', strictPrices: true,
+    paddleProductIds: { sandbox: [WORK_PRODUCT_ID], production: [LIVE_WORK_PRODUCT_ID] } });
+  const sandbox = resolveConfig(guarded, paddle({}));
+  assert.deepEqual(sandbox.errors, []);
+  assert.deepEqual(sandbox.billing, { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: [WORK_PRODUCT_ID] });
+  assert.deepEqual(resolveConfig(guarded, paddle(live)).billing.paddleProductIds, [LIVE_WORK_PRODUCT_ID], 'the live account\'s');
+  // One list for both would be right in one environment only: Paddle's product ids differ between them.
+  const flat = resolveConfig(product({ paddleProductIds: [WORK_PRODUCT_ID] }), paddle({}));
+  assert.ok(flat.errors.some((e) => /billing\.paddleProductIds: one list per environment/.test(e)), 'a flat list stops the start with Paddle');
+  assert.equal(flat.billing.paddleProductIds, null);
+
+  const errorsOf = (billing, env = paddle({})) => resolveConfig(product(billing), env).errors;
+  assert.ok(errorsOf({ ignoreUnknownProduct: true }).some((e) => /billing\.ignoreUnknownProduct is not a setting/.test(e)), 'a typo stops the start');
+  assert.ok(errorsOf({ ignoreUnknownProducts: 'yes' }).some((e) => /billing\.ignoreUnknownProducts must be true or false/.test(e)));
+  assert.ok(errorsOf({ strictPrices: 1 }).some((e) => /billing\.strictPrices must be true or false/.test(e)));
+  assert.ok(errorsOf({ app: 'Cronum Work' }).some((e) => /billing\.app/.test(e)));
+  assert.ok(errorsOf({ paddleProductIds: ['pro_short'] }).some((e) => /billing\.paddleProductIds: one list per environment/.test(e)));
+  assert.ok(errorsOf({ paddleProductIds: { live: [WORK_PRODUCT_ID] } }).some((e) => /"live" is not sandbox or production/.test(e)));
+  assert.ok(errorsOf({ paddleProductIds: { production: [LIVE_WORK_PRODUCT_ID] } }).some((e) => /none for PADDLE_ENV sandbox/.test(e)),
+    'a guard asked for and left without products would let every sale in');
+  assert.ok(errorsOf({ paddleProductIds: { sandbox: [] } }).some((e) => /none for PADDLE_ENV sandbox/.test(e)));
+  assert.ok(errorsOf({ paddleProductIds: { sandbox: ['pro_short'] } }).some((e) => /a list of Paddle product ids/.test(e)));
+  assert.ok(errorsOf('on').some((e) => /^billing: an object/.test(e)));
+  const stripeEnv = { DATA_DIR: os.tmpdir(), BILLING_PROVIDER: 'stripe', STRIPE_SECRET_KEY: 'sk_test_1', STRIPE_WEBHOOK_SECRET: 'whsec_1' };
+  const stripe = resolveConfig(product({ strictPrices: true }), stripeEnv);
+  assert.deepEqual(stripe.errors, []);
+  assert.ok(stripe.warnings.some((w) => /^billing\.strictPrices is Paddle's: with BILLING_PROVIDER=stripe it does nothing/.test(w)));
+  const stripeAll = resolveConfig(product({ ignoreUnknownProducts: true, app: 'work', paddleProductIds: [WORK_PRODUCT_ID] }), stripeEnv);
+  assert.deepEqual(stripeAll.errors, [], 'a flat list is only refused where Paddle reads it');
+  assert.ok(stripeAll.warnings.some((w) => /^billing\.app, billing\.paddleProductIds are Paddle's: with BILLING_PROVIDER=stripe they do nothing/.test(w)),
+    'the app too: only Paddle\'s checkout writes it');
+  assert.ok(!stripeAll.warnings.some((w) => /ignoreUnknownProducts/.test(w)), 'ignoreUnknownProducts works with any provider');
+  assert.deepEqual(resolveConfig(product({ paddleProductIds: { sandbox: [WORK_PRODUCT_ID] } }), { DATA_DIR: os.tmpdir() }).errors, [],
+    'billing off: nothing to check against');
+
+  // Old prices, a list or one per environment like the rest, checked as Paddle's.
+  const oldPrices = (value) => product(null, { 'pro-yearly': { plan: 'pro', kind: 'subscription', price: PRICES.yearly, oldPrices: value } });
+  assert.deepEqual(resolveConfig(oldPrices({ sandbox: [PRICES.monthly], production: [] }), paddle({})).products['pro-yearly'].oldPrices, [PRICES.monthly]);
+  assert.deepEqual(resolveConfig(oldPrices({ sandbox: [PRICES.monthly] }), paddle(live)).products['pro-yearly'].oldPrices, []);
+  assert.deepEqual(resolveConfig(oldPrices([PRICES.monthly]), paddle({})).errors, []);
+  assert.ok(resolveConfig(oldPrices(['pri_x']), paddle({})).errors.some((e) => /oldPrices: "pri_x" is not a Paddle price id/.test(e)));
+  assert.ok(resolveConfig(oldPrices('pri_x'), paddle({})).errors.some((e) => /oldPrices: a list/.test(e)));
 });
