@@ -9,7 +9,10 @@
  * Roles: `owner`, `admin` and `member`, in that order of power, plus the app's
  * own (a monitor in Tracker), which rank as members. A group never loses its
  * last owner. A grant with a quantity on an organization is its seats: when
- * `seatsOf` says how many, joining beyond them is refused.
+ * `seatsOf` says how many, joining beyond them is refused. Every member takes a
+ * seat, unless the app names the roles that do (`seatRoles`: Tracker pays per
+ * driver, and its admins and viewers are free); then only those roles count,
+ * and a role change into one of them needs a free seat as joining does.
  */
 import { randomToken, sha256 } from './crypto.js';
 import { HttpError, badRequest, notFound, forbidden, conflict } from './http.js';
@@ -64,16 +67,21 @@ const slugOf = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/
  * @param {object} options.database
  * @param {string[]} [options.roles]   every role, the app's own included
  * @param {(organizationId) => number|null} [options.seatsOf]   how many members fit; null = no limit
+ * @param {string[]|null} [options.seatRoles]   the roles that take a seat; null = every member
  * @param {number} [options.invitationDays]
  */
 export function createOrganizations({
-  database, roles = ['owner', 'admin', 'member'], seatsOf = () => null, invitationDays = 7,
+  database, roles = ['owner', 'admin', 'member'], seatsOf = () => null, seatRoles = null, invitationDays = 7,
   clock = () => Date.now(),
 }) {
+  if (seatRoles !== null && !(Array.isArray(seatRoles) && seatRoles.length && seatRoles.every((r) => roles.includes(r)))) {
+    throw new Error(`createOrganizations: seatRoles must be some of the roles (${roles.join(', ')}), or null for every member`);
+  }
   const checkRole = (role) => {
     if (!roles.includes(role)) throw badRequest('field_invalid', { field: 'role', options: roles });
     return role;
   };
+  const takesSeat = (role) => seatRoles === null || seatRoles.includes(role);
   const get = (id) => database.get('SELECT * FROM organizations WHERE id = ? AND archived_at IS NULL', id) || null;
   const mustExist = (id) => {
     const organization = get(id);
@@ -84,8 +92,17 @@ export function createOrganizations({
     'SELECT role FROM memberships WHERE organization_id = ? AND user_id = ?', organizationId, userId)?.role ?? null;
   const owners = (organizationId) => Number(database.get(
     "SELECT COUNT(*) AS n FROM memberships WHERE organization_id = ? AND role = 'owner'", organizationId).n);
-  const memberCount = (organizationId) => Number(database.get(
-    'SELECT COUNT(*) AS n FROM memberships WHERE organization_id = ?', organizationId).n);
+  /** The members who take a seat: all of them, or those with one of `seatRoles`. */
+  const seatsTaken = (organizationId) => Number((seatRoles === null
+    ? database.get('SELECT COUNT(*) AS n FROM memberships WHERE organization_id = ?', organizationId)
+    : database.get(`SELECT COUNT(*) AS n FROM memberships WHERE organization_id = ?
+      AND role IN (${seatRoles.map(() => '?').join(', ')})`, organizationId, ...seatRoles)).n);
+
+  /** Refuses one more member in a seat when the seats `seatsOf` gives are all taken. */
+  function checkSeat(organizationId) {
+    const seats = seatsOf(organizationId);
+    if (seats != null && seatsTaken(organizationId) >= seats) throw new HttpError(402, 'seats_full', { seats });
+  }
 
   /**
    * Refuses whoever is not in the group (404: a group someone can't see
@@ -121,10 +138,7 @@ export function createOrganizations({
     mustExist(organizationId);
     checkRole(role);
     if (roleOf(organizationId, userId)) throw conflict('already_member');
-    const seats = seatsOf(organizationId);
-    if (seats != null && memberCount(organizationId) >= seats) {
-      throw new HttpError(402, 'seats_full', { seats });
-    }
+    if (takesSeat(role)) checkSeat(organizationId);
     database.run('INSERT INTO memberships (organization_id, user_id, role, invited_by, joined_at) VALUES (?, ?, ?, ?, ?)',
       organizationId, userId, role, invitedBy, iso(clock()));
   }
@@ -134,6 +148,9 @@ export function createOrganizations({
     const current = roleOf(organizationId, userId);
     if (!current) throw notFound('member_not_found');
     if (current === 'owner' && role !== 'owner' && owners(organizationId) <= 1) throw conflict('last_owner');
+    // A viewer made a driver takes a seat as one who joins as a driver does. With every member in a
+    // seat (no seatRoles) a role change takes none: the person already had theirs.
+    if (!takesSeat(current) && takesSeat(role)) checkSeat(organizationId);
     database.run('UPDATE memberships SET role = ? WHERE organization_id = ? AND user_id = ?', role, organizationId, userId);
   }
 
@@ -232,5 +249,6 @@ export function createOrganizations({
   return {
     create, get, list, update, archive, roleOf, requireRole, addMember, setRole, removeMember,
     invite, accept, revokeInvitation, invitationsOf, membersOf, ofUser, organizationsOf, forgetUser,
+    seatsTaken, takesSeat,
   };
 }

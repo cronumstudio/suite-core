@@ -15,6 +15,8 @@ import { SUITE_MIGRATIONS } from '../schema.js';
 import { createAccounts } from '../accounts.js';
 import { createOrganizations } from '../organizations.js';
 import { createEntitlements } from '../entitlements.js';
+import { resolveConfig } from '../config.js';
+import { createSuite } from '../app.js';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -124,6 +126,89 @@ test('seats: a grant with a quantity on the group caps its members', (t) => {
 
   entitlements.revoke({ id: grant });
   assert.equal(code(() => organizations.accept(token, people.dan)), 'ok', 'the invitation still works once there is room');
+  assert.equal(organizations.seatsTaken(home.id), 4, 'without seatRoles every member takes a seat');
+  assert.equal(organizations.takesSeat('admin'), true);
+  organizations.setRole(home.id, people.bob, 'admin');
+  entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'family', quantity: 4 });
+  organizations.setRole(home.id, people.bob, 'member');
+  assert.equal(organizations.roleOf(home.id, people.bob), 'member', 'a role change takes no seat: the person had one');
+});
+
+test('seats by role: only the roles named take a seat (Tracker pays per driver)', (t) => {
+  let entitlements;
+  const { database, organizations, people } = setup(t, {
+    roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'], seatsOf: (id) => entitlements.seatsOf(id),
+  });
+  entitlements = createEntitlements({
+    database, appId: 'tracker', features: {},
+    plans: { free: { name: 'Free', features: {} }, org: { name: 'Fleet', features: {} } }, plansJson: null, defaultPlanOverride: null,
+  });
+  const school = organizations.create({ name: 'School', ownerId: people.ada });
+  entitlements.grant({ subjectType: 'organization', subjectId: school.id, plan: 'org', quantity: 2, source: 'paddle', externalRef: 'sub_1' });
+  assert.equal(organizations.takesSeat('driver'), true);
+  assert.equal(organizations.takesSeat('owner'), false);
+  assert.equal(organizations.takesSeat('member'), false);
+  assert.equal(organizations.seatsTaken(school.id), 0, 'the owner takes no seat');
+
+  organizations.addMember(school.id, people.bob, 'driver');
+  organizations.addMember(school.id, people.eve, 'driver');
+  assert.equal(organizations.seatsTaken(school.id), 2);
+  assert.equal(code(() => organizations.addMember(school.id, people.dan, 'driver')), '402 seats_full');
+  assert.deepEqual((() => { try { organizations.addMember(school.id, people.dan, 'driver'); } catch (err) { return err.extra; } })(), { seats: 2 });
+
+  // Admins and viewers are free: they join whatever the seats.
+  const viewer = organizations.invite(school.id, { role: 'member' });
+  assert.equal(organizations.accept(viewer.token, people.dan).id, school.id);
+  const driver = organizations.invite(school.id, { role: 'driver' });
+  assert.equal(code(() => organizations.accept(driver.token, people.root)), '402 seats_full', 'a driver’s invitation needs a seat');
+  organizations.addMember(school.id, people.root, 'admin');
+  assert.equal(organizations.membersOf(school.id).length, 5);
+  assert.equal(organizations.seatsTaken(school.id), 2);
+
+  // Making a viewer a driver takes a seat, as joining as one does; the refusal changes nothing.
+  assert.equal(code(() => organizations.setRole(school.id, people.dan, 'driver')), '402 seats_full');
+  assert.equal(organizations.roleOf(school.id, people.dan), 'member');
+  organizations.setRole(school.id, people.eve, 'member');   // a driver who stops driving frees theirs
+  assert.equal(organizations.seatsTaken(school.id), 1);
+  organizations.setRole(school.id, people.dan, 'driver');
+  organizations.setRole(school.id, people.bob, 'driver');   // already one: nothing to check
+  organizations.removeMember(school.id, people.bob);
+  assert.equal(organizations.seatsTaken(school.id), 1, 'whoever leaves frees theirs');
+  assert.equal(code(() => organizations.accept(driver.token, people.bob)), 'ok');
+  assert.equal(organizations.seatsTaken(school.id), 2);
+
+  // Fewer seats bought takes nobody's away: past the cap, no one more drives.
+  entitlements.revoke({ source: 'paddle', externalRef: 'sub_1' });
+  entitlements.grant({ subjectType: 'organization', subjectId: school.id, plan: 'org', quantity: 1, source: 'paddle', externalRef: 'sub_1' });
+  assert.equal(organizations.seatsTaken(school.id), 2);
+  assert.equal(code(() => organizations.setRole(school.id, people.eve, 'driver')), '402 seats_full');
+
+  // The roles that take a seat are some of the group's roles, never none.
+  for (const seatRoles of [['pilot'], [], 'driver']) {
+    assert.throws(() => createOrganizations({ database, roles: ['owner', 'admin', 'member', 'driver'], seatRoles }), /seatRoles/);
+  }
+});
+
+test('seatRoles in suite.config.js: checked on start and handed to the organizations', (t) => {
+  const product = {
+    app: { id: 'demo', name: 'Demo' }, modules: { organizations: true },
+    organizations: { roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'] },
+  };
+  const config = resolveConfig(product, { DATA_DIR: '/data' });
+  assert.deepEqual(config.errors, []);
+  assert.deepEqual(config.organizations.seatRoles, ['driver']);
+  assert.equal(resolveConfig({ ...product, organizations: { roles: ['owner', 'admin', 'member'] } }, {}).organizations.seatRoles, null,
+    'left out: every member takes a seat, as before');
+  for (const seatRoles of [['pilot'], [], 'driver']) {
+    assert.ok(resolveConfig({ ...product, organizations: { ...product.organizations, seatRoles } }, {}).errors
+      .some((e) => e.startsWith('organizations.seatRoles:')), JSON.stringify(seatRoles));
+  }
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-organizations-'));
+  const suite = createSuite({ config: product, env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1' }, log: () => {}, exitOnError: false });
+  t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  assert.equal(suite.organizations.takesSeat('driver'), true);
+  assert.equal(suite.organizations.takesSeat('admin'), false);
 });
 
 test('whoever goes hands their groups over; a group left empty is archived', (t) => {

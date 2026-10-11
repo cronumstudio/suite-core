@@ -168,6 +168,7 @@ export default {
   organizations: {                // only with modules.organizations
     roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'monitor' in Tracker
     invitationDays: 7,
+    // seatRoles: ['driver'],     // the roles that take a seat; left out, every member takes one
   },
 
   // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
@@ -549,6 +550,14 @@ value. The features every app names the same are there too (`COMMON_FEATURES`: `
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 
+A product sold on its own has a catalog of its own, and none of its plans gives anything in
+another product, nor the other way round: `PLANS=cronum-tracker` is Cronum Tracker's, with `free`,
+`org` (named Fleet) and `pro`, and the keys `mcp` (off in all three), `capture.native`,
+`links.max`, `track.days` and `viewers.max`. An organization's plan reaches every member, its
+admins and viewers too, so Fleet gives each person what Free gives and sits before Pro: what a fleet
+pays for, per driver, sits on what the organization owns, and the app checks it against the
+organization's grant and its seats.
+
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
 browser reads `GET /api/me/entitlements` to hide or lock what is not included. The error is
@@ -668,7 +677,11 @@ own and may create or join groups (a family in Tasks, a team in Projects); with 
 every user belongs to one (the schools of Tracker). The suite provides the tables, the roles,
 invitations by link or email, an organization switcher in the web kit and organization-level
 grants: a plan bought for a household covers its members, and a grant's `quantity` caps the number
-of members (seats). Which records belong to an organization instead of a person is the app's
+of members (seats). An app that charges for some of its members only names the roles that take a
+seat (`organizations.seatRoles`: Tracker's drivers, while its admins and viewers are free): then
+only those count, joining in one of them or being moved into one needs a free seat, and
+`seatsTaken(id)` says how many are used. Fewer seats bought takes nobody's away; past them, no one
+more joins in a seat. Which records belong to an organization instead of a person is the app's
 decision, made in its own tables.
 
 ## 11. HTTP layer and dispatch order

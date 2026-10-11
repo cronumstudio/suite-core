@@ -167,7 +167,7 @@ export function createSuite({
   if (config.modules.organizations) {
     organizations = createOrganizations({
       database, roles: config.organizations.roles, seatsOf: entitlements.seatsOf,
-      invitationDays: config.organizations.invitationDays,
+      seatRoles: config.organizations.seatRoles, invitationDays: config.organizations.invitationDays,
     });
     accounts.whenRemoved((userId) => organizations.forgetUser(userId));
   }

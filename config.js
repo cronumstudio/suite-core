@@ -138,9 +138,15 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const organizations = {
     roles: Array.isArray(og.roles) ? [...og.roles] : ['owner', 'admin', 'member'],
     invitationDays: og.invitationDays ?? 7,
+    // The roles that take a seat a subscription pays for (Tracker's drivers); null, every member.
+    seatRoles: Array.isArray(og.seatRoles) ? [...og.seatRoles] : (og.seatRoles ?? null),
   };
   if (!['owner', 'admin', 'member'].every((r) => organizations.roles.includes(r))) {
     errors.push('organizations.roles must include owner, admin and member (and may add the app\'s own)');
+  }
+  if (organizations.seatRoles !== null && !(Array.isArray(organizations.seatRoles) && organizations.seatRoles.length
+    && organizations.seatRoles.every((r) => organizations.roles.includes(r)))) {
+    errors.push("organizations.seatRoles: some of organizations.roles, such as ['driver'], or left out for every member");
   }
 
   const tk = isObject(p.tokens) ? p.tokens : {};

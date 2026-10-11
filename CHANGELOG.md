@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.68.0 — 2026-10-11
+
+- **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, so none
+  of its plans gives anything in Cronum Work and no Cronum Work plan gives anything in Tracker
+  (an app that declares a key of the other catalog doesn't start). Three plans, from the least to
+  the most a person gets: `free` (Free), `org` (Fleet) and `pro` (Pro), with the keys `mcp` (off
+  in all three), `capture.native` (Free and Fleet `false`, Pro `true`), `links.max` (0, 0, 1),
+  `track.days` (1, 1, 30) and `viewers.max` (0, 0, 30). An organization's plan reaches every
+  member, its admins and viewers too, so Fleet carries Free's values and sits before Pro: someone
+  with both is shown Pro. What a fleet pays for, per driver, sits on what the organization owns,
+  and the app checks it against the organization's grant and its seats. The prices stay with the
+  provider and the stores (Pro 3.99 EUR a month or 34.99 a year; Fleet 3.90 EUR per driver a
+  month or 39 a year, at launch). `cronum-work` is unchanged.
+- **Seats by role** (`organizations.seatRoles` in `suite.config.js`, `createOrganizations({
+  seatRoles })`): the roles that take a seat a subscription pays for, some of
+  `organizations.roles` (Tracker's drivers, while its admins and viewers are free). Then only
+  members in those roles count against a grant's `quantity`: joining in one of them, by an
+  invitation or `addMember()`, and a role change into one (`setRole()`) need a free seat, or
+  402 `seats_full`; joining in another role never does. Fewer seats bought takes nobody's away.
+  `seatsTaken(id)` and `takesSeat(role)` say how many are used and which roles count. Left out,
+  every member takes a seat, as before, and a role change takes none. A `seatRoles` that is empty
+  or names a role the group doesn't have stops the start.
+
 ## 0.64.0 — 2026-10-09
 
 - **A host's links forget what was erased.** `links.prune({ module })` drops the title a link keeps
