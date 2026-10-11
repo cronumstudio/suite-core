@@ -7,7 +7,7 @@
  * a group instead of a person is decided in the app's own tables.
  *
  * Roles: `owner`, `admin` and `member`, in that order of power, plus the app's
- * own (a monitor in Tracker), which rank as members. A group never loses its
+ * own (Tracker's drivers), which rank as members. A group never loses its
  * last owner. A grant with a quantity on an organization is its seats: when
  * `seatsOf` says how many, joining beyond them is refused. Every member takes a
  * seat, unless the app names the roles that do (`seatRoles`: Tracker pays per
@@ -222,10 +222,20 @@ export function createOrganizations({
   const archive = (organizationId) => database.run(
     'UPDATE organizations SET archived_at = ? WHERE id = ? AND archived_at IS NULL', iso(clock()), organizationId).changes > 0;
 
+  /*
+   * A membership has one role, so whoever becomes owner leaves the one they had: with `seatRoles`,
+   * a driver made owner would stop driving and free a seat. Those whose seat doesn't change come
+   * first; a driver inherits only when nobody else is left, and the group keeps an owner.
+   */
+  const seatShifting = roles.filter((r) => takesSeat(r) !== takesSeat('owner'));
+  const heirOrder = seatShifting.length
+    ? `CASE WHEN role IN (${seatShifting.map(() => '?').join(', ')}) THEN 1 ELSE 0 END, ` : '';
+
   /**
    * Before an account is deleted (hook it with `accounts.whenRemoved`): each
    * group it was the last owner of passes to its oldest admin, or else its
-   * oldest member; a group left with nobody is archived.
+   * oldest member, those in a seat role last; a group left with nobody is
+   * archived.
    */
   function forgetUser(userId) {
     const owned = database.all(`SELECT organization_id AS id FROM memberships
@@ -233,7 +243,7 @@ export function createOrganizations({
     for (const { id } of owned) {
       if (owners(id) > 1) continue;
       const heir = database.get(`SELECT user_id FROM memberships WHERE organization_id = ? AND user_id <> ?
-        ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`, id, userId);
+        ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`, id, userId, ...seatShifting);
       if (heir) {
         database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir.user_id);
       } else {

@@ -166,9 +166,9 @@ export default {
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
-    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'monitor' in Tracker
+    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'driver' in Tracker
     invitationDays: 7,
-    // seatRoles: ['driver'],     // the roles that take a seat; left out, every member takes one
+    // seatRoles: ['driver'],     // some of roles, the ones that take a seat (else every member)
   },
 
   // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
@@ -550,13 +550,13 @@ value. The features every app names the same are there too (`COMMON_FEATURES`: `
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 
-A product sold on its own has a catalog of its own, and none of its plans gives anything in
-another product, nor the other way round: `PLANS=cronum-tracker` is Cronum Tracker's, with `free`,
-`org` (named Fleet) and `pro`, and the keys `mcp` (off in all three), `capture.native`,
-`links.max`, `track.days` and `viewers.max`. An organization's plan reaches every member, its
-admins and viewers too, so Fleet gives each person what Free gives and sits before Pro: what a fleet
-pays for, per driver, sits on what the organization owns, and the app checks it against the
-organization's grant and its seats.
+A product sold on its own has a catalog of its own, which its installs name, so none of its plans
+gives anything in another product, nor the other way round (a key the named catalog lacks stops the
+start, as above): `PLANS=cronum-tracker` is Cronum Tracker's, with `free`, `org` (named Fleet) and
+`pro`, and the keys `mcp` (off in all three), `capture.native`, `links.max`, `track.days` and
+`viewers.max`. An organization's plan reaches every member, its admins and viewers too, so Fleet
+gives each person what Free gives and sits before Pro: what a fleet pays for, per driver, sits on
+what the organization owns, and the app checks it against the organization's grant and its seats.
 
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
@@ -681,7 +681,9 @@ of members (seats). An app that charges for some of its members only names the r
 seat (`organizations.seatRoles`: Tracker's drivers, while its admins and viewers are free): then
 only those count, joining in one of them or being moved into one needs a free seat, and
 `seatsTaken(id)` says how many are used. Fewer seats bought takes nobody's away; past them, no one
-more joins in a seat. Which records belong to an organization instead of a person is the app's
+more joins in a seat. A membership has one role, so when the last owner's account goes, the group
+passes to someone outside those roles first: a driver inherits it, and stops driving, only when
+nobody else is left. Which records belong to an organization instead of a person is the app's
 decision, made in its own tables.
 
 ## 11. HTTP layer and dispatch order

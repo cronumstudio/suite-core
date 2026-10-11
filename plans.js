@@ -7,7 +7,8 @@
  * install says `PLANS=cronum-work` and reads the catalog from here: one place,
  * versioned and tested with the code that enforces it, and ready for the day
  * the apps become one. A product sold on its own has a catalog of its own
- * (`PLANS=cronum-tracker`), so no plan of one ever gives anything in another.
+ * (`PLANS=cronum-tracker`), which its installs name instead, so the plans of
+ * one product are read in no other's installs.
  *
  * Each app reads only the features it declares; the rest of a plan is ignored
  * there. The other way round is a mistake: a feature an app declares and the
@@ -76,12 +77,13 @@ const PRO = {
 };
 
 /*
- * Cronum Tracker is a product of its own, outside Cronum Work and its subscription: none of the
- * plans above gives anything there, and these give nothing elsewhere. Free is the trips without
- * an account (on the web, and in the app while it is on screen), whose caps are the install's
- * settings, not plan keys. Pro is one person's, bought in the stores (3.99 EUR a month or 34.99 a
- * year at launch); Fleet an organization's, bought on the web per driver (3.90 EUR a month or 39
- * a year), where a driver is a member who sends GPS for it: its seats are its drivers
+ * Cronum Tracker is a product of its own, outside Cronum Work and its subscription: its installs
+ * name this catalog, so none of the plans above gives anything there, and these give nothing
+ * elsewhere (an app that declares a key the named catalog lacks doesn't start). Free is the trips
+ * without an account (on the web, and in the app while it is on screen), whose caps are the
+ * install's settings, not plan keys. Pro is one person's, bought in the stores (3.99 EUR a month
+ * or 34.99 a year at launch); Fleet an organization's, bought on the web per driver (3.90 EUR a
+ * month or 39 a year), where a driver is a member who sends GPS for it: its seats are its drivers
  * (`organizations.seatRoles`), and admins and viewers take none. The prices live with the
  * provider and the stores; they are here only to say what each plan is.
  */

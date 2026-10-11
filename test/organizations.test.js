@@ -189,6 +189,62 @@ test('seats by role: only the roles named take a seat (Tracker pays per driver)'
   }
 });
 
+test('seats by role are counted per group: one fleet’s drivers never take another’s seats', (t) => {
+  let entitlements;
+  const { database, organizations, people } = setup(t, {
+    roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'], seatsOf: (id) => entitlements.seatsOf(id),
+  });
+  entitlements = createEntitlements({
+    database, appId: 'tracker', features: {},
+    plans: { free: { name: 'Free', features: {} }, org: { name: 'Fleet', features: {} } }, plansJson: null, defaultPlanOverride: null,
+  });
+  const north = organizations.create({ name: 'North', ownerId: people.ada });
+  const south = organizations.create({ name: 'South', ownerId: people.root });
+  entitlements.grant({ subjectType: 'organization', subjectId: north.id, plan: 'org', quantity: 2, source: 'paddle', externalRef: 'sub_n' });
+  entitlements.grant({ subjectType: 'organization', subjectId: south.id, plan: 'org', quantity: 1, source: 'paddle', externalRef: 'sub_s' });
+
+  organizations.addMember(south.id, people.bob, 'driver');
+  assert.equal(code(() => organizations.addMember(south.id, people.eve, 'driver')), '402 seats_full', 'South is full');
+  assert.deepEqual([organizations.seatsTaken(north.id), organizations.seatsTaken(south.id)], [0, 1],
+    'South’s driver takes none of North’s seats');
+
+  // A full South blocks nobody in North, not even someone who drives for South.
+  organizations.addMember(north.id, people.eve, 'driver');
+  organizations.addMember(north.id, people.bob, 'driver');
+  assert.deepEqual([organizations.seatsTaken(north.id), organizations.seatsTaken(south.id)], [2, 1]);
+
+  // A role change checks the seats of its own group only.
+  organizations.addMember(north.id, people.dan, 'member');
+  organizations.addMember(south.id, people.dan, 'member');
+  assert.equal(code(() => organizations.setRole(north.id, people.dan, 'driver')), '402 seats_full');
+  organizations.removeMember(south.id, people.bob);
+  organizations.setRole(south.id, people.dan, 'driver');
+  assert.equal(code(() => organizations.setRole(north.id, people.dan, 'driver')), '402 seats_full', 'North is still full');
+  assert.deepEqual([organizations.seatsTaken(north.id), organizations.seatsTaken(south.id)], [2, 1]);
+});
+
+test('with seat roles, a group passes to someone outside them first: a driver made owner stops driving', (t) => {
+  const { accounts, organizations, people } = setup(t, { roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'] });
+  const fleet = organizations.create({ name: 'Fleet', ownerId: people.ada });
+  organizations.addMember(fleet.id, people.bob, 'driver');   // older than the viewer
+  organizations.addMember(fleet.id, people.eve, 'member');
+  const depot = organizations.create({ name: 'Depot', ownerId: people.ada });
+  organizations.addMember(depot.id, people.bob, 'driver');
+  organizations.addMember(depot.id, people.eve, 'member');
+  organizations.addMember(depot.id, people.root, 'admin');
+  const solo = organizations.create({ name: 'Solo', ownerId: people.ada });
+  organizations.addMember(solo.id, people.dan, 'driver');
+
+  accounts.remove(people.ada);
+  assert.equal(organizations.roleOf(fleet.id, people.eve), 'owner', 'the viewer, not the older driver');
+  assert.equal(organizations.roleOf(fleet.id, people.bob), 'driver');
+  assert.equal(organizations.seatsTaken(fleet.id), 1, 'the driver keeps their seat');
+  assert.equal(organizations.roleOf(depot.id, people.root), 'owner', 'an admin still comes first');
+  assert.deepEqual([organizations.roleOf(depot.id, people.bob), organizations.roleOf(depot.id, people.eve)], ['driver', 'member']);
+  assert.equal(organizations.roleOf(solo.id, people.dan), 'owner', 'a driver only when nobody else is left: the group keeps an owner');
+  assert.equal(organizations.seatsTaken(solo.id), 0);
+});
+
 test('seatRoles in suite.config.js: checked on start and handed to the organizations', (t) => {
   const product = {
     app: { id: 'demo', name: 'Demo' }, modules: { organizations: true },
@@ -203,6 +259,12 @@ test('seatRoles in suite.config.js: checked on start and handed to the organizat
     assert.ok(resolveConfig({ ...product, organizations: { ...product.organizations, seatRoles } }, {}).errors
       .some((e) => e.startsWith('organizations.seatRoles:')), JSON.stringify(seatRoles));
   }
+  // A misspelt key would put every member in a seat without a word: it stops the start instead.
+  for (const key of ['seatRole', 'toString']) {
+    const { errors } = resolveConfig({ ...product, organizations: { roles: product.organizations.roles, [key]: ['driver'] } }, {});
+    assert.ok(errors.includes(`organizations.${key} is not a setting (roles, invitationDays, seatRoles)`), key);
+  }
+  assert.deepEqual(resolveConfig({ ...product, organizations: { ...product.organizations, invitationDays: 3 } }, { DATA_DIR: '/data' }).errors, []);
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-organizations-'));
   const suite = createSuite({ config: product, env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1' }, log: () => {}, exitOnError: false });
