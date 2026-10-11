@@ -115,7 +115,7 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
 
   assert.deepEqual((await api('GET', '/api/auth/config')).data, {
     provider: 'oidc', name: 'Authentik', signup: null, mail: false, password_min: null, two_factor: false, deletion_days: 30,
-    app: { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false } },
+    app: { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false, mcp: false } },
   });
   assert.equal((await api('POST', '/api/auth/login', null, { username: 'x', password: 'y' })).data.error, 'password_login_disabled');
 

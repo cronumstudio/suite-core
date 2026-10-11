@@ -244,6 +244,26 @@ try {
   check('And again, from the copy kept (not only the first time after starting)',
     again.status === 200 && (await again.json()).issuer === AUTHKIT, `status ${again.status}`);
   check('The 401 challenge points at the metadata', accounts.challenge(false).includes(`${base}/.well-known/oauth-protected-resource/mcp`));
+  // An app without an MCP: the metadata paths are left to the app, which answers them a JSON 404.
+  const noMcp = createWorkosAccounts({
+    baseUrl: base, appName: 'Test app', workos, users, sessions: { open: () => {} }, mcp: false, log: () => {},
+  });
+  const metadataPaths = ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp',
+    '/.well-known/oauth-authorization-server', '/.well-known/oauth-authorization-server/mcp'];
+  const leftToApp = [];
+  for (const p of metadataPaths) {
+    for (const method of ['GET', 'OPTIONS']) {
+      leftToApp.push(await noMcp.handle({ method, headers: {} }, null, new URL(p, base)));
+    }
+  }
+  check('Without an MCP, no metadata is served: the app answers those paths', leftToApp.every((handled) => handled === false),
+    JSON.stringify(leftToApp));
+  const loginWithout = { headers: {}, status: 0, writeHead(status, headers) { this.status = status; Object.assign(this.headers, headers); },
+    getHeader() { return undefined; }, setHeader(name, value) { this.headers[name] = value; }, end() {} };
+  check('And signing in on the web is the same',
+    (await noMcp.handle({ method: 'GET', headers: {} }, loginWithout, new URL('/auth/login', base))) === true
+    && loginWithout.status === 302 && new URL(loginWithout.headers.Location).pathname === '/user_management/authorize',
+  JSON.stringify(loginWithout.headers));
   check('Signing out also closes AuthKit’s session',
     accounts.signOutUrl('sess_1') === `${AUTHKIT}/user_management/sessions/logout?session_id=sess_1`);
 
