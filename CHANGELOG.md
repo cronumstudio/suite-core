@@ -3,6 +3,33 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.69.0 — 2026-10-12
+
+- **Security: an answer that carries a secret is never kept for an `Idempotency-Key`.** Since
+  0.34.0 the first successful answer to a write with a key was kept a day in `idempotency_keys`,
+  in clear, to answer the same key again. For the routes below that answer is a secret shown
+  once, which the rest of the database keeps only as a hash or encrypted: whoever read the
+  database, or a copy of it, within that day had it. Now those routes are never run through
+  `idempotency.js`: nothing of their answer is written, and the same key again runs the route
+  again, which gives a fresh answer or the route's own refusal, never the first one replayed:
+  - `POST /api/me/tokens` (and its older path, `profile.alsoAt.tokens`): a new API token. The
+    same key makes another one; the first, whose value never arrived, stays in the list to revoke.
+  - `POST /api/me/two-factor/setup`: a new two-step secret, which replaces the one before.
+  - `POST /api/me/two-factor/enable`: the ten recovery codes. Again, `409 two_factor_enabled`.
+  - `POST /api/me/two-factor/recovery-codes`: ten new ones; the ones before stop working.
+  - `POST /api/auth/login` and `POST /api/auth/login/code`: a two-step `challenge` or a deletion
+    `ticket` (15 minutes), either one a way into the account.
+  - `POST /api/admin/invitations` and `POST /api/orgs/:id/invitations`: an invitation's `url` and
+    `token`, which sign up or join whoever opens them. The same key makes another invitation (and
+    sends another email); both work until they expire or are revoked.
+  - `POST /api/billing/portal`: the provider's portal opens signed in from its link.
+- `answeredOnce(handler)` (`idempotency.js`): the mark, moved out of `devices.js`, whose two routes
+  had it since 0.67.0. An app marks with it its own routes whose answer is a secret.
+- Nothing to clean up: only a session's writes go through `idempotency.js`, and the web kit sends
+  these calls without a key, so no app of the suite has kept one of these answers. One kept by any
+  other client is no longer replayed, and the clean-up deletes it a day after it was kept. No
+  migration.
+
 ## 0.67.0 — 2026-10-11
 
 - **Device tokens** (`devices.js`, `modules.devices`, off by default): an app on a phone signs in

@@ -10,7 +10,9 @@
  * is another key. A key used for a different method or path is a mistake of
  * the client and is refused rather than answered with something unrelated.
  * Only successful answers are kept: a 409 or a 503 may well go another way
- * on the next try, and the client is right to try.
+ * on the next try, and the client is right to try. Nor is an answer that
+ * carries a secret shown once (`answeredOnce`): the table would hold in clear
+ * for a day what the rest of the database keeps as a hash or encrypted.
  */
 import { HttpError, badRequest } from './http.js';
 
@@ -19,6 +21,14 @@ const KEY = /^[\w.:-]{8,128}$/;
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** An answer bigger than this is not kept: replaying it is not worth the database. */
 const MAX_BODY = 256 * 1024;
+
+/**
+ * Marks a route whose answer carries a secret shown once: a new token, a
+ * two-step secret, recovery codes, an invitation's link. app.js never runs it
+ * through `run()`, so its answer is never kept, and the same key again runs
+ * the route again: a fresh answer, or the route's own refusal.
+ */
+export const answeredOnce = (handler) => Object.assign(handler, { answeredOnce: true });
 
 export function idempotencySchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
