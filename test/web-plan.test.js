@@ -43,7 +43,8 @@ globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
   if (path.startsWith('/i18n/')) return { ok: true, status: 200, json: async () => english };
   asked.push(`${method} ${path}`);
   const route = routes[`${method} ${path}`];
-  const answer = typeof route === 'function' ? route(body ? JSON.parse(body) : undefined) : route;
+  // A route may answer later (a promise), to put answers out of order.
+  const answer = await (typeof route === 'function' ? route(body ? JSON.parse(body) : undefined) : route);
   const { status = 200, data = {} } = answer || { status: 404, data: { error: 'not_found' } };
   return { ok: status < 400, status, json: async () => data };
 };
@@ -51,7 +52,7 @@ globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
 const { loadLanguage, t } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
 const { openSettings } = await import('../web/settings.js');
-const { productText, offerFor, offerPlan, isPlanError, billingReturn, PLAN_EVENT } = await import('../web/plan.js');
+const { productText, offerFor, isLive, offerPlan, isPlanError, billingReturn, PLAN_EVENT } = await import('../web/plan.js');
 const { ApiError } = await import('../web/api.js');
 
 const PLANS = [{ id: 'free', name: 'Free' }, { id: 'pro', name: 'Pro' }];
@@ -95,13 +96,25 @@ async function planPage(plan, { config = BILLING_ON, server = {}, start = 'plan'
 
 test('what is offered: products for one person above their plan, theirs again when it lapses, nothing without limits', () => {
   const [monthly, yearly, team] = PRODUCTS.products;
-  assert.deepEqual(offerFor(FREE, PRODUCTS.products).map((p) => p.key), ['pro-monthly', 'pro-yearly'], 'a group’s are bought for the group');
-  assert.deepEqual(offerFor({ ...PRO, ends: null }, PRODUCTS.products), [], 'Pro for good: nothing above it');
-  assert.deepEqual(offerFor(PRO, [monthly, yearly]).map((p) => p.key), ['pro-monthly', 'pro-yearly'], 'Pro until a date: kept on');
-  assert.deepEqual(offerFor({ ...FREE, unlimited: true }, PRODUCTS.products), [], 'whom no plan limits');
-  assert.deepEqual(offerFor({ ...FREE, plans: [] }, [monthly]).map((p) => p.key), ['pro-monthly'], 'no order known: offered');
-  assert.deepEqual(offerFor(null, [monthly]), []);
+  assert.deepEqual(offerFor(FREE, PRODUCTS.products, []).map((p) => p.key), ['pro-monthly', 'pro-yearly'], 'a group’s are bought for the group');
+  assert.deepEqual(offerFor({ ...PRO, ends: null }, PRODUCTS.products, []), [], 'Pro for good: nothing above it');
+  assert.deepEqual(offerFor(PRO, [monthly, yearly], []).map((p) => p.key), ['pro-monthly', 'pro-yearly'], 'Pro until a date, from a pass: kept on');
+  assert.deepEqual(offerFor({ ...FREE, unlimited: true }, PRODUCTS.products, []), [], 'whom no plan limits');
+  assert.deepEqual(offerFor({ ...FREE, plans: [] }, [monthly], []).map((p) => p.key), ['pro-monthly'], 'no order known: offered');
+  assert.deepEqual(offerFor(null, [monthly], []), []);
   assert.equal(team.for, 'organization');
+
+  // The subscriptions decide first: a subscriber's plan lapses on a date too, its period's end.
+  const pass = { key: 'pro-pass', plan: 'pro', kind: 'once', days: 30, for: 'user', name: null, founder_price: false };
+  for (const status of ['active', 'trialing', 'past_due']) {
+    assert.deepEqual(offerFor(PRO, [monthly, pass], [{ ref: 'sub_1', product: 'pro-monthly', status }]), [], `${status}: nothing, not even a pass`);
+    assert.equal(isLive({ status }), true);
+  }
+  assert.deepEqual(offerFor(PRO, [monthly, pass], [{ ref: 'sub_0', product: 'pro-monthly', status: 'canceled' }]).map((p) => p.key),
+    ['pro-monthly', 'pro-pass'], 'what ended holds nothing');
+  assert.deepEqual(offerFor(PRO, [monthly, pass]), [], 'not known: nothing, rather than twice');
+  assert.deepEqual(offerFor(FREE, [monthly], null), []);
+  assert.equal(isLive(null), false);
 
   assert.deepEqual(productText(monthly, PLANS), { name: 'Pro', detail: 'Monthly subscription' });
   assert.deepEqual(productText(yearly, PLANS), { name: 'Pro', detail: 'Yearly subscription' });
@@ -157,6 +170,8 @@ test('Upgrade: the products with their names, the founder’s price marked, and 
   assert.equal(upgrades.length, 2);
   assert.match(upgrades[0].className, /kit-btn--primary/, 'one primary button');
   assert.doesNotMatch(upgrades[1].className, /kit-btn--primary/);
+  assert.deepEqual(upgrades.map((b) => b.getAttribute('aria-label')), ['Upgrade: Pro (Monthly subscription)', 'Upgrade: Pro (Yearly subscription)'],
+    'a name of its own for each, starting with what it shows');
   assert.equal(view.buttons('Manage subscription').length, 0, 'nothing to manage before a payment');
 
   followed.length = 0;
@@ -227,6 +242,69 @@ test('a subscription: its state and period, Manage first, a failed payment said;
   view.settings.close();
 });
 
+test('after 404 no_customer, a subscription that appears (paid in another tab) brings Manage back', async () => {
+  const subscriptions = [];
+  const view = await planPage({ billing: true }, {
+    server: {
+      'GET /api/me/entitlements': { data: FREE },
+      'GET /api/billing/products': { data: { ...PRODUCTS, products: [...PRODUCTS.products, { key: 'pro-pass', plan: 'pro', kind: 'once', days: 30, for: 'user' }] } },
+      'GET /api/billing/subscriptions': () => ({ data: { subscriptions } }),
+      'POST /api/billing/portal': { status: 404, data: { error: 'no_customer' } },
+      'POST /api/billing/checkout': { status: 409, data: { error: 'already_subscribed' } },
+    },
+  });
+  click(view.buttons('Payments and invoices')[0]);
+  await settle();
+  assert.equal(view.buttons('Payments and invoices').length, 0, 'nothing to manage yet');
+  subscriptions.push({ ref: 'sub_1', product: 'pro-monthly', status: 'active', period_end: '2026-11-12T00:00:00.000Z' });
+  click(view.buttons('Upgrade')[0]);
+  await settle();
+  await settle();
+  await settle();
+  assert.match(textOf(view.page), /Active/);
+  assert.equal(view.buttons('Manage subscription').length, 1, 'a subscription now: there is a customer');
+  view.settings.close();
+});
+
+test('the subscriptions unknown (the server didn’t answer): nothing offered, rather than a second payment', async () => {
+  const pass = { key: 'pro-pass', plan: 'pro', kind: 'once', days: 30, for: 'user', name: null, founder_price: false };
+  for (const answer of [PRO, FREE]) {
+    const view = await planPage({ billing: true }, {
+      server: {
+        'GET /api/me/entitlements': { data: answer },
+        'GET /api/billing/products': { data: { ...PRODUCTS, products: [...PRODUCTS.products, pass] } },
+        'GET /api/billing/subscriptions': { status: 500, data: { error: 'internal' } },
+      },
+    });
+    assert.equal(view.buttons('Upgrade').length, 0, answer.plan.id);
+    assert.match(textOf(view.page), new RegExp(`Your plan\\s*${answer.plan.name}`), 'the plan still shows');
+    view.settings.close();
+  }
+});
+
+test('"Until" beside a live subscription that holds the plan is its period, shown there; a pass keeps it', async () => {
+  const until = (view) => view.page.all().filter((n) => n.className === 'kit-fact' && /^Until/.test(n.textContent) && view.visible(n)).length;
+  const server = (subscriptions) => ({
+    'GET /api/me/entitlements': { data: PRO },
+    'GET /api/billing/products': { data: PRODUCTS },
+    'GET /api/billing/subscriptions': { data: { subscriptions } },
+  });
+  const live = [{ ref: 'sub_1', product: 'pro-yearly', status: 'active', period_end: '2027-01-12T00:00:00.000Z' }];
+  const held = await planPage({ billing: true }, { server: server(live) });
+  assert.equal(until(held), 0, 'not the grace after the period');
+  assert.match(textOf(held.page), /Current period until/);
+  held.settings.close();
+  const passed = await planPage({ billing: true }, { server: server([{ ref: 'sub_0', product: 'pro-monthly', status: 'canceled', period_end: null }]) });
+  assert.equal(until(passed), 1, 'no live subscription: the plan’s own end');
+  passed.settings.close();
+  const native = await planPage({ billing: true, hideCheckout: true }, { server: server(live) });
+  assert.equal(until(native), 0, 'the same in a native app’s web view');
+  native.settings.close();
+  const plain = await planPage(true, { server: server(live) });
+  assert.equal(until(plain), 1, 'without the option, as always');
+  plain.settings.close();
+});
+
 test('without a subscription now: past payments and invoices, last and quiet, where there were some or can be', async () => {
   const pass = { key: 'pro-pass', plan: 'pro', kind: 'once', days: 30, for: 'user', name: null, founder_price: false };
   const view = await planPage({ billing: true }, {
@@ -293,6 +371,36 @@ test('a native app’s web view (hideCheckout): what is paid for shows, and no w
   const shown = view.page.all().filter((n) => !n.children.length && view.visible(n)).map((n) => n.textContent);
   assert.ok(!shown.some((text) => /Founder|provider/.test(text)), 'no founder’s price, no word of the provider');
   view.settings.close();
+});
+
+test('a native app’s web view: a 402 met in Settings offers the app’s own way to buy (plan.open), or only says why', async () => {
+  const server = {
+    'GET /api/me/entitlements': { data: FREE },
+    'GET /api/billing/products': { data: PRODUCTS },
+    'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+    'GET /api/me/apps': { data: { enabled: false, grants: [] } },
+    'GET /api/me/tokens': { data: [] },
+    'POST /api/me/tokens': { status: 402, data: { error: 'plan_feature', feature: 'mcp', plan: 'free', plan_name: 'Free' } },
+  };
+  const config = { app: { modules: { billing: true, mcp: true } } };
+  const bare = await planPage({ billing: true, hideCheckout: true }, { config, server, start: 'ai' });
+  click(bare.buttons(t('kit.ai.createToken'))[0]);
+  await settle();
+  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) doesn’t include this.');
+  assert.equal(lastToast().find('button').length, 0, 'no “See plans” to a section with nothing to buy');
+  bare.settings.close();
+
+  let opened = 0;
+  const own = await planPage({ billing: true, hideCheckout: true, open: () => opened++ }, { config, server, start: 'ai' });
+  click(own.buttons(t('kit.ai.createToken'))[0]);
+  await settle();
+  const [action] = lastToast().find('button');
+  assert.equal(action.textContent, 'See plans');
+  click(action);
+  await settle();
+  assert.equal(opened, 1, 'the app’s own way, a store’s');
+  assert.notEqual(own.page.find('h2')[0].textContent, 'Plan', 'Settings stays where it was');
+  own.settings.close();
 });
 
 /* --------------------------- anywhere in an app --------------------------- */
@@ -382,6 +490,57 @@ test('back from the checkout: the mark leaves the address, thanks, and the plan 
   globalThis.location.href = 'https://app.example.com/?billing=done';
   assert.equal(await billingReturn({ waits: [0, 0], wait: async () => {} }), null);
   assert.equal(toasts().length, count + 1, 'only the thanks');
+});
+
+test('back from a checkout left unpaid (?billing=canceled): a tidy address, a plain word, nothing read', async () => {
+  const replaced = [];
+  globalThis.history = { state: null, replaceState: (state, title, url) => replaced.push(url) };
+  routes = {};
+  asked = [];
+  storage.set('app.billing', JSON.stringify(['free', null]));
+  globalThis.location.href = 'https://app.example.com/?billing=canceled#list';
+  let opened = 0;
+  const done = billingReturn({ onPlan: () => assert.fail('no plan to tell'), open: () => opened++, waits: [0], wait: async () => {} });
+  assert.ok(done, 'a return');
+  assert.equal(await done, null);
+  assert.deepEqual(replaced, ['/#list']);
+  assert.equal(storage.has('app.billing'), false, 'the plan from before goes with it');
+  assert.equal(textOf(lastToast().find('span')[0]), english['kit.plan.canceled']);
+  click(lastToast().find('button')[0]);
+  assert.equal(opened, 1, 'the plans at hand, to try again');
+  assert.deepEqual(asked, [], 'nothing asked of the server');
+  globalThis.location.href = 'https://app.example.com/?billing=other';
+  assert.equal(billingReturn(), false);
+});
+
+test('a plan read before the one from the checkout arrives late: the newer stays', async () => {
+  let late = null;
+  const view = await planPage({ billing: true }, {
+    server: {
+      'GET /api/me/entitlements': { data: FREE },
+      'GET /api/billing/products': { data: PRODUCTS },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+      'POST /api/billing/checkout': { status: 409, data: { error: 'already_subscribed' } },
+    },
+  });
+  // A read that takes its time (a 409's refresh), then the plan from billingReturn.
+  routes['GET /api/me/entitlements'] = () => new Promise((resolve) => { late = resolve; });
+  click(view.buttons('Upgrade')[0]);
+  await settle();
+  await settle();
+  assert.ok(late, 'reading');
+  routes['GET /api/billing/subscriptions'] = { data: { subscriptions: [{ ref: 'sub_1', product: 'pro-yearly', status: 'active', period_end: '2027-01-12T00:00:00.000Z' }] } };
+  document.dispatchEvent(new globalThis.CustomEvent(PLAN_EVENT, { detail: PRO }));
+  await settle();
+  await settle();
+  late({ data: FREE });
+  await settle();
+  await settle();
+  await settle();
+  assert.match(textOf(view.page), /Your plan\s*Pro/, 'not painted over by the older answer');
+  assert.equal(view.buttons('Upgrade').length, 0);
+  assert.equal(view.buttons('Manage subscription').length, 1);
+  view.settings.close();
 });
 
 test('an open Settings that sells paints the plan read again after the checkout', async () => {

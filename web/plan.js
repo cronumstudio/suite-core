@@ -47,13 +47,21 @@ export function productText(product, plans = []) {
   return { name: t(product.name || planName), detail };
 }
 
+/** Whether a subscription (GET /api/billing/subscriptions) still holds its plan, or will once paid. */
+export const isLive = (subscription) => LIVE.has(subscription?.status);
+
 /**
  * What is offered to someone: the products for one person (a group's are bought for the group)
  * whose plan is above theirs, in the catalog's order of plans (least first), or theirs again when
  * it lapses on a date. Nothing to someone without limits, whom no plan limits.
+ *
+ * `subscriptions` is GET /api/billing/subscriptions' list, and it decides first: nothing is
+ * offered while one is live (a one-off pass or a second subscription would charge twice; plans
+ * change in the portal), and nothing when it isn't known (left out, or the server didn't answer),
+ * since a subscription's plan lapses on a date too, its period's end, and would be offered again.
  */
-export function offerFor(answer, products = []) {
-  if (!answer || answer.unlimited) return [];
+export function offerFor(answer, products = [], subscriptions = null) {
+  if (!answer || answer.unlimited || !Array.isArray(subscriptions) || subscriptions.some(isLive)) return [];
   const order = (answer.plans || []).map((p) => p.id);
   const current = answer.plan?.id ?? null;
   const rank = (id) => order.indexOf(id);
@@ -104,7 +112,10 @@ function follow(url) {
  * web view, where the stores' rules keep a web payment's links out) only what is paid for shows:
  * no products, no Upgrade, no way to the provider.
  *
- * `paint(answer)` draws them for /api/me/entitlements' answer; `blocks` go in the section.
+ * `paint(answer)` draws them for /api/me/entitlements' answer; `blocks` go in the section. It
+ * resolves to `{ holds }`, whether a live subscription holds the plan shown (its "Until" is then
+ * the period's end and a few days of grace, which the subscription says better), or to nothing
+ * when a later paint took its place.
  */
 export function planPayments({ hideCheckout = false, fail = (err) => toast(errorMessage(err), { error: true }), refresh = () => {} } = {}) {
   const facts = el('div', { class: 'kit-facts' });
@@ -165,20 +176,25 @@ export function planPayments({ hideCheckout = false, fail = (err) => toast(error
       api.get('/api/billing/products').catch(() => null),
       api.get('/api/billing/subscriptions').catch(() => null),
     ]);
-    if (turn !== painting) return;
+    if (turn !== painting) return undefined;
     // A server without payments (or out of reach): the plan alone, as without the option.
     if (!offer) {
       for (const node of blocks) node.hidden = true;
-      return;
+      return { holds: false };
     }
     const products = Array.isArray(offer.products) ? offer.products : [];
     const plans = answer?.plans || [];
+    const productOf = (key) => products.find((p) => p.key === key) || null;
     const nameOf = (key) => {
-      const product = products.find((p) => p.key === key);
+      const product = productOf(key);
       return product ? productText(product, plans).name : key;
     };
-    const subscriptions = Array.isArray(owned?.subscriptions) ? owned.subscriptions : [];
-    const live = subscriptions.filter((s) => LIVE.has(s.status));
+    // Unknown when the server didn't answer: then nothing is offered (offerFor), rather than twice.
+    const known = Array.isArray(owned?.subscriptions) ? owned.subscriptions : null;
+    const subscriptions = known || [];
+    const live = subscriptions.filter(isLive);
+    // A subscription now means there is a customer, whatever an earlier answer said.
+    if (live.length) nobodyPaid = false;
 
     clear(facts).append(...live.map((s) => fact(nameOf(s.product), t(`kit.plan.status.${s.status}`),
       s.period_end ? t('kit.plan.periodEnd', { date: formatDateTime(s.period_end, { dateStyle: 'long' }) }) : '')));
@@ -190,10 +206,12 @@ export function planPayments({ hideCheckout = false, fail = (err) => toast(error
       || !(subscriptions.length || products.some((p) => p.kind === 'once'));
 
     // Someone who pays already changes the plan in the portal: a second checkout would charge twice.
-    const offered = hideCheckout || live.length ? [] : offerFor(answer, products);
+    const offered = hideCheckout ? [] : offerFor(answer, products, known);
     clear(offerList).append(...offered.map((product, i) => {
       const text = productText(product, plans);
       const go = button(t('kit.plan.upgrade'), (event) => upgrade(product, answer, event.currentTarget), i === 0 ? 'primary' : '');
+      // Every row's button says "Upgrade": its name for a screen reader says to what, starting the same.
+      go.setAttribute('aria-label', t('kit.plan.upgradeTo', { product: text.name, detail: text.detail }));
       // The founder's price beside the name, so the button keeps its place at the row's end.
       return el('div', { class: 'kit-list__row' },
         el('span', { class: 'kit-list__text' }, el('strong', { text: text.name }),
@@ -202,6 +220,7 @@ export function planPayments({ hideCheckout = false, fail = (err) => toast(error
         go);
     }));
     offerBlock.hidden = !offered.length;
+    return { holds: live.some((s) => productOf(s.product)?.plan === (answer?.plan?.id ?? null)) };
   }
 
   return { blocks, paint };
@@ -228,18 +247,27 @@ export function offerPlan(err, { open = null } = {}) {
  * at the start, it takes the mark out of the address, thanks them (with a button to the plan when
  * there is `open`) and asks for the plan again until it changes, because the provider's webhook
  * may arrive after them. Each answer read goes to `onPlan` and to `kit-plan` on the document,
- * which an open Settings repaints with. → false when this was no such return; otherwise a promise
- * of the plan that arrived (null when it hadn't changed by the last look).
+ * which an open Settings repaints with. Whoever leaves the checkout unpaid, sent back to
+ * `/?billing=canceled` by a provider that has a cancel address, gets the same tidy address and a
+ * plain word that nothing was charged, and the plan isn't read again. → false when this was no such return;
+ * otherwise a promise of the plan that arrived (null when it hadn't changed by the last look, and
+ * after a canceled checkout).
  */
 export function billingReturn({ onPlan = null, open = null, waits = RETURN_WAITS, wait = (ms) => new Promise((done) => setTimeout(done, ms)) } = {}) {
   let url;
   try { url = new URL(globalThis.location.href); } catch { return false; }
-  if (url.searchParams.get('billing') !== 'done') return false;
+  const outcome = url.searchParams.get('billing');
+  if (outcome !== 'done' && outcome !== 'canceled') return false;
   url.searchParams.delete('billing');
   // Not again on a reload or a shared link.
   globalThis.history?.replaceState?.(globalThis.history.state, '', url.pathname + url.search + url.hash);
   const before = recall();
-  toast(t('kit.plan.returned'), open ? { action: { label: t('kit.plan.see'), onClick: open } } : {});
+  const seePlans = open ? { action: { label: t('kit.plan.see'), onClick: open } } : {};
+  if (outcome === 'canceled') {
+    toast(t('kit.plan.canceled'), seePlans);
+    return Promise.resolve(null);
+  }
+  toast(t('kit.plan.returned'), seePlans);
 
   const tell = (answer) => {
     onPlan?.(answer);

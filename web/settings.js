@@ -27,7 +27,9 @@
  * `plan`: true shows the plan and until when; `{ billing: true }` adds what
  * can be bought, "Upgrade" and "Manage subscription" where the server sells
  * (plan.js), and `hideCheckout: true` leaves those out again for a native
- * app's web view; `render(answer)` adds the app's own block.
+ * app's web view; `open()`, the app's own way to buy that a 402 met here
+ * offers instead of the plan section (with hideCheckout, the only one);
+ * `render(answer)` adds the app's own block.
  */
 import { el, clear } from './dom.js';
 import { t, formatDateTime, currentLanguage } from './i18n.js';
@@ -70,8 +72,14 @@ export function openSettings(options) {
   // What the plan section sells (plan.js): only when the app asks for it and the server doesn't say it can't.
   const planOptions = options.plan && typeof options.plan === 'object' ? options.plan : {};
   const selling = planOptions.billing === true && modules.billing !== false;
-  // Where it sells, a plan's barrier met here offers the plan section; elsewhere a notice, as always.
-  const fail = (err) => (selling && offerPlan(err, { open: () => show('plan') })) || showError(err);
+  const hideCheckout = planOptions.hideCheckout === true;
+  // Where it sells, a plan's barrier met here offers a way to buy: the app's own (`plan.open`, a native
+  // app's store) when it gives one, else the plan section, unless that sells nothing here (hideCheckout).
+  // Elsewhere a notice, as always.
+  const openPlan = !selling ? null
+    : typeof planOptions.open === 'function' ? planOptions.open
+      : hideCheckout ? null : () => show('plan');
+  const fail = (err) => (openPlan && offerPlan(err, { open: openPlan })) || showError(err);
   // What Settings listens to while it is open, let go when it closes.
   const cleanups = [];
   let inUse = [];
@@ -624,22 +632,35 @@ export function openSettings(options) {
 
   function plan() {
     const box = el('div', { class: 'kit-stack' });
-    const payments = selling ? planPayments({ hideCheckout: planOptions.hideCheckout === true, fail, refresh: () => load() }) : null;
+    const payments = selling ? planPayments({ hideCheckout, fail, refresh: () => load() }) : null;
     const paint = (answer) => {
       const name = answer.plan?.name ? t(answer.plan.name) : '—';
+      const until = answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null;
       clear(box).append(el('div', { class: 'kit-facts' },
-        fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name),
-        answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null));
+        fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name), until));
       if (options.plan?.render) box.append(options.plan.render(answer));
-      payments?.paint(answer);
+      if (!payments) return;
+      // Held by a live subscription, the plan's end is its period's (shown there), not the grace after it.
+      if (until) until.hidden = true;
+      payments.paint(answer).then((state) => { if (state && until) until.hidden = state.holds; });
     };
+    // The newest answer wins: one read before the plan arrived from billingReturn mustn't paint over it.
+    let reading = 0;
     const load = async () => {
-      try { paint(await api.get('/api/me/entitlements')); } catch (err) { fail(err); }
+      const turn = ++reading;
+      try {
+        const answer = await api.get('/api/me/entitlements');
+        if (turn === reading) paint(answer);
+      } catch (err) { if (turn === reading) fail(err); }
     };
     load();
     if (payments) {
       // Back from the checkout, the plan read again (plan.js billingReturn) is painted here too.
-      const onPlan = (event) => { if (event?.detail) paint(event.detail); };
+      const onPlan = (event) => {
+        if (!event?.detail) return;
+        reading++;
+        paint(event.detail);
+      };
       document.addEventListener(PLAN_EVENT, onPlan);
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
     }
