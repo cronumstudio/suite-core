@@ -1141,6 +1141,28 @@ kit's), then Notes is built on it whole, then the others as they move to English
   first the app hands over what others share with them (the declaration's `handOver(userId)`: a
   shared list passes to one of the people it is shared with), then goes, in one transaction,
   exactly what their own copy would take and "replace" empties, and its files once committed.
+- **Organizations in the copies** (**done**, v0.84.0, for Focus' families and Tracker's fleets; on
+  only when the declaration says `organizations` or a table points at `organizations`, which needs
+  `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
+  decides it as one to `users` does, and the tables that chain to it are the group's too. Someone's
+  copy takes the groups they are in (the app's `kinds`; every member by default, since a member
+  reads what the group shares, or the `roles` the app names), as `data/organizations.json` and
+  their own row of `data/memberships.json`, with every row of the group; it brings no plan. The
+  whole install's takes every group, membership, waiting invitation (`suite/invitations.json`, by
+  hash: the links people were sent keep working), and the groups' grants and payments, typed
+  `organization` in `suite/grants.json` and `suite/billing.json`. Importing someone's copy puts each
+  group into theirs of that kind (`mapOntoOwn`: the oldest they own or administer) or a new one they
+  own, made quietly; a whole install's restores each group with its roles, invitations, plans and
+  payments, and finds one already here by its slug, kind and creation instead of making it twice
+  (the same install's copy brought in by another module). What is someone's alone —what "replace"
+  and erasing empty— is their rows and those of groups nobody else is in; a group they share is
+  never emptied: "replace" hands it over (the app's `organizations.leave`, then
+  `organizations.handOver()`: the heir becomes owner when they were its last), erasing leaves it
+  whole with them in it. A table's `omit` lists columns that never travel (a device's key hash, its
+  push subscription): left out of every copy, the column's default (or the app's) on import. A
+  whole install's copy also keeps `delete_after`, so an account waiting to be deleted still goes on
+  that day after the move (only a disabled one: a date alone never sends an active account to the
+  sweep).
 - **Deleting one's own account** (**done**, v0.61.0, `account-deletion.js`; the GDPR's right to
   erasure). `POST /api/me/deletion` (`confirm: true`, and with a password here the password and
   the second step's code, as erasing one's data asks) disables the account at once —sessions and
@@ -1217,7 +1239,7 @@ first, then Tasks, then the rest.
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
-| `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud |
+| `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud. Focus and Tracker carry their families and fleets |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |

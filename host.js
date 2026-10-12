@@ -420,6 +420,8 @@ export async function createHost({
       migrationScope: app.id,
       // What was erased leaves nothing in the links either (links.js prune).
       onErased: () => links?.prune({ module: entry.mount }),
+      // The host's groups, when the module uses them: a declaration may carry them (portability.js).
+      organizations: resolved.modules.organizations ? suite.organizations : null,
     });
 
     entry.config = moduleConfig;

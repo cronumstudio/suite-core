@@ -93,6 +93,16 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
     return user;
   };
 
+  /** Where each organization of the copy goes, when the app's copies carry them. */
+  const logOrganizations = (list) => {
+    if (!list?.length) return;
+    log('Organizations:');
+    for (const { source, choice } of list) {
+      const where = choice.action === 'map' ? `into "${choice.name}" here` : choice.action === 'create' ? 'a new one' : 'left out';
+      log(`  ${source.name}${source.kind ? ` (${source.kind})` : ''}, ${source.members} member(s)\n    → ${where}`);
+    }
+  };
+
   try {
     if (command === 'export') {
       const user = flags.account ? here(flags.account) : null;
@@ -100,6 +110,7 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
       const manifest = await job.write(fs.createWriteStream(file));
       log(`Copy written to ${file}: ${user ? `the account "${user.username}"` : `the whole install, ${manifest.users} account(s)`}.`);
       log(`  ${tables(manifest.tables)}`);
+      if (manifest.organizations) log(`  organizations: ${manifest.organizations}`);
       log(`  attachments: ${manifest.files.count} (${size(manifest.files.bytes)})${manifest.files.missing ? `, ${manifest.files.missing} missing on disk` : ''}`);
       if (manifest.left_out && sum(manifest.left_out)) log(`  shared with other people, not in it: ${tables(manifest.left_out)}`);
       return 0;
@@ -148,8 +159,11 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
     if (copy.applied_at) log(`  ALREADY IMPORTED HERE on ${copy.applied_at}: it can't be applied again.`);
     if (mode === 'account') {
       const replaceAll = flags.replace.length > 0;
+      if (replaceAll && plan.organizations) plan = await portability.planFile(file, { mode, user, replace: true });
       log(`Into the account "${user.username}"${replaceAll ? `, replacing what it has now (${tables(plan.replace)})` : ''}.`);
       if (sum(copy.left_out)) log(`  shared with other people, not in the copy: ${tables(copy.left_out)}`);
+      if (replaceAll && plan.hand_over?.length) log(`  leaving, with what they hold: ${plan.hand_over.map((o) => `"${o.name}"`).join(', ')}`);
+      logOrganizations(plan.organizations);
       if (!flags.apply) { log('\nNothing done yet: add --apply to import it.'); return 0; }
       const result = await portability.applyFile(file, { mode, user, replace: replaceAll });
       log(`Imported: ${tables(result.imported.tables)}; attachments ${result.imported.files}.`);
@@ -171,10 +185,15 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
       }
       log(`  ${who}\n    → ${where}`);
     }
+    logOrganizations(plan.organizations);
     if (!flags.apply) { log('\nNothing done yet: add --apply to import it.'); return 0; }
     const result = await portability.applyFile(file, { mode, decisions: final });
     log(`\nImported: ${tables(result.imported.tables)}; attachments ${result.imported.files}; plans given by the admin ${result.imported.grants}.`);
     for (const account of result.accounts) log(`  ${account.created ? 'new' : 'into'} "${account.username}" (id ${account.user_id})`);
+    if (result.imported.organizations) {
+      const { created, mapped } = result.imported.organizations;
+      log(`  organizations: ${created} new, ${mapped} into one here; memberships ${result.imported.memberships}; invitations ${result.imported.invitations}`);
+    }
     if (sum(result.left_out.tables)) log(`  not imported: ${tables(result.left_out.tables)}`);
     const files = result.left_out.files;
     if (files.missing || files.refused || files.too_large) {

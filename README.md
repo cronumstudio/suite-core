@@ -48,7 +48,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `push.js` | Web Push with no dependencies (RFC 8291 encryption, RFC 8292 VAPID signature): the install's keys, one subscription per device with its language, endpoints checked before the server visits them, gone ones pruned, and `/api/push/*` with `modules.push`; for a device the app keeps itself, with no account behind it (a paired tablet), `checkSubscription()` before the app stores the browser's subscription and `sendToSubscription()` to send to it, with the same keys and checks |
 | `uploads.js` | Files people attach: the type by the first bytes (images, PDF, never SVG), streamed to `DATA_DIR/uploads` without ever leaving half a file, served with headers that keep them from running on the app's domain, and an orphan sweep that refuses when the database looks wrong |
 | `zip.js` | Zip archives with no dependencies (`node:zlib`): written to any stream an entry at a time, ZIP64 past 4 GB or 65,535 entries; read through the central directory with every entry capped at the size it declares and checked against its CRC |
-| `portability.js` | Copies of the data: someone's own ("Download my data" / "Import data") and the whole install's for the admin, as a zip anyone can open, imported into another install with new ids, every reference translated, accounts mapped by email, created or left out, shares, numbers, dates and attachments kept, and a copy that isn't trusted |
+| `portability.js` | Copies of the data: someone's own ("Download my data" / "Import data") and the whole install's for the admin, as a zip anyone can open, imported into another install with new ids, every reference translated, accounts mapped by email, created or left out, shares, numbers, dates and attachments kept, and a copy that isn't trusted; with `organizations`, a group's tables in the copy of every member and every group, role, waiting invitation, plan and payment in the install's; `omit` for columns that never travel |
 | `tools/conformance.js` | What every app inherits, checked against a running copy over plain HTTP: security headers, `/health` and `/version`, JSON 404s on discovery paths, the MCP `401` challenge and its metadata (with `--no-mcp`, that there are none), every language saying what English says, sign-in and sign-out, the session cookie, CSRF and the brute-force brake. `node tools/conformance.js <url>` (with `CONFORMANCE_USER`/`CONFORMANCE_PASSWORD` for the sign-in checks), or `checkConformance()` from a smoke test |
 | `tools/data-cli.js` | The same copies from the command line (each app's `scripts/data.js`): the whole install out, and in with emails, accounts left out and "replace" given as options |
 | `live.js` | Notices for the open tabs over Server-Sent Events (`GET /api/events` with `modules.live`): `publish({ audience, data })` to the people it concerns, heartbeats, and ids so a tab that reconnects gets what it missed, or `resync` |
@@ -62,7 +62,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `accounts.js` | The people who can sign in: the `users` table in the suite's shape, creation with the app's own columns, sign-in that refuses disabled accounts and redoes old hashes, rules that hold whoever calls (never without an administrator; disabling or a new password ends sessions), and their identities at other providers (WorkOS, OIDC…) |
 | `tokens.js` | API tokens for the MCP and scripts: shown once and kept as hashes, with scopes and optional expiry; takes over the apps' `mcp_tokens` without breaking a connector |
 | `devices.js` | Device tokens, with `modules.devices`: an app on a phone connected through the system browser with PKCE (a code of five minutes for the signed-in person, sent back to an address in `devices.redirectUris`, exchanged with its verifier), a token with its own prefix kept as a hash, revoked from Settings, by the device or by the admin's sign-out everywhere, ended after `devices.idleDays` unused; no route of the suite takes one (except, with `stores.devices`, the store routes and the overview), and the app accepts it where it chooses (`authenticate(req)`). For phones: Focus keeps its own pairing |
-| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, taken by every member or only by the roles the app names (`seatRoles`: Tracker's drivers), and a hand-over when someone's account goes |
+| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, taken by every member or only by the roles the app names (`seatRoles`: Tracker's drivers), and a hand-over when someone's account goes, or (`handOver`) when someone leaves one group by an import that replaces what they have |
 | `audit.js` | Who did what, when and from where — never what anybody wrote |
 | `config.js` | The app's configuration: `suite.config.js` (the product) and the environment (the install), checked as a whole — anything unknown or wrong stops the start, saying what |
 | `host.js` | `createHost()`: several apps as one, each a module at its own path (`/tasks/`, `/notes/`…) with one database, one session, one sign-in and one admin panel; `joinHost()` lets an app's `platform.js` join a host that is loading it, and on its own changes nothing |
@@ -258,6 +258,53 @@ export const DATA = {
   check({ user, counts, replaced }) { … },   // the plan's limits, for someone's own import
 };
 ```
+
+A group's data (with `modules.organizations`, v0.84.0): a table that points at `organizations`
+belongs to a group, and so does every table that chains to it.
+
+```js
+export const DATA = {
+  tables: {
+    focus_families: { refs: { organization_id: 'organizations' } },
+    focus_people: { refs: { family_id: 'focus_families', user_id: 'users' } },
+    focus_devices: { refs: { family_id: 'focus_families', person_id: 'focus_people' },
+                     omit: ['token_hash', 'push_endpoint', 'push_p256dh', 'push_auth'] },
+  },
+  organizations: {
+    kinds: ['family'],          // whose rows someone's copy takes (left out: every kind)
+    roles: null,                // which members' copies carry the group (left out: every member)
+    mapOntoOwn: ['family'],     // someone's import goes into the family they own or administer here
+    leave(userId, organizationId) { … },  // "replace" takes them out of a family others share
+  },
+};
+```
+
+- **Someone's copy** takes each group they are in (of `kinds`, where their role is one of
+  `roles`): its name, kind, settings and branding, their own membership (never the others') and
+  every row of the group. A row with a NOT NULL reference to another member is left out, counted
+  in `left_out`; an optional one is emptied, as before. It brings no plan or invitation.
+- **The whole install's copy** takes every group, archived ones too, every membership, the
+  invitations still waiting (by their hash, so the links people hold still open the group), the
+  groups' grants and who pays for them (`subject_type: 'organization'` in `suite/grants.json` and
+  `suite/billing.json`), so a renewal finds the family under its new id.
+- **Importing someone's copy**: each group goes into the oldest one of the same kind they own or
+  administer here when `mapOntoOwn` names the kind, else into a new one with them as its owner,
+  made quietly (no app welcome, no trial). A new id always; a copy's id never reaches a group here.
+  `clean(values, { mode, organizations: { created, mapped } })` says which.
+- **Importing a whole install**: every group comes back as it was, with its roles (one this install
+  doesn't have becomes `member`), its invitations, plans and payments. A group that is here
+  already —the same slug, kind and moment it was made: the same install's copy brought by another
+  module of a host— is found instead of made twice. A group whose every member is left out goes
+  with them; one left without an owner gets its heir as owner.
+- **"Replace"** and **erasing one's data** empty what is the person's alone: their rows and those
+  of groups nobody else is in (the organization and its plan stay). A group others share is never
+  emptied: erasing leaves it whole, and "replace" hands it over (`leave`, then the core: an heir
+  when they were its last owner, and their membership goes), as account deletion does.
+- **`omit`**: those columns never reach any copy, and an import writes the column's default or
+  NULL (`omit: { token_hash: (row) => … }` gives a value or a function of the row). The start
+  refuses an omitted column that is NOT NULL without a default, a reference, a file's or the key.
+- With neither `organizations` nor a table that points at them, nothing of organizations travels
+  and a copy that has them is refused (`unknown_table`), as a core before 0.84.0 does.
 
 - A row belongs to someone's copy when every NOT NULL reference points at something in it; an
   optional one pointing outside is emptied. So a person's copy takes their lists with everything

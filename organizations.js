@@ -58,8 +58,8 @@ export function organizationsSchema(d) {
 const POWER = { owner: 3, admin: 2 };
 const power = (role) => POWER[role] ?? (role ? 1 : 0);
 
-/** A slug from a name: "Casa Andersen" → "casa-andersen", made unique by the caller. */
-const slugOf = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+/** A slug from a name: "Casa Andersen" → "casa-andersen", made unique by the caller (also portability.js). */
+export const slugOf = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'group';
 
 /**
@@ -253,12 +253,32 @@ export function createOrganizations({
     database.run('DELETE FROM memberships WHERE user_id = ?', userId);
   }
 
+  /**
+   * Someone leaves one group that others share, and what it holds stays with them: an import that
+   * replaces what the person has (portability.js). It is forgetUser's hand-over for that one group:
+   * when they were its last owner, the same heir becomes its owner first. A group with nobody else
+   * is left as it is. → the heir's id, or null when nobody had to inherit.
+   */
+  function handOver(organizationId, userId) {
+    const role = roleOf(organizationId, userId);
+    const heir = database.get(`SELECT user_id FROM memberships WHERE organization_id = ? AND user_id <> ?
+      ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`,
+    organizationId, userId, ...seatShifting)?.user_id ?? null;
+    if (!role || heir == null) return null;
+    const inherits = role === 'owner' && owners(organizationId) <= 1;
+    if (inherits) database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", organizationId, heir);
+    database.run('DELETE FROM memberships WHERE organization_id = ? AND user_id = ?', organizationId, userId);
+    return inherits ? heir : null;
+  }
+
   const list = () => database.all(`SELECT o.*, (SELECT COUNT(*) FROM memberships m WHERE m.organization_id = o.id) AS members
     FROM organizations o WHERE o.archived_at IS NULL ORDER BY o.name`);
 
   return {
     create, get, list, update, archive, roleOf, requireRole, addMember, setRole, removeMember,
     invite, accept, revokeInvitation, invitationsOf, membersOf, ofUser, organizationsOf, forgetUser,
-    seatsTaken, takesSeat,
+    seatsTaken, takesSeat, handOver,
+    /** Every role, the app's own included: what a copy's memberships may bring (portability.js). */
+    roles: [...roles],
   };
 }

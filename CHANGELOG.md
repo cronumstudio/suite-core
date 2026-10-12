@@ -3,6 +3,75 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.84.0 — 2026-10-13
+
+- **An organization and its data travel with its members and with the install**
+  (`portability.js`, for Focus' families and Tracker's fleets). Until now a copy followed accounts
+  only: every declared table had to chain to `users`, nothing could point at `organizations`, and
+  no copy carried a group, its members, its invitations, its plans or who pays for it. So another
+  adult's "Download my data" left the family out, and a whole install's move lost the family's
+  name, its second owners, the invitations waiting, its trial or Pro and its Paddle customer and
+  subscription, whose renewals then found nobody. Now, behind options that didn't exist:
+  - **A group's tables**: a reference to `organizations` (`refs: { organization_id:
+    'organizations' }`) decides whose a row is as one to `users` does, and the tables that chain to
+    it are the group's too. A table needs a NOT NULL reference to users, to organizations or to an
+    earlier table.
+  - **`organizations` in the declaration** (each key may be left out; `{}` alone carries the groups
+    in the install's copy of an app without tables of its own for them): `kinds` (whose groups
+    someone's copy takes; every kind), `roles` (which members' copies carry the group; every
+    member, since a member reads what the group shares; Tracker can name `['owner', 'admin']`),
+    `mapOntoOwn` (kinds, or `true`: someone's import goes into the group of that kind they own or
+    administer here) and `leave(userId, organizationId)` (the app's part when "replace" takes
+    someone out of a group others share). It needs `modules.organizations`, or the app doesn't
+    start; the suite's own `organizations`, `memberships` and `invitations` can't be declared as
+    the app's tables.
+  - **Someone's copy** takes each of their groups: `data/organizations.json` (name, kind, slug,
+    settings, branding, date), their own row of `data/memberships.json` (never the others') and
+    every row of the group, other members' optional references emptied and rows that need another
+    member left out and counted in `left_out`. No plan, invitation or payment.
+  - **The whole install's copy** takes every group (archived too), every membership, the
+    invitations still waiting (`suite/invitations.json`, by their hash: the links people hold still
+    open the group after the move; used, revoked and expired ones stay), the groups' grants in
+    `suite/grants.json` and their customers and subscriptions in `suite/billing.json`, each row
+    with `subject_type: 'organization'` (a row without it is an account's, as every copy before).
+  - **Importing someone's copy**: each group goes into the oldest one of its kind they own or
+    administer here when `mapOntoOwn` says so (one group of the copy each), else into a new one,
+    with them as its owner, made quietly as imported accounts are (no app welcome, no trial). Ids
+    are new; a group's id in the file never reaches one here. `clean(values, { mode, organizations:
+    { created, mapped } })` and `check({ …, organizations })` say which. At most 100 groups in one
+    person's copy (`limits.organizations`).
+  - **Importing a whole install** restores each group as it was —slug when free, kind, settings,
+    branding, dates, archived—, its memberships and roles (one this install lacks becomes
+    `member`), its invitations, grants and payments under its new id: a renewal that names the old
+    id finds the family by its customer. A group already here with the same slug, kind and creation
+    (the same install's copy brought in by another of a host's modules) is found, not made twice,
+    and nothing of it is doubled. A group whose every member is left out goes with them; one whose
+    owners are left out gets its heir as owner.
+  - **"Replace" and erasing one's data** empty what is the person's alone: their rows and those of
+    groups nobody else is in, whose organization and plan stay. A group they share is never
+    emptied: "replace" hands it over first (the app's `leave`, then the new
+    `organizations.handOver(organizationId, userId)`: forgetUser's heir becomes owner when they
+    were the last, and their membership goes), and erasing leaves it whole with them in it. The
+    plan says which (`hand_over`) and the result (`handed_over`).
+  - The plan and the result list each group and where it goes (`organizations`), and the command
+    line (`tools/data-cli.js`) shows them.
+- **Columns that never travel** (`omit` on a declared table): `omit: ['token_hash', 'push_endpoint']`
+  leaves them out of every copy, and an import writes the column's default or NULL; `omit: {
+  token_hash: (row) => … }` gives a plain value or a function of the row instead. One a copy brings
+  anyway is dropped. The start refuses an omitted column that is NOT NULL without a default of
+  either kind, a reference, a file's column or the key.
+- **An account waiting to be deleted goes on waiting after a whole install's move**: the copy
+  carries `delete_after`, and an account it creates takes it back with `disabled_at`, so the sweep
+  takes it on the same day with its data. Only a disabled one: a date alone, in a file anyone could
+  write, never sends an active account to the sweep. Before, it arrived disabled for good, with
+  everything it had.
+- `organizations.roles` (every role, the app's own included) and `slugOf` from `organizations.js`.
+- Apart from `delete_after`, nothing changes with today's declarations: no organization travels,
+  and a copy that has them is refused as `unknown_table`, as an older core refuses it. No
+  migration.
+- The web kit's Settings doesn't name the groups "replace" hands over yet; the plan's `hand_over`
+  has them for an app's own screen.
+
 ## 0.81.0 — 2026-10-13
 
 - **An app can push to its own devices, with no user behind them.** A device that belongs to the
