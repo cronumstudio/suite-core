@@ -7,8 +7,8 @@
  * install says `PLANS=cronum-work` and reads the catalog from here: one place,
  * versioned and tested with the code that enforces it, and ready for the day
  * the apps become one. A product sold on its own has a catalog of its own
- * (`PLANS=cronum-tracker`), which its installs name instead, so the plans of
- * one product are read in no other's installs.
+ * (`PLANS=cronum-focus`, `PLANS=cronum-tracker`), which its installs name
+ * instead, so the plans of one product are read in no other's installs.
  *
  * Each app reads only the features it declares; the rest of a plan is ignored
  * there. The other way round is a mistake: a feature an app declares and the
@@ -77,6 +77,42 @@ const PRO = {
 };
 
 /*
+ * Cronum Focus is a product of its own, outside Cronum Work and its subscription: its installs
+ * name this catalog, so none of the plans above gives anything there, and these give nothing
+ * elsewhere (an app that declares a key the named catalog lacks doesn't start). Its plans are a
+ * family's, not a person's: a family is an organization (kind `family`), Pro is granted to it
+ * —bought by its owner or an admin, or the 14-day trial a new family starts with, a grant with an
+ * end— and reaches its adults, who are its members; a child has a profile, not an account. Pro is
+ * 2.99 EUR a month or 24 a year per family; the prices live with the provider, and are here only
+ * to say what each plan is. A key means what its catalog says, because an install reads only the
+ * catalog it names: `history.days` is Focus's History here, and a note's earlier versions above.
+ */
+const FOCUS_FREE = {
+  // Saved routines a family keeps; History's don't count, and creating and running them has no cap.
+  'routines.max': 5,
+  'history.days': 7,        // days an unsaved routine stays in History unused before it goes
+  'devices.per_child': 1,   // paired devices per child profile; adults sign in on any number
+  live: false,              // the live view, an adult's control of a run and remote launch
+  // Days of the adult summary; 0 is the last run of each routine only, not "no summary". Read it
+  // with limit() alone: can(), require() and a tool's `feature` take 0 as "not included".
+  'summary.days': 0,
+  'runner.views': false,    // the other runner and home views (Big clock, Bars, People first)
+  mcp: true,                // the AI connector, in every plan
+  'mcp.calls_per_day': 100, // the same brake on abuse as Cronum Work's
+};
+
+const FOCUS_PRO = {
+  ...FOCUS_FREE,
+  'routines.max': null,
+  'history.days': null,
+  'devices.per_child': null,
+  live: true,
+  'summary.days': 14,
+  'runner.views': true,
+  'mcp.calls_per_day': 1000,
+};
+
+/*
  * Cronum Tracker is a product of its own, outside Cronum Work and its subscription: its installs
  * name this catalog, so none of the plans above gives anything there, and these give nothing
  * elsewhere (an app that declares a key the named catalog lacks doesn't start). Free is the trips
@@ -110,6 +146,11 @@ export const PLAN_CATALOGS = Object.freeze({
     pro: Object.freeze({ name: 'Pro', features: Object.freeze(PRO) }),
     // With organizations (a later phase): Pro, with 10 GB per person and the activity log.
     team: Object.freeze({ name: 'Team', features: Object.freeze({ ...PRO, 'storage.mb': 10240, activity: true }) }),
+  }),
+  'cronum-focus': Object.freeze({
+    // Granted to a family's organization, a plan gives each of its adults what it has.
+    free: Object.freeze({ name: 'Free', features: Object.freeze(FOCUS_FREE) }),
+    pro: Object.freeze({ name: 'Pro', features: Object.freeze(FOCUS_PRO) }),
   }),
   'cronum-tracker': Object.freeze({
     free: Object.freeze({ name: 'Free', features: Object.freeze(TRACKER_FREE) }),

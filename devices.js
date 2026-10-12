@@ -24,7 +24,9 @@
  *   when the admin signs the person out everywhere or sets their password, when
  *   it goes unused for `devices.idleDays` (90), and with the account; a
  *   disabled account's are refused, as its API tokens are.
- * · No route of the suite takes one: `ctx.user` only ever comes from the
+ * · No route of the suite takes one, except, when the app sets
+ *   `stores.devices`, the store routes (`/api/billing/stores/*`) and
+ *   `/api/billing/overview` (stores.js): `ctx.user` only ever comes from the
  *   session cookie. An app accepts a device on the routes it chooses with
  *   `authenticate(req)`, and the app can refuse people (`canConnect`, through
  *   `createApp({ devices })`) when they connect and on every use.

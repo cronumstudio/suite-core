@@ -39,9 +39,13 @@ import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
-import { createBilling, signedProvider, registerBillingApi } from './billing.js';
+import {
+  createBilling, signedProvider, registerBillingApi, combinedBilling, registerBillingOverviewApi,
+} from './billing.js';
 import { stripeProvider } from './stripe.js';
 import { paddleProvider } from './paddle.js';
+import { revenuecatProvider } from './revenuecat.js';
+import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
@@ -137,7 +141,8 @@ export function createSuite({
   });
   const tokens = createTokens({ database, prefix: config.tokens.prefix });
   const audit = createAudit({ database, trustProxy: install.trustProxy });
-  // An app on a phone, with modules.devices: its token is its own kind, which no route of the suite takes.
+  // An app on a phone, with modules.devices: its token is its own kind, which no route of the suite
+  // takes, except, with stores.devices, the store routes and the overview (stores.js).
   const devices = config.modules.devices ? createDevices({
     database, prefix: config.devices.prefix, redirectUris: config.devices.redirectUris,
     idleDays: config.devices.idleDays, audit,
@@ -223,10 +228,29 @@ export function createSuite({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
     // Another product's sales (suite.config.js `billing`): off unless the app says.
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
+    // With the stores, a person's live store subscription also makes a second one on the web a double charge.
+    ...(install.stores ? { otherProviders: [install.stores.provider] } : {}),
   }) : null;
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
     accounts.whenLinked(({ userId, provider, subject }) => billing.claim(provider, subject, userId));
+  }
+  // Purchases in the App Store and Google Play (STORE_BILLING), a second instance on the same
+  // tables: its grants count with the web's. Nobody is waited for: a store's buyer has an account.
+  const storeProvider = install.stores?.provider === 'revenuecat' ? revenuecatProvider({
+    webhookAuth: install.stores.webhookAuth, webhookSecret: install.stores.webhookSecret, apiKey: install.stores.apiKey,
+    apiBase: install.stores.apiBase, sandbox: install.stores.sandbox, products: config.stores.products, log,
+  }) : null;
+  const stores = config.modules.billing && storeProvider ? createStoreBilling({
+    database, entitlements, provider: storeProvider, products: config.stores.products, audit, log,
+    ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false,
+  }) : null;
+  // An account that goes lets go of its links, subscriptions and grants here, never of its login.
+  if (config.billing?.forgetOnRemove && (billing || stores)) {
+    accounts.whenRemoved((userId) => {
+      billing?.forget(userId);
+      stores?.forget(userId);
+    });
   }
 
   // A misspelled catalog could leave a barrier open, or charge for nothing.
@@ -235,6 +259,7 @@ export function createSuite({
     // Only with a provider: without one billing is off and its products sell nothing, so an
     // install whose plans don't include the products' (no PLANS with "pro") still starts.
     ...(billingProvider ? billing?.errors || [] : []).map((e) => `The products (billing) have errors: ${e}`),
+    ...(stores?.errors || []).map((e) => `The store products (stores.products) have errors: ${e}`),
   ];
   if (late.length) {
     if (!exitOnError) database.close();
@@ -346,7 +371,9 @@ export function createSuite({
   // Someone deleting their own account: disabled now, gone after the install's days (account-deletion.js).
   const deletion = createAccountDeletion({
     accounts, sign: sessions.sign, days: config.accounts.deletionDays, atProviders: config.accounts.deleteAtProviders,
-    idp, billing, audit, mailer, texts, appName: config.app.name, baseUrl: install.baseUrl, log,
+    // With the stores, both instances: a store stops nothing for the person, who cancels there.
+    idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
+    baseUrl: install.baseUrl, log,
   });
 
   /**
@@ -432,7 +459,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor, idempotency, deletion, devices,
+    portabilityFor, idempotency, deletion, devices, stores,
   };
 }
 
@@ -503,6 +530,8 @@ export function createApp({
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: {
         organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
+        // Only with STORE_BILLING: the app on a phone sells in its store.
+        ...(suite.stores?.enabled ? { stores: true } : {}),
         // Read each time the config is sent: a host's module learns late whether the host has one.
         get mcp() { return offersConnector(); },
       },
@@ -534,6 +563,13 @@ export function createApp({
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
+  if (suite.stores?.enabled) {
+    // Only the app on the phone buys in a store: with stores.devices, its device token is taken here.
+    const storeDevices = config.stores.devices ? suite.devices : null;
+    const principal = (ctx) => ctx.user || (storeDevices ? storeDevices.authenticate(ctx.req) : null);
+    registerStoreApi(api, { stores: suite.stores, principal });
+    registerBillingOverviewApi(api, { instances: [billing, suite.stores], entitlements, organizations, principal });
+  }
   if (suite.devices) {
     if (deviceRules?.canConnect) suite.devices.setCanConnect(deviceRules.canConnect);
     registerDevicesApi(api, { devices: suite.devices, limiter, audit });

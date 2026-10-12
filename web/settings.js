@@ -23,6 +23,13 @@
  * `shareNote`: what the app does with what the person shares with others when
  * their data or their account goes ("Your shared lists pass to…"), said in
  * Your data before they confirm.
+ *
+ * `plan`: true shows the plan and until when; `{ billing: true }` adds what
+ * can be bought, "Upgrade" and "Manage subscription" where the server sells
+ * (plan.js), and `hideCheckout: true` leaves those out again for a native
+ * app's web view; `open()`, the app's own way to buy that a 402 met here
+ * offers instead of the plan section (with hideCheckout, the only one);
+ * `render(answer)` adds the app's own block.
  */
 import { el, clear } from './dom.js';
 import { t, formatDateTime, currentLanguage } from './i18n.js';
@@ -30,6 +37,7 @@ import { api, errorMessage } from './api.js';
 import { at } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
+import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch' };
 
@@ -40,7 +48,7 @@ const row = (...children) => el('div', { class: 'kit-row' }, ...children);
 const button = (text, onClick, kind = '') => el('button', {
   type: 'button', class: `kit-btn kit-btn--small${kind ? ` kit-btn--${kind}` : ''}`, text, onClick,
 });
-const fail = (err) => toast(errorMessage(err), { error: true });
+const showError = (err) => toast(errorMessage(err), { error: true });
 const input = (props) => el('input', { class: 'kit-input', ...props });
 
 /**
@@ -61,6 +69,19 @@ export function openSettings(options) {
   const host = config.app?.host || null;
   // Deleting one's own account: how many days it waits before it goes (none: the install doesn't offer it).
   const deletionDays = config.deletion_days ?? null;
+  // What the plan section sells (plan.js): only when the app asks for it and the server doesn't say it can't.
+  const planOptions = options.plan && typeof options.plan === 'object' ? options.plan : {};
+  const selling = planOptions.billing === true && modules.billing !== false;
+  const hideCheckout = planOptions.hideCheckout === true;
+  // Where it sells, a plan's barrier met here offers a way to buy: the app's own (`plan.open`, a native
+  // app's store) when it gives one, else the plan section, unless that sells nothing here (hideCheckout).
+  // Elsewhere a notice, as always.
+  const openPlan = !selling ? null
+    : typeof planOptions.open === 'function' ? planOptions.open
+      : hideCheckout ? null : () => show('plan');
+  const fail = (err) => (openPlan && offerPlan(err, { open: openPlan })) || showError(err);
+  // What Settings listens to while it is open, let go when it closes.
+  const cleanups = [];
   let inUse = [];
 
   /* -------------------------------- sections -------------------------------- */
@@ -161,6 +182,7 @@ export function openSettings(options) {
 
   function close() {
     document.removeEventListener('keydown', onKey);
+    for (const cleanup of cleanups.splice(0)) cleanup();
     overlay.remove();
     options.onClose?.();
   }
@@ -610,17 +632,39 @@ export function openSettings(options) {
 
   function plan() {
     const box = el('div', { class: 'kit-stack' });
-    (async () => {
+    const payments = selling ? planPayments({ hideCheckout, fail, refresh: () => load() }) : null;
+    const paint = (answer) => {
+      const name = answer.plan?.name ? t(answer.plan.name) : '—';
+      const until = answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null;
+      clear(box).append(el('div', { class: 'kit-facts' },
+        fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name), until));
+      if (options.plan?.render) box.append(options.plan.render(answer));
+      if (!payments) return;
+      // Held by a live subscription, the plan's end is its period's (shown there), not the grace after it.
+      if (until) until.hidden = true;
+      payments.paint(answer).then((state) => { if (state && until) until.hidden = state.holds; });
+    };
+    // The newest answer wins: one read before the plan arrived from billingReturn mustn't paint over it.
+    let reading = 0;
+    const load = async () => {
+      const turn = ++reading;
       try {
         const answer = await api.get('/api/me/entitlements');
-        const name = answer.plan?.name ? t(answer.plan.name) : '—';
-        clear(box).append(el('div', { class: 'kit-facts' },
-          fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name),
-          answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null));
-        if (options.plan?.render) box.append(options.plan.render(answer));
-      } catch (err) { fail(err); }
-    })();
-    return [block(null, box)];
+        if (turn === reading) paint(answer);
+      } catch (err) { if (turn === reading) fail(err); }
+    };
+    load();
+    if (payments) {
+      // Back from the checkout, the plan read again (plan.js billingReturn) is painted here too.
+      const onPlan = (event) => {
+        if (!event?.detail) return;
+        reading++;
+        paint(event.detail);
+      };
+      document.addEventListener(PLAN_EVENT, onPlan);
+      cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
+    }
+    return [block(null, box), ...(payments ? payments.blocks : [])];
   }
 
   /* ---------------------------------- data ---------------------------------- */

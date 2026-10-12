@@ -21,6 +21,7 @@ import { oidcConfigFromEnv } from './oidc.js';
 import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { vapidKeyErrors } from './push.js';
 import { PADDLE_API } from './paddle.js';
+import { REVENUECAT_API, STORE_FIELDS } from './revenuecat.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
 
@@ -45,11 +46,19 @@ export const MODULES = Object.freeze({
 const PRODUCT_KEYS = new Set([
   'app', 'modules', 'accounts', 'sessions', 'organizations', 'tokens', 'rateLimits',
   'features', 'plans', 'defaultPlan', 'products', 'billing', 'trustProxy',
-  'devices',
+  'devices', 'stores',
 ]);
 
-/** suite.config.js `billing`: what keeps another product's sales out (billing.js, paddle.js). */
-const BILLING_KEYS = new Set(['ignoreUnknownProducts', 'app', 'strictPrices', 'paddleProductIds']);
+/**
+ * suite.config.js `billing`: what keeps another product's sales out (billing.js, paddle.js), and
+ * whether an account that goes takes its billing links and grants with it (`forgetOnRemove`).
+ */
+const BILLING_KEYS = new Set(['ignoreUnknownProducts', 'app', 'strictPrices', 'paddleProductIds', 'forgetOnRemove']);
+
+/** suite.config.js `stores`: what the app on a phone sells in the App Store and Google Play (stores.js). */
+const STORE_KEYS = new Set(['products', 'devices']);
+/** What a store product may say; anything else is a typo that would sell nothing. */
+const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', ...Object.keys(STORE_FIELDS)]);
 
 /** suite.config.js `devices`: how an app on a phone connects (devices.js). */
 const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays']);
@@ -328,6 +337,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   const products = productsFor(isObject(p.products) ? p.products : {}, billing, errors);
   const billingRules = billingRulesFor(p.billing, billing, errors, warnings);
+  const stores = storesFor(p.stores, products, modules, errors);
+  const storeBilling = storeBillingFromEnv(env, { modules, stores, errors });
 
   const install = {
     baseUrl,
@@ -356,6 +367,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     plansJson: env.PLANS,
     defaultPlan: env.DEFAULT_PLAN,
     billing,
+    // Purchases in the App Store and Google Play (STORE_BILLING), next to the web's.
+    stores: storeBilling,
     mail,
     push,
     hotReload: env.HOT_RELOAD === 'true',
@@ -368,14 +381,116 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     defaultPlan: p.defaultPlan ?? null,
     products,
     billing: billingRules,
+    stores,
     install, errors, warnings,
   };
 }
 
 /**
+ * suite.config.js `stores`, what the app on a phone sells (stores.js, revenuecat.js):
+ *   { products: { 'pro-monthly': { plan: 'pro', kind: 'subscription',
+ *       appStore: 'com.example.app.pro.monthly', playStore: 'app_pro:monthly' } },
+ *     devices: true }
+ * Each product is a plan of the catalog, as a web product is (checked when STORE_BILLING is on), and
+ * names its id in each store (Google's as `subscription:base-plan`); a store id belongs to one
+ * product, and a key is not also a web product's. People buy for themselves: no `for`.
+ * `devices`: the store routes and the overview also take this app's device tokens (modules.devices),
+ * since only the app on the phone buys in a store.
+ */
+function storesFor(given, webProducts, modules, errors) {
+  const stores = { products: {}, devices: false };
+  if (given === undefined) return stores;
+  if (!isObject(given)) {
+    errors.push("stores: an object, such as { products: { 'pro-monthly': { plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly' } } }");
+    return stores;
+  }
+  for (const key of Object.keys(given)) {
+    if (!STORE_KEYS.has(key)) errors.push(`stores.${key} is not a setting (a typo?)`);
+  }
+  if (given.devices !== undefined) {
+    if (typeof given.devices !== 'boolean') errors.push('stores.devices must be true or false');
+    else if (given.devices && !modules.devices) errors.push('stores.devices needs modules.devices: the device tokens it takes');
+    else stores.devices = given.devices;
+  }
+  if (given.products !== undefined && !isObject(given.products)) {
+    errors.push("stores.products: an object, such as { 'pro-monthly': { plan: 'pro', kind: 'subscription', appStore: '…' } }");
+    return stores;
+  }
+  const owner = {};
+  for (const [key, spec] of Object.entries(given.products || {})) {
+    if (!isObject(spec)) { errors.push(`stores.products.${key}: an object, such as { plan: 'pro', kind: 'subscription', appStore: '…' }`); continue; }
+    for (const field of Object.keys(spec)) {
+      if (field === 'for') errors.push(`stores.products.${key}.for: people buy in the stores for themselves; a group buys on the web`);
+      else if (!STORE_PRODUCT_KEYS.has(field)) errors.push(`stores.products.${key}.${field} is not a setting (${[...STORE_PRODUCT_KEYS].join(', ')})`);
+    }
+    if (Object.hasOwn(webProducts, key)) errors.push(`stores.products.${key}: a web product has that key too; give the store's its own`);
+    if (!Object.keys(STORE_FIELDS).some((field) => spec[field] != null)) {
+      errors.push(`stores.products.${key}: its id in a store is needed (${Object.keys(STORE_FIELDS).join(' or ')})`);
+    }
+    if (spec.appStore != null && !/^[A-Za-z0-9._]{1,100}$/.test(String(spec.appStore))) {
+      errors.push(`stores.products.${key}.appStore: "${String(spec.appStore).slice(0, 100)}" is not an App Store product id (letters, digits, . and _)`);
+    }
+    if (spec.playStore != null && !/^[a-z0-9][a-z0-9._]{0,99}(:[a-z0-9][a-z0-9-]{0,62})?$/.test(String(spec.playStore))) {
+      errors.push(`stores.products.${key}.playStore: "${String(spec.playStore).slice(0, 100)}" is not a Google Play product id (subscription:base-plan, lowercase)`);
+    }
+    for (const [field, store] of Object.entries(STORE_FIELDS)) {
+      if (spec[field] == null) continue;
+      const id = `${store}:${spec[field]}`;
+      if (owner[id]) errors.push(`stores.products.${key}.${field}: "${spec[field]}" is already stores.products.${owner[id]}'s`);
+      else owner[id] = key;
+    }
+  }
+  stores.products = { ...(given.products || {}) };
+  return stores;
+}
+
+/**
+ * The install's store purchases (STORE_BILLING): today `revenuecat`, with REVENUECAT_WEBHOOK_AUTH
+ * (the Authorization header value set in the webhook), REVENUECAT_API_KEY (a secret key of the
+ * project, sk_…), optionally REVENUECAT_WEBHOOK_SECRET (the webhook's signing secret: then its
+ * signature is required too) and REVENUECAT_SANDBOX (`on` by default: test purchases count, marked
+ * as such, as App Review buys in the sandbox; `off` makes them another product's).
+ */
+function storeBillingFromEnv(env, { modules, stores, errors }) {
+  if (!env.STORE_BILLING) return null;
+  if (!modules.billing) {
+    errors.push('STORE_BILLING is set, but this app has modules.billing off');
+    return null;
+  }
+  if (env.STORE_BILLING !== 'revenuecat') {
+    errors.push(`STORE_BILLING "${env.STORE_BILLING}": use revenuecat`);
+    return null;
+  }
+  const missing = ['REVENUECAT_WEBHOOK_AUTH', 'REVENUECAT_API_KEY'].filter((name) => !env[name]);
+  const sandbox = env.REVENUECAT_SANDBOX || 'on';
+  const apiBase = String(env.REVENUECAT_API_BASE || REVENUECAT_API).replace(/\/+$/, '');
+  // The values themselves are never repeated: they are secrets.
+  if (missing.length) errors.push(`STORE_BILLING=revenuecat needs ${missing.join(' and ')}`);
+  else if (env.REVENUECAT_WEBHOOK_AUTH.length < 16) {
+    errors.push('REVENUECAT_WEBHOOK_AUTH: the Authorization header value set in RevenueCat\'s webhook, 16 characters or more');
+  } else if (!/^sk_\S{8,}$/.test(env.REVENUECAT_API_KEY)) {
+    errors.push('REVENUECAT_API_KEY must be a secret API key of the RevenueCat project (sk_…), never an app\'s public key');
+  } else if (env.REVENUECAT_WEBHOOK_SECRET && env.REVENUECAT_WEBHOOK_SECRET.length < 16) {
+    errors.push('REVENUECAT_WEBHOOK_SECRET: the webhook\'s signing secret, 16 characters or more, or left empty');
+  } else if (!['on', 'off'].includes(sandbox)) {
+    errors.push(`REVENUECAT_SANDBOX "${sandbox}": use on or off`);
+  } else if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(apiBase)) {
+    errors.push(`REVENUECAT_API_BASE "${env.REVENUECAT_API_BASE}" is not an http(s) address`);
+  } else if (!Object.keys(stores.products).length) {
+    errors.push('STORE_BILLING is set, but suite.config.js stores.products sells nothing');
+  } else {
+    return {
+      provider: 'revenuecat', webhookAuth: env.REVENUECAT_WEBHOOK_AUTH, webhookSecret: env.REVENUECAT_WEBHOOK_SECRET || null,
+      apiKey: env.REVENUECAT_API_KEY, apiBase, sandbox: sandbox === 'on',
+    };
+  }
+  return null;
+}
+
+/**
  * suite.config.js `billing`, all off by default (billing.js and paddle.js say why):
  *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true,
- *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } }
+ *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] }, forgetOnRemove: true }
  * The Paddle products are given per environment: a sandbox product's id is never the live one's,
  * so one list for both would be right in one of them and, in the other, make every sale of this
  * install foreign without a word. With Paddle on, the ones of PADDLE_ENV are used and must be
@@ -396,6 +511,11 @@ function billingRulesFor(given, install, errors, warnings) {
     if (given[key] === undefined) continue;
     if (typeof given[key] !== 'boolean') errors.push(`billing.${key} must be true or false`);
     else rules[key] = given[key];
+  }
+  // Only when given: the rules of an app that says nothing stay as they were.
+  if (given.forgetOnRemove !== undefined) {
+    if (typeof given.forgetOnRemove !== 'boolean') errors.push('billing.forgetOnRemove must be true or false');
+    else if (given.forgetOnRemove) rules.forgetOnRemove = true;
   }
   if (given.app != null) {
     if (!/^[a-z][a-z0-9-]{1,30}$/.test(String(given.app))) errors.push('billing.app: lowercase letters, digits and -, starting with a letter');
