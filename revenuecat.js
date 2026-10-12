@@ -32,6 +32,8 @@
  * A one-off purchase (non_subscriptions) is a purchase, for a product of kind `once`; RevenueCat
  * removes a refunded one from the list, and stores.js takes back what is no longer there. A
  * TRANSFER is the same purchases under another App User ID: both customers are looked at again.
+ * A purchase shared through Apple's Family Sharing (when the product allows it) counts for whoever
+ * it is shared with, as the store says.
  *
  * Refs. RevenueCat's v1 API names no original transaction for a subscription, so the ref is made of
  * what it does name, the same for the webhook and for the app's sync: the store, `-sandbox` for a

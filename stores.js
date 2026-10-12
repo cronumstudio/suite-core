@@ -80,7 +80,9 @@ export function createStoreBilling({
   /**
    * What this install holds for an account that the store no longer has for its customer: a
    * subscription that went to another customer ends, a one-off purchase that left (refunded) is
-   * refunded. What the adapter still sees, even unpriced, is left to the events.
+   * refunded. What the adapter still sees, even unpriced, is left to the events. A reading older
+   * than what it would take back doesn't: a subscription's end is then stale (billing.js), and a
+   * purchase granted after the store answered was bought after it.
    */
   function goneEvents(userId, present, { cause, at, customer }) {
     const gone = [];
@@ -94,8 +96,8 @@ export function createStoreBilling({
       });
     }
     const purchases = database.all(`SELECT DISTINCT external_ref AS ref FROM entitlement_grants WHERE source = ?
-      AND subject_type = 'user' AND subject_id = ? AND revoked_at IS NULL AND external_ref IS NOT NULL
-      AND external_ref NOT IN (SELECT ref FROM billing_subscriptions WHERE provider = ?)`, source, userId, source);
+      AND subject_type = 'user' AND subject_id = ? AND revoked_at IS NULL AND external_ref IS NOT NULL AND created_at <= ?
+      AND external_ref NOT IN (SELECT ref FROM billing_subscriptions WHERE provider = ?)`, source, userId, at, source);
     for (const row of purchases) {
       if (!present.has(row.ref)) gone.push({ id: `${cause}/${row.ref}`, type: 'refund', occurredAt: at, ref: row.ref });
     }

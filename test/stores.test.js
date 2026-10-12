@@ -271,6 +271,41 @@ test('a one-off purchase: granted once, and refunded when RevenueCat no longer l
   assert.equal(s.planOf(s.ada), 'free');
 });
 
+test('a reading that answered before a purchase takes nothing back: a subscription\'s end is stale, a later one-off stays', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-stores-race-'));
+  const database = openDatabase({ dataDir: dir, name: 'test' });
+  t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+  const clock = { now: Date.parse('2026-11-01T10:00:00Z') };
+  const accounts = createAccounts({ database, clock: () => clock.now });
+  const entitlements = createEntitlements({
+    database, appId: 'test', clock: () => clock.now, features: FEATURES, plans: PLANS, plansJson: null, defaultPlanOverride: null,
+  });
+  // A store whose answer comes when the test says, read at the time it was asked.
+  const pending = [];
+  const provider = {
+    id: 'revenuecat', kind: 'store', manage: () => null, parseWebhook: async () => null,
+    customerEvents: (customer, { cause }) => {
+      const asked = iso(clock.now);
+      return new Promise((resolve) => pending.push(() => resolve({ at: asked, events: [], present: new Set(), customer, cause })));
+    },
+  };
+  const stores = createStoreBilling({ database, entitlements, provider, products: PRODUCTS, clock: () => clock.now, log: () => {} });
+  const ada = accounts.create({ username: 'ada' });
+  const customer = stores.customerFor(ada.id);
+  const reading = stores.sync(ada.id);
+  // Meanwhile Ada buys, and the webhook's newer reading applies it.
+  clock.now += 2000;
+  assert.equal(stores.apply({ id: 'w/1', type: 'purchase', ref: 'app_store:life:k:1', customer, product: 'pro-lifetime', occurredAt: iso(clock.now) }), 'granted');
+  assert.equal(stores.apply({
+    id: 'w/2', type: 'subscription', ref: 'app_store:monthly:k', customer, product: 'pro-monthly', status: 'active',
+    occurredAt: iso(clock.now), periodEnd: iso(clock.now + 30 * DAY),
+  }), 'granted');
+  pending.shift()();
+  assert.deepEqual(await reading, { received: 1, outcomes: ['stale'] }, 'the subscription\'s end, older than what is known');
+  assert.equal(entitlements.grantsOf('user', ada.id).filter((g) => !g.revoked_at).length, 2, 'both still there');
+});
+
 test('another product\'s sale, or this app\'s for a customer it never gave out: kept by id only, and RevenueCat isn\'t asked', async (t) => {
   for (const ignoreUnknownProducts of [false, true]) {
     const s = await setup(t, { ignoreUnknownProducts });
