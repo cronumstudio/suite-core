@@ -612,6 +612,17 @@ value. The features every app names the same are there too (`COMMON_FEATURES`: `
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 
+Cronum Focus is sold on its own, so its installs name a catalog of their own, `PLANS=cronum-focus`:
+none of its plans gives anything in Cronum Work, nor the other way round (a key the named catalog
+lacks stops the start, as above). Its plans, `free` and `pro`, are a family's: a family is an
+organization (kind `family`), Pro is granted to it —bought by its owner or an admin, or the 14-day
+trial a new family starts with, a grant with an end— and reaches its adults, who are its members.
+Its keys are Focus's own, `routines.max` (5, no limit), `history.days` (7, no limit),
+`devices.per_child` (1, no limit), `live`, `summary.days` (0, 14) and `runner.views`, and the common
+`mcp` (on in both) and `mcp.calls_per_day` (100, 1000). In `cronum-work`, `history.days` is how long
+a note keeps its earlier versions: a key means what the catalog an install names says, and an
+install names one.
+
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
 browser reads `GET /api/me/entitlements` to hide or lock what is not included. The error is
@@ -684,7 +695,7 @@ Products live in the app's configuration, each tied to a plan of the catalog and
 provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
 `GET /api/billing/subscriptions` and `POST /api/billing/webhook`. In the browser, Settings' plan
-section sells them (`plan: { billing: true }`, `web/plan.js`, v0.76.0): Upgrade, Manage
+section sells them (`plan: { billing: true }`, `web/plan.js`, v0.77.0): Upgrade, Manage
 subscription, a 402's call to action and the return from the checkout ([web-kit.md](web-kit.md)).
 
 `signedProvider()` speaks these normalized events directly, signed with a shared secret
