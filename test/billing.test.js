@@ -487,7 +487,7 @@ test('seats is checked on start: only for a group\'s product, true or false, nev
     'Product "person": seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
     'Product "typo": seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
     'Product "text": seats must be true or false',
-    'Product "seat": "seat" is not a setting (seats?)',
+    'Product "seat": seat is not a setting (seats?)',
   ]);
   assert.equal(bad.enabled, false, 'a misspelt product never charges');
 
@@ -498,17 +498,17 @@ test('seats is checked on start: only for a group\'s product, true or false, nev
   });
   const errorsOf = (given, env = {}) => resolveConfig(product(given), { DATA_DIR: os.tmpdir(), ...env }).errors;
   assert.deepEqual(errorsOf(products), [
-    'products.person: seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
-    'products.typo: seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
-    'products.text: seats must be true or false',
-    'products.seat: "seat" is not a setting (seats?)',
+    'products.person.seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
+    'products.typo.seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
+    'products.text.seats must be true or false',
+    'products.seat.seat is not a setting (seats?)',
   ]);
   assert.deepEqual(errorsOf({ free: products.free, fine: products.fine, old: { plan: 'family', kind: 'once', for: 'organization' } }), []);
   assert.deepEqual(errorsOf(FAMILY, { BILLING_PROVIDER: 'remote', BILLING_SECRET: SECRET }), []);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-seats-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   assert.throws(() => createSuite({ config: product({ text: products.text }), env: { DATA_DIR: dir, PORT: '0' }, log: () => {}, exitOnError: false }),
-    (err) => err instanceof SuiteConfigError && /products\.text: seats must be true or false/.test(err.message), 'the start stops');
+    (err) => err instanceof SuiteConfigError && /products\.text\.seats must be true or false/.test(err.message), 'the start stops');
 });
 
 test('createSuite: a family bought through the webhook has no seats, and its own plan reads without a person', (t) => {

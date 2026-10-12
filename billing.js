@@ -194,12 +194,13 @@ export function signedProvider({ id = 'remote', secret, baseUrl = '' }) {
  * adults it has. A person's product has no seats to speak of, so `seats` there is a mistake —most
  * likely a misspelt `for`, which would sell the family's plan to one person—, and so is a key that
  * looks like it (`seat`), which would quietly leave the family capped at one adult. Checked on start
- * by config.js, with or without a provider, and by createBilling().
+ * by config.js, with or without a provider, and by createBilling(). The problem starts with the key
+ * it is about (`seats must be true or false`), for each to name the product its own way.
  */
 export function productSeatsProblem(spec) {
   if (!spec || typeof spec !== 'object') return null;
   const misspelt = Object.keys(spec).find((key) => key !== 'seats' && /seat/i.test(key));
-  if (misspelt) return `"${misspelt}" is not a setting (seats?)`;
+  if (misspelt) return `${misspelt} is not a setting (seats?)`;
   if (spec.seats === undefined) return null;
   if (typeof spec.seats !== 'boolean') return 'seats must be true or false';
   if (spec.for !== 'organization') return 'seats is only for a product for: \'organization\' (a person\'s plan has no seats)';

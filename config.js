@@ -571,7 +571,7 @@ function productsFor(products, billing, errors) {
     // mistake stops the start even without a provider, so development and CI see it before a
     // family that paid finds it can't add anyone.
     const seats = productSeatsProblem(spec);
-    if (seats) errors.push(`products.${key}: ${seats}`);
+    if (seats) errors.push(`products.${key}.${seats}`);
     const resolved = { ...spec };
     for (const field of ['price', 'founderPrice']) {
       if (spec[field] === undefined) continue;
