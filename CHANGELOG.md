@@ -43,6 +43,156 @@ change an interface and a patch never does. Apps pin a version through the submo
   from `seatsOf()` as before, and `seatRoles` fits beside it: which roles take a seat, when there are
   seats at all).
 
+## 0.78.0 — 2026-10-13
+
+- **Purchases in the App Store and Google Play, next to the web's** (`stores.js`, `revenuecat.js`;
+  `STORE_BILLING=revenuecat`, with `modules.billing` on, off by default). A second instance of
+  billing on the same tables, under its own provider id (`revenuecat`): each event applied once and
+  in order, `billing.ignoreUnknownProducts` applying, and the account's plan the grants of both
+  (`/api/me/entitlements`). It runs with or without `BILLING_PROVIDER`.
+  - suite.config.js `stores: { products, devices }`: each product a plan of the catalog with its
+    store ids, `{ plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly',
+    playStore: 'app_pro:monthly' }` (Google's as `subscription:base-plan`); keys of their own, not
+    the web's; no `for` (people buy for themselves; groups buy on the web). `devices: true`
+    (needs `modules.devices`): the store routes and the overview also take the app's device token,
+    the only core routes that do. Every mistake stops the start: an unknown key or field, a store
+    id given twice or malformed.
+  - Who buys: `GET /api/billing/stores/customer` → `{ provider, customer }`, an opaque random UUID
+    per account and install, kept in `billing_customers`, for the app to hand to RevenueCat as its
+    App User ID. Never the WorkOS id, an email or the account's number. Also what StoreKit takes as
+    `appAccountToken` and Google Play as `obfuscatedAccountId`. Set RevenueCat's restore behaviour
+    to "Keep with original App User ID".
+  - `POST /api/billing/revenuecat/webhook` (an address registered in RevenueCat's dashboard, kept
+    once live, CONVENTIONS §9): checked by the Authorization header value set in RevenueCat
+    (`REVENUECAT_WEBHOOK_AUTH`, 16 characters or more) and, with `REVENUECAT_WEBHOOK_SECRET`, by
+    `X-RevenueCat-Webhook-Signature` too. Only a trigger: each of this install's customers it names
+    (the buyer, its aliases, both sides of a TRANSFER) is read again with `GET /v1/subscribers/{id}`
+    and the project's secret key (`REVENUECAT_API_KEY`, sk_…), and what RevenueCat holds is
+    applied. Nobody else is looked up (that call makes a customer of any id). RevenueCat down or
+    refusing answers 502, so it sends the webhook again; the log names the status and code, never
+    the customer. `REVENUECAT_API_BASE` only points tests at a stand-in.
+  - `POST /api/billing/stores/sync`: the same reading after a purchase or a restore, for the
+    account that asks (one at a time, at most every three seconds, else 429 `too_many_attempts`);
+    nothing is asked for an account that never had a customer.
+  - A reading is applied as one (billing.js `apply(event, { reading: true })`): what it says that
+    is already here is `'unchanged'` and leaves no `billing_events` row and no audit (only the
+    subscription's last-known time moves on), and a stale one leaves none either, so syncing or
+    hearing the webhook again and again grows no table.
+  - What a subscription becomes: active (trialing in a trial) until its paid date or the end of
+    the store's grace period after a failed charge; past it, paused (Google Play), past_due while
+    the store retries (nothing changes; the grant lapses on its own) or ended (EXPIRATION, or not
+    renewed). Refunded after its last purchase, or cancelled by customer support for that same
+    transaction: a refund, whose period gives nothing again unless REFUND_REVERSED (events gain
+    `refundReversed`, which billing.js honours); cancelled by customer support for another
+    transaction (an older renewal): the period paid now stays. One-off purchases are RevenueCat's
+    non-subscriptions for products of kind `once`, refunded when they leave the list or when
+    customer support refunds their transaction. What the install holds that the customer no longer
+    has (moved by a TRANSFER, a refunded one-off) is taken back.
+  - Notes, for what a later reading can't see at the store again: a `refunded_at` the store took
+    back or that was an older renewal's no longer takes the period back, and a one-off refunded
+    while still listed stays refunded until a REFUND_REVERSED of its transaction. Kept as rows of
+    `billing_events` of their own (`note:…`, type and outcome `note`; refs and times only), so no
+    migration; no delivery can write one, since a webhook's id takes only letters, digits, `-`, `_`
+    and `.` (any other is replaced by its digest). Unverified until the stores' sandbox tests, and
+    handled either way: whether RevenueCat clears `refunded_at` on a reversal, whether it removes a
+    refunded one-off, and that `refunded_at` and `store_transaction_id` are the latest purchase's.
+  - Another product's sales: a webhook for another store (Stripe, Paddle, promotional), for a
+    product `stores.products` doesn't name, or from the sandbox with `REVENUECAT_SANDBOX=off`, is
+    foreign, and nobody is looked up; one for a customer this install never gave out is
+    `ignored`. Test purchases count by default (App Review buys in the sandbox), marked in the ref
+    (`app_store-sandbox:…`) and in the overview. A subscription to this app's store product on a
+    base plan no product lists is said in the log and grants nothing.
+  - Refs: the store, the store's product id and a digest of the customer
+    (`app_store:com.example.app.pro.monthly:3f…`), the same from the webhook and from the sync:
+    RevenueCat's v1 API names no original transaction. Kept once live, with the provider id: an
+    adapter that replaces RevenueCat's (Apple's or Google's own server APIs) keeps the id
+    `revenuecat` and these refs, or comes with a migration of `billing_customers`,
+    `billing_subscriptions` and the grants, or everyone gets a new customer that no longer matches
+    the `appAccountToken` of what they bought.
+- **Several providers in one install.** `GET /api/billing/overview` (with the stores on): the
+  person's plan and every source of it, and how to manage each — the web's subscriptions (the
+  portal, theirs or a group's they administer), the stores' (only in the store), a group's plan
+  that covers them and the admin's gifts; never a ref, a customer or a price id. What the app reads
+  before it sells in the store, since no server can refuse a store's sale. The other way round,
+  `createBilling({ otherProviders })` (set by `createSuite` with the stores on): the web's checkout
+  answers 409 `already_subscribed` to a person with a live store subscription; a group's checkout
+  is unaffected. `combinedBilling([billing, stores])` hands both to the account deletion: each
+  asked even if the other fails, and a store stops nothing (the person cancels there).
+  `/api/billing/webhook` is unchanged. `/api/auth/config` says `app.modules.stores: true` only
+  with the stores on.
+- **`billing.forgetOnRemove`** (suite.config.js, off by default): an account that goes takes with
+  it, in each billing instance, its customer link, its subscriptions, its grants (revoked) and what
+  waited under its identity in `billing_pending`; `forget(userId)` on each instance does it and
+  says how many of each. A renewal that still comes is then nobody's account here: one that names
+  only the old customer (a store's) is ignored; one that names the person's identity (Paddle's, by
+  the WorkOS id) waits, as for anyone without an account here, and goes to an account opened again
+  with that login, who still pays for it. Nothing is asked of the providers or of the identity
+  provider, whose login other apps share, and a group's subscription stays.
+- Nothing changes for an app that sets neither `STORE_BILLING` nor `billing.forgetOnRemove`: no
+  route, no field, no migration (`config.billing` keeps its shape; `config.stores` and
+  `install.stores` are new, empty and null; `apply()` without `reading` and the checkout without
+  `otherProviders` are as before).
+
+## 0.77.0 — 2026-10-13
+
+- **Settings' plan section sells, where the app asks** (`web/plan.js`, served at `/suite/plan.js`
+  and cached by `sw-core.js`). With `openSettings({ plan: { billing: true } })`, on a server whose
+  `/api/auth/config` doesn't say `modules.billing: false`, the section adds to the plan and until
+  when, from the suite's billing routes and with nothing of one app or provider in it:
+  - **what can be bought** (`GET /api/billing/products`): the products for one person whose plan
+    is above theirs in the catalog's order, or theirs again when it lapses on a date, and nothing
+    to an admin. Each by its `name` (a catalog key or the name itself) or its plan's, with its
+    kind of payment ("Monthly subscription", "Yearly subscription", from the `…-monthly` and
+    `…-yearly` keys; "One payment, for 30 days"; "One payment, for good") and "Founder's price"
+    where the server says the person gets it. The browser names the product only: the price stays
+    the server's choice. Each "Upgrade" button is named for a screen reader by its product and
+    kind ("Upgrade: Pro (Monthly subscription)");
+  - **Upgrade**: `POST /api/billing/checkout`, then the browser follows the `url` (http or https
+    only). A 409 `already_subscribed` says so with "Manage subscription" in the notice, and the
+    section is read again;
+  - **the subscriptions that hold a plan** (`GET /api/billing/subscriptions`: active, trial,
+    payment pending) with the end of their period, and what to do about a pending payment. They
+    decide first: while one is live nothing is offered, not even a one-off pass for the same plan
+    (the server's 409 guards subscriptions only), and nothing is offered either when the list
+    doesn't come, since a subscription's plan lapses on a date too, its period's end. Beside a
+    live subscription that holds the plan shown, the plan's "Until" (the period's end and the
+    grace after it) gives way to the subscription's own "Current period until";
+  - **Manage subscription**: `POST /api/billing/portal`, followed the same way, the primary button
+    under a subscription; without one now, "Payments and invoices" (the same portal), last and
+    quiet, when there was a subscription before or the catalog sells one-off payments. A 404
+    `no_customer` says there is nothing to manage yet and takes the button away, until a
+    subscription shows up while the section is open;
+  - **`hideCheckout: true`** for a native app's web view (the stores' rules keep a web payment's
+    links out of an app): the subscriptions still show, without products, Upgrade, the portal or
+    the founder's price.
+  Inside a Settings that sells, a 402 met in any section offers a way to buy: `plan.open` when the
+  app gives one (a native app's store), or else the plan section, but never under `hideCheckout`,
+  where that section sells nothing; there the notice only says why. A plan read late never paints
+  over a newer one.
+- **A group's products are not offered here yet** (`for: 'organization'`): buying for a group
+  needs its seats in the checkout and the group's subscriptions, which the routes don't give the
+  browser today (`GET /api/billing/subscriptions` lists a person's). An app that sells to groups
+  keeps its own page for now.
+- **A plan's barrier anywhere in an app**: `offerPlan(err, { open })` → true for a 402
+  (`plan_feature`, `plan_limit`, `seats_full`, an app's own), with a notice that says why and
+  "See plans" running `open` (Settings at its plan section, or a native app's own way to buy);
+  false for anything else, which stays the app's. `isPlanError(err)`.
+- **Back from the checkout**: `billingReturn({ onPlan, open })`, called once at the start, takes
+  `?billing=done` (billing.js's return address) out of the address, thanks the person and reads the
+  plan again over about 20 seconds, since the provider's webhook may come after them. Each answer
+  goes to `onPlan` and to `kit-plan` (`PLAN_EVENT`) on the document, which an open Settings
+  repaints with; the notice says the new plan when it arrives, or that the payment isn't confirmed
+  yet when the plan from before is known (kept for the tab as `<app>.billing` in
+  `sessionStorage`) and nothing changed. `?billing=canceled`, where a provider sends whoever left
+  its checkout unpaid (stripe.js's cancel address), is taken out the same way, with that kept plan,
+  and the notice says nothing was charged; the plan isn't read again.
+- Their texts in the four languages (`kit.plan.*`). `offerFor(answer, products, subscriptions)`,
+  `isLive()` and `productText()` are exported for an app's own page of prices; `offerFor` offers
+  nothing without the subscriptions.
+- **Nothing changes for an app that doesn't pass the option.** `plan: true` and `plan: { render }`
+  show the plan and until when, as before, and ask nothing of billing; no route, migration or
+  setting changes. The service worker caches one more file of the kit.
+
 ## 0.76.0 — 2026-10-13
 
 - **Cronum Focus's catalog** (`plans.js`, `PLANS=cronum-focus`): a product of its own, whose

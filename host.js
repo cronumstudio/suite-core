@@ -436,6 +436,7 @@ export async function createHost({
       push: resolved.modules.push ? suite.push : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
       billing: resolved.modules.billing ? suite.billing : null,
+      stores: resolved.modules.billing ? suite.stores ?? null : null,
       devices: null,
       // The host's to do, once for everyone.
       ensureAdmin: () => null,
