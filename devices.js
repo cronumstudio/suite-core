@@ -24,7 +24,9 @@
  *   when the admin signs the person out everywhere or sets their password, when
  *   it goes unused for `devices.idleDays` (90), and with the account; a
  *   disabled account's are refused, as its API tokens are.
- * · No route of the suite takes one: `ctx.user` only ever comes from the
+ * · No route of the suite takes one, except, when the app sets
+ *   `stores.devices`, the store routes (`/api/billing/stores/*`) and
+ *   `/api/billing/overview` (stores.js): `ctx.user` only ever comes from the
  *   session cookie. An app accepts a device on the routes it chooses with
  *   `authenticate(req)`, and the app can refuse people (`canConnect`, through
  *   `createApp({ devices })`) when they connect and on every use.
@@ -39,6 +41,7 @@ import { randomToken, sha256, safeEqual } from './crypto.js';
 import {
   HttpError, badRequest, forbidden, notFound, unauthorized, readJson, sendJson, str,
 } from './http.js';
+import { answeredOnce } from './idempotency.js';
 
 const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
@@ -324,15 +327,13 @@ export function createDevices({
  * for failures; and a device signs itself out with its own token.
  */
 export function registerDevicesApi(router, { devices, limiter, audit = null }) {
-  /** An answer that carries a secret shown once: never kept to replay an Idempotency-Key (app.js). */
-  const once = (handler) => Object.assign(handler, { answeredOnce: true });
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
   };
 
   /** A code for the connect page to hand back to the app (its body is the PKCE request). */
-  router.post('/api/devices/codes', once(async (ctx) => {
+  router.post('/api/devices/codes', answeredOnce(async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);
     sendJson(ctx.res, 201, devices.issueCode(user, {
@@ -345,7 +346,7 @@ export function registerDevicesApi(router, { devices, limiter, audit = null }) {
    * The code and its verifier for a token. Only failures count against the
    * address, so a fleet of phones connected from one office is never stopped.
    */
-  router.post('/api/devices/token', once(async (ctx) => {
+  router.post('/api/devices/token', answeredOnce(async (ctx) => {
     const brake = limiter.checkFailures('devices', ctx.req);
     if (!brake.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: brake.retryAfter });
     let result;

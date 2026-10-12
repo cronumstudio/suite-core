@@ -61,6 +61,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
 | `settings.js` | `openSettings({ … })`; `subscribePush()`; `deviceName()` |
+| `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
@@ -206,7 +207,7 @@ to WorkOS or an OpenID Connect provider.
 `openSettings()` opens the sections every account has —profile, language and theme, password and
 sign-in (two-step verification, sessions), the AI (MCP address, connected apps, tokens; only when
 `/api/auth/config` doesn't say `app.modules.mcp: false`, v0.65.0),
-notifications (`push: true`), plan (`plan: true`), the app's own `sections`, data (when the app
+notifications (`push: true`), plan (`plan: true`; with `{ billing: true }` it also sells, below), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
 everything else is the suite's. `aiExtra()` and `aboutExtra()` add a block (Next's standing
@@ -215,6 +216,83 @@ app (with `data`) and deleting the account (when the install offers it, `deletio
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
 screen offers back an account waiting to be deleted.
+
+### Plans and payments
+
+The plan section shows the person's plan and until when (`GET /api/me/entitlements`), and
+`plan.render(answer)` adds the app's own block. That is all it does with `plan: true`, and with
+`plan: { billing: true }` on a server whose `/api/auth/config` doesn't say `modules.billing: false`
+it also sells, from the suite's routes (`billing.js`), with nothing of one app or provider in it
+(`web/plan.js`, v0.77.0):
+
+- **What can be bought**: `GET /api/billing/products`, the products for one person whose plan is
+  above theirs in the catalog's order, or theirs again when it lapses on a date; nothing to an
+  admin, whom no plan limits. Each one by its `name` from the server's catalog (a key of the
+  catalogs or the name itself, as plans' names are) or else its plan's, with what kind of payment
+  it is ("Monthly subscription", read from the suite's product keys `…-monthly` and `…-yearly`;
+  "One payment, for 30 days"), and "Founder's price" where the server says the person gets it.
+  The price itself is the server's to choose and the provider's page shows it: the browser only
+  names the product. Each "Upgrade" button carries its product in its accessible name ("Upgrade:
+  Pro (Monthly subscription)").
+- **Upgrade**: `POST /api/billing/checkout` with the product, and the browser follows the `url` it
+  answers (only an http or https one). A 409 `already_subscribed` says so with "Manage
+  subscription" at hand, and the section is read again.
+- **The subscription**: `GET /api/billing/subscriptions`, those that hold a plan (active, trial,
+  payment pending) with the end of their period. They decide what is offered: nothing while one is
+  live (plans change in the portal, and a one-off pass would charge twice, since the server's 409
+  guards subscriptions only), and nothing when the list doesn't come, because a subscription's
+  plan lapses on a date too. Beside a live subscription that holds the plan shown, the plan's
+  "Until" (its period's end and the grace after it) is left to the subscription's own date. A
+  pending payment says what to do about it.
+- **Manage subscription**: `POST /api/billing/portal`, followed the same way, the primary button
+  under a subscription. Without one now, the same portal is "Payments and invoices", last and
+  quiet, when there was a subscription before or the catalog sells one-off payments. A 404
+  `no_customer` says there is nothing to manage yet, and the button goes until a subscription
+  shows up.
+- **`hideCheckout: true`**, for a native app's web view, where the stores' rules keep a web
+  payment's links out of the app: the subscriptions still show, and no products, Upgrade, way to
+  the portal or founder's price.
+- **A 402 met in Settings** offers a way to buy: `plan.open()` when the app gives one (a native
+  app's store), or else the plan section; under `hideCheckout` without `open`, only the reason.
+- **A group's products** (`for: 'organization'`) are not offered: buying for a group needs its
+  seats in the checkout and the group's subscriptions, which the routes don't give the browser yet
+  (`GET /api/billing/subscriptions` lists the person's). An app that sells to groups keeps its own
+  page for that until the kit does it.
+
+```js
+import { openSettings } from '/suite/settings.js';
+import { billingReturn, offerPlan } from '/suite/plan.js';
+
+const openPlan = () => openSettings({ ...settingsOptions, plan: { billing: true }, start: 'plan' });
+
+// Once, at the start: back from the checkout at /?billing=done (or /?billing=canceled).
+billingReturn({ onPlan: (answer) => refreshLimits(answer), open: openPlan });
+
+// Wherever the app meets a plan's barrier (402 plan_feature, plan_limit, seats_full…).
+try { await api.post('/api/lists', body); } catch (err) { if (!offerPlan(err, { open: openPlan })) fail(err); }
+
+// A native app's web view: its own store instead of the web's checkout.
+openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, open: openStore } });
+```
+
+- `offerPlan(err, { open })` → true for a 402: a notice says why in the person's language, with
+  "See plans" running `open` (Settings at its plan section, or a native app's own way to buy);
+  false for anything else, which stays the app's. Inside a Settings that sells, every section
+  does this by itself.
+- `billingReturn({ onPlan, open })` → false unless the address has `?billing=done` or
+  `?billing=canceled`. Then it takes the mark out of the address (not again on a reload). Back from
+  paying, it thanks the person (with "See plans" when there is `open`) and reads the plan again a
+  few times over about 20 seconds, because the provider's webhook may arrive after them: each
+  answer goes to `onPlan` and to `kit-plan` (`PLAN_EVENT`) on the document, which an open Settings
+  repaints with (an older answer that comes late never paints over it), and the notice says the
+  new plan once it is there. When the plan from before the checkout is known (kept for the tab as
+  `<app>.billing` in `sessionStorage`) and nothing changed by the last look, it says the payment
+  isn't confirmed yet. It returns a promise of the plan that arrived, or null. Back from a
+  checkout left unpaid (`canceled`, where the provider has a cancel address), it forgets the kept
+  plan, says nothing was charged and reads nothing: a promise of null.
+- `offerFor(answer, products, subscriptions)` and `productText(product, plans)`, for an app's own
+  page of prices, choose and name what Settings offers; `offerFor` offers nothing without the
+  subscriptions' list. `isLive(subscription)` says whether one holds its plan.
 
 ### Offline
 

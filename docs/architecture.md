@@ -74,6 +74,8 @@ suite-core/
   billing.js            done   payments turned into grants: provider interface, signed webhooks
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
   paddle.js             done   Paddle Billing as that provider: transactions, customer portal, webhooks
+  stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
+  revenuecat.js         done   RevenueCat as the store adapter: webhook as a trigger, the customer read from its API
   mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -170,8 +172,9 @@ export default {
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
-    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'monitor' in Tracker
+    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'driver' in Tracker
     invitationDays: 7,
+    // seatRoles: ['driver'],     // some of roles, the ones that take a seat (else every member)
   },
 
   // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
@@ -200,6 +203,14 @@ export default {
   // What keeps another product's sales out, all off unless given (section 9, "Another product's sales").
   // `app` is not app.id: one value for every app sold as one subscription (Cronum Work's say 'work').
   billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } },
+  // billing.forgetOnRemove: true lets an account that goes take its billing links and grants here with it.
+
+  // What the app on a phone sells in the App Store and Google Play, with STORE_BILLING (section 9,
+  // "Several providers and the stores"). `devices`: the store routes also take the app's device tokens.
+  stores: {
+    products: { 'pro-monthly': { plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly', playStore: 'app_pro:monthly' } },
+    devices: true,
+  },
 };
 ```
 
@@ -207,7 +218,8 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, and `EARLY_ACCESS_UNTIL`, `MAIL_PROVIDER` (`log` |
+`BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, and `EARLY_ACCESS_UNTIL`,
+`STORE_BILLING` (`revenuecat`) with `REVENUECAT_*`, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`; `VAPID_*`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
@@ -407,11 +419,11 @@ CREATE TABLE billing_pending (           -- paid for by an identity with no acco
   occurred_at       TEXT NOT NULL,
   received_at       TEXT NOT NULL
 );
-CREATE TABLE billing_events (            -- each webhook event applied once
+CREATE TABLE billing_events (            -- each webhook event applied once; a store's notes (note:…)
   provider    TEXT NOT NULL,
   event_id    TEXT NOT NULL,
   type        TEXT NOT NULL,
-  outcome     TEXT NOT NULL,             -- granted | extended | changed | revoked | kept | stale…
+  outcome     TEXT NOT NULL,             -- granted | extended | changed | revoked | kept | stale… | note
   received_at TEXT NOT NULL,
   PRIMARY KEY (provider, event_id)
 );
@@ -482,9 +494,10 @@ everything else consumes that shape:
 
 It looks, in order, at the session cookie, then `Authorization: Bearer` (a manual API token, then
 a built-in OAuth access token, then an AuthKit JWT). There is no second path for any of these
-clients. A device token is not one of them: no route of the suite takes it, the MCP included, and
-an app checks it itself on the routes it opens to devices (`suite.devices.authenticate(req)`,
-below), so Tracker's native app reaches only what Tracker chose. Focus keeps its own pairing for
+clients. A device token is not one of them: no route of the suite takes it, the MCP included
+(except, with `stores.devices`, the store routes and `/api/billing/overview`, section 9), and an
+app checks it itself on the routes it opens to devices (`suite.devices.authenticate(req)`, below),
+so Tracker's native app reaches only what Tracker chose. Focus keeps its own pairing for
 its kiosks and ESP32 screens, with its `X-Focus-Device` header.
 
 **Device tokens** (**done**, v0.67.0, `devices.js`, with `modules.devices`): what an app on a phone
@@ -504,8 +517,9 @@ phones connected from one office is never stopped. A token ends when it is revok
 `DELETE /api/me/devices/:id`; the app signing out, `DELETE /api/devices/current` with the token; or
 the admin signing the person out everywhere or setting their password, `devices.revokeAllOf(id)`),
 after `devices.idleDays` (90) without use, and with the account; a disabled account's are refused,
-as its API tokens are. No route of the suite takes one, the MCP included: `ctx.user` only ever comes
-from the session cookie. The app accepts a device on the routes it chooses with
+as its API tokens are. No route of the suite takes one, the MCP included (except, with
+`stores.devices`, the store routes and `/api/billing/overview`): `ctx.user` only ever comes from
+the session cookie. The app accepts a device on the routes it chooses with
 `suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
 connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
 (Tracker's allowlist), asked when they connect and on every use. Not for a module of a host. Focus
@@ -613,6 +627,25 @@ value. The features every app names the same are there too (`COMMON_FEATURES`: `
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 
+A product sold on its own has a catalog of its own, which its installs name, so none of its plans
+gives anything in another product, nor the other way round (a key the named catalog lacks stops the
+start, as above).
+
+`PLANS=cronum-focus` is Cronum Focus's. Its plans, `free` and `pro`, are a family's: a family is an
+organization (kind `family`), Pro is granted to it —bought by its owner or an admin, or the 14-day
+trial a new family starts with, a grant with an end— and reaches its adults, who are its members.
+Its keys are Focus's own, `routines.max` (5, no limit), `history.days` (7, no limit),
+`devices.per_child` (1, no limit), `live`, `summary.days` (0, 14) and `runner.views`, and the common
+`mcp` (on in both) and `mcp.calls_per_day` (100, 1000). In `cronum-work`, `history.days` is how long
+a note keeps its earlier versions: a key means what the catalog an install names says, and an
+install names one.
+
+`PLANS=cronum-tracker` is Cronum Tracker's, with `free`, `org` (named Fleet) and `pro`, and the keys
+`mcp` (off in all three), `capture.native`, `links.max`, `track.days` and `viewers.max`. An
+organization's plan reaches every member, its admins and viewers too, so Fleet gives each person
+what Free gives and sits before Pro: what a fleet pays for, per driver, sits on what the
+organization owns, and the app checks it against the organization's grant and its seats.
+
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
 browser reads `GET /api/me/entitlements` to hide or lock what is not included. The error is
@@ -684,7 +717,9 @@ Products live in the app's configuration, each tied to a plan of the catalog and
 'organization' } }`. `billing_customers` keeps each user's or organization's customer at the
 provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
-`GET /api/billing/subscriptions` and `POST /api/billing/webhook`.
+`GET /api/billing/subscriptions` and `POST /api/billing/webhook`. In the browser, Settings' plan
+section sells them (`plan: { billing: true }`, `web/plan.js`, v0.77.0): Upgrade, Manage
+subscription, a 402's call to action and the return from the checkout ([web-kit.md](web-kit.md)).
 
 `signedProvider()` speaks these normalized events directly, signed with a shared secret
 (`t=…,v1=…`, HMAC-SHA256, the scheme Stripe uses, five minutes of tolerance). It is what the tests
@@ -764,6 +799,98 @@ an install sets the three together. Paddle's product ids differ between the sand
 account, so `paddleProductIds` is one list per environment; with Paddle on, a single list, or none
 for `PADDLE_ENV`, stops the start.
 
+**Several providers and the stores** (v0.78.0; Tracker's P6 and P7, RevenueCat chosen to start easy
+and free, with a move to Apple's and Google's own APIs kept open). People buy for
+themselves inside the app on a phone, in the App Store and Google Play, and groups buy on the web.
+An install sets `STORE_BILLING=revenuecat` next to (or without) `BILLING_PROVIDER`, with
+`modules.billing` on: `stores.js` makes a second instance of billing on the same tables, under its
+own provider id (`revenuecat`), so each event is applied once and in order, `ignoreUnknownProducts`
+applies, and the account's plan is every grant of both (`/api/me/entitlements`). Nothing changes
+for an install without it: no new route, no new field, no migration.
+
+```js
+stores: {
+  products: {                       // plans of the catalog, as the web's; keys of their own
+    'pro-monthly': { plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly', playStore: 'app_pro:monthly' },
+    'pro-yearly':  { plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.yearly',  playStore: 'app_pro:yearly' },
+  },
+  devices: true,                    // the store routes also take the app's device tokens (modules.devices)
+},
+```
+
+- **Who buys** is an opaque id the install gives each account, a random UUID kept in
+  `billing_customers` (`GET /api/billing/stores/customer` → `{ provider, customer }`): the app hands
+  it to the store's SDK as RevenueCat's App User ID. Never the WorkOS id, an email or the account's
+  number, and another in every install. A UUID is also what StoreKit takes as `appAccountToken` and
+  Google Play as `obfuscatedAccountId`, so a later adapter can keep the same buyers. RevenueCat's
+  restore behaviour is set to "Keep with original App User ID": a purchase stays with the account
+  that made it, and a restore under another account is refused.
+- **The adapter** (`revenuecat.js`; the interface in `stores.js`): `parseWebhook()` checks the
+  webhook and says whom to look at again, `customerEvents(customer)` reads what the customer has
+  now and gives billing's events, and `manage(ref)` says which store holds it and where people
+  manage it. The webhook (`POST /api/billing/revenuecat/webhook`) is checked by the Authorization
+  header set in RevenueCat's dashboard (`REVENUECAT_WEBHOOK_AUTH`) and, with
+  `REVENUECAT_WEBHOOK_SECRET`, by `X-RevenueCat-Webhook-Signature` (`t=…,v1=…`, HMAC-SHA256 of
+  `t.body`, five minutes). It is only a trigger: the customer is read again with
+  `GET /v1/subscribers/{id}` and the project's secret key (`REVENUECAT_API_KEY`, sk_…), so a late,
+  repeated or forged delivery can only make the app look at what RevenueCat really holds. Only this
+  install's customers are looked up, since that call creates a customer for an id RevenueCat doesn't
+  know. The app calls `POST /api/billing/stores/sync` after a purchase or a restore, which reads its
+  customer the same way (one at a time, at most every three seconds), so nothing waits for the webhook.
+  Each reading is applied as one (billing.js's `apply(event, { reading: true })`): what it says that
+  is already here is `'unchanged'` and leaves no row and no audit (only the time the state was last
+  known moves on), so syncing again and again grows no table.
+- **Replacing the adapter**: what an install holds is keyed by the adapter's id (`billing_customers`,
+  `billing_subscriptions`, the grants' `source`) and by its refs. Apple's and Google's own server APIs
+  can take RevenueCat's place behind the same interface only by keeping the id `revenuecat` and its
+  refs, or with a migration of those three tables: under another id everyone would get a new
+  customer, which no longer matches the `appAccountToken` of what they bought.
+- **What a subscription becomes**: paid until a later date, or within the store's grace period after
+  a failed charge, active (trialing in a free trial); past it, paused (Google Play), past_due while
+  the store still retries a failed charge (nothing changes, the grant lapses on its own), or ended
+  (after EXPIRATION, or not renewed). Refunded after its last purchase, or a CANCELLATION by customer
+  support of that same transaction, is a refund: the period paid back gives nothing again, unless a
+  REFUND_REVERSED says the store took the refund back. A CANCELLATION by customer support of another
+  transaction (an older renewal) leaves the period paid now. A one-off purchase is RevenueCat's
+  non-subscription: refunded when it leaves the list, or when customer support refunds its
+  transaction while it is still listed. What the install holds that the customer no longer has (a
+  TRANSFER to another App User ID, a refunded one-off) is taken back. The ref is the store,
+  `-sandbox` for a test purchase, the store's product id and a digest of the customer: RevenueCat's
+  v1 API names no original transaction, and the ref must be the same from the webhook and from the
+  sync.
+- **Notes**: what a later reading can't see at the store again is noted, as rows of `billing_events`
+  of their own (`note:…`, refs and times only; a webhook's id takes only letters, digits, `-`, `_`
+  and `.`, so no delivery writes one): a `refunded_at` the store took back or that was an
+  older renewal's no longer takes the period back, and a one-off refunded while still listed stays
+  refunded until a REFUND_REVERSED of its transaction. Unverified until the stores' sandbox tests
+  (Tracker's A12), and handled either way: whether RevenueCat clears `refunded_at` when a refund is
+  reversed, whether it removes a refunded one-off from `non_subscriptions`, and that `refunded_at`
+  and `store_transaction_id` are the latest purchase's.
+- **Another product's sales**: a webhook for another store (the web through Stripe or Paddle,
+  promotional grants), for a product `stores.products` doesn't name, or from the sandbox with
+  `REVENUECAT_SANDBOX=off` is foreign, and nobody is looked up for it; one for a customer this
+  install never gave out is `ignored`. Test purchases (TestFlight, App Review, Google's testers)
+  count by default, since App Review buys in the sandbox, and are marked as such in the ref and in
+  the overview.
+- **`GET /api/billing/overview`** (with the stores on): the person's plan and every source of it
+  and how to manage each, never a ref, a customer or a price id: the web's subscriptions (the
+  portal, for the person or a group they administer), the stores' (only in the store: no server can
+  cancel an App Store subscription), a group's plan that covers them ("Covered by <group>") and the
+  admin's gifts. What the app shows before an account is deleted, and what it reads before it sells
+  in the store: no server can refuse a store's sale, so a person who already pays on the web is
+  told there. The other way round, the web's checkout answers 409 `already_subscribed` to a person
+  with a live store subscription (`createBilling({ otherProviders })`, set by `createSuite` with the
+  stores on).
+- **Deleting an account**: `createAccountDeletion` gets both instances (`combinedBilling()`), each
+  asked even if the other fails; a store stops nothing, the person cancels there. With
+  `billing.forgetOnRemove`, an account that goes takes with it, in each instance, its customer link,
+  its subscriptions, its grants (revoked) and what waited under its identity. A renewal that still
+  comes is then nobody's account here: one that names only the old customer (a store's) is
+  ignored; one that names the person's identity (Paddle's, by the WorkOS id) waits in
+  `billing_pending`, as for anyone without an account here, and goes to an account opened again
+  with that login, who still pays for it. The identity provider, whose login other apps share, is
+  never asked, and a group's subscription stays with the group. `/api/billing/webhook` is unchanged.
+
 ## 10. Organizations
 
 An organization answers "whose is this and who pays": a group of people who share data, roles and
@@ -772,7 +899,13 @@ own and may create or join groups (a family in Tasks, a team in Projects); with 
 every user belongs to one (the schools of Tracker). The suite provides the tables, the roles,
 invitations by link or email, an organization switcher in the web kit and organization-level
 grants: a plan bought for a household covers its members, and a grant's `quantity` caps the number
-of members (seats). Which records belong to an organization instead of a person is the app's
+of members (seats). An app that charges for some of its members only names the roles that take a
+seat (`organizations.seatRoles`: Tracker's drivers, while its admins and viewers are free): then
+only those count, joining in one of them or being moved into one needs a free seat, and
+`seatsTaken(id)` says how many are used. Fewer seats bought takes nobody's away; past them, no one
+more joins in a seat. A membership has one role, so when the last owner's account goes, the group
+passes to someone outside those roles first: a driver inherits it, and stops driving, only when
+nobody else is left. Which records belong to an organization instead of a person is the app's
 decision, made in its own tables.
 
 ## 11. HTTP layer and dispatch order
@@ -1089,6 +1222,7 @@ first, then Tasks, then the rest.
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
 | `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
+| `stores.js`, `revenuecat.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`) | Tracker sells Pro in the App Store and Google Play (its step A12) |
 
 ## 21. Several apps as one: the host
 
