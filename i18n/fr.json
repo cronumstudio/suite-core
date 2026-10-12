@@ -127,6 +127,7 @@
   "fields.endpoint": "Adresse du service de notifications",
   "fields.p256dh": "Clé de l’appareil",
   "fields.auth": "Secret de l’appareil",
+  "fields.subscription": "Abonnement aux notifications",
   "fields.source": "Compte de la copie",
   "fields.accounts": "Comptes",
   "fields.user_id": "Compte",

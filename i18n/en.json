@@ -127,6 +127,7 @@
   "fields.endpoint": "Notification service address",
   "fields.p256dh": "Device key",
   "fields.auth": "Device secret",
+  "fields.subscription": "Notification subscription",
   "fields.source": "Account in the copy",
   "fields.accounts": "Accounts",
   "fields.user_id": "Account",

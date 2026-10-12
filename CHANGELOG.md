@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.80.0 — 2026-10-13
+## 0.83.0 — 2026-10-13
 
 - **No more "null" under a copy's plan in Settings → Your data.** Checking a copy drew its plan
   with the browser's own `append`, which writes a line left out as the text "null": a copy not
@@ -17,6 +17,179 @@ change an interface and a patch never does. Apps pin a version through the submo
 - Tests: Settings opened at Your data and at two-step sign-in on the fake DOM, and the admin
   panel's first test (`test/web-admin.test.js`, a file of its own: admin.js starts the page as it
   is imported). Fake elements take `focus()`.
+
+## 0.81.0 — 2026-10-13
+
+- **An app can push to its own devices, with no user behind them.** A device that belongs to the
+  app (Focus' child's tablet, paired to a profile with no account; a kiosk) had no way in: every
+  row of `push_subscriptions` is a person's, and `/api/push/*` needs a session. Now the app keeps
+  the browser's subscription in its own table, next to the rest it knows of the device, and the
+  suite does the rest with the same keys, encryption and VAPID signature as a person's:
+  - `suite.push.checkSubscription(json)` (also `checkSubscription` from `push.js`): what the
+    device posted, as `subscription.toJSON()` gives it (`{ endpoint, keys: { p256dh, auth } }`; the
+    flat `{ endpoint, p256dh, auth }` of a row is taken too), checked as `subscribe()` checks a
+    person's: an endpoint of a real push service (on 443, no IP literal nor home-network name),
+    an uncompressed point on the curve (0x04 and 65 bytes) and a 16-byte secret. → `{ endpoint,
+    keys: { p256dh, auth } }`, what to keep, the keys written again in plain base64url. Otherwise
+    a coded 400: `field_required` for a missing subscription or endpoint, `field_invalid` with
+    `field` `subscription`, `endpoint` (with its `reason`), `p256dh` or `auth` for one that is
+    there but wrong, `field_too_long` for an endpoint over 1000 characters.
+  - `suite.push.sendToSubscription(subscription, payload, { ttl, urgency, topic })` → `{ ok,
+    status, gone, reason? }`. Only `gone` (the push service answered 404 or 410, or the keys can't
+    be encrypted for) says the browser no longer has it: the app drops it. Any other failure keeps
+    it, with its `status` for the log; a 4xx can be ours rather than the device's (a 403 when the
+    install's VAPID keys aren't the ones it subscribed with). The endpoint is checked again before
+    sending, so a row kept without checking never makes the server visit an address inside the
+    network; what isn't a subscription is refused with the same coded 400 and nothing is sent.
+    Nothing is written in the suite's tables.
+  - `suite.push.publicKey`, as before: the key the device subscribes with, which the app hands it
+    its own way (its pairing answer, say).
+  - `topic` (new for `send()`, `deliver()` and `sendTo()` too, off unless given): the `Topic`
+    header of RFC 8030, 1 to 32 characters of the URL-safe base64 alphabet; a push service keeps
+    only the newest undelivered notice of a topic, so a launch sent again replaces the one still
+    waiting. One written wrong is the app's mistake: a `TypeError`, from `deliver()` and `sendTo()`
+    once, before anything is sent.
+- **A notice longer than a push service takes is refused before it is sent** (`MAX_PAYLOAD`, 3993
+  bytes of JSON or text: the 4096-byte body of RFC 8030 less our header, the record's end and the
+  GCM tag): `send()` and `sendToSubscription()` reject with a `TypeError`, and `deliver()` counts it
+  as failed. Before, it went out, came back 413 and was counted against the device, which a
+  person lost after three; now nobody loses a device for it.
+- **`subscribe()` checks a browser's keys as a browser makes them**: a p256dh that doesn't start
+  with 0x04 and a secret that isn't 16 bytes (8 or more was enough) are refused with the same
+  `field_invalid`, and both are stored in plain base64url (the decoder skipped stray characters
+  and kept them). Every browser sends exactly these, and rows stored before are sent as they were.
+- **The kit's `push.js`** (new, in the service worker's kit files):
+  `devicePushSubscription(publicKey, { ask, wait })` asks for permission first —before anything
+  is awaited, so the tap still counts for Safari—, waits for the page's service worker (10 s),
+  subscribes with the install's key (reusing the browser's subscription while it is for that key,
+  replacing one made with another) and returns the JSON for the app to post to its own route; it
+  asks nothing of the server. It throws `Error('unsupported')` (also with no service worker),
+  `'install'`, `'not_allowed'` or `'subscribe_failed'` (with the browser's error as `cause`), and a
+  `TypeError` for a key that isn't one. `pushSupport()` says `'granted'`, `'prompt'`, `'denied'`,
+  `'install'` (an iPhone or iPad tab from iOS 16.4: Web Push only reaches the app on the home
+  screen) or `'unsupported'` (iOS before 16.4 too) before anything is asked. Settings'
+  `subscribePush()` is unchanged.
+- `fields.subscription` in the four languages, for the new refusals.
+- No migration and no table. Needs `modules.push`, as the rest of push.
+
+## 0.79.0 — 2026-10-13
+
+- **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, whose
+  installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
+  Work plan gives anything in Tracker (an app that declares a key the named catalog lacks doesn't
+  start). Three plans, from the least to the most a person gets: `free` (Free), `org` (Fleet) and
+  `pro` (Pro), with the keys `mcp` (off in all three), `capture.native` (Free and Fleet `false`,
+  Pro `true`), `links.max` (0, 0, 1), `track.days` (1, 1, 30) and `viewers.max` (0, 0, 30). An
+  organization's plan reaches every member, its admins and viewers too, so Fleet carries Free's
+  values and sits before Pro: someone with both is shown Pro. What a fleet pays for, per driver,
+  sits on what the organization owns, and the app checks it against the organization's grant and
+  its seats. The prices stay with the provider and the stores (Pro 3.99 EUR a month or 34.99 a
+  year; Fleet 3.90 EUR per driver a month or 39 a year, at launch). `cronum-work` is unchanged.
+- **Seats by role** (`organizations.seatRoles` in `suite.config.js`, `createOrganizations({
+  seatRoles })`): the roles that take a seat a subscription pays for, some of
+  `organizations.roles` (Tracker's drivers, while its admins and viewers are free). Then only
+  members in those roles count against a grant's `quantity`: joining in one of them, by an
+  invitation or `addMember()`, and a role change into one (`setRole()`) need a free seat, or
+  402 `seats_full`; joining in another role never does. Fewer seats bought takes nobody's away.
+  `seatsTaken(id)` and `takesSeat(role)` say how many are used and which roles count. Left out,
+  every member takes a seat, as before, and a role change takes none. A `seatRoles` that is empty
+  or names a role the group doesn't have stops the start. When the last owner's account goes, the
+  group passes to someone outside those roles first (its oldest admin, then its oldest member): a
+  membership has one role, so a driver inherits it, and stops taking a seat, only when nobody else
+  is left. Without `seatRoles` the order is the same as before.
+- **`organizations` in `suite.config.js` takes only `roles`, `invitationDays` and `seatRoles`.**
+  Any other key stops the start, saying which, so a misspelt `seatRole` can't quietly put every
+  member in a seat.
+
+## 0.78.0 — 2026-10-13
+
+- **Purchases in the App Store and Google Play, next to the web's** (`stores.js`, `revenuecat.js`;
+  `STORE_BILLING=revenuecat`, with `modules.billing` on, off by default). A second instance of
+  billing on the same tables, under its own provider id (`revenuecat`): each event applied once and
+  in order, `billing.ignoreUnknownProducts` applying, and the account's plan the grants of both
+  (`/api/me/entitlements`). It runs with or without `BILLING_PROVIDER`.
+  - suite.config.js `stores: { products, devices }`: each product a plan of the catalog with its
+    store ids, `{ plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly',
+    playStore: 'app_pro:monthly' }` (Google's as `subscription:base-plan`); keys of their own, not
+    the web's; no `for` (people buy for themselves; groups buy on the web). `devices: true`
+    (needs `modules.devices`): the store routes and the overview also take the app's device token,
+    the only core routes that do. Every mistake stops the start: an unknown key or field, a store
+    id given twice or malformed.
+  - Who buys: `GET /api/billing/stores/customer` → `{ provider, customer }`, an opaque random UUID
+    per account and install, kept in `billing_customers`, for the app to hand to RevenueCat as its
+    App User ID. Never the WorkOS id, an email or the account's number. Also what StoreKit takes as
+    `appAccountToken` and Google Play as `obfuscatedAccountId`. Set RevenueCat's restore behaviour
+    to "Keep with original App User ID".
+  - `POST /api/billing/revenuecat/webhook` (an address registered in RevenueCat's dashboard, kept
+    once live, CONVENTIONS §9): checked by the Authorization header value set in RevenueCat
+    (`REVENUECAT_WEBHOOK_AUTH`, 16 characters or more) and, with `REVENUECAT_WEBHOOK_SECRET`, by
+    `X-RevenueCat-Webhook-Signature` too. Only a trigger: each of this install's customers it names
+    (the buyer, its aliases, both sides of a TRANSFER) is read again with `GET /v1/subscribers/{id}`
+    and the project's secret key (`REVENUECAT_API_KEY`, sk_…), and what RevenueCat holds is
+    applied. Nobody else is looked up (that call makes a customer of any id). RevenueCat down or
+    refusing answers 502, so it sends the webhook again; the log names the status and code, never
+    the customer. `REVENUECAT_API_BASE` only points tests at a stand-in.
+  - `POST /api/billing/stores/sync`: the same reading after a purchase or a restore, for the
+    account that asks (one at a time, at most every three seconds, else 429 `too_many_attempts`);
+    nothing is asked for an account that never had a customer.
+  - A reading is applied as one (billing.js `apply(event, { reading: true })`): what it says that
+    is already here is `'unchanged'` and leaves no `billing_events` row and no audit (only the
+    subscription's last-known time moves on), and a stale one leaves none either, so syncing or
+    hearing the webhook again and again grows no table.
+  - What a subscription becomes: active (trialing in a trial) until its paid date or the end of
+    the store's grace period after a failed charge; past it, paused (Google Play), past_due while
+    the store retries (nothing changes; the grant lapses on its own) or ended (EXPIRATION, or not
+    renewed). Refunded after its last purchase, or cancelled by customer support for that same
+    transaction: a refund, whose period gives nothing again unless REFUND_REVERSED (events gain
+    `refundReversed`, which billing.js honours); cancelled by customer support for another
+    transaction (an older renewal): the period paid now stays. One-off purchases are RevenueCat's
+    non-subscriptions for products of kind `once`, refunded when they leave the list or when
+    customer support refunds their transaction. What the install holds that the customer no longer
+    has (moved by a TRANSFER, a refunded one-off) is taken back.
+  - Notes, for what a later reading can't see at the store again: a `refunded_at` the store took
+    back or that was an older renewal's no longer takes the period back, and a one-off refunded
+    while still listed stays refunded until a REFUND_REVERSED of its transaction. Kept as rows of
+    `billing_events` of their own (`note:…`, type and outcome `note`; refs and times only), so no
+    migration; no delivery can write one, since a webhook's id takes only letters, digits, `-`, `_`
+    and `.` (any other is replaced by its digest). Unverified until the stores' sandbox tests, and
+    handled either way: whether RevenueCat clears `refunded_at` on a reversal, whether it removes a
+    refunded one-off, and that `refunded_at` and `store_transaction_id` are the latest purchase's.
+  - Another product's sales: a webhook for another store (Stripe, Paddle, promotional), for a
+    product `stores.products` doesn't name, or from the sandbox with `REVENUECAT_SANDBOX=off`, is
+    foreign, and nobody is looked up; one for a customer this install never gave out is
+    `ignored`. Test purchases count by default (App Review buys in the sandbox), marked in the ref
+    (`app_store-sandbox:…`) and in the overview. A subscription to this app's store product on a
+    base plan no product lists is said in the log and grants nothing.
+  - Refs: the store, the store's product id and a digest of the customer
+    (`app_store:com.example.app.pro.monthly:3f…`), the same from the webhook and from the sync:
+    RevenueCat's v1 API names no original transaction. Kept once live, with the provider id: an
+    adapter that replaces RevenueCat's (Apple's or Google's own server APIs) keeps the id
+    `revenuecat` and these refs, or comes with a migration of `billing_customers`,
+    `billing_subscriptions` and the grants, or everyone gets a new customer that no longer matches
+    the `appAccountToken` of what they bought.
+- **Several providers in one install.** `GET /api/billing/overview` (with the stores on): the
+  person's plan and every source of it, and how to manage each — the web's subscriptions (the
+  portal, theirs or a group's they administer), the stores' (only in the store), a group's plan
+  that covers them and the admin's gifts; never a ref, a customer or a price id. What the app reads
+  before it sells in the store, since no server can refuse a store's sale. The other way round,
+  `createBilling({ otherProviders })` (set by `createSuite` with the stores on): the web's checkout
+  answers 409 `already_subscribed` to a person with a live store subscription; a group's checkout
+  is unaffected. `combinedBilling([billing, stores])` hands both to the account deletion: each
+  asked even if the other fails, and a store stops nothing (the person cancels there).
+  `/api/billing/webhook` is unchanged. `/api/auth/config` says `app.modules.stores: true` only
+  with the stores on.
+- **`billing.forgetOnRemove`** (suite.config.js, off by default): an account that goes takes with
+  it, in each billing instance, its customer link, its subscriptions, its grants (revoked) and what
+  waited under its identity in `billing_pending`; `forget(userId)` on each instance does it and
+  says how many of each. A renewal that still comes is then nobody's account here: one that names
+  only the old customer (a store's) is ignored; one that names the person's identity (Paddle's, by
+  the WorkOS id) waits, as for anyone without an account here, and goes to an account opened again
+  with that login, who still pays for it. Nothing is asked of the providers or of the identity
+  provider, whose login other apps share, and a group's subscription stays.
+- Nothing changes for an app that sets neither `STORE_BILLING` nor `billing.forgetOnRemove`: no
+  route, no field, no migration (`config.billing` keeps its shape; `config.stores` and
+  `install.stores` are new, empty and null; `apply()` without `reading` and the checkout without
+  `otherProviders` are as before).
 
 ## 0.77.0 — 2026-10-13
 
