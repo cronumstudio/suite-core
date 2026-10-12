@@ -101,6 +101,8 @@ const EXAMPLE_PASSWORDS = new Set([
  * @param {object} [options.hooks]
  *   extraColumns(user) → the app's own columns for a new account;
  *   onUserCreated(user), onUserRemoved(userId);
+ *   onDeletionRequested(user), onDeletionCancelled(user): its owner asked to delete an account, or
+ *     took it back (account-deletion.js), awaited after the change; one that fails is only logged;
  *   with modules.organizations, onMemberRemoved({ organization, userId, role, reason, by }) and
  *     onOrganizationDeleted({ organization, reason, by }), inside the change's transaction
  *     (organizations.js: the app deletes its own rows with them; one that throws undoes it all);
@@ -396,6 +398,19 @@ export function createSuite({
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
     baseUrl: install.baseUrl, log,
   });
+  if (hooks.onDeletionRequested) deletion.whenRequested(hooks.onDeletionRequested);
+  if (hooks.onDeletionCancelled) deletion.whenCancelled(hooks.onDeletionCancelled);
+  // A group that would go with the account (its only member, of a kind deleted when empty) stops
+  // renewing when its owner asks to delete it, not 30 days later when it goes, and renews again if
+  // they take the account back. When it goes, its deletion finds the stop already asked: none more.
+  if (organizations && billing?.enabled && config.billing?.stopOnOrganizationDeleted) {
+    deletion.whenRequested(async (user) => {
+      for (const id of organizations.goingWith(user.id)) await billing.stopOrganization(id);
+    });
+    deletion.whenCancelled(async (user) => {
+      for (const id of organizations.goingWith(user.id, { onlyMember: false })) await billing.keepOrganization(id);
+    });
+  }
 
   /**
    * The first administrator of an install with local accounts, if there is

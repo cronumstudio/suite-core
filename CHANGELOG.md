@@ -53,6 +53,23 @@ change an interface and a patch never does. Apps pin a version through the submo
   (`billing.organization.stop`, `billing.organization.keep`). Off by default: today's installs ask
   their provider nothing new. With `billing.forgetOnRemove` too, a deleted group's customer link and
   subscription rows go, as a person's do.
+- **A group that would go with an account stops renewing when its owner asks to delete it**, not
+  30 days later when the account goes (with `billing.stopOnOrganizationDeleted`): each group of a
+  kind deleted when empty whose only member they are (`organizations.goingWith(userId)`), so no
+  renewal falls in the wait. Taking the account back renews them again (`keepOrganization`), and
+  the final deletion finds the stop already asked and asks none more. Through new hooks of the
+  account deletion: `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's
+  `onDeletionRequested(user)` and `onDeletionCancelled(user)` for an app), awaited after the
+  request or its taking back; one that fails is logged and never undoes it.
+- **A group's purchase goes to the group, and a person's to the person, whatever customer pays.**
+  One provider customer often pays a person's own plan and their family's (Paddle finds the
+  customer by email), and it can be linked here to only one of them: before, whichever was linked
+  first took the other's purchases too (the family's plan granted to the adult, or the adult's to
+  the family). Now an event whose `subject` names an organization, or whose product is
+  `for: 'organization'`, is the group's: no identity is looked up for it, and a linked customer
+  counts only when it is a group's; a customer linked to a group never takes a person's purchase.
+  A group's product that names no group and whose customer is a person's is ignored, never the
+  person's. Everything else is found as before.
 - **An event for a group no longer here is `'gone'`** (`createBilling({ organizationGone })`, set by
   createSuite with organizations on): nothing is linked, granted or kept beyond its id, and a
   subscription row still kept follows its status. Before, such an event failed at the audit's

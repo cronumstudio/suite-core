@@ -18,6 +18,12 @@
  *   account #n went.
  *
  * An account the admin deletes in /admin goes at once, as before.
+ *
+ * Who else hears it: `whenRequested(hook)` and `whenCancelled(hook)`, after the
+ * account is disabled or enabled again (`hook(user)`, awaited in turn; one that
+ * fails is logged and never undoes the request). createSuite hooks the groups
+ * that would go with the account there (billing.stopOnOrganizationDeleted), and
+ * an app its own (createSuite's `onDeletionRequested`, `onDeletionCancelled`).
  */
 import { badRequest, HttpError } from './http.js';
 import { safeEqual } from './crypto.js';
@@ -57,6 +63,19 @@ export function createAccountDeletion({
   mailer = null, texts = null, appName = '', baseUrl = '', clock = () => Date.now(), log = console.log,
 }) {
   const subscriptions = atProviders && billing?.enabled ? billing : null;
+  const requestedHooks = [];
+  const cancelledHooks = [];
+
+  /** The hooks of a request or of its taking back, in turn: one that fails is said, never the request's failure. */
+  async function tellHooks(hooks, user, what) {
+    for (const hook of hooks) {
+      try {
+        await hook(user);
+      } catch (err) {
+        log(`[accounts] a hook of account #${user.id}'s deletion ${what} failed: ${err?.message || err}`);
+      }
+    }
+  }
 
   /** The message that says until when, in the person's language: never a reason to fail. */
   async function tell(user, req) {
@@ -88,6 +107,7 @@ export function createAccountDeletion({
         log(`[accounts] the subscriptions of account #${user.id} could not be stopped: ${err.message}`);
       }
     }
+    await tellHooks(requestedHooks, waiting, 'request');
     await tell(waiting, req);
     return waiting;
   }
@@ -105,6 +125,7 @@ export function createAccountDeletion({
         log(`[accounts] the subscriptions of account #${userId} could not be renewed again: ${err.message}`);
       }
     }
+    await tellHooks(cancelledHooks, user, 'taken back');
     return user;
   }
 
@@ -141,5 +162,7 @@ export function createAccountDeletion({
   return {
     days, request, restore, sweep,
     ticketFor: (userId) => deletionTicket(sign, userId, clock),
+    whenRequested: (hook) => { requestedHooks.push(hook); },
+    whenCancelled: (hook) => { cancelledHooks.push(hook); },
   };
 }

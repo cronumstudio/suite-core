@@ -557,11 +557,13 @@ async function familySuite(t, { billing = {}, hooks = {} } = {}) {
     hooks,
   });
   /** A Paddle notification about the family's subscription, signed, through the webhook. */
-  const notify = async (id, organizationId, { status = 'active', type = 'subscription.created' } = {}) => {
+  const notify = async (id, organizationId, {
+    status = 'active', type = 'subscription.created', sub = 'sub_01home', customer = 'ctm_01home',
+  } = {}) => {
     const body = JSON.stringify({
       event_id: id, event_type: type, occurred_at: new Date().toISOString(),
       data: {
-        id: 'sub_01home', status, customer_id: 'ctm_01home',
+        id: sub, status, customer_id: customer,
         items: [{ quantity: 1, price: { id: PRICE, product_id: 'pro_01' } }],
         current_billing_period: { starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 365 * DAY).toISOString() },
         custom_data: { subject: `organization:${organizationId}`, product: 'family-yearly' },
@@ -640,4 +642,110 @@ test('createSuite: a deletion undone asks nothing; without the option nothing is
   await loose.settle();
   assert.deepEqual(loose.api.calls, [], 'today’s installs ask Paddle nothing');
   assert.deepEqual((await loose.notify('evt_2', bob.home.id, { type: 'subscription.updated' })).outcomes, ['gone']);
+});
+
+test('createSuite: the only adult asks to delete their account: the family stops renewing then, renews if they come back, once', async (t) => {
+  const asked = [];
+  const { suite, api, notify, settle, family } = await familySuite(t, {
+    billing: { stopOnOrganizationDeleted: true },
+    hooks: { onDeletionRequested: (user) => asked.push(['requested', user.id]), onDeletionCancelled: (user) => asked.push(['cancelled', user.id]) },
+  });
+  const { user, home } = family('ada');
+  await notify('evt_1', home.id);
+  // A family with two adults doesn't go with either: asking stops nothing.
+  const shared = family('bob');
+  const eve = suite.accounts.create({ username: 'eve', password: 'eve-password' });
+  suite.organizations.addMember(shared.home.id, eve.id, 'admin');
+  await notify('evt_2', shared.home.id, { sub: 'sub_01shared', customer: 'ctm_01shared' });
+
+  await suite.deletion.request(suite.accounts.byId(eve.id));
+  assert.deepEqual(api.calls, [], 'Bob is still there');
+
+  await suite.deletion.request(suite.accounts.byId(user.id));
+  assert.deepEqual(api.calls, [['POST', '/subscriptions/sub_01home/cancel', { effective_from: 'next_billing_period' }]],
+    'at the request, not thirty days later: no renewal falls in the wait');
+  assert.equal(suite.organizations.exists(home.id), true, 'the family waits with the account');
+
+  // Taken back within the days: it renews again.
+  await suite.deletion.restore(suite.deletion.ticketFor(user.id));
+  assert.deepEqual(api.calls.at(-1), ['PATCH', '/subscriptions/sub_01home', { scheduled_change: null }]);
+  assert.equal(suite.database.get("SELECT COUNT(*) AS n FROM billing_events WHERE type = 'stop'").n, 0);
+
+  // Asked again and left to go: the deletion finds the stop already asked, and asks nothing more.
+  await suite.deletion.request(suite.accounts.byId(user.id));
+  assert.equal(api.calls.length, 3);
+  suite.database.run("UPDATE users SET delete_after = '2026-01-01T00:00:00.000Z' WHERE id = ?", user.id);
+  assert.equal(await suite.deletion.sweep(), 1);
+  assert.equal(suite.organizations.exists(home.id), false);
+  await settle();
+  assert.equal(api.calls.length, 3, 'no second cancellation');
+  assert.deepEqual(asked, [['requested', eve.id], ['requested', user.id], ['cancelled', user.id], ['requested', user.id]],
+    'the app hears each request and each taking back');
+});
+
+test('createSuite: without stopOnOrganizationDeleted, asking to delete an account asks Paddle nothing', async (t) => {
+  const { suite, api, notify, family } = await familySuite(t);
+  const { user, home } = family('ada');
+  await notify('evt_1', home.id);
+  await suite.deletion.request(suite.accounts.byId(user.id));
+  await suite.deletion.restore(suite.deletion.ticketFor(user.id));
+  assert.deepEqual(api.calls, []);
+});
+
+/* ------------------------- who pays: a person or a group ------------------------- */
+
+test('one customer pays a person’s plan and their family’s: each purchase goes where it is for, in either order', (t) => {
+  const PERSONAL = 'pri_01m46hn0personalpersonal0y';
+  const products = { ...PRODUCTS, 'pro-yearly': { plan: 'pro', kind: 'subscription', price: PERSONAL } };
+  const ADA = 'user_01JADA0000000000000000000A';
+  const make = () => {
+    const base = setup(t, { kinds: FAMILY });
+    const { database, audit, organizations, people } = base;
+    const entitlements = createEntitlements({ database, appId: 'test', features: {}, plans: PLANS, plansJson: null, defaultPlanOverride: null });
+    const billing = createBilling({
+      database, entitlements, audit, products, log: () => {},
+      identities: { of: () => null, user: (provider, subject) => (subject === ADA ? people.ada : null) },
+      organizationGone: (id) => !organizations.exists(id),
+    });
+    const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+    let n = 0;
+    const event = (fields) => {
+      n += 1;
+      return billing.apply({
+        id: `evt_${n}`, type: 'subscription', occurredAt: `2026-10-${String(n).padStart(2, '0')}T10:00:00Z`, customer: 'ctm_shared',
+        status: 'active', periodEnd: '2027-10-01T10:00:00Z', ...fields,
+      });
+    };
+    const grants = () => ({
+      ada: entitlements.grantsOf('user', people.ada).filter((g) => !g.revoked_at).map((g) => g.note),
+      home: entitlements.grantsOf('organization', home.id).filter((g) => !g.revoked_at).map((g) => g.note),
+    });
+    return { ...base, billing, home, event, grants };
+  };
+  const family = (home) => ({ type: 'organization', id: home.id });
+
+  // The person's own first: the customer is linked to them, and the family's purchase still goes to the family.
+  const first = make();
+  assert.equal(first.event({ ref: 'sub_ada', product: 'pro-yearly', identity: { provider: 'workos', subject: ADA } }), 'granted');
+  assert.equal(first.billing.customerOf({ type: 'user', id: first.people.ada }), 'ctm_shared');
+  assert.equal(first.event({ ref: 'sub_home', product: 'family-yearly', subject: family(first.home) }), 'granted');
+  assert.equal(first.event({ ref: 'sub_home', product: 'family-yearly', subject: family(first.home), periodEnd: '2028-10-01T10:00:00Z' }),
+    'extended', 'its renewal too');
+  assert.deepEqual(first.grants(), { ada: ['pro-yearly'], home: ['family-yearly'] }, 'before, both went to Ada');
+  // A group's product that names no group, paid by a person's customer, is nobody's here: never the person's.
+  assert.equal(first.event({ ref: 'sub_odd', product: 'family-yearly' }), 'ignored');
+  // An identity on a group's purchase doesn't make it the person's either.
+  assert.equal(first.event({ ref: 'sub_home2', product: 'family-yearly', subject: family(first.home), identity: { provider: 'workos', subject: ADA } }),
+    'granted');
+  assert.deepEqual(first.grants().ada, ['pro-yearly']);
+
+  // The family's first: the customer is linked to it, and the person's own purchases still go to them.
+  const second = make();
+  assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', subject: family(second.home) }), 'granted');
+  assert.equal(second.billing.customerOf({ type: 'organization', id: second.home.id }), 'ctm_shared');
+  assert.equal(second.event({ ref: 'sub_ada', product: 'pro-yearly', subject: { type: 'user', id: second.people.ada } }), 'granted');
+  // A group's renewal that names no group still finds it by its customer.
+  assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', periodEnd: '2028-10-01T10:00:00Z' }), 'extended');
+  assert.equal(second.event({ ref: 'sub_ada2', product: 'pro-yearly', identity: { provider: 'workos', subject: ADA } }), 'granted');
+  assert.deepEqual(second.grants(), { ada: ['pro-yearly', 'pro-yearly'], home: ['family-yearly'] }, 'before, the first went to the family');
 });

@@ -30,6 +30,12 @@
  *   3. `subject` ("user:12"), the app's own id, which only means something in the install that
  *      made the checkout: a copy of the install renumbers accounts (portability.js), so it comes
  *      last, after the customer, which the copy carries with the new ids.
+ * A group's purchase (its `subject` names an organization, or its product is `for: 'organization'`)
+ * is the group's, never a person's: no identity is looked up for it, and a customer linked here
+ * counts only when it is a group's. One provider customer often pays both, a person's own plan and
+ * their family's (Paddle finds the customer by email), and the customer can be linked to only one
+ * of them; before, whichever was linked first took the other's purchases too. The same holds the
+ * other way round: a customer linked to a group never takes a person's purchase.
  *
  * Another product's events. A provider account may sell more than one product (Cronum Work and
  * Tracker), and it sends every event to every app's webhook: this app hears of sales that aren't
@@ -447,15 +453,20 @@ export function createBilling({
   /** Who an event is for here (see the top of this file), or that it has to wait for them. */
   function whoIs(event) {
     const { identity } = event;
-    if (identity?.provider && identity.subject && identities) {
+    const named = validSubject(event.subject);
+    const forGroup = named?.type === 'organization' || catalog[String(event.product ?? '')]?.for === 'organization';
+    if (!forGroup && identity?.provider && identity.subject && identities) {
       const userId = identities.user(String(identity.provider), String(identity.subject));
       return userId ? { subject: { type: 'user', id: userId }, byIdentity: true } : { waits: identity };
     }
+    // A link counts for what the event is for: a person's customer that also pays their family's
+    // plan says nothing of who the family is, and the other way round (see the top of this file).
+    const linked = subjectOfCustomer(event.customer);
+    if (linked && (linked.type === 'organization') === forGroup) return { subject: linked };
+    if (forGroup) return { subject: named?.type === 'organization' ? named : null };
     // An event that names a person by an identity this app can't look up is not
     // for an id of its own: that would be the id in whichever app made the checkout.
-    const linked = subjectOfCustomer(event.customer);
-    if (linked) return { subject: linked };
-    return { subject: identity?.subject ? null : validSubject(event.subject) };
+    return { subject: identity?.subject ? null : named };
   }
 
   /** Whether an event's subject is a group that is no longer here (only with `organizationGone`). */

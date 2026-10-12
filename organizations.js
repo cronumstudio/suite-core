@@ -419,10 +419,20 @@ export function createOrganizations({
   const list = () => database.all(`SELECT o.*, (SELECT COUNT(*) FROM memberships m WHERE m.organization_id = o.id) AS members
     FROM organizations o WHERE o.archived_at IS NULL ORDER BY o.name`);
 
+  /**
+   * The groups that would go with a person's account: those of a kind deleted when empty
+   * (`onEmpty: 'delete'`) where nobody else is (`onlyMember: false`: every such group of theirs).
+   * What createSuite stops renewing when they ask to delete it, and renews again if they take it back.
+   */
+  const goingWith = (userId, { onlyMember = true } = {}) => database.all(`SELECT o.id, o.kind,
+      (SELECT COUNT(*) FROM memberships x WHERE x.organization_id = o.id) AS members
+    FROM memberships m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = ? ORDER BY o.id`, userId)
+    .filter((o) => rulesFor(o.kind).onEmpty === 'delete' && (!onlyMember || Number(o.members) === 1)).map((o) => o.id);
+
   return {
     create, get, list, update, archive, remove, roleOf, requireRole, addMember, setRole, removeMember,
     invite, accept, revokeInvitation, invitationsOf, invitationKind, membersOf, ofUser, organizationsOf, forgetUser,
-    seatsTaken, takesSeat, purge, isManaged, rulesFor,
+    seatsTaken, takesSeat, purge, isManaged, rulesFor, goingWith,
     /** Whether a group is here, archived or not (billing asks, for one deleted). */
     exists: (organizationId) => Boolean(rowOf(organizationId)),
     /**

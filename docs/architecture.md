@@ -693,6 +693,11 @@ product?, status?, periodEnd?, quantity? }` and become grants with `source` = th
 **Who pays**, best first: `identity` (`{ provider: 'workos', subject: 'user_01…' }`), who the person
 is where they sign in, the same in every app; then the customer already linked here; last `subject`
 ("user:12"), the app's own id, which only means something in the install that made the checkout.
+A group's purchase (its `subject` names an organization, or its product is `for: 'organization'`)
+is the group's: no identity is looked up for it, and a linked customer counts only when it is a
+group's; a person's purchase never goes to a customer linked to a group either. One provider
+customer often pays both (Paddle finds it by email) and can be linked to only one of them: before
+0.85.0, whichever was linked first took the other's purchases.
 One subscription is for the whole suite (Cronum Work) and every app has its own database and its
 own webhook: each finds the person by their identity. Someone who hasn't opened that app yet has
 no account there, so the event waits in `billing_pending` and is applied, in order, when that
@@ -911,6 +916,11 @@ stores: {
   and subscription rows go too. An event for a group no longer here is `'gone'`: nothing is
   linked, granted or kept beyond its id (before, it failed at the audit's reference to the group,
   a 500 the provider retried), and a subscription row still kept follows its status.
+  With the same option, a group that would go with an account (its only member, of a kind deleted
+  when empty) stops renewing when its owner asks to delete the account, not when it goes 30 days
+  later, so no renewal falls in the wait; taking the account back renews it again
+  (`keepOrganization`), and the account's final deletion finds the stop already asked and asks
+  none more (account-deletion.js `whenRequested` / `whenCancelled`).
 
 ## 10. Organizations
 
@@ -1209,7 +1219,11 @@ kit's), then Notes is built on it whole, then the others as they move to English
   (`accounts.deleteAtProviders`: Cronum Work), the subscriptions they pay for stop renewing when
   they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when the
   account goes, and the WorkOS user is deleted first (an account whose identity can't be deleted
-  waits for the next sweep); never where other apps share those accounts or that subscription. A
+  waits for the next sweep); never where other apps share those accounts or that subscription.
+  `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's `onDeletionRequested`,
+  `onDeletionCancelled`) tell others of the request and of its taking back, awaited after it; a
+  hook that fails is logged. With `billing.stopOnOrganizationDeleted`, the groups that would go with
+  the account stop renewing there (section 9, "A group that goes"). A
   message says until when, when mail leaves the server. The last administrator can't ask.
 
 ## 17. Security baseline
