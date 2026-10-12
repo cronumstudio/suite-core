@@ -369,6 +369,8 @@ export async function createHost({
     for (const name of SHARED_MODULES) {
       if (resolved.modules[name] && !config.modules[name]) errors.push(`${entry.mount}: it uses modules.${name}, which the host has off`);
     }
+    // A phone connects to a product on its own (Tracker), with its own prefix and return addresses.
+    if (resolved.modules.devices) errors.push(`${entry.mount}: modules.devices is for an app on its own, not a module of a host`);
     if (errors.length) throw new SuiteConfigError(errors);
 
     const moduleInstall = { ...install, baseUrl: `${install.baseUrl}/${entry.mount}` };
@@ -433,6 +435,7 @@ export async function createHost({
       push: resolved.modules.push ? suite.push : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
       billing: resolved.modules.billing ? suite.billing : null,
+      devices: null,
       // The host's to do, once for everyone.
       ensureAdmin: () => null,
       purge: () => {},
@@ -460,6 +463,8 @@ export async function createHost({
 
   /* ----------------------------- the modules ----------------------------- */
 
+  // Whether the host's /mcp answers: known once every module has joined (hostMcp, below).
+  let hostOffersMcp = false;
   for (const spec of modules) {
     // A file URL or a specifier, as import() takes it; an absolute path of this disk becomes one.
     const target = !(spec.entry instanceof URL) && path.isAbsolute(String(spec.entry))
@@ -486,6 +491,9 @@ export async function createHost({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
       i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
+      // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
+      // module offers it whenever that answers, though the module itself has none.
+      offersMcp: () => hostOffersMcp,
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
@@ -559,6 +567,8 @@ export async function createHost({
   });
 
   const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log, links });
+  // The same as the root says of itself (createApp): on, and with tools or links to serve.
+  hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp,

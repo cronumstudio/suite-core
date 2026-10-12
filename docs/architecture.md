@@ -66,7 +66,8 @@ suite-core/
   account-deletion.js   done   someone deleting their own account: disabled now, gone after its days
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
-  principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT, device
+  devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
+  principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats
   entitlements.js       done   features, plans and grants; can() / limit() / require()
@@ -163,6 +164,8 @@ export default {
   },
   sessions: { idleDays: 30, maxDays: 365 },   // cookieName: '<app id>_sid' unless given
   tokens: { prefix: 'mcp_' },     // how the app's API tokens start
+  // Only with modules.devices: an app on a phone (section 7). Both values end up in the installed apps.
+  devices: { prefix: 'appdev_', redirectUris: ['com.example.app:/auth'], idleDays: 90 },
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
@@ -193,6 +196,10 @@ export default {
     'pro-monthly':  { plan: 'pro', kind: 'subscription' },
     'pro-lifetime': { plan: 'pro', kind: 'once' },
   },
+
+  // What keeps another product's sales out, all off unless given (section 9, "Another product's sales").
+  // `app` is not app.id: one value for every app sold as one subscription (Cronum Work's say 'work').
+  billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } },
 };
 ```
 
@@ -281,6 +288,33 @@ CREATE TABLE api_tokens (
 );
 
 -- oauth_clients, oauth_grants, oauth_tokens: see OAUTH_SCHEMA in oauth.js (done).
+
+-- An app on a phone, with modules.devices (devices.js, migration 22). Not `devices`: Focus has
+-- a table of its own by that name.
+CREATE TABLE device_tokens (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,            -- what the person called it when connecting it
+  platform     TEXT,                     -- 'ios', 'android'
+  app_version  TEXT,
+  token_hash   TEXT NOT NULL UNIQUE,     -- sha256; the value is shown once, to the app
+  prefix       TEXT NOT NULL,            -- devices.prefix when it was made
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,                     -- at most once a minute; idleDays after it, it ends
+  revoked_at   TEXT
+);
+CREATE TABLE device_codes (              -- what the browser hands back to the app: five minutes, once
+  code_hash      TEXT PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_challenge TEXT NOT NULL,          -- PKCE S256
+  redirect_uri   TEXT NOT NULL,          -- one of devices.redirectUris, exactly
+  name           TEXT NOT NULL,
+  platform       TEXT,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL,
+  used_at        TEXT,                   -- spent by its first exchange, right or wrong
+  device_id      INTEGER REFERENCES device_tokens(id) ON DELETE SET NULL   -- revoked if the code comes back
+);
 
 CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX ix_login_attempts ON login_attempts (bucket, at);
@@ -443,12 +477,41 @@ already stores `scrypt$N$r$p$salt$hash`. Focus's `accounts` + `persons` map to `
 everything else consumes that shape:
 
 ```js
-{ user, kind: 'session' | 'token' | 'oauth' | 'idp' | 'device', scopes, credentialId }
+{ user, kind: 'session' | 'token' | 'oauth' | 'idp', scopes, credentialId }
 ```
 
 It looks, in order, at the session cookie, then `Authorization: Bearer` (a manual API token, then
-a built-in OAuth access token, then an AuthKit JWT), then a device token (Focus kiosks and ESP32,
-Tracker's native emitter). There is no second path for any client.
+a built-in OAuth access token, then an AuthKit JWT). There is no second path for any of these
+clients. A device token is not one of them: no route of the suite takes it, the MCP included, and
+an app checks it itself on the routes it opens to devices (`suite.devices.authenticate(req)`,
+below), so Tracker's native app reaches only what Tracker chose. Focus keeps its own pairing for
+its kiosks and ESP32 screens, with its `X-Focus-Device` header.
+
+**Device tokens** (**done**, v0.67.0, `devices.js`, with `modules.devices`): what an app on a phone
+holds instead of a session (Tracker's native app). The app opens the system browser on its own
+connect page with a PKCE challenge (S256) and the address to come back to, a private-use scheme of
+its own (RFC 8252); the person signs in there as on the web and says yes; the page asks
+`POST /api/devices/codes` (session only, the address one of `devices.redirectUris`, exactly) for a
+code of five minutes and sends the browser back with it (`redirect_to`, with the `state`); the app
+exchanges the code, its verifier and the address at `POST /api/devices/token` for a token that
+starts with `devices.prefix` (never `tokens.prefix` nor the built-in OAuth's `mcpat_`, `mcprt_`,
+`oc_`, `ocs_`), shown once and kept as a hash. A code is spent by its first exchange, right or
+wrong. One that comes back after that with its verifier and its address means the verifier got out
+too (or the app retries an answer it lost), and the device it gave is revoked (OAuth 2.1 §4.1.3);
+without them it is only refused, so whoever saw the code in a history or a log can't disconnect the
+phone. Only failed exchanges count against an address (`rateLimits.devices`, 30), so a fleet of
+phones connected from one office is never stopped. A token ends when it is revoked (Settings,
+`DELETE /api/me/devices/:id`; the app signing out, `DELETE /api/devices/current` with the token; or
+the admin signing the person out everywhere or setting their password, `devices.revokeAllOf(id)`),
+after `devices.idleDays` (90) without use, and with the account; a disabled account's are refused,
+as its API tokens are. No route of the suite takes one, the MCP included: `ctx.user` only ever comes
+from the session cookie. The app accepts a device on the routes it chooses with
+`suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
+connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
+(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host. Focus
+pairs its kiosks the other way round (a code shown on the signed-in screen and typed or scanned on
+the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header) and keeps
+its own pairing; the tables are named so that both live in its database.
 
 **Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
 limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).
@@ -669,6 +732,46 @@ signature is `Paddle-Signature: ts=…;h1=…`, HMAC-SHA256 of `ts:body`, five m
 any h1 while a secret rotates. Each app has its own notification destination at
 `BASE_URL/api/billing/webhook`, with the subscription, transaction and adjustment events.
 
+**Another product's sales** (v0.66.0). One Paddle account may sell more than one product (Cronum
+Work, and Tracker on its own), and every destination of the account gets every event, often for
+people this app knows by the same WorkOS id. Before this version such an event linked the person's
+customer here, waited 400 days in `billing_pending` for someone who never opens the app, and was
+granted when a product of the other one had a key of this catalog's name (`custom_data.product`
+was read for a price this install doesn't know). Four guards, set in `suite.config.js` and all off
+by default:
+
+```js
+billing: {
+  ignoreUnknownProducts: true,  // an event (not a refund) for a product not in `products` is 'foreign'
+  app: 'work',                  // custom_data.app on the checkout; an event that names another app is foreign
+  strictPrices: true,           // Paddle: the product only from the products' prices, never custom_data.product
+  paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] },   // Paddle: whose product each event is
+},
+```
+
+A foreign event is decided before anything about who pays, so no customer is linked, nothing
+waits and nothing is granted; only its id, type and outcome are kept in `billing_events`, and the
+log names the event only. What waited from before the guard was on is foreign when its person
+arrives (`claim`). Refunds are not checked: a refund names no product, and one of another
+product's sale finds nothing here to take back. `app` is one value for every install that sells a
+subscription together (Tasks, Next and Work all say `work`; Tracker says `tracker`), or each
+would find the others' sales foreign; an event without one, sold before checkouts said it, is
+judged by its product alone. So `app` alone never keeps out the renewals of what was sold before
+it: it goes with `ignoreUnknownProducts` and `paddleProductIds`. Only Paddle's checkout writes it
+(Paddle copies a transaction's `custom_data` to the subscription it makes), so with another
+provider `app`, `strictPrices` and `paddleProductIds` are a warning on start.
+
+`paddleProductIds` says whose product each event is. An event whose items are all of other Paddle
+products is foreign, with nothing of who paid. One of this install's own products whose price no
+product lists (with `strictPrices`) is a price missing from the config, never another product's
+sale: its outcome is `'ignored'`, nothing is granted, and the log names the price to add. So,
+before `strictPrices` goes on, every price that subscriptions still renew on goes in `price`,
+`founderPrice` or `oldPrices` (a list, or one per environment). Without `paddleProductIds`, nothing
+tells the two apart, and `strictPrices` with `ignoreUnknownProducts` calls such a renewal foreign:
+an install sets the three together. Paddle's product ids differ between the sandbox and the live
+account, so `paddleProductIds` is one list per environment; with Paddle on, a single list, or none
+for `PADDLE_ENV`, stops the start.
+
 ## 10. Organizations
 
 An organization answers "whose is this and who pays": a group of people who share data, roles and
@@ -700,7 +803,7 @@ apps learned the hard way:
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
-   `/api/push/*`, `/api/billing/*`.
+   `/api/push/*`, `/api/billing/*`, and with `modules.devices` `/api/devices/*` and `/api/me/devices`.
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
@@ -746,6 +849,21 @@ be reached, and the token brake. The app hands in its tools, prompts and instruc
 parameter names keep clients with a cached schema working after a rename (as Next did when it moved
 to English). Tool descriptions and results are in English; the instructions ask the assistant to
 answer in the user's language.
+
+An app with `modules.mcp: false` (v0.65.0) answers `/mcp` and `/mcp/*` with a JSON 404 and no
+`WWW-Authenticate`, never its page; with WorkOS it serves no metadata at `/.well-known/oauth-*`
+(the discovery paths' JSON 404 answers); `/api/auth/config` says `app.modules.mcp: false`, and
+Settings has no AI section. Two things are not covered by that switch:
+
+- The built-in OAuth for local accounts is `modules.oauth`, apart: an app without an MCP sets it
+  to `false` as well, or that OAuth still serves its metadata at `/.well-known/oauth-*` and its
+  `/oauth/*` endpoints.
+- The switch turns the MCP off, not leaving out the tools: with `modules.mcp` on and no tools,
+  there is no `/mcp` and `app.modules.mcp` is `false`, but the WorkOS metadata is still served
+  and `/mcp` falls back to the page, as before v0.65.0.
+
+A host's modules offer the host's `/mcp` whenever it exists (some module brings tools, or two
+bring things to link), and none of them does when it doesn't.
 
 ## 14. Translations
 
@@ -931,10 +1049,11 @@ Every app gets these from the suite and the conformance tests check them:
   with fake adapters where it talks to an app.
 - `tools/conformance.js` (**done**, v0.29.0) runs against a running app and checks the platform
   behaviour it inherits: headers, `/health` and `/version`, sign-in and sign-out, the brute-force
-  brake, CSRF, the MCP `401` challenge, JSON 404 on discovery paths, translations complete. Only
-  HTTP to the app itself, so it runs the same on a laptop, a NAS, in a container or against
-  production (read-only there: no credentials, `--no-brake`). Each app's smoke test calls it, then
-  tests its own domain, and the shared container checks run it against every image built.
+  brake, CSRF, the MCP `401` challenge (for an app without an MCP, `--no-mcp`: `/mcp` and the
+  OAuth metadata a JSON 404 with no challenge, v0.65.0), JSON 404 on discovery paths, translations
+  complete. Only HTTP to the app itself, so it runs the same on a laptop, a NAS, in a container or
+  against production (read-only there: no credentials, `--no-brake`). Each app's smoke test calls
+  it, then tests its own domain, and the shared container checks run it against every image built.
 
 ## 19. Versions and adoption
 
@@ -958,6 +1077,7 @@ first, then Tasks, then the rest.
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser; v0.34.0: texts written in the code; v0.49.0: Tasks' stricter scan for everyone, and the server; v0.51.0: one translator for every app, `appTexts` on the server and the kit's in the browser, and `appChecks`) | adopted by Tasks, Projects, Next and Notes; each app's tests run `appChecks` |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
+| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE) | Tracker's native app (its steps A2 and A3); Focus keeps its own pairing |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
 | `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
 | `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |
@@ -970,7 +1090,7 @@ first, then Tasks, then the rest.
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
-| `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
+| `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
 
 ## 21. Several apps as one: the host
 

@@ -85,6 +85,13 @@ const REQUEST_FIELDS = [
 
 /* --------------------------------- helpers --------------------------------- */
 
+/**
+ * How the values made here start: access and refresh tokens, client ids and
+ * secrets. No other kind of token may start the same way (config.js checks
+ * devices.prefix against them), or the MCP would take it for one of these.
+ */
+export const OAUTH_PREFIXES = Object.freeze({ access: 'mcpat_', refresh: 'mcprt_', client: 'oc_', secret: 'ocs_' });
+
 const randomValue = (prefix) => `${prefix}${crypto.randomBytes(32).toString('base64url')}`;
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('base64url');
 const escapeHtml = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({
@@ -383,8 +390,8 @@ export function createOAuthServer({
       return;
     }
 
-    const clientId = randomValue('oc_');
-    const secret = method === 'none' ? null : randomValue('ocs_');
+    const clientId = randomValue(OAUTH_PREFIXES.client);
+    const secret = method === 'none' ? null : randomValue(OAUTH_PREFIXES.secret);
     const name = String(data.client_name || '').trim().slice(0, 100) || 'Unnamed application';
     db.run(
       'INSERT INTO oauth_clients (client_id, secret_hash, name, redirect_uris) VALUES (?, ?, ?, ?)',
@@ -673,8 +680,8 @@ ${!user && !challenge && externalSignIn
   }
 
   function issue(grantId, scope) {
-    const access = randomValue('mcpat_');
-    const refresh = randomValue('mcprt_');
+    const access = randomValue(OAUTH_PREFIXES.access);
+    const refresh = randomValue(OAUTH_PREFIXES.refresh);
     db.run('INSERT INTO oauth_tokens (token_hash, grant_id, kind, expires_at) VALUES (?, ?, ?, ?)',
       hash(access), grantId, 'access', sqlTime(Date.now() + ACCESS_TTL_S * 1000));
     db.run('INSERT INTO oauth_tokens (token_hash, grant_id, kind, expires_at) VALUES (?, ?, ?, ?)',
@@ -838,7 +845,7 @@ ${!user && !challenge && externalSignIn
 
   /** The user of an access token issued here, or null. */
   function userFromAccessToken(tokenValue) {
-    if (!enabled || !String(tokenValue || '').startsWith('mcpat_')) return null;
+    if (!enabled || !String(tokenValue || '').startsWith(OAUTH_PREFIXES.access)) return null;
     const row = db.get(
       `SELECT g.id AS grant_id, g.user_id FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
        WHERE t.token_hash = ? AND t.kind = 'access' AND t.expires_at > datetime('now')`,

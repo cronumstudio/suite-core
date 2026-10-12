@@ -34,6 +34,7 @@ import { randomToken } from './crypto.js';
 import { createSessions, resolveSessionSecret } from './sessions.js';
 import { createAccounts } from './accounts.js';
 import { createTokens } from './tokens.js';
+import { createDevices, registerDevicesApi } from './devices.js';
 import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
@@ -136,6 +137,11 @@ export function createSuite({
   });
   const tokens = createTokens({ database, prefix: config.tokens.prefix });
   const audit = createAudit({ database, trustProxy: install.trustProxy });
+  // An app on a phone, with modules.devices: its token is its own kind, which no route of the suite takes.
+  const devices = config.modules.devices ? createDevices({
+    database, prefix: config.devices.prefix, redirectUris: config.devices.redirectUris,
+    idleDays: config.devices.idleDays, audit,
+  }) : null;
   const limiter = createRateLimiter({
     database,
     // A key derived from the session secret: the buckets say nothing without it.
@@ -181,6 +187,7 @@ export function createSuite({
         apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
         environment: install.billing.environment, apiBase: install.billing.apiBase,
         checkoutUrl: install.billing.checkoutUrl, products: config.products, log,
+        strictPrices: config.billing?.strictPrices ?? false, paddleProductIds: config.billing?.paddleProductIds ?? null,
       })
         : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
   const workosClient = install.authProvider === 'workos' ? createWorkosClient(install.workos) : null;
@@ -214,6 +221,8 @@ export function createSuite({
   }
   const billing = config.modules.billing ? createBilling({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
+    // Another product's sales (suite.config.js `billing`): off unless the app says.
+    ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
   }) : null;
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
@@ -242,6 +251,8 @@ export function createSuite({
     users: workosPeople,
     connections: workosConnections(database),
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
+    // Without an MCP, AI clients find no OAuth metadata to follow.
+    mcp: config.modules.mcp,
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId: workosSessionId });
@@ -390,6 +401,7 @@ export function createSuite({
     limiter.purge();
     audit.purge(365);
     tokens.purge();
+    devices?.purge();
     accountMail.purge();
     idempotency.purge();
   }
@@ -399,8 +411,12 @@ export function createSuite({
    * works; then one from the built-in OAuth or, with WorkOS, one signed by
    * AuthKit (which may throw WorkosUnavailable).
    */
-  const authenticateToken = async (token) => tokens.authenticate(token, { scope: 'mcp' })
-    || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
+  const authenticateToken = async (token) => {
+    // A device's token opens the routes its app chose, never the MCP.
+    if (devices && typeof token === 'string' && token.startsWith(devices.prefix)) return null;
+    return tokens.authenticate(token, { scope: 'mcp' })
+      || oauth?.userFromAccessToken(token) || (workos ? workos.userFromToken(token) : null);
+  };
 
   /**
    * Copies of an account or of the install (portability.js), from what the
@@ -416,7 +432,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor, idempotency, deletion,
+    portabilityFor, idempotency, deletion, devices,
   };
 }
 
@@ -448,11 +464,18 @@ function inCatalogDir(pathname) {
  * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
+ * @param {object} [options.devices]      with modules.devices: `{ canConnect(user) → boolean }`, whom
+ *   the app lets connect a phone (an allowlist), asked when one connects and on every use
+ * @param {boolean|(() => boolean)} [options.offersMcp]   whether the app's pages offer an AI
+ *   connector (`modules.mcp` in /api/auth/config, Settings' AI section); by default, whether its
+ *   /mcp answers. A host passes a function for its modules, whose MCP is the host's: read on each
+ *   request, it says whether the host's /mcp exists, which is known only once every module has
+ *   joined (host.js).
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
-  sweep = null,
+  sweep = null, offersMcp = null, devices: deviceRules = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -467,6 +490,10 @@ export function createApp({
 
   // Copies of accounts and of the install, when the app says what its data is.
   const portability = portable ? suite.portabilityFor(portable, { version }) : null;
+  // Whether there is an AI connector to offer: Settings leaves out its section when there isn't.
+  const offersConnector = typeof offersMcp === 'function'
+    ? () => Boolean(offersMcp())
+    : () => Boolean(offersMcp ?? (mcp && config.modules.mcp));
 
   const api = createRouter();
   registerAuthApi(api, {
@@ -474,7 +501,11 @@ export function createApp({
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
-      modules: { organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability) },
+      modules: {
+        organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
+        // Read each time the config is sent: a host's module learns late whether the host has one.
+        get mcp() { return offersConnector(); },
+      },
       // A module of a host (host.js) says where it is, for the kit to show the others beside it.
       ...(config.host ? { host: config.host } : {}),
     },
@@ -489,7 +520,9 @@ export function createApp({
     localPasswords, alsoAt: profile.alsoAt || {},
   });
   if (config.modules.admin) {
-    registerAdminApi(api, { accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp });
+    registerAdminApi(api, {
+      accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp, devices: suite.devices,
+    });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name });
@@ -501,6 +534,12 @@ export function createApp({
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
+  if (suite.devices) {
+    if (deviceRules?.canConnect) suite.devices.setCanConnect(deviceRules.canConnect);
+    registerDevicesApi(api, { devices: suite.devices, limiter, audit });
+  } else if (deviceRules) {
+    log(`${tag} createApp({ devices }) is given, but modules.devices is off: no phone can connect`);
+  }
   if (portability) {
     registerPortabilityApi(api, {
       portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords }),
@@ -679,6 +718,12 @@ export function createApp({
         await mcpServer.handle(req, res, url);
         return;
       }
+      // With the MCP switched off, its address is a JSON 404 without a challenge: never the
+      // app's page, which an AI client would take for an endpoint that answers.
+      if (!config.modules.mcp && (pathname === '/mcp' || pathname.startsWith('/mcp/'))) {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
       // How to set up the connector, to check it from the browser. It says
       // nothing that whoever holds a token doesn't already know.
       if (mcpServer && pathname === '/mcp-info') {
@@ -704,8 +749,11 @@ export function createApp({
           sessionToken: sessions.tokenFrom(req),
           baseUrl: install.baseUrl,
         };
-        // A write with an Idempotency-Key runs once; the same key again gets the same answer.
-        await (suite.idempotency ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
+        // A write with an Idempotency-Key runs once; the same key again gets the same answer. Not one
+        // whose answer is a secret shown once (answeredOnce: a token, a two-step secret, recovery codes,
+        // an invitation's link): it is never kept in clear, and the same key runs the route again.
+        const replayable = suite.idempotency && !match.handler.answeredOnce;
+        await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
         return;
       }
 

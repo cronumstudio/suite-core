@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.68.0 — 2026-10-11
+## 0.76.0 — 2026-10-13
 
 - **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, whose
   installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
@@ -31,6 +31,141 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **`organizations` in `suite.config.js` takes only `roles`, `invitationDays` and `seatRoles`.**
   Any other key stops the start, saying which, so a misspelt `seatRole` can't quietly put every
   member in a seat.
+
+## 0.70.0 — 2026-10-12
+
+- **Security: an answer that carries a secret is never kept for an `Idempotency-Key`.** Since
+  0.34.0 the first successful answer to a write with a key was kept a day in `idempotency_keys`,
+  in clear, to answer the same key again. For the routes below that answer is a secret shown
+  once, which the rest of the database keeps only as a hash or encrypted: whoever read the
+  database, or a copy of it, within that day had it. Now those routes are never run through
+  `idempotency.js`: nothing of their answer is written, and the same key again runs the route
+  again, which gives a fresh answer or the route's own refusal, never the first one replayed:
+  - `POST /api/me/tokens` (and its older path, `profile.alsoAt.tokens`): a new API token. The
+    same key makes another one; the first, whose value never arrived, stays in the list to revoke.
+  - `POST /api/me/two-factor/setup`: a new two-step secret, which replaces the one before.
+  - `POST /api/me/two-factor/enable`: the ten recovery codes. Again, `409 two_factor_enabled`.
+  - `POST /api/me/two-factor/recovery-codes`: ten new ones; the ones before stop working.
+  - `POST /api/auth/login` and `POST /api/auth/login/code`: a two-step `challenge` or a deletion
+    `ticket` (15 minutes), either one a way into the account.
+  - `POST /api/admin/invitations` and `POST /api/orgs/:id/invitations`: an invitation's `url` and
+    `token`, which sign up or join whoever opens them. The same key makes another invitation (and
+    sends another email); both work until they expire or are revoked.
+  - `POST /api/billing/portal`: the provider's portal opens signed in from its link.
+- `answeredOnce(handler)` (`idempotency.js`): the mark, moved out of `devices.js`, whose two routes
+  had it since 0.67.0. An app marks with it its own routes whose answer is a secret.
+- Nothing to clean up: only a session's writes go through `idempotency.js`, and the web kit sends
+  these calls without a key, so no app of the suite has kept one of these answers. One kept by any
+  other client is no longer replayed, and the clean-up deletes it a day after it was kept. No
+  migration.
+
+## 0.67.0 — 2026-10-11
+
+- **Device tokens** (`devices.js`, `modules.devices`, off by default): an app on a phone signs in
+  without a password or a session of its own. It opens the system browser on the app's connect page
+  with a PKCE challenge (S256) and its return address; the person signs in there and says yes; the
+  page asks `POST /api/devices/codes` (session only; the address must be one of
+  `devices.redirectUris`, exactly) for a five-minute code and its `redirect_to`; the app exchanges
+  the code, its verifier and the address at `POST /api/devices/token` (rate-limited per address,
+  failures only, `rateLimits.devices` 30; audited) for a token that starts with `devices.prefix`,
+  shown once and kept as a hash. A code is spent by its first exchange, right or wrong. One that
+  comes back after that with its verifier and its address revokes the device it gave (OAuth 2.1
+  §4.1.3: the verifier got out too, or the app retries an answer it lost); without them it is only
+  refused and audited, so whoever saw the code can't disconnect the phone. `GET /api/me/devices`
+  and `DELETE /api/me/devices/:id` (session only) list and revoke them; `DELETE /api/devices/current`
+  (the device's own bearer) signs a device out. A token ends after `devices.idleDays` (90) without
+  use and with the account (`ON DELETE CASCADE`); a disabled account's are refused.
+- **The admin's "sign out everywhere" takes the phones too.** `DELETE /api/admin/users/:id/sessions`
+  and a password the admin sets for someone else also revoke that person's device tokens
+  (`suite.devices.revokeAllOf(userId)`). With the module on, the answer and the
+  `admin.user.signout` entry say how many (`{ closed, tokens, devices }`); without it they stay
+  `{ closed, tokens }`. `registerAdminApi` takes `devices`.
+- `suite.devices`: `issueCode()`, `exchange()`, `authenticate(req)` (the account with its
+  `device_id`, or null; last use noted at most once a minute), `isActive(id)`, `list(userId)`,
+  `revoke(userId, id)`, `revokeAllOf(userId)`. No route of the suite takes a device token, the MCP
+  included: an app accepts one only on the routes it chooses, with `authenticate(req)`.
+- `createApp({ devices: { canConnect(user) } })`: whom the app lets connect a phone (Tracker's
+  allowlist), asked when the code is issued, when it is exchanged and on every use. It must answer
+  at once; a promise is refused.
+- suite.config.js `devices: { prefix, redirectUris, idleDays }`. With the module on, `prefix` and at
+  least one return address are required: both end up in the installed apps. The prefix can't be
+  `tokens.prefix` nor one of the built-in OAuth's (`mcpat_`, `mcprt_`, `oc_`, `ocs_`, now
+  `OAUTH_PREFIXES` in `oauth.js`), or the MCP would refuse those tokens. An address is a
+  reverse-domain private-use scheme (`com.example.app:/auth`, RFC 8252), https, or http on
+  loopback, without a fragment.
+- **Migration 22** (`device-tokens`): the tables `device_tokens` and `device_codes`, created in every
+  app and empty while the module is off. Not `devices`, which Focus already has.
+- The admin's activity log names the new entries in its four languages: `device.create`,
+  `device.revoke` and `device.token_failed`.
+- The brake: `checkFailures(kind, req)` and `noteFailure(kind, req)`, for what anyone can try without
+  credentials where only failures count.
+- An answer that carries a secret shown once (a device code, a device token) is never kept to replay an
+  `Idempotency-Key`: the database keeps hashes only. A route says so with `handler.answeredOnce`; every
+  other route is replayed as before.
+- **For phones; Focus keeps its own pairing.** Focus pairs its kiosks and future screens the other
+  way round (a code shown on the signed-in screen, typed or scanned on the device, bound to one
+  profile with runner-only scopes, sent in its `X-Focus-Device` header), which needs its households,
+  profiles and scopes; that stays in Focus. A module of a host can't turn `modules.devices` on.
+- Nothing changes for an app that doesn't turn the module on, apart from the two empty tables.
+
+## 0.66.0 — 2026-10-10
+
+- **Another product's sales are kept out**, for a Paddle account that sells more than Cronum Work
+  (Tracker on its own) and sends every event to every app's webhook. Four guards in
+  `suite.config.js` `billing`, all off, so nothing changes for an app that says nothing:
+  - `ignoreUnknownProducts` (`createBilling({ ignoreUnknownProducts })`): an event that is not a
+    refund, for a product not in `products`, has the new outcome `'foreign'`. It is decided before
+    anything about who pays: no customer is linked (before, `applyTo` linked it and then ignored
+    the product), nothing waits in `billing_pending` (before, 400 days with the person's WorkOS
+    id), and only the event's id, type and outcome are kept; the log names the event only, the
+    audit nothing. What waited from before is foreign when its person arrives (`claim`).
+  - `app` (`createBilling({ app })`): the checkout writes `custom_data.app` (Paddle), and an event
+    that names another app is foreign. It is not `app.id`: one value for every install that sells
+    a subscription together (`work` in Tasks, Next and Work; `tracker` in Tracker). An event
+    without one, sold before checkouts said it, is judged by its product, so `app` goes with the
+    other guards.
+  - `strictPrices` (`paddleProvider({ strictPrices })`): the product comes only from this install's
+    prices, never from `custom_data.product`, which another product may name the same
+    (`pro-monthly`). Products take `oldPrices`, a list or one per environment, for prices no longer
+    sold that subscriptions still renew on.
+  - `paddleProductIds` (`paddleProvider({ paddleProductIds })`, one list of `pro_…` per
+    environment): a subscription or one-off purchase whose items are all of other Paddle products
+    is foreign, with nothing of who paid. One of this install's own products on a price that no
+    product lists is not: its outcome is `'ignored'`, nothing is granted, and the log names the
+    price to add to `price`, `founderPrice` or `oldPrices` (events gain `own` and `unknownPrice`).
+- Refunds are unchanged: a refund of another product's sale finds nothing here to take back.
+- Every setting is checked on start: a misspelled key, a non-boolean, an `app` that isn't an id, a
+  product id that isn't Paddle's, a single `paddleProductIds` list with Paddle on (sandbox and live
+  ids always differ), or none for `PADDLE_ENV` stops it; `app`, `strictPrices` or
+  `paddleProductIds` with another provider is a warning. Events gain `app` (when the checkout
+  wrote one) and `foreign` (from the provider). No migration.
+
+## 0.65.0 — 2026-10-10
+
+- **An app with `modules.mcp: false` sends AI clients nowhere.** Its `/mcp` and `/mcp/*` answer a
+  JSON 404 without `WWW-Authenticate`, never the app's page (before, an app with `publicDir`
+  served its `index.html` there). With WorkOS it no longer serves
+  `/.well-known/oauth-protected-resource[/mcp]` nor `/.well-known/oauth-authorization-server*`
+  (`createWorkosAccounts({ mcp })`, new, true by default; `createSuite()` passes
+  `modules.mcp`): those paths get the JSON 404 of the discovery paths an install doesn't serve,
+  and nobody is sent to AuthKit for a connector that isn't there. Signing in on the web is the
+  same.
+- The built-in OAuth for local accounts is `modules.oauth`, not touched: an app without an MCP
+  sets `modules.oauth: false` as well, or that OAuth's metadata and `/oauth/*` stay.
+- `/api/auth/config` says `app.modules.mcp`: whether the app's `/mcp` answers (`modules.mcp` on
+  and the app's tools given to `createApp`). Settings leaves out its AI section when it is
+  `false`; a server from before this version sends nothing and keeps the section. A host's
+  module says whether the host's `/mcp` answers (`createApp({ offersMcp })`, new, a boolean or a
+  function read on each request): false in a host where no module brings tools and fewer than
+  two bring things to link.
+- The switch is what turns an MCP off, not leaving out the tools: with `modules.mcp` on and no
+  tools there is no `/mcp` and `app.modules.mcp` is `false`, but the WorkOS metadata is still
+  served and `/mcp` is the page, as before.
+- `checkConformance({ mcp: false })` (`--no-mcp`) now checks that `/mcp` and the OAuth metadata
+  for AI clients answer a JSON 404 with no challenge, where it skipped the MCP before. An app that
+  calls it so gets these checks when it moves up to this version; the four apps call it with the
+  MCP on.
+- Nothing changes for an app with its MCP on, as every app has it today.
 
 ## 0.64.0 — 2026-10-09
 

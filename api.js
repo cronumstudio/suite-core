@@ -16,6 +16,7 @@ import {
   HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int, idOrNull, str,
 } from './http.js';
 import { verifyPassword } from './crypto.js';
+import { answeredOnce } from './idempotency.js';
 
 const idOf = (value, field = 'id') => int(value, { field, min: 1 });
 const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
@@ -106,7 +107,8 @@ export function registerAuthApi(router, {
     return accounts.byId(user.id);
   };
 
-  router.post('/api/auth/login', async (ctx) => {
+  // Its answer may be a two-step challenge or a deletion ticket, either one a way in: never kept.
+  router.post('/api/auth/login', answeredOnce(async (ctx) => {
     if (idp) throw badRequest('password_login_disabled');
     const body = await readJson(ctx.req);
     const username = String(body.username || '').trim();
@@ -129,14 +131,14 @@ export function registerAuthApi(router, {
     if (user.delete_after) { pending(ctx, user); return; }
     // With the request, the browser's previous session is closed and the device noted.
     sendJson(ctx.res, 200, { user: serializeUser(signIn(ctx, user)) });
-  });
+  }));
 
   if (twoFactor && !idp) {
     /**
      * The second step: the challenge of the first and a code from the app, or
      * one of the recovery codes (each works once; how many are left is said).
      */
-    router.post('/api/auth/login/code', async (ctx) => {
+    router.post('/api/auth/login/code', answeredOnce(async (ctx) => {
       const body = await readJson(ctx.req);
       const user = accounts.byId(twoFactor.readChallenge(body.challenge));
       const waiting = Boolean(deletion && user?.delete_after);
@@ -154,7 +156,7 @@ export function registerAuthApi(router, {
         user: serializeUser(signedIn),
         ...(how === 'recovery' ? { recovery_codes_left: twoFactor.status(user.id).recovery_codes_left } : {}),
       });
-    });
+    }));
   }
 
   router.post('/api/auth/logout', async (ctx) => {
@@ -324,12 +326,13 @@ export function registerAccountMailApi(router, {
     sendJson(ctx.res, 200, { invitations: accountMail.invitations() });
   });
 
-  router.post('/api/admin/invitations', async (ctx) => {
+  // Its `url` signs up whoever opens it, maybe as an admin: shown once, never kept.
+  router.post('/api/admin/invitations', answeredOnce(async (ctx) => {
     const admin = requireAdmin(ctx);
     const body = await readJson(ctx.req);
     const invitation = await accountMail.invite({ email: body.email, role: body.role ?? 'user', by: admin, req: ctx.req });
     sendJson(ctx.res, 201, invitation);
-  });
+  }));
 
   router.delete('/api/admin/invitations/:id', (ctx) => {
     requireAdmin(ctx);
@@ -428,7 +431,7 @@ export function registerProfileApi(router, {
         const user = requireUser(ctx);
         sendJson(ctx.res, 200, tokens.list(user.id));
       });
-      router.post(path, async (ctx) => {
+      router.post(path, answeredOnce(async (ctx) => {
         const user = requireUser(ctx);
         const body = await readJson(ctx.req);
         const { token, row } = tokens.create(user.id, {
@@ -438,7 +441,7 @@ export function registerProfileApi(router, {
         record(ctx, 'token.create', 'token', row.id, { scopes: row.scopes });
         // The value travels once, here. After that only its hash remains.
         sendJson(ctx.res, 201, { ...row, token });
-      });
+      }));
       router.delete(`${path}/:id`, (ctx) => {
         const user = requireUser(ctx);
         const id = idOf(ctx.params.id);
@@ -538,18 +541,19 @@ export function registerProfileApi(router, {
       return { user, body };
     };
 
-    router.post('/api/me/two-factor/setup', async (ctx) => {
+    // The secret and the recovery codes are shown once; the database keeps them encrypted or hashed.
+    router.post('/api/me/two-factor/setup', answeredOnce(async (ctx) => {
       const { user } = await withPassword(ctx);
       sendJson(ctx.res, 200, twoFactor.begin(user));
-    });
+    }));
 
-    router.post('/api/me/two-factor/enable', async (ctx) => {
+    router.post('/api/me/two-factor/enable', answeredOnce(async (ctx) => {
       const user = requireUser(ctx);
       const body = await readJson(ctx.req);
       const codes = twoFactor.enable(user.id, body.code);
       record(ctx, 'auth.two_factor.enable', 'user', user.id);
       sendJson(ctx.res, 200, { ...twoFactor.status(user.id), recovery_codes: codes });
-    });
+    }));
 
     /**
      * What undoes the second step asks for both: an open session and the
@@ -570,12 +574,12 @@ export function registerProfileApi(router, {
     });
 
     /** Ten new recovery codes; the ones before stop working. */
-    router.post('/api/me/two-factor/recovery-codes', async (ctx) => {
+    router.post('/api/me/two-factor/recovery-codes', answeredOnce(async (ctx) => {
       const user = await withPasswordAndCode(ctx);
       const codes = twoFactor.regenerateRecoveryCodes(user.id);
       record(ctx, 'auth.two_factor.recovery_codes', 'user', user.id);
       sendJson(ctx.res, 200, { ...twoFactor.status(user.id), recovery_codes: codes });
-    });
+    }));
   }
 }
 
@@ -588,15 +592,17 @@ export function registerProfileApi(router, {
  * @param {object} [deps.sessions]      from createSessions()
  * @param {object} [deps.audit]         from createAudit()
  * @param {object} [deps.twoFactor]     from createTwoFactor()
+ * @param {object} [deps.devices]       from createDevices(), with modules.devices
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
-  tokens = null, oauth = null, push = null, idp = null,
+  tokens = null, oauth = null, push = null, idp = null, devices = null,
 }) {
   /**
    * Out everywhere, for a lost phone or a departure: the sessions here and at
-   * the identity provider, the API tokens, the assistants' OAuth grants and the
-   * devices that get notices. Closing the sessions alone left the assistants
+   * the identity provider, the API tokens, the assistants' OAuth grants, the
+   * devices that get notices and, with modules.devices, the device tokens of
+   * the person's phones. Closing the sessions alone left the assistants
    * connected, the notices coming, and the provider's session ready to sign
    * that browser back in with one click.
    */
@@ -606,8 +612,10 @@ export function registerAdminApi(router, {
     const revoked = tokens?.revokeAllOf(id) ?? 0;
     oauth?.forgetUser(id);
     push?.unsubscribe(id);
+    // Only said when the module is on: without it the answer stays as it was.
+    const phones = devices ? { devices: devices.revokeAllOf(id) } : {};
     revokeAtProvider(idp, atProvider);
-    return { closed, tokens: revoked };
+    return { closed, tokens: revoked, ...phones };
   };
   const requireAdmin = (ctx) => {
     if (!ctx.user) throw unauthorized();
@@ -679,11 +687,11 @@ export function registerAdminApi(router, {
     requireAdmin(ctx);
     const id = idOf(ctx.params.id);
     if (!accounts.byId(id)) throw notFound('user_not_found');
-    const { closed, tokens: revoked } = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
+    const out = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
     // Their open tabs look again at who they are, and find nobody.
     accounts.changed?.(id);
-    record(ctx, 'admin.user.signout', 'user', id, { closed, tokens: revoked });
-    sendJson(ctx.res, 200, { ok: true, closed, tokens: revoked });
+    record(ctx, 'admin.user.signout', 'user', id, out);
+    sendJson(ctx.res, 200, { ok: true, ...out });
   });
 
   if (twoFactor) {
@@ -814,7 +822,8 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
     sendJson(ctx.res, 200, organization);
   });
 
-  router.post('/api/orgs/:id/invitations', async (ctx) => {
+  // Its token and link let whoever has them join: shown once, kept as a hash.
+  router.post('/api/orgs/:id/invitations', answeredOnce(async (ctx) => {
     const user = requireUser(ctx);
     const id = idOf(ctx.params.id);
     const myRole = organizations.requireRole(id, user.id, 'admin');
@@ -827,7 +836,7 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
       id: invitation.id, role, expires_at: invitation.expires_at, token,
       url: `${String(baseUrl).replace(/\/$/, '')}/?invitation=${encodeURIComponent(token)}`,
     });
-  });
+  }));
 
   router.get('/api/orgs/:id/invitations', (ctx) => {
     const user = requireUser(ctx);
