@@ -91,7 +91,9 @@ const FOCUS_FREE = {
   'history.days': 7,        // days an unsaved routine stays in History unused before it goes
   'devices.per_child': 1,   // paired devices per child profile; adults sign in on any number
   live: false,              // the live view, an adult's control of a run and remote launch
-  'summary.days': 0,        // days of the adult summary; 0 is the last run of each routine only
+  // Days of the adult summary; 0 is the last run of each routine only, not "no summary". Read it
+  // with limit() alone: can(), require() and a tool's `feature` take 0 as "not included".
+  'summary.days': 0,
   'runner.views': false,    // the other runner and home views (Big clock, Bars, People first)
   mcp: true,                // the AI connector, in every plan
   'mcp.calls_per_day': 100, // the same brake on abuse as Cronum Work's

@@ -223,7 +223,7 @@ test('PLANS=cronum-focus: a product of its own, with Free and Pro for a family',
   assert.equal(e.describe().defaultPlan, 'free');
   assert.deepEqual(e.of(ada).features, FOCUS_FREE);
   assert.throws(() => e.require(ada, 'routines.max', { current: 5 }), (err) => err.status === 402 && err.code === 'plan_limit');
-  assert.equal(e.can(ada, 'summary.days'), false, 'Free’s summary is the last run of each routine');
+  assert.equal(e.limit(ada, 'summary.days'), 0, 'Free’s summary is the last run of each routine (read with limit(), never can())');
   assert.equal(e.can(ada, 'mcp'), true, 'the AI connector is everyone’s');
 
   // Pro is the family's: granted to its organization, it reaches the adults who are its members.
