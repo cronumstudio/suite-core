@@ -11,29 +11,47 @@
  * Who buys is the opaque id this install gives each account (`customerFor()`, a random UUID kept
  * in `billing_customers`): the app on the phone hands it to the store's SDK. Never the WorkOS id,
  * an email or the account's number. A UUID is also what Apple's StoreKit takes as
- * `appAccountToken` and Google Play as `obfuscatedAccountId`, so the adapter can change without
- * the people who bought changing.
+ * `appAccountToken` and Google Play as `obfuscatedAccountId`, so the people who bought can stay
+ * the same when the adapter changes.
  *
  * A store adapter (RevenueCat's is revenuecat.js; Apple's and Google's own server APIs could take
- * its place without anything here changing):
+ * its place):
  *   {
  *     id: 'revenuecat', kind: 'store',
  *     parseWebhook({ headers, body }) → Promise<notice | null>   (throws on a bad signature)
  *       notice: { id, type, occurredAt, customers: [id…], foreign?: true, hints? }
- *     customerEvents(customer, { cause, hints }) → Promise<{ at, events, present: Set<ref> }>
- *       what the customer has now at the store, as billing.js's events, with ids made from `cause`
+ *     customerEvents(customer, { cause, hints, noted }) → Promise<{ at, events, present: Set<ref>, notes? }>
+ *       what the customer has now at the store, as billing.js's events, with ids made from `cause`;
+ *       `notes`: facts a later reading can't see at the store again (a refund the store took back),
+ *       kept here and asked with `noted(note)`
  *     manage(ref) → { via: 'store', store, sandbox, url } | null
  *   }
+ * What an install holds is keyed by the adapter's id (the customers in `billing_customers`, the
+ * subscriptions and grants by `provider`/`source`) and by its refs. So an adapter that replaces
+ * RevenueCat's either keeps the id `revenuecat` and its refs (`app_store:<product>:<digest>`), or
+ * comes with a migration of `billing_customers`, `billing_subscriptions` and the grants'
+ * `external_ref`: an adapter under another id would give everyone a new customer, which no longer
+ * matches the `appAccountToken` of what they bought.
+ *
  * The webhook only says whom to look at again: what they have is always read from the store
  * (customerEvents), and what this install holds for them that the store no longer has (moved to
  * another customer, a refunded one-off purchase) ends. The same reading follows a purchase, when
- * the app asks (`sync()`), so nothing waits for the webhook.
+ * the app asks (`sync()`), so nothing waits for the webhook. A reading is applied as one
+ * (billing.js's `reading`): what it says that is already here is 'unchanged' and writes nothing,
+ * so reading again and again grows no table.
+ *
+ * The server can't refuse a store's sale: before it sells in the store, the app reads
+ * `GET /api/billing/overview`, where a web subscription that already gives the plan is listed. The
+ * other way round, the web's checkout answers 409 `already_subscribed` to a person with a live
+ * store subscription (billing.js's `otherProviders`).
  */
 import crypto from 'node:crypto';
-import { HttpError, notFound, unauthorized, sendJson, readBody } from './http.js';
+import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody } from './http.js';
 import { createBilling } from './billing.js';
 
 const LIVE = ['active', 'trialing', 'past_due'];
+/** What a delivery's id may be: no `:` or `/`, so neither it nor its readings' ids ever name a note's row. */
+const DELIVERY_ID = /^[A-Za-z0-9._-]{1,100}$/;
 
 /**
  * @param {object} options
@@ -104,15 +122,33 @@ export function createStoreBilling({
     return gone;
   }
 
+  /**
+   * What the adapter noted (`notes`), kept as rows of `billing_events` of their own (`note:…`,
+   * type and outcome `note`): no table or migration more, and only ids and refs, never a customer.
+   * No delivery can write one: a delivery's id holds no `:` or `/` (DELIVERY_ID), so neither its
+   * row nor its readings' (`<id>/<ref>`) start with `note:`, and only a row of type `note` counts.
+   */
+  const NOTE = /^[\w.:@/-]{1,400}$/;
+  const noted = (note) => typeof note === 'string' && NOTE.test(note)
+    && Boolean(database.get(`SELECT 1 FROM billing_events WHERE provider = ? AND event_id = ? AND type = 'note'`,
+      source, `note:${note}`));
+  const keepNote = (note) => {
+    if (typeof note !== 'string' || !NOTE.test(note)) return;
+    database.run(`INSERT OR IGNORE INTO billing_events (provider, event_id, type, outcome, received_at)
+      VALUES (?, ?, 'note', 'note', ?)`, source, `note:${note}`, new Date(clock()).toISOString());
+  };
+
   /** One customer read again from the store and applied: what it has, and what it no longer has. */
   async function reconcile(customer, { cause, hints = null }) {
     if (!userOf(customer)) return [];
-    const { at, events, present } = await provider.customerEvents(customer, { cause, hints });
+    const { at, events, present, notes = [] } = await provider.customerEvents(customer, { cause, hints, noted });
     // At once, after the store answered: what was read and what is gone, against the same state.
     return database.tx(() => {
       const userId = userOf(customer);
       if (!userId) return [];
-      return [...events, ...goneEvents(userId, present, { cause, at, customer })].map((event) => billing.apply(event));
+      for (const note of Array.isArray(notes) ? notes : []) keepNote(note);
+      return [...events, ...goneEvents(userId, present, { cause, at, customer })]
+        .map((event) => billing.apply(event, { reading: true }));
     });
   }
 
@@ -130,6 +166,8 @@ export function createStoreBilling({
       sendJson(res, 200, { received: 0, outcomes: [] });
       return;
     }
+    // Its id names rows here: never one of the notes' (`note:…`), whatever the adapter.
+    if (typeof notice.id !== 'string' || !DELIVERY_ID.test(notice.id)) throw badRequest('invalid_event');
     const known = notice.foreign ? [] : notice.customers.filter((customer) => userOf(customer));
     let outcomes = [];
     if (!known.length) {

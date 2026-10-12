@@ -204,7 +204,7 @@ test('renewals, the store\'s grace, a charge that keeps failing, a cancellation 
   held.subscriptions[YEARLY] = subscription({ purchased: s.clock.now, expires: s.clock.now + 365 * DAY });
   assert.deepEqual(await outcomes('RENEWAL'), ['granted']);
   held.subscriptions[YEARLY].unsubscribe_detected_at = iso(s.clock.now);
-  assert.deepEqual(await outcomes('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }), ['extended']);
+  assert.deepEqual(await outcomes('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }), ['unchanged'], 'renewal off: paid until the end, as it was');
   assert.equal(s.planOf(s.ada), 'pro');
   s.clock.now += 366 * DAY;
   assert.deepEqual(await outcomes('EXPIRATION', { expiration_reason: 'UNSUBSCRIBE' }), ['revoked']);
@@ -226,10 +226,10 @@ test('a refund takes it back and the period it paid back doesn\'t return; the st
   assert.deepEqual(s.audit.list({ action: 'billing.' }).map((e) => e.action), ['billing.revoked', 'billing.granted']);
   // A later reading that says nothing of it: the period paid back gives nothing.
   s.clock.now += 3 * 1000;
-  assert.deepEqual((await s.call('POST', '/api/billing/stores/sync', { as: s.ada.id })).body.outcomes, ['refunded']);
+  assert.deepEqual((await s.call('POST', '/api/billing/stores/sync', { as: s.ada.id })).body.outcomes, ['unchanged']);
   assert.equal(s.planOf(s.ada), 'free');
   held.subscriptions[MONTHLY].refunded_at = iso(now + DAY);
-  assert.deepEqual((await s.deliver({ type: 'RENEWAL', app_user_id: ada, product_id: MONTHLY })).body.outcomes, ['nothing'],
+  assert.deepEqual((await s.deliver({ type: 'RENEWAL', app_user_id: ada, product_id: MONTHLY })).body.outcomes, ['unchanged'],
     'refunded, said again');
   // The store reversed it.
   held.subscriptions[MONTHLY].refunded_at = null;
@@ -263,7 +263,7 @@ test('a one-off purchase: granted once, and refunded when RevenueCat no longer l
   held.non_subscriptions[LIFETIME] = [{ id: 'cadba0c81b', purchase_date: iso(now), store: 'app_store', is_sandbox: false }];
   assert.deepEqual((await s.deliver({ type: 'NON_RENEWING_PURCHASE', app_user_id: ada, product_id: LIFETIME })).body.outcomes, ['granted']);
   s.clock.now += 5000;
-  assert.deepEqual((await s.call('POST', '/api/billing/stores/sync', { as: s.ada.id })).body.outcomes, ['duplicate']);
+  assert.deepEqual((await s.call('POST', '/api/billing/stores/sync', { as: s.ada.id })).body.outcomes, ['unchanged']);
   assert.equal(grantsOf(s.database, s.ada, 'revenuecat')[0].ends_at, null, 'for good');
   held.non_subscriptions = {};
   assert.deepEqual((await s.deliver({ type: 'CANCELLATION', cancel_reason: 'CUSTOMER_SUPPORT', app_user_id: ada, product_id: LIFETIME }))
@@ -304,6 +304,166 @@ test('a reading that answered before a purchase takes nothing back: a subscripti
   pending.shift()();
   assert.deepEqual(await reading, { received: 1, outcomes: ['stale'] }, 'the subscription\'s end, older than what is known');
   assert.equal(entitlements.grantsOf('user', ada.id).filter((g) => !g.revoked_at).length, 2, 'both still there');
+  assert.deepEqual(database.all('SELECT event_id FROM billing_events ORDER BY rowid').map((r) => r.event_id), ['w/1', 'w/2'],
+    'a stale reading leaves no row');
+});
+
+test('reading again what is already here writes nothing: no event row, no audit, however often it is read', async (t) => {
+  const s = await setup(t);
+  const now = s.clock.now;
+  const ada = await s.customerOf(s.ada);
+  const held = s.api.customer(ada);
+  held.subscriptions[MONTHLY] = subscription({ purchased: now, expires: now + 30 * DAY });
+  held.subscriptions[YEARLY] = subscription({ purchased: now - 400 * DAY, expires: now - 35 * DAY });
+  assert.deepEqual((await s.deliver({ type: 'INITIAL_PURCHASE', app_user_id: ada, product_id: MONTHLY })).body.outcomes, ['granted', 'nothing']);
+  const rows = () => [
+    s.database.get("SELECT COUNT(*) AS n FROM billing_events WHERE provider = 'revenuecat'").n, s.audit.list({ action: 'billing.' }).length,
+  ];
+  const before = rows();
+  for (let i = 0; i < 10; i += 1) {
+    s.clock.now += 3000;
+    assert.deepEqual((await s.call('POST', '/api/billing/stores/sync', { as: s.ada.id })).body.outcomes, ['unchanged', 'unchanged']);
+  }
+  assert.deepEqual((await s.deliver({ type: 'RENEWAL', app_user_id: ada, product_id: MONTHLY })).body.outcomes, ['unchanged', 'unchanged'],
+    'a webhook that says nothing new');
+  assert.deepEqual(rows(), before, 'the active one and the old ended one alike');
+  assert.equal(s.database.get("SELECT occurred_at FROM billing_subscriptions WHERE product = 'pro-monthly'").occurred_at, iso(s.clock.now),
+    'only the time it was last known moves on');
+  // What changes is applied, and kept, as ever.
+  held.subscriptions[MONTHLY] = subscription({ purchased: now + 30 * DAY, expires: now + 60 * DAY });
+  s.clock.now += 3000;
+  assert.deepEqual((await s.call('POST', '/api/billing/stores/sync', { as: s.ada.id })).body.outcomes, ['extended', 'unchanged']);
+  assert.deepEqual(rows(), [before[0] + 1, before[1] + 1]);
+});
+
+test('what a later reading can\'t tell is noted: a refund taken back, an older renewal\'s refund, a one-off refunded while listed', async (t) => {
+  const s = await setup(t);
+  const now = s.clock.now;
+  const ada = await s.customerOf(s.ada);
+  const held = s.api.customer(ada);
+  const sync = async (user = s.ada) => {
+    s.clock.now += 3000;
+    return (await s.call('POST', '/api/billing/stores/sync', { as: user.id })).body.outcomes;
+  };
+  const outcomes = async (event) => (await s.deliver(event)).body.outcomes;
+
+  // Refunded, then the refund taken back while RevenueCat still says refunded_at: Pro, now and after.
+  held.subscriptions[MONTHLY] = subscription({ purchased: now, expires: now + 30 * DAY, store_transaction_id: '2000000000000101' });
+  assert.deepEqual(await outcomes({ type: 'INITIAL_PURCHASE', app_user_id: ada, product_id: MONTHLY }), ['granted']);
+  s.clock.now = now + DAY;
+  held.subscriptions[MONTHLY].refunded_at = iso(now + DAY);
+  const support = { type: 'CANCELLATION', cancel_reason: 'CUSTOMER_SUPPORT', app_user_id: ada, product_id: MONTHLY, transaction_id: '2000000000000101' };
+  assert.deepEqual(await outcomes(support), ['revoked']);
+  assert.deepEqual(await outcomes({ type: 'REFUND_REVERSED', app_user_id: ada, product_id: MONTHLY, transaction_id: '2000000000000101' }), ['granted']);
+  assert.deepEqual(await sync(), ['unchanged'], 'the refunded_at the store took back takes nothing again');
+  assert.equal(s.planOf(s.ada), 'pro');
+  held.subscriptions[MONTHLY].refunded_at = iso(s.clock.now);
+  assert.deepEqual(await sync(), ['revoked'], 'a new refund is one');
+  assert.equal(s.planOf(s.ada), 'free');
+
+  // An older renewal refunded after the latest purchase: the period paid now stays, now and after.
+  held.subscriptions[YEARLY] = subscription({ purchased: s.clock.now, expires: s.clock.now + 365 * DAY, store_transaction_id: '2000000000000202' });
+  assert.deepEqual(await sync(), ['unchanged', 'granted']);
+  s.clock.now += 1000;
+  held.subscriptions[YEARLY].refunded_at = iso(s.clock.now);
+  assert.deepEqual(await outcomes({ ...support, product_id: YEARLY, transaction_id: '2000000000000150' }), ['unchanged', 'unchanged']);
+  assert.deepEqual(await sync(), ['unchanged', 'unchanged']);
+  assert.equal(s.planOf(s.ada), 'pro');
+
+  // A one-off refunded by customer support, still listed: refunded until the store takes it back.
+  const bob = await s.customerOf(s.bob);
+  s.api.customer(bob).non_subscriptions[LIFETIME] = [{
+    id: 'f00dbabe01', purchase_date: iso(s.clock.now), store: 'app_store', is_sandbox: false, store_transaction_id: '2000000000000303',
+  }];
+  assert.deepEqual(await outcomes({ type: 'NON_RENEWING_PURCHASE', app_user_id: bob, product_id: LIFETIME }), ['granted']);
+  // A delivery whose id looks like a note (sent with a stolen header value) writes none.
+  const [lifetime] = grantsOf(s.database, s.bob, 'revenuecat');
+  assert.deepEqual(await outcomes({
+    id: `note:refunded/${lifetime.external_ref}`, type: 'NON_RENEWING_PURCHASE', app_user_id: 'f2c1d1a4-0000-4000-8000-000000000001',
+    product_id: LIFETIME,
+  }), ['ignored']);
+  assert.deepEqual(await sync(s.bob), ['unchanged']);
+  assert.equal(s.planOf(s.bob), 'pro');
+  assert.deepEqual(await outcomes({ ...support, app_user_id: bob, product_id: LIFETIME, transaction_id: '2000000000000999' }), ['unchanged'],
+    'another transaction\'s refund');
+  assert.deepEqual(await outcomes({ ...support, app_user_id: bob, product_id: LIFETIME, transaction_id: '2000000000000303' }), ['revoked']);
+  assert.deepEqual(await sync(s.bob), ['unchanged']);
+  assert.equal(s.planOf(s.bob), 'free');
+  assert.deepEqual(await outcomes({ type: 'REFUND_REVERSED', app_user_id: bob, product_id: LIFETIME, transaction_id: '2000000000000303' }), ['granted']);
+  assert.deepEqual(await sync(s.bob), ['unchanged']);
+  assert.equal(s.planOf(s.bob), 'pro');
+
+  const notes = s.database.all("SELECT event_id FROM billing_events WHERE provider = 'revenuecat' AND type = 'note' ORDER BY rowid")
+    .map((r) => r.event_id.replace(/:[0-9a-f]{16}/, ':<key>').replace(/@\d+$/, '@<ms>'));
+  assert.deepEqual(notes, [
+    'note:refund-cleared/app_store:com.example.app.pro.monthly:<key>@<ms>',
+    'note:refund-cleared/app_store:com.example.app.pro.yearly:<key>@<ms>',
+    'note:refunded/app_store:com.example.app.pro.lifetime:<key>:f00dbabe01',
+    'note:refund-reversed/app_store:com.example.app.pro.lifetime:<key>:f00dbabe01',
+  ], 'refs and times only, never a customer');
+});
+
+test('a person with a live store subscription buys no second one on the web (otherProviders); a group still can', async (t) => {
+  const s = await setup(t);
+  const now = s.clock.now;
+  const web = createBilling({
+    database: s.database, entitlements: s.entitlements, provider: signedProvider({ id: 'paddle', secret: SECRET }), products: WEB_PRODUCTS,
+    clock: () => s.clock.now, log: () => {}, otherProviders: ['revenuecat'],
+  });
+  assert.deepEqual(web.errors, []);
+  const checkout = async (billing, subject, product = 'pro-web-yearly') => {
+    try {
+      await billing.checkoutUrl(subject, product, { returnUrl: 'https://app.example.com/' });
+      return 'ok';
+    } catch (err) {
+      return `${err.status} ${err.code}`;
+    }
+  };
+  const ada = await s.customerOf(s.ada);
+  s.api.customer(ada).subscriptions[MONTHLY] = subscription({ purchased: now, expires: now + 30 * DAY });
+  assert.equal(await checkout(web, { type: 'user', id: s.ada.id }), 'ok');
+  await s.deliver({ type: 'INITIAL_PURCHASE', app_user_id: ada, product_id: MONTHLY });
+  assert.equal(await checkout(web, { type: 'user', id: s.ada.id }), '409 already_subscribed', 'it would charge twice');
+  assert.equal(await checkout(s.web, { type: 'user', id: s.ada.id }), 'ok', 'without otherProviders, as before');
+  const fleet = s.organizations.create({ name: 'Fleet A', ownerId: s.ada.id });
+  assert.equal(await checkout(web, { type: 'organization', id: fleet.id }, 'fleet-monthly'), 'ok', 'a group\'s is another subscription');
+  s.clock.now = now + 31 * DAY;
+  assert.deepEqual((await s.deliver({ type: 'EXPIRATION', app_user_id: ada, product_id: MONTHLY })).body.outcomes, ['revoked']);
+  assert.equal(await checkout(web, { type: 'user', id: s.ada.id }), 'ok', 'ended in the store: the web sells again');
+  assert.deepEqual(createBilling({ database: s.database, entitlements: s.entitlements, otherProviders: 'revenuecat' }).errors,
+    ['otherProviders must be a list of provider ids']);
+});
+
+test('an account that goes takes what waited under its identity; a renewal after it waits for that login, still paying', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-stores-pending-'));
+  const database = openDatabase({ dataDir: dir, name: 'test' });
+  t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+  const now = Date.parse('2026-11-01T10:00:00Z');
+  const accounts = createAccounts({ database, clock: () => now });
+  const entitlements = createEntitlements({
+    database, appId: 'test', clock: () => now, features: FEATURES, plans: PLANS, plansJson: null, defaultPlanOverride: null,
+  });
+  const ada = accounts.create({ username: 'ada' });
+  // The identity is not linked to the account here yet: what is paid for it waits.
+  const identities = {
+    of: (userId) => (userId === ada.id ? { provider: 'workos', subject: 'user_test_ada' } : null),
+    user: () => null,
+  };
+  const web = createBilling({
+    database, entitlements, provider: signedProvider({ id: 'paddle', secret: SECRET }), products: WEB_PRODUCTS, identities,
+    clock: () => now, log: () => {},
+  });
+  const renewal = (id) => ({
+    id, type: 'subscription', ref: 'sub_ada', identity: { provider: 'workos', subject: 'user_test_ada' }, customer: 'ctm_ada',
+    product: 'pro-web-yearly', status: 'active', periodEnd: iso(now + 365 * DAY),
+  });
+  assert.equal(web.apply(renewal('evt_1')), 'pending', 'paid for before the identity was linked here');
+  assert.deepEqual(web.forget(ada.id), { grants: 0, subscriptions: 0, customers: 0, pending: 1 });
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 0);
+  accounts.remove(ada.id);
+  assert.equal(web.apply(renewal('evt_2')), 'pending', 'still paid for: it waits, as for anyone without an account here');
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 1);
 });
 
 test('another product\'s sale, or this app\'s for a customer it never gave out: kept by id only, and RevenueCat isn\'t asked', async (t) => {
@@ -418,8 +578,8 @@ test('an account that goes: each instance forgets its links, subscriptions and g
     product: 'fleet-monthly', status: 'active', periodEnd: iso(now + 30 * DAY),
   });
   s.entitlements.setPlan(s.ada.id, 'pro');
-  assert.deepEqual(s.stores.forget(s.ada.id), { grants: 1, subscriptions: 1, customers: 1 });
-  assert.deepEqual(s.web.forget(s.ada.id), { grants: 1, subscriptions: 1, customers: 1 });
+  assert.deepEqual(s.stores.forget(s.ada.id), { grants: 1, subscriptions: 1, customers: 1, pending: 0 });
+  assert.deepEqual(s.web.forget(s.ada.id), { grants: 1, subscriptions: 1, customers: 1, pending: 0 });
   assert.deepEqual(s.database.all("SELECT source, revoked_at IS NULL AS live FROM entitlement_grants WHERE subject_type = 'user' ORDER BY id")
     .map((g) => [g.source, g.live]), [['revenuecat', 0], ['paddle', 0], ['admin', 1]], 'only billing\'s: the admin\'s is the account\'s own');
   assert.equal(s.database.get("SELECT COUNT(*) AS n FROM billing_subscriptions WHERE subject_type = 'organization'").n, 1);
@@ -503,9 +663,11 @@ test('createSuite with STORE_BILLING: the store\'s routes beside the web\'s unch
     { received: 1, outcomes: ['granted'] });
   assert.equal(api.calls[0].headers.authorization, `Bearer ${API_KEY}`);
   assert.equal(suite.entitlements.of(suite.accounts.byId(dee.id)).plan.id, 'pro');
-  assert.deepEqual((await call('POST', '/api/billing/stores/sync', { token })).body.outcomes, ['extended']);
+  assert.deepEqual((await call('POST', '/api/billing/stores/sync', { token })).body.outcomes, ['unchanged']);
   const overview = (await call('GET', '/api/billing/overview', { token })).body;
   assert.deepEqual(overview.sources.map((source) => [source.kind, source.product, source.manage.via]), [['store', 'pro-monthly', 'store']]);
+  await assert.rejects(suite.billing.checkoutUrl({ type: 'user', id: dee.id }, 'pro-web-yearly', { returnUrl: 'http://127.0.0.1/' }),
+    (err) => err.status === 409 && err.code === 'already_subscribed', 'the web sells no second subscription');
 
   // The web's webhook is the same as ever.
   const event = JSON.stringify({

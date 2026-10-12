@@ -141,7 +141,8 @@ export function createSuite({
   });
   const tokens = createTokens({ database, prefix: config.tokens.prefix });
   const audit = createAudit({ database, trustProxy: install.trustProxy });
-  // An app on a phone, with modules.devices: its token is its own kind, which no route of the suite takes.
+  // An app on a phone, with modules.devices: its token is its own kind, which no route of the suite
+  // takes, except, with stores.devices, the store routes and the overview (stores.js).
   const devices = config.modules.devices ? createDevices({
     database, prefix: config.devices.prefix, redirectUris: config.devices.redirectUris,
     idleDays: config.devices.idleDays, audit,
@@ -227,6 +228,8 @@ export function createSuite({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
     // Another product's sales (suite.config.js `billing`): off unless the app says.
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
+    // With the stores, a person's live store subscription also makes a second one on the web a double charge.
+    ...(install.stores ? { otherProviders: [install.stores.provider] } : {}),
   }) : null;
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {

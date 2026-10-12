@@ -29,11 +29,20 @@
  *                   a charge failed and the store is   → past_due: nothing changes, the grant lapses
  *                   still retrying                       on its own
  *                   otherwise, or after EXPIRATION     → ended
- * A one-off purchase (non_subscriptions) is a purchase, for a product of kind `once`; RevenueCat
- * removes a refunded one from the list, and stores.js takes back what is no longer there. A
- * TRANSFER is the same purchases under another App User ID: both customers are looked at again.
- * A purchase shared through Apple's Family Sharing (when the product allows it) counts for whoever
- * it is shared with, as the store says.
+ * A one-off purchase (non_subscriptions) is a purchase, for a product of kind `once`; one that
+ * leaves the list (refunded) is taken back by stores.js, and one customer support refunded (the
+ * CANCELLATION names its transaction) is refunded even while RevenueCat still lists it. A TRANSFER
+ * is the same purchases under another App User ID: both customers are looked at again. A purchase
+ * shared through Apple's Family Sharing (when the product allows it) counts for whoever it is
+ * shared with, as the store says.
+ *
+ * What a later reading can't tell is noted (stores.js keeps the notes): a refunded_at the store
+ * took back (REFUND_REVERSED) or that was an older renewal's (the CANCELLATION named another
+ * transaction than the subscription's latest) no longer takes the period back; a one-off refunded
+ * while still listed stays refunded until a REFUND_REVERSED of its transaction. Unverified until
+ * the stores' sandbox tests (Tracker's A12): whether RevenueCat clears refunded_at when a refund is
+ * reversed, whether it removes a refunded one-off from non_subscriptions, and that refunded_at
+ * and store_transaction_id are the latest purchase's. Each answer is handled either way.
  *
  * Refs. RevenueCat's v1 API names no original transaction for a subscription, so the ref is made of
  * what it does name, the same for the webhook and for the app's sync: the store, `-sandbox` for a
@@ -164,16 +173,33 @@ export function revenuecatProvider({
   /** What a hint of the webhook says about one subscription, if it is about that one. */
   const hintFor = (hints, storeProduct) => (isObject(hints) ? hints[baseOf(storeProduct)] ?? null : null);
 
-  /** One subscription of the customer, at `now`: a refund, or its status and until when. */
-  function stateOf(entry, hint, now) {
+  /** The transaction a store entry names, if it names one. */
+  const transactionOf = (entry) => (typeof entry?.store_transaction_id === 'string' && entry.store_transaction_id
+    ? entry.store_transaction_id : null);
+
+  /**
+   * One subscription of the customer, at `now`: a refund, or its status and until when. `noted`
+   * asks what an earlier reading noted, and what this one finds goes into `notes`.
+   */
+  function stateOf(entry, hint, now, { ref, noted, notes }) {
     const purchased = msOf(entry.purchase_date) ?? 0;
     const expires = msOf(entry.expires_date);
     if (expires === null) return null;
-    const refundedAt = msOf(entry.refunded_at);
+    const transaction = transactionOf(entry);
     const reversed = hint?.type === 'refund_reversed';
-    const refunded = (refundedAt !== null && refundedAt >= purchased)
-      || (hint?.type === 'refund' && Boolean(hint.transaction) && entry.store_transaction_id === hint.transaction);
-    if (refunded && !reversed) return { refund: true };
+    // The transaction customer support refunded, as the webhook names it: this period's, or an older one's.
+    const named = hint?.type === 'refund' && hint.transaction ? hint.transaction : null;
+    const refundedAt = msOf(entry.refunded_at);
+    const cleared = refundedAt === null ? null : `refund-cleared/${ref}@${refundedAt}`;
+    let byDate = refundedAt !== null && refundedAt >= purchased && !noted(cleared);
+    if (byDate && (reversed || (named !== null && transaction !== null && named !== transaction))) {
+      // RevenueCat may keep refunded_at after the store took the refund back, or say it for an
+      // older renewal's refund: from now on that date doesn't take this period back.
+      notes.push(cleared);
+      byDate = false;
+    }
+    const refunded = !reversed && (byDate || (named !== null && named === transaction));
+    if (refunded) return { refund: true };
     // The store's grace period after a failed charge keeps what was paid for, as the store does.
     const end = Math.max(expires, msOf(entry.grace_period_expires_date) ?? expires);
     const extra = reversed ? { refundReversed: true } : {};
@@ -188,15 +214,18 @@ export function revenuecatProvider({
   /**
    * What a customer has now, as the suite's events. `cause` names them (the webhook's id, or a
    * sync), so a delivery sent again is applied once. `present`: the refs of everything of the
-   * customer in these stores, granted or not, so stores.js takes back only what is gone.
+   * customer in these stores, granted or not, so stores.js takes back only what is gone. `notes`:
+   * what the readings after must remember (the top of this file), asked again with `noted`.
    */
-  async function customerEvents(customer, { cause, hints = null } = {}) {
+  async function customerEvents(customer, { cause, hints = null, noted = () => false } = {}) {
     const data = await subscriber(customer);
     const answered = Number(data.request_date_ms);
     const now = Number.isFinite(answered) && answered > 0 ? answered : (msOf(data.request_date) ?? clock());
     const key = customerKey(customer);
     const events = [];
     const present = new Set();
+    const notes = [];
+    const wasNoted = (note) => Boolean(note) && Boolean(noted(note));
     const subscriptions = isObject(data.subscriber.subscriptions) ? data.subscriber.subscriptions : {};
     for (const [productId, entry] of Object.entries(subscriptions)) {
       const store = storeOf(entry?.store);
@@ -213,7 +242,7 @@ export function revenuecatProvider({
         }
         continue;
       }
-      const state = stateOf(entry, hintFor(hints, storeProduct), now);
+      const state = stateOf(entry, hintFor(hints, storeProduct), now, { ref, noted: wasNoted, notes });
       if (!state) continue;
       const fields = { id: `${cause}/${ref}`, occurredAt: iso(now), customer, ref, product: product.key, sandbox: entry.is_sandbox === true };
       events.push(state.refund ? { ...fields, type: 'refund' } : { ...fields, type: 'subscription', ...state });
@@ -227,14 +256,29 @@ export function revenuecatProvider({
         present.add(ref);
         const product = byStore[store].get(productId);
         if (product?.kind !== 'once') continue;
-        const at = msOf(purchase.purchase_date) ?? now;
-        events.push({
-          id: `${cause}/${ref}`, type: 'purchase', occurredAt: iso(at), customer, ref, product: product.key,
-          sandbox: purchase.is_sandbox === true,
-        });
+        const fields = { id: `${cause}/${ref}`, customer, ref, product: product.key, sandbox: purchase.is_sandbox === true };
+        // Customer support refunded it (the webhook names its transaction), and RevenueCat may go on
+        // listing it: refunded now and in every reading after, until the store takes the refund back.
+        const hint = hintFor(hints, productId);
+        const transaction = transactionOf(purchase);
+        const named = transaction !== null && hint?.transaction === transaction ? hint.type : null;
+        const refundedNote = `refunded/${ref}`;
+        const reversedNote = `refund-reversed/${ref}`;
+        if (named === 'refund') {
+          notes.push(refundedNote);
+          events.push({ ...fields, type: 'refund', occurredAt: iso(now) });
+          continue;
+        }
+        if (named === 'refund_reversed') {
+          if (wasNoted(refundedNote)) notes.push(reversedNote);
+        } else if (wasNoted(refundedNote) && !wasNoted(reversedNote)) {
+          events.push({ ...fields, type: 'refund', occurredAt: iso(now) });
+          continue;
+        }
+        events.push({ ...fields, type: 'purchase', occurredAt: iso(msOf(purchase.purchase_date) ?? now) });
       }
     }
-    return { at: iso(now), events, present };
+    return { at: iso(now), events, present, notes };
   }
 
   /** Whether a webhook is about another product's sale: another store, the sandbox when off, other products. */
@@ -249,12 +293,13 @@ export function revenuecatProvider({
   function hintsOf(event, at) {
     const product = typeof event.product_id === 'string' ? baseOf(event.product_id) : '';
     if (!product) return {};
+    const transaction = typeof event.transaction_id === 'string' && event.transaction_id ? event.transaction_id.slice(0, 100) : null;
     const bySupport = event.cancel_reason === 'CUSTOMER_SUPPORT' || event.expiration_reason === 'CUSTOMER_SUPPORT';
     if ((event.type === 'CANCELLATION' || event.type === 'EXPIRATION') && bySupport) {
-      return { [product]: { type: 'refund', transaction: typeof event.transaction_id === 'string' ? event.transaction_id : null, at } };
+      return { [product]: { type: 'refund', transaction, at } };
     }
     if (event.type === 'EXPIRATION') return { [product]: { type: 'ended', at } };
-    if (event.type === 'REFUND_REVERSED') return { [product]: { type: 'refund_reversed', at } };
+    if (event.type === 'REFUND_REVERSED') return { [product]: { type: 'refund_reversed', transaction, at } };
     return {};
   }
 
@@ -278,7 +323,12 @@ export function revenuecatProvider({
     if (!TRIGGERS.has(event.type)) return null;
     const stamp = Number(event.event_timestamp_ms);
     const at = Number.isFinite(stamp) && stamp > 0 ? stamp : clock();
-    const notice = { id: event.id.slice(0, 100), type: event.type, occurredAt: iso(at), sandbox: event.environment === 'SANDBOX' };
+    // The id names this delivery's rows in billing_events (and, as their cause, its readings'), so it
+    // takes only letters, digits, - _ and . (RevenueCat's are UUIDs): never `:` or `/`, which the
+    // store's notes use (stores.js). Any other id is replaced by its digest, the same each time.
+    const id = /^[A-Za-z0-9._-]{1,100}$/.test(event.id) ? event.id
+      : `rc-${crypto.createHash('sha256').update(event.id).digest('hex').slice(0, 32)}`;
+    const notice = { id, type: event.type, occurredAt: iso(at), sandbox: event.environment === 'SANDBOX' };
     if (foreignOf(event)) return { ...notice, foreign: true, customers: [] };
     const ids = [event.app_user_id, event.original_app_user_id, ...[event.aliases, event.transferred_to, event.transferred_from]
       .flatMap((list) => (Array.isArray(list) ? list : []))];

@@ -61,8 +61,13 @@
  * stores.js) are two instances of this, on the same tables, each under its own provider id. An
  * account's plan is every grant of both (entitlements.js), `GET /api/billing/overview` lists what
  * each one holds for the person and how to manage it, `combinedBilling()` hands both to the
- * account deletion, and `forget()` (with `billing.forgetOnRemove`) lets go of an account's links,
- * subscriptions and grants here when it goes, never of who the person is at the identity provider.
+ * account deletion, the web's checkout counts the stores' live subscriptions too (`otherProviders`),
+ * and `forget()` (with `billing.forgetOnRemove`) lets go of an account's links, subscriptions,
+ * grants and waiting events here when it goes, never of who the person is at the identity provider.
+ *
+ * A reading (`apply(event, { reading: true })`, stores.js) is not a delivery: it is what the store
+ * holds now, read again after a webhook or when the app asks. One that says what is already here
+ * is `'unchanged'` and leaves no trace (no event row, no audit), so reading again costs nothing.
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
@@ -209,15 +214,20 @@ const PENDING_DAYS = 400;
  * @param {string} [options.app]   which app sells, written in the checkout (Paddle's custom_data.app);
  *   an event that names another app is foreign. The same in every install that sells one
  *   subscription together (the apps of Cronum Work), or their sales would be foreign to each other
+ * @param {string[]} [options.otherProviders]   the other instances on these tables (the stores'): a
+ *   person's live subscription there also makes the web's checkout of a second one `already_subscribed`
  */
 export function createBilling({
   database, entitlements, provider = null, products = {}, graceDays = 3, audit = null,
   identities = null, isFounder = () => false, clock = () => Date.now(), log = console.log,
-  ignoreUnknownProducts = false, app = null,
+  ignoreUnknownProducts = false, app = null, otherProviders = [],
 }) {
   const errors = [];
   if (typeof ignoreUnknownProducts !== 'boolean') errors.push('ignoreUnknownProducts must be true or false');
   if (app !== null && !/^[a-z][a-z0-9-]{1,30}$/.test(String(app))) errors.push(`app "${app}": lowercase letters, digits and -, starting with a letter`);
+  if (!(Array.isArray(otherProviders) && otherProviders.every((id) => typeof id === 'string' && id))) {
+    errors.push('otherProviders must be a list of provider ids');
+  }
   const planIds = new Set(entitlements.describe().plans.map((p) => p.id));
   const catalog = {};
   for (const [key, spec] of Object.entries(products || {})) {
@@ -294,9 +304,38 @@ export function createBilling({
     return current ? 'changed' : 'granted';
   }
 
-  function applySubscription(event, subject, product) {
+  /**
+   * Whether a subscription event says what is already here: the same row, and the grant applying
+   * it would leave (the same end, or none). Only asked of readings: a delivery is applied as ever.
+   */
+  function sameSubscription(known, event, subject, product) {
+    if (!known || known.subject_type !== subject.type || known.subject_id !== subject.id || known.product !== product.key
+      || known.status !== event.status || (known.quantity ?? null) !== (event.quantity ?? null)
+      || (known.period_end ?? null) !== (event.periodEnd ?? null)) return false;
+    if (event.refundReversed === true && known.refunded_until) return false;
+    const current = activeGrant(event.ref);
+    if (SUBSCRIPTION_KEEPS.has(event.status)) {
+      const end = Date.parse(event.periodEnd);
+      if (Number.isNaN(end)) return false;
+      if (known.refunded_until && end <= Date.parse(known.refunded_until)) return !current;
+      return Boolean(current) && current.subject_type === subject.type && current.subject_id === subject.id
+        && current.plan === product.plan && (current.quantity ?? null) === (event.quantity ?? null)
+        && current.ends_at === iso(end + graceDays * DAY);
+    }
+    if (SUBSCRIPTION_ENDS.has(event.status)) return !current;
+    return true;
+  }
+
+  function applySubscription(event, subject, product, { reading = false } = {}) {
     const known = database.get('SELECT * FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, event.ref);
     if (known && known.occurred_at > event.occurredAt) return 'stale';
+    if (reading && sameSubscription(known, event, subject, product)) {
+      // Only the time it was last known moves on: what an older reading, answered late, is stale against.
+      if (event.occurredAt > known.occurred_at) {
+        database.run('UPDATE billing_subscriptions SET occurred_at = ? WHERE provider = ? AND ref = ?', event.occurredAt, source, event.ref);
+      }
+      return 'unchanged';
+    }
     const now = iso(clock());
     database.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, quantity,
         period_end, occurred_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -324,8 +363,8 @@ export function createBilling({
     return 'kept';   // past_due, incomplete…: the grant lapses on its own if nothing else comes
   }
 
-  function applyPurchase(event, subject, product) {
-    if (activeGrant(event.ref)) return 'duplicate';
+  function applyPurchase(event, subject, product, { reading = false } = {}) {
+    if (activeGrant(event.ref)) return reading ? 'unchanged' : 'duplicate';
     const endsAt = product.days ? iso(Date.parse(event.occurredAt) + product.days * DAY) : null;
     entitlements.grant({
       subjectType: subject.type, subjectId: subject.id, plan: product.plan, quantity: event.quantity ?? null,
@@ -335,7 +374,13 @@ export function createBilling({
   }
 
   /** A refund: the grant ends, and a subscription's refunded period can't bring it back. */
-  function applyRefund(event) {
+  function applyRefund(event, { reading = false } = {}) {
+    if (reading && !activeGrant(event.ref)) {
+      // Said again by a reading: nothing granted, and the period already marked as paid back.
+      const row = database.get('SELECT period_end, refunded_until FROM billing_subscriptions WHERE provider = ? AND ref = ?',
+        source, event.ref);
+      if (!row || (row.refunded_until && (row.period_end == null || row.refunded_until === row.period_end))) return 'unchanged';
+    }
     database.run(`UPDATE billing_subscriptions SET refunded_until = COALESCE(period_end, ?)
       WHERE provider = ? AND ref = ?`, event.occurredAt, source, event.ref);
     return entitlements.revoke({ source, externalRef: event.ref }) ? 'revoked' : 'nothing';
@@ -361,7 +406,7 @@ export function createBilling({
   const unpriced = (event) => event.own === true && !Object.hasOwn(catalog, String(event.product ?? ''));
 
   /** A subscription or a purchase, for an account here. */
-  function applyTo(event, subject, { byIdentity = false } = {}) {
+  function applyTo(event, subject, { byIdentity = false, reading = false } = {}) {
     // Before the customer is linked: another product's customer is nobody's here. This also
     // covers what was waiting since before the option was on (claim).
     if (isForeign(event)) return 'foreign';
@@ -371,8 +416,8 @@ export function createBilling({
       log(unpriced(event) ? unpricedLine(event) : `[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
       return 'ignored';
     }
-    if (event.type === 'subscription') return applySubscription(event, subject, product);
-    if (event.type === 'purchase') return applyPurchase(event, subject, product);
+    if (event.type === 'subscription') return applySubscription(event, subject, product, { reading });
+    if (event.type === 'purchase') return applyPurchase(event, subject, product, { reading });
     return 'ignored';
   }
 
@@ -405,8 +450,11 @@ export function createBilling({
    * Applies one event, once. Returns what it did: granted, extended, changed,
    * revoked, refunded, kept, stale, pending, duplicate, ignored, nothing or
    * foreign (another product's, with the options at the top of this file).
+   * `reading`: the event is what the store holds now (stores.js), not a
+   * delivery; one that changes nothing is 'unchanged', and it and a stale one
+   * leave no row and no audit.
    */
-  function apply(event) {
+  function apply(event, { reading = false } = {}) {
     if (!event?.id || !event.type || !event.ref) throw badRequest('invalid_event');
     const at = Date.parse(event.occurredAt);
     const normalized = { ...event, ref: String(event.ref), occurredAt: iso(Number.isNaN(at) ? clock() : at) };
@@ -419,7 +467,7 @@ export function createBilling({
         // A refund names no one: if what it refunds is waiting for someone, it waits with it.
         const waiting = database.get(`SELECT identity_provider AS provider, identity_subject AS subject FROM billing_pending
           WHERE provider = ? AND ref = ? LIMIT 1`, source, normalized.ref);
-        outcome = waiting ? hold(normalized, waiting) : applyRefund(normalized);
+        outcome = waiting ? hold(normalized, waiting) : applyRefund(normalized, { reading });
       } else if (isForeign(normalized)) {
         // Before whoIs(): nothing of the person is looked up, linked or kept for them.
         outcome = 'foreign';
@@ -431,11 +479,13 @@ export function createBilling({
           outcome = hold(normalized, who.waits);
         } else if (who.subject) {
           subject = who.subject;
-          outcome = applyTo(normalized, subject, { byIdentity: who.byIdentity });
+          outcome = applyTo(normalized, subject, { byIdentity: who.byIdentity, reading });
         } else {
           log(`[billing] ${source} event ${event.id}: no known subject, ignored`);
         }
       }
+      // A store read again and again (each sync, each webhook) must not grow a table each time.
+      if (reading && (outcome === 'unchanged' || outcome === 'stale')) return outcome;
       database.run('INSERT INTO billing_events (provider, event_id, type, outcome, received_at) VALUES (?, ?, ?, ?, ?)',
         source, String(event.id), normalized.type, outcome, iso(clock()));
       if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign'].includes(outcome)) {
@@ -499,9 +549,12 @@ export function createBilling({
     const product = catalog[productKey];
     if (!product) throw badRequest('product_unknown', { product: productKey });
     if (product.for !== subject.type) throw badRequest('product_for', { for: product.for });
-    // A second subscription would charge twice: plans are changed in the portal.
-    if (product.kind === 'subscription' && database.get(`SELECT 1 FROM billing_subscriptions WHERE provider = ?
-      AND subject_type = ? AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, subject.type, subject.id)) {
+    // A second subscription would charge twice: plans are changed in the portal. A person's in a
+    // store counts too (otherProviders): the store can't be asked to stop it, the person cancels there.
+    const providers = [source, ...(subject.type === 'user' && Array.isArray(otherProviders) ? otherProviders : [])];
+    if (product.kind === 'subscription' && database.get(`SELECT 1 FROM billing_subscriptions
+      WHERE provider IN (${providers.map(() => '?').join(', ')}) AND subject_type = ? AND subject_id = ?
+      AND status IN ('active', 'trialing', 'past_due')`, ...providers, subject.type, subject.id)) {
       throw new HttpError(409, 'already_subscribed');
     }
     const price = product.founderPrice && await founder(user) ? product.founderPrice : product.price;
@@ -558,13 +611,17 @@ export function createBilling({
   /**
    * An account that goes (`accounts.whenRemoved`, with `billing.forgetOnRemove`): this install lets
    * go of what it kept of the person at this provider. Their grants from it end now, and their
-   * subscriptions and their customer link are deleted, so a renewal that still comes finds nobody
-   * here (or, by their identity, the account they open again). Nothing is asked of the provider
-   * (that is `deleteAtProviders`), nor of the identity provider, whose login other apps share; a
-   * group's subscription stays with the group. Runs inside the removal's transaction.
-   * → what went: { grants, subscriptions, customers }
+   * subscriptions, their customer link and anything still waiting under their identity are deleted.
+   * A renewal that still comes is then nobody's account here: one that names only the old customer
+   * is ignored; one that names who they are at the identity provider (Paddle's, by the WorkOS id)
+   * waits, as for anyone without an account here, and goes to an account opened again with that
+   * login, who is still paying for it. Nothing is asked of the provider (that is
+   * `deleteAtProviders`), nor of the identity provider, whose login other apps share; a group's
+   * subscription stays with the group. Runs inside the removal's transaction, before the account's
+   * identities go. → what went: { grants, subscriptions, customers, pending }
    */
   function forget(userId) {
+    const identity = identities?.of(userId) ?? null;
     return database.tx(() => {
       const grants = database.run(`UPDATE entitlement_grants SET revoked_at = ? WHERE source = ? AND subject_type = 'user'
         AND subject_id = ? AND revoked_at IS NULL`, iso(clock()), source, userId).changes;
@@ -572,7 +629,9 @@ export function createBilling({
         AND subject_id = ?`, source, userId).changes;
       const customers = database.run(`DELETE FROM billing_customers WHERE provider = ? AND subject_type = 'user'
         AND subject_id = ?`, source, userId).changes;
-      return { grants, subscriptions, customers };
+      const pending = identity?.provider && identity.subject ? database.run(`DELETE FROM billing_pending WHERE provider = ?
+        AND identity_provider = ? AND identity_subject = ?`, source, String(identity.provider), String(identity.subject)).changes : 0;
+      return { grants, subscriptions, customers, pending };
     });
   }
 

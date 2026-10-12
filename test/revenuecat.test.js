@@ -54,6 +54,12 @@ test('the webhook: the Authorization header set in RevenueCat, and with a signin
   assert.equal(await provider.parseWebhook(webhook({ type: 'TEST', app_user_id: 'c-1' })), null, 'a test from the dashboard');
   assert.equal(await provider.parseWebhook(webhook({ type: 'EXPERIMENT_ENROLLMENT', app_user_id: 'c-1' })), null);
   assert.equal(await provider.parseWebhook(webhook({ type: 'SUBSCRIBER_ALIAS', app_user_id: 'c-1' })), null);
+  // The id names rows: only letters, digits, - _ and ., any other one by its digest, the same each time.
+  const odd = { ...sale, id: 'note:refunded/app_store:x:0123456789abcdef' };
+  const [first, again] = [await provider.parseWebhook(webhook(odd)), await provider.parseWebhook(webhook(odd))];
+  assert.match(first.id, /^rc-[0-9a-f]{32}$/);
+  assert.equal(again.id, first.id);
+  assert.equal((await provider.parseWebhook(webhook({ ...sale, id: 'D3ADB33F-0000-4000-8000-000000000000' }))).id, 'D3ADB33F-0000-4000-8000-000000000000');
 });
 
 test('another product\'s sale is foreign and names nobody: another store, a product of another app, the sandbox when off', async () => {
@@ -167,6 +173,44 @@ test('refunds: refunded after the last purchase, or a support cancellation of th
   const reversed = await provider.parseWebhook(webhook({ type: 'REFUND_REVERSED', app_user_id: 'c-1', product_id: MONTHLY }));
   const [event] = (await provider.customerEvents('c-1', { cause: 'e5', hints: reversed.hints })).events;
   assert.deepEqual([event.type, event.status, event.refundReversed], ['subscription', 'active', true]);
+});
+
+test('notes: what a later reading can\'t see again, given back by whoever keeps them, and never a customer', async () => {
+  const { provider, api, clock } = setup();
+  const now = clock.now;
+  const held = api.customer('c-1');
+  const kept = new Set();
+  const read = async (cause, hints = null) => {
+    const result = await provider.customerEvents('c-1', { cause, hints, noted: (note) => kept.has(note) });
+    for (const note of result.notes) kept.add(note);
+    return result;
+  };
+  const hint = async (event) => (await provider.parseWebhook(webhook({ app_user_id: 'c-1', ...event }))).hints;
+
+  // A refund the store took back while RevenueCat still says refunded_at: noted once, then not a refund.
+  held.subscriptions[MONTHLY] = subscription({ purchased: now - 2 * DAY, expires: now + 28 * DAY, refunded_at: iso(now - DAY) });
+  let result = await read('e1', await hint({ type: 'REFUND_REVERSED', product_id: MONTHLY, transaction_id: '2000000000000001' }));
+  assert.equal(result.notes.length, 1);
+  assert.match(result.notes[0], /^refund-cleared\/app_store:com\.example\.app\.pro\.monthly:[0-9a-f]{16}@\d+$/);
+  assert.equal(result.notes[0].includes('c-1'), false);
+  result = await read('e2');
+  assert.deepEqual([result.events.map((e) => [e.type, e.status]), result.notes], [[['subscription', 'active']], []]);
+  assert.deepEqual((await provider.customerEvents('c-1', { cause: 'e3' })).events.map((e) => e.type), ['refund'], 'without the note: a refund');
+
+  // A one-off: refunded by the transaction the webhook names, and so while it is still listed.
+  held.subscriptions = {};
+  held.non_subscriptions[PRODUCTS['pro-lifetime'].appStore] = [{
+    id: 'abc123', purchase_date: iso(now - DAY), store: 'app_store', is_sandbox: false, store_transaction_id: '2000000000000404',
+  }];
+  const support = { type: 'CANCELLATION', cancel_reason: 'CUSTOMER_SUPPORT', product_id: PRODUCTS['pro-lifetime'].appStore };
+  assert.deepEqual((await read('e4', await hint({ ...support, transaction_id: '2000000000000405' }))).events.map((e) => e.type), ['purchase'],
+    'another transaction');
+  result = await read('e5', await hint({ ...support, transaction_id: '2000000000000404' }));
+  assert.deepEqual([result.events.map((e) => e.type), result.notes.map((n) => n.split('/')[0])], [['refund'], ['refunded']]);
+  assert.deepEqual((await read('e6')).events.map((e) => e.type), ['refund']);
+  result = await read('e7', await hint({ type: 'REFUND_REVERSED', product_id: PRODUCTS['pro-lifetime'].appStore, transaction_id: '2000000000000404' }));
+  assert.deepEqual([result.events.map((e) => e.type), result.notes.map((n) => n.split('/')[0])], [['purchase'], ['refund-reversed']]);
+  assert.deepEqual((await read('e8')).events.map((e) => e.type), ['purchase']);
 });
 
 test('Google Play: the base plan names the product; one on a base plan no product lists is said in the log and grants nothing', async () => {
