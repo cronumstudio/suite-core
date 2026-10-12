@@ -870,6 +870,11 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-fact__ok { color: var(--kit-ok); }
 /* An app's own `a { color: inherit }` (Next) mustn't turn the source link into plain text. */
 .kit-fact a { color: var(--kit-accent); }
+/* What can be bought (plan.js): on a narrow phone the button goes under the name, not over it. */
+.kit-plan__offer .kit-list__row { flex-wrap: wrap; row-gap: 8px; }
+.kit-plan__offer .kit-list__text { flex: 1 1 150px; }
+.kit-plan__offer .kit-btn { flex: none; }
+.kit-plan__offer .kit-badge { margin-inline-start: 8px; vertical-align: 1px; }
 .kit-about { display: flex; align-items: center; gap: 14px; }
 .kit-about img { width: 54px; height: 54px; border-radius: 14px; }
 .kit-about strong { display: block; font: 700 22px/1 var(--kit-font-display); letter-spacing: -.03em; }
