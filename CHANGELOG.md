@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.79.1 — 2026-10-13
+
+- **Tests: the stores' customer test no longer fails by chance.** It looked for `ada` anywhere in
+  the answer, whose random id is hex and holds "ada" in about one run of 150; it now checks the
+  answer's two fields and that neither the email nor the name is in it. Nothing changes for an app.
+
 ## 0.79.0 — 2026-10-13
 
 - **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, whose
