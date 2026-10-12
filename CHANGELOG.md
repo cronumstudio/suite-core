@@ -3,6 +3,68 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.71.0 — 2026-10-12
+
+- **Purchases in the App Store and Google Play, next to the web's** (`stores.js`, `revenuecat.js`;
+  `STORE_BILLING=revenuecat`, with `modules.billing` on, off by default). A second instance of
+  billing on the same tables, under its own provider id (`revenuecat`): each event applied once and
+  in order, `billing.ignoreUnknownProducts` applying, and the account's plan the grants of both
+  (`/api/me/entitlements`). It runs with or without `BILLING_PROVIDER`.
+  - suite.config.js `stores: { products, devices }`: each product a plan of the catalog with its
+    store ids, `{ plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly',
+    playStore: 'app_pro:monthly' }` (Google's as `subscription:base-plan`); keys of their own, not
+    the web's; no `for` (people buy for themselves; groups buy on the web). `devices: true`
+    (needs `modules.devices`): the store routes and the overview also take the app's device token.
+    Every mistake stops the start: an unknown key or field, a store id given twice or malformed.
+  - Who buys: `GET /api/billing/stores/customer` → `{ provider, customer }`, an opaque random UUID
+    per account and install, kept in `billing_customers`, for the app to hand to RevenueCat as its
+    App User ID. Never the WorkOS id, an email or the account's number. Also what StoreKit takes as
+    `appAccountToken` and Google Play as `obfuscatedAccountId`, so the adapter can change later.
+    Set RevenueCat's restore behaviour to "Keep with original App User ID".
+  - `POST /api/billing/revenuecat/webhook`: checked by the Authorization header value set in
+    RevenueCat (`REVENUECAT_WEBHOOK_AUTH`, 16 characters or more) and, with
+    `REVENUECAT_WEBHOOK_SECRET`, by `X-RevenueCat-Webhook-Signature` too. Only a trigger: each of
+    this install's customers it names (the buyer, its aliases, both sides of a TRANSFER) is read
+    again with `GET /v1/subscribers/{id}` and the project's secret key (`REVENUECAT_API_KEY`, sk_…),
+    and what RevenueCat holds is applied. Nobody else is looked up (that call makes a customer of
+    any id). RevenueCat down or refusing answers 502, so it sends the webhook again; the log names
+    the status and code, never the customer.
+  - `POST /api/billing/stores/sync`: the same reading after a purchase or a restore, for the
+    account that asks (one at a time, at most every three seconds, else 429 `too_many_attempts`);
+    nothing is asked for an account that never had a customer.
+  - What a subscription becomes: active (trialing in a trial) until its paid date or the end of
+    the store's grace period after a failed charge; past it, paused (Google Play), past_due while
+    the store retries (nothing changes; the grant lapses on its own) or ended (EXPIRATION, or not
+    renewed). Refunded after its last purchase, or cancelled by customer support for that same
+    transaction: a refund, whose period gives nothing again unless REFUND_REVERSED (events gain
+    `refundReversed`, which billing.js honours). One-off purchases are RevenueCat's
+    non-subscriptions for products of kind `once`. What the install holds that the customer no
+    longer has (moved by a TRANSFER, a refunded one-off) is taken back.
+  - Another product's sales: a webhook for another store (Stripe, Paddle, promotional), for a
+    product `stores.products` doesn't name, or from the sandbox with `REVENUECAT_SANDBOX=off`, is
+    foreign, and nobody is looked up; one for a customer this install never gave out is
+    `ignored`. Test purchases count by default (App Review buys in the sandbox), marked in the ref
+    (`app_store-sandbox:…`) and in the overview. A subscription to this app's store product on a
+    base plan no product lists is said in the log and grants nothing.
+  - Refs: the store, the store's product id and a digest of the customer
+    (`app_store:com.example.app.pro.monthly:3f…`), the same from the webhook and from the sync:
+    RevenueCat's v1 API names no original transaction.
+- **Several providers in one install.** `GET /api/billing/overview` (with the stores on): the
+  person's plan and every source of it, and how to manage each — the web's subscriptions (the
+  portal, theirs or a group's they administer), the stores' (only in the store), a group's plan
+  that covers them and the admin's gifts; never a ref, a customer or a price id.
+  `combinedBilling([billing, stores])` hands both to the account deletion: each asked even if the
+  other fails, and a store stops nothing (the person cancels there). `/api/billing/webhook` is
+  unchanged. `/api/auth/config` says `app.modules.stores: true` only with the stores on.
+- **`billing.forgetOnRemove`** (suite.config.js, off by default): an account that goes takes with
+  it, in each billing instance, its customer link, its subscriptions and its grants (revoked), so
+  a renewal that still comes finds nobody here; nothing is asked of the providers or of the
+  identity provider, whose login other apps share, and a group's subscription stays. `forget(userId)`
+  on each instance does it.
+- Nothing changes for an app that sets neither `STORE_BILLING` nor `billing.forgetOnRemove`: no
+  route, no field, no migration (`config.billing` keeps its shape; `config.stores` and
+  `install.stores` are new, empty and null).
+
 ## 0.67.0 — 2026-10-11
 
 - **Device tokens** (`devices.js`, `modules.devices`, off by default): an app on a phone signs in

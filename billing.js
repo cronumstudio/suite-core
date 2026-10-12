@@ -54,7 +54,15 @@
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
  *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
- *     own?, unknownPrice? }
+ *     own?, unknownPrice?, sandbox?, refundReversed? }
+ * (`refundReversed`: the store took a refund back, so the period it had paid back counts again.)
+ *
+ * Several providers in one install (P6): the web's (BILLING_PROVIDER) and the stores' (STORE_BILLING,
+ * stores.js) are two instances of this, on the same tables, each under its own provider id. An
+ * account's plan is every grant of both (entitlements.js), `GET /api/billing/overview` lists what
+ * each one holds for the person and how to manage it, `combinedBilling()` hands both to the
+ * account deletion, and `forget()` (with `billing.forgetOnRemove`) lets go of an account's links,
+ * subscriptions and grants here when it goes, never of who the person is at the identity provider.
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
@@ -298,11 +306,16 @@ export function createBilling({
     source, event.ref, subject.type, subject.id, product.key, event.status, event.quantity ?? null,
     event.periodEnd ?? null, event.occurredAt, now);
 
+    // A refund the store took back: the period it paid back is paid for again.
+    const refundedUntil = event.refundReversed === true ? null : known?.refunded_until;
+    if (event.refundReversed === true && known?.refunded_until) {
+      database.run('UPDATE billing_subscriptions SET refunded_until = NULL WHERE provider = ? AND ref = ?', source, event.ref);
+    }
     if (SUBSCRIPTION_KEEPS.has(event.status)) {
       const end = Date.parse(event.periodEnd);
       if (Number.isNaN(end)) throw badRequest('field_invalid', { field: 'period_end' });
       // A period paid back doesn't give the plan again; the next one paid for does.
-      if (known?.refunded_until && end <= Date.parse(known.refunded_until)) return 'refunded';
+      if (refundedUntil && end <= Date.parse(refundedUntil)) return 'refunded';
       return holdPlan(subject, product, event.ref, iso(end + graceDays * DAY), event.quantity);
     }
     if (SUBSCRIPTION_ENDS.has(event.status)) {
@@ -542,10 +555,120 @@ export function createBilling({
   const keepRenewals = (userId) => eachLiveSubscription(userId, (ref) => provider.keepSubscription(ref));
   const endSubscriptions = (userId) => eachLiveSubscription(userId, (ref) => provider.cancelSubscription(ref, { now: true }));
 
+  /**
+   * An account that goes (`accounts.whenRemoved`, with `billing.forgetOnRemove`): this install lets
+   * go of what it kept of the person at this provider. Their grants from it end now, and their
+   * subscriptions and their customer link are deleted, so a renewal that still comes finds nobody
+   * here (or, by their identity, the account they open again). Nothing is asked of the provider
+   * (that is `deleteAtProviders`), nor of the identity provider, whose login other apps share; a
+   * group's subscription stays with the group. Runs inside the removal's transaction.
+   * → what went: { grants, subscriptions, customers }
+   */
+  function forget(userId) {
+    return database.tx(() => {
+      const grants = database.run(`UPDATE entitlement_grants SET revoked_at = ? WHERE source = ? AND subject_type = 'user'
+        AND subject_id = ? AND revoked_at IS NULL`, iso(clock()), source, userId).changes;
+      const subscriptions = database.run(`DELETE FROM billing_subscriptions WHERE provider = ? AND subject_type = 'user'
+        AND subject_id = ?`, source, userId).changes;
+      const customers = database.run(`DELETE FROM billing_customers WHERE provider = ? AND subject_type = 'user'
+        AND subject_id = ?`, source, userId).changes;
+      return { grants, subscriptions, customers };
+    });
+  }
+
   return {
     enabled, errors, provider: source, offer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
-    customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions,
+    customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, forget,
   };
+}
+
+/**
+ * Several billing instances as one, for the account deletion (account-deletion.js): the web's and
+ * the stores'. Each is asked even when another fails; the first failure is thrown after. A store
+ * can't stop a subscription for the person (Apple doesn't let a server do it), so it counts none.
+ */
+export function combinedBilling(instances) {
+  const on = instances.filter((instance) => instance?.enabled);
+  const each = (method) => async (userId) => {
+    let count = 0;
+    let failure = null;
+    for (const instance of on) {
+      try {
+        count += Number(await instance[method](userId)) || 0;
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    if (failure) throw failure;
+    return count;
+  };
+  return {
+    enabled: on.length > 0,
+    stopRenewals: each('stopRenewals'), keepRenewals: each('keepRenewals'), endSubscriptions: each('endSubscriptions'),
+  };
+}
+
+const LIVE = new Set(['active', 'trialing', 'past_due']);
+
+/**
+ * Everything that gives someone their plan, or charges them, and how to manage each: the web's
+ * subscriptions (the portal, for the person or a group they administer), the stores' (only in the
+ * store: Apple lets no server cancel one), a group's plan that covers them and the admin's gifts.
+ * Never a ref, a customer or a price id. What an app shows before an account is deleted, and what
+ * "Covered by <group>" reads.
+ */
+export function billingOverview(user, { instances, entitlements, organizations = null, clock = () => Date.now() }) {
+  const now = new Date(clock()).toISOString();
+  const entitled = entitlements.of(user);
+  const plans = Object.fromEntries(entitlements.describe().plans.map((plan) => [plan.id, plan.name]));
+  const groups = organizations ? organizations.ofUser(user.id) : [];
+  const subjects = [
+    { type: 'user', id: user.id },
+    ...groups.filter((group) => ['owner', 'admin'].includes(group.role)).map((group) => ({ type: 'organization', id: group.id })),
+  ];
+  const sources = [];
+  for (const instance of instances.filter((one) => one?.enabled)) {
+    const planOf = Object.fromEntries(instance.offer().map((product) => [product.key, product.plan]));
+    const kind = instance.kind === 'store' ? 'store' : 'web';
+    for (const subject of subjects) {
+      for (const row of instance.subscriptionsOf(subject).filter((one) => LIVE.has(one.status))) {
+        const manage = kind === 'store' ? instance.manage(row.ref) : null;
+        sources.push({
+          kind, provider: instance.provider,
+          ...(subject.type === 'organization' ? { organization_id: subject.id } : {}),
+          product: row.product, plan: planOf[row.product] ?? null, status: row.status, period_end: row.period_end,
+          ...(manage ? { store: manage.store, sandbox: manage.sandbox } : {}),
+          manage: manage ? { via: 'store', store: manage.store, url: manage.url }
+            : { via: 'portal', ...(subject.type === 'organization' ? { organization_id: subject.id } : {}) },
+        });
+      }
+    }
+  }
+  const active = (grant) => grant.plan && !grant.revoked_at && grant.starts_at <= now && (!grant.ends_at || grant.ends_at > now);
+  for (const group of groups) {
+    for (const grant of entitlements.grantsOf('organization', group.id).filter(active)) {
+      sources.push({ kind: 'organization', organization_id: group.id, name: group.name, plan: grant.plan, ends: grant.ends_at });
+    }
+  }
+  for (const grant of entitlements.grantsOf('user', user.id).filter((one) => active(one) && one.source === 'admin')) {
+    sources.push({ kind: 'admin', plan: grant.plan, ends: grant.ends_at });
+  }
+  for (const source of sources) if (source.plan) source.plan_name = plans[source.plan] ?? source.plan;
+  return { plan: { id: entitled.plan.id, name: entitled.plan.name, ends: entitled.ends }, sources };
+}
+
+/**
+ * `GET /api/billing/overview`: billingOverview() for whoever asks. `principal(ctx)` is who that is
+ * (the session's account, or with `stores.devices` the phone's device token).
+ */
+export function registerBillingOverviewApi(router, {
+  instances, entitlements, organizations = null, principal = (ctx) => ctx.user, clock = () => Date.now(),
+}) {
+  router.get('/api/billing/overview', (ctx) => {
+    const user = principal(ctx);
+    if (!user) throw unauthorized();
+    sendJson(ctx.res, 200, billingOverview(user, { instances, entitlements, organizations, clock }));
+  });
 }
 
 /**
