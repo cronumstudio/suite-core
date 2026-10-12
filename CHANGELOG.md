@@ -3,6 +3,60 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.81.0 — 2026-10-13
+
+- **An app can push to its own devices, with no user behind them.** A device that belongs to the
+  app (Focus' child's tablet, paired to a profile with no account; a kiosk) had no way in: every
+  row of `push_subscriptions` is a person's, and `/api/push/*` needs a session. Now the app keeps
+  the browser's subscription in its own table, next to the rest it knows of the device, and the
+  suite does the rest with the same keys, encryption and VAPID signature as a person's:
+  - `suite.push.checkSubscription(json)` (also `checkSubscription` from `push.js`): what the
+    device posted, as `subscription.toJSON()` gives it (`{ endpoint, keys: { p256dh, auth } }`; the
+    flat `{ endpoint, p256dh, auth }` of a row is taken too), checked as `subscribe()` checks a
+    person's: an endpoint of a real push service (on 443, no IP literal nor home-network name),
+    an uncompressed point on the curve (0x04 and 65 bytes) and a 16-byte secret. → `{ endpoint,
+    keys: { p256dh, auth } }`, what to keep, the keys written again in plain base64url. Otherwise
+    a coded 400: `field_required` for a missing subscription or endpoint, `field_invalid` with
+    `field` `subscription`, `endpoint` (with its `reason`), `p256dh` or `auth` for one that is
+    there but wrong, `field_too_long` for an endpoint over 1000 characters.
+  - `suite.push.sendToSubscription(subscription, payload, { ttl, urgency, topic })` → `{ ok,
+    status, gone, reason? }`. Only `gone` (the push service answered 404 or 410, or the keys can't
+    be encrypted for) says the browser no longer has it: the app drops it. Any other failure keeps
+    it, with its `status` for the log; a 4xx can be ours rather than the device's (a 403 when the
+    install's VAPID keys aren't the ones it subscribed with). The endpoint is checked again before
+    sending, so a row kept without checking never makes the server visit an address inside the
+    network; what isn't a subscription is refused with the same coded 400 and nothing is sent.
+    Nothing is written in the suite's tables.
+  - `suite.push.publicKey`, as before: the key the device subscribes with, which the app hands it
+    its own way (its pairing answer, say).
+  - `topic` (new for `send()`, `deliver()` and `sendTo()` too, off unless given): the `Topic`
+    header of RFC 8030, 1 to 32 characters of the URL-safe base64 alphabet; a push service keeps
+    only the newest undelivered notice of a topic, so a launch sent again replaces the one still
+    waiting. One written wrong is the app's mistake: a `TypeError`, from `deliver()` and `sendTo()`
+    once, before anything is sent.
+- **A notice longer than a push service takes is refused before it is sent** (`MAX_PAYLOAD`, 3993
+  bytes of JSON or text: the 4096-byte body of RFC 8030 less our header, the record's end and the
+  GCM tag): `send()` and `sendToSubscription()` reject with a `TypeError`, and `deliver()` counts it
+  as failed. Before, it went out, came back 413 and was counted against the device, which a
+  person lost after three; now nobody loses a device for it.
+- **`subscribe()` checks a browser's keys as a browser makes them**: a p256dh that doesn't start
+  with 0x04 and a secret that isn't 16 bytes (8 or more was enough) are refused with the same
+  `field_invalid`, and both are stored in plain base64url (the decoder skipped stray characters
+  and kept them). Every browser sends exactly these, and rows stored before are sent as they were.
+- **The kit's `push.js`** (new, in the service worker's kit files):
+  `devicePushSubscription(publicKey, { ask, wait })` asks for permission first —before anything
+  is awaited, so the tap still counts for Safari—, waits for the page's service worker (10 s),
+  subscribes with the install's key (reusing the browser's subscription while it is for that key,
+  replacing one made with another) and returns the JSON for the app to post to its own route; it
+  asks nothing of the server. It throws `Error('unsupported')` (also with no service worker),
+  `'install'`, `'not_allowed'` or `'subscribe_failed'` (with the browser's error as `cause`), and a
+  `TypeError` for a key that isn't one. `pushSupport()` says `'granted'`, `'prompt'`, `'denied'`,
+  `'install'` (an iPhone or iPad tab from iOS 16.4: Web Push only reaches the app on the home
+  screen) or `'unsupported'` (iOS before 16.4 too) before anything is asked. Settings'
+  `subscribePush()` is unchanged.
+- `fields.subscription` in the four languages, for the new refusals.
+- No migration and no table. Needs `modules.push`, as the rest of push.
+
 ## 0.79.0 — 2026-10-13
 
 - **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, whose
