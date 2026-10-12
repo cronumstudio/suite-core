@@ -56,6 +56,7 @@ export class FakeElement {
     this.parentNode = null;
   }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  focus() {}
   dispatch(type, event = {}) { for (const fn of this.listeners[type] || []) fn({ type, currentTarget: this, target: this, ...event }); }
 
   get children() { return this.childNodes.filter((node) => node.nodeType === 1); }

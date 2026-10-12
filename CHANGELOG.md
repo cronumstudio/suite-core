@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.80.0 — 2026-10-13
+
+- **No more "null" under a copy's plan in Settings → Your data.** Checking a copy drew its plan
+  with the browser's own `append`, which writes a line left out as the text "null": a copy not
+  brought in yet (the usual case) showed "null" under what it brings, twice when the account had
+  nothing of its own to replace (found by Tracker's data-portability review; every app with
+  `modules.data`). It now uses the kit's `append()` (dom.js), as `openDialog()` does since 0.75.0:
+  only the lines that apply, nothing in place of the others.
+- The same cause, fixed in two more places: setting up two-step sign-in without a QR code (an
+  address too long for one) showed "nullnull" above the key, and the admin panel's Invitations
+  tab showed "null" under its lead on every install with mail on.
+- Tests: Settings opened at Your data and at two-step sign-in on the fake DOM, and the admin
+  panel's first test (`test/web-admin.test.js`, a file of its own: admin.js starts the page as it
+  is imported). Fake elements take `focus()`.
+
 ## 0.77.0 — 2026-10-13
 
 - **Settings' plan section sells, where the app asks** (`web/plan.js`, served at `/suite/plan.js`
