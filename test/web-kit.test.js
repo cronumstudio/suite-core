@@ -286,6 +286,44 @@ test('update: the button says at once that it is updating, and pressing again st
   delete globalThis.window;
 });
 
+/* --------------------------------- dialogs -------------------------------- */
+
+test('a dialog without actions has no footer, and no "null" where it would have been', async () => {
+  const { openDialog } = await import('../web/ui.js');
+  const { el } = await import('../web/dom.js');
+  for (const actions of [undefined, [], null]) {
+    let closed = 0;
+    const { dialog, close } = openDialog({
+      title: 'About', content: el('p', { text: 'Tracker 0.14.1' }), onClose: () => { closed += 1; },
+      ...(actions === undefined ? {} : { actions }),
+    });
+    assert.equal(dialog.open, true);
+    assert.equal(dialog.find('footer').length, 0, `actions: ${actions}`);
+    assert.equal(dialog.textContent, 'AboutTracker 0.14.1', `actions: ${actions}`);
+    close();
+    assert.equal(closed, 1);
+    assert.ok(!document.body.childNodes.includes(dialog), 'gone once closed');
+  }
+});
+
+test('a dialog with actions keeps its footer: a button for each, and one that is pressed closes it', async () => {
+  const { openDialog } = await import('../web/ui.js');
+  const { el } = await import('../web/dom.js');
+  const pressed = [];
+  const { dialog } = openDialog({
+    title: 'Rename', content: el('p', { text: 'A new name' }),
+    actions: [{ label: 'Cancel' }, { label: 'Save', primary: true, onClick: () => { pressed.push('save'); } }],
+  });
+  const [footer] = dialog.find('footer');
+  const buttons = footer.find('button');
+  assert.deepEqual(buttons.map((b) => b.textContent), ['Cancel', 'Save']);
+  assert.match(buttons[0].className, /kit-btn--quiet/);
+  assert.match(buttons[1].className, /kit-btn--primary/);
+  await Promise.all(buttons[1].listeners.click.map((fn) => fn({ currentTarget: buttons[1] })));
+  assert.deepEqual(pressed, ['save']);
+  assert.equal(dialog.open, false);
+});
+
 /* --------------------------------- colours -------------------------------- */
 
 function luminance(hex) {

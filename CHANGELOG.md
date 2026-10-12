@@ -32,6 +32,17 @@ change an interface and a patch never does. Apps pin a version through the submo
   Any other key stops the start, saying which, so a misspelt `seatRole` can't quietly put every
   member in a seat.
 
+## 0.75.0 — 2026-10-12
+
+- **A dialog without actions has no "null" at its foot.** `openDialog()` put its parts in with the
+  browser's own `dialog.append`, which writes a missing footer as the text "null": a dialog opened
+  without `actions` (or with an empty list) showed "null" under its content (found by Tracker's
+  browser check of its About dialog). Now it uses the kit's `append()` (dom.js), which skips the
+  gaps: no actions, no footer, and the × in the header closes it. `actions: null` is taken as none.
+  A dialog with actions is the same as before.
+- Tests: the fake DOM writes what isn't a node as text, `null` as "null", as a browser does (it
+  used to throw), and a `<dialog>` has `open`, `showModal()` and `close()`.
+
 ## 0.70.0 — 2026-10-12
 
 - **Security: an answer that carries a secret is never kept for an `Idempotency-Key`.** Since
