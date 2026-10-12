@@ -194,6 +194,8 @@ export default {
   products: {
     'pro-monthly':  { plan: 'pro', kind: 'subscription' },
     'pro-lifetime': { plan: 'pro', kind: 'once' },
+    // A group's: the quantity bought is its seats, unless `seats: false` (a family's, any number of adults).
+    'family-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false },
   },
 
   // What keeps another product's sales out, all off unless given (section 9, "Another product's sales").
@@ -581,21 +583,37 @@ entitlements.can(user, 'attachments', { organization })        // → boolean
 entitlements.limit(user, 'lists.max', { organization })        // → number | null (no cap)
 entitlements.require(user, 'lists.max', { current: 4 })        // throws 402 plan_limit
 entitlements.of(user, { organization })                        // → { plan, features, ends }
+entitlements.ofOrganization(organizationId)                    // → the same, the group's own plan
 ```
 
 **Resolution.** Start from the default plan's values. Add every active grant of the user and of
 the organization in context (`starts_at <= now < ends_at`, not revoked): a plan grant brings its
 plan's values, a feature grant its single value. When sources disagree, the most generous wins:
 `true` beats `false` for flags, and for limits `null` (no cap) beats any number and a larger number
-beats a smaller one. The instance admin gets every feature. A plan that disappears from the catalog
-counts as the default plan: nobody is left with nothing. Dropping to a smaller plan takes nothing
-away at once: past a cap they just cannot add more, and what a plan keeps for a number of days
-counts those days from when the more generous plan ended, not from when each thing was done:
+beats a smaller one. The plan shown is the highest one granted, and `ends` is when it lapses: never
+while one of its grants has no end, else the latest end among them (a person with Pro for good who
+joins a family on a trial is not "Pro until" the trial's end). The instance admin gets every
+feature. A plan that disappears from the catalog counts as the default plan: nobody is left with
+nothing. Dropping to a smaller plan takes nothing away at once: past a cap they just cannot add
+more, and what a plan keeps for a number of days counts those days from when the more generous
+plan ended, not from when each thing was done:
 
 ```js
 entitlements.cutoff(owner, 'retention.days')        // → ISO date (older goes) | null (nothing goes)
+entitlements.cutoffOrganization(id, 'history.days') // → the same, by the group's own plan
 entitlements.countDaily(user, 'mcp.calls_per_day')  // → { allowed, used, limit, plan, more }
 ```
+
+**A group's own plan.** Some things act for a group with no person behind them: a child's paired
+device in Focus, the hourly sweep of a family's History. `ofOrganization(id)` answers what `of()`
+answers, from the organization's active grants alone: never a member's own grants nor the instance
+admin's "no limits", which belong to a person, and never `of(null)`'s declared defaults (no limit at
+all, where nobody asks). With no grant it is the default plan, and so is a group that isn't there or
+is archived (createSuite tells it by `organizationExists`, from organizations.js), whatever grants it
+kept: never more than a family of its own would have, and never an error, so a sweep over every
+family goes on past one that went. `cutoffOrganization(id, key)` counts the days from the end of
+the group's last grant that kept things longer (its trial, its subscription). `of(person, {
+organizationId })` is unchanged.
 
 `cutoff()` is null while the days since the end of the last grant that kept things longer have not
 passed, and `now − days` after that. Each app sweeps its own data with it, by the plan of whoever
@@ -682,6 +700,14 @@ product, never the price ids.
   plus `graceDays` (3), so a failed renewal lapses on its own; a renewal moves that end on the same
   grant. `past_due` changes nothing; `canceled` or `ended` ends it now. A change of product or of
   seats (`quantity`) replaces the grant.
+- A group's purchase sells seats: the quantity the provider reports goes on the grant and caps its
+  members. A product with `seats: false` (only `for: 'organization'`) sells the plan with no cap: a
+  family buys one Pro however many adults it has. The quantity every event reports (Paddle's and
+  Stripe's checkouts buy one of the price) is dropped for it, from whichever provider, on every event
+  of the subscription and on a one-off purchase, so neither the subscription's row nor the grant has
+  one. A group that bought before the option has its grant replaced by one without a quantity at its
+  next event. Checked on start, with or without a provider (`productSeatsProblem()`): `seats` on a
+  person's product (a misspelt `for`), a value that isn't a boolean, or a key like `seat`, stops it.
 - A one-off purchase grants its plan for good, or for the product's `days` (a pass); a refund
   ends it. A subscription's refund ends its grant too, and the period it paid back doesn't bring
   it back (`refunded_until`); the next period paid for does. `paused` is not paid for either.
@@ -691,7 +717,7 @@ product, never the price ids.
 Products live in the app's configuration, each tied to a plan of the catalog and checked on start:
 `{ 'pro-monthly': { plan: 'pro', kind: 'subscription', price: 'price_…' }, 'pro-lifetime':
 { plan: 'pro', kind: 'once' }, 'family-yearly': { plan: 'family', kind: 'subscription', for:
-'organization' } }`. `billing_customers` keeps each user's or organization's customer at the
+'organization', seats: false } }`. `billing_customers` keeps each user's or organization's customer at the
 provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
 `GET /api/billing/subscriptions` and `POST /api/billing/webhook`.
@@ -782,8 +808,10 @@ own and may create or join groups (a family in Tasks, a team in Projects); with 
 every user belongs to one (the schools of Tracker). The suite provides the tables, the roles,
 invitations by link or email, an organization switcher in the web kit and organization-level
 grants: a plan bought for a household covers its members, and a grant's `quantity` caps the number
-of members (seats). Which records belong to an organization instead of a person is the app's
-decision, made in its own tables.
+of members (seats); a product with `seats: false` grants no quantity, so a family's members have no
+cap (section 9). What acts for the group with nobody behind it reads the group's own plan,
+`entitlements.ofOrganization(id)` (section 8). Which records belong to an organization instead of a
+person is the app's decision, made in its own tables.
 
 ## 11. HTTP layer and dispatch order
 

@@ -174,6 +174,25 @@ export function signedProvider({ id = 'remote', secret, baseUrl = '' }) {
 
 /* -------------------------------- billing ------------------------------- */
 
+/**
+ * What is wrong with a product's `seats`, or null. A group's product sells seats by default: the
+ * quantity bought is how many members fit (a grant's quantity, organizations.js). `seats: false`
+ * sells the group its plan with no cap on its members: a family's, which buys one Pro however many
+ * adults it has. A person's product has no seats to speak of, so `seats` there is a mistake —most
+ * likely a misspelt `for`, which would sell the family's plan to one person—, and so is a key that
+ * looks like it (`seat`), which would quietly leave the family capped at one adult. Checked on start
+ * by config.js, with or without a provider, and by createBilling().
+ */
+export function productSeatsProblem(spec) {
+  if (!spec || typeof spec !== 'object') return null;
+  const misspelt = Object.keys(spec).find((key) => key !== 'seats' && /seat/i.test(key));
+  if (misspelt) return `"${misspelt}" is not a setting (seats?)`;
+  if (spec.seats === undefined) return null;
+  if (typeof spec.seats !== 'boolean') return 'seats must be true or false';
+  if (spec.for !== 'organization') return 'seats is only for a product for: \'organization\' (a person\'s plan has no seats)';
+  return null;
+}
+
 const SUBSCRIPTION_KEEPS = new Set(['active', 'trialing']);
 // Paused (Paddle) is not paid for either: resumed, it is active again.
 const SUBSCRIPTION_ENDS = new Set(['canceled', 'ended', 'unpaid', 'incomplete_expired', 'paused']);
@@ -189,9 +208,12 @@ const PENDING_DAYS = 400;
  *   { 'pro-monthly': { plan: 'pro', kind: 'subscription', price: 'price_…' },
  *     'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_…', founderPrice: 'pri_…' },
  *     'pro-lifetime': { plan: 'pro', kind: 'once' }, 'pro-pass': { plan: 'pro', kind: 'once', days: 30 },
- *     'family-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } }
+ *     'family-yearly': { plan: 'family', kind: 'subscription', for: 'organization' },
+ *     'focus-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } }
  *   A founder's price is chosen here, for whoever `isFounder` says: the browser only names the product.
  *   `oldPrices`: prices it no longer sells that subscriptions may still renew on (Paddle reads them).
+ *   `seats: false`, only for a group's: the plan with no cap on its members, whatever quantity the
+ *   provider reports (productSeatsProblem()); left out, the quantity bought is the group's seats.
  * @param {object} [options.identities]   who people are where they sign in:
  *   { of(userId) → { provider, subject } | null, user(provider, subject) → userId | null }
  * @param {(user) => boolean|Promise<boolean>} [options.isFounder]   who gets the founder's price
@@ -226,9 +248,12 @@ export function createBilling({
     if (spec.oldPrices != null && !(Array.isArray(spec.oldPrices) && spec.oldPrices.every((p) => typeof p === 'string' && p))) {
       errors.push(`Product "${key}": oldPrices must be a list of the provider's price ids`);
     }
+    const seatsProblem = productSeatsProblem(spec);
+    if (seatsProblem) errors.push(`Product "${key}": ${seatsProblem}`);
     catalog[key] = {
       key, plan: spec.plan, kind: spec.kind, days: spec.days ?? null, for: spec.for === 'organization' ? 'organization' : 'user',
       price: spec.price ?? null, founderPrice: spec.founderPrice ?? null, name: spec.name ?? null,
+      seats: spec.seats !== false,
     };
   }
   const enabled = Boolean(provider) && !errors.length;
@@ -355,6 +380,12 @@ export function createBilling({
     if (isForeign(event)) return 'foreign';
     linkCustomer(subject, event.customer, { takeOver: byIdentity });
     const product = catalog[event.product];
+    // A product without seats (`seats: false`, a family's): the quantity a provider reports is how
+    // many of the price were bought —Paddle's and Stripe's checkouts buy one—, never how many
+    // members fit, or the family that bought Pro could add no one more (402 seats_full). It is
+    // dropped here, for every provider and every event of the subscription (bought, renewed,
+    // changed, cancelled at the period's end), so neither its row nor its grant has a quantity.
+    if (product?.seats === false) event = { ...event, quantity: null };
     if (!product) {
       log(unpriced(event) ? unpricedLine(event) : `[billing] ${source} event ${event.id}: unknown product "${event.product}", ignored`);
       return 'ignored';
