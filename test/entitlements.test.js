@@ -166,6 +166,50 @@ test('PLANS=cronum-work: the suite’s catalog, read for the features the app ha
     /DEFAULT_PLAN=free/, 'an old DEFAULT_PLAN stops the start, naming the new one');
 });
 
+/** The features Tracker declares (its suite.config.js, from its step T18). */
+const TRACKER_FEATURES = {
+  ...pick(COMMON_FEATURES, ['mcp']),
+  'capture.native': { type: 'flag', default: false, label: 'GPS from the app in the background' },
+  'links.max': { type: 'limit', default: 0, label: 'lasting links' },
+  'track.days': { type: 'limit', default: 30, label: 'days a track is kept' },
+  'viewers.max': { type: 'limit', default: null, label: 'people watching at once' },
+};
+
+test('PLANS=cronum-tracker: a product of its own, with Free, Fleet for organizations and Pro', (t) => {
+  const database = setup(t);
+  const e = createEntitlements({ database, appId: 'tracker', features: TRACKER_FEATURES, plansJson: 'cronum-tracker',
+    organizationsOf: (user) => (user.id === 3 ? [7] : []) });
+  assert.deepEqual(e.errors, []);
+  assert.deepEqual(e.describe().plans.map((p) => [p.id, p.name]), [['free', 'Free'], ['org', 'Fleet'], ['pro', 'Pro']]);
+  assert.equal(e.describe().defaultPlan, 'free');
+  const free = { mcp: false, 'capture.native': false, 'links.max': 0, 'track.days': 1, 'viewers.max': 0 };
+  const pro = { mcp: false, 'capture.native': true, 'links.max': 1, 'track.days': 30, 'viewers.max': 30 };
+  assert.deepEqual(e.of(ada).features, free);
+  assert.equal(e.can(ada, 'capture.native'), false, 'background GPS is Pro’s');
+  assert.equal(e.can(root, 'capture.native'), true, 'the admin is never limited');
+
+  // Fleet reaches every member, viewers too: each person gets what Free gives, the plan shown is Fleet,
+  // and the seats are the grant's.
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'org', quantity: 4, source: 'paddle', externalRef: 'sub_fleet' });
+  const member = { id: 3, role: 'user' };
+  assert.deepEqual(e.of(member).features, free);
+  assert.equal(e.of(member).plan.name, 'Fleet');
+  assert.equal(e.seatsOf(7), 4);
+
+  // Pro on top: the more generous plan, shown as such; MCP stays off in every plan.
+  e.grant({ subjectId: 3, plan: 'pro', source: 'stores', externalRef: 'store_1' });
+  assert.deepEqual(e.of(member).features, pro);
+  assert.equal(e.of(member).plan.id, 'pro');
+  assert.equal(e.can(member, 'mcp'), false);
+
+  // The two catalogs know nothing of each other's keys: no plan of one gives anything in the other.
+  const work = createEntitlements({ database, appId: 'tracker', features: TRACKER_FEATURES, plansJson: 'cronum-work' });
+  assert.ok(work.errors.some((m) => /plan "free" says nothing of "capture.native"/.test(m)));
+  const lists = createEntitlements({ database, appId: 'tasks', features: { 'lists.max': FEATURES['lists.max'] }, plansJson: 'cronum-tracker' });
+  assert.ok(lists.errors.some((m) => /PLANS "cronum-tracker": plan "free" says nothing of "lists.max"/.test(m)));
+  assert.ok(lists.errors.some((m) => /plan "pro" says nothing of "lists.max"/.test(m)));
+});
+
 test('the suite’s catalog: every plan sets every feature, and each one gives at least what the one before it', () => {
   // Cronum Work's apps share every common feature; a product of its own sets the ones its app declares.
   for (const key of Object.keys(COMMON_FEATURES)) assert.ok(key in PLAN_CATALOGS['cronum-work'].free.features, `cronum-work: ${key}`);

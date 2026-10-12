@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.81.0 — 2026-10-13
+## 0.82.0 — 2026-10-13
 
 - **A family's plan has no seats** (`products.<key>.seats: false`, only for a product
   `for: 'organization'`). Before, a group's purchase always sold seats: Paddle's and Stripe's
@@ -39,9 +39,43 @@ change an interface and a patch never does. Apps pin a version through the submo
   trial of Pro read "Pro until" the trial's end in Settings, and Focus's last-days notice would have
   shown although Pro never lapses for them. Now, among the active grants of the shown plan, one
   without an end wins, else the latest end. `ofOrganization()` follows the same rule.
+- **Next to `organizations.seatRoles`** (0.79.0): `seatRoles` says which roles take a seat, and a
+  purchase with `seats: false` leaves no seats to take, so members join in any role, a seat role
+  included, by `addMember()`, an invitation or `setRole()`. A product with seats still caps only
+  the members in those roles. A grant without a quantity sets no seats, like an admin's gift of the
+  plan: a group that also holds a grant with a quantity (seats bought with another product) is
+  capped by it, as before.
 - Nothing else changes: no migration, no route, and `organizations.js` is untouched (it reads seats
-  from `seatsOf()` as before, and `seatRoles` fits beside it: which roles take a seat, when there are
-  seats at all).
+  from `seatsOf()` as before).
+
+## 0.79.0 — 2026-10-13
+
+- **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, whose
+  installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
+  Work plan gives anything in Tracker (an app that declares a key the named catalog lacks doesn't
+  start). Three plans, from the least to the most a person gets: `free` (Free), `org` (Fleet) and
+  `pro` (Pro), with the keys `mcp` (off in all three), `capture.native` (Free and Fleet `false`,
+  Pro `true`), `links.max` (0, 0, 1), `track.days` (1, 1, 30) and `viewers.max` (0, 0, 30). An
+  organization's plan reaches every member, its admins and viewers too, so Fleet carries Free's
+  values and sits before Pro: someone with both is shown Pro. What a fleet pays for, per driver,
+  sits on what the organization owns, and the app checks it against the organization's grant and
+  its seats. The prices stay with the provider and the stores (Pro 3.99 EUR a month or 34.99 a
+  year; Fleet 3.90 EUR per driver a month or 39 a year, at launch). `cronum-work` is unchanged.
+- **Seats by role** (`organizations.seatRoles` in `suite.config.js`, `createOrganizations({
+  seatRoles })`): the roles that take a seat a subscription pays for, some of
+  `organizations.roles` (Tracker's drivers, while its admins and viewers are free). Then only
+  members in those roles count against a grant's `quantity`: joining in one of them, by an
+  invitation or `addMember()`, and a role change into one (`setRole()`) need a free seat, or
+  402 `seats_full`; joining in another role never does. Fewer seats bought takes nobody's away.
+  `seatsTaken(id)` and `takesSeat(role)` say how many are used and which roles count. Left out,
+  every member takes a seat, as before, and a role change takes none. A `seatRoles` that is empty
+  or names a role the group doesn't have stops the start. When the last owner's account goes, the
+  group passes to someone outside those roles first (its oldest admin, then its oldest member): a
+  membership has one role, so a driver inherits it, and stops taking a seat, only when nobody else
+  is left. Without `seatRoles` the order is the same as before.
+- **`organizations` in `suite.config.js` takes only `roles`, `invitationDays` and `seatRoles`.**
+  Any other key stops the start, saying which, so a misspelt `seatRole` can't quietly put every
+  member in a seat.
 
 ## 0.78.0 — 2026-10-13
 
