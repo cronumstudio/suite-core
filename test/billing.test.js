@@ -432,6 +432,46 @@ test('seats: false: a one-off purchase has no quantity either; a family that bou
   assert.equal(entitlements.ofOrganization(other.id).plan.id, 'family');
 });
 
+test('seats: false next to seatRoles: no seats to take, so drivers join freely; a product with seats caps only the drivers', (t) => {
+  const { database, clock, entitlements, accounts, ada } = setup(t);
+  const organizations = createOrganizations({
+    database, roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'], seatsOf: entitlements.seatsOf, clock: () => clock.now,
+  });
+  const billing = createBilling({
+    database, entitlements, provider: signedProvider({ secret: SECRET }), clock: () => clock.now, log: () => {},
+    products: { ...FAMILY, 'fleet-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } },
+  });
+  const [bob, eve, dan, kim, lee] = ['bob', 'eve', 'dan', 'kim', 'lee'].map((username) => accounts.create({ username }));
+  const buy = (organization, product) => billing.apply({
+    id: `evt_${organization.id}`, type: 'subscription', ref: `sub_${organization.id}`, subject: { type: 'organization', id: organization.id },
+    product, status: 'active', quantity: 1, periodEnd: '2027-05-01T10:00:00Z',
+  });
+
+  const family = organizations.create({ name: 'Family', ownerId: ada.id });
+  assert.equal(buy(family, 'family-pro'), 'granted');
+  for (const person of [bob, eve, dan]) assert.equal(code(() => organizations.addMember(family.id, person.id, 'driver')), 'ok');
+  const { token } = organizations.invite(family.id, { role: 'member' });
+  organizations.accept(token, kim.id);
+  assert.equal(code(() => organizations.setRole(family.id, kim.id, 'driver')), 'ok', 'moved into a seat role: there are no seats to take');
+  assert.equal(organizations.seatsTaken(family.id), 4);
+
+  // A product with seats: only the drivers count against them, as seatRoles says.
+  const fleet = organizations.create({ name: 'Fleet', ownerId: ada.id });
+  assert.equal(buy(fleet, 'fleet-yearly'), 'granted');
+  assert.equal(entitlements.seatsOf(fleet.id), 1);
+  assert.equal(code(() => organizations.addMember(fleet.id, bob.id, 'driver')), 'ok');
+  assert.equal(code(() => organizations.addMember(fleet.id, eve.id, 'driver')), '402 seats_full');
+  assert.equal(code(() => organizations.addMember(fleet.id, eve.id, 'admin')), 'ok', 'an admin takes no seat');
+  assert.equal(code(() => organizations.setRole(fleet.id, eve.id, 'driver')), '402 seats_full');
+
+  // A grant without a quantity sets no seats, like an admin's gift: one with a quantity still caps the group.
+  const gift = entitlements.grant({ subjectType: 'organization', subjectId: family.id, plan: 'family', quantity: 4, source: 'admin' });
+  assert.equal(entitlements.seatsOf(family.id), 4);
+  assert.equal(code(() => organizations.addMember(family.id, lee.id, 'driver')), '402 seats_full');
+  entitlements.revoke({ id: gift });
+  assert.equal(entitlements.seatsOf(family.id), null);
+});
+
 test('seats is checked on start: only for a group\'s product, true or false, never misspelt; with or without a provider', (t) => {
   const { database, entitlements } = setup(t);
   const products = {
