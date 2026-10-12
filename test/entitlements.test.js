@@ -495,6 +495,13 @@ test('ofOrganization: a family’s own plan by its own grants, for what acts wit
   const unchecked = createEntitlements({ database, appId: 'focus', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
     plans: { free: { name: 'Free', features: FAMILY_FREE }, pro: { name: 'Pro', features: FAMILY_PRO } } });
   assert.equal(unchecked.ofOrganization(9).plan.id, 'pro');
+
+  // A group that isn't there, whose Pro ended yesterday: its days count from now, not from that end,
+  // since nothing it held counts any more.
+  e.grant({ subjectType: 'organization', subjectId: 10, plan: 'pro', source: 'paddle', externalRef: 'sub_10', endsAt: at(1) });
+  now += 2 * DAY;
+  assert.equal(e.cutoffOrganization(10, 'history.days'), new Date(now - 7 * DAY).toISOString());
+  assert.equal(unchecked.cutoffOrganization(10, 'history.days'), null, 'where existence isn\'t checked, the ended Pro still keeps it');
 });
 
 test('of(person, { organizationId }) is unchanged by ofOrganization: the person’s, their groups’ and the one in context', (t) => {
