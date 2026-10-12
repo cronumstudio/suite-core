@@ -14,7 +14,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  generateVapidKeys, vapidKeyErrors, vapidKeys, encryptPayload, decryptPayload, checkEndpoint, createPush, MAX_DEVICES,
+  generateVapidKeys, vapidKeyErrors, vapidKeys, encryptPayload, decryptPayload, checkEndpoint, checkSubscription, createPush,
+  MAX_DEVICES,
 } from '../push.js';
 import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
@@ -22,6 +23,7 @@ import { SUITE_MIGRATIONS } from '../schema.js';
 import { createAccounts } from '../accounts.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp } from '../app.js';
+import { readJson, sendJson } from '../http.js';
 
 /** A browser's subscription keys: the device's key pair and its auth secret. */
 function deviceKeys() {
@@ -34,7 +36,7 @@ function deviceKeys() {
   };
 }
 
-/** A push service on this machine that answers `status` and keeps what it got. */
+/** A push service on this machine that answers `status` (or `status(req)`) and keeps what it got. */
 async function fakeService(t, status = 201) {
   const got = [];
   const server = http.createServer((req, res) => {
@@ -42,7 +44,7 @@ async function fakeService(t, status = 201) {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       got.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks) });
-      res.writeHead(typeof status === 'function' ? status() : status).end();
+      res.writeHead(typeof status === 'function' ? status(req) : status).end();
     });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -307,14 +309,195 @@ test('a push service that redirects or never answers: a failure, not a request e
   assert.ok(seen.every((o) => o.signal instanceof AbortSignal), 'every send has a time limit');
 });
 
-async function start(t, modules, env = {}) {
+/* ------------------- a device the app keeps, with no user behind it ------------------- */
+
+/** A browser's subscription made the way a browser makes it: an ECDH P-256 pair and a 16-byte auth secret. */
+function browserSubscription(endpoint) {
+  const ecdh = crypto.createECDH('prime256v1');
+  ecdh.generateKeys();
+  const authSecret = crypto.randomBytes(16);
+  return {
+    ecdh, authSecret,
+    json: {
+      endpoint, expirationTime: null,
+      keys: { p256dh: ecdh.getPublicKey().toString('base64url'), auth: authSecret.toString('base64url') },
+    },
+  };
+}
+
+/**
+ * What the browser does with the body (RFC 8291 §3.4 over RFC 8188 §2), with
+ * HKDF written out as HMACs (RFC 5869) instead of push.js' decryptPayload: a
+ * mistake shared by both sides of one module would pass a test that used it.
+ */
+function readAsTheBrowser(body, { ecdh, authSecret }) {
+  const hmac = (key, ...parts) => crypto.createHmac('sha256', key).update(Buffer.concat(parts)).digest();
+  const salt = body.subarray(0, 16);
+  const recordSize = body.readUInt32BE(16);
+  const idlen = body.readUInt8(20);
+  const asPublic = body.subarray(21, 21 + idlen);
+  const record = body.subarray(21 + idlen);
+  const uaPublic = ecdh.getPublicKey();
+  const ecdhSecret = ecdh.computeSecret(asPublic);
+  const prkKey = hmac(authSecret, ecdhSecret);
+  const ikm = hmac(prkKey, Buffer.from('WebPush: info\0'), uaPublic, asPublic, Buffer.from([1]));
+  const prk = hmac(salt, ikm);
+  const cek = hmac(prk, Buffer.from('Content-Encoding: aes128gcm\0'), Buffer.from([1])).subarray(0, 16);
+  const nonce = hmac(prk, Buffer.from('Content-Encoding: nonce\0'), Buffer.from([1])).subarray(0, 12);
+  const decipher = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
+  decipher.setAuthTag(record.subarray(record.length - 16));
+  const plain = Buffer.concat([decipher.update(record.subarray(0, record.length - 16)), decipher.final()]);
+  let end = plain.length - 1;
+  while (end >= 0 && plain[end] === 0) end--;
+  return { recordSize, idlen, delimiter: plain[end], text: plain.subarray(0, end).toString('utf8') };
+}
+
+/**
+ * The endpoint must be a real push service's (checked before anything is
+ * sent), so the test's fetch carries each request, untouched, to the fake one
+ * on this machine, and notes where it was asked to go.
+ */
+function throughFake(service) {
+  const asked = [];
+  const fetch = (url, options) => {
+    asked.push(url);
+    return globalThis.fetch(service.url(new URL(url).pathname), options);
+  };
+  return { asked, fetch };
+}
+
+test('a device the app keeps, with no user: the notice is signed with VAPID, only it can read it, nothing is kept here', async (t) => {
+  const service = await fakeService(t, 201);
+  const { asked, fetch } = throughFake(service);
+  const vapid = { ...generateVapidKeys(), subject: 'mailto:ops@example.com' };
+  const { database } = store();
+  const push = createPush({ database, vapid, fetch, log: () => {} });
+  assert.equal(push.publicKey, vapid.publicKey, 'what the browser subscribes with');
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM users').n, 0, 'nobody has an account');
+
+  const tablet = browserSubscription('https://fcm.googleapis.com/fcm/send/tablet-leo');
+  const kept = push.checkSubscription(tablet.json);
+  assert.deepEqual(kept, { endpoint: tablet.json.endpoint, keys: tablet.json.keys }, 'the browser’s shape, without what is not needed');
+
+  const launch = { title: 'Morning', body: 'Leo, time to start', url: '/?launch=7', tag: 'launch-7' };
+  const result = await push.sendToSubscription(kept, launch, { ttl: 120, urgency: 'high', topic: 'launch-7' });
+  assert.deepEqual(result, { ok: true, status: 201, gone: false });
+  assert.deepEqual(asked, [tablet.json.endpoint], 'posted to the device’s endpoint, once');
+
+  const [{ url, headers, body }] = service.got;
+  assert.equal(url, '/fcm/send/tablet-leo');
+  assert.equal(headers['content-encoding'], 'aes128gcm');
+  assert.equal(headers['content-type'], 'application/octet-stream');
+  assert.equal(headers.ttl, '120');
+  assert.equal(headers.urgency, 'high');
+  assert.equal(headers.topic, 'launch-7');
+
+  // RFC 8292: `vapid t=<ES256 JWT>, k=<the public key>`, the JWT for the push service's origin.
+  const [, jwt, key] = /^vapid t=([\w-]+\.[\w-]+\.[\w-]+), k=([\w-]+)$/.exec(headers.authorization) || [];
+  assert.equal(key, vapid.publicKey);
+  const [head, claims, signature] = jwt.split('.');
+  assert.deepEqual(JSON.parse(Buffer.from(head, 'base64url')), { typ: 'JWT', alg: 'ES256' });
+  const point = Buffer.from(vapid.publicKey, 'base64url');
+  const verifier = crypto.createPublicKey({
+    key: { kty: 'EC', crv: 'P-256', x: point.subarray(1, 33).toString('base64url'), y: point.subarray(33, 65).toString('base64url') },
+    format: 'jwk',
+  });
+  assert.ok(crypto.verify('sha256', Buffer.from(`${head}.${claims}`), { key: verifier, dsaEncoding: 'ieee-p1363' },
+    Buffer.from(signature, 'base64url')), 'signed with the install’s VAPID key');
+  const said = JSON.parse(Buffer.from(claims, 'base64url'));
+  assert.equal(said.aud, 'https://fcm.googleapis.com', 'the audience is the push service’s origin');
+  assert.equal(said.sub, 'mailto:ops@example.com');
+  assert.ok(said.exp > Date.now() / 1000 && said.exp <= Date.now() / 1000 + 24 * 3600);
+
+  const read = readAsTheBrowser(body, tablet);
+  assert.equal(read.recordSize, 4096);
+  assert.equal(read.idlen, 65, 'the sender’s ephemeral key, uncompressed');
+  assert.equal(read.delimiter, 2, 'one record, the last');
+  assert.deepEqual(JSON.parse(read.text), launch);
+  const stranger = browserSubscription(tablet.json.endpoint);
+  assert.throws(() => readAsTheBrowser(body, { ecdh: stranger.ecdh, authSecret: tablet.authSecret }), 'no other device can read it');
+
+  // Without options, a person's defaults; a row's flat shape is taken too.
+  const flat = await push.sendToSubscription({ endpoint: kept.endpoint, ...kept.keys }, 'plain text');
+  assert.deepEqual(flat, { ok: true, status: 201, gone: false });
+  assert.equal(service.got[1].headers.ttl, '3600');
+  assert.equal(service.got[1].headers.urgency, 'normal');
+  assert.equal(service.got[1].headers.topic, undefined, 'no topic unless asked');
+  assert.equal(readAsTheBrowser(service.got[1].body, tablet).text, 'plain text');
+
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM push_subscriptions').n, 0, 'the app’s table holds it, not the suite’s');
+});
+
+test('what the push service answers about an app’s device: 404 and 410 are gone, nothing else is', async (t) => {
+  const statuses = { '/gone': 410, '/unknown': 404, '/down': 500, '/busy': 429, '/refused': 400, '/ok': 201 };
+  const service = await fakeService(t, (req) => statuses[new URL(req.url, 'http://x').pathname.replace('/fcm/send', '')]);
+  const { fetch } = throughFake(service);
+  const push = createPush({ database: store().database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
+  const tablet = browserSubscription('https://fcm.googleapis.com/fcm/send/x');
+  const to = (name) => push.sendToSubscription({ ...tablet.json, endpoint: `https://fcm.googleapis.com/fcm/send${name}` }, { title: 'x' });
+  assert.deepEqual(await to('/gone'), { ok: false, status: 410, gone: true }, 'the app drops it');
+  assert.deepEqual(await to('/unknown'), { ok: false, status: 404, gone: true });
+  assert.deepEqual(await to('/down'), { ok: false, status: 500, gone: false }, 'an outage is not the device’s');
+  assert.deepEqual(await to('/busy'), { ok: false, status: 429, gone: false });
+  assert.deepEqual(await to('/refused'), { ok: false, status: 400, gone: false }, 'a refusal, for the app to count: not gone at once');
+  assert.deepEqual(await to('/ok'), { ok: true, status: 201, gone: false });
+
+  const offline = createPush({
+    database: store().database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, log: () => {},
+    fetch: async () => { throw new TypeError('fetch failed'); },
+  });
+  assert.deepEqual(await offline.sendToSubscription(tablet.json, { title: 'x' }), { ok: false, status: 0, gone: false, reason: 'fetch failed' });
+});
+
+test('what is not an app’s subscription is refused with a code, and nothing is sent', async (t) => {
+  const service = await fakeService(t, 201);
+  const { asked, fetch } = throughFake(service);
+  const push = createPush({ database: store().database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
+  const { json } = browserSubscription('https://fcm.googleapis.com/fcm/send/tablet');
+  const { keys } = json;
+  const refused = async (subscription, extra, code = 'field_invalid') => {
+    const expected = { status: 400, code, extra };
+    assert.throws(() => push.checkSubscription(subscription), expected, JSON.stringify(subscription)?.slice(0, 80));
+    await assert.rejects(push.sendToSubscription(subscription, { title: 'x' }), expected);
+  };
+  await refused(null, { field: 'subscription' });
+  await refused(json.endpoint, { field: 'subscription' });
+  await refused([json], { field: 'subscription' });
+  await refused({ keys }, { field: 'endpoint', reason: 'not_a_url' });
+  await refused({ endpoint: 'http://fcm.googleapis.com/fcm/send/x', keys }, { field: 'endpoint', reason: 'not_https' });
+  await refused({ endpoint: 'https://127.0.0.1/hook', keys }, { field: 'endpoint', reason: 'ip_address' });
+  await refused({ endpoint: 'https://kiosk.local/hook', keys }, { field: 'endpoint', reason: 'local_name' });
+  await refused({ endpoint: 'https://push.example.com/hook', keys }, { field: 'endpoint', reason: 'push_service' });
+  await refused({ endpoint: `https://fcm.googleapis.com/fcm/send/${'a'.repeat(1000)}`, keys }, { field: 'endpoint', max: 1000 }, 'field_too_long');
+  await refused({ endpoint: json.endpoint }, { field: 'p256dh' });
+  await refused({ endpoint: json.endpoint, keys: { ...keys, p256dh: 'short' } }, { field: 'p256dh' });
+  await refused({ endpoint: json.endpoint, keys: { ...keys, auth: 'x' } }, { field: 'auth' });
+  assert.deepEqual([asked, service.got], [[], []], 'nothing went anywhere');
+
+  // A key off the curve has the right size: refused before keeping it, gone if it was kept anyway.
+  const offCurve = { endpoint: json.endpoint, keys: { ...keys, p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url') } };
+  assert.throws(() => push.checkSubscription(offCurve), { code: 'field_invalid', extra: { field: 'p256dh' } });
+  const result = await push.sendToSubscription(offCurve, { title: 'x' });
+  assert.deepEqual([result.ok, result.status, result.gone], [false, 0, true], 'no message will ever reach it: the app drops it');
+  assert.deepEqual(asked, []);
+
+  // A topic is the app's to write right (RFC 8030): its mistake, not the device's.
+  for (const topic of ['x'.repeat(33), 'with space', 'acentuación']) {
+    await assert.rejects(push.sendToSubscription(json, { title: 'x' }, { topic }), TypeError, topic);
+  }
+  assert.deepEqual(asked, []);
+  // The check is the module's too, for an app that checks before it has a push service.
+  assert.deepEqual(checkSubscription(json), { endpoint: json.endpoint, keys });
+});
+
+async function start(t, modules, env = {}, appOptions = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-push-'));
   const suite = createSuite({
     config: { app: { id: 'demo', name: 'Demo', languages: ['en', 'es'] }, modules, accounts: { minPasswordLength: 8 } },
     env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', SECURE_COOKIES: 'false', ADMIN_PASSWORD: 'root-password', ...env },
     log: () => {}, exitOnError: false,
   });
-  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const app = createApp({ suite, handleSignals: false, log: () => {}, ...(typeof appOptions === 'function' ? appOptions(suite) : appOptions) });
   const server = await app.listen();
   t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -376,4 +559,30 @@ test('over HTTP: without modules.push the app keeps /api/push/* for itself, and 
   assert.equal((await browser()('GET', '/api/push/config')).status, 404);
   assert.equal(suite.push, null);
   assert.equal(suite.database.getMeta('vapid_keys'), null);
+});
+
+test('over HTTP: an app’s own route keeps a device’s subscription with no session, checked by the suite', async (t) => {
+  const kept = new Map();
+  const { suite, browser } = await start(t, { push: true }, {}, (s) => ({
+    routes: (api) => {
+      // The app's route and its storage (Focus: its paired device, by its own token); the suite only checks.
+      api.post('/api/demo/devices/:id/push', async (ctx) => {
+        const body = await readJson(ctx.req);
+        kept.set(ctx.params.id, s.push.checkSubscription(body.subscription));
+        sendJson(ctx.res, 201, { ok: true });
+      });
+    },
+  }));
+  assert.equal(suite.push.publicKey, JSON.parse(suite.database.getMeta('vapid_keys')).publicKey, 'the key the device subscribes with');
+  const tablet = browser();
+  const { json } = browserSubscription('https://web.push.apple.com/QTablet123');
+  const refused = await tablet('POST', '/api/demo/devices/7/push', { subscription: { ...json, endpoint: 'https://192.168.1.10/hook' } });
+  assert.deepEqual([refused.status, refused.data], [400, { error: 'field_invalid', field: 'endpoint', reason: 'ip_address' }]);
+  const missing = await tablet('POST', '/api/demo/devices/7/push', {});
+  assert.deepEqual([missing.status, missing.data], [400, { error: 'field_invalid', field: 'subscription' }]);
+  const saved = await tablet('POST', '/api/demo/devices/7/push', { subscription: json });
+  assert.equal(saved.status, 201);
+  assert.deepEqual(kept.get('7'), { endpoint: json.endpoint, keys: json.keys });
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM push_subscriptions').n, 0, 'the suite keeps nothing of it');
+  assert.equal(typeof suite.push.sendToSubscription, 'function');
 });

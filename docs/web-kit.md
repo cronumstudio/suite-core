@@ -69,6 +69,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host |
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
+| `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
 
@@ -355,6 +356,44 @@ worker (`importScripts('suite/sw-core.js')`, `shell: ['./', 'index.html', 'css/a
 registers it at its base (`navigator.serviceWorker.register(at('/sw.js'))`). On its own those are
 the same URLs as before; in a host they are the module's, and the worker reads everything else
 (the API, the kit, its cache's name) from its scope.
+
+### Notices on a device with no account
+
+Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/config` and posts to
+`/api/push/subscribe`, both behind a session. A device that belongs to the app instead (Focus'
+child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.74.0), which asks nothing of the
+server and hands the subscription to the app:
+
+```js
+import { pushSupport, devicePushSubscription } from '/suite/push.js';
+
+// 'granted' | 'prompt' | 'denied' | 'install' (an iPhone or iPad tab) | 'unsupported'
+if (pushSupport() === 'install') showHomeScreenHint();
+startButton.addEventListener('click', async () => {
+  // publicKey: suite.push.publicKey, given to the device by the app (its pairing answer, say)
+  const subscription = await devicePushSubscription(publicKey);
+  await api.post('/api/<the app’s route>', { subscription });   // { endpoint, expirationTime, keys }
+});
+```
+
+- **Ask from a tap, with the key at hand.** Safari asks for permission only from a tap, and a
+  request awaited before asking can use the tap up; `devicePushSubscription()` asks first.
+  `{ ask: false }` never asks and only goes on where permission was already given: an app
+  refreshing the subscription when it starts.
+- **iPhone and iPad** give Web Push only to the app added to the home screen and opened from
+  there (iOS 16.4 and later): in a Safari tab `pushSupport()` says `'install'`, and the app explains
+  it before offering the button.
+- The browser's subscription is reused while it is for this key, and replaced when it was made with
+  another (the install's keys changed). It throws `Error('unsupported' | 'install' | 'not_allowed')`,
+  and a `TypeError` for a key that isn't one.
+- A browser has **one subscription per service worker**: a person who also turns notices on in
+  Settings on the same device gets the same endpoint, so neither side unsubscribes the browser to
+  forget the other; each drops its own row.
+- The app's route checks what arrives with `suite.push.checkSubscription()` (a coded 400 for a
+  device that sent something else) and keeps it with the device; the server sends with
+  `suite.push.sendToSubscription()` and drops the row when it answers `gone`. What arrives is shown
+  by the service worker above, with `push` in `suiteWorker()`: `title`, `body`, `tag` and `url` (the
+  page a tap opens; an open tab gets `{ type: 'notification', data }` instead).
 
 ## Texts
 

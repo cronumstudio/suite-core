@@ -17,6 +17,13 @@
  * says are gone (404, 410), or that fail three times in a row, are dropped.
  * What each notice says, and to whom, is the app's (Tasks batches other
  * people's changes to a shared list); the suite sends it.
+ *
+ * A device can also belong to the app rather than to a person: a child's
+ * tablet paired to a profile with no account (Focus), a kiosk. Those
+ * subscriptions live in the app's own table, next to the rest of what it
+ * knows of the device; the suite checks one before the app keeps it
+ * (checkSubscription) and sends to it (sendToSubscription), with the same
+ * keys, encryption and signature as a person's, and says when it is gone.
  */
 import crypto from 'node:crypto';
 import { ensureColumn } from './migrate.js';
@@ -31,6 +38,14 @@ export const MAX_DEVICES = 10;
 const SEND_TIMEOUT_MS = 10000;
 /** Subscriptions encrypted and sent at once by deliver(). */
 const DELIVER_BATCH = 20;
+/** The longest endpoint taken: push services' are a few hundred characters, and /api/push/subscribe always capped it here. */
+const MAX_ENDPOINT = 1000;
+/**
+ * RFC 8030 §5.4: at most 32 characters of the URL-safe base64 alphabet. A push
+ * service keeps only the newest undelivered message of a topic, so a launch
+ * sent again replaces the one still waiting instead of arriving twice.
+ */
+const TOPIC = /^[A-Za-z0-9_-]{1,32}$/;
 
 /** Tasks' table, which is the suite's shape: its subscriptions survive the move. */
 export function pushSchema(d) {
@@ -203,6 +218,57 @@ export function checkEndpoint(endpoint) {
   if (!PUSH_SERVICES.test(host)) throw refuse('push_service');
 }
 
+/** The browser's keys have the sizes RFC 8291 gives them (cheap: nothing is computed). */
+function checkKeySizes(p256dh, auth) {
+  if (typeof p256dh !== 'string' || fromB64url(p256dh).length !== 65) throw badRequest('field_invalid', { field: 'p256dh' });
+  if (typeof auth !== 'string' || fromB64url(auth).length < 8) throw badRequest('field_invalid', { field: 'auth' });
+}
+
+/**
+ * Keys something can be encrypted for. 65 bytes is not yet a key: a point off
+ * the curve would make every message to it fail. A browser's key always works,
+ * so trying once settles it.
+ */
+function checkKeys(p256dh, auth) {
+  checkKeySizes(p256dh, auth);
+  try { encryptPayload(p256dh, auth, Buffer.alloc(0)); } catch { throw badRequest('field_invalid', { field: 'p256dh' }); }
+}
+
+/**
+ * A subscription as an app has it, in either shape: the browser's
+ * `subscription.toJSON()` (`{ endpoint, keys: { p256dh, auth } }`) or the flat
+ * `{ endpoint, p256dh, auth }` of a stored row. Its endpoint is checked as a
+ * person's is (checkEndpoint), because whoever holds the device chose it and
+ * the server is about to visit it. → `{ endpoint, p256dh, auth }`.
+ */
+function subscriptionOf(subscription) {
+  if (!subscription || typeof subscription !== 'object' || Array.isArray(subscription)) {
+    throw badRequest('field_invalid', { field: 'subscription' });
+  }
+  const { endpoint } = subscription;
+  if (typeof endpoint === 'string' && endpoint.length > MAX_ENDPOINT) throw badRequest('field_too_long', { field: 'endpoint', max: MAX_ENDPOINT });
+  checkEndpoint(typeof endpoint === 'string' ? endpoint : '');
+  const keys = subscription.keys && typeof subscription.keys === 'object' ? subscription.keys : subscription;
+  checkKeySizes(keys.p256dh, keys.auth);
+  return { endpoint, p256dh: keys.p256dh, auth: keys.auth };
+}
+
+/**
+ * A browser's push subscription for a device the app keeps itself (one with
+ * no account behind it), checked before the app stores it: an endpoint of a
+ * real push service, keys of the right size and on the curve. The app's route
+ * calls it with what the device posted; what it throws is a coded 400
+ * (`field_invalid` with `field` subscription, endpoint —and its `reason`—,
+ * p256dh or auth; `field_too_long` for an endpoint over 1000 characters).
+ * → `{ endpoint, keys: { p256dh, auth } }`: what to keep, in the browser's own
+ * shape (anything else it sent, such as `expirationTime`, is left out).
+ */
+export function checkSubscription(subscription) {
+  const { endpoint, p256dh, auth } = subscriptionOf(subscription);
+  checkKeys(p256dh, auth);
+  return { endpoint, keys: { p256dh, auth } };
+}
+
 /* ------------------------------ the service ------------------------------ */
 
 /**
@@ -233,9 +299,14 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
   /**
    * Sends one notice to one subscription. → { ok, status, gone }: `gone`
    * means the browser no longer has it, and it should be dropped.
+   * `topic` (optional, RFC 8030): a newer notice of the same topic replaces
+   * one the push service still holds for a device that is offline.
    */
-  async function send(subscription, payload, { ttl = 3600, urgency = 'normal' } = {}) {
-    // Outside the try: a payload that can't be written is the app's mistake, not the device's.
+  async function send(subscription, payload, { ttl = 3600, urgency = 'normal', topic = null } = {}) {
+    // Outside the try: a payload or a topic that can't be written is the app's mistake, not the device's.
+    if (topic != null && !TOPIC.test(String(topic))) {
+      throw new TypeError('push topic: 1 to 32 characters of A-Z, a-z, 0-9, - and _ (RFC 8030)');
+    }
     const plain = Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
     let body;
     try {
@@ -255,6 +326,7 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
           'Content-Type': 'application/octet-stream',
           TTL: String(ttl),
           Urgency: urgency,
+          ...(topic != null ? { Topic: String(topic) } : {}),
         },
         body,
         // No push service redirects: following one would let an endpoint chosen by
@@ -327,11 +399,7 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
    */
   function subscribe(userId, { endpoint, p256dh, auth, label = null, lang = null }) {
     checkEndpoint(endpoint);
-    if (typeof p256dh !== 'string' || fromB64url(p256dh).length !== 65) throw badRequest('field_invalid', { field: 'p256dh' });
-    if (typeof auth !== 'string' || fromB64url(auth).length < 8) throw badRequest('field_invalid', { field: 'auth' });
-    // 65 bytes is not yet a key: a point off the curve would make every message
-    // to it fail. A browser's key always works, so trying once settles it.
-    try { encryptPayload(p256dh, auth, Buffer.alloc(0)); } catch { throw badRequest('field_invalid', { field: 'p256dh' }); }
+    checkKeys(p256dh, auth);
     database.tx(() => {
       database.run(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, label, lang)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -361,10 +429,33 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
       substr(endpoint, 1, 40) AS endpoint_hint
     FROM push_subscriptions WHERE user_id = ? ORDER BY created_at`, userId);
 
+  /**
+   * Sends one notice to a subscription the app keeps itself, for a device
+   * with no account behind it (Focus' paired tablets): the browser's
+   * `subscription.toJSON()` as checkSubscription() returned it (the flat
+   * `{ endpoint, p256dh, auth }` of a row is taken too). The same encryption,
+   * VAPID signature, time limit and options as a person's (`ttl` in seconds,
+   * 3600; `urgency`, 'normal'; `topic`), and nothing is written here: the
+   * table is the app's.
+   * → `{ ok, status, gone, reason? }`. `gone` (the push service answered 404 or
+   * 410, or its keys can't be encrypted for) means the browser no longer has
+   * it: the app drops it. Another 4xx (not 408 or 429) is a refusal of the
+   * subscription itself, which a person's loses after three in a row
+   * (deliver()); the app may count them the same way. The network, a 408 or
+   * 429, or the service down say nothing about the device. One that isn't a subscription
+   * is refused with the coded 400 of checkSubscription(), before anything is
+   * sent: the endpoint is checked again here, so a row kept without checking
+   * never makes the server visit an address inside the network.
+   */
+  async function sendToSubscription(subscription, payload, options = {}) {
+    return send(subscriptionOf(subscription), payload, options);
+  }
+
   return {
     publicKey: vapid.publicKey,
     send, deliver, subscriptionsOf, subscribe, unsubscribe, devices,
     /** Sends to every device of some people. */
     sendTo: (userIds, payload, options) => deliver(subscriptionsOf(userIds), payload, options),
+    checkSubscription, sendToSubscription,
   };
 }

@@ -127,6 +127,7 @@
   "fields.endpoint": "Dirección del servicio de avisos",
   "fields.p256dh": "Clave del dispositivo",
   "fields.auth": "Secreto del dispositivo",
+  "fields.subscription": "Suscripción a los avisos",
   "fields.source": "Cuenta de la copia",
   "fields.accounts": "Cuentas",
   "fields.user_id": "Cuenta",

@@ -3,6 +3,45 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.74.0 — 2026-10-12
+
+- **An app can push to its own devices, with no user behind them.** A device that belongs to the
+  app (Focus' child's tablet, paired to a profile with no account; a kiosk) had no way in: every
+  row of `push_subscriptions` is a person's, and `/api/push/*` needs a session. Now the app keeps
+  the browser's subscription in its own table, next to the rest it knows of the device, and the
+  suite does the rest with the same keys, encryption and VAPID signature as a person's:
+  - `suite.push.checkSubscription(json)` (also `checkSubscription` from `push.js`): what the
+    device posted, as `subscription.toJSON()` gives it (`{ endpoint, keys: { p256dh, auth } }`; the
+    flat `{ endpoint, p256dh, auth }` of a row is taken too), checked as `subscribe()` checks a
+    person's (an endpoint of a real push service, on 443, no IP literal nor home-network name;
+    keys of the right size and on the curve). → `{ endpoint, keys: { p256dh, auth } }`, what to
+    keep. Otherwise a coded 400: `field_invalid` with `field` `subscription`, `endpoint` (with its
+    `reason`), `p256dh` or `auth`, or `field_too_long` for an endpoint over 1000 characters.
+  - `suite.push.sendToSubscription(subscription, payload, { ttl, urgency, topic })` → `{ ok,
+    status, gone, reason? }`. `gone` (the push service answered 404 or 410, or the keys can't be
+    encrypted for) means the app drops it; another 4xx (not 408 or 429) refuses the subscription
+    itself, which a person's loses after three in a row and the app may count the same way; the
+    network, a 408 or 429, or the service down say nothing about the device. The endpoint is checked again before sending, so a row kept
+    without checking never makes the server visit an address inside the network; what isn't a
+    subscription is refused with the same coded 400 and nothing is sent. Nothing is written in the
+    suite's tables.
+  - `suite.push.publicKey`, as before: the key the device subscribes with, which the app hands it
+    its own way (its pairing answer, say).
+  - `topic` (new for `send()`, `deliver()` and `sendTo()` too, off unless given): the `Topic`
+    header of RFC 8030, 1 to 32 characters of the URL-safe base64 alphabet; a push service keeps
+    only the newest undelivered notice of a topic, so a launch sent again replaces the one still
+    waiting. One that isn't valid is the app's mistake (a `TypeError`), not the device's.
+- **The kit's `push.js`** (new, in the service worker's kit files): `devicePushSubscription(
+  publicKey, { ask })` asks for permission —first, so a tap is enough for Safari—, subscribes with
+  the install's key (reusing the browser's subscription while it is for that key, replacing one
+  made with another) and returns the JSON for the app to post to its own route; it asks nothing of
+  the server. `pushSupport()` says `'granted'`, `'prompt'`, `'denied'`, `'install'` (an iPhone or
+  iPad tab: Web Push only reaches the app on the home screen) or `'unsupported'` before anything
+  is asked. Settings' `subscribePush()` is unchanged.
+- `fields.subscription` in the four languages, for the new refusal.
+- No migration and no table: nothing changes for an app that doesn't call them. Needs
+  `modules.push`, as the rest of push.
+
 ## 0.67.0 — 2026-10-11
 
 - **Device tokens** (`devices.js`, `modules.devices`, off by default): an app on a phone signs in
