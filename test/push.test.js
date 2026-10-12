@@ -544,7 +544,7 @@ test('a person’s subscription stored before the keys were checked so closely s
   const { database, accounts } = store();
   const ada = accounts.create({ username: 'ada', password: 'ada-password' });
   const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
-  // Before 0.82.0 subscribe() took a secret of 8 bytes or more and kept the keys as they came.
+  // Before 0.81.0 subscribe() took a secret of 8 bytes or more and kept the keys as they came.
   const device = deviceKeys();
   const shortSecret = crypto.randomBytes(12).toString('base64url');
   const endpoint = 'https://fcm.googleapis.com/fcm/send/old-phone';

@@ -1067,7 +1067,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `/api/push/test`; the app composes the real messages and chooses who gets them
   (`suite.push.sendTo(userIds, payload | (subscription) => payload)`), as Tasks batches other
   people's changes to a shared list.
-- **Push to an app's own devices** (v0.82.0, for Focus' paired tablets): a device that belongs to
+- **Push to an app's own devices** (v0.81.0, for Focus' paired tablets): a device that belongs to
   the app and has no account behind it (a child's profile, a kiosk) keeps its subscription in the
   app's own table, with the rest the app knows of it, never in `push_subscriptions`, whose rows are
   people's. The browser subscribes with the kit's `push.js` (`devicePushSubscription(publicKey)`,

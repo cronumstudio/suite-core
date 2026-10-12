@@ -439,7 +439,7 @@ the same URLs as before; in a host they are the module's, and the worker reads e
 
 Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/config` and posts to
 `/api/push/subscribe`, both behind a session. A device that belongs to the app instead (Focus'
-child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.82.0), which asks nothing of the
+child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
 server and hands the subscription to the app:
 
 ```js

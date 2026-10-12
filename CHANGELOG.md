@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.82.0 — 2026-10-13
+## 0.81.0 — 2026-10-13
 
 - **An app can push to its own devices, with no user behind them.** A device that belongs to the
   app (Focus' child's tablet, paired to a profile with no account; a kiosk) had no way in: every
