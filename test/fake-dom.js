@@ -25,6 +25,14 @@ export class FakeElement {
       this.value = '';
       this.checked = false;
     }
+    if (this.tagName === 'DIALOG') this.open = false;
+  }
+
+  showModal() { this.open = true; }
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    this.dispatch('close');
   }
 
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
@@ -33,7 +41,8 @@ export class FakeElement {
   removeAttribute(name) { this.attributes.delete(name); }
   append(...nodes) {
     for (const node of nodes) {
-      const child = typeof node === 'string' ? new FakeText(node) : node;
+      // As a browser does: what isn't a node is written as text, null as "null".
+      const child = node?.nodeType ? node : new FakeText(node);
       // A node lives in one place: appended elsewhere, it leaves where it was (and clear() can empty).
       child.parentNode?.childNodes.splice(child.parentNode.childNodes.indexOf(child), 1);
       child.parentNode = this;
