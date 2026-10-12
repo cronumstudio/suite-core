@@ -625,6 +625,17 @@ value. The features every app names the same are there too (`COMMON_FEATURES`: `
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 
+Cronum Focus is sold on its own, so its installs name a catalog of their own, `PLANS=cronum-focus`:
+none of its plans gives anything in Cronum Work, nor the other way round (a key the named catalog
+lacks stops the start, as above). Its plans, `free` and `pro`, are a family's: a family is an
+organization (kind `family`), Pro is granted to it —bought by its owner or an admin, or the 14-day
+trial a new family starts with, a grant with an end— and reaches its adults, who are its members.
+Its keys are Focus's own, `routines.max` (5, no limit), `history.days` (7, no limit),
+`devices.per_child` (1, no limit), `live`, `summary.days` (0, 14) and `runner.views`, and the common
+`mcp` (on in both) and `mcp.calls_per_day` (100, 1000). In `cronum-work`, `history.days` is how long
+a note keeps its earlier versions: a key means what the catalog an install names says, and an
+install names one.
+
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
 browser reads `GET /api/me/entitlements` to hide or lock what is not included. The error is
@@ -696,7 +707,9 @@ Products live in the app's configuration, each tied to a plan of the catalog and
 'organization' } }`. `billing_customers` keeps each user's or organization's customer at the
 provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
-`GET /api/billing/subscriptions` and `POST /api/billing/webhook`.
+`GET /api/billing/subscriptions` and `POST /api/billing/webhook`. In the browser, Settings' plan
+section sells them (`plan: { billing: true }`, `web/plan.js`, v0.77.0): Upgrade, Manage
+subscription, a 402's call to action and the return from the checkout ([web-kit.md](web-kit.md)).
 
 `signedProvider()` speaks these normalized events directly, signed with a shared secret
 (`t=…,v1=…`, HMAC-SHA256, the scheme Stripe uses, five minutes of tolerance). It is what the tests
@@ -776,7 +789,7 @@ an install sets the three together. Paddle's product ids differ between the sand
 account, so `paddleProductIds` is one list per environment; with Paddle on, a single list, or none
 for `PADDLE_ENV`, stops the start.
 
-**Several providers and the stores** (v0.72.0; Tracker's P6 and P7, RevenueCat chosen to start easy
+**Several providers and the stores** (v0.78.0; Tracker's P6 and P7, RevenueCat chosen to start easy
 and free, with a move to Apple's and Google's own APIs kept open). People buy for
 themselves inside the app on a phone, in the App Store and Google Play, and groups buy on the web.
 An install sets `STORE_BILLING=revenuecat` next to (or without) `BILLING_PROVIDER`, with
@@ -1181,7 +1194,7 @@ first, then Tasks, then the rest.
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
 | `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
-| `stores.js`, `revenuecat.js` | done (v0.72.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`) | Tracker sells Pro in the App Store and Google Play (its step A12) |
+| `stores.js`, `revenuecat.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`) | Tracker sells Pro in the App Store and Google Play (its step A12) |
 
 ## 21. Several apps as one: the host
 

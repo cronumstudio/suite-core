@@ -4,7 +4,7 @@
  * own <dialog>, which traps focus and closes with Escape; a sheet from the
  * bottom on a phone), menus, labelled fields, switches and the signature.
  */
-import { el, $ } from './dom.js';
+import { el, $, append } from './dom.js';
 import { t } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 
@@ -155,15 +155,16 @@ export async function copyText(text, fallback = null) {
 
 /**
  * A dialog with a title, its content and a row of actions. An action's
- * `onClick` may return false to keep the dialog open (a failed save). On a
- * phone it rises from the bottom as a sheet (kit.css).
+ * `onClick` may return false to keep the dialog open (a failed save). Without
+ * actions there is no footer: the × in the header closes it. On a phone it
+ * rises from the bottom as a sheet (kit.css).
  */
 export function openDialog({ title, content, actions = [], wide = false, onClose = null }) {
   // A menu left open would sit beside the dialog: a dialog comes from a choice, so the menu is done.
   closeMenu();
   const dialog = el('dialog', { class: `kit-dialog${wide ? ' kit-dialog--wide' : ''}`, 'aria-label': title });
   const close = () => { if (dialog.open) dialog.close(); };
-  const buttons = actions.map((action) => el('button', {
+  const buttons = (actions || []).map((action) => el('button', {
     type: 'button',
     class: `kit-btn${action.primary ? ' kit-btn--primary' : ''}${action.danger ? ' kit-btn--danger' : ''}${!action.primary && !action.danger ? ' kit-btn--quiet' : ''}`,
     text: action.label,
@@ -177,7 +178,8 @@ export function openDialog({ title, content, actions = [], wide = false, onClose
       }
     },
   }));
-  dialog.append(
+  // The kit's append and not the dialog's own: that one writes a missing footer as the text "null".
+  append(dialog,
     el('div', { class: 'kit-dialog__grab', 'aria-hidden': 'true' }),
     el('header', { class: 'kit-dialog__header' },
       el('h2', { text: title }),

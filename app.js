@@ -786,7 +786,8 @@ export function createApp({
           baseUrl: install.baseUrl,
         };
         // A write with an Idempotency-Key runs once; the same key again gets the same answer. Not one
-        // whose answer is a secret shown once (a device's token, its code): the database keeps hashes only.
+        // whose answer is a secret shown once (answeredOnce: a token, a two-step secret, recovery codes,
+        // an invitation's link): it is never kept in clear, and the same key runs the route again.
         const replayable = suite.idempotency && !match.handler.answeredOnce;
         await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
         return;

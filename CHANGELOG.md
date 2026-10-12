@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.72.0 — 2026-10-12
+## 0.78.0 — 2026-10-13
 
 - **Purchases in the App Store and Google Play, next to the web's** (`stores.js`, `revenuecat.js`;
   `STORE_BILLING=revenuecat`, with `modules.billing` on, off by default). A second instance of
@@ -92,6 +92,122 @@ change an interface and a patch never does. Apps pin a version through the submo
   route, no field, no migration (`config.billing` keeps its shape; `config.stores` and
   `install.stores` are new, empty and null; `apply()` without `reading` and the checkout without
   `otherProviders` are as before).
+
+## 0.77.0 — 2026-10-13
+
+- **Settings' plan section sells, where the app asks** (`web/plan.js`, served at `/suite/plan.js`
+  and cached by `sw-core.js`). With `openSettings({ plan: { billing: true } })`, on a server whose
+  `/api/auth/config` doesn't say `modules.billing: false`, the section adds to the plan and until
+  when, from the suite's billing routes and with nothing of one app or provider in it:
+  - **what can be bought** (`GET /api/billing/products`): the products for one person whose plan
+    is above theirs in the catalog's order, or theirs again when it lapses on a date, and nothing
+    to an admin. Each by its `name` (a catalog key or the name itself) or its plan's, with its
+    kind of payment ("Monthly subscription", "Yearly subscription", from the `…-monthly` and
+    `…-yearly` keys; "One payment, for 30 days"; "One payment, for good") and "Founder's price"
+    where the server says the person gets it. The browser names the product only: the price stays
+    the server's choice. Each "Upgrade" button is named for a screen reader by its product and
+    kind ("Upgrade: Pro (Monthly subscription)");
+  - **Upgrade**: `POST /api/billing/checkout`, then the browser follows the `url` (http or https
+    only). A 409 `already_subscribed` says so with "Manage subscription" in the notice, and the
+    section is read again;
+  - **the subscriptions that hold a plan** (`GET /api/billing/subscriptions`: active, trial,
+    payment pending) with the end of their period, and what to do about a pending payment. They
+    decide first: while one is live nothing is offered, not even a one-off pass for the same plan
+    (the server's 409 guards subscriptions only), and nothing is offered either when the list
+    doesn't come, since a subscription's plan lapses on a date too, its period's end. Beside a
+    live subscription that holds the plan shown, the plan's "Until" (the period's end and the
+    grace after it) gives way to the subscription's own "Current period until";
+  - **Manage subscription**: `POST /api/billing/portal`, followed the same way, the primary button
+    under a subscription; without one now, "Payments and invoices" (the same portal), last and
+    quiet, when there was a subscription before or the catalog sells one-off payments. A 404
+    `no_customer` says there is nothing to manage yet and takes the button away, until a
+    subscription shows up while the section is open;
+  - **`hideCheckout: true`** for a native app's web view (the stores' rules keep a web payment's
+    links out of an app): the subscriptions still show, without products, Upgrade, the portal or
+    the founder's price.
+  Inside a Settings that sells, a 402 met in any section offers a way to buy: `plan.open` when the
+  app gives one (a native app's store), or else the plan section, but never under `hideCheckout`,
+  where that section sells nothing; there the notice only says why. A plan read late never paints
+  over a newer one.
+- **A group's products are not offered here yet** (`for: 'organization'`): buying for a group
+  needs its seats in the checkout and the group's subscriptions, which the routes don't give the
+  browser today (`GET /api/billing/subscriptions` lists a person's). An app that sells to groups
+  keeps its own page for now.
+- **A plan's barrier anywhere in an app**: `offerPlan(err, { open })` → true for a 402
+  (`plan_feature`, `plan_limit`, `seats_full`, an app's own), with a notice that says why and
+  "See plans" running `open` (Settings at its plan section, or a native app's own way to buy);
+  false for anything else, which stays the app's. `isPlanError(err)`.
+- **Back from the checkout**: `billingReturn({ onPlan, open })`, called once at the start, takes
+  `?billing=done` (billing.js's return address) out of the address, thanks the person and reads the
+  plan again over about 20 seconds, since the provider's webhook may come after them. Each answer
+  goes to `onPlan` and to `kit-plan` (`PLAN_EVENT`) on the document, which an open Settings
+  repaints with; the notice says the new plan when it arrives, or that the payment isn't confirmed
+  yet when the plan from before is known (kept for the tab as `<app>.billing` in
+  `sessionStorage`) and nothing changed. `?billing=canceled`, where a provider sends whoever left
+  its checkout unpaid (stripe.js's cancel address), is taken out the same way, with that kept plan,
+  and the notice says nothing was charged; the plan isn't read again.
+- Their texts in the four languages (`kit.plan.*`). `offerFor(answer, products, subscriptions)`,
+  `isLive()` and `productText()` are exported for an app's own page of prices; `offerFor` offers
+  nothing without the subscriptions.
+- **Nothing changes for an app that doesn't pass the option.** `plan: true` and `plan: { render }`
+  show the plan and until when, as before, and ask nothing of billing; no route, migration or
+  setting changes. The service worker caches one more file of the kit.
+
+## 0.76.0 — 2026-10-13
+
+- **Cronum Focus's catalog** (`plans.js`, `PLANS=cronum-focus`): a product of its own, whose
+  installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
+  Work plan gives anything in Focus (an app that declares a key the named catalog lacks doesn't
+  start). Two plans, `free` (Free) and `pro` (Pro), and both are a family's: a family is an
+  organization (kind `family`), its plan is granted to it and reaches its adults, who are its
+  members, and the 14-day trial a new family starts with is that grant with an end. The keys,
+  Free's value first: `routines.max` (5, no limit; saved routines, not what History holds),
+  `history.days` (7, no limit; an unsaved routine leaves History after those days unused),
+  `devices.per_child` (1, no limit), `live` (`false`, `true`: the live view, an adult's control
+  and remote launch), `summary.days` (0, 14; 0 is the last run of each routine), `runner.views`
+  (`false`, `true`), `mcp` (on in both) and `mcp.calls_per_day` (100, 1000, as in Cronum Work).
+  `history.days` is a Notes key too, with another meaning (a note's earlier versions): an install
+  reads only the catalog it names, so the two never meet. The prices stay with the provider (Pro
+  2.99 EUR a month or 24 a year per family). `cronum-work` is unchanged, and the error for a
+  catalog that doesn't exist names `cronum-focus` among the others.
+
+## 0.75.0 — 2026-10-12
+
+- **A dialog without actions has no "null" at its foot.** `openDialog()` put its parts in with the
+  browser's own `dialog.append`, which writes a missing footer as the text "null": a dialog opened
+  without `actions` (or with an empty list) showed "null" under its content (found by Tracker's
+  browser check of its About dialog). Now it uses the kit's `append()` (dom.js), which skips the
+  gaps: no actions, no footer, and the × in the header closes it. `actions: null` is taken as none.
+  A dialog with actions is the same as before.
+- Tests: the fake DOM writes what isn't a node as text, `null` as "null", as a browser does (it
+  used to throw), and a `<dialog>` has `open`, `showModal()` and `close()`.
+
+## 0.70.0 — 2026-10-12
+
+- **Security: an answer that carries a secret is never kept for an `Idempotency-Key`.** Since
+  0.34.0 the first successful answer to a write with a key was kept a day in `idempotency_keys`,
+  in clear, to answer the same key again. For the routes below that answer is a secret shown
+  once, which the rest of the database keeps only as a hash or encrypted: whoever read the
+  database, or a copy of it, within that day had it. Now those routes are never run through
+  `idempotency.js`: nothing of their answer is written, and the same key again runs the route
+  again, which gives a fresh answer or the route's own refusal, never the first one replayed:
+  - `POST /api/me/tokens` (and its older path, `profile.alsoAt.tokens`): a new API token. The
+    same key makes another one; the first, whose value never arrived, stays in the list to revoke.
+  - `POST /api/me/two-factor/setup`: a new two-step secret, which replaces the one before.
+  - `POST /api/me/two-factor/enable`: the ten recovery codes. Again, `409 two_factor_enabled`.
+  - `POST /api/me/two-factor/recovery-codes`: ten new ones; the ones before stop working.
+  - `POST /api/auth/login` and `POST /api/auth/login/code`: a two-step `challenge` or a deletion
+    `ticket` (15 minutes), either one a way into the account.
+  - `POST /api/admin/invitations` and `POST /api/orgs/:id/invitations`: an invitation's `url` and
+    `token`, which sign up or join whoever opens them. The same key makes another invitation (and
+    sends another email); both work until they expire or are revoked.
+  - `POST /api/billing/portal`: the provider's portal opens signed in from its link.
+- `answeredOnce(handler)` (`idempotency.js`): the mark, moved out of `devices.js`, whose two routes
+  had it since 0.67.0. An app marks with it its own routes whose answer is a secret.
+- Nothing to clean up: only a session's writes go through `idempotency.js`, and the web kit sends
+  these calls without a key, so no app of the suite has kept one of these answers. One kept by any
+  other client is no longer replayed, and the clean-up deletes it a day after it was kept. No
+  migration.
 
 ## 0.67.0 — 2026-10-11
 
