@@ -198,7 +198,7 @@ export default {
   products: {
     'pro-monthly':  { plan: 'pro', kind: 'subscription' },
     'pro-lifetime': { plan: 'pro', kind: 'once' },
-    // A group's: the quantity bought is its seats, unless `seats: false` (a family's, any number of adults).
+    // A group's: the quantity bought is its seats, unless `seats: false` (any number of adults).
     'family-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false },
   },
 
@@ -728,10 +728,12 @@ product, never the price ids.
   family buys one Pro however many adults it has. The quantity every event reports (Paddle's and
   Stripe's checkouts buy one of the price) is dropped for it, from whichever provider, on every event
   of the subscription and on a one-off purchase, so neither the subscription's row nor the grant has
-  one. A group that bought before the option has its grant replaced by one without a quantity at its
-  next event. A grant without a quantity sets no seats, like an admin's gift of the plan: a group that
-  also holds one with a quantity (seats bought with another product) is still capped by it. Checked on start, with or without a provider (`productSeatsProblem()`): `seats` on a
-  person's product (a misspelt `for`), a value that isn't a boolean, or a key like `seat`, stops it.
+  one. A group's subscription bought before the option has its grant replaced by one without a
+  quantity at its next event; a one-off purchase made before it keeps its quantity, since no event
+  follows it. A grant without a quantity sets no seats, like an admin's gift of the plan: a group
+  that also holds one with a quantity (seats bought with another product) is still capped by it.
+  Checked on start, with or without a provider (`productSeatsProblem()`): `seats` on a person's
+  product (a misspelt `for`), a value that isn't a boolean, or a key like `seat`, stops it.
 - A one-off purchase grants its plan for good, or for the product's `days` (a pass); a refund
   ends it. A subscription's refund ends its grant too, and the period it paid back doesn't bring
   it back (`refunded_until`); the next period paid for does. `paused` is not paid for either.
@@ -741,8 +743,8 @@ product, never the price ids.
 Products live in the app's configuration, each tied to a plan of the catalog and checked on start:
 `{ 'pro-monthly': { plan: 'pro', kind: 'subscription', price: 'price_…' }, 'pro-lifetime':
 { plan: 'pro', kind: 'once' }, 'family-yearly': { plan: 'family', kind: 'subscription', for:
-'organization', seats: false } }`. `billing_customers` keeps each user's or organization's customer at the
-provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
+'organization', seats: false } }`. `billing_customers` keeps each user's or organization's
+customer at the provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
 `GET /api/billing/subscriptions` and `POST /api/billing/webhook`. In the browser, Settings' plan
 section sells them (`plan: { billing: true }`, `web/plan.js`, v0.77.0): Upgrade, Manage

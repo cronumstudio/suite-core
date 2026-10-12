@@ -14,8 +14,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   reports for that product, from any provider (Paddle, Stripe, the signed one) and on every event:
   bought, renewed, changed, cancelled at the period's end, and a one-off purchase. Neither the
   subscription's row nor the grant has a quantity, so `seatsOf()` says no cap. The checkout is the
-  same (Paddle and Stripe still sell one of the price). A group that bought before the option has
-  its grant replaced by one without a quantity at its next event (`'changed'`).
+  same (Paddle and Stripe still sell one of the price). A group's subscription bought before the
+  option has its grant replaced by one without a quantity at its next event (`'changed'`); a
+  one-off purchase made before it keeps its quantity, since nothing comes after it (no install
+  sells a group's product yet).
 - `seats` is checked on start by config.js, with or without a provider, and by `createBilling()`
   (`productSeatsProblem()`, exported): on a person's product (most likely a misspelt `for`, which
   would sell the family's plan to one person), a value that is not `true` or `false`, or a key like
