@@ -162,7 +162,7 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
       if (replaceAll && plan.organizations) plan = await portability.planFile(file, { mode, user, replace: true });
       log(`Into the account "${user.username}"${replaceAll ? `, replacing what it has now (${tables(plan.replace)})` : ''}.`);
       if (sum(copy.left_out)) log(`  shared with other people, not in the copy: ${tables(copy.left_out)}`);
-      if (replaceAll && plan.hand_over?.length) log(`  leaving, with what they hold: ${plan.hand_over.map((o) => `"${o.name}"`).join(', ')}`);
+      if (replaceAll && plan.hand_over?.length) log(`  handed over to the others, who keep what is in them: ${plan.hand_over.map((o) => `"${o.name}"`).join(', ')}`);
       logOrganizations(plan.organizations);
       if (!flags.apply) { log('\nNothing done yet: add --apply to import it.'); return 0; }
       const result = await portability.applyFile(file, { mode, user, replace: replaceAll });

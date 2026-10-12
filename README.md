@@ -62,7 +62,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `accounts.js` | The people who can sign in: the `users` table in the suite's shape, creation with the app's own columns, sign-in that refuses disabled accounts and redoes old hashes, rules that hold whoever calls (never without an administrator; disabling or a new password ends sessions), and their identities at other providers (WorkOS, OIDC…) |
 | `tokens.js` | API tokens for the MCP and scripts: shown once and kept as hashes, with scopes and optional expiry; takes over the apps' `mcp_tokens` without breaking a connector |
 | `devices.js` | Device tokens, with `modules.devices`: an app on a phone connected through the system browser with PKCE (a code of five minutes for the signed-in person, sent back to an address in `devices.redirectUris`, exchanged with its verifier), a token with its own prefix kept as a hash, revoked from Settings, by the device or by the admin's sign-out everywhere, ended after `devices.idleDays` unused; no route of the suite takes one (except, with `stores.devices`, the store routes and the overview), and the app accepts it where it chooses (`authenticate(req)`). For phones: Focus keeps its own pairing |
-| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, taken by every member or only by the roles the app names (`seatRoles`: Tracker's drivers), and a hand-over when someone's account goes, or (`handOver`) when someone leaves one group by an import that replaces what they have |
+| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, taken by every member or only by the roles the app names (`seatRoles`: Tracker's drivers), and a hand-over when someone's account goes, or (`handOver`) when someone leaves one group by an import that replaces what they have, both with one heir rule (`heirOf`) |
 | `audit.js` | Who did what, when and from where — never what anybody wrote |
 | `config.js` | The app's configuration: `suite.config.js` (the product) and the environment (the install), checked as a whole — anything unknown or wrong stops the start, saying what |
 | `host.js` | `createHost()`: several apps as one, each a module at its own path (`/tasks/`, `/notes/`…) with one database, one session, one sign-in and one admin panel; `joinHost()` lets an app's `platform.js` join a host that is loading it, and on its own changes nothing |
@@ -259,20 +259,55 @@ export const DATA = {
 };
 ```
 
-A group's data (with `modules.organizations`, v0.84.0): a table that points at `organizations`
-belongs to a group, and so does every table that chains to it.
+- A row belongs to someone's copy when every NOT NULL reference points at something in it; an
+  optional one pointing outside is emptied. So a person's copy takes their lists with everything
+  in them and leaves what is shared with other people, counted in the manifest (`left_out`).
+- References to a later table or the same one (a tree, Next's branches and entries) must allow
+  NULL: they are set once every row exists. Every table needs a NOT NULL reference to `users`, to
+  `organizations` or to an earlier table.
+- Importing gives every row a new id and translates every reference; accounts go where the
+  admin says (the one here with the same email, a new one, or none), and an existing one takes
+  the copy's preferences but keeps its username, email and role. `prefs` translates the ids the
+  app keeps in its preferences. `clean(values, { mode, organizations })` may change a row as it
+  comes in. Passwords, second steps, sessions, tokens, OAuth grants and push subscriptions never
+  travel.
+- A copy is not trusted: only columns this install has, plain values, references inside the
+  file, attachments that are images or PDF by their first bytes, one apply per copy
+  (`data_imports`), and ceilings by who imports it. Someone's own copy has at most 64 MB of data,
+  32 MB per file, 2 million values counted before parsing, 64 kB of preferences, 20,000
+  attachments, 100 organizations, and no more bytes of them on disk than about twice the upload.
+  It can be opened or applied 10 times every 15 minutes (`rateLimits.importTo`). The admin and the
+  command line have higher ceilings. `createApp` passes none of them, so these defaults hold. Zips
+  whose entries share their bytes are refused.
+- `limits` keep what a copy brings within what the app's screens accept. A number is the most
+  characters, and longer text is cut there. A pattern is the shape, and a value without it is left
+  out (the column's default, or what the profile had). Text without a limit is cut at 100,000
+  characters.
+- Someone's own copy, its plan and "replace" read only the rows near that account. Their cost
+  follows that person's data, not the whole install's.
+- **`omit`**: columns that never reach any copy (a device's key hash, its push subscription). An
+  import writes the column's default or NULL; `omit: { token_hash: (row) => … }` gives a plain value
+  or a function of the row instead, its references already translated. `null` there, or a function
+  that answers `undefined` or `null`, means the column's own default, never a NULL written over it.
+  A copy that brings an omitted column anyway has it dropped. The start refuses an omitted column
+  that is NOT NULL without a default of either kind, a reference, a file's or the key.
+
+**A group's data** (with `modules.organizations`, v0.84.0): a table that points at `organizations`
+belongs to a group, and so does every table that chains to it. Focus' shape:
 
 ```js
 export const DATA = {
   tables: {
-    focus_families: { refs: { organization_id: 'organizations' } },
+    focus_families: { refs: { organization_id: 'organizations' }, onePerOrganization: true,
+                      // the anchor the app keeps, never a reference a copy decides by
+                      omit: { owner_user_id: (row) => oldestOwner(row.organization_id) } },
     focus_people: { refs: { family_id: 'focus_families', user_id: 'users' } },
     focus_devices: { refs: { family_id: 'focus_families', person_id: 'focus_people' },
-                     omit: ['token_hash', 'push_endpoint', 'push_p256dh', 'push_auth'] },
+                     omit: { token_hash: (row) => unusableHash(), push_endpoint: null, push_p256dh: null, push_auth: null } },
   },
   organizations: {
     kinds: ['family'],          // whose rows someone's copy takes (left out: every kind)
-    roles: null,                // which members' copies carry the group (left out: every member)
+    copyRoles: null,            // which members' copies carry the group (left out: every member)
     mapOntoOwn: ['family'],     // someone's import goes into the family they own or administer here
     leave(userId, organizationId) { … },  // "replace" takes them out of a family others share
   },
@@ -280,57 +315,42 @@ export const DATA = {
 ```
 
 - **Someone's copy** takes each group they are in (of `kinds`, where their role is one of
-  `roles`): its name, kind, settings and branding, their own membership (never the others') and
-  every row of the group. A row with a NOT NULL reference to another member is left out, counted
-  in `left_out`; an optional one is emptied, as before. It brings no plan or invitation.
+  `copyRoles`, which must be roles of the install; archived ones too, marked so): its name, kind,
+  settings and branding, their own membership (never the others') and every row of the group. A
+  row with a NOT NULL reference to another member is left out, counted in `left_out`; an optional
+  one is emptied, as before. It brings no plan or invitation, and never says which install it is.
 - **The whole install's copy** takes every group, archived ones too, every membership, the
   invitations still waiting (by their hash, so the links people hold still open the group), the
   groups' grants and who pays for them (`subject_type: 'organization'` in `suite/grants.json` and
-  `suite/billing.json`), so a renewal finds the family under its new id.
+  `suite/billing.json`), so a renewal finds the family under its new id. Its manifest says which
+  install it is (`source.install`, a random id kept in `app_meta`).
 - **Importing someone's copy**: each group goes into the oldest one of the same kind they own or
-  administer here when `mapOntoOwn` names the kind, else into a new one with them as its owner,
-  made quietly (no app welcome, no trial). A new id always; a copy's id never reaches a group here.
-  `clean(values, { mode, organizations: { created, mapped } })` says which.
-- **Importing a whole install**: every group comes back as it was, with its roles (one this install
-  doesn't have becomes `member`), its invitations, plans and payments. A group that is here
-  already —the same slug, kind and moment it was made: the same install's copy brought by another
-  module of a host— is found instead of made twice. A group whose every member is left out goes
-  with them; one left without an owner gets its heir as owner.
+  administer here when `mapOntoOwn` names the kind (never an archived one), else into a new one
+  with them as its owner, made quietly (no app welcome, no trial), with a slug made from its name
+  and today's date: nothing the file says finds or names a group here. `clean`'s and `check`'s
+  `organizations` is `{ created, mapped }`, the ids here of the groups made and of those found.
+- **A group's one row** (`onePerOrganization: true`, for a table whose NOT NULL reference to
+  organizations is UNIQUE, as Focus' `focus_families.organization_id` is): when the group a row
+  goes into has its row already, the copy's isn't written again; it is that row, what points at it
+  comes into it, and the result counts it under `merged`. Without it, someone's copy put into their
+  own family could only be refused by the UNIQUE.
+- **Importing a whole install**: every group comes back as it was, with its slug, dates, roles (one
+  this install doesn't have becomes `member`), its invitations, plans and payments. Each group it
+  makes is recorded with where it came from (that install's id and its id there); another copy of
+  the same install —another module of a host— finds it by that record alone, and adds nothing to it
+  but the module's own rows: its members, invitations, plans and payments came with the first. A
+  slug, a kind and a date like a group's here find nothing. A group whose every member is left out
+  goes with them; one left without an owner gets its heir (`organizations.heirOf`) as owner.
 - **"Replace"** and **erasing one's data** empty what is the person's alone: their rows and those
-  of groups nobody else is in (the organization and its plan stay). A group others share is never
-  emptied: erasing leaves it whole, and "replace" hands it over (`leave`, then the core: an heir
-  when they were its last owner, and their membership goes), as account deletion does.
-- **`omit`**: those columns never reach any copy, and an import writes the column's default or
-  NULL (`omit: { token_hash: (row) => … }` gives a value or a function of the row). The start
-  refuses an omitted column that is NOT NULL without a default, a reference, a file's or the key.
+  of groups nobody else is in, archived ones too (the organization and its plan stay). A group
+  others share is never emptied: erasing leaves it whole, and "replace" hands it over (`leave`, then
+  the core's `organizations.handOver`: the heir when they were its last owner, and their membership
+  goes), as account deletion does. Someone's own "replace" does that only when told to: the plan
+  names the groups (`hand_over`), Settings shows them and asks again with them, and
+  `POST /api/me/import/:id` with `replace: true` answers 409 `import_hand_over` (with their names)
+  unless the body also says `hand_over: true`.
 - With neither `organizations` nor a table that points at them, nothing of organizations travels
   and a copy that has them is refused (`unknown_table`), as a core before 0.84.0 does.
-
-- A row belongs to someone's copy when every NOT NULL reference points at something in it; an
-  optional one pointing outside is emptied. So a person's copy takes their lists with everything
-  in them and leaves what is shared with other people, counted in the manifest (`left_out`).
-- References to a later table or the same one (a tree, Next's branches and entries) must allow
-  NULL: they are set once every row exists. Every table needs a NOT NULL reference to `users` or
-  to an earlier table.
-- Importing gives every row a new id and translates every reference; accounts go where the
-  admin says (the one here with the same email, a new one, or none), and an existing one takes
-  the copy's preferences but keeps its username, email and role. `prefs` translates the ids the
-  app keeps in its preferences. Passwords, second steps, sessions, tokens, OAuth grants and push
-  subscriptions never travel.
-- A copy is not trusted: only columns this install has, plain values, references inside the
-  file, attachments that are images or PDF by their first bytes, one apply per copy
-  (`data_imports`), and ceilings by who imports it. Someone's own copy has at most 64 MB of data,
-  32 MB per file, 2 million values counted before parsing, 64 kB of preferences, 20,000
-  attachments, and no more bytes of them on disk than about twice the upload. It can be opened or
-  applied 10 times every 15 minutes (`rateLimits.importTo`). The admin and the command line have
-  higher ceilings. `createApp` passes none of them, so these defaults hold. Zips whose entries share
-  their bytes are refused.
-- `limits` keep what a copy brings within what the app's screens accept. A number is the most
-  characters, and longer text is cut there. A pattern is the shape, and a value without it is left
-  out (the column's default, or what the profile had). Text without a limit is cut at 100,000
-  characters.
-- Someone's own copy, its plan and "replace" read only the rows near that account. Their cost
-  follows that person's data, not the whole install's.
 
 ```bash
 node scripts/data.js export copy.zip [--account ana]

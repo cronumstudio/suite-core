@@ -18,59 +18,88 @@ change an interface and a patch never does. Apps pin a version through the submo
     earlier table.
   - **`organizations` in the declaration** (each key may be left out; `{}` alone carries the groups
     in the install's copy of an app without tables of its own for them): `kinds` (whose groups
-    someone's copy takes; every kind), `roles` (which members' copies carry the group; every
-    member, since a member reads what the group shares; Tracker can name `['owner', 'admin']`),
-    `mapOntoOwn` (kinds, or `true`: someone's import goes into the group of that kind they own or
-    administer here) and `leave(userId, organizationId)` (the app's part when "replace" takes
-    someone out of a group others share). It needs `modules.organizations`, or the app doesn't
-    start; the suite's own `organizations`, `memberships` and `invitations` can't be declared as
-    the app's tables.
-  - **Someone's copy** takes each of their groups: `data/organizations.json` (name, kind, slug,
-    settings, branding, date), their own row of `data/memberships.json` (never the others') and
-    every row of the group, other members' optional references emptied and rows that need another
-    member left out and counted in `left_out`. No plan, invitation or payment.
+    someone's copy takes; every kind), `copyRoles` (which members' copies carry the group; every
+    member, since a member reads what the group shares; Tracker can name `['owner', 'admin']`;
+    checked against the install's `organizations.roles`, so a misspelt role stops the start instead
+    of carrying the group in nobody's copy), `mapOntoOwn` (kinds, or `true`: someone's import goes
+    into the oldest group of that kind they own or administer here) and `leave(userId,
+    organizationId)` (the app's part when "replace" takes someone out of a group others share). It
+    needs `modules.organizations`, said with the declaration's other mistakes at the start; the
+    suite's own `organizations`, `memberships` and `invitations` can't be declared as the app's
+    tables, nor named in `was`.
+  - **A group's one row** (`onePerOrganization: true` on a table whose NOT NULL reference to
+    organizations is UNIQUE, as Focus' family row): when the group a row goes into has its row
+    already, the copy's is that row and isn't written again; what points at it comes into it, and
+    the result counts it under `merged`. Someone's copy put into their own family, Focus' usual
+    case, no longer meets the UNIQUE.
+  - **Someone's copy** takes each of their groups, archived ones too, marked so:
+    `data/organizations.json` (name, kind, slug, settings, branding, dates), their own row of
+    `data/memberships.json` (never the others') and every row of the group, other members' optional
+    references emptied and rows that need another member left out and counted in `left_out`. No
+    plan, invitation or payment, and nothing that says which install it is.
   - **The whole install's copy** takes every group (archived too), every membership, the
     invitations still waiting (`suite/invitations.json`, by their hash: the links people hold still
     open the group after the move; used, revoked and expired ones stay), the groups' grants in
     `suite/grants.json` and their customers and subscriptions in `suite/billing.json`, each row
     with `subject_type: 'organization'` (a row without it is an account's, as every copy before).
+    Its manifest says which install it is (`source.install`, a random id kept in `app_meta` as
+    `suite.install_id`, made the first time).
   - **Importing someone's copy**: each group goes into the oldest one of its kind they own or
-    administer here when `mapOntoOwn` says so (one group of the copy each), else into a new one,
-    with them as its owner, made quietly as imported accounts are (no app welcome, no trial). Ids
-    are new; a group's id in the file never reaches one here. `clean(values, { mode, organizations:
-    { created, mapped } })` and `check({ …, organizations })` say which. At most 100 groups in one
-    person's copy (`limits.organizations`).
+    administer here when `mapOntoOwn` says so (one group of the copy each, never an archived one),
+    else into a new one, with them as its owner, made quietly as imported accounts are (no app
+    welcome, no trial), with a slug made from its name and today's date: neither the copy's slug
+    nor its date, which anyone can write. Ids are new; a group's id in the file never reaches one
+    here. `clean(values, { mode, organizations })` and `check({ user, counts, replaced,
+    organizations })` get the same `{ created, mapped }`: Sets of the ids here of the groups made
+    and of those found. At most 100 groups in one person's copy (`limits.organizations`).
   - **Importing a whole install** restores each group as it was —slug when free, kind, settings,
     branding, dates, archived—, its memberships and roles (one this install lacks becomes
     `member`), its invitations, grants and payments under its new id: a renewal that names the old
-    id finds the family by its customer. A group already here with the same slug, kind and creation
-    (the same install's copy brought in by another of a host's modules) is found, not made twice,
-    and nothing of it is doubled. A group whose every member is left out goes with them; one whose
-    owners are left out gets its heir as owner.
+    id finds the family by its customer. Each group it makes is recorded with where it came from
+    (`app_meta`: `suite.organization_origin:<install>:<id there>`). Another copy of the same install
+    (a host's next module) finds the group by that record alone and adds only the module's rows:
+    no member, invitation, plan or payment, which came with the first. A slug, kind and date like a
+    group's here find nothing, so neither someone's own copy imported earlier nor a crafted copy can
+    set up or reach a group a move goes into. A group whose every member is left out goes with
+    them; one whose owners are left out gets its heir as owner, by `organizations.heirOf`.
   - **"Replace" and erasing one's data** empty what is the person's alone: their rows and those of
-    groups nobody else is in, whose organization and plan stay. A group they share is never
-    emptied: "replace" hands it over first (the app's `leave`, then the new
-    `organizations.handOver(organizationId, userId)`: forgetUser's heir becomes owner when they
-    were the last, and their membership goes), and erasing leaves it whole with them in it. The
-    plan says which (`hand_over`) and the result (`handed_over`).
+    groups nobody else is in, archived too, whose organization and plan stay. A group they share is
+    never emptied: "replace" hands it over first (the app's `leave`, then the new
+    `organizations.handOver(organizationId, userId)`: the heir becomes owner when they were the
+    last, and their membership goes), and erasing leaves it whole with them in it. The plan names
+    those groups (`hand_over`) and the result says what happened (`handed_over`).
+  - **Someone's own "replace" is told first**: `POST /api/me/import/:id` with `replace: true`
+    answers 409 `import_hand_over` (with the groups' names) while `hand_over` isn't empty, unless the
+    body also sends `hand_over: true`; the upload waits, to be applied once confirmed. Settings ›
+    Your data names the groups under the choice, again in the confirmation (`kit.data.handOver`,
+    in the four languages), offers "replace" to someone who has only shared groups, and sends
+    `hand_over: true` once the person confirms. The command line and `applyFile()` go on as told.
   - The plan and the result list each group and where it goes (`organizations`), and the command
     line (`tools/data-cli.js`) shows them.
 - **Columns that never travel** (`omit` on a declared table): `omit: ['token_hash', 'push_endpoint']`
   leaves them out of every copy, and an import writes the column's default or NULL; `omit: {
-  token_hash: (row) => … }` gives a plain value or a function of the row instead. One a copy brings
+  token_hash: (row) => … }` gives a plain value or a function of the row (its references already
+  translated) instead. `null` there, and a function that answers `undefined` or `null`, mean the
+  column's own default, so an app's slip isn't taken for a fault in the copy. One a copy brings
   anyway is dropped. The start refuses an omitted column that is NOT NULL without a default of
-  either kind, a reference, a file's column or the key.
+  either kind, a reference, a file's column or the key. A column the app keeps itself, such as
+  Focus' `owner_user_id` (the family's oldest owner), can be left undeclared as a reference and
+  filled by such a function.
 - **An account waiting to be deleted goes on waiting after a whole install's move**: the copy
   carries `delete_after`, and an account it creates takes it back with `disabled_at`, so the sweep
   takes it on the same day with its data. Only a disabled one: a date alone, in a file anyone could
   write, never sends an active account to the sweep. Before, it arrived disabled for good, with
   everything it had.
-- `organizations.roles` (every role, the app's own included) and `slugOf` from `organizations.js`.
+- **One heir rule** (`organizations.heirOf(organizationId, exceptUserId)`): the oldest admin, else
+  the oldest member, those whose seat a role change would move last (`seatRoles`: Tracker's
+  drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
+- `organizations.roles` (every role, the app's own included) and `slugOf` from `organizations.js`;
+  `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
+- `errors.import_hand_over` and `kit.data.handOver` in the four languages.
 - Apart from `delete_after`, nothing changes with today's declarations: no organization travels,
-  and a copy that has them is refused as `unknown_table`, as an older core refuses it. No
-  migration.
-- The web kit's Settings doesn't name the groups "replace" hands over yet; the plan's `hand_over`
-  has them for an app's own screen.
+  no install id is made, and a copy that has organizations is refused as `unknown_table`, as an
+  older core refuses it. No migration: the install's id and where each imported group came from
+  are kept in `app_meta`.
 
 ## 0.81.0 — 2026-10-13
 

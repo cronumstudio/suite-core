@@ -232,6 +232,16 @@ export function createOrganizations({
     ? `CASE WHEN role IN (${seatShifting.map(() => '?').join(', ')}) THEN 1 ELSE 0 END, ` : '';
 
   /**
+   * Who inherits a group from `exceptUserId` (null: from nobody, for a group with no owner left):
+   * its oldest admin, else its oldest member, those whose seat would change last. The one rule
+   * for forgetUser, handOver and an imported group whose owners were left out. → a user id, or null.
+   */
+  const heirOf = (organizationId, exceptUserId = null) => database.get(`SELECT user_id FROM memberships
+    WHERE organization_id = ? AND user_id IS NOT ?
+    ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`,
+  organizationId, exceptUserId, ...seatShifting)?.user_id ?? null;
+
+  /**
    * Before an account is deleted (hook it with `accounts.whenRemoved`): each
    * group it was the last owner of passes to its oldest admin, or else its
    * oldest member, those in a seat role last; a group left with nobody is
@@ -242,10 +252,9 @@ export function createOrganizations({
       WHERE user_id = ? AND role = 'owner'`, userId);
     for (const { id } of owned) {
       if (owners(id) > 1) continue;
-      const heir = database.get(`SELECT user_id FROM memberships WHERE organization_id = ? AND user_id <> ?
-        ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`, id, userId, ...seatShifting);
-      if (heir) {
-        database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir.user_id);
+      const heir = heirOf(id, userId);
+      if (heir != null) {
+        database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir);
       } else {
         archive(id);
       }
@@ -261,9 +270,7 @@ export function createOrganizations({
    */
   function handOver(organizationId, userId) {
     const role = roleOf(organizationId, userId);
-    const heir = database.get(`SELECT user_id FROM memberships WHERE organization_id = ? AND user_id <> ?
-      ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`,
-    organizationId, userId, ...seatShifting)?.user_id ?? null;
+    const heir = heirOf(organizationId, userId);
     if (!role || heir == null) return null;
     const inherits = role === 'owner' && owners(organizationId) <= 1;
     if (inherits) database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", organizationId, heir);
@@ -277,7 +284,7 @@ export function createOrganizations({
   return {
     create, get, list, update, archive, roleOf, requireRole, addMember, setRole, removeMember,
     invite, accept, revokeInvitation, invitationsOf, membersOf, ofUser, organizationsOf, forgetUser,
-    seatsTaken, takesSeat, handOver,
+    seatsTaken, takesSeat, handOver, heirOf,
     /** Every role, the app's own included: what a copy's memberships may bring (portability.js). */
     roles: [...roles],
   };

@@ -1145,24 +1145,31 @@ kit's), then Notes is built on it whole, then the others as they move to English
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
   decides it as one to `users` does, and the tables that chain to it are the group's too. Someone's
-  copy takes the groups they are in (the app's `kinds`; every member by default, since a member
-  reads what the group shares, or the `roles` the app names), as `data/organizations.json` and
-  their own row of `data/memberships.json`, with every row of the group; it brings no plan. The
-  whole install's takes every group, membership, waiting invitation (`suite/invitations.json`, by
-  hash: the links people were sent keep working), and the groups' grants and payments, typed
-  `organization` in `suite/grants.json` and `suite/billing.json`. Importing someone's copy puts each
-  group into theirs of that kind (`mapOntoOwn`: the oldest they own or administer) or a new one they
-  own, made quietly; a whole install's restores each group with its roles, invitations, plans and
-  payments, and finds one already here by its slug, kind and creation instead of making it twice
-  (the same install's copy brought in by another module). What is someone's alone —what "replace"
-  and erasing empty— is their rows and those of groups nobody else is in; a group they share is
-  never emptied: "replace" hands it over (the app's `organizations.leave`, then
-  `organizations.handOver()`: the heir becomes owner when they were its last), erasing leaves it
-  whole with them in it. A table's `omit` lists columns that never travel (a device's key hash, its
-  push subscription): left out of every copy, the column's default (or the app's) on import. A
-  whole install's copy also keeps `delete_after`, so an account waiting to be deleted still goes on
-  that day after the move (only a disabled one: a date alone never sends an active account to the
-  sweep).
+  copy takes the groups they are in (the app's `kinds`, archived ones too; every member by default,
+  since a member reads what the group shares, or the `copyRoles` the app names, checked against the
+  install's roles), as `data/organizations.json` and their own row of `data/memberships.json`, with
+  every row of the group; it brings no plan and doesn't say which install it is. The whole
+  install's takes every group, membership, waiting invitation (`suite/invitations.json`, by hash:
+  the links people were sent keep working), and the groups' grants and payments, typed
+  `organization` in `suite/grants.json` and `suite/billing.json`, and says which install it is
+  (`source.install`, a random id in `app_meta`). Importing someone's copy puts each group into the
+  oldest of that kind they own or administer (`mapOntoOwn`) or a new one they own, made quietly
+  with a slug from its name and today's date; a table with `onePerOrganization` (Focus' family row,
+  UNIQUE per group) then finds the group's row instead of writing a second one. A whole install's
+  restores each group as it was and records where it came from (the source install and its id
+  there, in `app_meta`); another copy of the same install (a host's next module) finds it by that
+  record alone and adds only its own rows, never members, invitations, plans or payments. Nothing a
+  file says by itself (a slug, a date, a name) finds a group here: a person's copy names no install,
+  and what a copy can't name, it can't join. What is someone's alone —what "replace" and erasing
+  empty— is their rows and those of groups nobody else is in; a group they share is never emptied:
+  "replace" hands it over (the declaration's `organizations.leave`, then `organizations.handOver()`:
+  the heir `organizations.heirOf()` names, the one rule of account deletion too, becomes owner when
+  they were its last), and someone's own "replace" waits for `hand_over: true` after Settings has
+  named those groups (409 `import_hand_over` before); erasing leaves it whole with them in it. A
+  table's `omit` lists columns that never travel (a device's key hash, its push subscription): left
+  out of every copy, the column's default (or the app's) on import. A whole install's copy also
+  keeps `delete_after`, so an account waiting to be deleted still goes on that day after the move
+  (only a disabled one: a date alone never sends an active account to the sweep).
 - **Deleting one's own account** (**done**, v0.61.0, `account-deletion.js`; the GDPR's right to
   erasure). `POST /api/me/deletion` (`confirm: true`, and with a password here the password and
   the second step's code, as erasing one's data asks) disables the account at once —sessions and
