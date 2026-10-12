@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   generateVapidKeys, vapidKeyErrors, vapidKeys, encryptPayload, decryptPayload, checkEndpoint, checkSubscription, createPush,
-  MAX_DEVICES,
+  MAX_DEVICES, MAX_PAYLOAD,
 } from '../push.js';
 import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
@@ -460,10 +460,14 @@ test('what is not an app’s subscription is refused with a code, and nothing is
     assert.throws(() => push.checkSubscription(subscription), expected, JSON.stringify(subscription)?.slice(0, 80));
     await assert.rejects(push.sendToSubscription(subscription, { title: 'x' }), expected);
   };
-  await refused(null, { field: 'subscription' });
+  await refused(null, { field: 'subscription' }, 'field_required');
+  await refused(undefined, { field: 'subscription' }, 'field_required');
   await refused(json.endpoint, { field: 'subscription' });
   await refused([json], { field: 'subscription' });
-  await refused({ keys }, { field: 'endpoint', reason: 'not_a_url' });
+  await refused({ keys }, { field: 'endpoint' }, 'field_required');
+  await refused({ endpoint: '', keys }, { field: 'endpoint' }, 'field_required');
+  await refused({ endpoint: 42, keys }, { field: 'endpoint', reason: 'not_a_url' });
+  await refused({ endpoint: 'not a url', keys }, { field: 'endpoint', reason: 'not_a_url' });
   await refused({ endpoint: 'http://fcm.googleapis.com/fcm/send/x', keys }, { field: 'endpoint', reason: 'not_https' });
   await refused({ endpoint: 'https://127.0.0.1/hook', keys }, { field: 'endpoint', reason: 'ip_address' });
   await refused({ endpoint: 'https://kiosk.local/hook', keys }, { field: 'endpoint', reason: 'local_name' });
@@ -471,7 +475,15 @@ test('what is not an app’s subscription is refused with a code, and nothing is
   await refused({ endpoint: `https://fcm.googleapis.com/fcm/send/${'a'.repeat(1000)}`, keys }, { field: 'endpoint', max: 1000 }, 'field_too_long');
   await refused({ endpoint: json.endpoint }, { field: 'p256dh' });
   await refused({ endpoint: json.endpoint, keys: { ...keys, p256dh: 'short' } }, { field: 'p256dh' });
-  await refused({ endpoint: json.endpoint, keys: { ...keys, auth: 'x' } }, { field: 'auth' });
+  // 65 bytes that don't start with 0x04 are no uncompressed point, and that byte goes into the keys.
+  const compressedMark = Buffer.from(keys.p256dh, 'base64url');
+  compressedMark[0] = 2;
+  await refused({ endpoint: json.endpoint, keys: { ...keys, p256dh: compressedMark.toString('base64url') } }, { field: 'p256dh' });
+  // The auth secret is 16 bytes (RFC 8291 §3.2), no more and no less.
+  for (const size of [0, 8, 15, 17, 1 << 20]) {
+    await refused({ endpoint: json.endpoint, keys: { ...keys, auth: crypto.randomBytes(size).toString('base64url') } }, { field: 'auth' });
+  }
+  await refused({ endpoint: json.endpoint, keys: { ...keys, auth: 42 } }, { field: 'auth' });
   assert.deepEqual([asked, service.got], [[], []], 'nothing went anywhere');
 
   // A key off the curve has the right size: refused before keeping it, gone if it was kept anyway.
@@ -482,12 +494,70 @@ test('what is not an app’s subscription is refused with a code, and nothing is
   assert.deepEqual(asked, []);
 
   // A topic is the app's to write right (RFC 8030): its mistake, not the device's.
-  for (const topic of ['x'.repeat(33), 'with space', 'acentuación']) {
-    await assert.rejects(push.sendToSubscription(json, { title: 'x' }, { topic }), TypeError, topic);
+  for (const topic of ['', 'x'.repeat(33), 'with space', 'acentuación', 'a+b', 'a/b', 'abc=']) {
+    await assert.rejects(push.sendToSubscription(json, { title: 'x' }, { topic }), TypeError, JSON.stringify(topic));
   }
   assert.deepEqual(asked, []);
+
+  // So is a notice too long for any push service: refused before it is encrypted or sent.
+  await assert.rejects(push.sendToSubscription(json, 'x'.repeat(MAX_PAYLOAD + 1)), /push payload: 3994 bytes/);
+  assert.deepEqual(asked, []);
+
+  // What is kept is plain base64url: padding, the other alphabet or a stray line break don't reach the table.
+  const standard = (text) => Buffer.from(text, 'base64url').toString('base64');
+  const messy = { endpoint: json.endpoint, keys: { p256dh: `${keys.p256dh.slice(0, 40)}\n${keys.p256dh.slice(40)}=`, auth: standard(keys.auth) } };
+  assert.ok(messy.keys.auth.endsWith('=='), 'the test sends padding');
+  assert.deepEqual(push.checkSubscription(messy), { endpoint: json.endpoint, keys });
   // The check is the module's too, for an app that checks before it has a push service.
   assert.deepEqual(checkSubscription(json), { endpoint: json.endpoint, keys });
+});
+
+test('a notice as long as a push service takes is sent whole; one longer costs nobody a device', async (t) => {
+  const service = await fakeService(t, 201);
+  const { asked, fetch } = throughFake(service);
+  const { database, accounts } = store();
+  const ada = accounts.create({ username: 'ada', password: 'ada-password' });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
+  const tablet = browserSubscription('https://fcm.googleapis.com/fcm/send/tablet');
+  const longest = 'x'.repeat(MAX_PAYLOAD);
+  assert.deepEqual(await push.sendToSubscription(tablet.json, longest), { ok: true, status: 201, gone: false });
+  assert.equal(service.got[0].body.length, 4096, 'the 4096 bytes every push service takes (RFC 8030 §7.2)');
+  assert.equal(readAsTheBrowser(service.got[0].body, tablet).text, longest);
+
+  // A person's device: the notice fails, and the device keeps its place and its count.
+  push.subscribe(ada.id, { endpoint: tablet.json.endpoint, ...tablet.json.keys });
+  assert.deepEqual(await push.sendTo([ada.id], { body: 'x'.repeat(MAX_PAYLOAD) }), { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual(database.all('SELECT failures FROM push_subscriptions').map((r) => r.failures), [0]);
+  assert.equal(asked.length, 1, 'only the first one went out');
+
+  // A topic written wrong is said once, for everyone, and nobody is sent anything.
+  await assert.rejects(push.sendTo([ada.id], { title: 'x' }, { topic: 'a b' }), TypeError);
+  await assert.rejects(push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' }, { topic: '' }), TypeError);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(await push.sendTo([ada.id], { title: 'x' }, { topic: 'list-7' }), { sent: 1, gone: 0, failed: 0 });
+  assert.equal(service.got[1].headers.topic, 'list-7', 'a good one goes with every notice');
+});
+
+test('a person’s subscription stored before the keys were checked so closely still gets its notices', async (t) => {
+  const service = await fakeService(t, 201);
+  const { fetch } = throughFake(service);
+  const { database, accounts } = store();
+  const ada = accounts.create({ username: 'ada', password: 'ada-password' });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
+  // Before 0.82.0 subscribe() took a secret of 8 bytes or more and kept the keys as they came.
+  const device = deviceKeys();
+  const shortSecret = crypto.randomBytes(12).toString('base64url');
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/old-phone';
+  database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+    ada.id, endpoint, `${device.p256dh}=`, shortSecret);
+  assert.deepEqual(await push.sendTo([ada.id], { title: 'Still here' }), { sent: 1, gone: 0, failed: 0 });
+  assert.equal(JSON.parse(decryptPayload(service.got[0].body, device.d, device.p256dh, shortSecret).toString()).title, 'Still here');
+  // Subscribing anew is checked as a browser makes keys: 16 bytes, kept in plain base64url.
+  assert.throws(() => push.subscribe(ada.id, { endpoint, p256dh: device.p256dh, auth: shortSecret }), { extra: { field: 'auth' } });
+  const padded = Buffer.from(device.auth, 'base64url').toString('base64');
+  push.subscribe(ada.id, { endpoint, p256dh: `${device.p256dh}=`, auth: padded });
+  assert.deepEqual({ ...database.get('SELECT p256dh, auth FROM push_subscriptions WHERE endpoint = ?', endpoint) },
+    { p256dh: device.p256dh, auth: device.auth });
 });
 
 async function start(t, modules, env = {}, appOptions = {}) {
@@ -579,7 +649,7 @@ test('over HTTP: an app’s own route keeps a device’s subscription with no se
   const refused = await tablet('POST', '/api/demo/devices/7/push', { subscription: { ...json, endpoint: 'https://192.168.1.10/hook' } });
   assert.deepEqual([refused.status, refused.data], [400, { error: 'field_invalid', field: 'endpoint', reason: 'ip_address' }]);
   const missing = await tablet('POST', '/api/demo/devices/7/push', {});
-  assert.deepEqual([missing.status, missing.data], [400, { error: 'field_invalid', field: 'subscription' }]);
+  assert.deepEqual([missing.status, missing.data], [400, { error: 'field_required', field: 'subscription' }]);
   const saved = await tablet('POST', '/api/demo/devices/7/push', { subscription: json });
   assert.equal(saved.status, 201);
   assert.deepEqual(kept.get('7'), { endpoint: json.endpoint, keys: json.keys });

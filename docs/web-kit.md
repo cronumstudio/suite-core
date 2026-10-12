@@ -361,11 +361,12 @@ the same URLs as before; in a host they are the module's, and the worker reads e
 
 Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/config` and posts to
 `/api/push/subscribe`, both behind a session. A device that belongs to the app instead (Focus'
-child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.74.0), which asks nothing of the
+child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.82.0), which asks nothing of the
 server and hands the subscription to the app:
 
 ```js
-import { pushSupport, devicePushSubscription } from '/suite/push.js';
+// public/js/device.js
+import { pushSupport, devicePushSubscription } from '../suite/push.js';
 
 // 'granted' | 'prompt' | 'denied' | 'install' (an iPhone or iPad tab) | 'unsupported'
 if (pushSupport() === 'install') showHomeScreenHint();
@@ -377,23 +378,26 @@ startButton.addEventListener('click', async () => {
 ```
 
 - **Ask from a tap, with the key at hand.** Safari asks for permission only from a tap, and a
-  request awaited before asking can use the tap up; `devicePushSubscription()` asks first.
-  `{ ask: false }` never asks and only goes on where permission was already given: an app
-  refreshing the subscription when it starts.
+  request awaited before asking can use the tap up; `devicePushSubscription()` asks before it
+  awaits anything. `{ ask: false }` never asks and only goes on where permission was already
+  given: an app refreshing the subscription when it starts.
 - **iPhone and iPad** give Web Push only to the app added to the home screen and opened from
-  there (iOS 16.4 and later): in a Safari tab `pushSupport()` says `'install'`, and the app explains
-  it before offering the button.
+  there, from iOS 16.4: in a Safari tab `pushSupport()` says `'install'`, and the app explains it
+  before offering the button. Before 16.4 it says `'unsupported'`: installing wouldn't help.
 - The browser's subscription is reused while it is for this key, and replaced when it was made with
-  another (the install's keys changed). It throws `Error('unsupported' | 'install' | 'not_allowed')`,
-  and a `TypeError` for a key that isn't one.
+  another (the install's keys changed). It throws `Error('unsupported')` (also when no service
+  worker is ready within `wait`, 10 s), `Error('install')`, `Error('not_allowed')` or
+  `Error('subscribe_failed')` (the browser or its push service refused, offline say; the browser's
+  error is its `cause`), and a `TypeError` for a key that isn't one.
 - A browser has **one subscription per service worker**: a person who also turns notices on in
   Settings on the same device gets the same endpoint, so neither side unsubscribes the browser to
   forget the other; each drops its own row.
 - The app's route checks what arrives with `suite.push.checkSubscription()` (a coded 400 for a
-  device that sent something else) and keeps it with the device; the server sends with
-  `suite.push.sendToSubscription()` and drops the row when it answers `gone`. What arrives is shown
-  by the service worker above, with `push` in `suiteWorker()`: `title`, `body`, `tag` and `url` (the
-  page a tap opens; an open tab gets `{ type: 'notification', data }` instead).
+  device that sent something else) and keeps what it returns with the device; the server sends
+  with `suite.push.sendToSubscription()` and drops the row when it answers `gone`. A notice is at
+  most `MAX_PAYLOAD` bytes (3993). What arrives is shown by the service worker above, with `push`
+  in `suiteWorker()`: `title`, `body`, `tag` and `url` (the page a tap opens; an open tab gets
+  `{ type: 'notification', data }` instead).
 
 ## Texts
 

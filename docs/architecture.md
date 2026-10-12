@@ -934,17 +934,17 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `/api/push/test`; the app composes the real messages and chooses who gets them
   (`suite.push.sendTo(userIds, payload | (subscription) => payload)`), as Tasks batches other
   people's changes to a shared list.
-- **Push to an app's own devices** (v0.74.0, for Focus' paired tablets): a device that belongs to
+- **Push to an app's own devices** (v0.82.0, for Focus' paired tablets): a device that belongs to
   the app and has no account behind it (a child's profile, a kiosk) keeps its subscription in the
   app's own table, with the rest the app knows of it, never in `push_subscriptions`, whose rows are
   people's. The browser subscribes with the kit's `push.js` (`devicePushSubscription(publicKey)`,
   which asks nothing of the server: the app gives the device `suite.push.publicKey` its own way)
   and posts the JSON to the app's route; the route checks it with
-  `suite.push.checkSubscription(json)` (the endpoint as a person's, the keys on the curve; a coded
-  400 otherwise) and stores what it returns. The server sends with
+  `suite.push.checkSubscription(json)` (the endpoint as a person's, the keys as a browser makes them;
+  a coded 400 otherwise) and stores what it returns. The server sends with
   `suite.push.sendToSubscription(subscription, payload, { ttl, urgency, topic })`: the same keys,
   encryption, signature and time limit as a person's, the endpoint checked again, and
-  `{ ok, status, gone }` back; on `gone` the app drops it. No table and no migration: the
+  `{ ok, status, gone }` back; on `gone`, and only then, the app drops it. No table and no migration: the
   subscription is a column of the app's device. Needs `modules.push`.
 - **Uploads** (**done**, v0.24.0, from Tasks, `suite.uploads` with `modules.uploads`): the file
   travels as the raw request body and is streamed to `DATA_DIR/uploads/<folder>/<random>-<name>`

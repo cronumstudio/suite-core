@@ -127,7 +127,7 @@
   "fields.endpoint": "Adresse des Benachrichtigungsdienstes",
   "fields.p256dh": "Geräteschlüssel",
   "fields.auth": "Gerätegeheimnis",
-  "fields.subscription": "Benachrichtigungsabonnement",
+  "fields.subscription": "Benachrichtigungs-Abo",
   "fields.source": "Konto in der Kopie",
   "fields.accounts": "Konten",
   "fields.user_id": "Konto",
