@@ -15,6 +15,7 @@ import { SUITE_MIGRATIONS } from '../schema.js';
 import { createEntitlements, importUserPlans } from '../entitlements.js';
 import { PLAN_CATALOGS, COMMON_FEATURES, pick } from '../plans.js';
 import { HttpError } from '../http.js';
+import { createSuite, SuiteConfigError } from '../app.js';
 
 const DAY = 24 * 3600 * 1000;
 const FEATURES = {
@@ -158,16 +159,26 @@ test('PLANS=cronum-work: the suite’s catalog, read for the features the app ha
   // A feature the catalog doesn't set would be left unlimited: the start stops instead.
   const loose = createEntitlements({ database, appId: 'x', features: { ...features, 'boards.max': { type: 'limit' } }, plansJson: 'cronum-work' });
   assert.ok(loose.errors.some((m) => /plan "free" says nothing of "boards.max"/.test(m)));
-  assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-play' }).errors[0], /no catalog of the suite \(cronum-work\)/);
+  // The message names every catalog there is, whichever products have one.
+  assert.ok(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-play' }).errors[0]
+    .includes(`is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')})`));
   assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-work', defaultPlanOverride: 'gratis' }).errors[0],
     /DEFAULT_PLAN=free/, 'an old DEFAULT_PLAN stops the start, naming the new one');
 });
 
 test('the suite’s catalog: every plan sets every feature, and each one gives at least what the one before it', () => {
+  // Cronum Work's apps share every common feature; a product of its own sets the ones its app declares.
+  for (const key of Object.keys(COMMON_FEATURES)) assert.ok(key in PLAN_CATALOGS['cronum-work'].free.features, `cronum-work: ${key}`);
   for (const [name, plans] of Object.entries(PLAN_CATALOGS)) {
     const ids = Object.keys(plans);
     const keys = Object.keys(plans[ids[0]].features);
-    for (const key of Object.keys(COMMON_FEATURES)) assert.ok(keys.includes(key), `${name}: ${key}`);
+    for (const id of ids) {
+      for (const key of keys.filter((k) => COMMON_FEATURES[k])) {
+        const value = plans[id].features[key];
+        assert.ok(COMMON_FEATURES[key].type === 'flag' ? typeof value === 'boolean' : value === null || (Number.isInteger(value) && value >= 0),
+          `${name}/${id}: ${key} is a ${COMMON_FEATURES[key].type}`);
+      }
+    }
     for (let i = 1; i < ids.length; i++) {
       const [before, after] = [plans[ids[i - 1]].features, plans[ids[i]].features];
       assert.deepEqual(Object.keys(after).sort(), [...keys].sort(), `${name}/${ids[i]} sets the same features`);
@@ -179,6 +190,85 @@ test('the suite’s catalog: every plan sets every feature, and each one gives a
     }
   }
   assert.throws(() => pick(COMMON_FEATURES, ['nope']), /not a common feature/);
+});
+
+/** The features Focus declares (its suite.config.js, from its step P1). */
+const FOCUS_FEATURES = {
+  ...pick(COMMON_FEATURES, ['mcp', 'mcp.calls_per_day']),
+  'routines.max': { type: 'limit', default: null, label: 'saved routines' },
+  'history.days': { type: 'limit', default: null, label: 'keeping unsaved routines in History' },
+  'devices.per_child': { type: 'limit', default: null, label: 'paired devices per child' },
+  live: { type: 'flag', default: true, label: 'the live view and remote launch' },
+  'summary.days': { type: 'limit', default: null, label: 'days of the adult summary' },
+  'runner.views': { type: 'flag', default: true, label: 'more runner and home views' },
+};
+const FOCUS_FREE = {
+  mcp: true, 'mcp.calls_per_day': 100, 'routines.max': 5, 'history.days': 7, 'devices.per_child': 1,
+  live: false, 'summary.days': 0, 'runner.views': false,
+};
+const FOCUS_PRO = {
+  mcp: true, 'mcp.calls_per_day': 1000, 'routines.max': null, 'history.days': null, 'devices.per_child': null,
+  live: true, 'summary.days': 14, 'runner.views': true,
+};
+
+test('PLANS=cronum-focus: a product of its own, with Free and Pro for a family', (t) => {
+  const database = setup(t);
+  let now = Date.parse('2026-11-02T09:00:00Z');
+  const family = 7;
+  const eve = { id: 3, role: 'user' };   // an adult of the family
+  const e = createEntitlements({ database, appId: 'focus', features: FOCUS_FEATURES, plansJson: 'cronum-focus',
+    organizationsOf: (user) => (user.id === eve.id ? [family] : []), clock: () => now });
+  assert.deepEqual(e.errors, []);
+  assert.deepEqual(e.describe().plans.map((p) => [p.id, p.name]), [['free', 'Free'], ['pro', 'Pro']]);
+  assert.equal(e.describe().defaultPlan, 'free');
+  assert.deepEqual(e.of(ada).features, FOCUS_FREE);
+  assert.throws(() => e.require(ada, 'routines.max', { current: 5 }), (err) => err.status === 402 && err.code === 'plan_limit');
+  assert.equal(e.can(ada, 'summary.days'), false, 'Free’s summary is the last run of each routine');
+  assert.equal(e.can(ada, 'mcp'), true, 'the AI connector is everyone’s');
+
+  // Pro is the family's: granted to its organization, it reaches the adults who are its members.
+  // The 14-day trial is that grant with an end; past it, the family is on Free again.
+  const trialEnds = new Date(now + 14 * DAY).toISOString();
+  e.grant({ subjectType: 'organization', subjectId: family, plan: 'pro', source: 'trial', endsAt: trialEnds });
+  assert.deepEqual(e.of(eve).features, FOCUS_PRO);
+  assert.deepEqual([e.of(eve).plan.id, e.of(eve).ends], ['pro', trialEnds], 'what the last days’ notice reads');
+  assert.deepEqual(e.of(ada).features, FOCUS_FREE, 'nobody outside the family');
+  now += 15 * DAY;
+  assert.deepEqual(e.of(eve).features, FOCUS_FREE);
+  assert.equal(e.cutoff(eve, 'history.days'), null, 'Free’s 7 days of History count from the end of the trial');
+  now += 7 * DAY;
+  assert.equal(e.cutoff(eve, 'history.days'), new Date(now - 7 * DAY).toISOString());
+
+  // Another product's catalog knows nothing of Focus's keys, nor this one of theirs: `history.days`,
+  // Notes' too with another meaning, never meets it, since an install reads the catalog it names.
+  const work = createEntitlements({ database, appId: 'focus', features: FOCUS_FEATURES, plansJson: 'cronum-work' });
+  assert.ok(work.errors.some((m) => /PLANS "cronum-work": plan "free" says nothing of "routines.max"/.test(m)));
+  const notes = { 'notebooks.max': { type: 'limit' }, 'history.days': { type: 'limit' } };
+  assert.ok(createEntitlements({ database, appId: 'notes', features: notes, plansJson: 'cronum-focus' }).errors
+    .some((m) => /PLANS "cronum-focus": plan "free" says nothing of "notebooks.max"/.test(m)));
+});
+
+test('PLANS=cronum-focus: an app with exactly Focus’s keys starts, and one more stops it', (t) => {
+  const dirs = [fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-focus-')), fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-focus-'))];
+  let suite = null;
+  t.after(() => { suite?.database.close(); for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true }); });
+  const product = { app: { id: 'focus', name: 'Focus' }, modules: { organizations: true }, features: FOCUS_FEATURES };
+  const env = (dir) => ({ DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-focus' });
+  suite = createSuite({ config: product, env: env(dirs[0]), log: () => {}, exitOnError: false });
+
+  // With the suite's own organizations: a family's Pro reaches its owner and the adult invited in.
+  const [owner, adult] = ['ada', 'bob'].map((username) => suite.accounts.create({ username }));
+  const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: owner.id });
+  suite.organizations.addMember(home.id, adult.id, 'admin');
+  assert.deepEqual(suite.entitlements.of(adult).features, FOCUS_FREE);
+  suite.entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'pro', source: 'paddle', externalRef: 'sub_1' });
+  assert.deepEqual(suite.entitlements.of(owner).features, FOCUS_PRO);
+  assert.deepEqual(suite.entitlements.of(adult).features, FOCUS_PRO);
+
+  // A key the catalog doesn't set would be left unlimited: the start stops, naming it.
+  const more = { ...product, features: { ...FOCUS_FEATURES, 'kiosks.max': { type: 'limit', default: null } } };
+  assert.throws(() => createSuite({ config: more, env: env(dirs[1]), log: () => {}, exitOnError: false }),
+    (err) => err instanceof SuiteConfigError && /PLANS "cronum-focus": plan "free" says nothing of "kiosks\.max"/.test(err.message));
 });
 
 test('cutoff: what Free keeps 90 days counts them from when Pro ended', (t) => {

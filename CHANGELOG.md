@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.73.0 — 2026-10-12
+
+- **Cronum Focus's catalog** (`plans.js`, `PLANS=cronum-focus`): a product of its own, whose
+  installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
+  Work plan gives anything in Focus (an app that declares a key the named catalog lacks doesn't
+  start). Two plans, `free` (Free) and `pro` (Pro), and both are a family's: a family is an
+  organization (kind `family`), its plan is granted to it and reaches its adults, who are its
+  members, and the 14-day trial a new family starts with is that grant with an end. The keys,
+  Free's value first: `routines.max` (5, no limit; saved routines, not what History holds),
+  `history.days` (7, no limit; an unsaved routine leaves History after those days unused),
+  `devices.per_child` (1, no limit), `live` (`false`, `true`: the live view, an adult's control
+  and remote launch), `summary.days` (0, 14; 0 is the last run of each routine), `runner.views`
+  (`false`, `true`), `mcp` (on in both) and `mcp.calls_per_day` (100, 1000, as in Cronum Work).
+  `history.days` is a Notes key too, with another meaning (a note's earlier versions): an install
+  reads only the catalog it names, so the two never meet. The prices stay with the provider (Pro
+  2.99 EUR a month or 24 a year per family). `cronum-work` is unchanged, and the error for a
+  catalog that doesn't exist names `cronum-focus` among the others.
+
 ## 0.67.0 — 2026-10-11
 
 - **Device tokens** (`devices.js`, `modules.devices`, off by default): an app on a phone signs in
