@@ -53,9 +53,9 @@ change an interface and a patch never does. Apps pin a version through the submo
     while still listed stays refunded until a REFUND_REVERSED of its transaction. Kept as rows of
     `billing_events` of their own (`note:…`, type and outcome `note`; refs and times only), so no
     migration; no delivery can write one, since a webhook's id takes only letters, digits, `-`, `_`
-    and `.` (any other is replaced by its digest). Unverified until the stores' sandbox tests, and handled either way: whether
-    RevenueCat clears `refunded_at` on a reversal, whether it removes a refunded one-off, and that
-    `refunded_at` and `store_transaction_id` are the latest purchase's.
+    and `.` (any other is replaced by its digest). Unverified until the stores' sandbox tests, and
+    handled either way: whether RevenueCat clears `refunded_at` on a reversal, whether it removes a
+    refunded one-off, and that `refunded_at` and `store_transaction_id` are the latest purchase's.
   - Another product's sales: a webhook for another store (Stripe, Paddle, promotional), for a
     product `stores.products` doesn't name, or from the sandbox with `REVENUECAT_SANDBOX=off`, is
     foreign, and nobody is looked up; one for a customer this install never gave out is
