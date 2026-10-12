@@ -350,6 +350,11 @@ test('seats: false: a third and a fourth adult join a family after it buys, thro
 
   assert.equal(family('evt_1', { periodEnd: '2027-05-01T10:00:00Z' }), 'granted');
   assert.equal(entitlements.seatsOf(home.id), null, 'no cap on the members');
+  // Read again as a store reads (stores.js): quantity 1 again is what is already here, not a change.
+  assert.equal(billing.apply({
+    id: 'evt_1_read', type: 'subscription', ref: 'sub_family', subject: { type: 'organization', id: home.id }, customer: 'cus_family',
+    product: 'family-pro', status: 'active', quantity: 1, occurredAt: new Date(clock.now).toISOString(), periodEnd: '2027-05-01T10:00:00Z',
+  }, { reading: true }), 'unchanged');
   assert.equal(entitlements.grantsOf('organization', home.id)[0].quantity, null, 'the grant has no quantity');
   assert.equal(billing.subscriptionsOf({ type: 'organization', id: home.id })[0].quantity, null, 'nor the subscription');
   assert.equal(code(() => organizations.addMember(home.id, eve.id, 'admin')), 'ok', 'a third adult');
