@@ -683,7 +683,9 @@ Products live in the app's configuration, each tied to a plan of the catalog and
 'organization' } }`. `billing_customers` keeps each user's or organization's customer at the
 provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
-`GET /api/billing/subscriptions` and `POST /api/billing/webhook`.
+`GET /api/billing/subscriptions` and `POST /api/billing/webhook`. In the browser, Settings' plan
+section sells them (`plan: { billing: true }`, `web/plan.js`, v0.70.0): Upgrade, Manage
+subscription, a 402's call to action and the return from the checkout ([web-kit.md](web-kit.md)).
 
 `signedProvider()` speaks these normalized events directly, signed with a shared secret
 (`t=…,v1=…`, HMAC-SHA256, the scheme Stripe uses, five minutes of tolerance). It is what the tests
