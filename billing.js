@@ -59,6 +59,7 @@
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
 import { ensureColumn } from './migrate.js';
+import { answeredOnce } from './idempotency.js';
 
 const DAY = 24 * 3600 * 1000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -580,10 +581,11 @@ export function registerBillingApi(router, { billing, organizations = null, base
     sendJson(ctx.res, 200, { url });
   });
 
-  router.post('/api/billing/portal', async (ctx) => {
+  // The provider's portal opens signed in from this link, valid for a short while: never kept.
+  router.post('/api/billing/portal', answeredOnce(async (ctx) => {
     const { subject } = await subjectOf(ctx);
     sendJson(ctx.res, 200, { url: await billing.portalUrl(subject, { returnUrl: back('/') }) });
-  });
+  }));
 
   router.get('/api/billing/subscriptions', (ctx) => {
     if (!ctx.user) throw unauthorized();
