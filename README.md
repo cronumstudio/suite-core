@@ -306,7 +306,7 @@ export const DATA = {
                      omit: { token_hash: (row) => unusableHash(), push_endpoint: null, push_p256dh: null, push_auth: null } },
   },
   organizations: {
-    kinds: ['family'],          // whose rows someone's copy takes (left out: every kind)
+    copyKinds: ['family'],      // whose rows someone's copy takes (left out: every kind)
     copyRoles: null,            // which members' copies carry the group (left out: every member)
     mapOntoOwn: ['family'],     // someone's import goes into the family they own or administer here
     leave(userId, organizationId) { … },  // "replace" takes them out of a family others share
@@ -314,11 +314,13 @@ export const DATA = {
 };
 ```
 
-- **Someone's copy** takes each group they are in (of `kinds`, where their role is one of
-  `copyRoles`, which must be roles of the install; archived ones too, marked so): its name, kind,
-  settings and branding, their own membership (never the others') and every row of the group. A
-  row with a NOT NULL reference to another member is left out, counted in `left_out`; an optional
-  one is emptied, as before. It brings no plan or invitation, and never says which install it is.
+- **Someone's copy** takes each group they are in (of `copyKinds`, where their role is one of
+  `copyRoles`, which must be roles of the install; archived ones too, marked so). These are the
+  declaration's names, apart from suite.config.js's `organizations.kinds` (each kind's rules) and
+  `organizations.roles`; a kind is written by one rule, `KIND_NAME` in organizations.js. It takes
+  its name, kind, settings and branding, their own membership (never the others') and every row of
+  the group. A row with a NOT NULL reference to another member is left out, counted in `left_out`;
+  an optional one is emptied, as before. It brings no plan or invitation, and never says which install it is.
 - **The whole install's copy** takes every group, archived ones too, every membership, the
   invitations still waiting (by their hash, so the links people hold still open the group), the
   groups' grants and who pays for them (`subject_type: 'organization'` in `suite/grants.json` and

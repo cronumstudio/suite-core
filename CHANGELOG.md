@@ -17,8 +17,9 @@ change an interface and a patch never does. Apps pin a version through the submo
     it are the group's too. A table needs a NOT NULL reference to users, to organizations or to an
     earlier table.
   - **`organizations` in the declaration** (each key may be left out; `{}` alone carries the groups
-    in the install's copy of an app without tables of its own for them): `kinds` (whose groups
-    someone's copy takes; every kind), `copyRoles` (which members' copies carry the group; every
+    in the install's copy of an app without tables of its own for them): `copyKinds` (whose groups
+    someone's copy takes; every kind; a kind written as organizations.js writes them, `KIND_NAME`),
+    `copyRoles` (which members' copies carry the group; every
     member, since a member reads what the group shares; Tracker can name `['owner', 'admin']`;
     checked against the install's `organizations.roles`, so a misspelt role stops the start instead
     of carrying the group in nobody's copy), `mapOntoOwn` (kinds, or `true`: someone's import goes
@@ -93,7 +94,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **One heir rule** (`organizations.heirOf(organizationId, exceptUserId)`): the oldest admin, else
   the oldest member, those whose seat a role change would move last (`seatRoles`: Tracker's
   drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
-- `organizations.roles` (every role, the app's own included) and `slugOf` from `organizations.js`;
+- `organizations.roles` (every role, the app's own included), `slugOf` and `KIND_NAME` (how a kind is written, the one rule for every kind's name) from `organizations.js`;
   `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
 - `errors.import_hand_over` and `kit.data.handOver` in the four languages.
 - Apart from `delete_after`, nothing changes with today's declarations: no organization travels,

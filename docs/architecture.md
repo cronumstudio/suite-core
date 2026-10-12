@@ -175,6 +175,8 @@ export default {
     roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'driver' in Tracker
     invitationDays: 7,
     // seatRoles: ['driver'],     // some of roles, the ones that take a seat (else every member)
+    // Which groups and roles a person's copy of the data takes are the data declaration's
+    // `organizations.copyKinds` and `copyRoles` (portability.js), some of these.
   },
 
   // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
@@ -1145,10 +1147,14 @@ kit's), then Notes is built on it whole, then the others as they move to English
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
   decides it as one to `users` does, and the tables that chain to it are the group's too. Someone's
-  copy takes the groups they are in (the app's `kinds`, archived ones too; every member by default,
-  since a member reads what the group shares, or the `copyRoles` the app names, checked against the
-  install's roles), as `data/organizations.json` and their own row of `data/memberships.json`, with
-  every row of the group; it brings no plan and doesn't say which install it is. The whole
+  copy takes the groups they are in (the declaration's `copyKinds`, archived ones too; every member by
+  default, since a member reads what the group shares, or the `copyRoles` the app names, checked
+  against the install's roles). These are the declaration's own names, apart from suite.config.js's
+  `organizations.kinds` (each kind's rules) and `organizations.roles` (the install's roles): the
+  copy* ones say only what a person's copy takes, and a kind is written by one rule, `KIND_NAME` in
+  organizations.js. It goes as `data/organizations.json` and their own row of
+  `data/memberships.json`, with every row of the group; it brings no plan and doesn't say which
+  install it is. The whole
   install's takes every group, membership, waiting invitation (`suite/invitations.json`, by hash:
   the links people were sent keep working), and the groups' grants and payments, typed
   `organization` in `suite/grants.json` and `suite/billing.json`, and says which install it is

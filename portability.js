@@ -71,7 +71,7 @@ import {
 import { createZipWriter, openZip } from './zip.js';
 import { detectType, storedName } from './uploads.js';
 import { USERNAME } from './accounts.js';
-import { slugOf } from './organizations.js';
+import { slugOf, KIND_NAME } from './organizations.js';
 
 export const EXPORT_FORMAT = 'cronum-suite-export';
 export const EXPORT_VERSION = 1;
@@ -90,9 +90,10 @@ const INVITATION_COLUMNS = ['id', 'organization_id', 'email', 'role', 'token_has
 /** The suite's own tables of organizations: their rows travel as organizations do, never as an app's table. */
 const ORGANIZATION_TABLES = ['organizations', 'memberships', 'invitations'];
 /** What the declaration's `organizations` takes. */
-const ORGANIZATION_OPTIONS = ['kinds', 'copyRoles', 'mapOntoOwn', 'leave'];
+// `copyKinds` and `copyRoles`: what someone's copy takes, apart from suite.config.js's
+// `organizations.kinds` (each kind's rules) and `organizations.roles` (the install's roles).
+const ORGANIZATION_OPTIONS = ['copyKinds', 'copyRoles', 'mapOntoOwn', 'leave'];
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
-const KIND = /^[a-z0-9_-]{1,40}$/;
 
 const MB = 1024 * 1024;
 const DAY = 24 * 3600 * 1000;
@@ -173,7 +174,7 @@ export function dataImportsSchema(d) {
  * copies, which `organizations` tunes (every key may be left out):
  *
  *   organizations: {
- *     kinds: ['family'],        // whose rows someone's copy takes: groups of these kinds (every kind)
+ *     copyKinds: ['family'],    // whose rows someone's copy takes: groups of these kinds (every kind)
  *     copyRoles: ['owner', 'admin'],  // and only where their role is one of these (every member)
  *     mapOntoOwn: ['family'],   // someone's import goes into the oldest group of that kind they
  *                               // own or administer here, instead of a new one (true: every kind)
@@ -316,12 +317,12 @@ export function describeData(database, declaration = {}, { organizationRoles } =
 /**
  * A declaration's `organizations`, checked: null when organizations don't
  * travel (neither it nor a table that points at them), else
- * { kinds, copyRoles, mapOntoOwn: Sets or null for every one; leave: a function or null }.
+ * { copyKinds, copyRoles, mapOntoOwn: Sets or null for every one; leave: a function or null }.
  */
 function organizationsOf(spec, pointedAt, errors, installRoles) {
   if (spec == null && !pointedAt) return null;
   if (spec != null && !isObject(spec)) {
-    errors.push('organizations: an object, such as { kinds: [\'family\'] }');
+    errors.push('organizations: an object, such as { copyKinds: [\'family\'] }');
     return null;
   }
   if (installRoles === null) {
@@ -340,7 +341,7 @@ function organizationsOf(spec, pointedAt, errors, installRoles) {
     }
     return new Set(value);
   };
-  const kinds = names('kinds', KIND);
+  const copyKinds = names('copyKinds', KIND_NAME);
   // A misspelt role would carry the group in nobody's copy, without a word.
   let copyRoles = null;
   if (given.copyRoles != null) {
@@ -351,15 +352,15 @@ function organizationsOf(spec, pointedAt, errors, installRoles) {
     } else copyRoles = new Set(value);
   }
   let mapOntoOwn = null;
-  if (given.mapOntoOwn === true) mapOntoOwn = kinds ?? true;
+  if (given.mapOntoOwn === true) mapOntoOwn = copyKinds ?? true;
   else if (given.mapOntoOwn != null && given.mapOntoOwn !== false) {
-    mapOntoOwn = names('mapOntoOwn', KIND);
+    mapOntoOwn = names('mapOntoOwn', KIND_NAME);
     for (const kind of mapOntoOwn || []) {
-      if (kinds && !kinds.has(kind)) errors.push(`organizations.mapOntoOwn: "${kind}" is not one of organizations.kinds`);
+      if (copyKinds && !copyKinds.has(kind)) errors.push(`organizations.mapOntoOwn: "${kind}" is not one of organizations.copyKinds`);
     }
   }
   if (given.leave != null && typeof given.leave !== 'function') errors.push('organizations.leave: a function (userId, organizationId)');
-  return { kinds, copyRoles, mapOntoOwn, leave: typeof given.leave === 'function' ? given.leave : null };
+  return { copyKinds, copyRoles, mapOntoOwn, leave: typeof given.leave === 'function' ? given.leave : null };
 }
 
 /**
@@ -626,7 +627,7 @@ export function createPortability({
   /* ------------------------------ organizations ------------------------------ */
 
   /** Whether an organization is one whose data this app's copies carry: of its kinds. */
-  const ofKind = (organization) => !groups.kinds || groups.kinds.has(organization.kind);
+  const ofKind = (organization) => !groups.copyKinds || groups.copyKinds.has(organization.kind);
   const mapsOntoOwn = (kind) => groups.mapOntoOwn === true || Boolean(groups.mapOntoOwn?.has(kind));
   /**
    * The groups someone's own copy carries: those they are in, of the app's kinds, where their
@@ -1084,7 +1085,7 @@ export function createPortability({
       seen.add(raw.id);
       const name = typeof raw.name === 'string' ? cut(raw.name.trim(), 80) : '';
       if (!name) throw invalidData('organizations', { column: 'name' });
-      if (raw.kind != null && (typeof raw.kind !== 'string' || !KIND.test(raw.kind))) throw invalidData('organizations', { column: 'kind' });
+      if (raw.kind != null && (typeof raw.kind !== 'string' || !KIND_NAME.test(raw.kind))) throw invalidData('organizations', { column: 'kind' });
       return {
         id: raw.id, name, kind: raw.kind ?? null,
         slug: typeof raw.slug === 'string' && SLUG.test(raw.slug) ? raw.slug : null,

@@ -91,7 +91,7 @@ const DATA = (db) => ({
     fam_notes: { refs: { user_id: 'users' } },
   },
   organizations: {
-    kinds: ['family'],
+    copyKinds: ['family'],
     mapOntoOwn: ['family'],
     // The app's part of a hand-over: the adult's profile in that family loses its account.
     leave: (userId, organizationId) => left.push([userId, organizationId]),
@@ -218,7 +218,7 @@ test('a group’s tables, what organizations do in copies and the columns that n
   assert.deepEqual(model.byName.get('fam_families').refs, [{ column: 'organization_id', target: 'organizations', required: true, deferred: false }]);
   assert.equal(model.byName.get('fam_families').onePer, 'organization_id');
   assert.deepEqual([...model.byName.get('fam_devices').omit.keys()], ['token_hash', 'push_endpoint', 'push_p256dh', 'push_auth', 'push_failures']);
-  assert.deepEqual([...model.organizations.kinds], ['family']);
+  assert.deepEqual([...model.organizations.copyKinds], ['family']);
   // A table that points at organizations carries them by itself; today's declarations carry none.
   assert.ok(describeData(database, { tables: { fam_families: { refs: { organization_id: 'organizations' }, omit: { owner_user_id: () => 1 } } } }).organizations);
   assert.equal(describeData(database, { tables: { fam_notes: { refs: { user_id: 'users' } } } }).organizations, null);
@@ -239,8 +239,11 @@ test('a group’s tables, what organizations do in copies and the columns that n
   fails({ tables: { fam_notes: { refs: { user_id: 'users' }, onePerOrganization: true } } },
     /fam_notes\.onePerOrganization: a table with an integer id and one NOT NULL reference to organizations/);
   fails({ tables: {}, organizations: { kind: ['family'] } }, /organizations\.kind is not an option/);
-  fails({ tables: {}, organizations: { roles: ['owner'] } }, /organizations\.roles is not an option \(kinds, copyRoles, mapOntoOwn, leave\)/);
-  fails({ tables: {}, organizations: { kinds: ['family'], mapOntoOwn: ['team'] } }, /"team" is not one of organizations\.kinds/);
+  fails({ tables: {}, organizations: { roles: ['owner'] } }, /organizations\.roles is not an option \(copyKinds, copyRoles, mapOntoOwn, leave\)/);
+  fails({ tables: {}, organizations: { kinds: ['family'] } }, /organizations\.kinds is not an option/, roles);
+  fails({ tables: {}, organizations: { copyKinds: ['family'], mapOntoOwn: ['team'] } }, /"team" is not one of organizations\.copyKinds/);
+  // A kind is written as organizations.js writes it: starting with a letter.
+  fails({ tables: {}, organizations: { copyKinds: ['1family'] } }, /organizations\.copyKinds: a list of kinds/);
   // A misspelt role would carry the group in nobody's copy: refused, naming the install's.
   fails({ tables: {}, organizations: { copyRoles: ['ownr'] } },
     /organizations\.copyRoles: some of organizations\.roles \(owner, admin, member\), such as \['owner', 'admin'\], or left out for every member/);
@@ -405,7 +408,7 @@ test('a family of that kind they own or run here takes the copy, and its one row
   assert.equal(count(target.db, 'organizations'), 3, 'no new one');
   assert.deepEqual([...cleaned[0].mapped], [mine.id]);
 
-  const plain = install(t, { declaration: (db) => ({ ...DATA(db), organizations: { kinds: ['family'] } }) });
+  const plain = install(t, { declaration: (db) => ({ ...DATA(db), organizations: { copyKinds: ['family'] } }) });
   const ben = plain.suite.accounts.create({ username: 'ben', displayName: 'Ben' });
   const own = plain.organizations.create({ name: 'Ben home', kind: 'family', ownerId: ben.id });
   const again = await plain.portability.applyFile(file, { mode: 'account', user: ben });

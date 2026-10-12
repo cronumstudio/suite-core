@@ -58,6 +58,12 @@ export function organizationsSchema(d) {
 const POWER = { owner: 3, admin: 2 };
 const power = (role) => POWER[role] ?? (role ? 1 : 0);
 
+/**
+ * How a group's kind is written: lowercase letters, digits, - and _, starting with a letter (a
+ * declaration's `copyKinds` and a copy's groups, portability.js).
+ */
+export const KIND_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
+
 /** A slug from a name: "Casa Andersen" → "casa-andersen", made unique by the caller (also portability.js). */
 export const slugOf = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'group';
