@@ -222,7 +222,7 @@ The plan section shows the person's plan and until when (`GET /api/me/entitlemen
 `plan.render(answer)` adds the app's own block. That is all it does with `plan: true`, and with
 `plan: { billing: true }` on a server whose `/api/auth/config` doesn't say `modules.billing: false`
 it also sells, from the suite's routes (`billing.js`), with nothing of one app or provider in it
-(`web/plan.js`, v0.71.0):
+(`web/plan.js`, v0.76.0):
 
 - **What can be bought**: `GET /api/billing/products`, the products for one person whose plan is
   above theirs in the catalog's order, or theirs again when it lapses on a date; nothing to an

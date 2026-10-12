@@ -684,7 +684,7 @@ Products live in the app's configuration, each tied to a plan of the catalog and
 provider. The routes are `GET /api/billing/products`, `POST /api/billing/checkout` and
 `/api/billing/portal` (for a person, or for a group by one of its admins),
 `GET /api/billing/subscriptions` and `POST /api/billing/webhook`. In the browser, Settings' plan
-section sells them (`plan: { billing: true }`, `web/plan.js`, v0.71.0): Upgrade, Manage
+section sells them (`plan: { billing: true }`, `web/plan.js`, v0.76.0): Upgrade, Manage
 subscription, a 402's call to action and the return from the checkout ([web-kit.md](web-kit.md)).
 
 `signedProvider()` speaks these normalized events directly, signed with a shared secret
