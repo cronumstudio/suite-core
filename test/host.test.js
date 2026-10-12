@@ -531,6 +531,41 @@ test('what a host can’t run stops it, and says why', async () => {
   }
 });
 
+test('a module that manages a kind of group: the host declares it the same way, and the module hears its groups', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  let host = null;
+  t.after(() => { host?.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' };
+  const hostWith = (kinds) => ({ ...HOST, modules: { ...HOST.modules, organizations: true }, organizations: { kinds } });
+  const entry = (n) => ({ mount: 'focus', entry: fixture('plain', `?id=focus&uses=organizations&kinds=family&n=${n}`) });
+  for (const [kinds, why] of [[{}, 'not declared'], [{ family: { managed: true } }, 'declared otherwise']]) {
+    fresh += 1;
+    await assert.rejects(
+      createHost({ config: hostWith(kinds), modules: [entry(`${fresh}x`)], env, handleSignals: false, exitOnError: false, log: () => {} }),
+      (err) => err instanceof SuiteConfigError
+        && err.errors.includes("focus: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
+      why,
+    );
+  }
+
+  fresh += 1;
+  const module = entry(`${fresh}y`);
+  host = await createHost({
+    config: hostWith({ family: { managed: true, maxPerUser: 1 } }), modules: [module], env, handleSignals: false, exitOnError: false, log: () => {},
+  });
+  const { heard } = await import(module.entry);
+  const { organizations, accounts } = host.suite;
+  assert.equal(organizations.isManaged('family'), true);
+  const ada = accounts.create({ username: 'ada' });
+  const bob = accounts.create({ username: 'bob' });
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: ada.id });
+  organizations.addMember(home.id, bob.id, 'admin');
+  organizations.removeMember(home.id, bob.id, { by: bob.id });
+  accounts.remove(ada.id);
+  assert.deepEqual(heard, [['member', 'family', bob.id, 'left'], ['member', 'family', ada.id, 'account_deleted'], ['deleted', 'family', 'empty']]);
+  assert.equal(organizations.exists(home.id), false);
+});
+
 test('a PLANS JSON names the features of any module; one that none declares stops the start', async (t) => {
   const dirs = [];
   let host = null;

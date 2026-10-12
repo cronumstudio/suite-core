@@ -68,6 +68,17 @@
  * A reading (`apply(event, { reading: true })`, stores.js) is not a delivery: it is what the store
  * holds now, read again after a webhook or when the app asks. One that says what is already here
  * is `'unchanged'` and leaves no trace (no event row, no audit), so reading again costs nothing.
+ *
+ * A group that goes (organizations.remove, or its last member gone with `onEmpty: 'delete'`). Its
+ * subscription would go on renewing at the provider with nobody left to use it, so a group's live
+ * subscriptions can be stopped at the end of the period already paid (`stopOrganization(id)`, or on
+ * its deletion with `billing.stopOnOrganizationDeleted`), and taken back (`keepOrganization(id)`).
+ * Each stop is asked of the provider once: it is a row of `billing_events` of its own
+ * (`stop:organization:<id>:<ref>`, type `stop`), made `pending` in the deletion's transaction, so a
+ * deletion undone leaves none, and made `requested` once the provider took it; one that fails
+ * stays pending and the hourly `sendStops()` asks again, and one whose subscription ended first is
+ * `ended`. An event for a group that is no longer here (`organizationGone`) is `'gone'`: nothing is
+ * linked, granted or kept for it beyond its id, and a subscription row still kept follows its status.
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
@@ -192,6 +203,12 @@ const SUBSCRIPTION_KEEPS = new Set(['active', 'trialing']);
 const SUBSCRIPTION_ENDS = new Set(['canceled', 'ended', 'unpaid', 'incomplete_expired', 'paused']);
 /** An event waiting for someone who never comes is dropped after this long. */
 const PENDING_DAYS = 400;
+/** What still charges: a group's subscription in one of these is stopped when the group goes. */
+const RENEWS = new Set(['active', 'trialing', 'past_due']);
+/** A stop taken by a sweep that never said how it went (the process ended) is taken again after this. */
+const SENDING_MS = 15 * 60 * 1000;
+const STOP_ID = /^stop:organization:(\d+):(.+)$/;
+const stopId = (organizationId, ref) => `stop:organization:${organizationId}:${ref}`;
 
 /**
  * @param {object} options
@@ -217,11 +234,13 @@ const PENDING_DAYS = 400;
  *   subscription together (the apps of Cronum Work), or their sales would be foreign to each other
  * @param {string[]} [options.otherProviders]   the other instances on these tables (the stores'): a
  *   person's live subscription there also makes the web's checkout of a second one `already_subscribed`
+ * @param {(organizationId) => boolean} [options.organizationGone]   whether a group is no longer
+ *   here (deleted); its events are then 'gone' (see the top of this file). Without it, as before.
  */
 export function createBilling({
   database, entitlements, provider = null, products = {}, graceDays = 3, audit = null,
   identities = null, isFounder = () => false, clock = () => Date.now(), log = console.log,
-  ignoreUnknownProducts = false, app = null, otherProviders = [],
+  ignoreUnknownProducts = false, app = null, otherProviders = [], organizationGone = null,
 }) {
   const errors = [];
   if (typeof ignoreUnknownProducts !== 'boolean') errors.push('ignoreUnknownProducts must be true or false');
@@ -439,6 +458,33 @@ export function createBilling({
     return { subject: identity?.subject ? null : validSubject(event.subject) };
   }
 
+  /** Whether an event's subject is a group that is no longer here (only with `organizationGone`). */
+  const isGone = (subject) => subject?.type === 'organization' && typeof organizationGone === 'function'
+    && Boolean(organizationGone(subject.id));
+
+  /**
+   * An event for a group deleted here: nothing linked, granted or kept for it. A subscription row
+   * still kept of it (without forgetOnRemove) follows its status, and a stop asked for it that the
+   * subscription's end makes moot is closed. Before, such an event failed at the audit's reference
+   * to the group: a 500 the provider retried.
+   */
+  function applyGone(event, subject) {
+    if (event.type === 'subscription') {
+      const known = database.get('SELECT occurred_at FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, event.ref);
+      if (known && known.occurred_at <= event.occurredAt) {
+        database.run(`UPDATE billing_subscriptions SET status = ?, quantity = ?, period_end = ?, occurred_at = ?, updated_at = ?
+          WHERE provider = ? AND ref = ?`, String(event.status ?? ''), event.quantity ?? null, event.periodEnd ?? null,
+        event.occurredAt, iso(clock()), source, event.ref);
+      }
+      if (!RENEWS.has(event.status)) {
+        database.run(`UPDATE billing_events SET outcome = 'ended', received_at = ? WHERE provider = ? AND event_id = ?
+          AND type = 'stop' AND outcome = 'pending'`, iso(clock()), source, stopId(subject.id, event.ref));
+      }
+    }
+    log(`[billing] ${source} event ${event.id}: for organization #${subject.id}, which is no longer here`);
+    return 'gone';
+  }
+
   /** Keeps an event until that identity has an account here. */
   function hold(event, identity) {
     database.run(`INSERT INTO billing_pending (provider, identity_provider, identity_subject, ref, event, occurred_at, received_at)
@@ -449,8 +495,9 @@ export function createBilling({
 
   /**
    * Applies one event, once. Returns what it did: granted, extended, changed,
-   * revoked, refunded, kept, stale, pending, duplicate, ignored, nothing or
-   * foreign (another product's, with the options at the top of this file).
+   * revoked, refunded, kept, stale, pending, duplicate, ignored, nothing,
+   * foreign (another product's, with the options at the top of this file) or
+   * gone (for a group deleted here, with `organizationGone`).
    * `reading`: the event is what the store holds now (stores.js), not a
    * delivery; one that changes nothing is 'unchanged', and it and a stale one
    * leave no row and no audit.
@@ -480,7 +527,8 @@ export function createBilling({
           outcome = hold(normalized, who.waits);
         } else if (who.subject) {
           subject = who.subject;
-          outcome = applyTo(normalized, subject, { byIdentity: who.byIdentity, reading });
+          outcome = isGone(subject) ? applyGone(normalized, subject)
+            : applyTo(normalized, subject, { byIdentity: who.byIdentity, reading });
         } else {
           log(`[billing] ${source} event ${event.id}: no known subject, ignored`);
         }
@@ -489,7 +537,7 @@ export function createBilling({
       if (reading && (outcome === 'unchanged' || outcome === 'stale')) return outcome;
       database.run('INSERT INTO billing_events (provider, event_id, type, outcome, received_at) VALUES (?, ?, ?, ?, ?)',
         source, String(event.id), normalized.type, outcome, iso(clock()));
-      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign'].includes(outcome)) {
+      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign', 'gone'].includes(outcome)) {
         record(`billing.${outcome}`, subject, { provider: source, product: normalized.product ?? null, ref: normalized.ref });
       }
       return outcome;
@@ -636,9 +684,142 @@ export function createBilling({
     });
   }
 
+  /* --------------------------- a group's renewals ------------------------- */
+
+  const canStop = () => enabled && typeof provider?.cancelSubscription === 'function';
+  const setStop = (eventId, outcome) => database.run(`UPDATE billing_events SET outcome = ?, received_at = ?
+    WHERE provider = ? AND event_id = ? AND type = 'stop'`, outcome, iso(clock()), source, eventId);
+  const stopsOf = (organizationId) => database.all(`SELECT event_id, outcome FROM billing_events WHERE provider = ?
+    AND type = 'stop' AND event_id LIKE ?`, source, `stop:organization:${Number(organizationId)}:%`);
+  /**
+   * Whether the audit may name the group: one deleted (or never here) would break the audit's
+   * reference to it, so its entry names it by id only. Without organizationGone, it is asked here.
+   */
+  const groupHere = (id) => (typeof organizationGone === 'function' ? !organizationGone(Number(id))
+    : Boolean(database.get('SELECT 1 AS here FROM organizations WHERE id = ?', Number(id))));
+
+  /**
+   * Marks the live subscriptions a group pays here to stop renewing, each once (see the top of
+   * this file): synchronous, so it runs inside the group's deletion and is undone with it. A
+   * provider that can't stop one (the remote one) marks nothing. → how many were marked now
+   */
+  function markOrganizationStop(organizationId) {
+    if (!canStop()) return 0;
+    const id = Number(organizationId);
+    let marked = 0;
+    for (const { ref } of database.all(`SELECT ref FROM billing_subscriptions WHERE provider = ? AND subject_type = 'organization'
+      AND subject_id = ? AND status IN (${[...RENEWS].map(() => '?').join(', ')})`, source, id, ...RENEWS)) {
+      marked += database.run(`INSERT OR IGNORE INTO billing_events (provider, event_id, type, outcome, received_at)
+        VALUES (?, ?, 'stop', 'pending', ?)`, source, stopId(id, ref), iso(clock())).changes;
+    }
+    return marked;
+  }
+
+  /**
+   * Asks the provider to stop, at the end of the period paid, every subscription marked and not
+   * asked yet (of one group, or all: the hourly sweep). Each is taken before the provider is asked,
+   * so two sweeps at once never ask twice; one that fails is logged and stays for the next sweep;
+   * one whose subscription ended meanwhile is closed without asking. Each stop asked is audited
+   * (`billing.organization.stop`). → { requested, waiting }: asked now, and still to ask
+   */
+  async function sendStops({ organizationId = null } = {}) {
+    if (!canStop()) return { requested: 0, waiting: 0 };
+    const stale = iso(clock() - SENDING_MS);
+    const due = database.all(`SELECT event_id FROM billing_events WHERE provider = ? AND type = 'stop'
+      AND (outcome = 'pending' OR (outcome = 'sending' AND received_at < ?)) ORDER BY received_at, event_id`, source, stale);
+    let requested = 0;
+    let waiting = 0;
+    for (const { event_id: eventId } of due) {
+      const [, id, ref] = STOP_ID.exec(eventId) || [];
+      if (!ref || (organizationId != null && Number(id) !== Number(organizationId))) continue;
+      const taken = database.run(`UPDATE billing_events SET outcome = 'sending', received_at = ? WHERE provider = ? AND event_id = ?
+        AND type = 'stop' AND (outcome = 'pending' OR (outcome = 'sending' AND received_at < ?))`, iso(clock()), source, eventId, stale).changes;
+      if (!taken) continue;
+      const known = database.get('SELECT status FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, ref);
+      if (known && !RENEWS.has(known.status)) {
+        setStop(eventId, 'ended');
+        continue;
+      }
+      try {
+        await provider.cancelSubscription(ref);
+      } catch (err) {
+        setStop(eventId, 'pending');
+        waiting += 1;
+        log(`[billing] ${source}: organization #${id}'s subscription ${ref} could not be stopped yet, tried again later: ${err.message}`);
+        continue;
+      }
+      setStop(eventId, 'requested');
+      requested += 1;
+      audit?.record({
+        action: 'billing.organization.stop', organizationId: groupHere(id) ? Number(id) : null, targetType: 'organization',
+        targetId: Number(id), meta: { provider: source, ref },
+      });
+    }
+    return { requested, waiting };
+  }
+
+  /**
+   * A group's subscriptions stop renewing at the end of the period they paid for (the app asks:
+   * its own "delete the family", or the group's deletion with `billing.stopOnOrganizationDeleted`).
+   * Asked of the provider once each, however many times this is called. → { requested, waiting }
+   */
+  async function stopOrganization(organizationId) {
+    database.tx(() => markOrganizationStop(organizationId));
+    return sendStops({ organizationId });
+  }
+
+  /**
+   * Taken back: what was asked to stop renews again (`keepSubscription`), and a stop not asked yet
+   * is dropped. Each provider call is tried even if another fails; the first failure is thrown after.
+   * → how many renew again
+   */
+  async function keepOrganization(organizationId) {
+    if (!canStop()) return 0;
+    let kept = 0;
+    let failure = null;
+    for (const { event_id: eventId, outcome } of stopsOf(organizationId)) {
+      const [, id, ref] = STOP_ID.exec(eventId) || [];
+      if (!ref || outcome === 'sending') continue;
+      // One that ended meanwhile has nothing to renew: the provider would refuse.
+      const known = database.get('SELECT status FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, ref);
+      if (outcome === 'requested' && !(known && !RENEWS.has(known.status))) {
+        try {
+          await provider.keepSubscription(ref);
+        } catch (err) {
+          failure ??= err;
+          continue;
+        }
+        kept += 1;
+        audit?.record({
+          action: 'billing.organization.keep', organizationId: groupHere(id) ? Number(id) : null, targetType: 'organization',
+          targetId: Number(id), meta: { provider: source, ref },
+        });
+      }
+      database.run('DELETE FROM billing_events WHERE provider = ? AND event_id = ? AND type = \'stop\'', source, eventId);
+    }
+    if (failure) throw failure;
+    return kept;
+  }
+
+  /**
+   * A group deleted, with `billing.forgetOnRemove`: its customer link and subscription rows go,
+   * as a person's do (forget). Its grants went with it (organizations.remove), and a stop marked
+   * for it keeps the ref it needs. → { subscriptions, customers }
+   */
+  function forgetOrganization(organizationId) {
+    const id = Number(organizationId);
+    return database.tx(() => ({
+      subscriptions: database.run(`DELETE FROM billing_subscriptions WHERE provider = ? AND subject_type = 'organization'
+        AND subject_id = ?`, source, id).changes,
+      customers: database.run(`DELETE FROM billing_customers WHERE provider = ? AND subject_type = 'organization'
+        AND subject_id = ?`, source, id).changes,
+    }));
+  }
+
   return {
     enabled, errors, provider: source, offer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, forget,
+    markOrganizationStop, sendStops, stopOrganization, keepOrganization, forgetOrganization,
   };
 }
 

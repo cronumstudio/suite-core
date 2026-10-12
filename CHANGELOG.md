@@ -3,6 +3,74 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.85.0 — 2026-10-13
+
+- **A kind of group the app manages itself** (`organizations.kinds` in `suite.config.js`, or
+  `createOrganizations({ kinds })`): `{ family: { managed: true, maxPerUser: 1 } }`, each kind with
+  `managed`, `maxPerUser` and `onEmpty`, checked on start (an unknown key, a kind's name that isn't
+  lowercase letters, digits, - and _, or a wrong value stops it, saying which). Focus keeps
+  everything per family and has rules of its own: one family per account, a profile for each
+  adult. The suite's generic routes knew nothing of them.
+  - `managed: true`: `POST /api/orgs` with that kind, `POST /api/orgs/join` with an invitation to
+    one (before the invitation is spent) and `DELETE /api/orgs/:id/members/:user` on one answer 403
+    `organization_managed` with the `kind` (an outsider still gets 404). The app does them through
+    its own routes, with the same functions (`create`, `accept`, `addMember`, `removeMember`,
+    `remove`), its own permission checks and the same audit actions. Reading, renaming, inviting and
+    changing a role keep the generic routes.
+  - `maxPerUser: n`: `create`, `addMember` and `accept` refuse a person one more non-archived group
+    of the kind with 409 `organization_limit` (`{ kind, max }`), whoever calls.
+  - `onEmpty: 'delete'` (a managed kind's default; `'archive'` for any other, as before): when the
+    last member goes, by leaving or being removed (`removeMember`, where the last member may now
+    leave even as its owner) or with their account (`forgetUser`), the group is deleted instead of
+    archived.
+  - `organizations.remove(id, { reason, by })`: a group deleted whole, in one transaction: the app's
+    hooks, then its plan grants (which name it by id, with nothing to cascade by), invitations,
+    memberships and the row, with an `org.delete` audit entry. `exists(id)`, `isManaged(kind)`,
+    `rulesFor(kind)` and `invitationKind(token)` are new too.
+  - The app's hooks, inside the change's transaction (one that throws undoes it all):
+    `whenMemberRemoved({ organization, userId, role, reason, by })`, before a membership goes
+    (reason `left`, `removed` or `account_deleted`), and `whenDeleted({ organization, reason, by })`,
+    before a group's rows go. `createSuite({ hooks: { onMemberRemoved, onOrganizationDeleted } })`
+    registers them, and so does a module of a host. In a host the kinds are the host's: a module
+    that declares one the host doesn't declare the same way stops the start.
+  - `removeMember(id, userId, { by })` now returns `{ organizationDeleted }` and runs in its own
+    transaction; the generic leave route passes `by` and answers `organization_deleted: true` when
+    the group went (its `org.leave` entry then points at no group).
+- **Invitations are purged** (`organizations.purge()`, in `suite.purge()` for every app): those
+  accepted or withdrawn at the next clean-up, and those expired 14 days after they expired. They
+  hold the email they were sent to. The 14 days keep the right answer for someone who opens a link
+  late (410 `invitation_expired`, "ask for a new one"), not 404 "used or withdrawn"; a used or
+  withdrawn one answers 404 either way. No app reads old invitations (none has organizations on but
+  Focus's rebuild).
+- **A group's subscriptions stop renewing when it goes.** `billing.stopOnOrganizationDeleted: true`:
+  a group deleted (above, or by the app) has its live subscriptions at the provider cancelled at the
+  end of the period paid. `billing.stopOrganization(id)` does the same for a group that stays (an
+  app's "delete the family" with a grace), `billing.keepOrganization(id)` takes it back. Each stop
+  is asked once: a row of `billing_events` of its own (`stop:organization:<id>:<ref>`, type `stop`),
+  marked `pending` inside the deletion's transaction (a deletion undone leaves none), `requested`
+  once the provider took it, asked again by an hourly `billing.sendStops()` (createApp and the host)
+  when it failed, and `ended` when the subscription ended first. Each is audited
+  (`billing.organization.stop`, `billing.organization.keep`). Off by default: today's installs ask
+  their provider nothing new. With `billing.forgetOnRemove` too, a deleted group's customer link and
+  subscription rows go, as a person's do.
+- **An event for a group no longer here is `'gone'`** (`createBilling({ organizationGone })`, set by
+  createSuite with organizations on): nothing is linked, granted or kept beyond its id, and a
+  subscription row still kept follows its status. Before, such an event failed at the audit's
+  reference to the group: the webhook answered 500 and the provider retried it until it gave up.
+  Only events naming a group that doesn't exist here change.
+- **Paddle's `cancelSubscription` counts a cancellation it already has.** Paddle refuses a second
+  cancellation while one is scheduled (`subscription_locked_pending_changes`) and any change to one
+  already canceled; the subscription is then read, and one canceled (or, at the period's end,
+  scheduled to cancel) counts. Before, `stopRenewals` failed for someone who had cancelled in the
+  portal.
+- **Stripe can stop a subscription** (`cancelSubscription(ref, { now })`: `cancel_at_period_end`, or
+  deleted now; `keepSubscription(ref)`), as Paddle could. This also reaches the account deletion
+  with `accounts.deleteAtProviders` on Stripe, which skipped Stripe until now; no install runs
+  Stripe.
+- `errors.organization_managed`, `errors.organization_limit` and the activity log's
+  `org.delete`, `billing.organization.stop` and `billing.organization.keep`, in the four languages.
+- No migration and no table. `organizations.<key> is not a setting` now lists `kinds`.
+
 ## 0.81.0 — 2026-10-13
 
 - **An app can push to its own devices, with no user behind them.** A device that belongs to the

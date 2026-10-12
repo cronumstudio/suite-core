@@ -69,7 +69,7 @@ suite-core/
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
   rate-limit.js         done   brute-force brake persisted in the database
-  organizations.js      done   organizations, memberships, roles, invitations, seats
+  organizations.js      done   organizations, memberships, roles, invitations, seats, kinds an app manages
   entitlements.js       done   features, plans and grants; can() / limit() / require()
   billing.js            done   payments turned into grants: provider interface, signed webhooks
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
@@ -175,6 +175,10 @@ export default {
     roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'driver' in Tracker
     invitationDays: 7,
     // seatRoles: ['driver'],     // some of roles, the ones that take a seat (else every member)
+    // Kinds the app manages itself (section 10): the generic /api/orgs routes refuse to create,
+    // join, leave or remove members of them; maxPerUser caps them per person; onEmpty: 'delete'
+    // (a managed kind's default) deletes a group whose last member goes instead of archiving it.
+    // kinds: { family: { managed: true, maxPerUser: 1 } },
   },
 
   // What a plan can switch on, off or cap. Keys are the app's own; across apps they are
@@ -203,7 +207,9 @@ export default {
   // What keeps another product's sales out, all off unless given (section 9, "Another product's sales").
   // `app` is not app.id: one value for every app sold as one subscription (Cronum Work's say 'work').
   billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } },
-  // billing.forgetOnRemove: true lets an account that goes take its billing links and grants here with it.
+  // billing.forgetOnRemove: true lets an account that goes take its billing links and grants here with it
+  // (and a group deleted, its billing links); billing.stopOnOrganizationDeleted: true stops a deleted
+  // group's subscriptions renewing at the end of the period paid (section 10).
 
   // What the app on a phone sells in the App Store and Google Play, with STORE_BILLING (section 9,
   // "Several providers and the stores"). `devices`: the store routes also take the app's device tokens.
@@ -364,6 +370,8 @@ CREATE TABLE invitations (
   accepted_at     TEXT,
   revoked_at      TEXT
 );
+-- The clean-up deletes those accepted or withdrawn, and those expired over 14 days ago: they hold
+-- the email they were sent to, and none can let anyone in any more.
 
 -- What someone is entitled to. One row per plan or single feature granted to a user or an
 -- organization, from a source, for a window. Subscriptions, one-off and lifetime purchases,
@@ -890,6 +898,19 @@ stores: {
   `billing_pending`, as for anyone without an account here, and goes to an account opened again
   with that login, who still pays for it. The identity provider, whose login other apps share, is
   never asked, and a group's subscription stays with the group. `/api/billing/webhook` is unchanged.
+- **A group that goes** (section 10): with `billing.stopOnOrganizationDeleted`, its live
+  subscriptions stop renewing at the end of the period paid, asked of the provider once each
+  (Paddle's cancel at `next_billing_period`, Stripe's `cancel_at_period_end`); an app can ask the
+  same for a group that stays (`billing.stopOrganization(id)`, its "delete the family" with a grace)
+  and take it back (`billing.keepOrganization(id)`). Each stop is a row of `billing_events` of its
+  own (`stop:organization:<id>:<ref>`, type `stop`): marked `pending` inside the deletion's
+  transaction (a deletion undone leaves none), `requested` once the provider took it, retried by
+  the hourly `sendStops()` when it failed, `ended` when the subscription ended first. A
+  cancellation the provider already has (scheduled in the portal, or a request whose answer was
+  lost) is read back and counts. With `billing.forgetOnRemove`, a deleted group's customer link
+  and subscription rows go too. An event for a group no longer here is `'gone'`: nothing is
+  linked, granted or kept beyond its id (before, it failed at the audit's reference to the group,
+  a 500 the provider retried), and a subscription row still kept follows its status.
 
 ## 10. Organizations
 
@@ -907,6 +928,37 @@ more joins in a seat. A membership has one role, so when the last owner's accoun
 passes to someone outside those roles first: a driver inherits it, and stops driving, only when
 nobody else is left. Which records belong to an organization instead of a person is the app's
 decision, made in its own tables.
+
+**Kinds an app manages** (`organizations.kinds`, each `{ managed, maxPerUser, onEmpty }`). A group's
+`kind` is the app's free text; naming one in the configuration gives it rules, checked on start
+like the rest (an unknown key or a wrong value stops it):
+
+- `managed: true` (Focus's `family`): the generic routes refuse to create one (`POST /api/orgs` with
+  that kind), to join one by an invitation (`POST /api/orgs/join`, before the invitation is spent)
+  and to leave or remove its members (`DELETE /api/orgs/:id/members/:user`), answering 403
+  `organization_managed` with the `kind`. The app does those through its own routes and its own
+  rules, calling the same functions (`organizations.create`, `accept`, `addMember`, `removeMember`,
+  `remove`), with its own permission checks and audit entries (`org.create`, `org.join`,
+  `org.leave`, `org.member.remove`, as the generic routes write them). Reading, renaming, inviting
+  and changing a role keep the generic routes and the suite's rules.
+- `maxPerUser: n`: a person is in at most n non-archived groups of the kind; `create`, `addMember`
+  and `accept` refuse one more with 409 `organization_limit` (`{ kind, max }`), whoever calls.
+- `onEmpty: 'delete'` (the default of a managed kind; `'archive'` otherwise, as before): when the
+  last member goes —they leave or are removed (`removeMember`; the last member, even an owner, can
+  then leave), or their account is deleted (`forgetUser`)— the group is deleted instead of
+  archived: `organizations.remove(id)` with the reason `empty`.
+- `organizations.remove(id, { reason, by })` deletes a group whatever it holds: its plan grants
+  (which name it by id), invitations, memberships and the row, in one transaction, with an
+  `org.delete` audit entry (its other entries keep their target, without the reference).
+
+The app hears, inside the change's transaction, of each member who goes
+(`whenMemberRemoved({ organization, userId, role, reason, by })`, reason `left`, `removed` or
+`account_deleted`) and of each group deleted (`whenDeleted({ organization, reason, by })`, before its
+rows go, so it can read them), and deletes its own rows there; a hook that throws undoes the whole
+change. `createSuite({ hooks: { onMemberRemoved, onOrganizationDeleted } })` registers them, and so
+does a module of a host; in a host the kinds are the host's, and a module that declares one the host
+doesn't declare the same way stops the start. Billing hooks itself after the app's hook (section 9,
+"A group that goes"). Without kinds, every group behaves as before.
 
 ## 11. HTTP layer and dispatch order
 
