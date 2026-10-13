@@ -22,6 +22,7 @@ import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { vapidKeyErrors } from './push.js';
 import { PADDLE_API } from './paddle.js';
 import { REVENUECAT_API, STORE_FIELDS } from './revenuecat.js';
+import { productSeatsProblem } from './billing.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
 
@@ -566,6 +567,11 @@ function productsFor(products, billing, errors) {
   const out = {};
   for (const [key, spec] of Object.entries(products)) {
     if (!isObject(spec)) { out[key] = spec; continue; }
+    // Whether a group's purchase caps its members is the product's, the same in every install: a
+    // mistake stops the start even without a provider, so development and CI see it before a
+    // family that paid finds it can't add anyone.
+    const seats = productSeatsProblem(spec);
+    if (seats) errors.push(`products.${key}.${seats}`);
     const resolved = { ...spec };
     for (const field of ['price', 'founderPrice']) {
       if (spec[field] === undefined) continue;

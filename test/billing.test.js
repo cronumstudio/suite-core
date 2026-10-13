@@ -22,6 +22,8 @@ import { createAudit } from '../audit.js';
 import {
   createBilling, registerBillingApi, signedProvider, signPayload, verifySignature,
 } from '../billing.js';
+import { resolveConfig } from '../config.js';
+import { createSuite, SuiteConfigError } from '../app.js';
 
 const DAY = 24 * 3600 * 1000;
 const SECRET = 'a-shared-secret-of-the-accounts-service';
@@ -59,6 +61,7 @@ function setup(t, { now: start = '2026-05-01T10:00:00Z', provider = signedProvid
 }
 
 const planOf = (entitlements, user, context) => entitlements.of(user, context).plan.id;
+const code = (fn) => { try { fn(); } catch (err) { return `${err.status} ${err.code}`; } return 'ok'; };
 
 test('signatures: the right secret, the same body, not too old', () => {
   const body = '{"id":"evt_1"}';
@@ -319,4 +322,224 @@ test('the guard\'s options are checked; the checkout tells the provider which ap
   await make({}).checkoutUrl({ type: 'user', id: ada.id }, 'pro-monthly', { user: ada, returnUrl: 'x' });
   assert.equal(seen[0].app, 'work');
   assert.equal('app' in seen[1], false, 'as before without one');
+});
+
+/* ------------------------- a family's plan: no seats ------------------------ */
+
+/** A family's products (Focus's): one Pro for the family, however many adults it has. */
+const FAMILY = {
+  'family-pro': { plan: 'family', kind: 'subscription', for: 'organization', seats: false },
+  'family-pass': { plan: 'family', kind: 'once', days: 30, for: 'organization', seats: false },
+};
+
+test('seats: false: a third and a fourth adult join a family after it buys, through a renewal and a cancellation at the period\'s end', (t) => {
+  const { database, clock, entitlements, organizations, accounts, audit, ada } = setup(t);
+  const billing = createBilling({
+    database, entitlements, provider: signedProvider({ secret: SECRET }), products: { ...PRODUCTS, ...FAMILY },
+    audit, clock: () => clock.now, log: () => {},
+  });
+  assert.deepEqual(billing.errors, []);
+  const [bob, eve, dan, kim] = ['bob', 'eve', 'dan', 'kim'].map((username) => accounts.create({ username }));
+  const home = organizations.create({ name: 'Andersen', kind: 'family', ownerId: ada.id });
+  organizations.addMember(home.id, bob.id, 'admin');
+  // Every event says one of the price, as Paddle's and Stripe's checkouts buy it.
+  const family = (id, fields) => billing.apply({
+    id, type: 'subscription', ref: 'sub_family', subject: { type: 'organization', id: home.id }, customer: 'cus_family',
+    product: 'family-pro', status: 'active', quantity: 1, occurredAt: new Date(clock.now).toISOString(), ...fields,
+  });
+
+  assert.equal(family('evt_1', { periodEnd: '2027-05-01T10:00:00Z' }), 'granted');
+  assert.equal(entitlements.seatsOf(home.id), null, 'no cap on the members');
+  // Read again as a store reads (stores.js): quantity 1 again is what is already here, not a change.
+  assert.equal(billing.apply({
+    id: 'evt_1_read', type: 'subscription', ref: 'sub_family', subject: { type: 'organization', id: home.id }, customer: 'cus_family',
+    product: 'family-pro', status: 'active', quantity: 1, occurredAt: new Date(clock.now).toISOString(), periodEnd: '2027-05-01T10:00:00Z',
+  }, { reading: true }), 'unchanged');
+  assert.equal(entitlements.grantsOf('organization', home.id)[0].quantity, null, 'the grant has no quantity');
+  assert.equal(billing.subscriptionsOf({ type: 'organization', id: home.id })[0].quantity, null, 'nor the subscription');
+  assert.equal(code(() => organizations.addMember(home.id, eve.id, 'admin')), 'ok', 'a third adult');
+  const { token } = organizations.invite(home.id, { role: 'admin', invitedBy: ada.id });
+  assert.equal(code(() => organizations.accept(token, dan.id)), 'ok', 'a fourth, by invitation');
+  for (const adult of [ada, bob, eve, dan]) assert.equal(planOf(entitlements, adult), 'family');
+
+  // Renewed: an update with the next period, and quantity 1 again. The same grant moves, still no seats.
+  clock.now += 365 * DAY;
+  assert.equal(family('evt_2', { periodEnd: '2028-05-01T10:00:00Z' }), 'extended');
+  assert.equal(entitlements.seatsOf(home.id), null);
+  assert.equal(entitlements.grantsOf('organization', home.id).length, 1, 'one grant, moved');
+  // Cancelled in the portal: active until the period ends, and nobody is turned away meanwhile.
+  clock.now += DAY;
+  assert.equal(family('evt_3', { periodEnd: '2028-05-01T10:00:00Z' }), 'extended');
+  const { token: another } = organizations.invite(home.id, { role: 'admin' });
+  assert.equal(code(() => organizations.accept(another, kim.id)), 'ok', 'a fifth');
+  assert.equal(organizations.membersOf(home.id).length, 5);
+  clock.now = Date.parse('2028-05-01T10:00:01Z');
+  assert.equal(family('evt_4', { status: 'canceled' }), 'revoked');
+  assert.equal(planOf(entitlements, kim), 'free');
+  assert.deepEqual(audit.list({ action: 'billing.' }).map((e) => e.action).sort(),
+    ['billing.extended', 'billing.extended', 'billing.granted', 'billing.revoked']);
+});
+
+test('without seats: false a group\'s purchase caps its members as before, by addMember and by invitation, across an update', (t) => {
+  const { clock, billing, entitlements, organizations, accounts, ada } = setup(t);
+  const [bob, eve] = ['bob', 'eve'].map((username) => accounts.create({ username }));
+  const home = organizations.create({ name: 'Home', ownerId: ada.id });
+  const group = (id, fields) => billing.apply({
+    id, type: 'subscription', ref: 'sub_home', subject: { type: 'organization', id: home.id }, customer: 'cus_home',
+    product: 'family-yearly', status: 'active', quantity: 1, occurredAt: new Date(clock.now).toISOString(), ...fields,
+  });
+  assert.equal(group('evt_1', { periodEnd: '2027-05-01T10:00:00Z' }), 'granted');
+  assert.equal(entitlements.seatsOf(home.id), 1, 'the quantity bought is its seats');
+  assert.equal(code(() => organizations.addMember(home.id, bob.id, 'admin')), '402 seats_full');
+  const { token } = organizations.invite(home.id, { role: 'admin' });
+  assert.equal(code(() => organizations.accept(token, eve.id)), '402 seats_full');
+  clock.now += 365 * DAY;
+  assert.equal(group('evt_2', { periodEnd: '2028-05-01T10:00:00Z' }), 'extended');
+  assert.equal(entitlements.seatsOf(home.id), 1);
+  assert.equal(code(() => organizations.addMember(home.id, bob.id, 'admin')), '402 seats_full');
+  const { token: renewed } = organizations.invite(home.id, { role: 'admin' });
+  assert.equal(code(() => organizations.accept(renewed, eve.id)), '402 seats_full');
+  assert.equal(organizations.membersOf(home.id).length, 1);
+});
+
+test('seats: false: a one-off purchase has no quantity either; a family that bought before the option is uncapped by its next event', (t) => {
+  const { database, clock, entitlements, organizations, accounts, ada } = setup(t);
+  const provider = signedProvider({ secret: SECRET });
+  const bob = accounts.create({ username: 'bob' });
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: ada.id });
+  const before = createBilling({
+    database, entitlements, provider, clock: () => clock.now, log: () => {},
+    products: { 'family-pro': { plan: 'family', kind: 'subscription', for: 'organization' } },
+  });
+  const event = (id) => ({
+    id, type: 'subscription', ref: 'sub_old', subject: { type: 'organization', id: home.id }, product: 'family-pro',
+    status: 'active', quantity: 1, periodEnd: '2027-05-01T10:00:00Z', occurredAt: new Date(clock.now).toISOString(),
+  });
+  assert.equal(before.apply(event('evt_old')), 'granted');
+  assert.equal(entitlements.seatsOf(home.id), 1, 'as every group\'s purchase was');
+  // The app adds `seats: false` to the same product: its next event (a renewal, a change) replaces the grant.
+  const after = createBilling({ database, entitlements, provider, products: FAMILY, clock: () => clock.now, log: () => {} });
+  clock.now += DAY;
+  assert.equal(after.apply(event('evt_new')), 'changed');
+  assert.equal(entitlements.seatsOf(home.id), null);
+  assert.equal(code(() => organizations.addMember(home.id, bob.id, 'admin')), 'ok');
+
+  const other = organizations.create({ name: 'Other', kind: 'family', ownerId: bob.id });
+  assert.equal(after.apply({
+    id: 'evt_pass', type: 'purchase', ref: 'order_pass', subject: { type: 'organization', id: other.id }, product: 'family-pass', quantity: 1,
+  }), 'granted');
+  assert.equal(entitlements.seatsOf(other.id), null);
+  assert.equal(entitlements.ofOrganization(other.id).plan.id, 'family');
+});
+
+test('seats: false next to seatRoles: no seats to take, so drivers join freely; a product with seats caps only the drivers', (t) => {
+  const { database, clock, entitlements, accounts, ada } = setup(t);
+  const organizations = createOrganizations({
+    database, roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'], seatsOf: entitlements.seatsOf, clock: () => clock.now,
+  });
+  const billing = createBilling({
+    database, entitlements, provider: signedProvider({ secret: SECRET }), clock: () => clock.now, log: () => {},
+    products: { ...FAMILY, 'fleet-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } },
+  });
+  const [bob, eve, dan, kim, lee] = ['bob', 'eve', 'dan', 'kim', 'lee'].map((username) => accounts.create({ username }));
+  const buy = (organization, product) => billing.apply({
+    id: `evt_${organization.id}`, type: 'subscription', ref: `sub_${organization.id}`, subject: { type: 'organization', id: organization.id },
+    product, status: 'active', quantity: 1, periodEnd: '2027-05-01T10:00:00Z',
+  });
+
+  const family = organizations.create({ name: 'Family', ownerId: ada.id });
+  assert.equal(buy(family, 'family-pro'), 'granted');
+  for (const person of [bob, eve, dan]) assert.equal(code(() => organizations.addMember(family.id, person.id, 'driver')), 'ok');
+  const { token } = organizations.invite(family.id, { role: 'member' });
+  organizations.accept(token, kim.id);
+  assert.equal(code(() => organizations.setRole(family.id, kim.id, 'driver')), 'ok', 'moved into a seat role: there are no seats to take');
+  assert.equal(organizations.seatsTaken(family.id), 4);
+
+  // A product with seats: only the drivers count against them, as seatRoles says.
+  const fleet = organizations.create({ name: 'Fleet', ownerId: ada.id });
+  assert.equal(buy(fleet, 'fleet-yearly'), 'granted');
+  assert.equal(entitlements.seatsOf(fleet.id), 1);
+  assert.equal(code(() => organizations.addMember(fleet.id, bob.id, 'driver')), 'ok');
+  assert.equal(code(() => organizations.addMember(fleet.id, eve.id, 'driver')), '402 seats_full');
+  assert.equal(code(() => organizations.addMember(fleet.id, eve.id, 'admin')), 'ok', 'an admin takes no seat');
+  assert.equal(code(() => organizations.setRole(fleet.id, eve.id, 'driver')), '402 seats_full');
+
+  // A grant without a quantity sets no seats, like an admin's gift: one with a quantity still caps the group.
+  const gift = entitlements.grant({ subjectType: 'organization', subjectId: family.id, plan: 'family', quantity: 4, source: 'admin' });
+  assert.equal(entitlements.seatsOf(family.id), 4);
+  assert.equal(code(() => organizations.addMember(family.id, lee.id, 'driver')), '402 seats_full');
+  entitlements.revoke({ id: gift });
+  assert.equal(entitlements.seatsOf(family.id), null);
+});
+
+test('seats is checked on start: only for a group\'s product, true or false, never misspelt; with or without a provider', (t) => {
+  const { database, entitlements } = setup(t);
+  const products = {
+    person: { plan: 'family', kind: 'subscription', seats: false },
+    typo: { plan: 'family', kind: 'subscription', for: 'organisation', seats: false },
+    text: { plan: 'family', kind: 'subscription', for: 'organization', seats: 'no' },
+    seat: { plan: 'family', kind: 'subscription', for: 'organization', seat: false },
+    fine: { plan: 'family', kind: 'subscription', for: 'organization', seats: true },
+    free: { plan: 'family', kind: 'subscription', for: 'organization', seats: false },
+  };
+  const bad = createBilling({ database, entitlements, provider: signedProvider({ secret: SECRET }), products });
+  assert.deepEqual(bad.errors, [
+    'Product "person": seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
+    'Product "typo": seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
+    'Product "text": seats must be true or false',
+    'Product "seat": seat is not a setting (seats?)',
+  ]);
+  assert.equal(bad.enabled, false, 'a misspelt product never charges');
+
+  // config.js says it too, before any provider: what a family bought must not depend on the install.
+  const product = (given) => ({
+    app: { id: 'focus', name: 'Focus', languages: ['en'] }, modules: { organizations: true, billing: true },
+    plans: { free: { name: 'Free', features: {} }, family: { name: 'Family', features: {} } }, products: given,
+  });
+  const errorsOf = (given, env = {}) => resolveConfig(product(given), { DATA_DIR: os.tmpdir(), ...env }).errors;
+  assert.deepEqual(errorsOf(products), [
+    'products.person.seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
+    'products.typo.seats is only for a product for: \'organization\' (a person\'s plan has no seats)',
+    'products.text.seats must be true or false',
+    'products.seat.seat is not a setting (seats?)',
+  ]);
+  assert.deepEqual(errorsOf({ free: products.free, fine: products.fine, old: { plan: 'family', kind: 'once', for: 'organization' } }), []);
+  assert.deepEqual(errorsOf(FAMILY, { BILLING_PROVIDER: 'remote', BILLING_SECRET: SECRET }), []);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-seats-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.throws(() => createSuite({ config: product({ text: products.text }), env: { DATA_DIR: dir, PORT: '0' }, log: () => {}, exitOnError: false }),
+    (err) => err instanceof SuiteConfigError && /products\.text\.seats must be true or false/.test(err.message), 'the start stops');
+});
+
+test('createSuite: a family bought through the webhook has no seats, and its own plan reads without a person', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-family-'));
+  const suite = createSuite({
+    config: {
+      app: { id: 'focus', name: 'Focus', languages: ['en'] }, modules: { organizations: true, billing: true },
+      features: { 'routines.max': { type: 'limit', default: null }, live: { type: 'flag', default: true } },
+      plans: { free: { name: 'Free', features: { 'routines.max': 5, live: false } }, pro: { name: 'Pro', features: {} } },
+      products: { 'focus-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } },
+    },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', BILLING_PROVIDER: 'remote', BILLING_SECRET: SECRET },
+    log: () => {}, exitOnError: false,
+  });
+  t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const [ada, bob, eve, dan] = ['ada', 'bob', 'eve', 'dan'].map((username) => suite.accounts.create({ username }));
+  const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: ada.id });
+  suite.organizations.addMember(home.id, bob.id, 'admin');
+  assert.equal(suite.billing.apply({
+    id: 'evt_1', type: 'subscription', ref: 'sub_1', subject: { type: 'organization', id: home.id }, product: 'focus-pro-yearly',
+    status: 'active', quantity: 1, periodEnd: new Date(Date.now() + 365 * DAY).toISOString(),
+  }), 'granted');
+  suite.organizations.addMember(home.id, eve.id, 'admin');
+  const { token } = suite.organizations.invite(home.id, { role: 'admin' });
+  suite.organizations.accept(token, dan.id);
+  assert.equal(suite.organizations.membersOf(home.id).length, 4);
+  assert.deepEqual(suite.entitlements.ofOrganization(home.id).features, { 'routines.max': null, live: true });
+  assert.equal(suite.entitlements.of(dan).plan.id, 'pro');
+
+  // Archived, the family has no plan of its own, whatever grants it kept.
+  suite.organizations.archive(home.id);
+  assert.equal(suite.entitlements.ofOrganization(home.id).plan.id, 'free');
+  assert.deepEqual(suite.entitlements.ofOrganization(home.id).features, { 'routines.max': 5, live: false });
 });
