@@ -284,7 +284,7 @@ test('seatRoles in suite.config.js: checked on start and handed to the organizat
   // A misspelt key would put every member in a seat without a word: it stops the start instead.
   for (const key of ['seatRole', 'toString']) {
     const { errors } = resolveConfig({ ...product, organizations: { roles: product.organizations.roles, [key]: ['driver'] } }, {});
-    assert.ok(errors.includes(`organizations.${key} is not a setting (roles, invitationDays, seatRoles)`), key);
+    assert.ok(errors.includes(`organizations.${key} is not a setting (roles, invitationDays, seatRoles, kinds)`), key);
   }
   assert.deepEqual(resolveConfig({ ...product, organizations: { ...product.organizations, invitationDays: 3 } }, { DATA_DIR: '/data' }).errors, []);
 

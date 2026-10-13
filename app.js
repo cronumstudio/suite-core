@@ -101,6 +101,11 @@ const EXAMPLE_PASSWORDS = new Set([
  * @param {object} [options.hooks]
  *   extraColumns(user) → the app's own columns for a new account;
  *   onUserCreated(user), onUserRemoved(userId);
+ *   onDeletionRequested(user), onDeletionCancelled(user): its owner asked to delete an account, or
+ *     took it back (account-deletion.js), awaited after the change; one that fails is only logged;
+ *   with modules.organizations, onMemberRemoved({ organization, userId, role, reason, by }) and
+ *     onOrganizationDeleted({ organization, reason, by }), inside the change's transaction
+ *     (organizations.js: the app deletes its own rows with them; one that throws undoes it all);
  *   oauthPage({ lang, title, body, theme }) → HTML of the consent screen, when the app dresses it
  *     itself instead of the suite's (oauth-page.js, with app.color and app.icon);
  *   texts(req, user) → { lang, t } for that screen
@@ -181,8 +186,12 @@ export function createSuite({
     organizations = createOrganizations({
       database, roles: config.organizations.roles, seatsOf: entitlements.seatsOf,
       seatRoles: config.organizations.seatRoles, invitationDays: config.organizations.invitationDays,
+      kinds: config.organizations.kinds, audit,
     });
     accounts.whenRemoved((userId) => organizations.forgetUser(userId));
+    // The app deletes its own rows of a member who goes and of a group deleted, in the same transaction.
+    if (hooks.onMemberRemoved) organizations.whenMemberRemoved(hooks.onMemberRemoved);
+    if (hooks.onOrganizationDeleted) organizations.whenDeleted(hooks.onOrganizationDeleted);
   }
 
   const billingProvider = !install.billing ? null
@@ -232,7 +241,21 @@ export function createSuite({
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
     // With the stores, a person's live store subscription also makes a second one on the web a double charge.
     ...(install.stores ? { otherProviders: [install.stores.provider] } : {}),
+    // An event for a group deleted here takes nothing ('gone'), instead of failing at the audit's reference to it.
+    ...(organizations ? { organizationGone: (id) => !organizations.exists(id) } : {}),
+    // And one heard of only after its group was deleted here is stopped, as at the deletion.
+    ...(organizations && config.billing?.stopOnOrganizationDeleted ? { organizationWasDeleted: (id) => organizations.wasDeleted(id) } : {}),
   }) : null;
+  // A group deleted (organizations.remove, or emptied with onEmpty: 'delete'), after every app's own
+  // hook (a host's modules' too, whenever they joined): its customer link goes; with
+  // stopOnOrganizationDeleted its subscriptions stop renewing (marked in the deletion's transaction,
+  // asked of the provider once it is over, and again by the hourly sweep if that fails); with
+  // forgetOnRemove its subscription rows go, as a person's do.
+  if (organizations && billing) {
+    organizations.whenDeleted(({ organization }) => billing.organizationDeleted(organization.id, {
+      stop: config.billing?.stopOnOrganizationDeleted === true, forget: config.billing?.forgetOnRemove === true,
+    }), { last: true });
+  }
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
     accounts.whenLinked(({ userId, provider, subject }) => billing.claim(provider, subject, userId));
@@ -377,6 +400,33 @@ export function createSuite({
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
     baseUrl: install.baseUrl, log,
   });
+  if (hooks.onDeletionRequested) deletion.whenRequested(hooks.onDeletionRequested);
+  if (hooks.onDeletionCancelled) deletion.whenCancelled(hooks.onDeletionCancelled);
+  // A group that goes once the accounts waiting to be deleted go (of a kind deleted when empty, and
+  // every member waiting) stops renewing as soon as that is so, not 30 days later, as `members`
+  // (billing.js, who wants it stopped); and renews again as soon as it no longer is: one of them takes
+  // their account back, or someone who stays joins. Never when the app stopped it too (its own
+  // "delete the family"): that stays until the app takes it back. When the group goes, its deletion
+  // finds the stop already asked, and asks none more.
+  if (organizations && billing?.enabled && config.billing?.stopOnOrganizationDeleted) {
+    const recheck = async (id) => {
+      if (!organizations.exists(id)) return;
+      if (organizations.leaving(id)) await billing.stopOrganization(id, { by: 'members' });
+      else if (billing.stopOriginsOf(id).includes('members')) await billing.keepOrganization(id, { by: 'members' });
+    };
+    const recheckOf = async (user) => {
+      for (const id of organizations.deletableOf(user.id)) await recheck(id);
+    };
+    deletion.whenRequested(recheckOf);
+    deletion.whenCancelled(recheckOf);
+    // Someone joining or leaving: once the change's transaction is over, on what it left.
+    const later = ({ organization }) => {
+      if (organizations.rulesFor(organization.kind).onEmpty !== 'delete') return;
+      setImmediate(() => recheck(organization.id).catch((err) => log(`${tag} a group's renewals could not be checked: ${err?.stack || err}`)));
+    };
+    organizations.whenMemberAdded(later);
+    organizations.whenMemberRemoved(later);
+  }
 
   /**
    * The first administrator of an install with local accounts, if there is
@@ -424,7 +474,10 @@ export function createSuite({
     return user;
   }
 
-  /** Ended sessions, old sign-in failures, audit entries over a year, long-expired tokens. */
+  /**
+   * Ended sessions, old sign-in failures, audit entries over a year, long-expired tokens, and
+   * groups' invitations used, withdrawn or long expired (they hold the email they were sent to).
+   */
   function purge() {
     sessions.purge();
     limiter.purge();
@@ -433,6 +486,7 @@ export function createSuite({
     devices?.purge();
     accountMail.purge();
     idempotency.purge();
+    organizations?.purge();
   }
 
   /**
@@ -909,6 +963,12 @@ export function createApp({
       const sweepAccounts = () => deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
       timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
+    }
+    if (billing?.enabled) {
+      // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).
+      const sendStops = () => billing.sendStops().catch((err) => log(`${tag} stopping groups' renewals failed: ${err?.stack || err}`));
+      timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(sendStops, HOUR).unref());
     }
     if (handleSignals) {
       // close() also ends the live channels, which would otherwise keep the server open until the timeout.

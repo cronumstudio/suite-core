@@ -25,6 +25,7 @@ import { REVENUECAT_API, STORE_FIELDS } from './revenuecat.js';
 import { productSeatsProblem } from './billing.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
+import { organizationKinds } from './organizations.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -51,10 +52,13 @@ const PRODUCT_KEYS = new Set([
 ]);
 
 /**
- * suite.config.js `billing`: what keeps another product's sales out (billing.js, paddle.js), and
- * whether an account that goes takes its billing links and grants with it (`forgetOnRemove`).
+ * suite.config.js `billing`: what keeps another product's sales out (billing.js, paddle.js),
+ * whether an account (or a group) that goes takes its billing links and grants with it
+ * (`forgetOnRemove`), and whether a group deleted stops renewing (`stopOnOrganizationDeleted`).
  */
-const BILLING_KEYS = new Set(['ignoreUnknownProducts', 'app', 'strictPrices', 'paddleProductIds', 'forgetOnRemove']);
+const BILLING_KEYS = new Set([
+  'ignoreUnknownProducts', 'app', 'strictPrices', 'paddleProductIds', 'forgetOnRemove', 'stopOnOrganizationDeleted',
+]);
 
 /** suite.config.js `stores`: what the app on a phone sells in the App Store and Google Play (stores.js). */
 const STORE_KEYS = new Set(['products', 'devices']);
@@ -161,11 +165,16 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     invitationDays: og.invitationDays ?? 7,
     // The roles that take a seat a subscription pays for (Tracker's drivers); null, every member.
     seatRoles: Array.isArray(og.seatRoles) ? [...og.seatRoles] : (og.seatRoles ?? null),
+    // The kinds the app manages, caps per person, or deletes when empty (organizations.js); none, as before.
+    kinds: {},
   };
   // A misspelt key would go unseen and change who pays: with `seatRole`, every member would take a seat.
   for (const key of Object.keys(og)) {
-    if (!Object.hasOwn(organizations, key)) errors.push(`organizations.${key} is not a setting (roles, invitationDays, seatRoles)`);
+    if (!Object.hasOwn(organizations, key)) errors.push(`organizations.${key} is not a setting (roles, invitationDays, seatRoles, kinds)`);
   }
+  const kinds = organizationKinds(og.kinds);
+  organizations.kinds = kinds.kinds;
+  errors.push(...kinds.errors);
   if (!['owner', 'admin', 'member'].every((r) => organizations.roles.includes(r))) {
     errors.push('organizations.roles must include owner, admin and member (and may add the app\'s own)');
   }
@@ -491,7 +500,8 @@ function storeBillingFromEnv(env, { modules, stores, errors }) {
 /**
  * suite.config.js `billing`, all off by default (billing.js and paddle.js say why):
  *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true,
- *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] }, forgetOnRemove: true }
+ *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] }, forgetOnRemove: true,
+ *     stopOnOrganizationDeleted: true }
  * The Paddle products are given per environment: a sandbox product's id is never the live one's,
  * so one list for both would be right in one of them and, in the other, make every sale of this
  * install foreign without a word. With Paddle on, the ones of PADDLE_ENV are used and must be
@@ -514,9 +524,10 @@ function billingRulesFor(given, install, errors, warnings) {
     else rules[key] = given[key];
   }
   // Only when given: the rules of an app that says nothing stay as they were.
-  if (given.forgetOnRemove !== undefined) {
-    if (typeof given.forgetOnRemove !== 'boolean') errors.push('billing.forgetOnRemove must be true or false');
-    else if (given.forgetOnRemove) rules.forgetOnRemove = true;
+  for (const key of ['forgetOnRemove', 'stopOnOrganizationDeleted']) {
+    if (given[key] === undefined) continue;
+    if (typeof given[key] !== 'boolean') errors.push(`billing.${key} must be true or false`);
+    else if (given[key]) rules[key] = true;
   }
   if (given.app != null) {
     if (!/^[a-z][a-z0-9-]{1,30}$/.test(String(given.app))) errors.push('billing.app: lowercase letters, digits and -, starting with a letter');

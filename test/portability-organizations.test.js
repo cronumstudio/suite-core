@@ -95,8 +95,6 @@ const DATA = (db) => ({
   organizations: {
     copyKinds: ['family'],
     mapOntoOwn: ['family'],
-    // The app's part of a hand-over: the adult's profile in that family loses its account.
-    leave: (userId, organizationId) => left.push([userId, organizationId]),
   },
   check: (args) => checked.push(args),
 });
@@ -111,6 +109,11 @@ function install(t, { env = {}, declaration = DATA, config = PRODUCT } = {}) {
     env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', ...env },
   });
   t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  // The app's part of a hand-over (the adult's profile in that family loses its account): told as any
+  // member who goes, once, by the suite's hook.
+  suite.organizations?.whenMemberRemoved(({ organization, userId, reason }) => {
+    if (reason === 'handed_over') left.push([userId, organization.id]);
+  });
   const portability = suite.portabilityFor(declaration(suite.database), { version: '1.0.0' });
   const events = [];
   const publish = suite.live.publish;
@@ -241,7 +244,7 @@ test('a group’s tables, what organizations do in copies and the columns that n
   fails({ tables: { fam_notes: { refs: { user_id: 'users' }, onePerOrganization: true } } },
     /fam_notes\.onePerOrganization: a table with an integer id and one NOT NULL reference to organizations/);
   fails({ tables: {}, organizations: { kind: ['family'] } }, /organizations\.kind is not an option/);
-  fails({ tables: {}, organizations: { roles: ['owner'] } }, /organizations\.roles is not an option \(copyKinds, copyRoles, mapOntoOwn, leave\)/);
+  fails({ tables: {}, organizations: { roles: ['owner'] } }, /organizations\.roles is not an option \(copyKinds, copyRoles, mapOntoOwn\)/);
   fails({ tables: {}, organizations: { kinds: ['family'] } }, /organizations\.kinds is not an option/, roles);
   fails({ tables: {}, organizations: { copyKinds: ['family'], mapOntoOwn: ['team'] } }, /"team" is not one of organizations\.copyKinds/);
   // A kind is written as organizations.js writes it: starting with a letter.
@@ -250,7 +253,9 @@ test('a group’s tables, what organizations do in copies and the columns that n
   fails({ tables: {}, organizations: { copyRoles: ['ownr'] } },
     /organizations\.copyRoles: some of organizations\.roles \(owner, admin, member\), such as \['owner', 'admin'\], or left out for every member/);
   fails({ tables: {}, organizations: { copyRoles: [] } }, /organizations\.copyRoles: some of organizations\.roles/);
-  fails({ tables: {}, organizations: { leave: 'yes' } }, /organizations\.leave: a function/);
+  // 0.84.0's leave: the suite's hook tells the app of a hand-over, once; the old name says so.
+  fails({ tables: {}, organizations: { leave: () => {} } },
+    /organizations\.leave is now the suite's whenMemberRemoved hook \(createSuite's onMemberRemoved\), which hears a hand-over with reason 'handed_over'/);
   fails({ tables: { memberships: { refs: { user_id: 'users' } } }, organizations: {} }, /memberships: the suite's own table/);
   fails({ tables: { fam_notes: { was: ['memberships'], refs: { user_id: 'users' } } } }, /fam_notes\.was: "memberships" is not a table's name/);
   fails({ tables: { fam_notes: { was: 'organizations', refs: { user_id: 'users' } } } }, /fam_notes\.was: "organizations" is not a table's name/);
@@ -1103,4 +1108,29 @@ test('today’s declarations carry nothing of organizations, and refuse a copy t
   const target = install(t);
   const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
   await rejectsWith(target.suite.portabilityFor(TODAY).planFile(own, { mode: 'account', user: me }), 'import_invalid_data');
+});
+
+test('a copy never puts someone in more groups of a kind than this install allows: 409 organization_limit, and nothing comes in', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const file = path.join(source.dir, 'ben.zip');
+  await exportTo(source, file, { scope: 'account', userId: s.ben.id });
+  // One family per person here (organizations.kinds, K5), and a declaration whose copies make a new one.
+  const capped = { ...PRODUCT, organizations: { kinds: { family: { maxPerUser: 1 } } } };
+  const own = (db) => ({ ...DATA(db), organizations: { copyKinds: ['family'] } });
+  const target = install(t, { config: capped, declaration: own });
+  const me = target.suite.accounts.create({ username: 'ben', displayName: 'Ben' });
+  target.organizations.create({ name: 'Ben home', kind: 'family', ownerId: me.id });
+  const before = ['organizations', 'memberships', 'fam_families', 'fam_people'].map((table) => count(target.db, table));
+  await assert.rejects(target.portability.applyFile(file, { mode: 'account', user: me }),
+    (err) => err.status === 409 && err.code === 'organization_limit' && err.extra?.kind === 'family');
+  assert.deepEqual(['organizations', 'memberships', 'fam_families', 'fam_people'].map((table) => count(target.db, table)), before,
+    'before, the copy made him a second family, past the install’s one per person');
+  // Into the family he has (mapOntoOwn, as Focus declares it): it comes in.
+  const mapped = install(t, { config: capped });
+  const ben = mapped.suite.accounts.create({ username: 'ben', displayName: 'Ben' });
+  const home = mapped.organizations.create({ name: 'Ben home', kind: 'family', ownerId: ben.id });
+  mapped.db.run("INSERT INTO fam_families (organization_id, owner_user_id, settings) VALUES (?, ?, '{}')", home.id, ben.id);
+  await mapped.portability.applyFile(file, { mode: 'account', user: ben });
+  assert.equal(count(mapped.db, "organizations WHERE kind = 'family'"), 1);
 });

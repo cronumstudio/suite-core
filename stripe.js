@@ -110,6 +110,59 @@ export function stripeProvider({
     return data.url;
   }
 
+  /** A call that answers an object, not a page: what a subscription's changes need. */
+  async function request(method, path, params = null) {
+    let res;
+    try {
+      res = await fetch(`${base}/v1${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          ...(params ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+        },
+        ...(params ? { body: formOf(params).toString() } : {}),
+      });
+    } catch (err) {
+      log(`[billing] stripe ${method} ${path}: ${err.message}`);
+      throw new HttpError(502, 'billing_provider_unavailable');
+    }
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      log(`[billing] stripe ${method} ${path}: ${res.status} ${data?.error?.message || ''}`.trim());
+      throw new HttpError(502, 'billing_provider_error');
+    }
+    return data;
+  }
+
+  /**
+   * A subscription that stops: at the end of the period already paid (`cancel_at_period_end`), or
+   * `now`. Stripe answers the change through the webhook. → `{ already }`: whether it was so before
+   * this asked, the payer's own cancellation, which billing.js never renews again. Stripe takes the
+   * same change twice without a word, so at the period's end the subscription is read first; one
+   * already canceled, which Stripe won't change, is read after it refuses.
+   */
+  async function cancelSubscription(ref, { now = false } = {}) {
+    const path = `/subscriptions/${encodeURIComponent(ref)}`;
+    if (!now) {
+      const subscription = await request('GET', path);
+      if (subscription?.status === 'canceled' || subscription?.cancel_at_period_end === true) return { already: true };
+    }
+    try {
+      await (now ? request('DELETE', path) : request('POST', path, { cancel_at_period_end: true }));
+      return { already: false };
+    } catch (err) {
+      if (err?.code !== 'billing_provider_error') throw err;
+      const subscription = await request('GET', path).catch(() => null);
+      if (subscription?.status !== 'canceled') throw err;
+      return { already: true };
+    }
+  }
+
+  /** A cancellation at the period's end taken back: it renews again. */
+  async function keepSubscription(ref) {
+    await request('POST', `/subscriptions/${encodeURIComponent(ref)}`, { cancel_at_period_end: false });
+  }
+
   /** A hosted Checkout page: a subscription or a one-off payment, for a person or a group. */
   function checkoutUrl({ subject, customer = null, product, price, kind = 'subscription', email = null, returnUrl }) {
     if (!price) throw badRequest('product_unknown', { product });
@@ -187,5 +240,7 @@ export function stripeProvider({
     return translate(event);
   }
 
-  return { id: 'stripe', needsPrice: true, checkoutUrl, portalUrl, parseWebhook, translate };
+  return {
+    id: 'stripe', needsPrice: true, checkoutUrl, portalUrl, parseWebhook, translate, cancelSubscription, keepSubscription,
+  };
 }

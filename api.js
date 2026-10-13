@@ -791,6 +791,13 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
   };
   const record = (ctx, action, organizationId, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, organizationId, targetType, targetId, meta });
+  /**
+   * A kind the app manages (organizations.kinds) is created, joined and left through the app's own
+   * routes, which keep its rules (one family per account, a profile for each adult): these refuse.
+   */
+  const refuseManaged = (kind) => {
+    if (kind != null && organizations.isManaged?.(kind)) throw new HttpError(403, 'organization_managed', { kind: String(kind) });
+  };
 
   router.get('/api/orgs', (ctx) => {
     const user = requireUser(ctx);
@@ -800,6 +807,7 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
   router.post('/api/orgs', async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);
+    refuseManaged(body.kind);
     const organization = organizations.create({ name: body.name, kind: body.kind ?? null, ownerId: user.id });
     record(ctx, 'org.create', organization.id, 'organization', organization.id);
     sendJson(ctx.res, 201, { ...organization, role: 'owner' });
@@ -857,6 +865,8 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
   router.post('/api/orgs/join', async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);
+    // Before anything is checked or spent: the app's own route takes this invitation.
+    refuseManaged(organizations.invitationKind?.(body.token));
     const organization = organizations.accept(body.token, user.id);
     record(ctx, 'org.join', organization.id, 'user', user.id);
     sendJson(ctx.res, 200, { ...organization, role: organizations.roleOf(organization.id, user.id) });
@@ -887,9 +897,11 @@ export function registerOrganizationsApi(router, { organizations, audit = null, 
     } else {
       organizations.requireRole(id, user.id, 'member');
     }
-    organizations.removeMember(id, target);
-    record(ctx, target === user.id ? 'org.leave' : 'org.member.remove', id, 'user', target);
-    sendJson(ctx.res, 200, { ok: true });
+    refuseManaged(organizations.get(id)?.kind);
+    const gone = organizations.removeMember(id, target, { by: user.id })?.organizationDeleted === true;
+    // The last one out of a kind deleted when empty took the group: the entry can no longer point at it.
+    record(ctx, target === user.id ? 'org.leave' : 'org.member.remove', gone ? null : id, 'user', target);
+    sendJson(ctx.res, 200, { ok: true, ...(gone ? { organization_deleted: true } : {}) });
   });
 }
 

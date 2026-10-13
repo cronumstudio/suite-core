@@ -93,7 +93,7 @@ const ORGANIZATION_TABLES = ['organizations', 'memberships', 'invitations'];
 /** What the declaration's `organizations` takes. */
 // `copyKinds` and `copyRoles`: what someone's copy takes, apart from suite.config.js's
 // `organizations.kinds` (each kind's rules) and `organizations.roles` (the install's roles).
-const ORGANIZATION_OPTIONS = ['copyKinds', 'copyRoles', 'mapOntoOwn', 'leave'];
+const ORGANIZATION_OPTIONS = ['copyKinds', 'copyRoles', 'mapOntoOwn'];
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
 
 const MB = 1024 * 1024;
@@ -179,9 +179,15 @@ export function dataImportsSchema(d) {
  *     copyRoles: ['owner', 'admin'],  // and only where their role is one of these (every member)
  *     mapOntoOwn: ['family'],   // someone's import goes into the oldest group of that kind they
  *                               // own or administer here, instead of a new one (true: every kind)
- *     leave(userId, organizationId) { … },  // "replace" takes them out of a group others share:
- *                               // what is theirs in it, before their membership goes
  *   }
+ *
+ * "Replace" takes them out of a group others share (`organizations.handOver()`): the app hears it
+ * as any member who goes, once, through the suite's `whenMemberRemoved` (createSuite's
+ * `onMemberRemoved`) with reason `handed_over`, before the membership goes. A copy never puts
+ * someone in more groups of a kind than `organizations.kinds` allows (`maxPerUser`): such an import
+ * is refused with 409 `organization_limit`, and nothing of it comes in. Nothing here deletes a
+ * group: what someone owns alone is emptied of the app's rows and keeps its organization and plan;
+ * a group that has to go goes through `organizations.remove()`, which tells the app and billing.
  *
  * `organizations: {}` alone carries the groups, their memberships, plans and
  * payments in the whole install's copy of an app without tables of its own
@@ -318,7 +324,7 @@ export function describeData(database, declaration = {}, { organizationRoles } =
 /**
  * A declaration's `organizations`, checked: null when organizations don't
  * travel (neither it nor a table that points at them), else
- * { copyKinds, copyRoles, mapOntoOwn: Sets or null for every one; leave: a function or null }.
+ * { copyKinds, copyRoles, mapOntoOwn: Sets or null for every one }.
  */
 function organizationsOf(spec, pointedAt, errors, installRoles) {
   if (spec == null && !pointedAt) return null;
@@ -331,7 +337,11 @@ function organizationsOf(spec, pointedAt, errors, installRoles) {
   }
   const given = spec || {};
   for (const option of Object.keys(given)) {
-    if (!ORGANIZATION_OPTIONS.includes(option)) errors.push(`organizations.${option} is not an option (${ORGANIZATION_OPTIONS.join(', ')})`);
+    // 0.84.0's `leave` told the app a second time of a hand-over the suite's hook tells it of: gone,
+    // loudly, naming what replaces it.
+    if (option === 'leave') {
+      errors.push("organizations.leave is now the suite's whenMemberRemoved hook (createSuite's onMemberRemoved), which hears a hand-over with reason 'handed_over'");
+    } else if (!ORGANIZATION_OPTIONS.includes(option)) errors.push(`organizations.${option} is not an option (${ORGANIZATION_OPTIONS.join(', ')})`);
   }
   const names = (option, pattern) => {
     const value = given[option];
@@ -360,8 +370,7 @@ function organizationsOf(spec, pointedAt, errors, installRoles) {
       if (copyKinds && !copyKinds.has(kind)) errors.push(`organizations.mapOntoOwn: "${kind}" is not one of organizations.copyKinds`);
     }
   }
-  if (given.leave != null && typeof given.leave !== 'function') errors.push('organizations.leave: a function (userId, organizationId)');
-  return { copyKinds, copyRoles, mapOntoOwn, leave: typeof given.leave === 'function' ? given.leave : null };
+  return { copyKinds, copyRoles, mapOntoOwn };
 }
 
 /**
@@ -663,13 +672,13 @@ export function createPortability({
 
   /**
    * Before "replace" empties an account: each group in its copy that others share is handed over
-   * (the app's `leave` first, then the core's: an heir when it was the last owner, and the
-   * membership goes). Inside the caller's transaction. → the groups left, { id, name, kind, heir }.
+   * (`organizations.handOver()`: an heir when it was the last owner, the app told once through
+   * `whenMemberRemoved`, and the membership goes). Inside the caller's transaction. → the groups
+   * left, { id, name, kind, heir }.
    */
   function handOverGroups(userId) {
     const left = [];
     for (const group of groupsOf(userId).filter((o) => Number(o.members) > 1)) {
-      groups.leave?.(userId, group.id);
       const heir = organizations.handOver(group.id, userId);
       left.push({ id: group.id, name: group.name, kind: group.kind, heir });
     }
@@ -1656,6 +1665,13 @@ export function createPortability({
         if (groups) {
           const where = decideOrganizations(archive, { mode, user, insideUser: inside });
           const roleHere = (role) => (organizations.roles.includes(role) ? role : 'member');
+          // A membership a copy brings meets the install's cap per person (organizations.kinds
+          // maxPerUser), as one made any other way does: past it, 409 organization_limit, and the
+          // whole import is undone. An archived group counts for nobody, and one already there is no more.
+          const mayJoin = (organizationId, userId, kind, archived) => {
+            if (archived || database.get('SELECT 1 AS here FROM memberships WHERE organization_id = ? AND user_id = ?', organizationId, userId)) return;
+            organizations.checkLimit?.(userId, kind);
+          };
           const joined = new Map(archive.memberships.map((m) => [`${m.organization_id}:${m.user_id}`, m]));
           for (const org of archive.organizations) {
             const choice = where.get(org.id);
@@ -1679,6 +1695,7 @@ export function createPortability({
             if (from) database.setMeta(originKey(from, org.id), JSON.stringify({ id, run: sourceRun(manifest) }));
             // Someone's own copy: a group made for them is theirs, whatever role they had there.
             if (mode === 'account') {
+              mayJoin(id, user.id, org.kind, Boolean(org.archived_at));
               database.run("INSERT INTO memberships (organization_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)",
                 id, user.id, joined.get(`${org.id}:${archive.users[0].id}`)?.joined_at ?? iso());
               membershipsImported += 1;
@@ -1695,6 +1712,8 @@ export function createPortability({
               const organizationId = orgMap.get(m.organization_id);
               const userId = userMap.get(m.user_id);
               if (!organizationId || !userId || (!orgsCreated.has(organizationId) && !created.includes(userId))) continue;
+              const group = database.get('SELECT kind, archived_at FROM organizations WHERE id = ?', organizationId);
+              mayJoin(organizationId, userId, group?.kind ?? null, Boolean(group?.archived_at));
               membershipsImported += database.run(`INSERT OR IGNORE INTO memberships (organization_id, user_id, role, invited_by,
                 joined_at) VALUES (?, ?, ?, ?, ?)`, organizationId, userId, roleHere(m.role),
               m.invited_by == null ? null : userMap.get(m.invited_by) ?? null, m.joined_at ?? iso()).changes;

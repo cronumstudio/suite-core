@@ -101,6 +101,8 @@ export const HOST_MIGRATIONS = Object.freeze([
 ]);
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
+/** What a kind of group says (organizations.js): a module's and the host's must agree on each. */
+const KIND_RULES = ['managed', 'maxPerUser', 'onEmpty'];
 
 /** Whether a URL is a path of the site (`/icons/a.png`), not a relative one nor another site's. */
 const sitePath = (url) => typeof url === 'string' && url.startsWith('/') && !url.startsWith('//');
@@ -371,6 +373,16 @@ export async function createHost({
     }
     // A phone connects to a product on its own (Tracker), with its own prefix and return addresses.
     if (resolved.modules.devices) errors.push(`${entry.mount}: modules.devices is for an app on its own, not a module of a host`);
+    // The groups are one set for every module, with the host's kinds: a kind a module manages that the
+    // host doesn't declare the same way would leave the generic routes open to it without a word.
+    if (resolved.modules.organizations) {
+      for (const [kind, rules] of Object.entries(resolved.organizations.kinds || {})) {
+        const hosts = config.organizations.kinds?.[kind];
+        if (!hosts || KIND_RULES.some((key) => hosts[key] !== rules[key])) {
+          errors.push(`${entry.mount}: organizations.kinds.${kind} must be declared the same way in the host's suite.config.js`);
+        }
+      }
+    }
     if (errors.length) throw new SuiteConfigError(errors);
 
     const moduleInstall = { ...install, baseUrl: `${install.baseUrl}/${entry.mount}` };
@@ -408,6 +420,16 @@ export async function createHost({
     suite.accounts.whenChanged((id) => live.publish({ audience: [id], event: 'account', data: { user_id: id } }));
     if (ownHooks.onUserCreated) suite.accounts.whenCreated(ownHooks.onUserCreated);
     if (ownHooks.onUserRemoved) suite.accounts.whenRemoved(ownHooks.onUserRemoved);
+    // A member who goes and a group deleted, as createSuite hands them to an app on its own.
+    if (resolved.modules.organizations && suite.organizations) {
+      if (ownHooks.onMemberRemoved) suite.organizations.whenMemberRemoved(ownHooks.onMemberRemoved);
+      if (ownHooks.onOrganizationDeleted) suite.organizations.whenDeleted(ownHooks.onOrganizationDeleted);
+    }
+    // Someone asking to delete their account, or taking it back: the host's one deletion, for every module.
+    if (suite.deletion) {
+      if (ownHooks.onDeletionRequested) suite.deletion.whenRequested(ownHooks.onDeletionRequested);
+      if (ownHooks.onDeletionCancelled) suite.deletion.whenCancelled(ownHooks.onDeletionCancelled);
+    }
     // A folder of its own: each module sweeps the files its table doesn't know,
     // and in a folder shared with another it would take the other's for orphans.
     const uploads = resolved.modules.uploads
@@ -728,6 +750,12 @@ export async function createHost({
       const sweepAccounts = () => suite.deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
       timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
+    }
+    if (suite.billing?.enabled) {
+      // Groups' renewals asked to stop that the provider didn't take yet, once for every module.
+      const sendStops = () => suite.billing.sendStops().catch((err) => log(`${tag} stopping groups' renewals failed: ${err?.stack || err}`));
+      timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(sendStops, HOUR).unref());
     }
     for (const m of joined) {
       // What a plan keeps for a while only: the module's sweep, as createApp runs it for the app alone.
