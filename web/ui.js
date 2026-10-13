@@ -274,8 +274,9 @@ export function menu(anchor, items, { header = null } = {}) {
   };
   const onOutside = (ev) => { if (!node.contains(ev.target) && !anchor.contains(ev.target)) closeMenu(); };
   document.addEventListener('keydown', onKey);
-  // On the next turn: the click that opened it must not close it.
-  setTimeout(() => document.addEventListener('pointerdown', onOutside), 0);
+  // On the next turn: the click that opened it must not close it. Not if it was closed by then
+  // (a frame destroyed at once): cleanUp has already run, and the listener would stay forever.
+  setTimeout(() => { if (openMenuNode === node) document.addEventListener('pointerdown', onOutside); }, 0);
   node.cleanUp = () => {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('pointerdown', onOutside);
