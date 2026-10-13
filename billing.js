@@ -90,7 +90,10 @@
  *   already    the provider had it already: the payer cancelled themselves (in the portal), and
  *              taking it back is theirs, never this install's
  *   ended      the subscription ended before it was asked
- *   keeping    being taken back now; stopped again meanwhile, it is asked again once that lands
+ *   keeping    being taken back now
+ *   restop     wanted stopped again while it was being taken back (from here or another process):
+ *              only that taking back's end makes it `pending` again (or, if the process asking it
+ *              ended, 15 minutes)
  *   rekeep     taken back, and the provider refused: the sweep asks again
  *   keep       taken back while another process was asking it: taken back once it lands
  * One group's stops and their taking back are asked one at a time in this process, in the order
@@ -864,9 +867,10 @@ export function createBilling({
   /**
    * Marks the live subscriptions a group pays here to stop renewing, each once (see the top of
    * this file): synchronous, so it runs inside the group's deletion and is undone with it. One being
-   * taken back is wanted stopped again instead: asked again once the taking back lands, or left
-   * stopped when the provider refused it. A provider that can't stop one (the remote one) marks
-   * nothing. → how many were marked now
+   * taken back is wanted stopped again instead (`restop`, asked again once that taking back has
+   * landed); one whose taking back the provider refused is simply stopped; one taken back while
+   * another process asks it keeps that cancellation. A provider that can't stop one (the remote
+   * one) marks nothing. → how many were marked now
    */
   function markOrganizationStop(organizationId) {
     if (!canStop()) return 0;
@@ -879,42 +883,62 @@ export function createBilling({
         VALUES (?, ?, 'stop', 'pending', ?)`, source, eventId, iso(clock())).changes;
       marked += made;
       if (!made) {
-        moveStop(eventId, 'keeping', 'pending') || moveStop(eventId, 'rekeep', 'requested') || moveStop(eventId, 'keep', 'sending');
+        moveStop(eventId, 'keeping', 'restop') || moveStop(eventId, 'rekeep', 'requested') || moveStop(eventId, 'keep', 'sending');
       }
     }
     return marked;
   }
 
-  /** Renewing again asked of the provider for a stop that landed. → whether it was */
-  async function keepLanded(eventId, from, id, ref) {
+  /**
+   * Renewing again, asked of the provider for a stop in force there. The row is taken first
+   * (`keeping`), so a stop that comes meanwhile, from here or from another process, waits for it
+   * (`restop`) and is asked again once it has landed: never dropped by it, never sent beside it.
+   * Throws what the provider answered when it refused: the row is then `rekeep`, for the sweep, or
+   * simply stopped when it was wanted stopped again. → whether it renews again
+   */
+  async function keepNow(eventId, from, id, ref, stale) {
+    if (!moveStop(eventId, from, 'keeping')) return false;
     try {
       await provider.keepSubscription(ref);
     } catch (err) {
-      moveStop(eventId, from, 'rekeep');
+      moveStop(eventId, 'keeping', 'rekeep') || moveStop(eventId, 'restop', 'requested');
       log(`[billing] ${source}: organization #${id}'s subscription ${ref} could not renew again yet, tried again later: ${err.message}`);
-      return false;
+      throw err;
     }
-    if (dropStop(eventId, from)) recordStop('billing.organization.keep', id, ref);
-    return true;
+    if (dropStop(eventId, 'keeping')) {
+      recordStop('billing.organization.keep', id, ref);
+      return true;
+    }
+    // Wanted stopped again while this was on its way: asked again, now that it has landed.
+    if (moveStop(eventId, 'restop', 'pending')) await sendStop(eventId, id, ref, stale);
+    return false;
   }
+
+  /** A stop's state and when it got there. */
+  const stateOf = (eventId) => database.get(`SELECT outcome, received_at FROM billing_events WHERE provider = ? AND event_id = ?
+    AND type = 'stop'`, source, eventId) ?? null;
 
   /** One marked stop, asked or taken back as its state says, read again under its group's turn. */
   async function sendStop(eventId, id, ref, stale) {
-    const outcome = outcomeOf(eventId);
-    if (outcome === 'rekeep') {
+    const state = stateOf(eventId);
+    if (!state) return null;
+    const old = state.received_at < stale;
+    if (state.outcome === 'rekeep') {
       if (!renews(ref)) dropStop(eventId, 'rekeep');
-      else await keepLanded(eventId, 'rekeep', id, ref);
+      else await keepNow(eventId, 'rekeep', id, ref, stale).catch(() => {});
       return null;
     }
-    if (outcome === 'keep') {
-      // Taken back while another process was asking it, which never said how that ended: whether the
-      // provider has the cancellation is not known here, and asking to renew one that may be the
+    if ((state.outcome === 'keep' || state.outcome === 'keeping') && old) {
+      // Taken back by a process that never said how that ended (it stopped): whether the provider
+      // still has the cancellation is not known here, and asking to renew one that may be the
       // payer's own would charge them against their word. Said, and dropped.
-      if (dropStop(eventId, 'keep')) {
-        log(`[billing] ${source}: organization #${id}'s subscription ${ref} was taken back while its stop was on its way: check at the provider whether it still renews`);
+      if (dropStop(eventId, state.outcome)) {
+        log(`[billing] ${source}: organization #${id}'s subscription ${ref} was being taken back by a process that stopped: check at the provider whether it still renews`);
       }
       return null;
     }
+    // Wanted stopped again while a process that stopped was taking it back: asked again now.
+    if (state.outcome === 'restop' && old) moveStop(eventId, 'restop', 'pending');
     // Taken before the provider is asked: another sweep, even of another process, leaves it alone.
     const taken = database.run(`UPDATE billing_events SET outcome = 'sending', received_at = ? WHERE provider = ? AND event_id = ?
       AND type = 'stop' AND (outcome = 'pending' OR (outcome = 'sending' AND received_at < ?))`, iso(clock()), source, eventId, stale).changes;
@@ -941,9 +965,9 @@ export function createBilling({
     }
     // Taken back by another process while the cancellation was on its way: it landed, so it is taken
     // back now. One the payer had made themselves is theirs, and stays.
-    if (outcomeOf(eventId) === 'keep') {
+    if (stateOf(eventId)?.outcome === 'keep') {
       if (already) dropStop(eventId, 'keep');
-      else await keepLanded(eventId, 'keep', id, ref);
+      else await keepNow(eventId, 'keep', id, ref, stale).catch(() => {});
     }
     return null;
   }
@@ -961,7 +985,7 @@ export function createBilling({
     const stale = iso(clock() - SENDING_MS);
     const due = database.all(`SELECT event_id FROM billing_events WHERE provider = ? AND type = 'stop'
       AND event_id LIKE 'stop:organization:%' AND (outcome IN ('pending', 'rekeep')
-        OR (outcome IN ('sending', 'keep') AND received_at < ?)) ORDER BY received_at, event_id`, source, stale);
+        OR (outcome IN ('sending', 'keep', 'keeping', 'restop') AND received_at < ?)) ORDER BY received_at, event_id`, source, stale);
     let requested = 0;
     let waiting = 0;
     for (const { event_id: eventId } of due) {
@@ -988,6 +1012,8 @@ export function createBilling({
         VALUES (?, ?, 'stop-by', 'wanted', ?)`, source, originId(organizationId, origin), iso(clock()));
       markOrganizationStop(organizationId);
     });
+    // What is on its way for the group lands first: a keep then asks this stop itself, once landed.
+    await oneAtATime(organizationId, async () => {});
     return sendStops({ organizationId });
   }
 
@@ -995,8 +1021,10 @@ export function createBilling({
    * Taken back by `by` (one, or a list): when nobody else still wants the group stopped, what this
    * install asked to stop renews again (`keepSubscription`), a stop not asked yet is dropped, one on
    * its way is waited for and then taken back, and a cancellation the payer made themselves
-   * (`already`) stays theirs. Each provider call is tried even if another fails; the first failure
-   * is thrown after. → how many renew again (0 while another still wants it stopped)
+   * (`already`) stays theirs. Whether anyone else wants it stopped is asked again once its turn
+   * comes: a stop that came while it waited wins. Each provider call is tried even if another
+   * fails; the first failure is thrown after. → how many renew again (0 while another still wants
+   * it stopped)
    */
   async function keepOrganization(organizationId, { by = 'app' } = {}) {
     const origins = [by].flat().map(checkOrigin);
@@ -1009,36 +1037,31 @@ export function createBilling({
     });
     if (stopOriginsOf(id).length) return 0;
     return oneAtATime(id, async () => {
+      // Asked again in its turn: someone may have wanted it stopped while this waited.
+      if (stopOriginsOf(id).length) return 0;
+      const stale = iso(clock() - SENDING_MS);
       let kept = 0;
       let failure = null;
       for (const { event_id: eventId } of stopsOf(id)) {
         const [, , ref] = STOP_ID.exec(eventId) || [];
         if (!ref) continue;
         // Read again for each: what came before it may have moved it.
-        const outcome = outcomeOf(eventId);
+        const outcome = stateOf(eventId)?.outcome ?? null;
         if (outcome === 'sending') {
           // Another process is asking it: taken back once it lands, there.
           if (moveStop(eventId, 'sending', 'keep')) kept += 1;
           continue;
         }
         if ((outcome === 'requested' || outcome === 'rekeep') && renews(ref)) {
-          moveStop(eventId, outcome, 'keeping');
           try {
-            await provider.keepSubscription(ref);
+            if (await keepNow(eventId, outcome, id, ref, stale)) kept += 1;
           } catch (err) {
-            // Still stopped at the provider: the sweep asks again (`rekeep`), unless it was wanted
-            // stopped again meanwhile, and then it is simply so.
-            moveStop(eventId, 'keeping', 'rekeep') || moveStop(eventId, 'pending', 'requested');
             failure ??= err;
-            continue;
-          }
-          // Stopped again while this was on its way: it stays marked, and the sweep asks again.
-          if (dropStop(eventId, 'keeping')) {
-            kept += 1;
-            recordStop('billing.organization.keep', id, ref);
           }
           continue;
         }
+        // Another process is taking it back, or wants it stopped again meanwhile: left to it.
+        if (outcome === 'keeping' || outcome === 'restop') continue;
         if (['pending', 'already', 'ended', 'requested', 'rekeep'].includes(outcome)) dropStop(eventId, outcome);
       }
       if (failure) throw failure;

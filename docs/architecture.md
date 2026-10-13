@@ -924,12 +924,14 @@ stores: {
   | `requested` | the provider took it |
   | `already` | the provider had it already (the payer cancelled in the portal): taking it back is theirs, never this install's |
   | `ended` | the subscription ended before it was asked |
-  | `keeping` | being taken back; stopped again meanwhile (the group deleted), it is asked again once that lands |
+  | `keeping` | being taken back |
+  | `restop` | wanted stopped again while being taken back (the group deleted, here or in another process): asked again only once that taking back has landed, or after 15 minutes if its process ended |
   | `rekeep` | taken back, and the provider refused: the sweep asks again |
   | `keep` | taken back while another process was asking it: taken back once it lands, or dropped if it failed |
 
   One group's stops and their taking back go to the provider one at a time in this process, in the
-  order they came: a keep waits for a stop on its way, and a stop for a keep. The hourly
+  order they came: a keep waits for a stop on its way, and a stop for a keep; a keep that waited
+  asks again in its turn whether anyone wants the group stopped, and does nothing if so. The hourly
   `sendStops()` (createApp and the host) asks again what failed. Who wants each group
   stopped is a row too (`stop-by:<who>:organization:<id>`, type `stop-by`: `app` by default,
   `members` for the deletion requests below): taking it back renews it only when nobody else still

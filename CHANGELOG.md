@@ -59,9 +59,10 @@ change an interface and a patch never does. Apps pin a version through the submo
     none), `sending` (taken by a sweep asking now, so two sweeps never ask twice; one whose sweep
     never said how it went is taken again after 15 minutes), `requested` (the provider took it),
     `already` (the provider had it already: the payer's own cancellation), `ended` (the
-    subscription ended first), `keeping` (being taken back; stopped again meanwhile, it is asked
-    again once that lands), `rekeep` (taken back and refused: asked again) and `keep` (taken back
-    while another process was asking it). An hourly `billing.sendStops()` (createApp and the host)
+    subscription ended first), `keeping` (being taken back), `restop` (wanted stopped again while
+    being taken back, here or in another process: asked again only once that taking back has
+    landed, or after 15 minutes if its process ended), `rekeep` (taken back and refused: asked
+    again) and `keep` (taken back while another process was asking it). An hourly `billing.sendStops()` (createApp and the host)
     asks again what failed. One group's stops and their taking back go to the provider one at a
     time in this process, in the order they came: a keep waits for a stop on its way, and a stop
     for a keep.
