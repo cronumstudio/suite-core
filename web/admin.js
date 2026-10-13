@@ -4,7 +4,7 @@
  * the audit log, drawn on /api/admin/*. The server decides who may do what;
  * this page only shows what it answers, and says what it refuses.
  */
-import { $, el, clear } from './dom.js';
+import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate } from './i18n.js';
 import { toast, field, openDialog, confirmDialog } from './ui.js';
@@ -434,7 +434,8 @@ async function renderInvitations(main) {
   const now = new Date().toISOString();
   const stateOf = (i) => (i.used_at ? 'used' : i.revoked_at ? 'revoked' : i.expires_at <= now ? 'expired' : 'open');
 
-  main.append(
+  // The kit's append: the page's own writes the notice left out, with mail on, as the text "null".
+  append(main,
     el('h2', { text: t('admin.invitations.title') }),
     el('p', { class: 'kit-lead', text: t('admin.invitations.lead', { signup: t(`admin.signup.${state.config.signup || 'admin'}`) }) }),
     state.config.mail === false ? el('p', { class: 'kit-notice', text: t('admin.mail.off') }) : null,
