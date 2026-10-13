@@ -394,6 +394,7 @@ export async function createHost({
       database: suite.database, appId: app.id, features: resolved.features, plans: resolved.plans,
       defaultPlan: resolved.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
       organizationsOf: (user) => (suite.organizations ? suite.organizations.organizationsOf(user) : []),
+      organizationExists: (id) => Boolean(suite.organizations?.get(id)),
       othersDeclare: true,
     });
     if (entitlements.errors.length) {
