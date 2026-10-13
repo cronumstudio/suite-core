@@ -1030,6 +1030,18 @@ test('every way a membership goes tells the app exactly once', (t) => {
   organizations.addMember(team.id, people.bob, 'member');
   // The last one out of a kind deleted when empty: their membership once, and the group once.
   expect(() => organizations.removeMember(team.id, people.bob), [`member Team ${people.bob} removed`, 'deleted Team empty']);
+  // An import that replaces what someone has hands a group they share over (portability.js): once,
+  // as handed_over, and its heir owns it. A hook that throws undoes the hand-over.
+  const shared = organizations.create({ name: 'Shared', kind: 'team', ownerId: people.eve });
+  organizations.addMember(shared.id, people.bob, 'admin');
+  let refuse = true;
+  const refusing = ({ reason }) => { if (reason === 'handed_over' && refuse) throw new Error('not now'); };
+  organizations.whenMemberRemoved(refusing);
+  assert.throws(() => organizations.handOver(shared.id, people.eve), /not now/);
+  assert.deepEqual([organizations.roleOf(shared.id, people.eve), organizations.roleOf(shared.id, people.bob)], ['owner', 'admin'], 'undone');
+  refuse = false;
+  expect(() => assert.equal(organizations.handOver(shared.id, people.eve), people.bob), [`member Shared ${people.eve} handed_over`]);
+  assert.equal(organizations.roleOf(shared.id, people.bob), 'owner');
   // A group deleted whole with people in it: the deletion tells it, once, not each membership.
   organizations.addMember(club.id, people.eve, 'member');
   expect(() => organizations.remove(club.id, { reason: 'owner_asked' }), ['deleted Club owner_asked']);

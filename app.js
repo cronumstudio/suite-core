@@ -510,6 +510,8 @@ export function createSuite({
     database, accounts, uploads, entitlements, live, audit,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
     baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
+    // For a declaration whose copies carry organizations (portability.js); null with the module off.
+    organizations,
   });
 
   return {

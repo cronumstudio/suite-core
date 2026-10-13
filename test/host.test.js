@@ -186,6 +186,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
   // A module's copies count its own migrations, which a host keeps under its id.
   const alphaData = alpha.suite.portabilityFor({ tables: { alpha_items: { refs: { user_id: 'users' } } } });
   assert.equal(alphaData.schemaVersions().app, 1);
+  // Copies that carry organizations need the module in the host too: these modules don't use it.
+  assert.throws(() => alpha.suite.portabilityFor({ tables: { alpha_items: { refs: { user_id: 'users' } } }, organizations: {} }),
+    /organizations needs modules\.organizations/);
 
   // Each module's plan features; the plans are the install's.
   assert.ok('items.max' in alpha.suite.entitlements.of(null).features);

@@ -32,7 +32,7 @@
  * `render(answer)` adds the app's own block.
  */
 import { el, clear, append } from './dom.js';
-import { t, formatDateTime, currentLanguage } from './i18n.js';
+import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at } from './base.js';
 import { icon } from './icons.js';
@@ -753,14 +753,23 @@ export function openSettings(options) {
       const copy = answer.copy;
       const has = answer.replace || {};
       const owned = Object.values(has).reduce((a, b) => a + b, 0);
+      // The groups shared with other people that "replace" takes them out of, by their names
+      // (people's own words, never translated): said before, and confirmed with the rest.
+      const shown = answer.hand_over || [];
+      const leaving = shown.map((o) => o.name);
+      const handOver = leaving.length ? t('kit.data.handOver', { names: listFormat({ type: 'conjunction' }).format(leaving) }) : '';
       const replace = el('input', { type: 'checkbox', id: 'kit-data-replace' });
       const apply = button(t('kit.data.apply'), async () => {
-        if (replace.checked && !(await confirmDialog(t('kit.data.replaceText', { what: describe(has) }), {
+        const text = [t('kit.data.replaceText', { what: describe(has) }), handOver].filter(Boolean).join(' ');
+        if (replace.checked && !(await confirmDialog(text, {
           title: t('kit.data.replaceTitle'), confirm: t('kit.data.replaceButton'),
         }))) return;
         apply.disabled = true;
         try {
-          const result = await api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, { replace: replace.checked });
+          // The groups as they were shown: if they have changed since, the server says so (409) and nothing is done.
+          const result = await api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, {
+            replace: replace.checked, ...(replace.checked && Array.isArray(answer.hand_over) ? { hand_over: shown.map((o) => o.id) } : {}),
+          });
           toast(t('kit.data.done', { what: describe(result.imported.tables) }));
           // Everything shown comes back with what arrived.
           setTimeout(() => window.location.reload(), 1200);
@@ -778,7 +787,8 @@ export function openSettings(options) {
       append(clear(area),
         el('p', { text: t('kit.data.plan', { account: answer.account || '', date: formatDateTime(copy.created_at, { dateStyle: 'medium' }), what: describe(copy.tables) }) }),
         copy.applied_at ? hint(t('kit.data.applied')) : null,
-        owned ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('kit.data.replace', { what: describe(has) }) })) : null,
+        owned || leaving.length ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('kit.data.replace', { what: describe(has) }) })) : null,
+        leaving.length ? hint(handOver) : null,
         row(discard, apply));
     }
 
