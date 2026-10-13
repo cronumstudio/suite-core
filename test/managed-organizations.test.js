@@ -789,11 +789,14 @@ test('one customer pays a person’s plan and their family’s: each purchase go
   assert.equal(second.event({ ref: 'sub_ada2', product: 'pro-yearly', identity: { provider: 'workos', subject: ADA } }), 'granted');
   assert.deepEqual(second.grants(), { ada: ['pro-yearly', 'pro-yearly'], home: ['family-yearly'] }, 'before, the first went to the family');
   assert.equal(second.billing.customerOf({ type: 'user', id: second.people.ada }), 'ctm_shared');
-  // …and the family's renewal still goes to the family, by what its checkout named.
+  // …and the family's renewal still goes to the family, by the subscription it renews, whether it
+  // names the family or no group at all.
   assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', subject: family(second.home), periodEnd: '2029-10-01T10:00:00Z' }),
     'extended');
-  // One that names no group is then nobody's here: never the person's.
-  assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', periodEnd: '2030-10-01T10:00:00Z' }), 'ignored');
+  assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', periodEnd: '2030-10-01T10:00:00Z' }), 'extended');
+  assert.deepEqual(second.grants().ada, ['pro-yearly', 'pro-yearly']);
+  // A new group purchase that names no group, paid by the customer now the person's: nobody's here.
+  assert.equal(second.event({ ref: 'sub_new', product: 'family-yearly' }), 'ignored');
   assert.deepEqual(second.grants().ada, ['pro-yearly', 'pro-yearly']);
 });
 
@@ -1123,4 +1126,18 @@ test('createSuite: a family deleted before its first webhook has its subscriptio
   assert.deepEqual((await notify('evt_1', home.id)).outcomes, ['gone']);
   assert.deepEqual(await suite.billing.sendStops(), { requested: 1, waiting: 0 });
   assert.deepEqual(api.calls, [['POST', '/subscriptions/sub_01home/cancel', { effective_from: 'next_billing_period' }]]);
+});
+
+test('a group’s renewal goes to the group its subscription is known for, even when it names an id that is another group’s here', (t) => {
+  // What a copy of the install brings (portability.js): the groups with new ids, their subscriptions
+  // and customers with them, while Paddle's custom data still names the ids of the install it came from.
+  const { organizations, people, subscribe, entitlements, database, billing } = withBilling(t);
+  const other = organizations.create({ name: 'Someone else', kind: 'family', ownerId: people.bob });
+  const copied = organizations.create({ name: 'Copied family', kind: 'family', ownerId: people.ada });
+  database.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, period_end, occurred_at, updated_at)
+    VALUES ('paddle-sandbox', 'sub_copied', 'organization', ?, 'family-yearly', 'active', '2027-10-01T10:00:00.000Z', '2026-09-01T10:00:00.000Z', '2026-09-01T10:00:00.000Z')`, copied.id);
+  // Its renewal names the family's old id, which here is someone else's.
+  assert.equal(subscribe(other.id, { ref: 'sub_copied', at: '2026-10-01T10:00:00Z' }), 'granted');
+  assert.deepEqual([entitlements.grantsOf('organization', copied.id).length, entitlements.grantsOf('organization', other.id).length], [1, 0]);
+  assert.equal(billing.customerOf({ type: 'organization', id: copied.id }), 'ctm_sub_copied');
 });

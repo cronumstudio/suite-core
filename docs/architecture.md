@@ -694,14 +694,16 @@ product?, status?, periodEnd?, quantity? }` and become grants with `source` = th
 is where they sign in, the same in every app; then the customer already linked here; last `subject`
 ("user:12"), the app's own id, which only means something in the install that made the checkout.
 A group's purchase (its `subject` names an organization, or its product is `for: 'organization'`)
-is the group's: the group it names (one no longer here takes it as `'gone'`), or, when it names
-none, the group the customer is linked to while that group is here; no identity is looked up for
-it, and a person's purchase never goes to a customer linked to a group either. One provider
+is the group's: the group its subscription is already known for here, while that group is (a
+renewal; a copy of the install carries the subscriptions with the groups' new ids, where the id the
+checkout named may be another group's); else the group it names (one no longer here takes it as
+`'gone'`); else, when it names none, the group the customer is linked to while that group is here.
+No identity is looked up for it, and a person's purchase never goes to a customer linked to a group
+either. One provider
 customer often pays a person's plan and their family's, or one family after another (Paddle finds
 it by email), and is linked here to one of them only: before 0.85.0, whichever was linked first
 took the others' purchases. A link to a group deleted here goes with it, and is taken by whoever
-the customer pays for next. A copy of the install that gave its groups new ids must keep the ids
-an event names (Paddle's `custom_data.subject`) meaning the same groups, or map them.
+the customer pays for next.
 One subscription is for the whole suite (Cronum Work) and every app has its own database and its
 own webhook: each finds the person by their identity. Someone who hasn't opened that app yet has
 no account there, so the event waits in `billing_pending` and is applied, in order, when that

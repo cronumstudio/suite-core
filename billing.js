@@ -31,8 +31,10 @@
  *      made the checkout: a copy of the install renumbers accounts (portability.js), so it comes
  *      last, after the customer, which the copy carries with the new ids.
  * A group's purchase (its `subject` names an organization, or its product is `for: 'organization'`)
- * is the group's, never a person's: no identity is looked up for it, and a customer linked here
- * counts only when it is a group's. One provider customer often pays both, a person's own plan and
+ * is the group's, never a person's: the group its subscription is known for here (a copy of the
+ * install carries it with the groups' new ids), else the group it names, else the group its
+ * customer is linked to; no identity is looked up for it, and a customer linked here counts only
+ * when it is a group's. One provider customer often pays both, a person's own plan and
  * their family's (Paddle finds the customer by email), and the customer can be linked to only one
  * of them; before, whichever was linked first took the other's purchases too. The same holds the
  * other way round: a customer linked to a group never takes a person's purchase.
@@ -488,9 +490,16 @@ export function createBilling({
     const forGroup = named?.type === 'organization' || productOf(event)?.for === 'organization';
     const linked = subjectOfCustomer(event.customer);
     if (forGroup) {
-      // The group the checkout named: one customer pays for one group after another (a family left, or
-      // deleted, and a new one made), and its link may still name the first. One no longer here takes
-      // its own events ('gone'), never another group's, nor a person's.
+      // The group this subscription is known for here, while it is: what a renewal renews, and what a
+      // copy of the install carries with its groups' new ids (portability.js), where the id the
+      // checkout named may be another group's.
+      const known = database.get('SELECT subject_type, subject_id FROM billing_subscriptions WHERE provider = ? AND ref = ?',
+        source, String(event.ref));
+      const ours = known?.subject_type === 'organization' ? { type: 'organization', id: Number(known.subject_id) } : null;
+      if (ours && !isGone(ours)) return { subject: ours };
+      // Else the group the checkout named: one customer pays for one group after another (a family
+      // left, or deleted, and a new one made), and its link may still name the first. One no longer
+      // here takes its own events ('gone'), never another group's, nor a person's.
       if (named?.type === 'organization') return { subject: named };
       // An event that names none: the group the customer is linked to, while it is here.
       return { subject: linked?.type === 'organization' && !isGone(linked) ? linked : null };

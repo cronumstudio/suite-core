@@ -95,9 +95,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   whichever was linked first took the others' purchases too (the family's plan granted to the
   adult, the adult's to the family, or a new family's to the one before). Now an event whose
   `subject` names an organization, or whose product is `for: 'organization'`, is the group's: the
-  group it names, or, when it names none, the group the customer is linked to while that group is
-  here; no identity is looked up for it, and a customer linked to a group never takes a person's
-  purchase. A link to a group deleted here is taken by whoever the customer pays for next. A
+  group its subscription is already known for here, while that group is (what a copy of the install
+  carries with the groups' new ids, where the id the checkout named may be another group's); else
+  the group it names; else, when it names none, the group the customer is linked to while that
+  group is here. No identity is looked up for it, and a customer linked to a group never takes a
+  person's purchase. A link to a group deleted here is taken by whoever the customer pays for next. A
   group's product that names no group and whose customer is a person's is ignored, never the
   person's. Everything else is found as before.
 - **An event for a group no longer here is `'gone'`** (`createBilling({ organizationGone })`, set by
