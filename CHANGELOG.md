@@ -57,24 +57,38 @@ change an interface and a patch never does. Apps pin a version through the submo
     branding, dates, archived—, its memberships and roles (one this install lacks becomes
     `member`), its invitations, grants and payments under its new id: a renewal that names the old
     id finds the family by its customer. Each group it makes is recorded with where it came from
-    (`app_meta`: `suite.organization_origin:<install>:<id there>`). Another copy of the same install
-    (a host's next module) finds the group by that record alone and adds only the module's rows:
-    no member, invitation, plan or payment, which came with the first. A slug, kind and date like a
-    group's here find nothing, so neither someone's own copy imported earlier nor a crafted copy can
-    set up or reach a group a move goes into. A group whose every member is left out goes with
-    them; one whose owners are left out gets its heir as owner, by `organizations.heirOf`.
+    (`app_meta`: `suite.organization_origin:<install>:<id there>`). A later copy of the same install
+    (a host's next module, the real move after a trial) finds the group by that record alone,
+    and brings what changed in between: who joined, invitations, plans paid since, who pays them,
+    a payment's plan extended to the copy's end, a subscription's newer state; nothing doubled
+    (memberships and invitations once each, a payment's plan by its reference and any other as the
+    same row, a customer by its id or the group's link at that provider), always under the group's
+    id here. So a renewal naming the old id —another group's here— finds the family by its
+    customer. The plan says what each group would bring (`adds`). A slug, kind and date like a
+    group's here find nothing, so neither someone's own copy imported earlier nor a look-alike copy
+    can set up or reach a group a move goes into; only a whole install's copy, the
+    administrator's, names its install. A group whose every member is left out goes with them; one
+    whose owners are left out gets its heir as owner, by `organizations.heirOf`. A later copy's
+    rows of the module come again, as an account's do.
   - **"Replace" and erasing one's data** empty what is the person's alone: their rows and those of
     groups nobody else is in, archived too, whose organization and plan stay. A group they share is
     never emptied: "replace" hands it over first (the app's `leave`, then the new
     `organizations.handOver(organizationId, userId)`: the heir becomes owner when they were the
     last, and their membership goes), and erasing leaves it whole with them in it. The plan names
     those groups (`hand_over`) and the result says what happened (`handed_over`).
-  - **Someone's own "replace" is told first**: `POST /api/me/import/:id` with `replace: true`
-    answers 409 `import_hand_over` (with the groups' names) while `hand_over` isn't empty, unless the
-    body also sends `hand_over: true`; the upload waits, to be applied once confirmed. Settings ›
-    Your data names the groups under the choice, again in the confirmation (`kit.data.handOver`,
-    in the four languages), offers "replace" to someone who has only shared groups, and sends
-    `hand_over: true` once the person confirms. The command line and `applyFile()` go on as told.
+  - **Someone's own "replace" goes only with the groups it showed**: `POST /api/me/import/:id`
+    with `replace: true` takes back the ids of the plan's `hand_over` (`hand_over: [ids]`); while
+    the groups the person shares aren't those —one shared since, or one the others left, which
+    would be emptied instead— it answers 409 `import_hand_over` with them as they are now
+    (`organizations: [{ id, name }]`), checked again inside the import's transaction; the upload
+    waits, to be applied once confirmed. Settings › Your data names the groups under the choice,
+    again in the confirmation (`kit.data.handOver`, in the four languages), offers "replace" to
+    someone who has only shared groups, and sends their ids once the person confirms (an app whose
+    copies carry no groups sends what it always did). The command line and `applyFile()` go on as
+    told.
+  - **The administrator's "replace" says which groups it hands over**: the install plan's
+    `targets[].hand_over`, named by the admin panel under the choice and in its confirmation
+    (`admin.data.handOver`, `admin.data.confirmHandOver`).
   - The plan and the result list each group and where it goes (`organizations`), and the command
     line (`tools/data-cli.js`) shows them.
 - **Columns that never travel** (`omit` on a declared table): `omit: ['token_hash', 'push_endpoint']`
@@ -91,12 +105,16 @@ change an interface and a patch never does. Apps pin a version through the submo
   takes it on the same day with its data. Only a disabled one: a date alone, in a file anyone could
   write, never sends an active account to the sweep. Before, it arrived disabled for good, with
   everything it had.
+- **A kind is written by one rule** (`KIND_NAME`): `organizations.create`, and so `POST /api/orgs`,
+  refuses another with 400 `field_invalid` (`field: 'kind'`, `fields.kind` in the four languages);
+  a copy's group with a kind written otherwise (made before the rule) comes in with it written by
+  the rule ("Team" → "team", nothing left → no kind), never refusing the whole copy.
 - **One heir rule** (`organizations.heirOf(organizationId, exceptUserId)`): the oldest admin, else
   the oldest member, those whose seat a role change would move last (`seatRoles`: Tracker's
   drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
 - `organizations.roles` (every role, the app's own included), `slugOf` and `KIND_NAME` (how a kind is written, the one rule for every kind's name) from `organizations.js`;
   `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
-- `errors.import_hand_over` and `kit.data.handOver` in the four languages.
+- `errors.import_hand_over`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
 - Apart from `delete_after`, nothing changes with today's declarations: no organization travels,
   no install id is made, and a copy that has organizations is refused as `unknown_table`, as an
   older core refuses it. No migration: the install's id and where each imported group came from

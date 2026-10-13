@@ -125,6 +125,8 @@ export function createOrganizations({
     const clean = String(name ?? '').trim();
     if (!clean) throw badRequest('field_required', { field: 'name' });
     if (clean.length > 80) throw badRequest('field_too_long', { field: 'name', max: 80 });
+    // One rule for every kind's name, or a group of a kind written otherwise couldn't travel in a copy.
+    if (kind != null && (typeof kind !== 'string' || !KIND_NAME.test(kind))) throw badRequest('field_invalid', { field: 'kind' });
     return database.tx(() => {
       const base = slugOf(clean);
       let slug = base;

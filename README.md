@@ -338,19 +338,33 @@ export const DATA = {
   own family could only be refused by the UNIQUE.
 - **Importing a whole install**: every group comes back as it was, with its slug, dates, roles (one
   this install doesn't have becomes `member`), its invitations, plans and payments. Each group it
-  makes is recorded with where it came from (that install's id and its id there); another copy of
-  the same install —another module of a host— finds it by that record alone, and adds nothing to it
-  but the module's own rows: its members, invitations, plans and payments came with the first. A
-  slug, a kind and a date like a group's here find nothing. A group whose every member is left out
-  goes with them; one left without an owner gets its heir (`organizations.heirOf`) as owner.
+  makes is recorded with where it came from (that install's id and its id there). A later copy of
+  the same install —another module of a host, or the real move after a trial one— finds it by that
+  record alone, and brings what changed in between: who joined, invitations, plans paid since and
+  who pays them, a payment's plan here extended to the copy's end, a subscription's newer state.
+  Nothing is doubled (memberships, invitations by their hash, a payment's plan by its reference,
+  any other plan as the same row, a customer by its id or the group's link at that provider), and
+  everything goes under the group's id here, never the copy's: a renewal that names the old id
+  finds the group by its customer. The plan says what each group would bring (`adds`: members,
+  invitations, grants, billing). A slug, a kind and a date like a group's here find nothing. A
+  group whose every member is left out goes with them; one left without an owner gets its heir
+  (`organizations.heirOf`) as owner. The module's own rows of a later copy come again, as an
+  account's do: the real move goes into an install a trial move didn't touch.
+- **Kinds** are written by one rule (`KIND_NAME`): `organizations.create` (and `POST /api/orgs`)
+  refuses another with 400 `field_invalid` (`field: 'kind'`), and a copy's kind written otherwise
+  (a group made before the rule) is written by it ("Team" → "team"), never a reason to refuse it.
 - **"Replace"** and **erasing one's data** empty what is the person's alone: their rows and those
   of groups nobody else is in, archived ones too (the organization and its plan stay). A group
   others share is never emptied: erasing leaves it whole, and "replace" hands it over (`leave`, then
   the core's `organizations.handOver`: the heir when they were its last owner, and their membership
-  goes), as account deletion does. Someone's own "replace" does that only when told to: the plan
-  names the groups (`hand_over`), Settings shows them and asks again with them, and
-  `POST /api/me/import/:id` with `replace: true` answers 409 `import_hand_over` (with their names)
-  unless the body also says `hand_over: true`.
+  goes), as account deletion does. Someone's own "replace" does that only with the groups they
+  were shown: the plan names them (`hand_over`), Settings shows them and asks again with them, and
+  `POST /api/me/import/:id` with `replace: true` takes their ids back (`hand_over: [ids]`). When the
+  groups they share are no longer those —someone joined one, or the others left one, which would
+  then be emptied— it answers 409 `import_hand_over` with the groups as they are now
+  (`organizations: [{ id, name }]`), and nothing changes. The administrator's plan says, for each
+  account here, which groups "replace" would take it out of (`targets[].hand_over`), and the admin
+  panel names them under the choice and in its confirmation.
 - With neither `organizations` nor a table that points at them, nothing of organizations travels
   and a copy that has them is refused (`unknown_table`), as a core before 0.84.0 does.
 

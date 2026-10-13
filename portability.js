@@ -1076,6 +1076,18 @@ export function createPortability({
     try { return isObject(JSON.parse(value)) ? value : '{}'; } catch { return '{}'; }
   };
 
+  /**
+   * A group's kind as a copy has it, written by the one rule (KIND_NAME): "Team" is "team", "My
+   * team" "my-team". Never a reason to refuse the copy: a group made before the rule held one an
+   * install wrote, and a whole install's copy with it must still come in. Nothing left: no kind.
+   */
+  const kindOf = (value) => {
+    if (typeof value !== 'string') return null;
+    const kind = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z]+/, '').slice(0, 40).replace(/-+$/, '');
+    return KIND_NAME.test(kind) ? kind : null;
+  };
+
   /** data/organizations.json: the groups, each with a name; ids only inside the file. */
   function checkOrganizations(rows) {
     if (!Array.isArray(rows)) throw invalidData('organizations');
@@ -1085,9 +1097,8 @@ export function createPortability({
       seen.add(raw.id);
       const name = typeof raw.name === 'string' ? cut(raw.name.trim(), 80) : '';
       if (!name) throw invalidData('organizations', { column: 'name' });
-      if (raw.kind != null && (typeof raw.kind !== 'string' || !KIND_NAME.test(raw.kind))) throw invalidData('organizations', { column: 'kind' });
       return {
-        id: raw.id, name, kind: raw.kind ?? null,
+        id: raw.id, name, kind: kindOf(raw.kind),
         slug: typeof raw.slug === 'string' && SLUG.test(raw.slug) ? raw.slug : null,
         settings: objectText(raw.settings), branding: objectText(raw.branding),
         created_at: dateOf(raw.created_at), archived_at: dateOf(raw.archived_at),
@@ -1344,8 +1355,85 @@ export function createPortability({
     return choices;
   }
 
+  /*
+   * What a whole install's copy brings to each of its groups here, the same for the plan and the
+   * import. A group found by its origin is the same group, a copy of it made later: what changed
+   * in between comes too —a member who joined, an invitation, a plan paid for, who pays it—, and
+   * what is here already isn't doubled. A payment's plan here that ends sooner is extended to the
+   * copy's end, and its subscription takes the copy's state when the copy's is newer.
+   */
+
+  /** A plan of a group's in the copy, as it is here: a payment's by its reference; any other, the same row. */
+  function groupGrantHere(grant, organizationId) {
+    if (grant.external_ref != null) {
+      return database.get(`SELECT * FROM entitlement_grants WHERE source = ? AND external_ref = ? AND revoked_at IS NULL
+        ORDER BY id DESC LIMIT 1`, grant.source, grant.external_ref) ?? null;
+    }
+    return database.get(`SELECT * FROM entitlement_grants WHERE subject_type = 'organization' AND subject_id = ? AND plan IS ?
+      AND feature IS ? AND value IS ? AND quantity IS ? AND source = ? AND starts_at IS ? AND ends_at IS ? AND revoked_at IS NULL
+      LIMIT 1`, organizationId, grant.plan, grant.feature, grant.value, grant.quantity, grant.source, grant.starts_at,
+    grant.ends_at) ?? null;
+  }
+  /** Whether an end is later than another: no end is later than any. */
+  const endsLater = (end, than) => (end == null ? than != null : than != null && end > than);
+  /** → 'add', { extend: id } or null (here already, as it is). */
+  function groupGrantMove(grant, organizationId) {
+    const here = groupGrantHere(grant, organizationId);
+    if (!here) return 'add';
+    const theirs = here.subject_type === 'organization' && here.subject_id === organizationId;
+    return theirs && grant.external_ref != null && endsLater(grant.ends_at, here.ends_at) ? { extend: here.id } : null;
+  }
+  /** A group's customer at a provider: added unless that customer or that group's link there is here. → 'add' or null. */
+  const groupCustomerMove = (row, organizationId) => (database.get(`SELECT 1 FROM billing_customers
+    WHERE (provider = ? AND customer_id = ?) OR (subject_type = 'organization' AND subject_id = ? AND provider = ?)`,
+  row.provider, row.customer_id, organizationId, row.provider) ? null : 'add');
+  /** A group's subscription: added; its newer state, when it is the group's here; or null. */
+  function groupSubscriptionMove(row, organizationId) {
+    const here = database.get('SELECT * FROM billing_subscriptions WHERE provider = ? AND ref = ?', row.provider, row.ref);
+    if (!here) return 'add';
+    const theirs = here.subject_type === 'organization' && here.subject_id === organizationId;
+    return theirs && String(row.updated_at) > String(here.updated_at) ? 'update' : null;
+  }
+
+  /**
+   * What a group of a whole install's copy would bring here (`organizationId`: the group it is
+   * found as, or null for a new one), with `userChoice(id in the copy)` saying where each account
+   * goes. Counts, for the plan.
+   */
+  function groupAdds(archive, org, organizationId, userChoice) {
+    const target = organizationId ?? -1;
+    const members = archive.memberships.filter((m) => m.organization_id === org.id).filter((m) => {
+      const choice = userChoice(m.user_id);
+      if (!choice || choice.action === 'skip') return false;
+      return choice.action === 'create' || organizationId == null || !organizations.roleOf(organizationId, choice.userId);
+    }).length;
+    const invitations = archive.invitations.filter((i) => i.organization_id === org.id
+      && !database.get('SELECT 1 FROM invitations WHERE token_hash = ?', i.token_hash)).length;
+    const grants = archive.grants.filter((g) => g.subject_type === 'organization' && g.subject_id === org.id
+      && groupGrantMove(g, target) != null).length;
+    const billing = archive.billing.customers.filter((c) => c.subject_type === 'organization' && c.subject_id === org.id
+      && groupCustomerMove(c, target)).length
+      + archive.billing.subscriptions.filter((b) => b.subject_type === 'organization' && b.subject_id === org.id
+        && groupSubscriptionMove(b, target)).length;
+    return { members, invitations, grants, billing };
+  }
+
   /** The groups "replace" would hand over: those of the account's copy that others share. */
   const sharedGroups = (userId) => (groups ? groupsOf(userId).filter((o) => Number(o.members) > 1) : []);
+
+  /**
+   * Someone's own "replace" takes them out of the groups they share only as they were shown them
+   * (the plan's `hand_over`, whose ids come back as `shown`): the very same groups. One more, one
+   * fewer —someone joined, or the others left and the group would be emptied instead— and nothing
+   * is done until they see it again: 409 `import_hand_over`, with the groups as they are now.
+   */
+  function checkHandOver(userId, shown) {
+    const shared = sharedGroups(userId);
+    const confirmed = new Set((Array.isArray(shown) ? shown : []).map(Number));
+    if (shared.length !== confirmed.size || shared.some((o) => !confirmed.has(o.id))) {
+      throw conflict('import_hand_over', { organizations: shared.map((o) => ({ id: o.id, name: o.name })) });
+    }
+  }
 
   /** A slug free here: the copy's when it is, else one from the name, as organizations.js makes them. */
   function freeSlug(wanted, name) {
@@ -1365,8 +1453,11 @@ export function createPortability({
     return (id) => (members.get(id)?.length === 1 ? members.get(id)[0] : null);
   }
 
-  /** The groups of a copy and where each would go, for the screen and the command line. */
-  function organizationsPlan(archive, where) {
+  /**
+   * The groups of a copy and where each would go, for the screen and the command line. A whole
+   * install's says too what each would bring (`adds`), with `userChoice` saying where accounts go.
+   */
+  function organizationsPlan(archive, where, userChoice = null) {
     return archive.organizations.map((org) => {
       const choice = where.get(org.id);
       const here = choice?.action === 'map' ? database.get('SELECT name FROM organizations WHERE id = ?', choice.organizationId) : null;
@@ -1378,6 +1469,9 @@ export function createPortability({
         choice: !choice ? { action: 'skip' }
           : choice.action === 'map' ? { action: 'map', organization_id: choice.organizationId, name: here?.name ?? null }
             : { action: 'create' },
+        ...(userChoice && choice ? {
+          adds: groupAdds(archive, org, choice.action === 'map' ? choice.organizationId : null, userChoice),
+        } : {}),
       };
     });
   }
@@ -1417,7 +1511,7 @@ export function createPortability({
       ...(groups ? {
         organizations: organizationsPlan(archive, decideOrganizations(archive, {
           mode, insideUser: (id) => choices.get(id)?.action !== 'skip',
-        })),
+        }), (id) => choices.get(id)),
       } : {}),
       accounts: archive.users.map((source) => {
         const choice = choices.get(source.id);
@@ -1436,6 +1530,8 @@ export function createPortability({
       targets: accounts.list().map((u) => ({
         id: u.id, username: u.username, display_name: u.display_name, email: u.email ?? null, role: u.role,
         owns: own.get(u.id) || {},
+        // And the groups "replace" would take them out of, to be said before (the panel names them).
+        ...(groups ? { hand_over: sharedGroups(u.id).map((o) => ({ id: o.id, name: o.name, kind: o.kind })) } : {}),
       })),
       provider: authProvider,
     };
@@ -1461,11 +1557,9 @@ export function createPortability({
     const when = alreadyApplied(manifest, target);
     if (when) throw conflict('import_already_applied', { at: when });
     const choices = decide(archive, { mode, user, decisions, replace });
-    // "Replace" takes the person out of the groups they share: only once they were told which (`hand_over`).
-    if (groups && mode === 'account' && replace && !handOver) {
-      const shared = sharedGroups(user.id);
-      if (shared.length) throw conflict('import_hand_over', { organizations: shared.map((o) => o.name) });
-    }
+    // "Replace" takes the person out of the groups they share: only those they were shown (`hand_over`).
+    const confirmHandOver = groups && mode === 'account' && replace && handOver !== true;
+    if (confirmHandOver) checkHandOver(user.id, handOver);
     const sources = new Map(archive.users.map((u) => [u.id, u]));
     const inside = (id) => choices.has(id) && choices.get(id).action !== 'skip';
     const orgsIn = groups ? groupsInside(archive, mode, inside) : new Set();
@@ -1564,6 +1658,8 @@ export function createPortability({
         const handedOver = [];
         for (const choice of choices.values()) {
           if (choice.action !== 'map' || !choice.replace) continue;
+          // Again, inside: nothing may have changed since the check before the attachments were read.
+          if (confirmHandOver) checkHandOver(choice.userId, handOver);
           if (groups) handedOver.push(...handOverGroups(choice.userId).map((g) => ({ ...g, user_id: choice.userId })));
           for (const [name, n] of Object.entries(emptyAccount(choice.userId, replacedFiles))) {
             replaced[name] = (replaced[name] || 0) + n;
@@ -1608,25 +1704,25 @@ export function createPortability({
             }
           }
           if (mode === 'install') {
-            // Only for the groups this import makes. One it found came with an earlier copy of the same
-            // install, with its members, invitations, plans and payments: nothing of a copy is added to them.
+            // For the groups it makes and those it found by their origin (the same group, copied later):
+            // who joined in between comes, and who is in one already stays as they are.
             for (const m of archive.memberships) {
               const organizationId = orgMap.get(m.organization_id);
               const userId = userMap.get(m.user_id);
-              if (!organizationId || !userId || !orgsCreated.has(organizationId)) continue;
+              if (!organizationId || !userId) continue;
               membershipsImported += database.run(`INSERT OR IGNORE INTO memberships (organization_id, user_id, role, invited_by,
                 joined_at) VALUES (?, ?, ?, ?, ?)`, organizationId, userId, roleHere(m.role),
               m.invited_by == null ? null : userMap.get(m.invited_by) ?? null, m.joined_at ?? iso()).changes;
             }
             // A group whose owners were left out has its heir as owner, as when an account goes: never none.
-            for (const id of orgsCreated) {
+            for (const id of new Set(orgMap.values())) {
               if (database.get("SELECT 1 FROM memberships WHERE organization_id = ? AND role = 'owner'", id)) continue;
               const heir = organizations.heirOf(id);
               if (heir != null) database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir);
             }
             for (const invitation of archive.invitations) {
               const organizationId = orgMap.get(invitation.organization_id);
-              if (!organizationId || !orgsCreated.has(organizationId)) continue;
+              if (!organizationId) continue;
               invitationsImported += database.run(`INSERT OR IGNORE INTO invitations (organization_id, email, role, token_hash,
                 invited_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, organizationId, invitation.email,
               roleHere(invitation.role), invitation.token_hash,
@@ -1745,11 +1841,20 @@ export function createPortability({
             const group = grant.subject_type === 'organization';
             const subjectId = group ? orgMap.get(grant.subject_id) : userMap.get(grant.subject_id);
             if (!subjectId) continue;
-            // A payment's grant already here (its webhook came first) isn't doubled.
-            if (grant.external_ref != null && database.get(`SELECT 1 FROM entitlement_grants WHERE source = ?
-              AND external_ref = ? AND revoked_at IS NULL`, grant.source, grant.external_ref)) continue;
-            // A group found here came with its plans already (an earlier copy of the same install).
-            if (group && !orgsCreated.has(subjectId)) continue;
+            if (group) {
+              // A group's: once, under its id here; a payment's here that ends sooner takes the copy's end.
+              const move = groupGrantMove(grant, subjectId);
+              if (!move) continue;
+              if (move.extend) {
+                database.run('UPDATE entitlement_grants SET ends_at = ? WHERE id = ?', grant.ends_at, move.extend);
+                grantsImported += 1;
+                continue;
+              }
+            } else if (grant.external_ref != null && database.get(`SELECT 1 FROM entitlement_grants WHERE source = ?
+              AND external_ref = ? AND revoked_at IS NULL`, grant.source, grant.external_ref)) {
+              // A payment's grant already here (its webhook came first) isn't doubled.
+              continue;
+            }
             try {
               database.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, feature, value, quantity, source,
                 external_ref, starts_at, ends_at, created_at, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1767,13 +1872,13 @@ export function createPortability({
         let billingImported = 0;
         if (mode === 'install' && database.columnsOf('billing_customers').length) {
           const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
-          // A group's under its new id too: a renewal of the family's plan finds the family (billing.js).
-          // A group found here came with who pays for it already.
-          const subjectOfRow = (row) => (row.subject_type !== 'organization' ? userMap.get(row.subject_id)
-            : orgsCreated.has(orgMap.get(row.subject_id)) ? orgMap.get(row.subject_id) : null);
+          // A group's under its id here, the one it was made or found as, never the copy's: a renewal
+          // that names the old id finds the family by its customer (billing.js), whoever has that id here.
+          const subjectOfRow = (row) => (row.subject_type === 'organization' ? orgMap.get(row.subject_id) : userMap.get(row.subject_id));
           for (const row of archive.billing.customers) {
             const subjectId = subjectOfRow(row);
             if (!subjectId) continue;
+            if (row.subject_type === 'organization' && !groupCustomerMove(row, subjectId)) continue;
             billingImported += database.run(`INSERT OR IGNORE INTO billing_customers (subject_type, subject_id, provider,
               customer_id, created_at) VALUES (?, ?, ?, ?, ?)`, row.subject_type, subjectId, row.provider, row.customer_id,
             row.created_at ?? iso()).changes;
@@ -1781,6 +1886,17 @@ export function createPortability({
           for (const row of archive.billing.subscriptions) {
             const subjectId = subjectOfRow(row);
             if (!subjectId) continue;
+            if (row.subject_type === 'organization') {
+              const move = groupSubscriptionMove(row, subjectId);
+              if (!move) continue;
+              if (move === 'update') {
+                billingImported += database.run(`UPDATE billing_subscriptions SET product = ?, status = ?, quantity = ?, period_end = ?,
+                  occurred_at = ?, updated_at = ?${refunded ? ', refunded_until = ?' : ''} WHERE provider = ? AND ref = ?`,
+                row.product, row.status, row.quantity, row.period_end, row.occurred_at, row.updated_at,
+                ...(refunded ? [row.refunded_until] : []), row.provider, row.ref).changes;
+                continue;
+              }
+            }
             billingImported += database.run(`INSERT OR IGNORE INTO billing_subscriptions (provider, ref, subject_type, subject_id,
               product, status, quantity, period_end, occurred_at, updated_at${refunded ? ', refunded_until' : ''})
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?${refunded ? ', ?' : ''})`, row.provider, row.ref, row.subject_type, subjectId,
@@ -1951,7 +2067,7 @@ export function createPortability({
   }
 
   /** Applies a pending import, and lets its file go. */
-  async function apply(id, { mode, user, decisions = [], replace = false, handOver = false, req = null }) {
+  async function apply(id, { mode, user, decisions = [], replace = false, handOver = null, req = null }) {
     const files = pending(id, { mode, user });
     const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
     try {
@@ -2089,9 +2205,10 @@ export function registerPortabilityApi(router, {
   router.post('/api/me/import/:id', async (ctx) => {
     const user = brake(signedIn(ctx));
     const body = await readJson(ctx.req);
-    // `hand_over`: the person was shown the groups "replace" takes them out of (the plan's `hand_over`).
+    // `hand_over`: the ids of the groups the person was shown "replace" takes them out of (the plan's).
+    const shown = Array.isArray(body.hand_over) ? body.hand_over.filter((v) => Number.isSafeInteger(v)) : null;
     sendJson(ctx.res, 200, await portability.apply(ctx.params.id, {
-      mode: 'account', user, replace: body.replace === true, handOver: body.hand_over === true, req: ctx.req,
+      mode: 'account', user, replace: body.replace === true, handOver: shown, req: ctx.req,
     }));
   });
   router.delete('/api/me/import/:id', (ctx) => {

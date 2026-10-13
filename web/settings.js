@@ -754,7 +754,8 @@ export function openSettings(options) {
       const owned = Object.values(has).reduce((a, b) => a + b, 0);
       // The groups shared with other people that "replace" takes them out of, by their names
       // (people's own words, never translated): said before, and confirmed with the rest.
-      const leaving = (answer.hand_over || []).map((o) => o.name);
+      const shown = answer.hand_over || [];
+      const leaving = shown.map((o) => o.name);
       const handOver = leaving.length ? t('kit.data.handOver', { names: listFormat({ type: 'conjunction' }).format(leaving) }) : '';
       const replace = el('input', { type: 'checkbox', id: 'kit-data-replace' });
       const apply = button(t('kit.data.apply'), async () => {
@@ -764,8 +765,9 @@ export function openSettings(options) {
         }))) return;
         apply.disabled = true;
         try {
+          // The groups as they were shown: if they have changed since, the server says so (409) and nothing is done.
           const result = await api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, {
-            replace: replace.checked, ...(replace.checked && leaving.length ? { hand_over: true } : {}),
+            replace: replace.checked, ...(replace.checked && Array.isArray(answer.hand_over) ? { hand_over: shown.map((o) => o.id) } : {}),
           });
           toast(t('kit.data.done', { what: describe(result.imported.tables) }));
           // Everything shown comes back with what arrived.

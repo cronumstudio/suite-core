@@ -498,9 +498,11 @@ test('someone’s own “replace” answers 409 until they confirm the families 
   assert.deepEqual(plan.hand_over, [{ id: shared.org.id, name: 'Shared home', kind: 'family' }], 'the plan names them');
   const refused = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true });
   assert.equal(refused.status, 409);
-  assert.deepEqual(await refused.json(), { error: 'import_hand_over', organizations: ['Shared home'] });
+  assert.deepEqual(await refused.json(), { error: 'import_hand_over', organizations: [{ id: shared.org.id, name: 'Shared home' }] });
+  assert.equal((await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, hand_over: true })).status, 409,
+    'the ids of what was shown, not a yes to whatever it is');
   assert.deepEqual(membersOf({ organizations: suite.organizations }, shared.org.id), [['me', 'owner'], ['partner', 'admin']], 'nothing changed');
-  const applied = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, hand_over: true });
+  const applied = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, hand_over: [shared.org.id] });
   assert.equal(applied.status, 200, 'the upload waited: the same one, confirmed');
   assert.equal((await applied.json()).handed_over[0].heir, partner.id);
   assert.deepEqual(membersOf({ organizations: suite.organizations }, shared.org.id), [['partner', 'owner']]);
@@ -657,49 +659,211 @@ test('someone’s own copy can never set up a group a whole install’s move goe
   assert.deepEqual(membersOf(target, his), [['ben', 'owner']], 'Ben’s own import stays his, beside it');
 });
 
-test('a crafted whole-install copy adds nobody to a group here: no member, no invitation, no plan, whatever it says', async (t) => {
+test('only a whole install’s copy says which install it is: a look-alike or someone’s own copy finds no group here', async (t) => {
   const source = install(t);
   const s = seedSource(source);
   const target = install(t);
   const first = path.join(source.dir, 'install.zip');
   await exportTo(source, first, { scope: 'install' });
+  const { source: from } = await (await readZip(t, first)).json('manifest.json');
   await target.portability.applyFile(first, { mode: 'install' });
   const home = target.db.get("SELECT id FROM organizations WHERE name = 'Casa Andersen'").id;
-  const grants = count(target.db, "entitlement_grants WHERE subject_type = 'organization'");
-  const token = 'inv_known-to-the-attacker-0000000000';
+  const eve = target.suite.accounts.create({ username: 'eve', displayName: 'Eve', email: 'eve@example.com' });
 
-  // Eve writes herself into the family as its owner, with an owner's invitation she holds the link of.
-  const forge = async (name, manifest) => {
-    const fresh = path.join(source.dir, `${name}-base.zip`);
-    await exportTo(source, fresh, { scope: 'install' });
-    return rewrite(fresh, path.join(source.dir, `${name}.zip`), {
-      'manifest.json': manifest,
-      'data/users.json': (rows) => [...rows, { ...rows[0], id: 999, username: 'eve', display_name: 'Eve', email: 'eve@example.com', role: 'user' }],
-      'data/memberships.json': (rows) => [...rows, { organization_id: s.home.org.id, user_id: 999, role: 'owner', joined_at: '2020-01-01T00:00:00.000Z' }],
-      'suite/invitations.json': () => [{ organization_id: s.home.org.id, email: null, role: 'owner', token_hash: sha256(token),
-        created_at: '2026-01-01T00:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' }],
-      'suite/grants.json': (rows) => [...rows, { subject_type: 'organization', subject_id: s.home.org.id, plan: 'pro', source: 'admin',
-        starts_at: '2026-01-01T00:00:00.000Z', created_at: '2026-01-01T00:00:00.000Z' }],
-    });
-  };
-  // Saying it comes from the same install, with its id: the family is found, and nothing is added to it.
-  const same = await forge('same-install', (m) => m);
-  const result = await target.portability.applyFile(same, { mode: 'install' });
-  assert.equal(result.organizations.find((o) => o.source === s.home.org.id).organization_id, home);
-  const eve = target.suite.accounts.byUsername('eve');
-  assert.equal(target.organizations.roleOf(home, eve.id), null, 'not a member');
-  assert.equal(count(target.db, "entitlement_grants WHERE subject_type = 'organization'"), grants, 'no plan given');
-  assert.throws(() => target.organizations.accept(token, eve.id), (err) => err.code === 'invitation_invalid', 'her link opens nothing');
-
-  // Without it, a slug, a kind and a date like the family's find nothing: a new group, hers alone.
-  const other = await forge('no-install', (m) => ({ ...m, source: { ...m.source, install: undefined } }));
-  const second = await target.portability.applyFile(other, {
-    mode: 'install', decisions: [{ source: 'eve', user_id: eve.id }],
+  // A copy written to look like the family's —its slug, kind, date and id— but not from that install: a new group.
+  const fresh = path.join(source.dir, 'base.zip');
+  await exportTo(source, fresh, { scope: 'install' });
+  const lookAlike = await rewrite(fresh, path.join(source.dir, 'look-alike.zip'), {
+    'manifest.json': (m) => ({ ...m, source: { ...m.source, install: undefined } }),
+    'data/users.json': (rows) => [...rows, { ...rows[0], id: 999, username: 'eve', display_name: 'Eve', email: 'eve@example.com', role: 'user' }],
+    'data/memberships.json': (rows) => [...rows, { organization_id: s.home.org.id, user_id: 999, role: 'owner', joined_at: '2020-01-01T00:00:00.000Z' }],
   });
-  const made = second.organizations.find((o) => o.source === s.home.org.id).organization_id;
+  const result = await target.portability.applyFile(lookAlike, { mode: 'install', decisions: [{ source: 'eve', user_id: eve.id }] });
+  const made = result.organizations.find((o) => o.source === s.home.org.id).organization_id;
   assert.notEqual(made, home);
-  assert.equal(target.organizations.roleOf(home, eve.id), null);
+  assert.equal(target.organizations.roleOf(home, eve.id), null, 'not in the family');
   assert.equal(target.db.get('SELECT slug FROM organizations WHERE id = ?', made).slug, 'casa-andersen-2');
+
+  // Someone's own copy never names the install, and one made to say it is read for what it is.
+  const own = path.join(source.dir, 'ben.zip');
+  await exportTo(source, own, { scope: 'account', userId: s.ben.id });
+  assert.equal((await (await readZip(t, own)).json('manifest.json')).source.install, undefined);
+  const smuggled = await rewrite(own, path.join(source.dir, 'smuggled.zip'), {
+    'manifest.json': (m) => ({ ...m, id: 'smuggled-copy-0000001', source: { ...m.source, install: from.install } }),
+  });
+  const mine = await target.portability.applyFile(smuggled, { mode: 'account', user: eve });
+  assert.equal(mine.organizations[0].organization_id, made, 'into her own family (mapOntoOwn), never the one the copy names');
+  const relabelled = await rewrite(own, path.join(source.dir, 'relabelled.zip'), {
+    'manifest.json': (m) => ({ ...m, id: 'relabelled-copy-00001', scope: 'install', source: { ...m.source, install: from.install } }),
+  });
+  await rejectsWith(target.portability.applyFile(relabelled, { mode: 'account', user: eve }), 'import_wrong_scope');
+  assert.deepEqual(membersOf(target, home), [['ana', 'owner'], ['ben', 'owner'], ['cleo', 'admin']], 'the family is as it was');
+});
+
+test('a newer copy of the same install brings what changed: who joined, the plan paid since, who pays it; the renewal finds the group', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const e1 = path.join(source.dir, 'e1.zip');
+  await exportTo(source, e1, { scope: 'install' });
+  // Between the two copies: Gran joins the family, the uncle is invited, the family's Pro is renewed,
+  // and the team, which paid nothing before, subscribes.
+  const gran = source.suite.accounts.create({ username: 'gran', displayName: 'Gran', email: 'gran@example.com' }, { quiet: true });
+  source.organizations.accept(s.pending.token, gran.id);
+  source.organizations.invite(s.home.org.id, { role: 'member', email: 'uncle@example.com', invitedBy: s.ana.id });
+  const at = '2026-10-01T10:00:00.000Z';
+  source.db.run("UPDATE entitlement_grants SET ends_at = '2028-05-04T10:00:00.000Z' WHERE external_ref = 'sub_FAMILY'");
+  source.db.run("UPDATE billing_subscriptions SET period_end = '2028-05-01T10:00:00.000Z', updated_at = ? WHERE ref = 'sub_FAMILY'", at);
+  source.db.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, external_ref, starts_at, ends_at, created_at)
+    VALUES ('organization', ?, 'pro', 'paddle', 'sub_TEAM', ?, '2027-10-04T10:00:00.000Z', ?)`, s.team.id, at, at);
+  source.db.run(`INSERT INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at) VALUES ('organization', ?, 'paddle', 'ctm_TEAM', ?)`, s.team.id, at);
+  source.db.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, period_end, occurred_at, updated_at)
+    VALUES ('paddle', 'sub_TEAM', 'organization', ?, 'family-yearly', 'active', '2027-10-01T10:00:00.000Z', ?, ?)`, s.team.id, at, at);
+  const e2 = path.join(source.dir, 'e2.zip');
+  await exportTo(source, e2, { scope: 'install' });
+
+  // Here, Zoe's family came first: the groups of the copy get other ids, and the team's old id is the Andersens' here.
+  const target = install(t);
+  const zoe = target.suite.accounts.create({ username: 'zoe', displayName: 'Zoe' });
+  family(target, { name: 'Zoe home', owner: zoe });
+  await target.portability.applyFile(e1, { mode: 'install' });
+  const home = target.db.get("SELECT id FROM organizations WHERE name = 'Casa Andersen'").id;
+  const team = target.db.get("SELECT id FROM organizations WHERE name = 'Work team'").id;
+  assert.equal(home, s.team.id, 'the team’s old id is the family’s here');
+
+  const plan = await target.portability.planFile(e2, { mode: 'install' });
+  const adds = (name) => plan.organizations.find((o) => o.source.name === name);
+  assert.deepEqual(adds('Casa Andersen').choice, { action: 'map', organization_id: home, name: 'Casa Andersen' });
+  assert.deepEqual(adds('Casa Andersen').adds, { members: 1, invitations: 1, grants: 1, billing: 1 },
+    'Gran, the uncle’s invitation, the longer plan and its subscription’s new state');
+  assert.deepEqual(adds('Work team').adds, { members: 0, invitations: 0, grants: 1, billing: 2 }, 'its plan, its customer, its subscription');
+  assert.deepEqual(adds('Old club').adds, { members: 0, invitations: 0, grants: 0, billing: 0 });
+
+  const result = await target.portability.applyFile(e2, { mode: 'install' });
+  assert.deepEqual(result.imported.organizations, { created: 0, mapped: 3 });
+  assert.deepEqual([result.imported.memberships, result.imported.invitations, result.imported.grants, result.imported.billing], [1, 1, 2, 3]);
+  assert.deepEqual(membersOf(target, home), [['ana', 'owner'], ['ben', 'owner'], ['cleo', 'admin'], ['gran', 'admin']]);
+  assert.equal(count(target.db, 'memberships'), 8, 'nobody twice (Zoe’s, six, and Gran)');
+  assert.equal(count(target.db, 'invitations WHERE organization_id = ?', home), 2, 'the old one and the uncle’s, once each');
+  assert.equal(target.db.get("SELECT ends_at FROM entitlement_grants WHERE external_ref = 'sub_FAMILY'").ends_at, '2028-05-04T10:00:00.000Z',
+    'the plan renewed in between, extended');
+  assert.equal(target.db.get("SELECT period_end FROM billing_subscriptions WHERE ref = 'sub_FAMILY'").period_end, '2028-05-01T10:00:00.000Z');
+  assert.deepEqual(target.db.all("SELECT subject_id, external_ref FROM entitlement_grants WHERE subject_type = 'organization' AND revoked_at IS NULL ORDER BY id")
+    .map((r) => [r.subject_id, r.external_ref]), [[home, 'sub_FAMILY'], [home, null], [team, 'sub_TEAM']], 'the trial once; the team’s plan the team’s');
+  assert.deepEqual(target.db.all('SELECT subject_id, customer_id FROM billing_customers ORDER BY customer_id').map((r) => [r.subject_id, r.customer_id]),
+    [[home, 'ctm_FAMILY'], [team, 'ctm_TEAM']]);
+
+  // The team's renewal names its old id —the family's here— and its customer: the team's.
+  const billing = createBilling({
+    database: target.db, entitlements: target.suite.entitlements, log: () => {},
+    provider: { id: 'paddle', checkoutUrl: async () => '', portalUrl: async () => '', parseWebhook: async () => null },
+    products: { 'family-yearly': { plan: 'pro', kind: 'subscription', for: 'organization' } },
+  });
+  assert.equal(billing.apply({
+    id: 'evt_team', type: 'subscription', occurredAt: '2027-10-01T10:00:00.000Z', subject: { type: 'organization', id: s.team.id },
+    customer: 'ctm_TEAM', ref: 'sub_TEAM', product: 'family-yearly', status: 'active', periodEnd: '2028-10-01T10:00:00.000Z',
+  }), 'extended');
+  assert.deepEqual(target.db.all("SELECT subject_id FROM entitlement_grants WHERE external_ref = 'sub_TEAM' AND revoked_at IS NULL").map((r) => r.subject_id),
+    [team], 'never the family that has its old id here');
+  assert.equal(billing.customerOf({ type: 'organization', id: home }), 'ctm_FAMILY', 'whose portal opens for the family is the family’s');
+});
+
+test('a trial move, then the real one: the groups once, what changed in between, and the second copy’s rows beside the first’s', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const trial = path.join(source.dir, 'trial.zip');
+  await exportTo(source, trial, { scope: 'install' });
+  // A copy without the paid plan's customer: a renewal before the real move found the family by it only after.
+  const ben2 = source.suite.accounts.create({ username: 'ben2', displayName: 'Ben 2', email: 'ben2@example.com' }, { quiet: true });
+  source.organizations.addMember(s.home.org.id, ben2.id, 'member');
+  const real = path.join(source.dir, 'real.zip');
+  await exportTo(source, real, { scope: 'install' });
+
+  const target = install(t);
+  await target.portability.applyFile(trial, { mode: 'install' });
+  const result = await target.portability.applyFile(real, { mode: 'install' });
+  assert.deepEqual(result.imported.organizations, { created: 0, mapped: 3 });
+  assert.equal(count(target.db, 'organizations'), 3, 'no group twice');
+  const home = target.db.get("SELECT id FROM organizations WHERE name = 'Casa Andersen'").id;
+  assert.deepEqual(membersOf(target, home).map(([name]) => name), ['ana', 'ben', 'ben2', 'cleo']);
+  assert.equal(count(target.db, "entitlement_grants WHERE subject_type = 'organization'"), 2, 'no plan twice');
+  assert.equal(count(target.db, 'billing_subscriptions'), 1);
+  assert.equal(count(target.db, 'invitations'), 1);
+  assert.deepEqual(result.merged, { fam_families: 2 }, 'the families’ one rows are the ones the trial made');
+  assert.equal(count(target.db, 'fam_families'), 2);
+  // The module's rows come again, as they do for accounts: the real move goes into an install the trial didn't touch.
+  assert.equal(count(target.db, "fam_people WHERE name = 'Lia'"), 2);
+});
+
+test('someone’s own “replace” goes only with the groups it showed: one more, or one the others left, is said again first', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const file = path.join(source.dir, 'ben.zip');
+  await exportTo(source, file, { scope: 'account', userId: s.ben.id });
+
+  // N7: a family shared after the plan was shown.
+  const target = install(t);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  const partner = target.suite.accounts.create({ username: 'partner', displayName: 'Partner' });
+  const other = target.suite.accounts.create({ username: 'other', displayName: 'Other' });
+  const shown = family(target, { name: 'Shown', owner: me, members: [[partner, 'admin']] });
+  const plan = await target.portability.planFile(file, { mode: 'account', user: me, replace: true });
+  assert.deepEqual(plan.hand_over.map((o) => o.id), [shown.org.id]);
+  const later = family(target, { name: 'Not shown', owner: me, members: [[other, 'member']] });
+  await rejectsWith(target.portability.applyFile(file, { mode: 'account', user: me, replace: true, handOver: [shown.org.id] }), 'import_hand_over');
+  await assert.rejects(target.portability.applyFile(file, { mode: 'account', user: me, replace: true, handOver: [shown.org.id] }),
+    (err) => assert.deepEqual(err.extra.organizations, [{ id: shown.org.id, name: 'Shown' }, { id: later.org.id, name: 'Not shown' }]) ?? true,
+    'with the groups as they are now');
+  assert.deepEqual(membersOf(target, later.org.id), [['me', 'owner'], ['other', 'member']], 'nothing happened');
+  await rejectsWith(target.portability.applyFile(file, { mode: 'account', user: me, replace: true, handOver: null }), 'import_hand_over');
+  const done = await target.portability.applyFile(file, { mode: 'account', user: me, replace: true, handOver: [later.org.id, shown.org.id] });
+  assert.deepEqual(done.handed_over.map((g) => g.name).sort(), ['Not shown', 'Shown'], 'shown again, confirmed, done');
+
+  // N7b: the partner left after the plan: the family shown as handed over would be emptied instead.
+  const second = install(t);
+  const me2 = second.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  const partner2 = second.suite.accounts.create({ username: 'partner', displayName: 'Partner' });
+  const ours = family(second, { name: 'Ours', owner: me2, members: [[partner2, 'member']] });
+  const plan2 = await second.portability.planFile(file, { mode: 'account', user: me2, replace: true });
+  assert.deepEqual(plan2.hand_over.map((o) => o.id), [ours.org.id]);
+  second.organizations.removeMember(ours.org.id, partner2.id);
+  await rejectsWith(second.portability.applyFile(file, { mode: 'account', user: me2, replace: true, handOver: [ours.org.id] }), 'import_hand_over');
+  assert.equal(count(second.db, 'fam_routines WHERE family_id = ?', ours.familyId), 2, 'not emptied unseen');
+  const replanned = await second.portability.planFile(file, { mode: 'account', user: me2, replace: true });
+  assert.deepEqual([replanned.hand_over, replanned.replace.fam_routines], [[], 2], 'the new plan says it would be emptied');
+  await second.portability.applyFile(file, { mode: 'account', user: me2, replace: true, handOver: [] });
+  assert.equal(count(second.db, "fam_people WHERE name = 'Lia'"), 1, 'emptied, then the copy’s family in it');
+});
+
+test('the administrator’s “replace” of an account says which groups it hands over, in the plan', async (t) => {
+  const source = install(t);
+  seedSource(source);
+  const file = path.join(source.dir, 'install.zip');
+  await exportTo(source, file, { scope: 'install' });
+  const target = install(t);
+  const ben = target.suite.accounts.create({ username: 'ben', displayName: 'Ben', email: 'ben@example.com' });
+  const partner = target.suite.accounts.create({ username: 'partner', displayName: 'Partner' });
+  const shared = family(target, { name: 'Shared here', owner: ben, members: [[partner, 'admin']] });
+  const plan = await target.portability.planFile(file, { mode: 'install', decisions: [{ source: 'ben', user_id: ben.id, replace: true }] });
+  assert.deepEqual(plan.targets.find((u) => u.id === ben.id).hand_over, [{ id: shared.org.id, name: 'Shared here', kind: 'family' }]);
+  assert.deepEqual(plan.targets.find((u) => u.id === partner.id).hand_over, [{ id: shared.org.id, name: 'Shared here', kind: 'family' }]);
+  const result = await target.portability.applyFile(file, { mode: 'install', decisions: [{ source: 'ben', user_id: ben.id, replace: true }] });
+  assert.deepEqual(result.handed_over.map((g) => [g.name, g.heir]), [['Shared here', partner.id]]);
+});
+
+test('a kind is written by one rule: a group can’t be made with another, and a copy that has one still comes in', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  assert.throws(() => source.organizations.create({ name: 'My team', kind: 'Team', ownerId: s.ana.id }),
+    (err) => err.code === 'field_invalid' && err.extra.field === 'kind');
+  assert.ok(source.organizations.create({ name: 'Ok', kind: 'team_2', ownerId: s.ana.id }));
+  // One made before the rule held: the whole install's copy still comes in, its kind written by the rule.
+  source.db.run("INSERT INTO organizations (slug, name, kind, created_at) VALUES ('old-team', 'Old team', 'My Team!', '2025-01-01T00:00:00.000Z')");
+  const file = path.join(source.dir, 'install.zip');
+  await exportTo(source, file, { scope: 'install' });
+  const target = install(t);
+  await target.portability.applyFile(file, { mode: 'install' });
+  assert.equal(target.db.get("SELECT kind FROM organizations WHERE name = 'Old team'").kind, 'my-team');
+  assert.equal(target.db.get("SELECT kind FROM organizations WHERE name = 'Ok'").kind, 'team_2');
 });
 
 test('a group whose owners are left out gets its heir by the one rule: drivers last; a role this install lacks becomes member', async (t) => {
@@ -787,7 +951,7 @@ test('an account waiting to be deleted goes on waiting after a whole install’s
 
 /* ------------------------------- a copy isn't trusted ------------------------------ */
 
-test('a crafted copy’s organizations reach nothing here: new ones, names cut, kinds checked, a ceiling on how many', async (t) => {
+test('a crafted copy’s organizations reach nothing here: new ones, names cut, kinds written by the rule, a ceiling on how many', async (t) => {
   const source = install(t);
   const s = seedSource(source);
   const file = path.join(source.dir, 'ben.zip');
@@ -811,9 +975,14 @@ test('a crafted copy’s organizations reach nothing here: new ones, names cut, 
   assert.deepEqual(target.organizations.membersOf(theirs.org.id).map((m) => m.username), ['victim'], 'nobody joined theirs');
   assert.equal(count(target.db, 'fam_people WHERE family_id = ?', theirs.familyId), 2, 'nothing came into theirs');
 
-  await rejectsWith(target.portability.planFile(await rewrite(file, path.join(source.dir, 'kind.zip'), {
+  const odd = await target.portability.planFile(await rewrite(file, path.join(source.dir, 'kind.zip'), {
     'data/organizations.json': (rows) => rows.map((o) => ({ ...o, kind: 'Family<script>' })),
-  }), { mode: 'account', user: me }), 'import_invalid_data');
+  }), { mode: 'account', user: me });
+  assert.equal(odd.organizations[0].source.kind, 'family-script', 'written by the rule, never a reason to refuse the copy');
+  const none = await target.portability.planFile(await rewrite(file, path.join(source.dir, 'kind2.zip'), {
+    'data/organizations.json': (rows) => rows.map((o) => ({ ...o, kind: { $gt: '' } })),
+  }), { mode: 'account', user: me });
+  assert.equal(none.organizations[0].source.kind, null);
   await rejectsWith(target.portability.planFile(await rewrite(file, path.join(source.dir, 'many.zip'), {
     'data/organizations.json': (rows) => Array.from({ length: 101 }, (_, i) => ({ ...rows[0], id: i + 1 })),
   }), { mode: 'account', user: me, by: 'account' }), 'zip_too_large');

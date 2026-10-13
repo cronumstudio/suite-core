@@ -1163,15 +1163,20 @@ kit's), then Notes is built on it whole, then the others as they move to English
   with a slug from its name and today's date; a table with `onePerOrganization` (Focus' family row,
   UNIQUE per group) then finds the group's row instead of writing a second one. A whole install's
   restores each group as it was and records where it came from (the source install and its id
-  there, in `app_meta`); another copy of the same install (a host's next module) finds it by that
-  record alone and adds only its own rows, never members, invitations, plans or payments. Nothing a
-  file says by itself (a slug, a date, a name) finds a group here: a person's copy names no install,
-  and what a copy can't name, it can't join. What is someone's alone —what "replace" and erasing
+  there, in `app_meta`); a later copy of the same install (a host's next module, the real move
+  after a trial) finds it by that record alone and brings what changed in between —members,
+  invitations, plans, who pays them— without doubling anything, always under the group's id here,
+  so a renewal naming the old id finds the group by its customer; the plan says what each group
+  would bring (`adds`). Nothing a file says by itself (a slug, a date, a name) finds a group here: a
+  person's copy names no install, and what a copy can't name, it can't join. A kind is written by
+  one rule (`KIND_NAME`): `organizations.create` refuses another, and a copy's is written by it. What is someone's alone —what "replace" and erasing
   empty— is their rows and those of groups nobody else is in; a group they share is never emptied:
   "replace" hands it over (the declaration's `organizations.leave`, then `organizations.handOver()`:
   the heir `organizations.heirOf()` names, the one rule of account deletion too, becomes owner when
-  they were its last), and someone's own "replace" waits for `hand_over: true` after Settings has
-  named those groups (409 `import_hand_over` before); erasing leaves it whole with them in it. A
+  they were its last), and someone's own "replace" goes only with the ids of the groups Settings
+  showed (`hand_over: [ids]`; 409 `import_hand_over` when they aren't those any more), the
+  administrator's plan and panel naming them too (`targets[].hand_over`); erasing leaves it whole
+  with them in it. A
   table's `omit` lists columns that never travel (a device's key hash, its push subscription): left
   out of every copy, the column's default (or the app's) on import. A whole install's copy also
   keeps `delete_after`, so an account waiting to be deleted still goes on that day after the move

@@ -89,7 +89,7 @@ test('“replace” names the groups it hands over, asks again with them, and on
   await settle();
   await settle();
   const applied = sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`);
-  assert.deepEqual(applied.body, { replace: true, hand_over: true });
+  assert.deepEqual(applied.body, { replace: true, hand_over: [7, 8] }, 'the ids of the groups it showed');
   settings.close();
 });
 
@@ -109,6 +109,21 @@ test('without groups to hand over, “replace” goes as before; and a cancelled
   apply.dispatch('click');
   await settle();
   dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
+  dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.replaceButton')).dispatch('click');
+  await settle();
+  await settle();
+  assert.deepEqual(sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`).body, { replace: true, hand_over: [] },
+    'none shown: none, so the server refuses if some are there by now');
+  settings.close();
+});
+
+test('an app whose copies carry no groups sends what it always did', async () => {
+  const { hand_over: _none, ...plain } = PLAN;
+  const { root, settings } = await dataPage({ ...plain, replace: { lists: 2 } });
+  root.all().find((node) => node.getAttribute('id') === 'kit-data-replace').checked = true;
+  root.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.apply')).dispatch('click');
+  await settle();
+  const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
   dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.replaceButton')).dispatch('click');
   await settle();
   await settle();
