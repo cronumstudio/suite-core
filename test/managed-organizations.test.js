@@ -400,15 +400,15 @@ function fakePaddle() {
 }
 
 /** Billing on the organizations, wired as createSuite wires it with billing.stopOnOrganizationDeleted. */
-function withBilling(t, { provider = null, paddle = fakePaddle() } = {}) {
+function withBilling(t, { provider = null, paddle = fakePaddle(), products = PRODUCTS } = {}) {
   const base = setup(t, { kinds: FAMILY });
   const { database, audit, organizations } = base;
   const entitlements = createEntitlements({ database, appId: 'test', features: {}, plans: PLANS, plansJson: null, defaultPlanOverride: null });
   const logs = [];
   const billing = createBilling({
-    database, entitlements, audit, products: PRODUCTS, log: (line) => logs.push(line),
+    database, entitlements, audit, products, log: (line) => logs.push(line),
     provider: provider || paddleProvider({
-      apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', products: PRODUCTS, fetch: paddle.fetch, log: () => {},
+      apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', products, fetch: paddle.fetch, log: () => {},
     }),
     organizationGone: (id) => !organizations.exists(id),
     organizationWasDeleted: (id) => organizations.wasDeleted(id),
@@ -1240,4 +1240,18 @@ test('two processes: a stop that comes in one while the other is taking it back 
   one.database.run("UPDATE billing_events SET outcome = 'restop', received_at = '2026-01-01T00:00:00.000Z' WHERE type = 'stop'");
   assert.deepEqual(await other.sendStops(), { requested: 1, waiting: 0 });
   assert.deepEqual(one.stops(), [`stop:organization:${home.id}:sub_01home requested`]);
+});
+
+test('a gone family’s kept subscription row follows its status without seats, as its product says (seats: false)', (t) => {
+  const products = { 'family-yearly': { ...PRODUCTS['family-yearly'], seats: false } };
+  const { organizations, people, database, billing } = withBilling(t, { products });
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  const event = (id, at) => billing.apply({
+    id, type: 'subscription', occurredAt: at, customer: 'ctm_home', subject: { type: 'organization', id: home.id },
+    ref: 'sub_home', product: 'family-yearly', status: 'active', periodEnd: '2027-10-01T10:00:00Z', quantity: 1,
+  });
+  assert.equal(event('evt_1', '2026-10-01T10:00:00Z'), 'granted');
+  organizations.remove(home.id);
+  assert.equal(event('evt_2', '2026-10-02T10:00:00Z'), 'gone');
+  assert.equal(database.get("SELECT quantity FROM billing_subscriptions WHERE ref = 'sub_home'").quantity, null);
 });
