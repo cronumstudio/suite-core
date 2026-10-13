@@ -168,6 +168,7 @@
   "errors.import_not_found": "That upload is no longer here: upload the copy again.",
   "errors.import_hand_over": "Replacing what you have would take you out of groups you share with other people: confirm that first.",
   "errors.import_install_again": "That installation was already brought here from another copy: restore this one into a new installation, or have each person bring their own copy.",
+  "errors.import_install_unnamed": "That copy of a whole installation doesn't say which installation it comes from: make the copy again there, with this version.",
   "errors.zip_invalid": "The file isn't a valid zip, or it is damaged.",
   "errors.zip_unsupported": "The zip uses something that can't be read here (encryption, or several parts).",
   "errors.zip_too_large": "The copy is too big to be imported here.",

@@ -27,7 +27,7 @@ import { runDataCli } from '../tools/data-cli.js';
 
 const PRODUCT = {
   app: { id: 'fam', name: 'Fam', port: 3998, languages: ['en', 'es'] },
-  modules: { live: true, organizations: true },
+  modules: { live: true, organizations: true, uploads: true },
   accounts: { minPasswordLength: 8 },
   features: { 'routines.max': { type: 'limit', default: null, label: 'routines' } },
   plans: { free: { name: 'Free', features: { 'routines.max': 3 } }, pro: { name: 'Pro', features: {} } },
@@ -57,6 +57,8 @@ const MIGRATIONS = [{
       push_endpoint TEXT, push_p256dh TEXT, push_auth TEXT, push_failures INTEGER NOT NULL DEFAULT 0, last_seen_at TEXT);
     CREATE TABLE fam_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       text TEXT NOT NULL);
+    CREATE TABLE fam_files (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL);
   `),
 }];
 
@@ -703,8 +705,13 @@ test('only a whole install’s copy says which install it is: a look-alike or so
   // A copy written to look like the family's —its slug, kind, date and id— but not from that install: a new group.
   const fresh = path.join(source.dir, 'base.zip');
   await exportTo(source, fresh, { scope: 'install' });
-  const lookAlike = await rewrite(fresh, path.join(source.dir, 'look-alike.zip'), {
+  const unnamed = await rewrite(fresh, path.join(source.dir, 'unnamed.zip'), {
     'manifest.json': (m) => ({ ...m, source: { ...m.source, install: undefined } }),
+  });
+  await rejectsWith(target.portability.planFile(unnamed, { mode: 'install' }), 'import_install_unnamed');
+  await rejectsWith(target.portability.applyFile(unnamed, { mode: 'install' }), 'import_install_unnamed');
+  const lookAlike = await rewrite(fresh, path.join(source.dir, 'look-alike.zip'), {
+    'manifest.json': (m) => ({ ...m, source: { ...m.source, install: 'some-other-install-00001' } }),
     'data/users.json': (rows) => [...rows, { ...rows[0], id: 999, username: 'eve', display_name: 'Eve', email: 'eve@example.com', role: 'user' }],
     'data/memberships.json': (rows) => [...rows, { organization_id: s.home.org.id, user_id: 999, role: 'owner', joined_at: '2020-01-01T00:00:00.000Z' }],
   });
@@ -791,6 +798,76 @@ test('a copy of another export run of an install already brought here is refused
   assert.deepEqual(fresh.db.all("SELECT subject_id FROM entitlement_grants WHERE external_ref = 'sub_TEAM' AND revoked_at IS NULL").map((r) => r.subject_id),
     [team], 'never the family that has its old id here');
   assert.equal(billing.customerOf({ type: 'organization', id: home }), 'ctm_FAMILY', 'whose portal opens for the family is the family’s');
+});
+
+test('a same-run follow-up brings the plans and payer of the groups and accounts it is the first to bring', async (t) => {
+  const NOTES = () => ({ tables: { fam_notes: { refs: { user_id: 'users' } } }, organizations: {} });
+  const source = install(t);
+  const s = seedSource(source);
+  // Dan's old club has a plan and a payer, and Dan a plan of his own.
+  const at = '2026-05-01T10:00:00.000Z';
+  source.db.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, external_ref, starts_at, ends_at, created_at)
+    VALUES ('organization', ?, 'pro', 'paddle', 'sub_CLUB', ?, '2027-05-04T10:00:00.000Z', ?)`, s.old.org.id, at, at);
+  source.db.run(`INSERT INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at) VALUES ('organization', ?, 'paddle', 'ctm_CLUB', ?)`, s.old.org.id, at);
+  source.db.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, starts_at, created_at)
+    VALUES ('user', ?, 'pro', 'admin', ?, ?)`, s.dan.id, at, at);
+  source.db.run(`INSERT INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at) VALUES ('user', ?, 'paddle', 'ctm_DAN', ?)`, s.dan.id, at);
+  source.db.run("INSERT INTO fam_notes (user_id, text) VALUES (?, 'Dan’s own')", s.dan.id);
+  const job = source.portability.prepareExport({ scope: 'install' });
+  const fam = path.join(source.dir, 'fam.zip');
+  const notes = path.join(source.dir, 'notes.zip');
+  await job.write(fs.createWriteStream(fam));
+  await exportTo(source, notes, { scope: 'install', run: job.run }, source.suite.portabilityFor(NOTES()));
+
+  // The family module first, without Dan (the old club's only member): neither comes.
+  const target = install(t);
+  await target.portability.applyFile(fam, { mode: 'install', decisions: [{ source: 'dan', skip: true }] });
+  assert.equal(count(target.db, "organizations WHERE name = 'Old club'"), 0);
+  const plans = count(target.db, 'entitlement_grants');
+  // The notes module of the same run, with Dan: he and his club come, with their plans and payers.
+  const result = await target.suite.portabilityFor(NOTES()).applyFile(notes, { mode: 'install' });
+  assert.deepEqual(result.imported.organizations, { created: 1, mapped: 2 });
+  const club = target.db.get("SELECT id FROM organizations WHERE name = 'Old club'").id;
+  const dan = target.suite.accounts.byUsername('dan').id;
+  assert.deepEqual(membersOf(target, club), [['dan', 'owner']]);
+  assert.equal(count(target.db, "entitlement_grants WHERE subject_type = 'organization' AND subject_id = ? AND external_ref = 'sub_CLUB'", club), 1);
+  assert.equal(count(target.db, "billing_customers WHERE subject_type = 'organization' AND subject_id = ? AND customer_id = 'ctm_CLUB'", club), 1);
+  assert.equal(count(target.db, "entitlement_grants WHERE subject_type = 'user' AND subject_id = ?", dan), 1, 'Dan’s own plan');
+  assert.equal(count(target.db, "billing_customers WHERE subject_type = 'user' AND subject_id = ? AND customer_id = 'ctm_DAN'", dan), 1);
+  assert.equal(count(target.db, 'entitlement_grants'), plans + 2, 'and nothing of whom the first copy brought');
+  assert.deepEqual(membersOf(target, target.db.get("SELECT id FROM organizations WHERE name = 'Casa Andersen'").id),
+    [['ana', 'owner'], ['ben', 'owner'], ['cleo', 'admin']], 'the groups found are as the first copy made them');
+});
+
+test('two imports of an install racing: the run gate holds inside the transaction, and the install comes once', async (t) => {
+  const FILES = () => ({ tables: { fam_files: { refs: { user_id: 'users' }, file: { path: 'path', folder: 'user_id' } } }, organizations: {} });
+  const source = install(t);
+  const s = seedSource(source);
+  // Photos make the first import read its attachments for a while before its transaction.
+  for (let i = 0; i < 60; i++) {
+    const relative = `${s.ana.id}/photo-${i}.jpg`;
+    const absolute = source.suite.uploads.resolve(relative);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    const bytes = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from(`photo ${i} `.repeat(200))]);
+    fs.writeFileSync(absolute, bytes);
+    source.db.run("INSERT INTO fam_files (user_id, path, name, mime, size) VALUES (?, ?, 'photo.jpg', 'image/jpeg', ?)", s.ana.id, relative, bytes.length);
+  }
+  const photos = path.join(source.dir, 'photos.zip');
+  const family = path.join(source.dir, 'family.zip');
+  await exportTo(source, photos, { scope: 'install' }, source.suite.portabilityFor(FILES()));
+  await exportTo(source, family, { scope: 'install' });
+
+  for (const ticks of [0, 1, 5, 20, 80]) {
+    const target = install(t);
+    const first = target.suite.portabilityFor(FILES()).applyFile(photos, { mode: 'install' });
+    for (let i = 0; i < ticks; i++) await new Promise((resolve) => setImmediate(resolve));
+    const second = target.portability.applyFile(family, { mode: 'install' });
+    const outcomes = (await Promise.allSettled([first, second])).map((r) => (r.status === 'fulfilled' ? 'ok' : r.reason.code));
+    assert.deepEqual(outcomes.sort(), ['import_install_again', 'ok'], `${ticks} ticks: one of the two runs, never both`);
+    assert.equal(count(target.db, "organizations WHERE name = 'Casa Andersen'"), 1, `${ticks} ticks: the family once`);
+    assert.equal(count(target.db, 'data_imports'), 1);
+    assert.equal(count(target.db, "app_meta WHERE key LIKE 'suite.install_import:%'"), 1);
+  }
 });
 
 test('someone’s own “replace” goes only with the groups it showed: one more, or one the others left, is said again first', async (t) => {

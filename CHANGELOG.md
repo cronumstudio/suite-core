@@ -63,7 +63,12 @@ change an interface and a patch never does. Apps pin a version through the submo
     that install came (`suite.install_import:<install>`). **An install comes here by one export
     run**: the other modules' copies of that run (a host moving one module at a time) find its
     groups by that record alone and bring only their own rows, never members, invitations, plans
-    or payments, which came with the first copy, nor the accounts' plans and payments. A copy of
+    or payments, which came with the first copy, nor the accounts' plans and payments; what such a
+    copy is the first to bring (an account the first left out, a group only it had) comes whole,
+    with its plans, payers and memberships. The run is checked again inside the import's
+    transaction, where the run it records is written, so of two imports racing (two modules, the
+    command line) the second follows or is refused. A whole install's copy with groups that doesn't
+    name its install is refused, 400 `import_install_unnamed`. A copy of
     another run of an install already brought here is refused before anything is written, 409
     `import_install_again` (in the four languages; the command line says what to do), in the plan
     and on apply: a later copy merged into what an earlier one made would bring back a member
@@ -117,7 +122,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
 - `organizations.roles` (every role, the app's own included), `slugOf` and `KIND_NAME` (how a kind is written, the one rule for every kind's name) from `organizations.js`;
   `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
-- `errors.import_hand_over`, `errors.import_install_again`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
+- `errors.import_hand_over`, `errors.import_install_again`, `errors.import_install_unnamed`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
 - Apart from `delete_after`, nothing changes with today's declarations: no organization travels,
   no install id is made, and a copy that has organizations is refused as `unknown_table`, as an
   older core refuses it. No migration: the install's id and where each imported group came from

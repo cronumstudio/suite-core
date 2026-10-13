@@ -1223,6 +1223,8 @@ export function createPortability({
       let invitations = [];
       if (groups) {
         orgs = checkOrganizations((await readJsonEntry('data/organizations.json')) ?? []);
+        // Its groups could never be told from another install's: the suite writes which it is from.
+        if (manifest.scope === 'install' && orgs.length && !sourceInstall(manifest)) throw badRequest('import_install_unnamed');
         if (orgs.length > max.organizations[by]) throw new HttpError(413, 'zip_too_large', { entry: 'data/organizations.json' });
         const orgIds = new Set(orgs.map((o) => o.id));
         const userIds = new Set(users.map((u) => u.id));
@@ -1524,9 +1526,10 @@ export function createPortability({
     const target = targetOf(mode, user);
     const when = alreadyApplied(manifest, target);
     if (when) throw conflict('import_already_applied', { at: when });
+    // Early, to refuse before the attachments are read; again inside the transaction, where it holds.
     if (mode === 'install') checkInstallAgain(manifest);
-    // Another module's copy of the run that came first: its accounts' plans and payments came with it.
-    const followUp = mode === 'install' && sameRunHere(manifest);
+    // Another module's copy of the run that came first (decided inside the transaction, see there).
+    let followUp = false;
     const choices = decide(archive, { mode, user, decisions, replace });
     // "Replace" takes the person out of the groups they share: only those they were shown (`hand_over`).
     const confirmHandOver = groups && mode === 'account' && replace && handOver !== true;
@@ -1589,6 +1592,13 @@ export function createPortability({
       const replacedFiles = [];
       const moves = [];
       const result = database.tx(() => {
+        // The run gate, where nothing can come in between: two imports of an install (two modules, the
+        // command line) may both pass the check above while reading their attachments; the second one
+        // in here sees the run the first recorded, and is refused or follows it.
+        if (mode === 'install') {
+          checkInstallAgain(manifest);
+          followUp = sameRunHere(manifest);
+        }
         // Accounts: the ones mapped here, and the new ones, without the app's welcome content.
         const userMap = new Map();
         const created = [];
@@ -1678,12 +1688,13 @@ export function createPortability({
             // Which run of that install this is, so that only its other modules' copies come after it.
             const from = sourceInstall(manifest);
             if (from && !followUp) database.setMeta(installKey(from), sourceRun(manifest));
-            // Only for the groups it makes: one it found came with another module's copy of the same
-            // run, with its members, invitations, plans and payments, and only this module's rows come.
+            // For the groups it makes: one it found came with another module's copy of the same run,
+            // with its members, invitations, plans and payments, and only this module's rows come; but
+            // an account this import is the first to bring (left out of the first copy) joins it.
             for (const m of archive.memberships) {
               const organizationId = orgMap.get(m.organization_id);
               const userId = userMap.get(m.user_id);
-              if (!organizationId || !userId || !orgsCreated.has(organizationId)) continue;
+              if (!organizationId || !userId || (!orgsCreated.has(organizationId) && !created.includes(userId))) continue;
               membershipsImported += database.run(`INSERT OR IGNORE INTO memberships (organization_id, user_id, role, invited_by,
                 joined_at) VALUES (?, ?, ?, ?, ?)`, organizationId, userId, roleHere(m.role),
               m.invited_by == null ? null : userMap.get(m.invited_by) ?? null, m.joined_at ?? iso()).changes;
@@ -1810,14 +1821,16 @@ export function createPortability({
 
         // The plans given there, by the administrator or paid for, to whoever came along.
         let grantsImported = 0;
-        // Not with another module's copy of a run that came first: they came with it.
-        if (mode === 'install' && !followUp && archive.grants.length && database.columnsOf('entitlement_grants').length) {
+        // Only for the groups and accounts this import is the first to bring: those another module's
+        // copy of the same run brought came with theirs.
+        if (mode === 'install' && archive.grants.length && database.columnsOf('entitlement_grants').length) {
           for (const grant of archive.grants) {
             const group = grant.subject_type === 'organization';
             const subjectId = group ? orgMap.get(grant.subject_id) : userMap.get(grant.subject_id);
             if (!subjectId) continue;
             // A group's plans come with the group this import makes, never into one it found.
             if (group && !orgsCreated.has(subjectId)) continue;
+            if (!group && followUp && !created.includes(subjectId)) continue;
             // A payment's grant already here (its webhook came first) isn't doubled.
             if (grant.external_ref != null && database.get(`SELECT 1 FROM entitlement_grants WHERE source = ?
               AND external_ref = ? AND revoked_at IS NULL`, grant.source, grant.external_ref)) continue;
@@ -1836,11 +1849,13 @@ export function createPortability({
         // Who each account is at the payment provider, under its id here: a renewal finds them by it,
         // not by the id the copy had, which here may be someone else's (audit sc-data-48).
         let billingImported = 0;
-        if (mode === 'install' && !followUp && database.columnsOf('billing_customers').length) {
+        if (mode === 'install' && database.columnsOf('billing_customers').length) {
           const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
           // A group's under the id of the group this import makes, never the copy's: a renewal that
           // names the old id finds the family by its customer (billing.js), whoever has that id here.
-          const subjectOfRow = (row) => (row.subject_type !== 'organization' ? userMap.get(row.subject_id)
+          // As plans: only for whom this import is the first to bring.
+          const firstHere = (userId) => (followUp && !created.includes(userId) ? null : userId);
+          const subjectOfRow = (row) => (row.subject_type !== 'organization' ? firstHere(userMap.get(row.subject_id))
             : orgsCreated.has(orgMap.get(row.subject_id)) ? orgMap.get(row.subject_id) : null);
           for (const row of archive.billing.customers) {
             const subjectId = subjectOfRow(row);

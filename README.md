@@ -345,10 +345,15 @@ export const DATA = {
   id, its id there, and the run). The other modules' copies of the same run —a host moving one
   module at a time— find those groups by that record alone and bring only their own rows: the
   members, invitations, plans and payments came with the first copy, and so did the accounts'.
+  What a later copy of the run is the first to bring (an account the first left out, and a group
+  only it had) comes whole, with its plans, payers and memberships.
   A copy of another run of an install already brought here (a trial move, then the real one) is
   refused before anything is written, 409 `import_install_again`, in the plan and on apply: a later
   copy merged into what an earlier one made would bring back who left, plans revoked since, and an
   end a file says. Moving again is moving into a fresh install (or bringing people's own copies).
+  The run is checked again inside the import's transaction, so two imports racing (two modules,
+  the command line) can't both come in. A whole install's copy with groups that doesn't say which
+  install it is from is refused, 400 `import_install_unnamed`.
   A slug, a kind and a date like a group's here find nothing. A group whose every member is left
   out goes with them; one left without an owner gets its heir (`organizations.heirOf`) as owner.
 - **Kinds** are written by one rule (`KIND_NAME`): `organizations.create` (and `POST /api/orgs`)

@@ -1167,8 +1167,9 @@ kit's), then Notes is built on it whole, then the others as they move to English
   its customer), and records where it came from (the source install, its id there and the run, in
   `app_meta`). An install comes in by one export run: its other modules' copies of that run find
   the groups by that record alone and bring only their own rows; a copy of another run is refused
-  before anything is written (409 `import_install_again`), since merging a later copy into what an
-  earlier one made would bring back who left and plans revoked since. Moving again is moving into a
+  before anything is written (409 `import_install_again`, checked again inside the import's
+  transaction), since merging a later copy into what an earlier one made would bring back who left
+  and plans revoked since; what a copy of the run is the first to bring comes whole. Moving again is moving into a
   fresh install. Nothing a file says by itself (a slug, a date, a name) finds a group here: a
   person's copy names no install, and what a copy can't name, it can't join. A kind is written by
   one rule (`KIND_NAME`): `organizations.create` refuses another, and a copy's other kind comes in

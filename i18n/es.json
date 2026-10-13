@@ -168,6 +168,7 @@
   "errors.import_not_found": "Esa subida ya no está: vuelve a subir la copia.",
   "errors.import_hand_over": "Sustituir lo que tienes te sacaría de grupos que compartes con otras personas: confírmalo antes.",
   "errors.import_install_again": "Esa instalación ya se trajo aquí desde otra copia: restaura esta en una instalación nueva, o que cada persona traiga su propia copia.",
+  "errors.import_install_unnamed": "Esa copia de una instalación entera no dice de qué instalación viene: vuelve a hacer la copia allí, con esta versión.",
   "errors.zip_invalid": "El archivo no es un zip válido, o está dañado.",
   "errors.zip_unsupported": "El zip usa algo que aquí no se puede leer (cifrado, o en varias partes).",
   "errors.zip_too_large": "La copia es demasiado grande para importarla aquí.",
