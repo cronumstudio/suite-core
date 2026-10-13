@@ -22,6 +22,8 @@ export const suite = joinHost({
   hooks: kinds.length ? {
     onMemberRemoved: ({ organization, userId, reason }) => heard.push(['member', organization.kind, userId, reason]),
     onOrganizationDeleted: ({ organization, reason }) => heard.push(['deleted', organization.kind, reason]),
+    onDeletionRequested: (user) => heard.push(['deletion requested', user.id]),
+    onDeletionCancelled: (user) => heard.push(['deletion cancelled', user.id]),
   } : {},
   migrations: table ? [{
     version: 1,

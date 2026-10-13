@@ -26,7 +26,12 @@
  * archived. The app hears, inside the same transaction, of each member who
  * goes (`whenMemberRemoved`) and of each group deleted (`whenDeleted`), so it
  * deletes its own rows with them; a hook that throws undoes the whole change.
- * Without kinds everything behaves as before.
+ * Each membership that goes is told once: by `whenMemberRemoved`, except the
+ * memberships a group still has when it is deleted whole (`remove`), which
+ * `whenDeleted` tells. Without kinds everything behaves as before.
+ *
+ * Not to be confused with a data copy's `copyKinds` (portability.js): the kinds
+ * of group a copy carries, a list, where these are the rules of each kind.
  */
 import { randomToken, sha256 } from './crypto.js';
 import { HttpError, badRequest, notFound, forbidden, conflict } from './http.js';
@@ -43,6 +48,14 @@ const INVITATION_GRACE_DAYS = 14;
 
 /** What a kind may say, and what a kind nobody declared does: what every group did before kinds. */
 const KIND_KEYS = ['managed', 'maxPerUser', 'onEmpty'];
+/** A kind's name, as the configuration and a data copy write it: one rule for both (portability.js). */
+export const KIND_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
+/**
+ * Why a member goes, as `whenMemberRemoved` says it: they left, someone (or the app) removed them,
+ * their account was deleted, or an import that replaces what they have handed the group over to
+ * those who stay (`handed_over`, portability.js's hand-over).
+ */
+export const MEMBER_REASONS = Object.freeze(['left', 'removed', 'account_deleted', 'handed_over']);
 const PLAIN_KIND = Object.freeze({ managed: false, maxPerUser: null, onEmpty: 'archive' });
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -62,8 +75,8 @@ export function organizationKinds(given, { prefix = 'organizations.kinds' } = {}
   }
   for (const [kind, spec] of Object.entries(given)) {
     // The same names a group's kind is written with; never one of Object's own (constructor…).
-    if (!/^[a-z][a-z0-9_-]{0,39}$/.test(kind) || Object.hasOwn(Object.prototype, kind)) {
-      errors.push(`${prefix}: "${kind}" is not a kind's name (lowercase letters, digits, - and _, starting with a letter)`);
+    if (!KIND_NAME.test(kind) || Object.hasOwn(Object.prototype, kind)) {
+      errors.push(`${prefix}: "${kind}" is not a kind's name (up to 40 lowercase letters, digits, - and _, starting with a letter)`);
       continue;
     }
     if (!isObject(spec)) {
@@ -155,7 +168,10 @@ export function createOrganizations({
   const isManaged = (kind) => rulesFor(kind).managed;
   /** Who hears of a member who goes, and of a group deleted: inside the change's transaction. */
   const memberHooks = [];
+  const addedHooks = [];
   const deletedHooks = [];
+  /** Billing's: after every app's, whenever each joined (a host's modules join after the suite). */
+  const lastDeletedHooks = [];
   const checkRole = (role) => {
     if (!roles.includes(role)) throw badRequest('field_invalid', { field: 'role', options: roles });
     return role;
@@ -231,13 +247,16 @@ export function createOrganizations({
   }
 
   function addMember(organizationId, userId, role = 'member', { invitedBy = null } = {}) {
-    const organization = mustExist(organizationId);
-    checkRole(role);
-    if (roleOf(organizationId, userId)) throw conflict('already_member');
-    checkLimit(userId, organization.kind);
-    if (takesSeat(role)) checkSeat(organizationId);
-    database.run('INSERT INTO memberships (organization_id, user_id, role, invited_by, joined_at) VALUES (?, ?, ?, ?, ?)',
-      organizationId, userId, role, invitedBy, iso(clock()));
+    return database.tx(() => {
+      const organization = mustExist(organizationId);
+      checkRole(role);
+      if (roleOf(organizationId, userId)) throw conflict('already_member');
+      checkLimit(userId, organization.kind);
+      if (takesSeat(role)) checkSeat(organizationId);
+      database.run('INSERT INTO memberships (organization_id, user_id, role, invited_by, joined_at) VALUES (?, ?, ?, ?, ?)',
+        organizationId, userId, role, invitedBy, iso(clock()));
+      for (const hook of addedHooks) hook({ organization, userId, role, invitedBy });
+    });
   }
 
   function setRole(organizationId, userId, role) {
@@ -251,8 +270,13 @@ export function createOrganizations({
     database.run('UPDATE memberships SET role = ? WHERE organization_id = ? AND user_id = ?', role, organizationId, userId);
   }
 
-  /** Tells the app's hooks that a member goes, before their membership does. */
+  /**
+   * Tells the app's hooks that a member goes, before their membership does: every path that takes
+   * one membership away calls it once, right before its DELETE and inside its transaction (a
+   * hand-over included: reason `handed_over`).
+   */
   const memberGoes = (organization, userId, role, reason, by) => {
+    if (!MEMBER_REASONS.includes(reason)) throw new TypeError(`memberGoes: "${reason}" is not one of ${MEMBER_REASONS.join(', ')}`);
     for (const hook of memberHooks) hook({ organization, userId, role, reason, by });
   };
 
@@ -288,7 +312,7 @@ export function createOrganizations({
     return database.tx(() => {
       const organization = rowOf(organizationId);
       if (!organization) return false;
-      for (const hook of deletedHooks) hook({ organization, reason, by });
+      for (const hook of [...deletedHooks, ...lastDeletedHooks]) hook({ organization, reason, by });
       database.run("DELETE FROM entitlement_grants WHERE subject_type = 'organization' AND subject_id = ?", organizationId);
       database.run('DELETE FROM invitations WHERE organization_id = ?', organizationId);
       database.run('DELETE FROM memberships WHERE organization_id = ?', organizationId);
@@ -419,28 +443,57 @@ export function createOrganizations({
   const list = () => database.all(`SELECT o.*, (SELECT COUNT(*) FROM memberships m WHERE m.organization_id = o.id) AS members
     FROM organizations o WHERE o.archived_at IS NULL ORDER BY o.name`);
 
+  /** A person's groups of a kind deleted when empty (`onEmpty: 'delete'`), archived ones too. */
+  const deletableOf = (userId) => database.all(`SELECT o.id, o.kind FROM memberships m
+    JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = ? ORDER BY o.id`, userId)
+    .filter((o) => rulesFor(o.kind).onEmpty === 'delete').map((o) => o.id);
+
   /**
-   * The groups that would go with a person's account: those of a kind deleted when empty
-   * (`onEmpty: 'delete'`) where nobody else is (`onlyMember: false`: every such group of theirs).
-   * What createSuite stops renewing when they ask to delete it, and renews again if they take it back.
+   * Whether a group goes once the accounts waiting to be deleted go: of a kind deleted when empty,
+   * with members, and every one of them waiting (`users.delete_after`, account-deletion.js). What
+   * createSuite stops renewing as soon as it is so, and renews again when it no longer is.
    */
-  const goingWith = (userId, { onlyMember = true } = {}) => database.all(`SELECT o.id, o.kind,
-      (SELECT COUNT(*) FROM memberships x WHERE x.organization_id = o.id) AS members
-    FROM memberships m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = ? ORDER BY o.id`, userId)
-    .filter((o) => rulesFor(o.kind).onEmpty === 'delete' && (!onlyMember || Number(o.members) === 1)).map((o) => o.id);
+  function leaving(organizationId) {
+    const organization = rowOf(organizationId);
+    if (!organization || rulesFor(organization.kind).onEmpty !== 'delete') return false;
+    const { members, staying } = database.get(`SELECT COUNT(*) AS members,
+        COALESCE(SUM(CASE WHEN u.delete_after IS NULL THEN 1 ELSE 0 END), 0) AS staying
+      FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ?`, organizationId);
+    return Number(members) > 0 && Number(staying) === 0;
+  }
+
+  /**
+   * Whether a group was here once and was deleted: its id is one this table gave out (AUTOINCREMENT
+   * never gives one twice) and it is no longer here. Billing stops a subscription that names one.
+   */
+  function wasDeleted(organizationId) {
+    const id = Number(organizationId);
+    if (!Number.isSafeInteger(id) || id < 1 || rowOf(id)) return false;
+    let last = 0;
+    try {
+      last = Number(database.get("SELECT seq FROM sqlite_sequence WHERE name = 'organizations'")?.seq ?? 0);
+    } catch { /* no group was ever made here */ }
+    return id <= last;
+  }
 
   return {
     create, get, list, update, archive, remove, roleOf, requireRole, addMember, setRole, removeMember,
     invite, accept, revokeInvitation, invitationsOf, invitationKind, membersOf, ofUser, organizationsOf, forgetUser,
-    seatsTaken, takesSeat, purge, isManaged, rulesFor, goingWith,
+    seatsTaken, takesSeat, purge, isManaged, rulesFor, deletableOf, leaving, wasDeleted,
     /** Whether a group is here, archived or not (billing asks, for one deleted). */
     exists: (organizationId) => Boolean(rowOf(organizationId)),
     /**
      * `hook({ organization, userId, role, reason, by })`, before a membership goes: reason `left`,
-     * `removed` or `account_deleted`; `by`, who removed them (null for the app or an account deletion).
+     * `removed`, `account_deleted` or `handed_over` (MEMBER_REASONS); `by`, who removed them (null
+     * for the app, an account deletion or a hand-over).
      */
     whenMemberRemoved: (hook) => { memberHooks.push(hook); },
-    /** `hook({ organization, reason, by })`, before a group is deleted: reason `empty`, or the caller's. */
-    whenDeleted: (hook) => { deletedHooks.push(hook); },
+    /** `hook({ organization, userId, role, invitedBy })`, after a membership is made, in its transaction. */
+    whenMemberAdded: (hook) => { addedHooks.push(hook); },
+    /**
+     * `hook({ organization, reason, by })`, before a group is deleted: reason `empty`, or the
+     * caller's. `{ last: true }`: after every other's, whenever they were added (billing's).
+     */
+    whenDeleted: (hook, { last = false } = {}) => { (last ? lastDeletedHooks : deletedHooks).push(hook); },
   };
 }

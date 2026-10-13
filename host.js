@@ -424,6 +424,11 @@ export async function createHost({
       if (ownHooks.onMemberRemoved) suite.organizations.whenMemberRemoved(ownHooks.onMemberRemoved);
       if (ownHooks.onOrganizationDeleted) suite.organizations.whenDeleted(ownHooks.onOrganizationDeleted);
     }
+    // Someone asking to delete their account, or taking it back: the host's one deletion, for every module.
+    if (suite.deletion) {
+      if (ownHooks.onDeletionRequested) suite.deletion.whenRequested(ownHooks.onDeletionRequested);
+      if (ownHooks.onDeletionCancelled) suite.deletion.whenCancelled(ownHooks.onDeletionCancelled);
+    }
     // A folder of its own: each module sweeps the files its table doesn't know,
     // and in a folder shared with another it would take the other's for orphans.
     const uploads = resolved.modules.uploads

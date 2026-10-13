@@ -561,8 +561,14 @@ test('a module that manages a kind of group: the host declares it the same way, 
   const home = organizations.create({ name: 'Home', kind: 'family', ownerId: ada.id });
   organizations.addMember(home.id, bob.id, 'admin');
   organizations.removeMember(home.id, bob.id, { by: bob.id });
+  // Someone asking to delete their account and taking it back: the module hears it from the host's one deletion.
+  await host.suite.deletion.request(accounts.byId(ada.id));
+  await host.suite.deletion.restore(host.suite.deletion.ticketFor(ada.id));
   accounts.remove(ada.id);
-  assert.deepEqual(heard, [['member', 'family', bob.id, 'left'], ['member', 'family', ada.id, 'account_deleted'], ['deleted', 'family', 'empty']]);
+  assert.deepEqual(heard, [
+    ['member', 'family', bob.id, 'left'], ['deletion requested', ada.id], ['deletion cancelled', ada.id],
+    ['member', 'family', ada.id, 'account_deleted'], ['deleted', 'family', 'empty'],
+  ], 'before, a module’s deletion hooks were dropped in a host');
   assert.equal(organizations.exists(home.id), false);
 });
 

@@ -241,18 +241,18 @@ export function createSuite({
     ...(install.stores ? { otherProviders: [install.stores.provider] } : {}),
     // An event for a group deleted here takes nothing ('gone'), instead of failing at the audit's reference to it.
     ...(organizations ? { organizationGone: (id) => !organizations.exists(id) } : {}),
+    // And one heard of only after its group was deleted here is stopped, as at the deletion.
+    ...(organizations && config.billing?.stopOnOrganizationDeleted ? { organizationWasDeleted: (id) => organizations.wasDeleted(id) } : {}),
   }) : null;
-  // A group deleted (organizations.remove, or emptied with onEmpty: 'delete'), after the app's own
-  // hook: with stopOnOrganizationDeleted its subscriptions stop renewing (marked in the deletion's
-  // transaction, asked of the provider once it is over, and again by the hourly sweep if that
-  // fails); with forgetOnRemove its billing links go, as a person's do.
-  if (organizations && billing && (config.billing?.stopOnOrganizationDeleted || config.billing?.forgetOnRemove)) {
-    organizations.whenDeleted(({ organization }) => {
-      if (config.billing.stopOnOrganizationDeleted && billing.markOrganizationStop(organization.id)) {
-        setImmediate(() => billing.sendStops().catch((err) => log(`${tag} stopping a group's renewals failed: ${err?.stack || err}`)));
-      }
-      if (config.billing.forgetOnRemove) billing.forgetOrganization(organization.id);
-    });
+  // A group deleted (organizations.remove, or emptied with onEmpty: 'delete'), after every app's own
+  // hook (a host's modules' too, whenever they joined): its customer link goes; with
+  // stopOnOrganizationDeleted its subscriptions stop renewing (marked in the deletion's transaction,
+  // asked of the provider once it is over, and again by the hourly sweep if that fails); with
+  // forgetOnRemove its subscription rows go, as a person's do.
+  if (organizations && billing) {
+    organizations.whenDeleted(({ organization }) => billing.organizationDeleted(organization.id, {
+      stop: config.billing?.stopOnOrganizationDeleted === true, forget: config.billing?.forgetOnRemove === true,
+    }), { last: true });
   }
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
@@ -400,16 +400,30 @@ export function createSuite({
   });
   if (hooks.onDeletionRequested) deletion.whenRequested(hooks.onDeletionRequested);
   if (hooks.onDeletionCancelled) deletion.whenCancelled(hooks.onDeletionCancelled);
-  // A group that would go with the account (its only member, of a kind deleted when empty) stops
-  // renewing when its owner asks to delete it, not 30 days later when it goes, and renews again if
-  // they take the account back. When it goes, its deletion finds the stop already asked: none more.
+  // A group that goes once the accounts waiting to be deleted go (of a kind deleted when empty, and
+  // every member waiting) stops renewing as soon as that is so, not 30 days later, as `members`
+  // (billing.js, who wants it stopped); and renews again as soon as it no longer is: one of them takes
+  // their account back, or someone who stays joins. Never when the app stopped it too (its own
+  // "delete the family"): that stays until the app takes it back. When the group goes, its deletion
+  // finds the stop already asked, and asks none more.
   if (organizations && billing?.enabled && config.billing?.stopOnOrganizationDeleted) {
-    deletion.whenRequested(async (user) => {
-      for (const id of organizations.goingWith(user.id)) await billing.stopOrganization(id);
-    });
-    deletion.whenCancelled(async (user) => {
-      for (const id of organizations.goingWith(user.id, { onlyMember: false })) await billing.keepOrganization(id);
-    });
+    const recheck = async (id) => {
+      if (!organizations.exists(id)) return;
+      if (organizations.leaving(id)) await billing.stopOrganization(id, { by: 'members' });
+      else if (billing.stopOriginsOf(id).includes('members')) await billing.keepOrganization(id, { by: 'members' });
+    };
+    const recheckOf = async (user) => {
+      for (const id of organizations.deletableOf(user.id)) await recheck(id);
+    };
+    deletion.whenRequested(recheckOf);
+    deletion.whenCancelled(recheckOf);
+    // Someone joining or leaving: once the change's transaction is over, on what it left.
+    const later = ({ organization }) => {
+      if (organizations.rulesFor(organization.kind).onEmpty !== 'delete') return;
+      setImmediate(() => recheck(organization.id).catch((err) => log(`${tag} a group's renewals could not be checked: ${err?.stack || err}`)));
+    };
+    organizations.whenMemberAdded(later);
+    organizations.whenMemberRemoved(later);
   }
 
   /**

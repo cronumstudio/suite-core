@@ -136,17 +136,25 @@ export function stripeProvider({
 
   /**
    * A subscription that stops: at the end of the period already paid (`cancel_at_period_end`), or
-   * `now`. Stripe answers the change through the webhook. One already canceled, which Stripe won't
-   * change, is read: what was asked is so already.
+   * `now`. Stripe answers the change through the webhook. → `{ already }`: whether it was so before
+   * this asked, the payer's own cancellation, which billing.js never renews again. Stripe takes the
+   * same change twice without a word, so at the period's end the subscription is read first; one
+   * already canceled, which Stripe won't change, is read after it refuses.
    */
   async function cancelSubscription(ref, { now = false } = {}) {
     const path = `/subscriptions/${encodeURIComponent(ref)}`;
+    if (!now) {
+      const subscription = await request('GET', path);
+      if (subscription?.status === 'canceled' || subscription?.cancel_at_period_end === true) return { already: true };
+    }
     try {
       await (now ? request('DELETE', path) : request('POST', path, { cancel_at_period_end: true }));
+      return { already: false };
     } catch (err) {
       if (err?.code !== 'billing_provider_error') throw err;
       const subscription = await request('GET', path).catch(() => null);
       if (subscription?.status !== 'canceled') throw err;
+      return { already: true };
     }
   }
 

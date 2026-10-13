@@ -17,7 +17,7 @@ import { SUITE_MIGRATIONS } from '../schema.js';
 import { createAccounts } from '../accounts.js';
 import { createAudit } from '../audit.js';
 import { createEntitlements } from '../entitlements.js';
-import { createOrganizations, organizationKinds } from '../organizations.js';
+import { createOrganizations, organizationKinds, MEMBER_REASONS } from '../organizations.js';
 import { createBilling } from '../billing.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp } from '../app.js';
@@ -72,8 +72,9 @@ test('kinds in suite.config.js: checked on start, filled in, and the same in cre
   const errorsOf = (kinds) => resolveConfig({ ...product, organizations: { kinds } }, {}).errors;
   for (const [kinds, error] of [
     ['family', 'organizations.kinds: an object of kinds, such as { family: { managed: true, maxPerUser: 1 } }'],
-    [{ Family: {} }, 'organizations.kinds: "Family" is not a kind\'s name (lowercase letters, digits, - and _, starting with a letter)'],
-    [{ constructor: {} }, 'organizations.kinds: "constructor" is not a kind\'s name (lowercase letters, digits, - and _, starting with a letter)'],
+    [{ Family: {} }, 'organizations.kinds: "Family" is not a kind\'s name (up to 40 lowercase letters, digits, - and _, starting with a letter)'],
+    [{ constructor: {} }, 'organizations.kinds: "constructor" is not a kind\'s name (up to 40 lowercase letters, digits, - and _, starting with a letter)'],
+    [{ [`f${'x'.repeat(40)}`]: {} }, `organizations.kinds: "f${'x'.repeat(40)}" is not a kind's name (up to 40 lowercase letters, digits, - and _, starting with a letter)`],
     [{ family: true }, 'organizations.kinds.family: an object, such as { managed: true, maxPerUser: 1 }'],
     // A misspelt key would leave the generic routes open to the kind without a word.
     [{ family: { manage: true } }, 'organizations.kinds.family.manage is not a setting (managed, maxPerUser, onEmpty)'],
@@ -133,6 +134,8 @@ test('the app hears of each member who goes and each group deleted, inside the t
   const heard = [];
   organizations.whenMemberRemoved(({ organization, userId, role, reason, by }) => {
     heard.push(['member', organization.name, userId, role, reason, by]);
+    // Told before the membership goes: the hook can still read it.
+    assert.equal(organizations.roleOf(organization.id, userId), role);
     database.run('DELETE FROM app_profiles WHERE organization_id = ? AND user_id = ?', organization.id, userId);
   });
   organizations.whenDeleted(({ organization, reason, by }) => {
@@ -363,23 +366,40 @@ test('the generic leave route of a kind deleted when empty: the group goes, and 
 
 /* --------------------------- a group's renewals --------------------------- */
 
-/** A stand-in for Paddle's API: records each call; `refuse` makes a cancellation fail as Paddle does. */
+/**
+ * A stand-in for Paddle's API: records each call; `refuse` makes a cancellation fail as Paddle does;
+ * `hold` keeps each change's answer until `release()`, for what happens while one is on its way.
+ */
 function fakePaddle() {
   const calls = [];
-  const state = { refuse: null, subscription: {} };
+  const state = { refuse: null, subscription: {}, hold: false, held: [] };
   const fetch = async (url, init) => {
     const { pathname } = new URL(url);
     const body = init.body ? JSON.parse(init.body) : null;
     calls.push([init.method, pathname, body]);
+    if (state.hold && init.method !== 'GET') await new Promise((resolve) => { state.held.push(resolve); });
+    if (init.method === 'PATCH' && state.refuseKeep) {
+      return { ok: false, status: 503, json: async () => ({ error: { code: 'internal_error', detail: 'x' } }) };
+    }
     if (init.method === 'POST' && pathname.endsWith('/cancel') && state.refuse) {
       return { ok: false, status: state.refuse.status, json: async () => ({ error: { code: state.refuse.code, detail: 'x' } }) };
     }
     const data = init.method === 'GET' ? { id: pathname.split('/')[2], ...state.subscription } : { id: pathname.split('/')[2] };
     return { ok: true, status: 200, json: async () => ({ data }) };
   };
-  return { calls, state, fetch };
+  /** Lets every answer held go, and stops holding. */
+  const release = () => {
+    state.hold = false;
+    for (const resolve of state.held.splice(0)) resolve();
+  };
+  /** Until `n` answers are held. */
+  const holding = async (n) => {
+    for (const until = Date.now() + 5000; state.held.length < n && Date.now() < until;) await new Promise((resolve) => { setTimeout(resolve, 5); });
+  };
+  return { calls, state, fetch, release, holding };
 }
 
+/** Billing on the organizations, wired as createSuite wires it with billing.stopOnOrganizationDeleted. */
 function withBilling(t, { provider = null, paddle = fakePaddle() } = {}) {
   const base = setup(t, { kinds: FAMILY });
   const { database, audit, organizations } = base;
@@ -391,11 +411,14 @@ function withBilling(t, { provider = null, paddle = fakePaddle() } = {}) {
       apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', products: PRODUCTS, fetch: paddle.fetch, log: () => {},
     }),
     organizationGone: (id) => !organizations.exists(id),
+    organizationWasDeleted: (id) => organizations.wasDeleted(id),
   });
   assert.deepEqual(billing.errors, []);
-  const subscribe = (organizationId, { id = 'evt_1', ref = 'sub_01home', status = 'active', at = '2026-10-01T10:00:00Z' } = {}) => billing.apply({
-    // A customer of each subscription's own: a customer already linked says who pays before the subject does.
-    id, type: 'subscription', occurredAt: at, customer: `ctm_${ref}`, subject: { type: 'organization', id: organizationId },
+  organizations.whenDeleted(({ organization }) => billing.organizationDeleted(organization.id, { stop: true }), { last: true });
+  const subscribe = (organizationId, {
+    id = 'evt_1', ref = 'sub_01home', status = 'active', at = '2026-10-01T10:00:00Z', customer = `ctm_${ref}`,
+  } = {}) => billing.apply({
+    id, type: 'subscription', occurredAt: at, customer, subject: { type: 'organization', id: organizationId },
     ref, product: 'family-yearly', status, periodEnd: '2027-10-01T10:00:00Z',
   });
   const stops = () => database.all("SELECT event_id, outcome FROM billing_events WHERE type = 'stop' ORDER BY event_id")
@@ -444,13 +467,14 @@ test('a stop that fails waits for the sweep; one already scheduled at Paddle cou
   assert.match(logs.at(-1), /could not be stopped yet, tried again later/);
   assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home pending`]);
 
-  // Paddle refuses a second cancellation while one is scheduled (cancelled in the portal, or an answer lost).
+  // Paddle refuses a second cancellation while one is scheduled (cancelled in the portal, or an answer
+  // lost): it counts, as the payer's own (`already`), never as one this install asked for.
   paddle.state.refuse = { status: 400, code: 'subscription_locked_pending_changes' };
   paddle.state.subscription = { status: 'active', scheduled_change: { action: 'cancel', effective_at: '2027-10-01T10:00:00Z' } };
-  assert.deepEqual(await billing.sendStops(), { requested: 1, waiting: 0 });
+  assert.deepEqual(await billing.sendStops(), { requested: 0, waiting: 0 });
   assert.deepEqual(paddle.calls.slice(-2).map(([method, pathname]) => `${method} ${pathname}`),
     ['POST /subscriptions/sub_01home/cancel', 'GET /subscriptions/sub_01home']);
-  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home requested`]);
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home already`]);
 
   // Another change pending (a pause): it is not a cancellation, so it waits.
   const away = organizations.create({ name: 'Away', kind: 'family', ownerId: people.bob });
@@ -508,17 +532,32 @@ test('Stripe stops a subscription at the period’s end, takes it back, ends it 
     return { ok: true, status: 200, json: async () => ({ id: 'sub_1', status: canceled ? 'canceled' : 'active' }) };
   };
   const stripe = stripeProvider({ secretKey: 'sk_test_1', webhookSecret: 'whsec_1', fetch, log: () => {} });
-  await stripe.cancelSubscription('sub_1');
+  assert.deepEqual(await stripe.cancelSubscription('sub_1'), { already: false });
   await stripe.keepSubscription('sub_1');
-  await stripe.cancelSubscription('sub_1', { now: true });
+  assert.deepEqual(await stripe.cancelSubscription('sub_1', { now: true }), { already: false });
   assert.deepEqual(calls, [
+    ['GET', '/v1/subscriptions/sub_1', null],
     ['POST', '/v1/subscriptions/sub_1', { cancel_at_period_end: 'true' }],
     ['POST', '/v1/subscriptions/sub_1', { cancel_at_period_end: 'false' }],
     ['DELETE', '/v1/subscriptions/sub_1', null],
-  ]);
+  ], 'at the period\'s end it is read first: Stripe takes the same change twice without a word');
   canceled = true;
-  await stripe.cancelSubscription('sub_1');
-  assert.deepEqual(calls.at(-1), ['GET', '/v1/subscriptions/sub_1', null], 'read, and already so');
+  assert.deepEqual(await stripe.cancelSubscription('sub_1'), { already: true });
+  assert.deepEqual(calls.at(-1), ['GET', '/v1/subscriptions/sub_1', null], 'read, and already so: nothing asked');
+  assert.deepEqual(await stripe.cancelSubscription('sub_1', { now: true }), { already: true }, 'refused, read, and so');
+  canceled = false;
+  let periodEnd = true;
+  const scheduled = stripeProvider({
+    secretKey: 'sk_test_1', webhookSecret: 'whsec_1', log: () => {},
+    fetch: async (url, init) => {
+      calls.push([init.method, new URL(url).pathname, null]);
+      return { ok: true, status: 200, json: async () => ({ id: 'sub_2', status: 'active', cancel_at_period_end: periodEnd }) };
+    },
+  });
+  const before = calls.length;
+  assert.deepEqual(await scheduled.cancelSubscription('sub_2'), { already: true }, 'the payer cancelled in the portal');
+  assert.deepEqual(calls.slice(before).map(([method]) => method), ['GET']);
+  periodEnd = false;
 
   const { billing, organizations, people, subscribe } = withBilling(t, { provider: stripeProvider({ secretKey: 'sk_test_1', webhookSecret: 'whsec_1', fetch, log: () => {} }) });
   canceled = false;
@@ -744,8 +783,344 @@ test('one customer pays a person’s plan and their family’s: each purchase go
   assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', subject: family(second.home) }), 'granted');
   assert.equal(second.billing.customerOf({ type: 'organization', id: second.home.id }), 'ctm_shared');
   assert.equal(second.event({ ref: 'sub_ada', product: 'pro-yearly', subject: { type: 'user', id: second.people.ada } }), 'granted');
-  // A group's renewal that names no group still finds it by its customer.
+  // A group's renewal that names no group finds it by its customer, while the customer is the group's.
   assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', periodEnd: '2028-10-01T10:00:00Z' }), 'extended');
+  // The person's identity outranks the link: the shared customer is theirs from now on…
   assert.equal(second.event({ ref: 'sub_ada2', product: 'pro-yearly', identity: { provider: 'workos', subject: ADA } }), 'granted');
   assert.deepEqual(second.grants(), { ada: ['pro-yearly', 'pro-yearly'], home: ['family-yearly'] }, 'before, the first went to the family');
+  assert.equal(second.billing.customerOf({ type: 'user', id: second.people.ada }), 'ctm_shared');
+  // …and the family's renewal still goes to the family, by what its checkout named.
+  assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', subject: family(second.home), periodEnd: '2029-10-01T10:00:00Z' }),
+    'extended');
+  // One that names no group is then nobody's here: never the person's.
+  assert.equal(second.event({ ref: 'sub_home', product: 'family-yearly', periodEnd: '2030-10-01T10:00:00Z' }), 'ignored');
+  assert.deepEqual(second.grants().ada, ['pro-yearly', 'pro-yearly']);
+});
+
+/* ----------------------------- review fixes ----------------------------- */
+
+test('a customer that paid for one family pays for the next: a family left or deleted never takes the new one’s purchase', (t) => {
+  // Deleted: its link names nobody, and the new family takes the customer.
+  const deleted = withBilling(t);
+  const first = deleted.organizations.create({ name: 'Home', kind: 'family', ownerId: deleted.people.ada });
+  assert.equal(deleted.subscribe(first.id, { ref: 'sub_1', customer: 'ctm_ada' }), 'granted');
+  deleted.organizations.removeMember(first.id, deleted.people.ada, { by: deleted.people.ada });
+  assert.equal(deleted.organizations.exists(first.id), false);
+  assert.equal(deleted.billing.customerOf({ type: 'organization', id: first.id }), null, 'its link went with it');
+  const next = deleted.organizations.create({ name: 'New home', kind: 'family', ownerId: deleted.people.ada });
+  assert.equal(deleted.subscribe(next.id, { id: 'evt_2', ref: 'sub_2', customer: 'ctm_ada', at: '2026-10-02T10:00:00Z' }), 'granted',
+    'before, it was gone: Ada charged and the new family without its plan');
+  assert.equal(deleted.entitlements.grantsOf('organization', next.id).length, 1);
+  assert.equal(deleted.billing.customerOf({ type: 'organization', id: next.id }), 'ctm_ada');
+  // A link to a group deleted before 0.85.0 (no hook removed it): taken over the same way.
+  deleted.database.run("INSERT INTO billing_customers (subject_type, subject_id, provider, customer_id, created_at) VALUES ('organization', ?, 'paddle-sandbox', 'ctm_old', '2026-01-01T00:00:00.000Z')", first.id);
+  const third = deleted.organizations.create({ name: 'Club', kind: 'team', ownerId: deleted.people.bob });
+  assert.equal(deleted.subscribe(third.id, { id: 'evt_3', ref: 'sub_3', customer: 'ctm_old', at: '2026-10-03T10:00:00Z' }), 'granted');
+  assert.equal(deleted.billing.customerOf({ type: 'organization', id: third.id }), 'ctm_old');
+  // The deleted family's own events stay its own ('gone'), never the new one's.
+  assert.equal(deleted.subscribe(first.id, { id: 'evt_4', ref: 'sub_1', customer: 'ctm_ada', at: '2026-10-04T10:00:00Z' }), 'gone');
+  assert.equal(deleted.entitlements.grantsOf('organization', next.id).length, 1);
+
+  // Left, still there with someone else: the new family's purchase is the new family's.
+  const left = withBilling(t);
+  const home = left.organizations.create({ name: 'Home', kind: 'family', ownerId: left.people.ada });
+  left.organizations.addMember(home.id, left.people.bob, 'owner');
+  assert.equal(left.subscribe(home.id, { ref: 'sub_1', customer: 'ctm_ada' }), 'granted');
+  left.organizations.removeMember(home.id, left.people.ada, { by: left.people.ada });
+  const own = left.organizations.create({ name: 'New home', kind: 'family', ownerId: left.people.ada });
+  assert.equal(left.subscribe(own.id, { id: 'evt_2', ref: 'sub_2', customer: 'ctm_ada', at: '2026-10-02T10:00:00Z' }), 'granted');
+  assert.deepEqual([left.entitlements.grantsOf('organization', home.id).length, left.entitlements.grantsOf('organization', own.id).length], [1, 1],
+    'before, the second purchase went to the family Ada had left');
+  // An event that names no group still goes by the customer's link, while its group is here.
+  assert.equal(left.billing.apply({
+    id: 'evt_3', type: 'subscription', occurredAt: '2026-10-03T10:00:00Z', customer: 'ctm_ada', ref: 'sub_1', product: 'family-yearly',
+    status: 'active', periodEnd: '2028-10-01T10:00:00Z',
+  }), 'extended');
+});
+
+test('a cancellation the payer made themselves is theirs: taking a stop back never renews it, a group’s or a person’s', async (t) => {
+  const { billing, organizations, people, paddle, subscribe, stops, database, entitlements, audit } = withBilling(t);
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  subscribe(home.id);
+  // The payer cancelled in Paddle's portal: Paddle refuses a second cancellation and shows the scheduled one.
+  paddle.state.refuse = { status: 400, code: 'subscription_locked_pending_changes' };
+  paddle.state.subscription = { status: 'active', scheduled_change: { action: 'cancel' } };
+  assert.deepEqual(await billing.stopOrganization(home.id), { requested: 0, waiting: 0 });
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home already`]);
+  assert.equal(audit.list({ action: 'billing.organization.stop' }).length, 0, 'nothing was asked');
+  paddle.state.refuse = null;
+  const before = paddle.calls.length;
+  assert.equal(await billing.keepOrganization(home.id), 0);
+  assert.equal(paddle.calls.length, before, 'before, Paddle got scheduled_change: null and the plan renewed against their word');
+  assert.deepEqual(stops(), []);
+
+  // A person's own subscription, when they ask to delete their account and take it back.
+  const PERSONAL = { 'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_01m46hn0personalpersonal0y' } };
+  const personal = createBilling({
+    database, entitlements, audit, products: PERSONAL, log: () => {},
+    provider: paddleProvider({ apiKey: 'pdl_sdbx_apikey_test', webhookSecret: SECRET, environment: 'sandbox', products: PERSONAL, fetch: paddle.fetch, log: () => {} }),
+  });
+  const own = (userId, ref, n) => personal.apply({
+    id: `evt_p${n}`, type: 'subscription', occurredAt: '2026-10-01T10:00:00Z', customer: `ctm_${ref}`, subject: { type: 'user', id: userId },
+    ref, product: 'pro-yearly', status: 'active', periodEnd: '2027-10-01T10:00:00Z',
+  });
+  own(people.ada, 'sub_ada', 1);
+  own(people.bob, 'sub_bob', 2);
+  own(people.eve, 'sub_eve', 3);
+  paddle.state.refuse = { status: 400, code: 'subscription_locked_pending_changes' };
+  assert.equal(await personal.stopRenewals(people.ada), 1, 'Ada had cancelled in the portal');
+  paddle.state.refuse = null;
+  paddle.state.subscription = { status: 'active' };
+  assert.equal(await personal.stopRenewals(people.bob), 1);
+  const mark = paddle.calls.length;
+  assert.equal(await personal.keepRenewals(people.ada), 0);
+  assert.equal(paddle.calls.length, mark, 'Ada’s own cancellation stays');
+  assert.equal(await personal.keepRenewals(people.bob), 1);
+  assert.deepEqual(paddle.calls.at(-1), ['PATCH', '/subscriptions/sub_bob', { scheduled_change: null }], 'what this install stopped renews');
+  // Asked before 0.85.0, nothing was noted: taken back as then.
+  assert.equal(await personal.keepRenewals(people.eve), 1);
+  assert.deepEqual(paddle.calls.at(-1), ['PATCH', '/subscriptions/sub_eve', { scheduled_change: null }]);
+  assert.equal(count(database, "SELECT COUNT(*) AS n FROM billing_events WHERE event_id LIKE 'stop:user:%'"), 0, 'nothing left noted');
+  // A stop that failed is noted as such and never taken back.
+  paddle.state.refuse = { status: 503, code: 'internal_error' };
+  await assert.rejects(personal.stopRenewals(people.bob));
+  paddle.state.refuse = null;
+  const after = paddle.calls.length;
+  assert.equal(await personal.keepRenewals(people.bob), 0);
+  assert.equal(paddle.calls.length, after);
+});
+
+test('taking a stop back while it is on its way: it lands, then is taken back; one failing is dropped; a stop on a keep, the same', async (t) => {
+  const { billing, organizations, people, paddle, subscribe, stops, database } = withBilling(t);
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  subscribe(home.id);
+  const asked = () => paddle.calls.map(([method]) => method);
+
+  // The keep comes while the cancellation is on its way: it waits for it, and takes it back once it landed.
+  paddle.state.hold = true;
+  const sending = billing.stopOrganization(home.id);
+  await paddle.holding(1);
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home sending`]);
+  const keeping = billing.keepOrganization(home.id);
+  paddle.release();
+  assert.deepEqual(await sending, { requested: 1, waiting: 0 });
+  assert.equal(await keeping, 1);
+  assert.deepEqual(asked(), ['POST', 'PATCH'], 'before, its row was deleted under the sweep and the cancellation stayed');
+  assert.deepEqual(stops(), []);
+
+  // The same, and the cancellation fails: nothing was stopped, nothing is taken back.
+  paddle.calls.length = 0;
+  paddle.state.hold = true;
+  paddle.state.refuse = { status: 503, code: 'internal_error' };
+  const failing = billing.stopOrganization(home.id);
+  await paddle.holding(1);
+  const keepingFailed = billing.keepOrganization(home.id);
+  paddle.release();
+  assert.deepEqual(await failing, { requested: 0, waiting: 1 });
+  assert.equal(await keepingFailed, 0);
+  paddle.state.refuse = null;
+  assert.deepEqual(asked(), ['POST', 'GET'], 'refused and read: no PATCH');
+  assert.deepEqual(stops(), []);
+
+  // The keep comes once it landed: taken back at once.
+  paddle.calls.length = 0;
+  assert.equal((await billing.stopOrganization(home.id)).requested, 1);
+  assert.equal(await billing.keepOrganization(home.id), 1);
+  assert.deepEqual(asked(), ['POST', 'PATCH']);
+
+  // Stopped again (the group deleted, say) while a keep is on its way: once the keep lands, it is
+  // stopped again. Before, the keep dropped the stop that came after it, and it renewed.
+  paddle.calls.length = 0;
+  assert.equal((await billing.stopOrganization(home.id)).requested, 1);
+  paddle.state.hold = true;
+  const renewing = billing.keepOrganization(home.id);
+  await paddle.holding(1);
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home keeping`]);
+  database.tx(() => billing.markOrganizationStop(home.id));
+  const restopping = billing.sendStops();
+  paddle.release();
+  assert.equal(await renewing, 0);
+  assert.deepEqual(await restopping, { requested: 1, waiting: 0 });
+  assert.deepEqual(asked(), ['POST', 'PATCH', 'POST']);
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home requested`]);
+
+  // Taken back and Paddle refused: still stopped there, and the sweep asks again.
+  paddle.calls.length = 0;
+  paddle.state.refuseKeep = true;
+  await assert.rejects(billing.keepOrganization(home.id));
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_01home rekeep`]);
+  paddle.state.refuseKeep = false;
+  assert.deepEqual(await billing.sendStops(), { requested: 0, waiting: 0 });
+  assert.deepEqual(asked(), ['PATCH', 'PATCH']);
+  assert.deepEqual(stops(), []);
+});
+
+test('two sweeps at once ask Paddle once for each subscription', async (t) => {
+  const { billing, organizations, people, paddle, subscribe, database } = withBilling(t);
+  const one = organizations.create({ name: 'One', kind: 'family', ownerId: people.ada });
+  const two = organizations.create({ name: 'Two', kind: 'family', ownerId: people.bob });
+  subscribe(one.id, { ref: 'sub_1' });
+  subscribe(two.id, { id: 'evt_2', ref: 'sub_2' });
+  database.tx(() => { billing.markOrganizationStop(one.id); billing.markOrganizationStop(two.id); });
+  paddle.state.hold = true;
+  // The first sweep reads both and asks for the first; the second reads the one left and asks for it.
+  const first = billing.sendStops();
+  await paddle.holding(1);
+  const second = billing.sendStops();
+  await paddle.holding(2);
+  paddle.release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.requested + b.requested, 2);
+  assert.deepEqual(paddle.calls.map(([, pathname]) => pathname).sort(),
+    ['/subscriptions/sub_1/cancel', '/subscriptions/sub_2/cancel'], 'the first sweep leaves the one the second took');
+});
+
+test('a past-due subscription still charges: it is stopped too', async (t) => {
+  const { billing, organizations, people, paddle, subscribe } = withBilling(t);
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  subscribe(home.id, { status: 'past_due' });
+  assert.deepEqual(await billing.stopOrganization(home.id), { requested: 1, waiting: 0 });
+  assert.deepEqual(paddle.calls, [['POST', '/subscriptions/sub_01home/cancel', { effective_from: 'next_billing_period' }]]);
+});
+
+test('a family deleted before its first webhook: its live subscription is stopped by the sweep; never another install’s', async (t) => {
+  const { billing, organizations, people, paddle, subscribe, stops } = withBilling(t);
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  organizations.removeMember(home.id, people.ada, { by: people.ada });
+  assert.equal(subscribe(home.id, { ref: 'sub_late' }), 'gone');
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_late pending`]);
+  assert.deepEqual(await billing.sendStops(), { requested: 1, waiting: 0 });
+  assert.deepEqual(paddle.calls, [['POST', '/subscriptions/sub_late/cancel', { effective_from: 'next_billing_period' }]]);
+  assert.equal(subscribe(home.id, { id: 'evt_2', ref: 'sub_late', at: '2026-10-02T10:00:00Z' }), 'gone');
+  assert.equal(paddle.calls.length, 1, 'once');
+  // An id this install never gave out is another's group: nothing is stopped.
+  assert.equal(subscribe(home.id + 100, { id: 'evt_3', ref: 'sub_theirs' }), 'gone');
+  assert.equal(stops().length, 1);
+  // Nor one already ended.
+  const away = organizations.create({ name: 'Away', kind: 'family', ownerId: people.bob });
+  organizations.remove(away.id);
+  assert.equal(subscribe(away.id, { id: 'evt_4', ref: 'sub_away', status: 'canceled' }), 'gone');
+  assert.equal(stops().length, 1);
+});
+
+test('every way a membership goes tells the app exactly once', (t) => {
+  const { accounts, organizations, people } = setup(t, { kinds: { ...FAMILY, team: { onEmpty: 'delete' } } });
+  const told = [];
+  organizations.whenMemberRemoved(({ organization, userId, reason }) => told.push(`member ${organization.name} ${userId} ${reason}`));
+  organizations.whenDeleted(({ organization, reason }) => told.push(`deleted ${organization.name} ${reason}`));
+  const expect = (fn, lines) => {
+    told.length = 0;
+    fn();
+    assert.deepEqual(told, lines);
+  };
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  organizations.addMember(home.id, people.bob, 'admin');
+  organizations.addMember(home.id, people.eve, 'admin');
+  expect(() => organizations.removeMember(home.id, people.bob, { by: people.bob }), [`member Home ${people.bob} left`]);
+  expect(() => organizations.removeMember(home.id, people.eve, { by: people.ada }), [`member Home ${people.eve} removed`]);
+  const club = organizations.create({ name: 'Club', ownerId: people.dan });
+  organizations.addMember(club.id, people.ada, 'admin');
+  // An account deleted: each of its memberships once, and a group it empties once more, as deleted.
+  expect(() => accounts.remove(people.ada), [`member Home ${people.ada} account_deleted`, `member Club ${people.ada} account_deleted`, 'deleted Home empty']);
+  const team = organizations.create({ name: 'Team', kind: 'team' });
+  organizations.addMember(team.id, people.bob, 'member');
+  // The last one out of a kind deleted when empty: their membership once, and the group once.
+  expect(() => organizations.removeMember(team.id, people.bob), [`member Team ${people.bob} removed`, 'deleted Team empty']);
+  // A group deleted whole with people in it: the deletion tells it, once, not each membership.
+  organizations.addMember(club.id, people.eve, 'member');
+  expect(() => organizations.remove(club.id, { reason: 'owner_asked' }), ['deleted Club owner_asked']);
+  // The reasons the hook may hear, a hand-over's (portability.js) among them.
+  assert.ok(MEMBER_REASONS.includes('handed_over'));
+});
+
+test('createSuite: a family whose every adult asks to go stops renewing; one coming back, or one joining, renews it; the app’s own stop stays', async (t) => {
+  const { suite, api, notify, settle, family } = await familySuite(t, { billing: { stopOnOrganizationDeleted: true } });
+  const { user: ada, home } = family('ada');
+  const bob = suite.accounts.create({ username: 'bob', password: 'bob-password' });
+  suite.organizations.addMember(home.id, bob.id, 'admin');
+  await notify('evt_1', home.id);
+  // A family's plan has no seats (products' `seats: false`, #73): Paddle's quantity 1 would cap it here.
+  suite.database.run("UPDATE entitlement_grants SET quantity = NULL WHERE subject_type = 'organization'");
+  const methods = () => api.calls.map(([method]) => method);
+
+  // Both adults ask: the family goes with the last of them, so it stops renewing at the second request.
+  await suite.deletion.request(suite.accounts.byId(ada.id));
+  assert.deepEqual(methods(), [], 'Bob is still there');
+  await suite.deletion.request(suite.accounts.byId(bob.id));
+  assert.deepEqual(methods(), ['POST'], 'before, nothing stopped: both counted as staying');
+  // One comes back: it renews again.
+  await suite.deletion.restore(suite.deletion.ticketFor(ada.id));
+  assert.deepEqual(methods(), ['POST', 'PATCH']);
+
+  // Bob waits; Ada leaves the family (the app's own route): only Bob is left, and he is going.
+  suite.organizations.setRole(home.id, bob.id, 'owner');
+  suite.organizations.removeMember(home.id, ada.id, { by: ada.id });
+  await settle(3);
+  assert.deepEqual(methods(), ['POST', 'PATCH', 'POST']);
+  // Someone who stays joins: it renews again.
+  const eve = suite.accounts.create({ username: 'eve', password: 'eve-password' });
+  suite.organizations.addMember(home.id, eve.id, 'admin');
+  await settle(4);
+  assert.deepEqual(methods(), ['POST', 'PATCH', 'POST', 'PATCH']);
+
+  // The app stops it itself (its owner's "delete the family" with a grace); a member asks to go and
+  // takes it back: the app's stop stays. Before, Paddle got scheduled_change: null.
+  await suite.billing.stopOrganization(home.id);
+  assert.equal(methods().length, 5);
+  await suite.deletion.request(suite.accounts.byId(eve.id));
+  await suite.deletion.restore(suite.deletion.ticketFor(eve.id));
+  assert.equal(methods().length, 5, 'nothing asked');
+  // Every member waiting, the app's stop too, and one comes back: still stopped, the app wants it.
+  await suite.deletion.request(suite.accounts.byId(eve.id));
+  assert.deepEqual(suite.billing.stopOriginsOf(home.id).sort(), ['app', 'members']);
+  await suite.deletion.restore(suite.deletion.ticketFor(eve.id));
+  assert.deepEqual(suite.billing.stopOriginsOf(home.id), ['app']);
+  assert.equal(methods().length, 5);
+  // Only the app takes its own back.
+  assert.equal(await suite.billing.keepOrganization(home.id), 1);
+  assert.deepEqual(methods().at(-1), 'PATCH');
+});
+
+test('createSuite: a deleted family’s customer link goes, whatever forgetOnRemove says, and the next family takes the customer', async (t) => {
+  const { suite, notify, family } = await familySuite(t);
+  const { user, home } = family('ada');
+  assert.deepEqual((await notify('evt_1', home.id)).outcomes, ['granted']);
+  suite.organizations.removeMember(home.id, user.id, { by: user.id });
+  assert.equal(suite.database.get("SELECT COUNT(*) AS n FROM billing_customers WHERE subject_type = 'organization'").n, 0);
+  assert.equal(suite.database.get("SELECT COUNT(*) AS n FROM billing_subscriptions WHERE subject_type = 'organization'").n, 1,
+    'its rows stay without forgetOnRemove');
+  const next = suite.organizations.create({ name: 'New home', kind: 'family', ownerId: user.id });
+  assert.deepEqual((await notify('evt_2', next.id, { sub: 'sub_02next' })).outcomes, ['granted'], 'the same customer pays');
+  assert.equal(suite.entitlements.grantsOf('organization', next.id).length, 1);
+});
+
+test('taking a group back while a sweep sends another of its stops: one at a time, and nothing is left stopped', async (t) => {
+  const { billing, organizations, people, paddle, subscribe, stops, database } = withBilling(t);
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: people.ada });
+  subscribe(home.id, { ref: 'sub_a' });
+  assert.equal((await billing.stopOrganization(home.id)).requested, 1);
+  // A second subscription of the family, marked and not sent yet.
+  subscribe(home.id, { id: 'evt_2', ref: 'sub_b' });
+  database.tx(() => billing.markOrganizationStop(home.id));
+  assert.deepEqual(stops(), [`stop:organization:${home.id}:sub_a requested`, `stop:organization:${home.id}:sub_b pending`]);
+  paddle.calls.length = 0;
+  paddle.state.hold = true;
+  const keeping = billing.keepOrganization(home.id);   // asks Paddle to renew sub_a, and waits
+  await paddle.holding(1);
+  const sending = billing.sendStops();                // meanwhile a sweep would stop sub_b: it waits its turn
+  paddle.release();
+  assert.equal(await keeping, 1);
+  assert.deepEqual(await sending, { requested: 0, waiting: 0 });
+  assert.deepEqual(paddle.calls.map(([method, pathname]) => `${method} ${pathname}`), ['PATCH /subscriptions/sub_a'],
+    'sub_b, never asked, is simply dropped: no cancellation to take back');
+  assert.deepEqual(stops(), []);
+});
+
+test('createSuite: a family deleted before its first webhook has its subscription stopped by the sweep', async (t) => {
+  const { suite, api, notify, family } = await familySuite(t, { billing: { stopOnOrganizationDeleted: true } });
+  const { user, home } = family('ada');
+  suite.organizations.removeMember(home.id, user.id, { by: user.id });
+  assert.deepEqual((await notify('evt_1', home.id)).outcomes, ['gone']);
+  assert.deepEqual(await suite.billing.sendStops(), { requested: 1, waiting: 0 });
+  assert.deepEqual(api.calls, [['POST', '/subscriptions/sub_01home/cancel', { effective_from: 'next_billing_period' }]]);
 });
