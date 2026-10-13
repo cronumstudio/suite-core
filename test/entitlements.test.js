@@ -315,6 +315,26 @@ test('PLANS=cronum-focus: an app with exactly Focus’s keys starts, and one mor
     (err) => err instanceof SuiteConfigError && /PLANS "cronum-focus": plan "free" says nothing of "kiosks\.max"/.test(err.message));
 });
 
+test('PLANS=cronum-focus: what acts for a family with nobody behind it reads the family’s own plan', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-focus-'));
+  const suite = createSuite({
+    config: { app: { id: 'focus', name: 'Focus' }, modules: { organizations: true }, features: FOCUS_FEATURES },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-focus' }, log: () => {}, exitOnError: false,
+  });
+  t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  // The family's owner administers the install and has Pro of their own: neither is the family's.
+  const owner = suite.accounts.create({ username: 'ada', role: 'admin' });
+  const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: owner.id });
+  suite.entitlements.grant({ subjectId: owner.id, plan: 'pro', source: 'admin' });
+  assert.deepEqual(suite.entitlements.ofOrganization(home.id).features, FOCUS_FREE, 'a child’s device, before any trial');
+  assert.notEqual(suite.entitlements.cutoffOrganization(home.id, 'history.days'), null, 'Free’s 7 days of History, not the owner’s Pro');
+
+  const ends = new Date(Date.now() + 14 * DAY).toISOString();
+  suite.entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'pro', source: 'trial', endsAt: ends });
+  assert.deepEqual(suite.entitlements.ofOrganization(home.id), { plan: { id: 'pro', name: 'Pro' }, ends, features: FOCUS_PRO, unlimited: false });
+  assert.equal(suite.entitlements.cutoffOrganization(home.id, 'history.days'), null);
+});
+
 test('cutoff: what Free keeps 90 days counts them from when Pro ended', (t) => {
   const database = setup(t);
   let now = Date.parse('2026-03-01T12:00:00Z');
@@ -385,6 +405,119 @@ test('an organization’s plan covers its members', (t) => {
   assert.equal(e.of({ id: 3, role: 'user' }).plan.id, 'pro', 'a member of household 7');
   assert.equal(e.of(ada).plan.id, 'free', 'not a member');
   assert.equal(e.of(ada, { organizationId: 7 }).plan.id, 'pro', 'acting inside the organization');
+});
+
+test('ends: when the shown plan lapses, never while one of its grants has no end; else the latest end', (t) => {
+  const database = setup(t);
+  const now = Date.parse('2026-11-02T09:00:00Z');
+  const at = (days) => new Date(now + days * DAY).toISOString();
+  const e = createEntitlements({ database, appId: 'tasks', features: FEATURES, plans: PLANS, plansJson: '', clock: () => now,
+    organizationsOf: (user) => (user.id === ada.id ? [7] : []) });
+  // Pro for good, and then a family's trial of Pro (a later grant): Pro never lapses for Ada.
+  e.grant({ subjectId: ada.id, plan: 'pro', source: 'admin' });
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'pro', source: 'trial', endsAt: at(14) });
+  assert.deepEqual([e.of(ada).plan.id, e.of(ada).ends], ['pro', null], 'not "Pro until" the trial’s end');
+  assert.deepEqual([e.ofOrganization(7).plan.id, e.ofOrganization(7).ends], ['pro', at(14)], 'the family’s own Pro does end');
+
+  // Two grants of one plan that both end: the later end, whichever grant came last.
+  const eve = { id: 3, role: 'user' };
+  e.grant({ subjectId: eve.id, plan: 'plus', source: 'stripe', externalRef: 'sub_long', endsAt: at(30) });
+  e.grant({ subjectId: eve.id, plan: 'plus', source: 'promo', endsAt: at(10) });
+  assert.deepEqual([e.of(eve).plan.id, e.of(eve).ends], ['plus', at(30)]);
+  // A higher plan for a while over a lower one for good: the shown plan is the higher, until its end.
+  e.grant({ subjectId: eve.id, plan: 'plus', source: 'admin' });
+  e.grant({ subjectId: eve.id, plan: 'pro', source: 'promo', endsAt: at(5) });
+  assert.deepEqual([e.of(eve).plan.id, e.of(eve).ends], ['pro', at(5)]);
+});
+
+/** A family's catalog, shaped like Focus's (the test's own: the suite's may come in another version). */
+const FAMILY_FEATURES = {
+  'routines.max': { type: 'limit', default: null },
+  'history.days': { type: 'limit', default: null },
+  live: { type: 'flag', default: true },
+};
+const FAMILY_FREE = { 'routines.max': 5, 'history.days': 7, live: false };
+const FAMILY_PRO = { 'routines.max': null, 'history.days': null, live: true };
+
+test('ofOrganization: a family’s own plan by its own grants, for what acts with no person behind it', (t) => {
+  const database = setup(t);
+  let now = Date.parse('2026-11-02T09:00:00Z');
+  const at = (days) => new Date(now + days * DAY).toISOString();
+  const eve = { id: 3, role: 'user' };
+  // Family 7: Eve and the instance admin. Family 8: Ada. Family 9 was archived.
+  const e = createEntitlements({
+    database, appId: 'focus', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
+    plans: { free: { name: 'Free', features: FAMILY_FREE }, pro: { name: 'Pro', features: FAMILY_PRO } },
+    organizationsOf: (user) => ({ [eve.id]: [7], [root.id]: [7], [ada.id]: [8] }[user.id] || []),
+    organizationExists: (id) => [7, 8].includes(id),
+  });
+  const free = { plan: { id: 'free', name: 'Free' }, ends: null, features: FAMILY_FREE, unlimited: false };
+  assert.deepEqual(e.ofOrganization(7), free, 'no grant: the default plan');
+  assert.deepEqual(e.of(null, { organizationId: 7 }).features, { 'routines.max': null, 'history.days': null, live: true },
+    'what nobody asking got before: the declared defaults, no limits at all');
+
+  // Neither a member's own Pro nor the instance admin's "no limits" reaches the family's plan.
+  e.grant({ subjectId: eve.id, plan: 'pro', source: 'admin' });
+  assert.equal(e.of(eve).plan.id, 'pro');
+  assert.equal(e.of(root, { organizationId: 7 }).unlimited, true);
+  e.grant({ subjectType: 'organization', subjectId: 8, plan: 'pro', source: 'paddle', externalRef: 'sub_8' });
+  assert.deepEqual(e.ofOrganization(7), free, 'nor another family’s');
+  assert.equal(e.ofOrganization(8).plan.id, 'pro');
+
+  // The 14-day trial: Pro until its end, and then Free, nothing kept from it but what cutoff counts.
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'pro', source: 'trial', endsAt: at(14) });
+  const trialEnds = at(14);
+  assert.deepEqual(e.ofOrganization(7), { plan: { id: 'pro', name: 'Pro' }, ends: trialEnds, features: FAMILY_PRO, unlimited: false });
+  assert.equal(e.cutoffOrganization(7, 'history.days'), null, 'nothing goes while Pro lasts');
+  now += 15 * DAY;
+  assert.deepEqual(e.ofOrganization(7), free, 'the trial is over');
+  assert.equal(e.cutoffOrganization(7, 'history.days'), null, 'Free’s 7 days count from the trial’s end');
+  assert.equal(e.cutoff(eve, 'history.days'), null, 'Eve’s own Pro keeps hers');
+  now += 7 * DAY;
+  assert.equal(e.cutoffOrganization(7, 'history.days'), new Date(now - 7 * DAY).toISOString(), 'then what is older than 7 days goes');
+  assert.equal(e.cutoff(eve, 'history.days'), null, 'a member’s own plan never says when the family’s things go');
+  assert.throws(() => e.cutoffOrganization(7, 'live'), /cutoffOrganization: "live" is not a limit/);
+  assert.throws(() => e.cutoffOrganization(7, 'teleport'), /Unknown feature/);
+
+  // Bought: the subscription's Pro, which ends with its period; a lapsed trial changes nothing of it.
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'pro', source: 'paddle', externalRef: 'sub_7', endsAt: at(368) });
+  assert.deepEqual([e.ofOrganization(7).plan.id, e.ofOrganization(7).ends], ['pro', at(368)]);
+  assert.equal(e.cutoffOrganization(7, 'history.days'), null);
+
+  // A group that isn't there, or was archived with its grants: the default plan, never an error.
+  e.grant({ subjectType: 'organization', subjectId: 9, plan: 'pro', source: 'paddle', externalRef: 'sub_9' });
+  assert.deepEqual(e.ofOrganization(9), free, 'archived');
+  assert.equal(e.cutoffOrganization(9, 'history.days'), new Date(now - 7 * DAY).toISOString());
+  for (const nobody of [99, null, undefined, 0, -7, 7.5, true, '', 'seven']) assert.deepEqual(e.ofOrganization(nobody), free, String(nobody));
+  assert.equal(e.ofOrganization('7').plan.id, 'pro', 'the digits of a route’s parameter');
+
+  // Left out, organizationExists checks nothing: every id's grants count (createSuite gives one).
+  const unchecked = createEntitlements({ database, appId: 'focus', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
+    plans: { free: { name: 'Free', features: FAMILY_FREE }, pro: { name: 'Pro', features: FAMILY_PRO } } });
+  assert.equal(unchecked.ofOrganization(9).plan.id, 'pro');
+
+  // A group that isn't there, whose Pro ended yesterday: its days count from now, not from that end,
+  // since nothing it held counts any more.
+  e.grant({ subjectType: 'organization', subjectId: 10, plan: 'pro', source: 'paddle', externalRef: 'sub_10', endsAt: at(1) });
+  now += 2 * DAY;
+  assert.equal(e.cutoffOrganization(10, 'history.days'), new Date(now - 7 * DAY).toISOString());
+  assert.equal(unchecked.cutoffOrganization(10, 'history.days'), null, 'where existence isn\'t checked, the ended Pro still keeps it');
+});
+
+test('of(person, { organizationId }) is unchanged by ofOrganization: the person’s, their groups’ and the one in context', (t) => {
+  const database = setup(t);
+  const e = createEntitlements({ database, appId: 'tasks', features: FEATURES, plans: PLANS, plansJson: '',
+    organizationsOf: (user) => (user.id === 3 ? [7] : []), organizationExists: () => false });
+  const eve = { id: 3, role: 'user' };
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'plus', source: 'stripe' });
+  e.grant({ subjectType: 'organization', subjectId: 8, plan: 'pro', source: 'stripe' });
+  e.grant({ subjectId: ada.id, feature: 'attachments', value: true, source: 'promo' });
+  assert.equal(e.of(eve).plan.id, 'plus', 'a member of 7, even where organizationExists says no: of() never asks it');
+  assert.equal(e.of(eve, { organizationId: 8 }).plan.id, 'pro', 'acting inside 8');
+  assert.equal(e.of(ada, { organizationId: 7 }).plan.id, 'plus');
+  assert.equal(e.of(ada, { organizationId: 7 }).features.attachments, true, 'with the person’s own grants');
+  assert.equal(e.of(root, { organizationId: 7 }).unlimited, true);
+  assert.deepEqual(e.of(null, { organizationId: 7 }).features, { 'lists.max': null, sharing: true, attachments: true, mcp: true });
 });
 
 test('the barriers: 402 with what the interface and the assistant need', (t) => {

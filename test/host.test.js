@@ -600,6 +600,32 @@ test('a PLANS JSON names the features of any module; one that none declares stop
   assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
 });
 
+test('a module’s ofOrganization reads the group’s own plan, and an archived group has the default one', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  fresh += 1;
+  const host = await createHost({
+    config: { ...HOST, modules: { live: true, organizations: true } },
+    modules: [{ mount: 'family', entry: fixture('plain', `?id=family&uses=organizations&n=${fresh}`) }],
+    env: {
+      DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+      PLANS: JSON.stringify({ free: { name: 'Free' }, pro: { name: 'Pro' } }),
+    },
+    handleSignals: false, exitOnError: false, log: () => {},
+  });
+  t.after(async () => {
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const { suite } = host.modules[0];
+  const owner = host.suite.accounts.create({ username: 'ada' });
+  const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: owner.id });
+  suite.entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'pro', source: 'paddle', externalRef: 'sub_1' });
+  assert.equal(suite.entitlements.ofOrganization(home.id).plan.id, 'pro');
+  suite.organizations.archive(home.id);
+  assert.equal(suite.entitlements.ofOrganization(home.id).plan.id, 'free', 'the host tells the module’s entitlements it is archived');
+});
+
 test('outside a host an app goes on as always', () => {
   assert.equal(joinHost({ config: { app: { id: 'alone', name: 'Alone' } } }), null);
 });

@@ -178,6 +178,8 @@ export function createSuite({
     database, appId: config.app.id, features: config.features, plans: config.plans,
     defaultPlan: config.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
     organizationsOf: (user) => (organizations ? organizations.organizationsOf(user) : []),
+    // An organization's own plan (ofOrganization) is only for one that is there and not archived.
+    organizationExists: (id) => Boolean(organizations?.get(id)),
     othersDeclare,
   });
   if (config.modules.organizations) {
