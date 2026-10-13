@@ -96,6 +96,7 @@ test('“replace” names the groups it hands over, asks again with them, and on
 test('without groups to hand over, “replace” goes as before; and a cancelled confirmation sends nothing', async () => {
   const { root, settings } = await dataPage({ ...PLAN, hand_over: [] });
   assert.ok(!root.all().some((node) => node.tagName === 'P' && /takes you out of/.test(node.textContent)));
+  assert.doesNotMatch(root.textContent, /null/, 'the line left out isn’t written as "null"');
   const replace = root.all().find((node) => node.getAttribute('id') === 'kit-data-replace');
   replace.checked = true;
   const apply = root.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.apply'));

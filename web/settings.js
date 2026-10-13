@@ -31,7 +31,7 @@
  * offers instead of the plan section (with hideCheckout, the only one);
  * `render(answer)` adds the app's own block.
  */
-import { el, clear } from './dom.js';
+import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at } from './base.js';
@@ -393,7 +393,8 @@ export function openSettings(options) {
       } catch { /* the key typed by hand does the same */ }
       const first = code('kit-2fa-first');
       const key = el('code', { class: 'kit-mono', text: secret.match(/.{1,4}/g).join(' ') });
-      clear(body).append(
+      // Without a QR (an address too long for one) nothing stands in its place, not the text "null".
+      append(clear(body),
         hint(t(qr ? 'kit.twoFactor.scan' : 'kit.twoFactor.typeKey')), qr,
         qr ? hint(t('kit.twoFactor.orKey')) : null,
         el('div', { class: 'kit-copy' }, key, el('button', { type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(secret, key) })),
@@ -782,7 +783,8 @@ export function openSettings(options) {
         file.value = '';
         check.disabled = true;
       }, 'quiet');
-      clear(area).append(
+      // The kit's append and not the area's own: that one writes a line left out as the text "null".
+      append(clear(area),
         el('p', { text: t('kit.data.plan', { account: answer.account || '', date: formatDateTime(copy.created_at, { dateStyle: 'medium' }), what: describe(copy.tables) }) }),
         copy.applied_at ? hint(t('kit.data.applied')) : null,
         owned || leaving.length ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('kit.data.replace', { what: describe(has) }) })) : null,

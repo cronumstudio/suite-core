@@ -22,9 +22,14 @@ const PLAN = {
   accounts: [{
     source: { id: 1, username: 'ben', display_name: 'Ben', email: 'ben@example.com', role: 'user', disabled: false },
     rows: { fam_notes: 1 }, choice: { action: 'map', user_id: 5, replace: false },
+  }, {
+    // One with rows of its own and no group to leave: no hand-over line, and no "null" in its place.
+    source: { id: 2, username: 'cleo', display_name: 'Cleo', email: 'cleo@example.com', role: 'user', disabled: false },
+    rows: { fam_notes: 1 }, choice: { action: 'map', user_id: 6, replace: false },
   }],
   targets: [{ id: 5, username: 'ben', display_name: 'Ben', email: 'ben@example.com', role: 'user', owns: {},
-    hand_over: [{ id: 9, name: 'Shared here', kind: 'family' }, { id: 10, name: 'Grandma’s', kind: 'family' }] }],
+    hand_over: [{ id: 9, name: 'Shared here', kind: 'family' }, { id: 10, name: 'Grandma’s', kind: 'family' }] },
+  { id: 6, username: 'cleo', display_name: 'Cleo', email: 'cleo@example.com', role: 'user', owns: { fam_notes: 3 }, hand_over: [] }],
   provider: 'local',
 };
 
@@ -60,6 +65,7 @@ test('the administrator’s “replace” names the groups it takes the account 
 
   const line = t('admin.data.handOver', { names: 'Shared here and Grandma’s' });
   assert.ok(main.find('p').some((node) => node.textContent === line), 'said under the choice');
+  assert.doesNotMatch(main.textContent, /null/, 'nothing left out is written as "null"');
   const replace = main.find('input').find((node) => node.getAttribute('type') === 'checkbox');
   assert.ok(replace, 'offered though it owns nothing of its own: it would leave groups');
   replace.checked = true;
@@ -72,5 +78,5 @@ test('the administrator’s “replace” names the groups it takes the account 
   dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === english['kit.confirm']).dispatch('click');
   for (let turn = 0; turn < 10; turn++) await settle();
   assert.deepEqual(sent.find((r) => r.path === `/api/admin/import/${PLAN.import_id}`).body,
-    { accounts: [{ source: 1, user_id: 5, replace: true }] });
+    { accounts: [{ source: 1, user_id: 5, replace: true }, { source: 2, user_id: 6, replace: false }] });
 });

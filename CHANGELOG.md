@@ -128,6 +128,68 @@ change an interface and a patch never does. Apps pin a version through the submo
   older core refuses it. No migration: the install's id and where each imported group came from
   are kept in `app_meta`.
 
+## 0.83.0 — 2026-10-13
+
+- **No more "null" under a copy's plan in Settings → Your data.** Checking a copy drew its plan
+  with the browser's own `append`, which writes a line left out as the text "null": a copy not
+  brought in yet (the usual case) showed "null" under what it brings, twice when the account had
+  nothing of its own to replace (found by Tracker's data-portability review; every app with
+  `modules.data`). It now uses the kit's `append()` (dom.js), as `openDialog()` does since 0.75.0:
+  only the lines that apply, nothing in place of the others.
+- The same cause, fixed in two more places: setting up two-step sign-in without a QR code (an
+  address too long for one) showed "nullnull" above the key, and the admin panel's Invitations
+  tab showed "null" under its lead on every install with mail on.
+- Tests: Settings opened at Your data and at two-step sign-in on the fake DOM, and the admin
+  panel's first test (`test/web-admin.test.js`, a file of its own: admin.js starts the page as it
+  is imported). Fake elements take `focus()`.
+
+## 0.82.0 — 2026-10-13
+
+- **A family's plan has no seats** (`products.<key>.seats: false`, only for a product
+  `for: 'organization'`). Before, a group's purchase always sold seats: Paddle's and Stripe's
+  checkouts buy one of the price (`quantity: 1`), every subscription event says it again, billing
+  wrote it on the organization's grant, and organizations.js reads a grant's quantity as seats. A
+  family that bought Pro was full at once: the next adult was refused with `402 seats_full`, by
+  `addMember()` and by an invitation. With `seats: false`, billing.js drops the quantity a provider
+  reports for that product, from any provider (Paddle, Stripe, the signed one) and on every event:
+  bought, renewed, changed, cancelled at the period's end, and a one-off purchase. Neither the
+  subscription's row nor the grant has a quantity, so `seatsOf()` says no cap. The checkout is the
+  same (Paddle and Stripe still sell one of the price). A group's subscription bought before the
+  option has its grant replaced by one without a quantity at its next event (`'changed'`); a
+  one-off purchase made before it keeps its quantity, since nothing comes after it (no install
+  sells a group's product yet).
+- `seats` is checked on start by config.js, with or without a provider, and by `createBilling()`
+  (`productSeatsProblem()`, exported): on a person's product (most likely a misspelt `for`, which
+  would sell the family's plan to one person), a value that is not `true` or `false`, or a key like
+  it (`seat`), stops the start, naming the product. Left out, a group's product sells seats as
+  before, and nothing changes for any product today.
+- **An organization's own plan**: `entitlements.ofOrganization(id)`, for what acts for a group with
+  nobody behind it (a child's paired device in Focus, a family's hourly sweep). The same shape as
+  `of()` (`{ plan: { id, name }, ends, features, unlimited: false }`), from the organization's active
+  grants only: never a member's own grants nor the instance admin's "no limits", and never
+  `of(null)`'s declared defaults, which are no limit at all. An expiring grant (the trial) counts
+  until its end, which `ends` says. With no grant, the default plan; so is an id that is no
+  organization, or one that is gone or archived, whatever grants it kept: never an error, so a sweep
+  over every family goes on past one that went, and never more than a family of its own would have.
+  `entitlements.cutoffOrganization(id, key)` is `cutoff()` by that plan: the days count from the end
+  of the group's last grant that kept things longer. Both are on `suite.entitlements`, and on each
+  module's in a host. `createEntitlements({ organizationExists })` (new) says which groups are there;
+  createSuite and createHost give it from organizations.js; left out, every id's grants count.
+  `of(person, { organizationId })` is unchanged.
+- **`ends` is when the shown plan lapses, not when its last grant does.** `of()` took `ends` from the
+  last grant (by id) of the plan it shows: a person with Pro for good who then joined a family on a
+  trial of Pro read "Pro until" the trial's end in Settings, and Focus's last-days notice would have
+  shown although Pro never lapses for them. Now, among the active grants of the shown plan, one
+  without an end wins, else the latest end. `ofOrganization()` follows the same rule.
+- **Next to `organizations.seatRoles`** (0.79.0): `seatRoles` says which roles take a seat, and a
+  purchase with `seats: false` leaves no seats to take, so members join in any role, a seat role
+  included, by `addMember()`, an invitation or `setRole()`. A product with seats still caps only
+  the members in those roles. A grant without a quantity sets no seats, like an admin's gift of the
+  plan: a group that also holds a grant with a quantity (seats bought with another product) is
+  capped by it, as before.
+- Nothing else changes: no migration, no route, and `organizations.js` is untouched (it reads seats
+  from `seatsOf()` as before).
+
 ## 0.81.0 — 2026-10-13
 
 - **An app can push to its own devices, with no user behind them.** A device that belongs to the

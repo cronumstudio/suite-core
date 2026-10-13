@@ -30,6 +30,11 @@
  * Inside an app, features have short names (`attachments`). Across apps —a
  * product that covers the whole suite— they carry the app's id
  * (`tasks.attachments`); grants for other apps are ignored here.
+ *
+ * Some things act for a group with nobody behind them: a child's paired device
+ * in Focus, the hourly sweep of a family's History. They ask for the group's
+ * own plan, `ofOrganization(id)`: its grants only, never a member's own nor the
+ * instance admin's "no limits", and the default plan when it has none.
  */
 import { HttpError } from './http.js';
 import { PLAN_CATALOGS } from './plans.js';
@@ -87,6 +92,9 @@ function generous(type, a, b) {
 
 const unlimitedValue = (type) => (type === 'flag' ? true : null);
 
+/** The later of two grants' ends, where null (no end) is later than any date. */
+const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Date.parse(a) ? b : a));
+
 /**
  * @param {object} options
  * @param {object} options.database
@@ -100,6 +108,10 @@ const unlimitedValue = (type) => (type === 'flag' ? true : null);
  * @param {string} [options.defaultPlanOverride]   DEFAULT_PLAN from the environment
  * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
+ * @param {(organizationId) => boolean} [options.organizationExists]   whether a group is there and
+ *                                        not archived, for `ofOrganization()`: one that isn't has the
+ *                                        default plan, whatever grants it kept. Left out, any id's
+ *                                        grants count (createSuite gives it, from organizations.js)
  * @param {boolean} [options.othersDeclare]   in a host, a PLANS key this app doesn't declare may be
  *                                        another module's: it is left out (`ignored`), and the
  *                                        host checks that someone declares it (host.js)
@@ -107,7 +119,7 @@ const unlimitedValue = (type) => (type === 'flag' ? true : null);
 export function createEntitlements({
   database, appId, features = {}, plans = null, defaultPlan = null,
   plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN,
-  isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [],
+  isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [], organizationExists = null,
   clock = () => Date.now(), othersDeclare = false,
 }) {
   const errors = [];
@@ -215,20 +227,38 @@ export function createEntitlements({
 
   const localKey = (key) => (key?.startsWith(`${appId}.`) ? key.slice(appId.length + 1) : key);
 
+  /** Subjects ([type, id] pairs) as a WHERE clause. */
+  const whereSubjects = (subjects) => ({
+    clauses: subjects.map(() => '(subject_type = ? AND subject_id = ?)').join(' OR '), values: subjects.flat(),
+  });
+
   /** The user and the organizations whose grants count for them, as a WHERE clause. */
   function subjectsOf(user, organizationId) {
     const organizations = [...new Set([...(organizationsOf(user) || []), ...(organizationId ? [organizationId] : [])])];
-    const subjects = [['user', user.id], ...organizations.map((id) => ['organization', id])];
-    return { clauses: subjects.map(() => '(subject_type = ? AND subject_id = ?)').join(' OR '), values: subjects.flat() };
+    return whereSubjects([['user', user.id], ...organizations.map((id) => ['organization', id])]);
   }
 
-  function activeGrants(user, organizationId) {
+  /**
+   * An organization on its own, as a WHERE clause; null when its grants count for nothing: an id
+   * that is none, or a group that isn't there or is archived (`organizationExists`), which keeps
+   * its grants, a subscription still running among them, but has no plan of its own any more.
+   */
+  function organizationSubjects(organizationId) {
+    // A number, or the digits of a route's parameter; anything else (null, true, '') is no group.
+    const id = typeof organizationId === 'string' && /^\d+$/.test(organizationId) ? Number(organizationId) : organizationId;
+    if (!Number.isInteger(id) || id <= 0) return null;
+    if (organizationExists && !organizationExists(id)) return null;
+    return whereSubjects([['organization', id]]);
+  }
+
+  function grantsActiveFor({ clauses, values }) {
     const now = iso(clock());
-    const { clauses, values } = subjectsOf(user, organizationId);
     return database.all(`SELECT * FROM entitlement_grants WHERE (${clauses})
       AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?) AND revoked_at IS NULL
       ORDER BY id`, ...values, now, now);
   }
+
+  const activeGrants = (user, organizationId) => grantsActiveFor(subjectsOf(user, organizationId));
 
   /** A grant's value of one feature, or undefined when it says nothing of it. */
   function grantValue(grant, key) {
@@ -247,16 +277,43 @@ export function createEntitlements({
       const features = Object.fromEntries(Object.entries(declared).map(([k, s]) => [k, unlimitedValue(s.type)]));
       return { plan: { id: fallbackPlan, name: catalog[fallbackPlan]?.name }, ends: null, features, unlimited: true };
     }
+    return entitledBy(activeGrants(user, organizationId));
+  }
+
+  /**
+   * An organization's own plan, for what acts for it with no person behind (a child's paired
+   * device, a family's sweep): the same shape as `of()`, from the organization's active grants
+   * alone. Never a member's own grants nor the instance admin's "no limits", which belong to a
+   * person and would leak to whatever acts for the group; and never `of(null)`'s declared
+   * defaults, which are no limit at all where nobody is asking. With no grant, or for a group
+   * that isn't there or is archived, the default plan: never more than a family of its own would
+   * have, and never an error, so a sweep over every family goes on past one that went.
+   */
+  function ofOrganization(organizationId) {
+    const subjects = organizationSubjects(organizationId);
+    return entitledBy(subjects ? grantsActiveFor(subjects) : []);
+  }
+
+  /**
+   * The default plan with the given active grants on it, the most generous of each feature. The
+   * plan shown is the highest one granted, and `ends` is when it lapses: among the active grants
+   * of that plan, never if one has no end, else the latest end. Not the last grant's: a person with
+   * Pro for good who joins a family on a trial keeps Pro after the trial, and must not read "Pro
+   * until" its end (Settings, Focus's last-days notice).
+   */
+  function entitledBy(grants) {
     const features = { ...(catalog[fallbackPlan]?.features || allDefaults()) };
-    let shown = { plan: catalog[fallbackPlan], ends: null };
-    for (const grant of activeGrants(user, organizationId)) {
+    let shown = { plan: catalog[fallbackPlan], ends: null, granted: false };
+    for (const grant of grants) {
       if (grant.plan) {
         const plan = catalog[localKey(grant.plan)];
         if (!plan) continue;   // a plan that left the catalog counts as the default one
         for (const [key, value] of Object.entries(plan.features)) {
           features[key] = generous(declared[key].type, features[key], value);
         }
-        if (rank(plan.id) >= rank(shown.plan?.id)) shown = { plan, ends: grant.ends_at };
+        const higher = rank(plan.id) - rank(shown.plan?.id);
+        if (higher > 0 || (higher === 0 && !shown.granted)) shown = { plan, ends: grant.ends_at, granted: true };
+        else if (higher === 0) shown.ends = laterEnd(shown.ends, grant.ends_at);
       } else {
         const key = localKey(grant.feature);
         if (!(key in declared)) continue;   // another app's feature
@@ -299,11 +356,27 @@ export function createEntitlements({
    */
   function cutoff(user, feature, { organizationId = null } = {}) {
     if (known(feature).type !== 'limit') throw new Error(`cutoff: "${feature}" is not a limit`);
-    const days = limit(user, feature, { organizationId });
+    return cutoffFrom(limit(user, feature, { organizationId }), () => subjectsOf(user, organizationId), feature);
+  }
+
+  /**
+   * `cutoff()` by an organization's own plan (`ofOrganization()`): the days count from the end of
+   * the group's last grant that kept things longer —its trial, its subscription—, never a
+   * member's. What a family's sweep asks, with no adult behind it.
+   */
+  function cutoffOrganization(organizationId, feature) {
+    if (known(feature).type !== 'limit') throw new Error(`cutoffOrganization: "${feature}" is not a limit`);
+    return cutoffFrom(ofOrganization(organizationId).features[feature], () => organizationSubjects(organizationId), feature);
+  }
+
+  /** The cutoff for a limit of `days`, from the ended grants of the subjects (a thunk: only asked when needed). */
+  function cutoffFrom(days, subjectsNow, feature) {
     if (days === null) return null;
     const now = clock();
     const edge = now - days * DAY;
-    const { clauses, values } = subjectsOf(user, organizationId);
+    const subjects = subjectsNow();
+    if (!subjects) return iso(edge);
+    const { clauses, values } = subjects;
     const ended = database.all(`SELECT * FROM entitlement_grants WHERE (${clauses}) AND starts_at <= ?
       AND (ends_at IS NOT NULL OR revoked_at IS NOT NULL)`, ...values, iso(now));
     for (const grant of ended) {
@@ -448,7 +521,8 @@ export function createEntitlements({
   const knows = (key) => key in declared || key in aliasOf;
 
   return {
-    errors, ignored, knows, of, can, limit, require, allows, cutoff, countDaily, grant, revoke, setPlan, seatsOf, grantsOf, describe,
+    errors, ignored, knows, of, ofOrganization, can, limit, require, allows, cutoff, cutoffOrganization, countDaily,
+    grant, revoke, setPlan, seatsOf, grantsOf, describe,
   };
 }
 
