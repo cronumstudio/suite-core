@@ -245,6 +245,28 @@ test('with seat roles, a group passes to someone outside them first: a driver ma
   assert.equal(organizations.seatsTaken(solo.id), 0);
 });
 
+test('one heir rule for forgetUser, handOver and an import: heirOf, drivers last, admins first', (t) => {
+  const { organizations, people } = setup(t, { roles: ['owner', 'admin', 'member', 'driver', 'viewer'], seatRoles: ['driver'] });
+  const fleet = organizations.create({ name: 'Fleet', ownerId: people.ada });
+  organizations.addMember(fleet.id, people.bob, 'driver');   // the oldest after the owner
+  organizations.addMember(fleet.id, people.eve, 'viewer');
+  assert.equal(organizations.heirOf(fleet.id, people.ada), people.eve, 'the viewer, not the older driver');
+  assert.equal(organizations.heirOf(fleet.id, people.eve), people.ada, 'from someone else: the owner is a member like any');
+  assert.equal(organizations.heirOf(fleet.id), people.ada, 'from nobody (an import whose owners were left out)');
+  organizations.addMember(fleet.id, people.dan, 'admin');
+  assert.equal(organizations.heirOf(fleet.id, people.ada), people.dan, 'an admin before anyone');
+
+  // handOver: the owner leaves one group by an import that replaces what they have.
+  assert.equal(organizations.handOver(fleet.id, people.ada), people.dan);
+  assert.deepEqual(organizations.membersOf(fleet.id).map((m) => [m.username, m.role]),
+    [['bob', 'driver'], ['eve', 'viewer'], ['dan', 'owner']]);
+  assert.equal(organizations.handOver(fleet.id, people.bob), null, 'a driver leaving: nobody had to inherit');
+  assert.equal(organizations.roleOf(fleet.id, people.bob), null);
+  const solo = organizations.create({ name: 'Solo', ownerId: people.root });
+  assert.equal(organizations.handOver(solo.id, people.root), null, 'a group with nobody else is left as it is');
+  assert.equal(organizations.roleOf(solo.id, people.root), 'owner');
+});
+
 test('seatRoles in suite.config.js: checked on start and handed to the organizations', (t) => {
   const product = {
     app: { id: 'demo', name: 'Demo' }, modules: { organizations: true },

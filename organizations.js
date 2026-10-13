@@ -58,8 +58,14 @@ export function organizationsSchema(d) {
 const POWER = { owner: 3, admin: 2 };
 const power = (role) => POWER[role] ?? (role ? 1 : 0);
 
-/** A slug from a name: "Casa Andersen" → "casa-andersen", made unique by the caller. */
-const slugOf = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+/**
+ * How a group's kind is written: lowercase letters, digits, - and _, starting with a letter (a
+ * declaration's `copyKinds` and a copy's groups, portability.js).
+ */
+export const KIND_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
+
+/** A slug from a name: "Casa Andersen" → "casa-andersen", made unique by the caller (also portability.js). */
+export const slugOf = (name) => String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'group';
 
 /**
@@ -119,6 +125,8 @@ export function createOrganizations({
     const clean = String(name ?? '').trim();
     if (!clean) throw badRequest('field_required', { field: 'name' });
     if (clean.length > 80) throw badRequest('field_too_long', { field: 'name', max: 80 });
+    // One rule for every kind's name, or a group of a kind written otherwise couldn't travel in a copy.
+    if (kind != null && (typeof kind !== 'string' || !KIND_NAME.test(kind))) throw badRequest('field_invalid', { field: 'kind' });
     return database.tx(() => {
       const base = slugOf(clean);
       let slug = base;
@@ -232,6 +240,16 @@ export function createOrganizations({
     ? `CASE WHEN role IN (${seatShifting.map(() => '?').join(', ')}) THEN 1 ELSE 0 END, ` : '';
 
   /**
+   * Who inherits a group from `exceptUserId` (null: from nobody, for a group with no owner left):
+   * its oldest admin, else its oldest member, those whose seat would change last. The one rule
+   * for forgetUser, handOver and an imported group whose owners were left out. → a user id, or null.
+   */
+  const heirOf = (organizationId, exceptUserId = null) => database.get(`SELECT user_id FROM memberships
+    WHERE organization_id = ? AND user_id IS NOT ?
+    ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`,
+  organizationId, exceptUserId, ...seatShifting)?.user_id ?? null;
+
+  /**
    * Before an account is deleted (hook it with `accounts.whenRemoved`): each
    * group it was the last owner of passes to its oldest admin, or else its
    * oldest member, those in a seat role last; a group left with nobody is
@@ -242,15 +260,30 @@ export function createOrganizations({
       WHERE user_id = ? AND role = 'owner'`, userId);
     for (const { id } of owned) {
       if (owners(id) > 1) continue;
-      const heir = database.get(`SELECT user_id FROM memberships WHERE organization_id = ? AND user_id <> ?
-        ORDER BY ${heirOrder}CASE role WHEN 'admin' THEN 0 ELSE 1 END, joined_at, user_id LIMIT 1`, id, userId, ...seatShifting);
-      if (heir) {
-        database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir.user_id);
+      const heir = heirOf(id, userId);
+      if (heir != null) {
+        database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir);
       } else {
         archive(id);
       }
     }
     database.run('DELETE FROM memberships WHERE user_id = ?', userId);
+  }
+
+  /**
+   * Someone leaves one group that others share, and what it holds stays with them: an import that
+   * replaces what the person has (portability.js). It is forgetUser's hand-over for that one group:
+   * when they were its last owner, the same heir becomes its owner first. A group with nobody else
+   * is left as it is. → the heir's id, or null when nobody had to inherit.
+   */
+  function handOver(organizationId, userId) {
+    const role = roleOf(organizationId, userId);
+    const heir = heirOf(organizationId, userId);
+    if (!role || heir == null) return null;
+    const inherits = role === 'owner' && owners(organizationId) <= 1;
+    if (inherits) database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", organizationId, heir);
+    database.run('DELETE FROM memberships WHERE organization_id = ? AND user_id = ?', organizationId, userId);
+    return inherits ? heir : null;
   }
 
   const list = () => database.all(`SELECT o.*, (SELECT COUNT(*) FROM memberships m WHERE m.organization_id = o.id) AS members
@@ -259,6 +292,8 @@ export function createOrganizations({
   return {
     create, get, list, update, archive, roleOf, requireRole, addMember, setRole, removeMember,
     invite, accept, revokeInvitation, invitationsOf, membersOf, ofUser, organizationsOf, forgetUser,
-    seatsTaken, takesSeat,
+    seatsTaken, takesSeat, handOver, heirOf,
+    /** Every role, the app's own included: what a copy's memberships may bring (portability.js). */
+    roles: [...roles],
   };
 }
