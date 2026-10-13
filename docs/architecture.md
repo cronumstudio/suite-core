@@ -1158,18 +1158,21 @@ kit's), then Notes is built on it whole, then the others as they move to English
   install's takes every group, membership, waiting invitation (`suite/invitations.json`, by hash:
   the links people were sent keep working), and the groups' grants and payments, typed
   `organization` in `suite/grants.json` and `suite/billing.json`, and says which install it is
-  (`source.install`, a random id in `app_meta`). Importing someone's copy puts each group into the
+  (`source.install`, a random id in `app_meta`) and which export run (`source.export`, shared by a
+  host's modules exported together). Importing someone's copy puts each group into the
   oldest of that kind they own or administer (`mapOntoOwn`) or a new one they own, made quietly
   with a slug from its name and today's date; a table with `onePerOrganization` (Focus' family row,
   UNIQUE per group) then finds the group's row instead of writing a second one. A whole install's
-  restores each group as it was and records where it came from (the source install and its id
-  there, in `app_meta`); a later copy of the same install (a host's next module, the real move
-  after a trial) finds it by that record alone and brings what changed in between —members,
-  invitations, plans, who pays them— without doubling anything, always under the group's id here,
-  so a renewal naming the old id finds the group by its customer; the plan says what each group
-  would bring (`adds`). Nothing a file says by itself (a slug, a date, a name) finds a group here: a
+  restores each group as it was, under its id here (a renewal naming the old id finds the group by
+  its customer), and records where it came from (the source install, its id there and the run, in
+  `app_meta`). An install comes in by one export run: its other modules' copies of that run find
+  the groups by that record alone and bring only their own rows; a copy of another run is refused
+  before anything is written (409 `import_install_again`), since merging a later copy into what an
+  earlier one made would bring back who left and plans revoked since. Moving again is moving into a
+  fresh install. Nothing a file says by itself (a slug, a date, a name) finds a group here: a
   person's copy names no install, and what a copy can't name, it can't join. A kind is written by
-  one rule (`KIND_NAME`): `organizations.create` refuses another, and a copy's is written by it. What is someone's alone —what "replace" and erasing
+  one rule (`KIND_NAME`): `organizations.create` refuses another, and a copy's other kind comes in
+  as none. What is someone's alone —what "replace" and erasing
   empty— is their rows and those of groups nobody else is in; a group they share is never emptied:
   "replace" hands it over (the declaration's `organizations.leave`, then `organizations.handOver()`:
   the heir `organizations.heirOf()` names, the one rule of account deletion too, becomes owner when

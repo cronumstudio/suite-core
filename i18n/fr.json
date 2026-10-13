@@ -167,6 +167,7 @@
   "errors.import_already_applied": "Cette copie a déjà été importée ici.",
   "errors.import_not_found": "Cet envoi n’est plus là : envoyez de nouveau la copie.",
   "errors.import_hand_over": "Remplacer ce que vous avez vous ferait quitter des groupes que vous partagez avec d’autres personnes : confirmez-le d’abord.",
+  "errors.import_install_again": "Cette installation a déjà été importée ici depuis une autre copie : restaurez celle-ci dans une nouvelle installation, ou que chacun apporte sa propre copie.",
   "errors.zip_invalid": "Le fichier n’est pas un zip valide, ou il est endommagé.",
   "errors.zip_unsupported": "Le zip utilise quelque chose qui ne peut pas être lu ici (chiffrement, ou plusieurs parties).",
   "errors.zip_too_large": "La copie est trop grande pour être importée ici.",

@@ -5,12 +5,15 @@
  * upload limits of a proxy in front (Cloudflare cuts at 100 MB), and before
  * anybody has signed in to the new one.
  *
- *   node scripts/data.js export <copy.zip> [--account <user>]
+ *   node scripts/data.js export <copy.zip> [--account <user>] [--run <id>]
  *   node scripts/data.js import <copy.zip> [--as <user>] [--email <src>=<address>] [--to <src>=<user>]
  *                                          [--new <src>] [--username <src>=<name>] [--skip <src>]
  *                                          [--replace <src>] [--apply]
  *
- * `export` writes the whole install, or one account's data with --account.
+ * `export` writes the whole install, or one account's data with --account. With organizations,
+ * a whole install's copy names its export run, and says it: the other modules of a host exported
+ * with --run <that id> are of the same run, which is the only way an install's modules come into
+ * one install (portability.js).
  * `import` says what it would do and does it only with --apply. Where each
  * account of the copy goes: by default the account here with the same email,
  * or a new one; --email gives one of the copy's accounts an email (so it links
@@ -26,13 +29,13 @@ import fs from 'node:fs';
 import { HttpError } from '../http.js';
 
 const USAGE = `Usage:
-  node scripts/data.js export <copy.zip> [--account <user>]
+  node scripts/data.js export <copy.zip> [--account <user>] [--run <id>]
   node scripts/data.js import <copy.zip> [--as <user>] [--email <src>=<address>] [--to <src>=<user>]
                                          [--new <src>] [--username <src>=<name>] [--skip <src>]
                                          [--replace <src>] [--apply]`;
 
 const LISTS = ['email', 'to', 'new', 'username', 'skip', 'replace'];
-const SINGLE = ['account', 'as'];
+const SINGLE = ['account', 'as', 'run'];
 
 export function parseArgs(argv) {
   const [command, file, ...rest] = argv;
@@ -106,11 +109,12 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
   try {
     if (command === 'export') {
       const user = flags.account ? here(flags.account) : null;
-      const job = portability.prepareExport({ scope: user ? 'account' : 'install', userId: user?.id ?? null });
+      const job = portability.prepareExport({ scope: user ? 'account' : 'install', userId: user?.id ?? null, run: flags.run });
       const manifest = await job.write(fs.createWriteStream(file));
       log(`Copy written to ${file}: ${user ? `the account "${user.username}"` : `the whole install, ${manifest.users} account(s)`}.`);
       log(`  ${tables(manifest.tables)}`);
       if (manifest.organizations) log(`  organizations: ${manifest.organizations}`);
+      if (manifest.source?.export) log(`  export run: ${manifest.source.export} (export the install's other modules with --run ${manifest.source.export})`);
       log(`  attachments: ${manifest.files.count} (${size(manifest.files.bytes)})${manifest.files.missing ? `, ${manifest.files.missing} missing on disk` : ''}`);
       if (manifest.left_out && sum(manifest.left_out)) log(`  shared with other people, not in it: ${tables(manifest.left_out)}`);
       return 0;
@@ -203,6 +207,9 @@ export async function runDataCli({ suite, declaration, version = null, argv = pr
   } catch (err) {
     if (err instanceof HttpError) {
       error(`Refused: ${err.code}${Object.keys(err.extra || {}).length ? ` ${JSON.stringify(err.extra)}` : ''}`);
+      if (err.code === 'import_install_again') {
+        error('  This install was already brought here by another export. Restore this copy into a fresh install, or bring people’s own copies.');
+      }
       return 1;
     }
     error(err.message);

@@ -44,7 +44,9 @@ change an interface and a patch never does. Apps pin a version through the submo
     `suite/grants.json` and their customers and subscriptions in `suite/billing.json`, each row
     with `subject_type: 'organization'` (a row without it is an account's, as every copy before).
     Its manifest says which install it is (`source.install`, a random id kept in `app_meta` as
-    `suite.install_id`, made the first time).
+    `suite.install_id`, made the first time) and which export run (`source.export`, one random id
+    per run; a host's other modules exported in the same run share it: `prepareExport({ run })`,
+    whose job says its `run`, the admin export's `?run=`, the command line's `--run`).
   - **Importing someone's copy**: each group goes into the oldest one of its kind they own or
     administer here when `mapOntoOwn` says so (one group of the copy each, never an archived one),
     else into a new one, with them as its owner, made quietly as imported accounts are (no app
@@ -57,19 +59,20 @@ change an interface and a patch never does. Apps pin a version through the submo
     branding, dates, archived—, its memberships and roles (one this install lacks becomes
     `member`), its invitations, grants and payments under its new id: a renewal that names the old
     id finds the family by its customer. Each group it makes is recorded with where it came from
-    (`app_meta`: `suite.organization_origin:<install>:<id there>`). A later copy of the same install
-    (a host's next module, the real move after a trial) finds the group by that record alone,
-    and brings what changed in between: who joined, invitations, plans paid since, who pays them,
-    a payment's plan extended to the copy's end, a subscription's newer state; nothing doubled
-    (memberships and invitations once each, a payment's plan by its reference and any other as the
-    same row, a customer by its id or the group's link at that provider), always under the group's
-    id here. So a renewal naming the old id —another group's here— finds the family by its
-    customer. The plan says what each group would bring (`adds`). A slug, kind and date like a
+    (`app_meta`: `suite.organization_origin:<install>:<id there>`, with the run), and which run of
+    that install came (`suite.install_import:<install>`). **An install comes here by one export
+    run**: the other modules' copies of that run (a host moving one module at a time) find its
+    groups by that record alone and bring only their own rows, never members, invitations, plans
+    or payments, which came with the first copy, nor the accounts' plans and payments. A copy of
+    another run of an install already brought here is refused before anything is written, 409
+    `import_install_again` (in the four languages; the command line says what to do), in the plan
+    and on apply: a later copy merged into what an earlier one made would bring back a member
+    taken out since, a plan revoked since, and take a file's word for a plan's end. Moving again
+    (a trial move, then the real one) is moving into a fresh install. A slug, kind and date like a
     group's here find nothing, so neither someone's own copy imported earlier nor a look-alike copy
     can set up or reach a group a move goes into; only a whole install's copy, the
     administrator's, names its install. A group whose every member is left out goes with them; one
-    whose owners are left out gets its heir as owner, by `organizations.heirOf`. A later copy's
-    rows of the module come again, as an account's do.
+    whose owners are left out gets its heir as owner, by `organizations.heirOf`.
   - **"Replace" and erasing one's data** empty what is the person's alone: their rows and those of
     groups nobody else is in, archived too, whose organization and plan stay. A group they share is
     never emptied: "replace" hands it over first (the app's `leave`, then the new
@@ -107,14 +110,14 @@ change an interface and a patch never does. Apps pin a version through the submo
   everything it had.
 - **A kind is written by one rule** (`KIND_NAME`): `organizations.create`, and so `POST /api/orgs`,
   refuses another with 400 `field_invalid` (`field: 'kind'`, `fields.kind` in the four languages);
-  a copy's group with a kind written otherwise (made before the rule) comes in with it written by
-  the rule ("Team" → "team", nothing left → no kind), never refusing the whole copy.
+  a copy's group with a kind written otherwise (made before the rule) comes in with none, never
+  made into another valid kind ("Family" isn't `family`) and never refusing the whole copy.
 - **One heir rule** (`organizations.heirOf(organizationId, exceptUserId)`): the oldest admin, else
   the oldest member, those whose seat a role change would move last (`seatRoles`: Tracker's
   drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
 - `organizations.roles` (every role, the app's own included), `slugOf` and `KIND_NAME` (how a kind is written, the one rule for every kind's name) from `organizations.js`;
   `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
-- `errors.import_hand_over`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
+- `errors.import_hand_over`, `errors.import_install_again`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
 - Apart from `delete_after`, nothing changes with today's declarations: no organization travels,
   no install id is made, and a copy that has organizations is refused as `unknown_table`, as an
   older core refuses it. No migration: the install's id and where each imported group came from

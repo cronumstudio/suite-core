@@ -325,7 +325,9 @@ export const DATA = {
   invitations still waiting (by their hash, so the links people hold still open the group), the
   groups' grants and who pays for them (`subject_type: 'organization'` in `suite/grants.json` and
   `suite/billing.json`), so a renewal finds the family under its new id. Its manifest says which
-  install it is (`source.install`, a random id kept in `app_meta`).
+  install it is (`source.install`, a random id kept in `app_meta`) and which export run
+  (`source.export`): one id per run, which a host's other modules exported with it share
+  (`prepareExport({ run })`, the admin export's `?run=`, the command line's `--run`).
 - **Importing someone's copy**: each group goes into the oldest one of the same kind they own or
   administer here when `mapOntoOwn` names the kind (never an archived one), else into a new one
   with them as its owner, made quietly (no app welcome, no trial), with a slug made from its name
@@ -337,22 +339,22 @@ export const DATA = {
   comes into it, and the result counts it under `merged`. Without it, someone's copy put into their
   own family could only be refused by the UNIQUE.
 - **Importing a whole install**: every group comes back as it was, with its slug, dates, roles (one
-  this install doesn't have becomes `member`), its invitations, plans and payments. Each group it
-  makes is recorded with where it came from (that install's id and its id there). A later copy of
-  the same install —another module of a host, or the real move after a trial one— finds it by that
-  record alone, and brings what changed in between: who joined, invitations, plans paid since and
-  who pays them, a payment's plan here extended to the copy's end, a subscription's newer state.
-  Nothing is doubled (memberships, invitations by their hash, a payment's plan by its reference,
-  any other plan as the same row, a customer by its id or the group's link at that provider), and
-  everything goes under the group's id here, never the copy's: a renewal that names the old id
-  finds the group by its customer. The plan says what each group would bring (`adds`: members,
-  invitations, grants, billing). A slug, a kind and a date like a group's here find nothing. A
-  group whose every member is left out goes with them; one left without an owner gets its heir
-  (`organizations.heirOf`) as owner. The module's own rows of a later copy come again, as an
-  account's do: the real move goes into an install a trial move didn't touch.
+  this install doesn't have becomes `member`), its invitations, plans and payments, all under its id
+  here: a renewal that names the old id finds the group by its customer. **An install comes here by
+  one export run.** Each group the import makes is recorded with where it came from (that install's
+  id, its id there, and the run). The other modules' copies of the same run —a host moving one
+  module at a time— find those groups by that record alone and bring only their own rows: the
+  members, invitations, plans and payments came with the first copy, and so did the accounts'.
+  A copy of another run of an install already brought here (a trial move, then the real one) is
+  refused before anything is written, 409 `import_install_again`, in the plan and on apply: a later
+  copy merged into what an earlier one made would bring back who left, plans revoked since, and an
+  end a file says. Moving again is moving into a fresh install (or bringing people's own copies).
+  A slug, a kind and a date like a group's here find nothing. A group whose every member is left
+  out goes with them; one left without an owner gets its heir (`organizations.heirOf`) as owner.
 - **Kinds** are written by one rule (`KIND_NAME`): `organizations.create` (and `POST /api/orgs`)
   refuses another with 400 `field_invalid` (`field: 'kind'`), and a copy's kind written otherwise
-  (a group made before the rule) is written by it ("Team" → "team"), never a reason to refuse it.
+  (a group made before the rule) comes in as none: never made into another kind ("Family" isn't
+  `family`), never a reason to refuse the copy.
 - **"Replace"** and **erasing one's data** empty what is the person's alone: their rows and those
   of groups nobody else is in, archived ones too (the organization and its plan stay). A group
   others share is never emptied: erasing leaves it whole, and "replace" hands it over (`leave`, then
