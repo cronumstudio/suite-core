@@ -723,6 +723,83 @@ test('Settings offers the AI connector only where there is one; a server that sa
   }
 });
 
+/**
+ * Settings on a fake page, opened at a section, with the server's answers by
+ * method and path. `press(label)` clicks a button and waits for what it does;
+ * `done()` gives fetch and the page back.
+ */
+async function settingsAt(start, config, answers) {
+  const { openSettings } = await import('../web/settings.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path, { method = 'GET' } = {}) => {
+    const answer = answers[`${method} ${path}`];
+    return { ok: answer !== undefined, status: answer === undefined ? 404 : 200, json: async () => answer ?? { error: 'not_found' } };
+  };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const root = document.createElement('div');
+  openSettings({ app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, config, root, start });
+  // What the section asks the server for as it opens.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return {
+    root,
+    press: async (label) => {
+      const target = root.find('button').find((node) => node.textContent === label);
+      assert.ok(target, `a button "${label}"`);
+      await Promise.all(target.listeners.click.map((fn) => fn({ currentTarget: target })));
+    },
+    done: () => {
+      globalThis.fetch = realFetch;
+      delete document.addEventListener;
+      delete document.removeEventListener;
+    },
+  };
+}
+const shape = (node) => node.childNodes.map((child) => child.tagName || `text "${child.textContent}"`);
+
+test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with no "null" in their place (Tracker\'s review)', async () => {
+  const { t } = await import('../web/i18n.js');
+  const copy = { created_at: '2026-10-12T09:30:00.000Z', applied_at: null, tables: { notes: 4 } };
+  const planOf = async (answer) => {
+    const page = await settingsAt('data', { app: { modules: { data: true, mcp: false } } }, { 'POST /api/me/import': answer });
+    try {
+      page.root.all().find((node) => node.getAttribute('id') === 'kit-data-file').files = [{ name: 'copy.zip', type: 'application/zip' }];
+      await page.press(t('kit.data.check'));
+      return page.root.all().find((node) => node.className === 'kit-stack');
+    } finally { page.done(); }
+  };
+
+  // Not brought in yet, into an account with nothing: what it brings, and the buttons.
+  const fresh = await planOf({ import_id: 'i1', account: 'ada', copy, replace: {} });
+  assert.deepEqual(shape(fresh), ['P', 'DIV']);
+  // Into an account with data of its own: the choice of replacing it too.
+  const owned = await planOf({ import_id: 'i2', account: 'ada', copy, replace: { notes: 2 } });
+  assert.deepEqual(shape(owned), ['P', 'LABEL', 'DIV']);
+  // Brought in already: it says so, and Apply is off.
+  const applied = await planOf({ import_id: 'i3', account: 'ada', copy: { ...copy, applied_at: '2026-10-12T10:00:00.000Z' }, replace: {} });
+  assert.deepEqual(shape(applied), ['P', 'P', 'DIV']);
+  assert.equal(applied.find('button').find((node) => node.textContent === t('kit.data.apply')).disabled, true);
+  for (const area of [fresh, owned, applied]) assert.doesNotMatch(area.textContent, /null/);
+});
+
+test('setting up two-factor without a QR (an address too long for one) shows the key alone, with no "null" in its place', async () => {
+  const { t } = await import('../web/i18n.js');
+  const secret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  const issuer = encodeURIComponent('An install with a name long enough that its address will not fit');
+  const uri = `otpauth://totp/${issuer}%3Aada?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+  assert.ok(uri.length > 213, 'more than a QR code holds');
+  const page = await settingsAt('security', { provider: 'local', two_factor: true, app: { modules: { mcp: false } } }, {
+    'GET /api/me/two-factor': { enabled: false }, 'GET /api/me/sessions': [], 'POST /api/me/two-factor/setup': { secret, uri },
+  });
+  try {
+    await page.press(t('kit.twoFactor.setUp'));
+    await page.press(t('kit.twoFactor.continue'));
+    const body = page.root.all().find((node) => node.className === 'kit-stack');
+    assert.deepEqual(shape(body), ['P', 'DIV', 'A', 'DIV', 'DIV'], 'the key, the link, the first code and the buttons');
+    assert.equal(body.firstChild.textContent, t('kit.twoFactor.typeKey'));
+    assert.doesNotMatch(body.textContent, /null/);
+  } finally { page.done(); }
+});
+
 test('every file of the web kit parses: one that does not stops the whole app before it draws', async () => {
   // Most of the kit is only run by these tests in part, through a fake DOM; a name declared twice
   // in shell.js once left every app on a blank page with nothing here noticing.
