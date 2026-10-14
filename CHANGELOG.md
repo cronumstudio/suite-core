@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.86.0 — 2026-10-14
+
+- **Files per note** in the `cronum-work` catalog (`files.per_note`, Notes): 10 in Free, no limit in
+  Pro and Team. An app that declares it reads it; the others ignore it.
+
 ## 0.85.0 — 2026-10-13
 
 - **A kind of group the app manages itself** (`organizations.kinds` in `suite.config.js`, or
