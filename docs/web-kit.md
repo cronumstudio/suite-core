@@ -146,6 +146,15 @@ menu with the other modules and, last, what the person's button opened (Settings
 computer's when the host couldn't be asked (offline), until it answers.
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
+**Drawing the frame again.** The frame listens on the document (touches at the screen's edges,
+drags) and, in a host, on the window. An app that builds a new frame without reloading the page (a
+new language, a refresh, closing one view for another) calls `shell.destroy()` on the old one first:
+every listener it added goes (they share one `AbortController`; the click swallowed just after a
+drag of the drawer is removed by hand), an account or modules menu it opened
+closes, and its element leaves the page, so the old frame can be collected. Calling it again does
+nothing. Without it, each old frame kept its listeners: a tap within 20 px of the start edge was passed
+on once per frame ever made (the drawer opened and closed at once), and none of them was freed.
+
 From 640 px the sidebar sits beside the views and can be **folded away**: the button at its head
 folds it, the bar comes back with ☰ to unfold it (a swipe from the edge does too) and the `create`
 button moves into the bar. The device remembers it per app, under `<app.id>.sidebar`

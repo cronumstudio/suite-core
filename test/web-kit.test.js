@@ -1030,3 +1030,118 @@ test('the drawer follows the finger on a phone, and opens or closes by how far i
   assert.match(shell, /requestAnimationFrame\(settle\);\s*setTimeout\(settle, 80\);/, 'a page that isn\'t drawing doesn\'t leave the drawer halfway');
   assert.match(css, /\.kit-app\[data-drawer-drag\] \.kit-side, \.kit-app\[data-drawer-drag\] \.kit-scrim \{ transition: none; \}/);
 });
+
+/* ------------------------------ the frame's end ------------------------------ */
+
+/**
+ * A page for whole frames (shell.js): a fresh document, a phone-wide window without the
+ * Navigation API (so the history is assumed to have somewhere to go back to, as in old Safari),
+ * and what the frame asks of the browser. The previous globals come back after.
+ */
+async function framePage() {
+  const { FakeElement, FakeEventTarget } = await import('./fake-dom.js');
+  const saved = Object.fromEntries(['document', 'window', 'Element', 'getComputedStyle', 'innerWidth', 'innerHeight']
+    .map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const page = installFakeDom();
+  const win = Object.assign(new FakeEventTarget(), { innerWidth: 390, innerHeight: 800 });
+  Object.assign(globalThis, {
+    window: win, Element: FakeElement, innerWidth: 390, innerHeight: 800,
+    getComputedStyle: () => ({ direction: 'ltr', display: 'inline-grid', overflowY: 'visible' }),
+  });
+  // menu() measures where it goes; nothing has a size here.
+  FakeElement.prototype.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+  const restore = () => {
+    delete FakeElement.prototype.getBoundingClientRect;
+    for (const [name, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  };
+  return { page, win, restore };
+}
+
+const frameOptions = () => ({
+  app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
+  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }],
+});
+
+test('the frame’s destroy() takes away every listener it added, the menu it opened and its DOM; twice is harmless', async () => {
+  const { page, win, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const before = { document: page.listenerCount(), window: win.listenerCount() };
+    const shell = createShell(frameOptions());
+    assert.ok(page.listenerCount() >= before.document + 7, 'touches, drags and the like, on the document');
+    assert.equal(page.body.children.length, 1);
+
+    // The account menu open, as it may be when an app draws its frame again: it lives in the body.
+    const account = shell.element.querySelector('.kit-account');
+    account.click();
+    assert.equal(account.getAttribute('aria-expanded'), 'true');
+    assert.equal(page.body.children.length, 2);
+
+    shell.destroy();
+    assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before, 'nothing left listening');
+    assert.equal(page.body.children.length, 0, 'the frame and its menu left the page');
+    assert.equal(account.getAttribute('aria-expanded'), 'false');
+    assert.equal(account.listenerCount(), 0, 'its own nodes hold nothing either');
+
+    shell.destroy();
+    // The menu's outside-click listener comes on the next turn, and not for a menu already closed.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before);
+  } finally {
+    restore();
+  }
+});
+
+test('a frame drawn again passes a tap at the screen’s edge on once, not once per frame ever made', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { el } = await import('../web/dom.js');
+    /** A finger down and up within 20 px of the start edge, on a button in the frame's list. */
+    const tapAtEdge = (shell) => {
+      const button = el('button', { type: 'button' });
+      shell.list.append(button);
+      let clicks = 0;
+      button.addEventListener('click', () => { clicks += 1; });
+      page.dispatch('touchstart', { touches: [{ clientX: 5, clientY: 300 }], target: button, preventDefault: () => {} });
+      page.dispatch('touchend', { touches: [], target: button });
+      return clicks;
+    };
+
+    // What happened before destroy(): the old frame, still listening, passed the tap on too.
+    const old = createShell(frameOptions());
+    old.element.remove();
+    const leaked = createShell(frameOptions());
+    assert.equal(tapAtEdge(leaked), 2, 'the bug, as it was');
+    old.destroy();
+    leaked.destroy();
+
+    // Drawn again the way an app does it now: the old one destroyed first.
+    let shell = createShell(frameOptions());
+    for (let round = 0; round < 3; round += 1) {
+      shell.destroy();
+      shell = createShell(frameOptions());
+    }
+    assert.equal(page.body.children.length, 1);
+    assert.equal(tapAtEdge(shell), 1);
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('every listener the frame adds goes with its one signal, or by hand with destroy()', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const added = shell.match(/\.addEventListener\(/g).length;
+  // Each call ends with its options holding the signal, on its line or at the end of its block…
+  const signed = shell.match(/\{ (?:[\w]+: [\w]+, )*signal \}\);/g).length;
+  // …but the click swallowed after a drag of the drawer, a line Tasks' smoke test reads as it is.
+  assert.match(shell, /document\.addEventListener\('click', swallow, \{ capture: true, once: true \}\);\s*setTimeout\(\(\) => document\.removeEventListener\('click', swallow, \{ capture: true \}\), 400\);/);
+  assert.match(shell, /for \(const swallow of swallowing\) document\.removeEventListener\('click', swallow, \{ capture: true \}\);/);
+  assert.equal(signed, added - 1);
+  assert.match(shell, /const listening = new AbortController\(\);/);
+  assert.match(shell, /listening\.abort\(\);/);
+});

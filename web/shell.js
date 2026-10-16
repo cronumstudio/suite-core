@@ -53,6 +53,14 @@ export function createShell({
   panes = 'split', app, create = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
 }) {
+  // Every listener the frame adds goes with destroy(), through this one signal (all but the
+  // click swallowed after a drag of the drawer, see `swallowing`). An app that draws its frame
+  // again (a new language, a refresh) left the old frame listening on the document: a tap at the
+  // screen's edge was then passed on once per frame ever made, and none was freed.
+  const listening = new AbortController();
+  const { signal } = listening;
+  const swallowing = new Set();
+  let destroyed = false;
   let user = null;
   const appIcon = (size) => el('img', { class: 'kit-appicon', src: at(app.icon || '/icons/favicon.svg'), alt: '', width: size, height: size });
   // The person opens Settings, where everything about the account is, signing out included; a
@@ -61,7 +69,7 @@ export function createShell({
   const account = direct
     ? el('button', { type: 'button', class: 'kit-account', 'aria-label': t('kit.account.settings') })
     : el('button', { type: 'button', class: 'kit-account', 'aria-haspopup': 'menu', 'aria-label': t('kit.account.menu') });
-  account.addEventListener('click', () => (direct ? onSettings() : openAccountMenu(account)));
+  account.addEventListener('click', () => (direct ? onSettings() : openAccountMenu(account)), { signal });
 
   /* --------------------------------- pieces --------------------------------- */
 
@@ -185,8 +193,8 @@ export function createShell({
   function closeDrawer() { element.removeAttribute('data-drawer'); }
   function toggleDrawer(how) { if (element.hasAttribute('data-drawer')) closeDrawer(); else openDrawer(how); }
   // Choosing something in the drawer closes it, as on any phone.
-  nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); });
-  element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); });
+  nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
+  element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); }, { signal });
   // On a phone the sidebar is a closed drawer, and a note or a task picked up from the list
   // (drag.js) would have nowhere to go. When its only places are in the drawer, the drawer opens
   // as the drag starts. When it may also go somewhere in the list (in order, another category:
@@ -207,7 +215,7 @@ export function createShell({
     if (!item || !element.contains(item) || !targets || !nav.querySelector(targets) || !drawerIsClosed()) return;
     if (drawer === 'tabs') element.setAttribute('data-drag-tabs', '');
     else openForDrag();
-  });
+  }, { signal });
   element.addEventListener('kit-drag-spring', (ev) => {
     const open = element.hasAttribute('data-drawer');
     if (!open && ev.target.closest('.kit-bar__menu, .kit-drag-tab--open')) openForDrag();
@@ -215,12 +223,12 @@ export function createShell({
       closeDrawer();
       drawerForDrag = false;
     }
-  });
+  }, { signal });
   document.addEventListener('kit-dragend', () => {
     if (drawerForDrag) closeDrawer();
     drawerForDrag = false;
     element.removeAttribute('data-drag-tabs');
-  });
+  }, { signal });
 
   /* ------------------------------- edge swipes ------------------------------ */
   /*
@@ -292,7 +300,7 @@ export function createShell({
       x, y, lastY: y, rtl, target, action, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
       scroller: taken ? scrollerOf(target) : null,
     };
-  }, { passive: false });
+  }, { passive: false, signal });
   document.addEventListener('touchmove', (ev) => {
     if (!swipe || swipe.done || ev.touches.length !== 1) return;
     const { clientX, clientY } = ev.touches[0];
@@ -326,22 +334,22 @@ export function createShell({
       swipe.done = true;
       closeDrawer();
     }
-  }, { passive: false });
+  }, { passive: false, signal });
   document.addEventListener('touchend', () => {
     if (swipe?.dragging) letGoDrawer(swipe, false);
     else if (swipe?.taken && !swipe.axis && !swipe.done) tap(swipe.target);
     swipe = null;
-  });
+  }, { signal });
   document.addEventListener('touchcancel', () => {
     if (swipe?.dragging) letGoDrawer(swipe, true);
     swipe = null;
-  });
+  }, { signal });
   // A finger that picks something up (drag.js) is no longer a swipe nor a tap: the drawer
   // it opens over ☰ must stay, and letting go must not open the row.
   document.addEventListener('kit-dragstart', () => {
     if (swipe?.dragging) letGoDrawer(swipe, true);
     swipe = null;
-  });
+  }, { signal });
 
   /** The drawer where the finger is: drawn by hand (no transition) while it leads. */
   function dragDrawer(mode, dx, rtl) {
@@ -364,6 +372,10 @@ export function createShell({
     const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
     document.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 400);
+    // Not under the signal: the apps' smoke tests (Tasks) read the two lines above as they are. It
+    // goes by itself within 400 ms; destroy() takes away one still waiting.
+    swallowing.add(swallow);
+    setTimeout(() => swallowing.delete(swallow), 400);
     // The CSS takes over on the next frame, so the slide goes on from where the finger left it;
     // and by a timer too, as a page that isn't drawing would leave the drawer halfway.
     let done = false;
@@ -522,13 +534,14 @@ export function createShell({
         dropRail();
         return asModule(false);
       }
-      if (!res.ok) return null;
+      // A frame destroyed while the host was asked has no rail to paint, nor a module to remember.
+      if (destroyed || !res.ok) return null;
       return paintRail(await res.json());
     } catch {
       return null;   // offline: the rail stays as it was
     } finally {
       answered = true;
-      syncSwitcher();
+      if (!destroyed) syncSwitcher();
     }
   }
   if (mount) {
@@ -537,9 +550,9 @@ export function createShell({
     asModule(true);
     refreshModules();
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
-    window.addEventListener('resize', syncSwitcher);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); });
-    document.addEventListener('kit-modules', () => refreshModules());
+    window.addEventListener('resize', syncSwitcher, { signal });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
+    document.addEventListener('kit-modules', () => refreshModules(), { signal });
   }
 
   /* --------------------------------- notices -------------------------------- */
@@ -563,6 +576,27 @@ export function createShell({
     live.dataset.state = state;
     live.title = t(`kit.live.${state}`);
     live.setAttribute('aria-label', t(`kit.live.${state}`));
+  }
+
+  /* -------------------------------- teardown -------------------------------- */
+
+  /**
+   * The frame taken down whole, for an app that draws it again (Focus after a new language, Tracker
+   * closing its frame) without reloading the page: its listeners on the document and the window
+   * go, an account or modules menu it opened closes, and its DOM leaves the page, so nothing
+   * holds the old frame and it can be collected. Twice, or after the page let it go, it does
+   * nothing. What the app hung on the frame's nodes itself goes with them.
+   */
+  function destroy() {
+    if (destroyed) return;
+    destroyed = true;
+    listening.abort();
+    for (const swallow of swallowing) document.removeEventListener('click', swallow, { capture: true });
+    swallowing.clear();
+    swipe = null;
+    // The menu lives in the page's body, not in the frame: only the one this frame opened.
+    if (element.querySelector('[aria-haspopup="menu"][aria-expanded="true"]')) closeMenu();
+    element.remove();
   }
 
   /* ---------------------------------- heads --------------------------------- */
@@ -603,7 +637,7 @@ export function createShell({
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
     setUser: (next) => { user = next; paintAccount(); },
-    setLive, showBanner, hideBanner, refreshModules,
+    setLive, showBanner, hideBanner, refreshModules, destroy,
   };
 }
 

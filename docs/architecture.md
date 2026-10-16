@@ -1116,7 +1116,7 @@ A host's modules offer the host's `/mcp` whenever it exists (some module brings 
 bring things to link), and none of them does when it doesn't.
 
 A tool that attaches a file takes it by link or hands back a one-time upload link
-(`mcp-files.js`, v0.87.0; see §16, Files from an assistant): an MCP call carries no file.
+(`mcp-files.js`, v0.89.0; see §16, Files from an assistant): an MCP call carries no file.
 
 ## 14. Translations
 
@@ -1222,7 +1222,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   sweep takes loose files over a day old and refuses when the database knows none or more than half
   the folder would go. The app keeps its own table linking files to its records, its limits and its
   trash (Tasks' `task_files`). Storage per user or organization can be a plan limit.
-- **Files from an assistant** (v0.87.0, `mcp-files.js`): an MCP tool carries JSON, not files, so a
+- **Files from an assistant** (v0.89.0, `mcp-files.js`): an MCP tool carries JSON, not files, so a
   file reaches the app's own save function (with its checks, unchanged) as a stream, one of two
   ways. With a link, `suite.uploads.fromUrl(url)` downloads it → `{ stream, name }`: http or https
   only, never from an address inside a network (every address of the name and of each of at most 3
@@ -1425,7 +1425,7 @@ first, then Tasks, then the rest.
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
-| `mcp-files.js`, `uploads.fromUrl` | done (v0.87.0: files from an assistant, by link or one-time upload link) | Notes and Tasks attach through their MCP tools |
+| `mcp-files.js`, `uploads.fromUrl` | done (v0.89.0: files from an assistant, by link or one-time upload link) | Notes and Tasks attach through their MCP tools |
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud. Focus and Tracker carry their families and fleets |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
