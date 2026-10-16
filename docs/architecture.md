@@ -81,7 +81,8 @@ suite-core/
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language;
                                sending to an app's own devices, with no user behind them
-  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes
+  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
+  mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
@@ -1114,6 +1115,9 @@ Settings has no AI section. Two things are not covered by that switch:
 A host's modules offer the host's `/mcp` whenever it exists (some module brings tools, or two
 bring things to link), and none of them does when it doesn't.
 
+A tool that attaches a file takes it by link or hands back a one-time upload link
+(`mcp-files.js`, v0.89.0; see §16, Files from an assistant): an MCP call carries no file.
+
 ## 14. Translations
 
 One implementation for server and browser (`t()` from Focus): flat dotted keys that describe place
@@ -1218,6 +1222,25 @@ kit's), then Notes is built on it whole, then the others as they move to English
   sweep takes loose files over a day old and refuses when the database knows none or more than half
   the folder would go. The app keeps its own table linking files to its records, its limits and its
   trash (Tasks' `task_files`). Storage per user or organization can be a plan limit.
+- **Files from an assistant** (v0.89.0, `mcp-files.js`): an MCP tool carries JSON, not files, so a
+  file reaches the app's own save function (with its checks, unchanged) as a stream, one of two
+  ways. With a link, `suite.uploads.fromUrl(url)` downloads it → `{ stream, name }`: http or https
+  only, never from an address inside a network (every address of the name and of each of at most 3
+  redirects checked with `isPublicAddress`, and the connection made to the address checked, so a
+  second lookup can't send it elsewhere), a Content-Length over the limit refused before reading,
+  10 s to answer and 60 s in all; codes `file_url`, `file_url_private`, `file_url_unreachable`,
+  `file_url_status` (with `status`) and `file_too_large`, and `store` decides by the first bytes as
+  for any upload. Without a link, `suite.uploadLinks.offer({ userId, name, accept })` →
+  `{ url, expires_at }`, a one-time address for an assistant that can run a command (Claude Code:
+  `curl -X POST --data-binary @file "<url>?name=…"`): `POST /api/mcp-uploads/:token` hands the body
+  to `accept(stream, { name, user })` and answers 201 with what it returns. The token is the only
+  credential (kept as a hash, good once, for 15 minutes, for an account still active; no session
+  cookie opens or replaces it); a missing, expired or used one is 404 `upload_link_not_found`. In
+  memory, at most 100 open per app, with `modules.uploads` and `modules.mcp` on; a module of a host
+  has its own, at `/<mount>/api/mcp-uploads/…`. `receiveFile({ suite, userId, url, name, accept })`
+  is the whole of a tool: `{ saved }` with a link, `{ link, instructions }` without one,
+  `instructions` being the sentence for the assistant (`uploadLinkText`); `FILE_PARAMS` are its
+  parameters, `file_url` and `file_name`, the same in every app.
 - **Mail** (**done**, v0.14.0): `mail.js` sends through SMTP (`MAIL_PROVIDER=smtp`, `MAIL_HOST`,
   `MAIL_PORT`, `MAIL_SECURE` tls | starttls | none, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`) with a
   client of its own —no dependencies, STARTTLS required unless told otherwise, AUTH PLAIN or LOGIN,
@@ -1402,6 +1425,7 @@ first, then Tasks, then the rest.
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
+| `mcp-files.js`, `uploads.fromUrl` | done (v0.89.0: files from an assistant, by link or one-time upload link) | Notes and Tasks attach through their MCP tools |
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud. Focus and Tracker carry their families and fleets |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |

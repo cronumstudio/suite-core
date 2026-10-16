@@ -61,6 +61,7 @@ import { createLive } from './live.js';
 import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
 import { createUploads } from './uploads.js';
+import { createUploadLinks, registerUploadLinksApi } from './mcp-files.js';
 import { createPortability, registerPortabilityApi } from './portability.js';
 import { createMcpServer, dailyLimitText } from './mcp.js';
 import {
@@ -382,6 +383,11 @@ export function createSuite({
   const uploads = config.modules.uploads
     ? createUploads({ dir: path.join(install.dataDir, 'uploads'), log: (line) => log(line) })
     : null;
+  // Files an assistant sends with curl, with uploads and the MCP on (mcp-files.js): one-time links,
+  // in memory, at this app's own address. A module of a host gets its own, at its path (host.js).
+  const uploadLinks = uploads && config.modules.mcp
+    ? createUploadLinks({ baseUrl: install.baseUrl, accounts })
+    : null;
   // The screens' texts (the OAuth consent, mail, a test notice): the app's hook, or the suite's.
   const texts = hooks.texts || createTexts();
 
@@ -517,7 +523,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor, idempotency, deletion, devices, stores,
+    portabilityFor, idempotency, deletion, devices, stores, uploadLinks,
   };
 }
 
@@ -634,6 +640,8 @@ export function createApp({
   } else if (deviceRules) {
     log(`${tag} createApp({ devices }) is given, but modules.devices is off: no phone can connect`);
   }
+  // The file of a one-time upload link (mcp-files.js): the link is the credential, never the session.
+  if (suite.uploadLinks) registerUploadLinksApi(api, { uploadLinks: suite.uploadLinks, limiter });
   if (portability) {
     registerPortabilityApi(api, {
       portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords }),

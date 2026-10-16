@@ -50,6 +50,7 @@ import { migrate } from './migrate.js';
 import { createEntitlements } from './entitlements.js';
 import { createLive } from './live.js';
 import { createUploads } from './uploads.js';
+import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
 import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from './http.js';
@@ -455,6 +456,11 @@ export async function createHost({
       entitlements,
       live,
       uploads,
+      // Its own upload links, at its own address (/<mount>/api/mcp-uploads/…): its files are its own,
+      // and its tools reach the host's /mcp (mcp-files.js).
+      uploadLinks: uploads && config.modules.mcp
+        ? createUploadLinks({ baseUrl: moduleInstall.baseUrl, accounts: suite.accounts })
+        : null,
       texts: ownHooks.texts || createTexts(),
       portabilityFor,
       push: resolved.modules.push ? suite.push : null,

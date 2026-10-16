@@ -3,6 +3,46 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.89.0 — 2026-10-17
+
+- **An assistant can attach a file** (`mcp-files.js`): an MCP tool carries JSON, not files, and an
+  assistant writing a photo out as base64 spends its answer on it. A file now reaches the app's own
+  save function (Notes' `saveFile`, Tasks' `saveAttachment`, with their checks unchanged) as a
+  stream, the same as a request, one of two ways. Nothing changes for an app that doesn't use it.
+  - **From a link**: `suite.uploads.fromUrl(url)` → `{ stream, name }` (uploads.js, also `openUrl`).
+    Only http and https without a user or password (`file_url`); never from an address inside a
+    network (`file_url_private`): every address the name has, and those of each of at most 3
+    redirects, checked with the new `isPublicAddress(ip)` (private, loopback, link-local, CGNAT,
+    multicast, documentation, unspecified, ULA, and IPv6 forms that carry an IPv4 one judged by it),
+    and the connection made to the address checked, so a second lookup (DNS rebinding) can't send it
+    elsewhere. 10 s to answer and 60 s in all (`file_url_unreachable`, also for a name that doesn't
+    resolve or too many redirects), an answer that isn't 2xx is `file_url_status` with its `status`,
+    a Content-Length over the limit is 413 `file_too_large` before reading. What is kept is still
+    `store`'s decision, by the first bytes: a page is not a photo. The name is the site's
+    (Content-Disposition), else the last part of the path, else `file`.
+  - **A one-time upload link**, for an assistant that can run a command (Claude Code):
+    `suite.uploadLinks.offer({ userId, name, accept })` → `{ url, expires_at }`, and
+    `POST /api/mcp-uploads/:token` (the raw body, the name in `?name=`) hands the request to
+    `accept(stream, { name, user })` and answers 201 with what it returns. The token is the only
+    credential: kept as a SHA-256, good once, for 15 minutes, for an account that must still be
+    there and active when the file arrives, and no session cookie opens or replaces it (the route
+    never reads the session, nor the idempotency keys). A missing, expired or used link is 404
+    `upload_link_not_found`; a repeated bad one meets the token brake. In memory, at most 100 open
+    per app (the oldest go first); a restart forgets them. There with `modules.uploads` and
+    `modules.mcp` on; `suite.uploadLinks` is null otherwise. A module of a host has its own, at its
+    own address (`<BASE_URL>/<mount>/api/mcp-uploads/…`), as its folder of files is its own.
+  - `receiveFile({ suite, userId, url, name, accept })` is the whole of a tool: with `url`, the file
+    downloaded and saved → `{ saved }` (what `accept` returned); without it, a link offered →
+    `{ link: { url, expires_at }, instructions }`, `instructions` being the sentence for the
+    assistant (`uploadLinkText(link)`: the curl command, and asking the person for a public link where
+    there is no shell). `FILE_PARAMS` holds the tool's parameters, `file_url` and `file_name`, to
+    keep them the same in every app.
+  - New error codes, with their sentences in every language: `file_url`, `file_url_private`,
+    `file_url_unreachable`, `file_url_status`, `upload_link_not_found`.
+- **`store` no longer waits forever for a stream that died before it was read** (a download refused
+  while the app still checked permissions): it answers its error, or `upload_cut`. And a file cut
+  for being too big leaves no `.partial` behind on Windows, which can't delete a file still open: it
+  goes once its stream has closed.
 ## 0.88.0 — 2026-10-16
 
 - **`shell.destroy()`**: the frame `createShell()` made, taken down for an app that draws it again
