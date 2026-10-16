@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.88.0 — 2026-10-16
+
+- **`shell.destroy()`**: the frame `createShell()` made, taken down for an app that draws it again
+  without reloading the page (Focus after a new language or a refresh, Tracker closing its frame).
+  Every listener the frame adds, on the document, the window and its own nodes, now shares one
+  `AbortController`, and `destroy()` aborts it; the click swallowed for 400 ms after a drag of the
+  drawer keeps its line as it was (Tasks' smoke test reads it) and `destroy()` removes it by hand; a
+  menu the frame opened closes, and its element leaves the page. A second call does nothing. Until now an old frame kept listening: after one
+  rebuild a tap within 20 px of the start edge clicked twice (the drawer opened and closed), it got
+  worse with each rebuild, and no old frame was ever freed. Additive: an app that never rebuilds its
+  frame changes nothing.
+- `menu()` (ui.js): a menu closed in the same turn it opened no longer leaves its outside-click
+  listener on the document for good.
+- Tests: the fake DOM (`test/fake-dom.js`) keeps listeners as a browser does (`once`, `signal`,
+  `removeEventListener`, `listenerCount()`), the document listens too, and elements have enough of
+  the DOM (`closest`, `contains`, simple selectors, `dataset`, `toggleAttribute`, `click`…) to build
+  a whole frame. `FakeEventTarget` stands for a window.
+
 ## 0.86.0 — 2026-10-14
 
 - **Files per note** in the `cronum-work` catalog (`files.per_note`, Notes): 10 in Free, no limit in
