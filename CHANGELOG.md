@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.86.0 — 2026-10-13
+## 0.88.0 — 2026-10-16
 
 - **`shell.destroy()`**: the frame `createShell()` made, taken down for an app that draws it again
   without reloading the page (Focus after a new language or a refresh, Tracker closing its frame).
@@ -20,6 +20,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   `removeEventListener`, `listenerCount()`), the document listens too, and elements have enough of
   the DOM (`closest`, `contains`, simple selectors, `dataset`, `toggleAttribute`, `click`…) to build
   a whole frame. `FakeEventTarget` stands for a window.
+
+## 0.86.0 — 2026-10-14
+
+- **Files per note** in the `cronum-work` catalog (`files.per_note`, Notes): 10 in Free, no limit in
+  Pro and Team. An app that declares it reads it; the others ignore it.
 
 ## 0.85.0 — 2026-10-13
 

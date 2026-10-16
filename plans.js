@@ -60,6 +60,7 @@ const FREE = {
   'projects.max': 10,       // Next and Projects
   'notebooks.max': 10,      // Notes
   'history.days': 7,        // Notes: earlier versions of a note
+  'files.per_note': 10,     // Notes: pictures and PDFs in one note, counted for its notebook's owner
 };
 
 const PRO = {
@@ -74,6 +75,7 @@ const PRO = {
   'projects.max': null,
   'notebooks.max': null,
   'history.days': null,
+  'files.per_note': null,
 };
 
 /*
