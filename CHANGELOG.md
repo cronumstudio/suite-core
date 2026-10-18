@@ -3,11 +3,465 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.79.1 — 2026-10-13
+## 0.90.1 — 2026-10-18
 
 - **Tests: the stores' customer test no longer fails by chance.** It looked for `ada` anywhere in
   the answer, whose random id is hex and holds "ada" in about one run of 150; it now checks the
   answer's two fields and that neither the email nor the name is in it. Nothing changes for an app.
+
+## 0.90.0 — 2026-10-18
+
+- **A request may give up** (`api.js`, `setPatience(ms)`): with a weak signal (a phone between
+  cells, a Wi-Fi with no way out) a request hung for up to a minute before the browser failed it,
+  and the screen waited with it. An app that calls `setPatience(ms)` gets `Offline` when a read
+  (GET), or a write with an `Idempotency-Key` (the outbox's), takes longer than that, also when the
+  answer's body is what is slow. A write without a key and an upload always wait: giving up could
+  make something twice or cut a file. Without the call nothing changes.
+- **`saveState` has a `local` state** (`ui.js`): kept on this device, its answer slow to come
+  (`kit.saveState.local`, in the four languages), for an app that doesn't want to say "Saving…"
+  while the network takes its time.
+
+## 0.89.0 — 2026-10-17
+
+- **An assistant can attach a file** (`mcp-files.js`): an MCP tool carries JSON, not files, and an
+  assistant writing a photo out as base64 spends its answer on it. A file now reaches the app's own
+  save function (Notes' `saveFile`, Tasks' `saveAttachment`, with their checks unchanged) as a
+  stream, the same as a request, one of two ways. Nothing changes for an app that doesn't use it.
+  - **From a link**: `suite.uploads.fromUrl(url)` → `{ stream, name }` (uploads.js, also `openUrl`).
+    Only http and https without a user or password (`file_url`); never from an address inside a
+    network (`file_url_private`): every address the name has, and those of each of at most 3
+    redirects, checked with the new `isPublicAddress(ip)` (private, loopback, link-local, CGNAT,
+    multicast, documentation, unspecified, ULA, and IPv6 forms that carry an IPv4 one judged by it),
+    and the connection made to the address checked, so a second lookup (DNS rebinding) can't send it
+    elsewhere. 10 s to answer and 60 s in all (`file_url_unreachable`, also for a name that doesn't
+    resolve or too many redirects), an answer that isn't 2xx is `file_url_status` with its `status`,
+    a Content-Length over the limit is 413 `file_too_large` before reading. What is kept is still
+    `store`'s decision, by the first bytes: a page is not a photo. The name is the site's
+    (Content-Disposition), else the last part of the path, else `file`.
+  - **A one-time upload link**, for an assistant that can run a command (Claude Code):
+    `suite.uploadLinks.offer({ userId, name, accept })` → `{ url, expires_at }`, and
+    `POST /api/mcp-uploads/:token` (the raw body, the name in `?name=`) hands the request to
+    `accept(stream, { name, user })` and answers 201 with what it returns. The token is the only
+    credential: kept as a SHA-256, good once, for 15 minutes, for an account that must still be
+    there and active when the file arrives, and no session cookie opens or replaces it (the route
+    never reads the session, nor the idempotency keys). A missing, expired or used link is 404
+    `upload_link_not_found`; a repeated bad one meets the token brake. In memory, at most 100 open
+    per app (the oldest go first); a restart forgets them. There with `modules.uploads` and
+    `modules.mcp` on; `suite.uploadLinks` is null otherwise. A module of a host has its own, at its
+    own address (`<BASE_URL>/<mount>/api/mcp-uploads/…`), as its folder of files is its own.
+  - `receiveFile({ suite, userId, url, name, accept })` is the whole of a tool: with `url`, the file
+    downloaded and saved → `{ saved }` (what `accept` returned); without it, a link offered →
+    `{ link: { url, expires_at }, instructions }`, `instructions` being the sentence for the
+    assistant (`uploadLinkText(link)`: the curl command, and asking the person for a public link where
+    there is no shell). `FILE_PARAMS` holds the tool's parameters, `file_url` and `file_name`, to
+    keep them the same in every app.
+  - New error codes, with their sentences in every language: `file_url`, `file_url_private`,
+    `file_url_unreachable`, `file_url_status`, `upload_link_not_found`.
+- **`store` no longer waits forever for a stream that died before it was read** (a download refused
+  while the app still checked permissions): it answers its error, or `upload_cut`. And a file cut
+  for being too big leaves no `.partial` behind on Windows, which can't delete a file still open: it
+  goes once its stream has closed.
+## 0.88.0 — 2026-10-16
+
+- **`shell.destroy()`**: the frame `createShell()` made, taken down for an app that draws it again
+  without reloading the page (Focus after a new language or a refresh, Tracker closing its frame).
+  Every listener the frame adds, on the document, the window and its own nodes, now shares one
+  `AbortController`, and `destroy()` aborts it; the click swallowed for 400 ms after a drag of the
+  drawer keeps its line as it was (Tasks' smoke test reads it) and `destroy()` removes it by hand; a
+  menu the frame opened closes, and its element leaves the page. A second call does nothing. Until now an old frame kept listening: after one
+  rebuild a tap within 20 px of the start edge clicked twice (the drawer opened and closed), it got
+  worse with each rebuild, and no old frame was ever freed. Additive: an app that never rebuilds its
+  frame changes nothing.
+- `menu()` (ui.js): a menu closed in the same turn it opened no longer leaves its outside-click
+  listener on the document for good.
+- Tests: the fake DOM (`test/fake-dom.js`) keeps listeners as a browser does (`once`, `signal`,
+  `removeEventListener`, `listenerCount()`), the document listens too, and elements have enough of
+  the DOM (`closest`, `contains`, simple selectors, `dataset`, `toggleAttribute`, `click`…) to build
+  a whole frame. `FakeEventTarget` stands for a window.
+
+## 0.86.0 — 2026-10-14
+
+- **Files per note** in the `cronum-work` catalog (`files.per_note`, Notes): 10 in Free, no limit in
+  Pro and Team. An app that declares it reads it; the others ignore it.
+
+## 0.85.0 — 2026-10-13
+
+- **A kind of group the app manages itself** (`organizations.kinds` in `suite.config.js`, or
+  `createOrganizations({ kinds })`): `{ family: { managed: true, maxPerUser: 1 } }`, each kind with
+  `managed`, `maxPerUser` and `onEmpty`, checked on start (an unknown key, a kind's name that isn't
+  up to 40 lowercase letters, digits, - and _ starting with a letter (`KIND_NAME`), or a wrong value
+  stops it, saying which). Not a data copy's `copyKinds` (portability.js), which lists the kinds a
+  copy carries. Focus keeps everything per family and has rules of its own: one family per account,
+  a profile for each adult. The suite's generic routes knew nothing of them.
+  - `managed: true`: `POST /api/orgs` with that kind, `POST /api/orgs/join` with an invitation to
+    one (before the invitation is spent) and `DELETE /api/orgs/:id/members/:user` on one answer 403
+    `organization_managed` with the `kind` (an outsider still gets 404). The app does them through
+    its own routes, with the same functions (`create`, `accept`, `addMember`, `removeMember`,
+    `remove`), its own permission checks and the same audit actions. Reading, renaming, inviting and
+    changing a role keep the generic routes.
+  - `maxPerUser: n`: `create`, `addMember` and `accept` refuse a person one more non-archived group
+    of the kind with 409 `organization_limit` (`{ kind, max }`), whoever calls.
+  - `onEmpty: 'delete'` (a managed kind's default; `'archive'` for any other, as before): when the
+    last member goes, by leaving or being removed (`removeMember`, where the last member may now
+    leave even as its owner) or with their account (`forgetUser`), the group is deleted instead of
+    archived.
+  - `organizations.remove(id, { reason, by })`: a group deleted whole, in one transaction: the app's
+    hooks, then its plan grants (which name it by id, with nothing to cascade by), invitations,
+    memberships and the row, with an `org.delete` audit entry. `exists(id)`, `wasDeleted(id)`,
+    `isManaged(kind)`, `rulesFor(kind)`, `invitationKind(token)`, `deletableOf(userId)` and
+    `leaving(id)` are new too.
+  - The app's hooks, inside the change's transaction (one that throws undoes it all):
+    `whenMemberRemoved({ organization, userId, role, reason, by })`, before a membership goes
+    (reason `left`, `removed`, `account_deleted`, or `handed_over` for portability.js's hand-over:
+    `MEMBER_REASONS`), `whenMemberAdded({ organization, userId, role, invitedBy })`, and
+    `whenDeleted({ organization, reason, by })`, before a group's rows go. Each membership that
+    goes is told once: by `whenMemberRemoved`, except those a group still has when it is deleted
+    whole, which `whenDeleted` tells. `createSuite({ hooks: { onMemberRemoved,
+    onOrganizationDeleted } })` registers them, and so does a module of a host. In a host the kinds
+    are the host's: a module that declares one the host doesn't declare the same way stops the
+    start.
+  - `removeMember(id, userId, { by })` now returns `{ organizationDeleted }`, and it and
+    `addMember` run in their own transaction; the generic leave route passes `by` and answers
+    `organization_deleted: true` when the group went (its `org.leave` entry then points at no group).
+- **Invitations are purged** (`organizations.purge()`, in `suite.purge()` for every app with
+  organizations on): those accepted or withdrawn at the next clean-up, and those expired more than
+  14 days after they expired. They hold the email they were sent to. The 14 days keep the right
+  answer for someone who opens a link late (410 `invitation_expired`, "ask for a new one"), not 404
+  "used or withdrawn"; a used or withdrawn one answers 404 either way. No app reads old invitations
+  (none has organizations on but Focus's rebuild).
+- **A group's subscriptions stop renewing when it goes.** `billing.stopOnOrganizationDeleted: true`:
+  a group deleted (above, or by the app) has its live subscriptions (`active`, `trialing`,
+  `past_due`) at the provider cancelled at the end of the period paid. `billing.stopOrganization(id,
+  { by })` does the same for a group that stays (an app's "delete the family" with a grace),
+  `billing.keepOrganization(id, { by })` takes it back. Off by default: today's installs ask their
+  provider nothing new.
+  - Each stop is asked once: a row of `billing_events` of its own (`stop:organization:<id>:<ref>`,
+    type `stop`): `pending` (marked inside the deletion's transaction, so a deletion undone leaves
+    none), `sending` (taken by a sweep asking now, so two sweeps never ask twice; one whose sweep
+    never said how it went is taken again after 15 minutes), `requested` (the provider took it),
+    `already` (the provider had it already: the payer's own cancellation), `ended` (the
+    subscription ended first), `keeping` (being taken back), `restop` (wanted stopped again while
+    being taken back, here or in another process: asked again only once that taking back has
+    landed, or after 15 minutes if its process ended), `rekeep` (taken back and refused: asked
+    again) and `keep` (taken back while another process was asking it). An hourly `billing.sendStops()` (createApp and the host)
+    asks again what failed. One group's stops and their taking back go to the provider one at a
+    time in this process, in the order they came: a keep waits for a stop on its way, and a stop
+    for a keep.
+  - Who wants each group stopped is kept (`stop-by:<who>:organization:<id>`, type `stop-by`: `app`
+    by default, `members` for createSuite's below). Taking it back renews it only when nobody else
+    still wants it stopped, so a member taking their account back never renews a family the app
+    stopped. `billing.stopOriginsOf(id)` says who.
+  - Taking a stop back never renews a cancellation the payer made themselves (`already`); a stop
+    on its way is taken back once it lands, never lost under the sweep; and a stop that comes
+    while a keep is on its way is asked once the keep lands, never dropped by it.
+  - A subscription heard of only after its group was deleted here (its first webhook came late) is
+    stopped by the sweep too (`createBilling({ organizationWasDeleted })`): only for this catalog's
+    product and an id this install gave out, never another product's sale.
+  - On every deletion, the group's customer link goes, whatever `billing.forgetOnRemove` says: it
+    names nobody now, and the customer is whoever's it pays for next. With `forgetOnRemove`, its
+    subscription rows go too, as a person's do. Each is audited (`billing.organization.stop`,
+    `billing.organization.keep`).
+- **A family whose every adult asks to delete their account stops renewing then**, not 30 days later
+  when the last account goes (with `billing.stopOnOrganizationDeleted`): a group of a kind deleted
+  when empty whose members are all waiting to be deleted (`organizations.leaving(id)`) stops as
+  `members`, so no renewal falls in the wait. It is checked again whenever that may change (a
+  request or its taking back, someone joining or leaving): it renews again as soon as one of them
+  takes their account back or someone who stays joins, and a member who leaves only those waiting
+  behind stops it then. The final deletion finds the stop already asked and asks none more. Through new hooks of the account deletion: `deletion.whenRequested(hook)` and
+  `whenCancelled(hook)` (createSuite's `onDeletionRequested(user)` and `onDeletionCancelled(user)`
+  for an app, and a host's modules'), awaited after the request or its taking back; one that fails
+  is logged and never undoes it.
+- **A group's purchase goes to the group, and a person's to the person, whatever customer pays.**
+  One provider customer often pays a person's own plan and their family's, and a family after
+  another (Paddle finds the customer by email), and it is linked here to one of them only: before,
+  whichever was linked first took the others' purchases too (the family's plan granted to the
+  adult, the adult's to the family, or a new family's to the one before). Now an event whose
+  `subject` names an organization, or whose product is `for: 'organization'`, is the group's: the
+  group its subscription is already known for here, while that group is (what a copy of the install
+  carries with the groups' new ids, where the id the checkout named may be another group's); else
+  the group it names; else, when it names none, the group the customer is linked to while that
+  group is here. No identity is looked up for it, and a customer linked to a group never takes a
+  person's purchase. A link to a group deleted here is taken by whoever the customer pays for next. A
+  group's product that names no group and whose customer is a person's is ignored, never the
+  person's. Everything else is found as before.
+- **An event for a group no longer here is `'gone'`** (`createBilling({ organizationGone })`, set by
+  createSuite with organizations on): nothing is linked, granted or kept beyond its id, and a
+  subscription row still kept follows its status (a product with `seats: false` keeps no
+  quantity). Before, such an event failed at the audit's reference to the group: the webhook
+  answered 500 and the provider retried it until it gave up. Only events naming a group that
+  doesn't exist here change.
+- **Taking an account back no longer renews a cancellation the person made themselves.** With
+  `accounts.deleteAtProviders`, asking to delete an account stops the person's own subscriptions and
+  taking it back renewed every live one, a cancellation they had scheduled in the portal included:
+  charged again against their own word. Each stop is now noted (`stop:user:<id>:<ref>`:
+  `requested`, `already` or `failed`), and `keepRenewals` renews only what this install stopped. A
+  request made before 0.85.0 noted nothing, and is taken back as then.
+- **Paddle's and Stripe's `cancelSubscription` answer `{ already }`.** Paddle refuses a second
+  cancellation while one is scheduled (`subscription_locked_pending_changes`) and any change to one
+  already canceled; the subscription is then read, and one canceled (or, at the period's end,
+  scheduled to cancel) counts as `already`. Before, `stopRenewals` failed for someone who had
+  cancelled in the portal.
+- **Stripe can stop a subscription** (`cancelSubscription(ref, { now })`: read first, then
+  `cancel_at_period_end`, or deleted now; `keepSubscription(ref)`), as Paddle could. This also
+  reaches the account deletion with `accounts.deleteAtProviders` on Stripe, which skipped Stripe
+  until now; no install runs Stripe.
+- `errors.organization_managed`, `errors.organization_limit` and the activity log's
+  `org.delete`, `billing.organization.stop` and `billing.organization.keep`, in the four languages.
+- **With organization copies (0.84.0):**
+  - `organizations.handOver()` (an import that replaces what someone has) runs in one
+    transaction and tells the app once, as any member who goes: `whenMemberRemoved` with reason
+    `handed_over`, before the membership goes; a hook that throws undoes the hand-over.
+  - **The declaration's `organizations.leave` is gone**: it told the app a second time of the same
+    hand-over. A declaration that still says it stops the start, naming the hook that replaces it.
+    No app declares it (it was 0.84.0's alone).
+  - `forgetUser` and an imported group whose owners were left out name their heir by the one rule,
+    `heirOf()`. One `KIND_NAME`, for the configuration's kinds, `create()` and the copies.
+  - A membership a copy brings meets `maxPerUser` (`organizations.checkLimit()`, new): past it, the
+    import is refused with 409 `organization_limit`, and nothing of it comes in. An archived group
+    counts for nobody. Nothing of a copy deletes a group; one that has to go goes through
+    `organizations.remove()`.
+- No migration and no table. `organizations.<key> is not a setting` now lists `kinds`.
+
+## 0.84.0 — 2026-10-13
+
+- **An organization and its data travel with its members and with the install**
+  (`portability.js`, for Focus' families and Tracker's fleets). Until now a copy followed accounts
+  only: every declared table had to chain to `users`, nothing could point at `organizations`, and
+  no copy carried a group, its members, its invitations, its plans or who pays for it. So another
+  adult's "Download my data" left the family out, and a whole install's move lost the family's
+  name, its second owners, the invitations waiting, its trial or Pro and its Paddle customer and
+  subscription, whose renewals then found nobody. Now, behind options that didn't exist:
+  - **A group's tables**: a reference to `organizations` (`refs: { organization_id:
+    'organizations' }`) decides whose a row is as one to `users` does, and the tables that chain to
+    it are the group's too. A table needs a NOT NULL reference to users, to organizations or to an
+    earlier table.
+  - **`organizations` in the declaration** (each key may be left out; `{}` alone carries the groups
+    in the install's copy of an app without tables of its own for them): `copyKinds` (whose groups
+    someone's copy takes; every kind; a kind written as organizations.js writes them, `KIND_NAME`),
+    `copyRoles` (which members' copies carry the group; every
+    member, since a member reads what the group shares; Tracker can name `['owner', 'admin']`;
+    checked against the install's `organizations.roles`, so a misspelt role stops the start instead
+    of carrying the group in nobody's copy), `mapOntoOwn` (kinds, or `true`: someone's import goes
+    into the oldest group of that kind they own or administer here) and `leave(userId,
+    organizationId)` (the app's part when "replace" takes someone out of a group others share). It
+    needs `modules.organizations`, said with the declaration's other mistakes at the start; the
+    suite's own `organizations`, `memberships` and `invitations` can't be declared as the app's
+    tables, nor named in `was`.
+  - **A group's one row** (`onePerOrganization: true` on a table whose NOT NULL reference to
+    organizations is UNIQUE, as Focus' family row): when the group a row goes into has its row
+    already, the copy's is that row and isn't written again; what points at it comes into it, and
+    the result counts it under `merged`. Someone's copy put into their own family, Focus' usual
+    case, no longer meets the UNIQUE.
+  - **Someone's copy** takes each of their groups, archived ones too, marked so:
+    `data/organizations.json` (name, kind, slug, settings, branding, dates), their own row of
+    `data/memberships.json` (never the others') and every row of the group, other members' optional
+    references emptied and rows that need another member left out and counted in `left_out`. No
+    plan, invitation or payment, and nothing that says which install it is.
+  - **The whole install's copy** takes every group (archived too), every membership, the
+    invitations still waiting (`suite/invitations.json`, by their hash: the links people hold still
+    open the group after the move; used, revoked and expired ones stay), the groups' grants in
+    `suite/grants.json` and their customers and subscriptions in `suite/billing.json`, each row
+    with `subject_type: 'organization'` (a row without it is an account's, as every copy before).
+    Its manifest says which install it is (`source.install`, a random id kept in `app_meta` as
+    `suite.install_id`, made the first time) and which export run (`source.export`, one random id
+    per run; a host's other modules exported in the same run share it: `prepareExport({ run })`,
+    whose job says its `run`, the admin export's `?run=`, the command line's `--run`).
+  - **Importing someone's copy**: each group goes into the oldest one of its kind they own or
+    administer here when `mapOntoOwn` says so (one group of the copy each, never an archived one),
+    else into a new one, with them as its owner, made quietly as imported accounts are (no app
+    welcome, no trial), with a slug made from its name and today's date: neither the copy's slug
+    nor its date, which anyone can write. Ids are new; a group's id in the file never reaches one
+    here. `clean(values, { mode, organizations })` and `check({ user, counts, replaced,
+    organizations })` get the same `{ created, mapped }`: Sets of the ids here of the groups made
+    and of those found. At most 100 groups in one person's copy (`limits.organizations`).
+  - **Importing a whole install** restores each group as it was —slug when free, kind, settings,
+    branding, dates, archived—, its memberships and roles (one this install lacks becomes
+    `member`), its invitations, grants and payments under its new id: a renewal that names the old
+    id finds the family by its customer. Each group it makes is recorded with where it came from
+    (`app_meta`: `suite.organization_origin:<install>:<id there>`, with the run), and which run of
+    that install came (`suite.install_import:<install>`). **An install comes here by one export
+    run**: the other modules' copies of that run (a host moving one module at a time) find its
+    groups by that record alone and bring only their own rows, never members, invitations, plans
+    or payments, which came with the first copy, nor the accounts' plans and payments; what such a
+    copy is the first to bring (an account the first left out, a group only it had) comes whole,
+    with its plans, payers and memberships. The run is checked again inside the import's
+    transaction, where the run it records is written, so of two imports racing (two modules, the
+    command line) the second follows or is refused. A whole install's copy with groups that doesn't
+    name its install is refused, 400 `import_install_unnamed`. A copy of
+    another run of an install already brought here is refused before anything is written, 409
+    `import_install_again` (in the four languages; the command line says what to do), in the plan
+    and on apply: a later copy merged into what an earlier one made would bring back a member
+    taken out since, a plan revoked since, and take a file's word for a plan's end. Moving again
+    (a trial move, then the real one) is moving into a fresh install. A slug, kind and date like a
+    group's here find nothing, so neither someone's own copy imported earlier nor a look-alike copy
+    can set up or reach a group a move goes into; only a whole install's copy, the
+    administrator's, names its install. A group whose every member is left out goes with them; one
+    whose owners are left out gets its heir as owner, by `organizations.heirOf`.
+  - **"Replace" and erasing one's data** empty what is the person's alone: their rows and those of
+    groups nobody else is in, archived too, whose organization and plan stay. A group they share is
+    never emptied: "replace" hands it over first (the app's `leave`, then the new
+    `organizations.handOver(organizationId, userId)`: the heir becomes owner when they were the
+    last, and their membership goes), and erasing leaves it whole with them in it. The plan names
+    those groups (`hand_over`) and the result says what happened (`handed_over`).
+  - **Someone's own "replace" goes only with the groups it showed**: `POST /api/me/import/:id`
+    with `replace: true` takes back the ids of the plan's `hand_over` (`hand_over: [ids]`); while
+    the groups the person shares aren't those —one shared since, or one the others left, which
+    would be emptied instead— it answers 409 `import_hand_over` with them as they are now
+    (`organizations: [{ id, name }]`), checked again inside the import's transaction; the upload
+    waits, to be applied once confirmed. Settings › Your data names the groups under the choice,
+    again in the confirmation (`kit.data.handOver`, in the four languages), offers "replace" to
+    someone who has only shared groups, and sends their ids once the person confirms (an app whose
+    copies carry no groups sends what it always did). The command line and `applyFile()` go on as
+    told.
+  - **The administrator's "replace" says which groups it hands over**: the install plan's
+    `targets[].hand_over`, named by the admin panel under the choice and in its confirmation
+    (`admin.data.handOver`, `admin.data.confirmHandOver`).
+  - The plan and the result list each group and where it goes (`organizations`), and the command
+    line (`tools/data-cli.js`) shows them.
+- **Columns that never travel** (`omit` on a declared table): `omit: ['token_hash', 'push_endpoint']`
+  leaves them out of every copy, and an import writes the column's default or NULL; `omit: {
+  token_hash: (row) => … }` gives a plain value or a function of the row (its references already
+  translated) instead. `null` there, and a function that answers `undefined` or `null`, mean the
+  column's own default, so an app's slip isn't taken for a fault in the copy. One a copy brings
+  anyway is dropped. The start refuses an omitted column that is NOT NULL without a default of
+  either kind, a reference, a file's column or the key. A column the app keeps itself, such as
+  Focus' `owner_user_id` (the family's oldest owner), can be left undeclared as a reference and
+  filled by such a function.
+- **An account waiting to be deleted goes on waiting after a whole install's move**: the copy
+  carries `delete_after`, and an account it creates takes it back with `disabled_at`, so the sweep
+  takes it on the same day with its data. Only a disabled one: a date alone, in a file anyone could
+  write, never sends an active account to the sweep. Before, it arrived disabled for good, with
+  everything it had.
+- **A kind is written by one rule** (`KIND_NAME`): `organizations.create`, and so `POST /api/orgs`,
+  refuses another with 400 `field_invalid` (`field: 'kind'`, `fields.kind` in the four languages);
+  a copy's group with a kind written otherwise (made before the rule) comes in with none, never
+  made into another valid kind ("Family" isn't `family`) and never refusing the whole copy.
+- **One heir rule** (`organizations.heirOf(organizationId, exceptUserId)`): the oldest admin, else
+  the oldest member, those whose seat a role change would move last (`seatRoles`: Tracker's
+  drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
+- `organizations.roles` (every role, the app's own included), `slugOf` and `KIND_NAME` (how a kind is written, the one rule for every kind's name) from `organizations.js`;
+  `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
+- `errors.import_hand_over`, `errors.import_install_again`, `errors.import_install_unnamed`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
+- Apart from `delete_after`, nothing changes with today's declarations: no organization travels,
+  no install id is made, and a copy that has organizations is refused as `unknown_table`, as an
+  older core refuses it. No migration: the install's id and where each imported group came from
+  are kept in `app_meta`.
+
+## 0.83.0 — 2026-10-13
+
+- **No more "null" under a copy's plan in Settings → Your data.** Checking a copy drew its plan
+  with the browser's own `append`, which writes a line left out as the text "null": a copy not
+  brought in yet (the usual case) showed "null" under what it brings, twice when the account had
+  nothing of its own to replace (found by Tracker's data-portability review; every app with
+  `modules.data`). It now uses the kit's `append()` (dom.js), as `openDialog()` does since 0.75.0:
+  only the lines that apply, nothing in place of the others.
+- The same cause, fixed in two more places: setting up two-step sign-in without a QR code (an
+  address too long for one) showed "nullnull" above the key, and the admin panel's Invitations
+  tab showed "null" under its lead on every install with mail on.
+- Tests: Settings opened at Your data and at two-step sign-in on the fake DOM, and the admin
+  panel's first test (`test/web-admin.test.js`, a file of its own: admin.js starts the page as it
+  is imported). Fake elements take `focus()`.
+
+## 0.82.0 — 2026-10-13
+
+- **A family's plan has no seats** (`products.<key>.seats: false`, only for a product
+  `for: 'organization'`). Before, a group's purchase always sold seats: Paddle's and Stripe's
+  checkouts buy one of the price (`quantity: 1`), every subscription event says it again, billing
+  wrote it on the organization's grant, and organizations.js reads a grant's quantity as seats. A
+  family that bought Pro was full at once: the next adult was refused with `402 seats_full`, by
+  `addMember()` and by an invitation. With `seats: false`, billing.js drops the quantity a provider
+  reports for that product, from any provider (Paddle, Stripe, the signed one) and on every event:
+  bought, renewed, changed, cancelled at the period's end, and a one-off purchase. Neither the
+  subscription's row nor the grant has a quantity, so `seatsOf()` says no cap. The checkout is the
+  same (Paddle and Stripe still sell one of the price). A group's subscription bought before the
+  option has its grant replaced by one without a quantity at its next event (`'changed'`); a
+  one-off purchase made before it keeps its quantity, since nothing comes after it (no install
+  sells a group's product yet).
+- `seats` is checked on start by config.js, with or without a provider, and by `createBilling()`
+  (`productSeatsProblem()`, exported): on a person's product (most likely a misspelt `for`, which
+  would sell the family's plan to one person), a value that is not `true` or `false`, or a key like
+  it (`seat`), stops the start, naming the product. Left out, a group's product sells seats as
+  before, and nothing changes for any product today.
+- **An organization's own plan**: `entitlements.ofOrganization(id)`, for what acts for a group with
+  nobody behind it (a child's paired device in Focus, a family's hourly sweep). The same shape as
+  `of()` (`{ plan: { id, name }, ends, features, unlimited: false }`), from the organization's active
+  grants only: never a member's own grants nor the instance admin's "no limits", and never
+  `of(null)`'s declared defaults, which are no limit at all. An expiring grant (the trial) counts
+  until its end, which `ends` says. With no grant, the default plan; so is an id that is no
+  organization, or one that is gone or archived, whatever grants it kept: never an error, so a sweep
+  over every family goes on past one that went, and never more than a family of its own would have.
+  `entitlements.cutoffOrganization(id, key)` is `cutoff()` by that plan: the days count from the end
+  of the group's last grant that kept things longer. Both are on `suite.entitlements`, and on each
+  module's in a host. `createEntitlements({ organizationExists })` (new) says which groups are there;
+  createSuite and createHost give it from organizations.js; left out, every id's grants count.
+  `of(person, { organizationId })` is unchanged.
+- **`ends` is when the shown plan lapses, not when its last grant does.** `of()` took `ends` from the
+  last grant (by id) of the plan it shows: a person with Pro for good who then joined a family on a
+  trial of Pro read "Pro until" the trial's end in Settings, and Focus's last-days notice would have
+  shown although Pro never lapses for them. Now, among the active grants of the shown plan, one
+  without an end wins, else the latest end. `ofOrganization()` follows the same rule.
+- **Next to `organizations.seatRoles`** (0.79.0): `seatRoles` says which roles take a seat, and a
+  purchase with `seats: false` leaves no seats to take, so members join in any role, a seat role
+  included, by `addMember()`, an invitation or `setRole()`. A product with seats still caps only
+  the members in those roles. A grant without a quantity sets no seats, like an admin's gift of the
+  plan: a group that also holds a grant with a quantity (seats bought with another product) is
+  capped by it, as before.
+- Nothing else changes: no migration, no route, and `organizations.js` is untouched (it reads seats
+  from `seatsOf()` as before).
+
+## 0.81.0 — 2026-10-13
+
+- **An app can push to its own devices, with no user behind them.** A device that belongs to the
+  app (Focus' child's tablet, paired to a profile with no account; a kiosk) had no way in: every
+  row of `push_subscriptions` is a person's, and `/api/push/*` needs a session. Now the app keeps
+  the browser's subscription in its own table, next to the rest it knows of the device, and the
+  suite does the rest with the same keys, encryption and VAPID signature as a person's:
+  - `suite.push.checkSubscription(json)` (also `checkSubscription` from `push.js`): what the
+    device posted, as `subscription.toJSON()` gives it (`{ endpoint, keys: { p256dh, auth } }`; the
+    flat `{ endpoint, p256dh, auth }` of a row is taken too), checked as `subscribe()` checks a
+    person's: an endpoint of a real push service (on 443, no IP literal nor home-network name),
+    an uncompressed point on the curve (0x04 and 65 bytes) and a 16-byte secret. → `{ endpoint,
+    keys: { p256dh, auth } }`, what to keep, the keys written again in plain base64url. Otherwise
+    a coded 400: `field_required` for a missing subscription or endpoint, `field_invalid` with
+    `field` `subscription`, `endpoint` (with its `reason`), `p256dh` or `auth` for one that is
+    there but wrong, `field_too_long` for an endpoint over 1000 characters.
+  - `suite.push.sendToSubscription(subscription, payload, { ttl, urgency, topic })` → `{ ok,
+    status, gone, reason? }`. Only `gone` (the push service answered 404 or 410, or the keys can't
+    be encrypted for) says the browser no longer has it: the app drops it. Any other failure keeps
+    it, with its `status` for the log; a 4xx can be ours rather than the device's (a 403 when the
+    install's VAPID keys aren't the ones it subscribed with). The endpoint is checked again before
+    sending, so a row kept without checking never makes the server visit an address inside the
+    network; what isn't a subscription is refused with the same coded 400 and nothing is sent.
+    Nothing is written in the suite's tables.
+  - `suite.push.publicKey`, as before: the key the device subscribes with, which the app hands it
+    its own way (its pairing answer, say).
+  - `topic` (new for `send()`, `deliver()` and `sendTo()` too, off unless given): the `Topic`
+    header of RFC 8030, 1 to 32 characters of the URL-safe base64 alphabet; a push service keeps
+    only the newest undelivered notice of a topic, so a launch sent again replaces the one still
+    waiting. One written wrong is the app's mistake: a `TypeError`, from `deliver()` and `sendTo()`
+    once, before anything is sent.
+- **A notice longer than a push service takes is refused before it is sent** (`MAX_PAYLOAD`, 3993
+  bytes of JSON or text: the 4096-byte body of RFC 8030 less our header, the record's end and the
+  GCM tag): `send()` and `sendToSubscription()` reject with a `TypeError`, and `deliver()` counts it
+  as failed. Before, it went out, came back 413 and was counted against the device, which a
+  person lost after three; now nobody loses a device for it.
+- **`subscribe()` checks a browser's keys as a browser makes them**: a p256dh that doesn't start
+  with 0x04 and a secret that isn't 16 bytes (8 or more was enough) are refused with the same
+  `field_invalid`, and both are stored in plain base64url (the decoder skipped stray characters
+  and kept them). Every browser sends exactly these, and rows stored before are sent as they were.
+- **The kit's `push.js`** (new, in the service worker's kit files):
+  `devicePushSubscription(publicKey, { ask, wait })` asks for permission first —before anything
+  is awaited, so the tap still counts for Safari—, waits for the page's service worker (10 s),
+  subscribes with the install's key (reusing the browser's subscription while it is for that key,
+  replacing one made with another) and returns the JSON for the app to post to its own route; it
+  asks nothing of the server. It throws `Error('unsupported')` (also with no service worker),
+  `'install'`, `'not_allowed'` or `'subscribe_failed'` (with the browser's error as `cause`), and a
+  `TypeError` for a key that isn't one. `pushSupport()` says `'granted'`, `'prompt'`, `'denied'`,
+  `'install'` (an iPhone or iPad tab from iOS 16.4: Web Push only reaches the app on the home
+  screen) or `'unsupported'` (iOS before 16.4 too) before anything is asked. Settings'
+  `subscribePush()` is unchanged.
+- `fields.subscription` in the four languages, for the new refusals.
+- No migration and no table. Needs `modules.push`, as the rest of push.
 
 ## 0.79.0 — 2026-10-13
 

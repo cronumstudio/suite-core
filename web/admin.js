@@ -4,9 +4,9 @@
  * the audit log, drawn on /api/admin/*. The server decides who may do what;
  * this page only shows what it answers, and says what it refuses.
  */
-import { $, el, clear } from './dom.js';
+import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
-import { t, loadLanguage, pickLanguage, formatDateTime, formatDate } from './i18n.js';
+import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
 import { toast, field, openDialog, confirmDialog } from './ui.js';
 
 const root = $('#admin');
@@ -434,7 +434,8 @@ async function renderInvitations(main) {
   const now = new Date().toISOString();
   const stateOf = (i) => (i.used_at ? 'used' : i.revoked_at ? 'revoked' : i.expires_at <= now ? 'expired' : 'open');
 
-  main.append(
+  // The kit's append: the page's own writes the notice left out, with mail on, as the text "null".
+  append(main,
     el('h2', { text: t('admin.invitations.title') }),
     el('p', { class: 'kit-lead', text: t('admin.invitations.lead', { signup: t(`admin.signup.${state.config.signup || 'admin'}`) }) }),
     state.config.mail === false ? el('p', { class: 'kit-notice', text: t('admin.mail.off') }) : null,
@@ -576,6 +577,10 @@ async function renderData(main) {
   );
 }
 
+/** The groups others share that "replace" takes an account here out of, in a line; '' when none. */
+const handOverText = (target) => (target?.hand_over?.length
+  ? t('admin.data.handOver', { names: listFormat({ type: 'conjunction' }).format(target.hand_over.map((o) => o.name)) }) : '');
+
 /** What importing the copy would do: where each of its accounts goes, and doing it. */
 function paintPlan(box, plan, reset) {
   const copy = plan.copy;
@@ -607,9 +612,12 @@ function paintPlan(box, plan, reset) {
           field(t('fields.email'), email, idp ? t('admin.data.linkHint', { provider: state.config.name }) : t('admin.data.newLocalHint')));
       } else if (target.value !== 'skip') {
         const here = plan.targets.find((u) => String(u.id) === target.value);
-        options.append(sum(here?.owns)
+        const leaves = handOverText(here);
+        // The kit's append: the element's own would write the hint left out as the text "null".
+        append(options, sum(here?.owns) || leaves
           ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('admin.data.replace', { rows: rowsText(here.owns) }) }))
-          : el('p', { class: 'kit-hint', text: t('admin.data.nothingOwned') }));
+          : el('p', { class: 'kit-hint', text: t('admin.data.nothingOwned') }),
+        leaves ? el('p', { class: 'kit-hint', text: leaves }) : null);
       }
     };
     target.addEventListener('change', () => { replace.checked = false; paint(); });
@@ -635,7 +643,11 @@ function paintPlan(box, plan, reset) {
     type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.data.apply'), disabled: Boolean(copy.applied_at),
     onClick: async () => {
       const accounts = decisions.map((decide) => decide());
-      if (accounts.some((a) => a.replace) && !(await confirmDialog(t('admin.data.confirmReplace')))) return;
+      // Who leaves which groups others share, said again with the rest (the groups' names, as people wrote them).
+      const leaving = accounts.filter((a) => a.replace).map((a) => plan.targets.find((u) => u.id === a.user_id))
+        .filter((u) => u?.hand_over?.length)
+        .map((u) => t('admin.data.confirmHandOver', { account: `@${u.username}`, names: listFormat({ type: 'conjunction' }).format(u.hand_over.map((o) => o.name)) }));
+      if (accounts.some((a) => a.replace) && !(await confirmDialog([t('admin.data.confirmReplace'), ...leaving].join(' ')))) return;
       apply.disabled = true;
       apply.textContent = t('admin.data.applying');
       try {

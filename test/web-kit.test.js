@@ -14,9 +14,54 @@ import { installFakeDom } from './fake-dom.js';
 installFakeDom();
 const { createOutbox, tempId, isTempId } = await import('../web/outbox.js');
 const { memoryLocal } = await import('../web/local.js');
-const { Offline, SessionExpired, ApiError } = await import('../web/api.js');
+const { api, setPatience, Offline, SessionExpired, ApiError } = await import('../web/api.js');
 const { connectLive } = await import('../web/live.js');
 const { watchUpdates, applyUpdate } = await import('../web/update.js');
+
+/* ---------------------------------- api ----------------------------------- */
+
+test('api: without patience it waits; with it a slow read or keyed write is no network, never a keyless write', async () => {
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  // A server that never answers, unless the request gives up.
+  globalThis.fetch = (path, { method, signal } = {}) => new Promise((resolve, reject) => {
+    seen.push({ method, path, signal: Boolean(signal) });
+    signal?.addEventListener('abort', () => reject(signal.reason));
+    if (path.endsWith('/fast')) resolve({ ok: true, json: async () => ({ ok: 1 }) });
+  });
+  try {
+    api.get('/api/slow');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(seen.at(-1).signal, false, 'without setPatience nothing gives up, as before');
+
+    setPatience(20);
+    await assert.rejects(api.get('/api/slow'), Offline);
+    await assert.rejects(api.write('PATCH', '/api/slow', {}, { key: 'k1' }), Offline);
+    assert.deepEqual(await api.get('/api/fast'), { ok: 1 });
+    api.post('/api/slow', {});
+    api.upload('/api/slow', { type: 'image/png' });
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(seen.slice(-2).map((s) => s.signal), [false, false], 'a write without a key and an upload wait');
+  } finally {
+    setPatience(null);
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('api: an answer whose body is cut by the wait is no network, not an empty answer', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path, { signal } = {}) => ({
+    ok: true,
+    json: () => new Promise((resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason))),
+  });
+  try {
+    setPatience(20);
+    await assert.rejects(api.get('/api/notes'), Offline);
+  } finally {
+    setPatience(null);
+    globalThis.fetch = realFetch;
+  }
+});
 
 /* --------------------------------- outbox --------------------------------- */
 
@@ -723,6 +768,83 @@ test('Settings offers the AI connector only where there is one; a server that sa
   }
 });
 
+/**
+ * Settings on a fake page, opened at a section, with the server's answers by
+ * method and path. `press(label)` clicks a button and waits for what it does;
+ * `done()` gives fetch and the page back.
+ */
+async function settingsAt(start, config, answers) {
+  const { openSettings } = await import('../web/settings.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path, { method = 'GET' } = {}) => {
+    const answer = answers[`${method} ${path}`];
+    return { ok: answer !== undefined, status: answer === undefined ? 404 : 200, json: async () => answer ?? { error: 'not_found' } };
+  };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const root = document.createElement('div');
+  openSettings({ app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, config, root, start });
+  // What the section asks the server for as it opens.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return {
+    root,
+    press: async (label) => {
+      const target = root.find('button').find((node) => node.textContent === label);
+      assert.ok(target, `a button "${label}"`);
+      await Promise.all(target.listeners.click.map((fn) => fn({ currentTarget: target })));
+    },
+    done: () => {
+      globalThis.fetch = realFetch;
+      delete document.addEventListener;
+      delete document.removeEventListener;
+    },
+  };
+}
+const shape = (node) => node.childNodes.map((child) => child.tagName || `text "${child.textContent}"`);
+
+test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with no "null" in their place (Tracker\'s review)', async () => {
+  const { t } = await import('../web/i18n.js');
+  const copy = { created_at: '2026-10-12T09:30:00.000Z', applied_at: null, tables: { notes: 4 } };
+  const planOf = async (answer) => {
+    const page = await settingsAt('data', { app: { modules: { data: true, mcp: false } } }, { 'POST /api/me/import': answer });
+    try {
+      page.root.all().find((node) => node.getAttribute('id') === 'kit-data-file').files = [{ name: 'copy.zip', type: 'application/zip' }];
+      await page.press(t('kit.data.check'));
+      return page.root.all().find((node) => node.className === 'kit-stack');
+    } finally { page.done(); }
+  };
+
+  // Not brought in yet, into an account with nothing: what it brings, and the buttons.
+  const fresh = await planOf({ import_id: 'i1', account: 'ada', copy, replace: {} });
+  assert.deepEqual(shape(fresh), ['P', 'DIV']);
+  // Into an account with data of its own: the choice of replacing it too.
+  const owned = await planOf({ import_id: 'i2', account: 'ada', copy, replace: { notes: 2 } });
+  assert.deepEqual(shape(owned), ['P', 'LABEL', 'DIV']);
+  // Brought in already: it says so, and Apply is off.
+  const applied = await planOf({ import_id: 'i3', account: 'ada', copy: { ...copy, applied_at: '2026-10-12T10:00:00.000Z' }, replace: {} });
+  assert.deepEqual(shape(applied), ['P', 'P', 'DIV']);
+  assert.equal(applied.find('button').find((node) => node.textContent === t('kit.data.apply')).disabled, true);
+  for (const area of [fresh, owned, applied]) assert.doesNotMatch(area.textContent, /null/);
+});
+
+test('setting up two-factor without a QR (an address too long for one) shows the key alone, with no "null" in its place', async () => {
+  const { t } = await import('../web/i18n.js');
+  const secret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  const issuer = encodeURIComponent('An install with a name long enough that its address will not fit');
+  const uri = `otpauth://totp/${issuer}%3Aada?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+  assert.ok(uri.length > 213, 'more than a QR code holds');
+  const page = await settingsAt('security', { provider: 'local', two_factor: true, app: { modules: { mcp: false } } }, {
+    'GET /api/me/two-factor': { enabled: false }, 'GET /api/me/sessions': [], 'POST /api/me/two-factor/setup': { secret, uri },
+  });
+  try {
+    await page.press(t('kit.twoFactor.setUp'));
+    await page.press(t('kit.twoFactor.continue'));
+    const body = page.root.all().find((node) => node.className === 'kit-stack');
+    assert.deepEqual(shape(body), ['P', 'DIV', 'A', 'DIV', 'DIV'], 'the key, the link, the first code and the buttons');
+    assert.equal(body.firstChild.textContent, t('kit.twoFactor.typeKey'));
+    assert.doesNotMatch(body.textContent, /null/);
+  } finally { page.done(); }
+});
+
 test('every file of the web kit parses: one that does not stops the whole app before it draws', async () => {
   // Most of the kit is only run by these tests in part, through a fake DOM; a name declared twice
   // in shell.js once left every app on a blank page with nothing here noticing.
@@ -952,4 +1074,119 @@ test('the drawer follows the finger on a phone, and opens or closes by how far i
   assert.match(shell, /Math\.abs\(dx\) >= \(cancelled \? CANCEL_COMMIT : commitDistance\(width\)\)/, 'the finger\'s path decides, and less when the system takes the gesture away');
   assert.match(shell, /requestAnimationFrame\(settle\);\s*setTimeout\(settle, 80\);/, 'a page that isn\'t drawing doesn\'t leave the drawer halfway');
   assert.match(css, /\.kit-app\[data-drawer-drag\] \.kit-side, \.kit-app\[data-drawer-drag\] \.kit-scrim \{ transition: none; \}/);
+});
+
+/* ------------------------------ the frame's end ------------------------------ */
+
+/**
+ * A page for whole frames (shell.js): a fresh document, a phone-wide window without the
+ * Navigation API (so the history is assumed to have somewhere to go back to, as in old Safari),
+ * and what the frame asks of the browser. The previous globals come back after.
+ */
+async function framePage() {
+  const { FakeElement, FakeEventTarget } = await import('./fake-dom.js');
+  const saved = Object.fromEntries(['document', 'window', 'Element', 'getComputedStyle', 'innerWidth', 'innerHeight']
+    .map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const page = installFakeDom();
+  const win = Object.assign(new FakeEventTarget(), { innerWidth: 390, innerHeight: 800 });
+  Object.assign(globalThis, {
+    window: win, Element: FakeElement, innerWidth: 390, innerHeight: 800,
+    getComputedStyle: () => ({ direction: 'ltr', display: 'inline-grid', overflowY: 'visible' }),
+  });
+  // menu() measures where it goes; nothing has a size here.
+  FakeElement.prototype.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+  const restore = () => {
+    delete FakeElement.prototype.getBoundingClientRect;
+    for (const [name, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  };
+  return { page, win, restore };
+}
+
+const frameOptions = () => ({
+  app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
+  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }],
+});
+
+test('the frame’s destroy() takes away every listener it added, the menu it opened and its DOM; twice is harmless', async () => {
+  const { page, win, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const before = { document: page.listenerCount(), window: win.listenerCount() };
+    const shell = createShell(frameOptions());
+    assert.ok(page.listenerCount() >= before.document + 7, 'touches, drags and the like, on the document');
+    assert.equal(page.body.children.length, 1);
+
+    // The account menu open, as it may be when an app draws its frame again: it lives in the body.
+    const account = shell.element.querySelector('.kit-account');
+    account.click();
+    assert.equal(account.getAttribute('aria-expanded'), 'true');
+    assert.equal(page.body.children.length, 2);
+
+    shell.destroy();
+    assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before, 'nothing left listening');
+    assert.equal(page.body.children.length, 0, 'the frame and its menu left the page');
+    assert.equal(account.getAttribute('aria-expanded'), 'false');
+    assert.equal(account.listenerCount(), 0, 'its own nodes hold nothing either');
+
+    shell.destroy();
+    // The menu's outside-click listener comes on the next turn, and not for a menu already closed.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before);
+  } finally {
+    restore();
+  }
+});
+
+test('a frame drawn again passes a tap at the screen’s edge on once, not once per frame ever made', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { el } = await import('../web/dom.js');
+    /** A finger down and up within 20 px of the start edge, on a button in the frame's list. */
+    const tapAtEdge = (shell) => {
+      const button = el('button', { type: 'button' });
+      shell.list.append(button);
+      let clicks = 0;
+      button.addEventListener('click', () => { clicks += 1; });
+      page.dispatch('touchstart', { touches: [{ clientX: 5, clientY: 300 }], target: button, preventDefault: () => {} });
+      page.dispatch('touchend', { touches: [], target: button });
+      return clicks;
+    };
+
+    // What happened before destroy(): the old frame, still listening, passed the tap on too.
+    const old = createShell(frameOptions());
+    old.element.remove();
+    const leaked = createShell(frameOptions());
+    assert.equal(tapAtEdge(leaked), 2, 'the bug, as it was');
+    old.destroy();
+    leaked.destroy();
+
+    // Drawn again the way an app does it now: the old one destroyed first.
+    let shell = createShell(frameOptions());
+    for (let round = 0; round < 3; round += 1) {
+      shell.destroy();
+      shell = createShell(frameOptions());
+    }
+    assert.equal(page.body.children.length, 1);
+    assert.equal(tapAtEdge(shell), 1);
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('every listener the frame adds goes with its one signal, or by hand with destroy()', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const added = shell.match(/\.addEventListener\(/g).length;
+  // Each call ends with its options holding the signal, on its line or at the end of its block…
+  const signed = shell.match(/\{ (?:[\w]+: [\w]+, )*signal \}\);/g).length;
+  // …but the click swallowed after a drag of the drawer, a line Tasks' smoke test reads as it is.
+  assert.match(shell, /document\.addEventListener\('click', swallow, \{ capture: true, once: true \}\);\s*setTimeout\(\(\) => document\.removeEventListener\('click', swallow, \{ capture: true \}\), 400\);/);
+  assert.match(shell, /for \(const swallow of swallowing\) document\.removeEventListener\('click', swallow, \{ capture: true \}\);/);
+  assert.equal(signed, added - 1);
+  assert.match(shell, /const listening = new AbortController\(\);/);
+  assert.match(shell, /listening\.abort\(\);/);
 });

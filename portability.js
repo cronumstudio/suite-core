@@ -5,13 +5,17 @@
  *
  * A copy is a zip anyone can open (zip.js):
  *
- *   manifest.json        what it is: app, version, schema, scope, date, counts
- *   data/users.json      the accounts in it and their profile —never a password—
- *   data/<table>.json    the rows of every table the app declares, as they are
- *   suite/grants.json    (whole install) the plans given: by the administrator or paid for
- *   suite/billing.json   (whole install) who each account is at the payment provider, and its
- *                        subscriptions, so that payments still find them (billing.js)
- *   files/<path>         the attachments, byte for byte
+ *   manifest.json            what it is: app, version, schema, scope, date, counts
+ *   data/users.json          the accounts in it and their profile —never a password—
+ *   data/organizations.json  (with organizations) the groups in it: name, kind, settings
+ *   data/memberships.json    who is in each and with what role: in someone's copy, only them
+ *   data/<table>.json        the rows of every table the app declares, as they are
+ *   suite/grants.json        (whole install) the plans given: by the administrator or paid for,
+ *                            to accounts and to organizations
+ *   suite/billing.json       (whole install) who each account or organization is at the payment
+ *                            provider, and its subscriptions, so that payments still find them
+ *   suite/invitations.json   (whole install, with organizations) the invitations still waiting
+ *   files/<path>             the attachments, byte for byte
  *
  * The app says what its data is —its tables, which column points at which
  * table or at an account, which column is a file— and the rest is done here,
@@ -37,6 +41,21 @@
  *   copy (name shown, theme, language, the app's own) and keeps who it is
  *   (username, email, role). Passwords, second steps, sessions, API tokens,
  *   OAuth grants and push subscriptions never travel: they are made again.
+ * · **Organizations** (an app that declares `organizations`, or a table that
+ *   points at them). A table can belong to a group instead of a person (a
+ *   family's routines, a fleet's vehicles). Someone's copy takes the groups
+ *   they are in, with their own membership and the group's rows; the whole
+ *   install's takes every group, membership, waiting invitation, and the
+ *   groups' plans and payments. What is someone's alone, which "replace" and
+ *   erasing empty, is their own rows and those of groups nobody else is in: a
+ *   group they share is handed over, never emptied, and only once the person
+ *   was told. A file never chooses a group here: someone's own import makes a
+ *   new one or uses their own, and a whole install's finds only the groups
+ *   another module's copy of the same export run made (recorded in
+ *   `app_meta`); a copy of another run of an install already here is refused.
+ * · **Columns that never travel** (`omit`): a device's key hash, a push
+ *   subscription. Left out of every copy, and filled on import with the
+ *   column's default.
  * · **The file isn't trusted.** It could come from anyone: only the columns
  *   this install has, only plain values, references only inside the file,
  *   attachments only when their first bytes say image or PDF (as on upload),
@@ -53,13 +72,29 @@ import {
 import { createZipWriter, openZip } from './zip.js';
 import { detectType, storedName } from './uploads.js';
 import { USERNAME } from './accounts.js';
+import { slugOf, KIND_NAME } from './organizations.js';
 
 export const EXPORT_FORMAT = 'cronum-suite-export';
 export const EXPORT_VERSION = 1;
 
-/** The profile of an account that travels: never its password, second step or identities elsewhere. */
+/**
+ * The profile of an account that travels: never its password, second step or identities elsewhere.
+ * `delete_after` is when an account its owner asked to delete goes (account-deletion.js): a whole
+ * install's copy keeps it waiting, or it would arrive disabled and never go, data and all.
+ */
 const USER_COLUMNS = ['id', 'username', 'display_name', 'email', 'email_verified_at', 'role', 'locale', 'theme',
-  'prefs', 'created_at', 'disabled_at'];
+  'prefs', 'created_at', 'disabled_at', 'delete_after'];
+/** What travels of an organization, of a membership and of an invitation still waiting. */
+const ORGANIZATION_COLUMNS = ['id', 'slug', 'name', 'kind', 'settings', 'branding', 'created_at', 'archived_at'];
+const MEMBERSHIP_COLUMNS = ['organization_id', 'user_id', 'role', 'invited_by', 'joined_at'];
+const INVITATION_COLUMNS = ['id', 'organization_id', 'email', 'role', 'token_hash', 'invited_by', 'created_at', 'expires_at'];
+/** The suite's own tables of organizations: their rows travel as organizations do, never as an app's table. */
+const ORGANIZATION_TABLES = ['organizations', 'memberships', 'invitations'];
+/** What the declaration's `organizations` takes. */
+// `copyKinds` and `copyRoles`: what someone's copy takes, apart from suite.config.js's
+// `organizations.kinds` (each kind's rules) and `organizations.roles` (the install's roles).
+const ORGANIZATION_OPTIONS = ['copyKinds', 'copyRoles', 'mapOntoOwn'];
+const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
 
 const MB = 1024 * 1024;
 const DAY = 24 * 3600 * 1000;
@@ -111,9 +146,13 @@ export function dataImportsSchema(d) {
  *     },
  *     users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
  *              prefs(prefs, { ids, current, created }) { … } },
- *     check({ user, counts, replaced }) { … },   // limits of the plan, for someone's own import
+ *     check({ user, counts, replaced, organizations }) { … },   // limits of the plan, for someone's own import
  *     handOver(userId) { … },        // before someone's own data is erased: what others share passes on
  *   }
+ *
+ * `clean(values, { mode, organizations })` may change a row as it comes in. With organizations,
+ * `organizations` is { created, mapped }: Sets of the ids here of the groups this import made and
+ * of those it put rows into that were here already; `check` gets the same object.
  *
  * `limits` are what the app's own screens accept, per column: a number is the
  * most characters, and longer text is cut there; a pattern is the shape, and
@@ -127,15 +166,66 @@ export function dataImportsSchema(d) {
  *
  * A reference to a table declared later, or to the same one, is set after
  * every row exists, so its column must allow NULL. Every table needs a NOT NULL
- * reference to an account or to an earlier table: that is how whose rows they
- * are is told.
+ * reference to an account, to an organization or to an earlier table: that is
+ * how whose rows they are is told.
+ *
+ * **A group's tables.** A reference to `organizations` makes a table a group's
+ * (`focus_families: { refs: { organization_id: 'organizations' } }`), and the
+ * tables that point at it are the group's too. Organizations then travel in
+ * copies, which `organizations` tunes (every key may be left out):
+ *
+ *   organizations: {
+ *     copyKinds: ['family'],    // whose rows someone's copy takes: groups of these kinds (every kind)
+ *     copyRoles: ['owner', 'admin'],  // and only where their role is one of these (every member)
+ *     mapOntoOwn: ['family'],   // someone's import goes into the oldest group of that kind they
+ *                               // own or administer here, instead of a new one (true: every kind)
+ *   }
+ *
+ * "Replace" takes them out of a group others share (`organizations.handOver()`): the app hears it
+ * as any member who goes, once, through the suite's `whenMemberRemoved` (createSuite's
+ * `onMemberRemoved`) with reason `handed_over`, before the membership goes. A copy never puts
+ * someone in more groups of a kind than `organizations.kinds` allows (`maxPerUser`): such an import
+ * is refused with 409 `organization_limit`, and nothing of it comes in. Nothing here deletes a
+ * group: what someone owns alone is emptied of the app's rows and keeps its organization and plan;
+ * a group that has to go goes through `organizations.remove()`, which tells the app and billing.
+ *
+ * `organizations: {}` alone carries the groups, their memberships, plans and
+ * payments in the whole install's copy of an app without tables of its own
+ * for them. Without either, nothing of organizations travels, as before.
+ *
+ * **One row per group** (`onePerOrganization: true`, on a table whose NOT NULL
+ * reference to organizations is UNIQUE: Focus' families): when the group a row
+ * goes into has its row already —someone's copy put into their own family, a
+ * family a whole install's copy brought before— the copy's row isn't written
+ * again: it is that row, and what points at it comes into it.
+ *
+ * **Columns that never travel**: `omit: ['token_hash', 'push_endpoint']` leaves
+ * them out of every copy, and an import writes the column's default (or NULL).
+ * `omit: { token_hash: (row) => … }` gives the value an import writes instead:
+ * a plain value or a function of the row (with its references already
+ * translated); `null` there, or a function that answers undefined, is the
+ * column's own default, never a NULL written over it. A column omitted must
+ * allow NULL or have a default of either kind, and is never a reference, a
+ * file's or the key. A column the app fills itself and never points at by a
+ * declared reference (Focus' `owner_user_id`, the family's oldest owner) can be
+ * omitted with a function that finds it here.
+ *
+ * `organizationRoles` are the install's roles of organizations, from
+ * createPortability (null: modules.organizations is off); left out, as tests
+ * do, neither is checked.
  */
-export function describeData(database, declaration = {}) {
+export function describeData(database, declaration = {}, { organizationRoles } = {}) {
   const errors = [];
   const names = Object.keys(declaration.tables || {});
   const tables = [];
+  const pointsAtOrganizations = names.some((name) => Object.values(declaration.tables[name]?.refs || {}).includes('organizations'));
+  const organizations = organizationsOf(declaration.organizations, pointsAtOrganizations, errors, organizationRoles);
   names.forEach((name, index) => {
     const spec = declaration.tables[name] || {};
+    if (organizations && ORGANIZATION_TABLES.includes(name)) {
+      errors.push(`${name}: the suite's own table, whose rows travel with the organizations: not one of the app's`);
+      return;
+    }
     const info = database.all(`PRAGMA table_info(${quote(name)})`);
     if (!info.length) { errors.push(`${name}: there is no such table`); return; }
     const columns = new Map(info.map((c) => [c.name, c]));
@@ -146,8 +236,9 @@ export function describeData(database, declaration = {}) {
     for (const [column, target] of Object.entries(spec.refs || {})) {
       const col = columns.get(column);
       if (!col) { errors.push(`${name}.${column}: there is no such column`); continue; }
-      const at = target === 'users' ? -1 : names.indexOf(target);
-      if (target !== 'users' && at < 0) { errors.push(`${name}.${column}: "${target}" is not one of the tables declared`); continue; }
+      const outer = target === 'users' || target === 'organizations';
+      const at = outer ? -1 : names.indexOf(target);
+      if (!outer && at < 0) { errors.push(`${name}.${column}: "${target}" is not one of the tables declared`); continue; }
       const deferred = at >= index;
       const required = Number(col.notnull) === 1;
       if (deferred && required) errors.push(`${name}.${column} points at ${target}, declared at or after ${name}: the column must allow NULL`);
@@ -155,7 +246,7 @@ export function describeData(database, declaration = {}) {
       refs.push({ column, target, required, deferred });
     }
     if (!refs.some((r) => r.required)) {
-      errors.push(`${name}: it needs a NOT NULL reference to users or to an earlier table, or whose rows they are can't be told`);
+      errors.push(`${name}: it needs a NOT NULL reference to users, to organizations or to an earlier table, or whose rows they are can't be told`);
     }
     let file = null;
     if (spec.file) {
@@ -172,13 +263,24 @@ export function describeData(database, declaration = {}) {
     }
     const was = [spec.was ?? []].flat();
     for (const old of was) {
-      if (typeof old !== 'string' || !/^[a-z_][a-z0-9_]*$/.test(old) || old === 'users') errors.push(`${name}.was: "${old}" is not a table's name`);
-      else if (names.includes(old)) errors.push(`${name}.was: "${old}" is a table declared now`);
+      if (typeof old !== 'string' || !/^[a-z_][a-z0-9_]*$/.test(old) || old === 'users' || ORGANIZATION_TABLES.includes(old)) {
+        errors.push(`${name}.was: "${old}" is not a table's name`);
+      } else if (names.includes(old)) errors.push(`${name}.was: "${old}" is a table declared now`);
+    }
+    // A group's one row: the column that says which group, found again on import.
+    let onePer = null;
+    if (spec.onePerOrganization != null && spec.onePerOrganization !== false) {
+      const toGroups = refs.filter((r) => r.target === 'organizations' && r.required);
+      if (spec.onePerOrganization !== true) errors.push(`${name}.onePerOrganization: true, or left out`);
+      else if (!keyed || toGroups.length !== 1) {
+        errors.push(`${name}.onePerOrganization: a table with an integer id and one NOT NULL reference to organizations`);
+      } else onePer = toGroups[0].column;
     }
     tables.push({
-      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was,
+      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was, onePer,
       clean: typeof spec.clean === 'function' ? spec.clean : null,
       limits: limitsOf(spec.limits, columns, name, errors),
+      omit: omitOf(spec.omit, { columns, key, refs, file }, name, errors),
     });
   });
   for (const table of tables) {
@@ -215,7 +317,93 @@ export function describeData(database, declaration = {}) {
     userLimits,
     prefs: typeof declaration.users?.prefs === 'function' ? declaration.users.prefs : null,
     check: typeof declaration.check === 'function' ? declaration.check : null,
+    organizations,
   };
+}
+
+/**
+ * A declaration's `organizations`, checked: null when organizations don't
+ * travel (neither it nor a table that points at them), else
+ * { copyKinds, copyRoles, mapOntoOwn: Sets or null for every one }.
+ */
+function organizationsOf(spec, pointedAt, errors, installRoles) {
+  if (spec == null && !pointedAt) return null;
+  if (spec != null && !isObject(spec)) {
+    errors.push('organizations: an object, such as { copyKinds: [\'family\'] }');
+    return null;
+  }
+  if (installRoles === null) {
+    errors.push('organizations needs modules.organizations: the groups, members and plans its copies carry');
+  }
+  const given = spec || {};
+  for (const option of Object.keys(given)) {
+    // 0.84.0's `leave` told the app a second time of a hand-over the suite's hook tells it of: gone,
+    // loudly, naming what replaces it.
+    if (option === 'leave') {
+      errors.push("organizations.leave is now the suite's whenMemberRemoved hook (createSuite's onMemberRemoved), which hears a hand-over with reason 'handed_over'");
+    } else if (!ORGANIZATION_OPTIONS.includes(option)) errors.push(`organizations.${option} is not an option (${ORGANIZATION_OPTIONS.join(', ')})`);
+  }
+  const names = (option, pattern) => {
+    const value = given[option];
+    if (value == null) return null;
+    if (!Array.isArray(value) || !value.length || !value.every((v) => typeof v === 'string' && pattern.test(v))) {
+      errors.push(`organizations.${option}: a list of kinds, such as ['family'], or left out for every one`);
+      return null;
+    }
+    return new Set(value);
+  };
+  const copyKinds = names('copyKinds', KIND_NAME);
+  // A misspelt role would carry the group in nobody's copy, without a word.
+  let copyRoles = null;
+  if (given.copyRoles != null) {
+    const value = given.copyRoles;
+    const known = Array.isArray(installRoles) ? installRoles : null;
+    if (!Array.isArray(value) || !value.length || !value.every((r) => typeof r === 'string' && (known ? known.includes(r) : /^[\w-]{1,40}$/.test(r)))) {
+      errors.push(`organizations.copyRoles: some of organizations.roles${known ? ` (${known.join(', ')})` : ''}, such as ['owner', 'admin'], or left out for every member`);
+    } else copyRoles = new Set(value);
+  }
+  let mapOntoOwn = null;
+  if (given.mapOntoOwn === true) mapOntoOwn = copyKinds ?? true;
+  else if (given.mapOntoOwn != null && given.mapOntoOwn !== false) {
+    mapOntoOwn = names('mapOntoOwn', KIND_NAME);
+    for (const kind of mapOntoOwn || []) {
+      if (copyKinds && !copyKinds.has(kind)) errors.push(`organizations.mapOntoOwn: "${kind}" is not one of organizations.copyKinds`);
+    }
+  }
+  return { copyKinds, copyRoles, mapOntoOwn };
+}
+
+/**
+ * A table's `omit`, checked: a Map of column → what an import writes (undefined:
+ * the column's own default, or NULL; so is `null` in the object form).
+ */
+function omitOf(spec, { columns, key, refs, file }, name, errors) {
+  const omit = new Map();
+  if (spec == null) return omit;
+  const entries = Array.isArray(spec) ? spec.map((column) => [column, undefined])
+    : isObject(spec) ? Object.entries(spec) : null;
+  if (!entries) {
+    errors.push(`${name}.omit: a list of columns, or { column: what an import writes }`);
+    return omit;
+  }
+  for (const [column, fallback] of entries) {
+    const col = typeof column === 'string' ? columns.get(column) : null;
+    if (!col) { errors.push(`${name}.omit: "${column}" is not a column`); continue; }
+    if (key.some((c) => c.name === column) || refs.some((r) => r.column === column)
+      || (file && [file.path, file.name, file.mime, file.size].includes(column))) {
+      errors.push(`${name}.omit: ${column} is the key, a reference or a file's: copies can't do without it`);
+      continue;
+    }
+    const plain = fallback === undefined || fallback === null || typeof fallback === 'function'
+      || ['string', 'number', 'boolean'].includes(typeof fallback);
+    if (!plain) { errors.push(`${name}.omit: what an import writes in ${column} is a plain value or a function`); continue; }
+    if (fallback == null && Number(col.notnull) === 1 && col.dflt_value == null) {
+      errors.push(`${name}.omit: ${column} is NOT NULL without a default: give it one, or say what an import writes`);
+      continue;
+    }
+    omit.set(column, fallback ?? undefined);
+  }
+  return omit;
 }
 
 /** A declaration's `limits`, checked: a Map of column → most characters, or pattern. */
@@ -253,12 +441,13 @@ function within(value, limit) {
  * The rows that go into a copy —or into this install— given which accounts
  * are in it. `rowsOf(name, ids)` gives a table's rows, at least those that can
  * concern the accounts inside (`ids`: per earlier table, the ids kept so far);
- * `inside(userId)` says whether
- * an account is. Returns the rows kept (copies: optional references pointing
- * outside are emptied) and, with `account`, how many rows that concern that
- * person were left out, per table: what is shared with other people.
+ * `inside(userId)` says whether an account is, and `organizations(id)` whether
+ * an organization is. Returns the rows kept (copies: optional references
+ * pointing outside are emptied) and, with `account`, how many rows that
+ * concern that person were left out, per table: what is shared with other
+ * people.
  */
-export function selectRows(model, rowsOf, inside, { account = null } = {}) {
+export function selectRows(model, rowsOf, inside, { account = null, organizations = () => false } = {}) {
   const kept = new Map();
   const ids = new Map();
   const leftOut = {};
@@ -274,7 +463,8 @@ export function selectRows(model, rowsOf, inside, { account = null } = {}) {
         const value = row[ref.column];
         // A reference to a later table is settled below, once that table is decided.
         if (value == null || ref.deferred) continue;
-        const isIn = ref.target === 'users' ? inside(value) : ids.get(ref.target).has(value);
+        const isIn = ref.target === 'users' ? inside(value)
+          : ref.target === 'organizations' ? organizations(value) : ids.get(ref.target).has(value);
         if (account != null && (ref.target === 'users' ? value === account : isIn && ref.required)) concerns = true;
         if (isIn) continue;
         if (ref.required) belongs = false;
@@ -301,8 +491,12 @@ export function selectRows(model, rowsOf, inside, { account = null } = {}) {
   return { kept, leftOut };
 }
 
-/** Per account, how many rows of each table are theirs alone: what their own copy would take. */
-export function ownership(model, rowsOf) {
+/**
+ * Per account, how many rows of each table are theirs alone: what "replace"
+ * would empty. A group's rows are the one member's of a group with only one
+ * (`soleMember(organizationId)` → their id, or null).
+ */
+export function ownership(model, rowsOf, { soleMember = () => null } = {}) {
   const owners = new Map();
   const counts = new Map();
   for (const table of model.tables) {
@@ -312,7 +506,10 @@ export function ownership(model, rowsOf) {
       for (const ref of table.refs) {
         if (!ref.required) continue;
         const value = row[ref.column];
-        const of = ref.target === 'users' ? new Set([value]) : owners.get(ref.target).get(value) || new Set();
+        const sole = ref.target === 'organizations' ? soleMember(value) : null;
+        const of = ref.target === 'users' ? new Set([value])
+          : ref.target === 'organizations' ? new Set(sole == null ? [] : [sole])
+            : owners.get(ref.target).get(value) || new Set();
         set = set ? new Set([...set].filter((user) => of.has(user))) : of;
       }
       if (table.keyed) byId.set(row.id, set || new Set());
@@ -379,13 +576,16 @@ function countValues(bytes) {
  *   own, its id as a module of a host; a copy says how many it had, under `schema.app`
  * @param {(user) => void} [options.onErased]  once someone's data here is erased (a host forgets
  *   the titles its links keep of it)
+ * @param {object} [options.organizations]  the suite's (modules.organizations): needed when the
+ *   declaration carries organizations
  */
 export function createPortability({
   database, accounts, uploads = null, entitlements = null, live = null, audit = null, app, roles = ['admin', 'user'],
   baseUrl = null, authProvider = 'local', dataDir, declaration, log = console.log, clock = () => Date.now(),
-  limits = {}, migrationScope = 'app', onErased = null,
+  limits = {}, migrationScope = 'app', onErased = null, organizations = null,
 }) {
-  const model = describeData(database, declaration);
+  const model = describeData(database, declaration, { organizationRoles: organizations ? organizations.roles : null });
+  const groups = model.organizations;
   const importsDir = path.join(dataDir, 'imports');
   // Ceilings by who brings the copy in: anyone with an account ('account'), or the
   // administrator and the command line ('install'). Someone's own data is a few MB;
@@ -402,6 +602,8 @@ export function createPortability({
     values: byWho(limits.values, 2_000_000, 50_000_000),
     // Attachments in one copy.
     files: byWho(limits.files, 20_000, 1_000_000),
+    // Organizations in one copy: someone's own import makes one for each it doesn't map.
+    organizations: byWho(limits.organizations, 100, 1_000_000),
   };
   const iso = () => new Date(clock()).toISOString();
   const rowsOfDb = (name) => {
@@ -417,20 +619,71 @@ export function createPortability({
    * every table whole made one person's copy cost, in time with the server
    * stopped and in memory, as much as everybody's data (x-stability-1).
    */
-  const rowsNear = (userIds) => (name, ids) => {
+  const rowsNear = (userIds, organizationIds = []) => (name, ids) => {
     const table = model.byName.get(name);
     const where = [];
     const params = [];
     for (const ref of table.refs) {
-      if (ref.deferred || (ref.target !== 'users' && !ref.required)) continue;
+      const outer = ref.target === 'users' || ref.target === 'organizations';
+      if (ref.deferred || (!outer && !ref.required)) continue;
       where.push(`${quote(ref.column)} IN (SELECT value FROM json_each(?))`);
-      params.push(JSON.stringify(ref.target === 'users' ? userIds : [...ids.get(ref.target)]));
+      params.push(JSON.stringify(ref.target === 'users' ? userIds
+        : ref.target === 'organizations' ? organizationIds : [...ids.get(ref.target)]));
     }
     return database.all(`SELECT * FROM ${quote(name)} WHERE ${where.join(' OR ')}
       ORDER BY ${table.key.map(quote).join(', ')}`, ...params);
   };
-  /** What an account owns alone, per table: what its own copy takes and "replace" empties. */
-  const ownedBy = (userId) => selectRows(model, rowsNear([userId]), (id) => id === userId).kept;
+
+  /* ------------------------------ organizations ------------------------------ */
+
+  /** Whether an organization is one whose data this app's copies carry: of its kinds. */
+  const ofKind = (organization) => !groups.copyKinds || groups.copyKinds.has(organization.kind);
+  const mapsOntoOwn = (kind) => groups.mapOntoOwn === true || Boolean(groups.mapOntoOwn?.has(kind));
+  /**
+   * The groups someone's own copy carries: those they are in, of the app's kinds, where their
+   * role is one that carries it, archived ones too (marked so: what points at them keeps its
+   * meaning). With the role and when they joined.
+   */
+  const groupsOf = (userId) => (groups ? database.all(`SELECT o.*, m.role, m.joined_at,
+      (SELECT COUNT(*) FROM memberships x WHERE x.organization_id = o.id) AS members
+    FROM memberships m JOIN organizations o ON o.id = m.organization_id
+    WHERE m.user_id = ? ORDER BY o.id`, userId)
+    .filter((o) => ofKind(o) && (!groups.copyRoles || groups.copyRoles.has(o.role))) : []);
+  /** Of those, the ones nobody else is in: theirs alone, which "replace" and erasing empty. */
+  const ownGroups = (userId) => groupsOf(userId).filter((o) => Number(o.members) === 1).map((o) => o.id);
+  /** Per group here with one member, of the app's kinds: that member (ownership()). */
+  function soleMembers() {
+    if (!groups) return () => null;
+    const sole = new Map(database.all(`SELECT o.id, o.kind, MIN(m.user_id) AS user_id, COUNT(*) AS members
+      FROM organizations o JOIN memberships m ON m.organization_id = o.id
+      GROUP BY o.id HAVING COUNT(*) = 1`).filter(ofKind).map((o) => [o.id, o.user_id]));
+    return (id) => sole.get(id) ?? null;
+  }
+
+  /**
+   * What an account owns alone, per table: its own rows and those of the groups only it is in.
+   * What "replace" and erasing empty; a group it shares keeps its rows.
+   */
+  const ownedBy = (userId) => {
+    const own = ownGroups(userId);
+    const set = new Set(own);
+    return selectRows(model, rowsNear([userId], own), (id) => id === userId, { organizations: (id) => set.has(id) }).kept;
+  };
+
+  /**
+   * Before "replace" empties an account: each group in its copy that others share is handed over
+   * (`organizations.handOver()`: an heir when it was the last owner, the app told once through
+   * `whenMemberRemoved`, and the membership goes). Inside the caller's transaction. → the groups
+   * left, { id, name, kind, heir }.
+   */
+  function handOverGroups(userId) {
+    const left = [];
+    for (const group of groupsOf(userId).filter((o) => Number(o.members) > 1)) {
+      const heir = organizations.handOver(group.id, userId);
+      left.push({ id: group.id, name: group.name, kind: group.kind, heir });
+    }
+    return left;
+  }
 
   /**
    * Deletes what an account owns alone, inside the caller's transaction, and
@@ -456,9 +709,11 @@ export function createPortability({
    * Someone erases their own data here and keeps the account (Settings → Your
    * data). First the app hands over what others share with them
    * (`declaration.handOver`: a shared list passes to one of the people it is
-   * shared with), then goes exactly what their own copy would take and
-   * "replace" empties, and its files once committed. Everyone resyncs: a
-   * list handed over has a new owner. → { erased: { table: n } }
+   * shared with), then goes exactly what "replace" empties —what their own
+   * copy would take, but a group's rows only where nobody else is in it—, and
+   * its files once committed. A group they share keeps its rows and them as a
+   * member, and a group of theirs alone keeps its organization and plan.
+   * Everyone resyncs: a list handed over has a new owner. → { erased: { table: n } }
    */
   function erase(user, { req = null } = {}) {
     const release = begin(`user:${user.id}`);
@@ -481,6 +736,58 @@ export function createPortability({
       release();
     }
   }
+
+  /**
+   * Who this install is, for the copies of the whole of it: a random id kept in the database,
+   * made the first time it is asked for. Someone's own copy never carries it, so nobody who isn't
+   * the administrator of the install it names can write a copy that does.
+   *
+   * A whole install's copy also names its export run (`source.export`): one random id per run,
+   * shared by every module of a host exported in it (`prepareExport({ run })`, the admin export's
+   * `?run=`, the command line's `--run`). An install is brought here by one run only: its other
+   * modules' copies of that run find the groups the first made (`originKey`, which keeps the run)
+   * and add only their own rows; a copy of another run is refused before anything is written
+   * (409 `import_install_again`). A copy taken later is never merged into what an earlier one
+   * made: who left, a plan revoked, an end a copy says, would come back. Moving again is moving
+   * into a fresh install.
+   */
+  function installId() {
+    let id = database.getMeta('suite.install_id');
+    if (!id) {
+      id = randomToken(18);
+      database.setMeta('suite.install_id', id);
+    }
+    return id;
+  }
+  /** Where a group a whole install's import made came from: that install's id and its id there → { id here, run }. */
+  const originKey = (install, organizationId) => `suite.organization_origin:${install}:${organizationId}`;
+  /** Which export run of an install was brought here (the only one that may be). */
+  const installKey = (install) => `suite.install_import:${install}`;
+  /** The install a whole install's copy says it is from, when it says one the suite would write. */
+  const sourceInstall = (manifest) => (manifest.scope === 'install' && typeof manifest.source?.install === 'string'
+    && TOKEN.test(manifest.source.install) ? manifest.source.install : null);
+  /**
+   * The export run a whole install's copy says it is of. A copy that names none (written by hand)
+   * is a run of its own: nothing else is ever of it.
+   */
+  const sourceRun = (manifest) => (typeof manifest.source?.export === 'string' && TOKEN.test(manifest.source.export)
+    ? manifest.source.export : `copy:${manifest.id}`);
+  /**
+   * Refuses a whole install's copy of an install another export run brought here already, before
+   * anything is written: a later copy merged into the groups an earlier one made would bring back
+   * who left them and plans revoked since, and take a file's word for a plan's end.
+   */
+  function checkInstallAgain(manifest) {
+    const from = groups ? sourceInstall(manifest) : null;
+    if (!from) return;
+    const run = database.getMeta(installKey(from));
+    if (run != null && run !== sourceRun(manifest)) throw conflict('import_install_again');
+  }
+  /** Whether another module's copy of this same run came first: then only this module's rows come. */
+  const sameRunHere = (manifest) => {
+    const from = groups ? sourceInstall(manifest) : null;
+    return Boolean(from) && database.getMeta(installKey(from)) === sourceRun(manifest);
+  };
 
   /** The versions of this database's schema, the app's and the suite's. */
   function schemaVersions() {
@@ -512,7 +819,7 @@ export function createPortability({
    * @param {'account'|'install'} options.scope
    * @param {number} [options.userId]   whose, for an account's copy
    */
-  function prepareExport({ scope, userId = null }) {
+  function prepareExport({ scope, userId = null, run = null }) {
     if (!['account', 'install'].includes(scope)) throw new Error(`export: unknown scope ${scope}`);
     const userSql = `SELECT ${model.userColumns.map(quote).join(', ')} FROM users`;
     let users;
@@ -520,19 +827,49 @@ export function createPortability({
     let leftOut;
     let grants = [];
     let billing = null;
+    // With organizations: the groups, their memberships, and (whole install) the invitations waiting.
+    let orgs = [];
+    let memberships = [];
+    let invitations = [];
     const versions = schemaVersions();
+    // Asked before the read transaction: the first time, it is written.
+    const install = groups && scope === 'install' ? installId() : null;
+    // The run it is of: the caller's, when its other modules are exported with it; else its own.
+    const exportRun = install ? (typeof run === 'string' && TOKEN.test(run) ? run : randomToken(18)) : null;
     database.exec('BEGIN');
     try {
       users = scope === 'install' ? database.all(`${userSql} ORDER BY id`) : [database.get(`${userSql} WHERE id = ?`, userId)].filter(Boolean);
       if (!users.length) throw notFound('user_not_found');
+      if (groups && scope === 'install') {
+        // Every group, the archived too (what points at them keeps its meaning), with every member.
+        orgs = database.all(`SELECT ${ORGANIZATION_COLUMNS.map(quote).join(', ')} FROM organizations ORDER BY id`);
+        memberships = database.all(`SELECT ${MEMBERSHIP_COLUMNS.map(quote).join(', ')} FROM memberships
+          ORDER BY organization_id, joined_at, user_id`);
+        // The links people were sent still open the group after the move: only their hash travels,
+        // as it is kept here, in the administrator's copy. Used, revoked and expired ones are history.
+        invitations = database.all(`SELECT ${INVITATION_COLUMNS.map(quote).join(', ')} FROM invitations
+          WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ? ORDER BY id`, iso());
+      } else if (groups) {
+        // Someone's own: their groups and their own membership in each, never the other members.
+        const mine = groupsOf(userId);
+        orgs = mine.map((o) => Object.fromEntries(ORGANIZATION_COLUMNS.map((c) => [c, o[c] ?? null])));
+        memberships = mine.map((o) => ({ organization_id: o.id, user_id: userId, role: o.role, invited_by: null, joined_at: o.joined_at }));
+      }
+      const orgIds = new Set(orgs.map((o) => o.id));
       const inside = scope === 'install' ? () => true : (id) => id === userId;
-      ({ kept, leftOut } = selectRows(model, scope === 'install' ? rowsOfDb : rowsNear([userId]), inside,
-        { account: scope === 'account' ? userId : null }));
+      ({ kept, leftOut } = selectRows(model, scope === 'install' ? rowsOfDb : rowsNear([userId], [...orgIds]), inside,
+        { account: scope === 'account' ? userId : null, organizations: (id) => orgIds.has(id) }));
       if (scope === 'install' && database.columnsOf('entitlement_grants').length) {
         // Every source, not only the administrator's: a paid plan moves with its account,
         // which the new install numbers anew (audit sc-data-48).
         grants = database.all(`SELECT subject_id, plan, feature, value, quantity, source, external_ref, starts_at, ends_at,
           created_at, note FROM entitlement_grants WHERE subject_type = 'user' AND revoked_at IS NULL ORDER BY id`);
+        // And a group's (a trial, a family's Pro), each saying so: a grant without a type is an account's.
+        if (groups) {
+          grants.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, plan, feature, value, quantity, source,
+            external_ref, starts_at, ends_at, created_at, note FROM entitlement_grants
+            WHERE subject_type = 'organization' AND revoked_at IS NULL ORDER BY id`).filter((g) => orgIds.has(g.subject_id)));
+        }
       }
       if (scope === 'install' && database.columnsOf('billing_customers').length) {
         const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
@@ -542,6 +879,14 @@ export function createPortability({
           subscriptions: database.all(`SELECT subject_id, provider, ref, product, status, quantity, period_end, occurred_at,
             updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions WHERE subject_type = 'user' ORDER BY updated_at`),
         };
+        // Who pays for a group, so that its renewals still find it under its new id.
+        if (groups) {
+          billing.customers.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, provider, customer_id,
+            created_at FROM billing_customers WHERE subject_type = 'organization' ORDER BY subject_id`).filter((c) => orgIds.has(c.subject_id)));
+          billing.subscriptions.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, provider, ref, product,
+            status, quantity, period_end, occurred_at, updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions
+            WHERE subject_type = 'organization' ORDER BY updated_at`).filter((s) => orgIds.has(s.subject_id)));
+        }
         if (!billing.customers.length && !billing.subscriptions.length) billing = null;
       }
     } finally {
@@ -555,12 +900,21 @@ export function createPortability({
       const zip = createZipWriter(output, { now: () => new Date(clock()) });
       const json = (value) => JSON.stringify(value, null, 1);
       await zip.add('data/users.json', json(users.map((u) => Object.fromEntries(Object.entries(u).map(([k, v]) => [k, toJson(v)])))));
+      if (orgs.length) {
+        await zip.add('data/organizations.json', json(orgs));
+        await zip.add('data/memberships.json', json(memberships));
+      }
       for (const table of model.tables) {
         const rows = kept.get(table.name);
-        if (rows.length) await zip.add(`data/${table.name}.json`, json(rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toJson(v)])))));
+        // A column the app omits never reaches the file, in any copy.
+        if (rows.length) {
+          await zip.add(`data/${table.name}.json`, json(rows.map((r) => Object.fromEntries(Object.entries(r)
+            .filter(([k]) => !table.omit.has(k)).map(([k, v]) => [k, toJson(v)])))));
+        }
       }
       if (grants.length) await zip.add('suite/grants.json', json(grants));
       if (billing) await zip.add('suite/billing.json', json(billing));
+      if (invitations.length) await zip.add('suite/invitations.json', json(invitations));
       const files = { count: 0, bytes: 0, missing: 0 };
       const added = new Set();
       for (const table of model.tables.filter((t) => t.file)) {
@@ -587,9 +941,10 @@ export function createPortability({
         scope,
         app: { id: app.id, name: app.name, version: app.version || null },
         schema: versions,
-        source: { base_url: baseUrl, auth: authProvider },
+        source: { base_url: baseUrl, auth: authProvider, ...(install ? { install, export: exportRun } : {}) },
         ...(account ? { account: { id: account.id, username: account.username, display_name: account.display_name, email: account.email ?? null } } : {}),
         users: users.length,
+        ...(orgs.length ? { organizations: orgs.length } : {}),
         tables: countsOf(kept),
         files,
         ...(scope === 'account' ? { left_out: leftOut } : {}),
@@ -604,6 +959,8 @@ export function createPortability({
     return {
       filename: `${app.id}-${account ? account.username : 'install'}-${day}.zip`,
       counts: { users: users.length, ...countsOf(kept) },
+      // For the other modules of a host exported in the same run (`prepareExport({ run })`).
+      ...(exportRun ? { run: exportRun } : {}),
       write,
     };
   }
@@ -635,6 +992,8 @@ export function createPortability({
       const row = {};
       for (const [column, value] of Object.entries(raw)) {
         if (!table.columns.has(column)) throw invalidData(table.name, { column });
+        // What never travels doesn't come in either: a copy made before it was omitted, or one written by hand.
+        if (table.omit.has(column)) continue;
         const clean = fromJson(value);
         if (clean === undefined) throw invalidData(table.name, { column });
         const kept = within(clean, table.limits.get(column));
@@ -670,7 +1029,8 @@ export function createPortability({
       }
       if (!isId(user.id) || seen.has(user.id)) throw invalidData('users', { column: 'id' });
       if (typeof user.username !== 'string' || !user.username.trim()) throw invalidData('users', { column: 'username' });
-      for (const text of ['display_name', 'email', 'role', 'locale', 'theme', 'prefs', 'created_at', 'disabled_at', 'email_verified_at']) {
+      for (const text of ['display_name', 'email', 'role', 'locale', 'theme', 'prefs', 'created_at', 'disabled_at', 'email_verified_at',
+        'delete_after']) {
         if (user[text] != null && typeof user[text] !== 'string') throw invalidData('users', { column: text });
       }
       // The account's row is read whole on every request it makes: what comes in
@@ -689,11 +1049,18 @@ export function createPortability({
     });
   }
 
+  /** Whose a grant or a payment is: an account's, unless it says an organization's (copies before 0.84 never do). */
+  const subjectOf = (raw, table) => {
+    const type = raw.subject_type ?? 'user';
+    if (type !== 'user' && type !== 'organization') throw invalidData(table, { column: 'subject_type' });
+    return type;
+  };
+
   function checkGrants(rows) {
     if (!Array.isArray(rows)) throw invalidData('grants');
     return rows.map((raw) => {
       if (!isObject(raw) || !isId(raw.subject_id)) throw invalidData('grants');
-      const grant = {};
+      const grant = { subject_type: subjectOf(raw, 'grants') };
       for (const column of ['subject_id', 'plan', 'feature', 'value', 'quantity', 'source', 'external_ref', 'starts_at', 'ends_at', 'created_at', 'note']) {
         const clean = fromJson(raw[column] ?? null);
         if (clean === undefined || clean instanceof Buffer) throw invalidData('grants', { column });
@@ -726,6 +1093,7 @@ export function createPortability({
     const customers = (raw.customers ?? []).map((row) => {
       owner(row);
       return {
+        subject_type: subjectOf(row, 'billing'),
         subject_id: row.subject_id, provider: row.provider, customer_id: text(row.customer_id, MAX_REF, 'customer_id'),
         created_at: text(row.created_at, 40, 'created_at', { optional: true }),
       };
@@ -734,6 +1102,7 @@ export function createPortability({
       owner(row);
       if (row.quantity != null && !Number.isSafeInteger(row.quantity)) throw invalidData('billing', { column: 'quantity' });
       return {
+        subject_type: subjectOf(row, 'billing'),
         subject_id: row.subject_id, provider: row.provider, ref: text(row.ref, MAX_REF, 'ref'),
         product: text(row.product, 40, 'product'), status: text(row.status, 40, 'status'), quantity: row.quantity ?? null,
         period_end: text(row.period_end, 40, 'period_end', { optional: true }),
@@ -742,6 +1111,83 @@ export function createPortability({
       };
     });
     return { customers, subscriptions };
+  }
+
+  /** A date of the file, as the suite writes them, or the fallback. */
+  const dateOf = (value, fallback = null) => (typeof value === 'string' && value.length <= 40 && !Number.isNaN(Date.parse(value))
+    ? value : fallback);
+  /** A JSON object kept as text (settings, branding), or '{}': it is read on every request of the group. */
+  const objectText = (value) => {
+    if (typeof value !== 'string' || value.length > MAX_PREFS) return '{}';
+    try { return isObject(JSON.parse(value)) ? value : '{}'; } catch { return '{}'; }
+  };
+
+  /**
+   * A group's kind as a copy has it: one written by the rule (KIND_NAME), else none. Never a reason
+   * to refuse the copy —a group made before the rule held may have one an install wrote—, and
+   * never turned into another valid kind: "Family" made "family" would join a group to a kind it
+   * never was.
+   */
+  const kindOf = (value) => (typeof value === 'string' && KIND_NAME.test(value) ? value : null);
+
+  /** data/organizations.json: the groups, each with a name; ids only inside the file. */
+  function checkOrganizations(rows) {
+    if (!Array.isArray(rows)) throw invalidData('organizations');
+    const seen = new Set();
+    return rows.map((raw) => {
+      if (!isObject(raw) || !isId(raw.id) || seen.has(raw.id)) throw invalidData('organizations', { column: 'id' });
+      seen.add(raw.id);
+      const name = typeof raw.name === 'string' ? cut(raw.name.trim(), 80) : '';
+      if (!name) throw invalidData('organizations', { column: 'name' });
+      return {
+        id: raw.id, name, kind: kindOf(raw.kind),
+        slug: typeof raw.slug === 'string' && SLUG.test(raw.slug) ? raw.slug : null,
+        settings: objectText(raw.settings), branding: objectText(raw.branding),
+        created_at: dateOf(raw.created_at), archived_at: dateOf(raw.archived_at),
+      };
+    });
+  }
+
+  /** data/memberships.json: who is in which group of the file, and with what role. */
+  function checkMemberships(rows, organizationsIn, usersIn) {
+    if (!Array.isArray(rows)) throw invalidData('memberships');
+    const seen = new Set();
+    const kept = [];
+    for (const raw of rows) {
+      if (!isObject(raw) || !isId(raw.organization_id) || !isId(raw.user_id)) throw invalidData('memberships');
+      if (typeof raw.role !== 'string' || !/^[\w-]{1,40}$/.test(raw.role)) throw invalidData('memberships', { column: 'role' });
+      if (raw.invited_by != null && !isId(raw.invited_by)) throw invalidData('memberships', { column: 'invited_by' });
+      const key = `${raw.organization_id}:${raw.user_id}`;
+      // One per person and group, and only between what the file has: the rest points nowhere.
+      if (seen.has(key) || !organizationsIn.has(raw.organization_id) || !usersIn.has(raw.user_id)) continue;
+      seen.add(key);
+      kept.push({
+        organization_id: raw.organization_id, user_id: raw.user_id, role: raw.role,
+        invited_by: usersIn.has(raw.invited_by) ? raw.invited_by : null, joined_at: dateOf(raw.joined_at),
+      });
+    }
+    return kept;
+  }
+
+  /** suite/invitations.json: the links still waiting, by their hash, to groups of the file. */
+  function checkInvitations(rows, organizationsIn, usersIn) {
+    if (!Array.isArray(rows)) throw invalidData('invitations');
+    const kept = [];
+    for (const raw of rows) {
+      if (!isObject(raw) || !isId(raw.organization_id)) throw invalidData('invitations');
+      if (typeof raw.token_hash !== 'string' || !/^[\w-]{20,128}$/.test(raw.token_hash)) throw invalidData('invitations', { column: 'token_hash' });
+      if (typeof raw.role !== 'string' || !/^[\w-]{1,40}$/.test(raw.role)) throw invalidData('invitations', { column: 'role' });
+      if (raw.email != null && (typeof raw.email !== 'string' || raw.email.length > 254)) throw invalidData('invitations', { column: 'email' });
+      const expires = dateOf(raw.expires_at);
+      if (!expires) throw invalidData('invitations', { column: 'expires_at' });
+      if (!organizationsIn.has(raw.organization_id)) continue;
+      kept.push({
+        organization_id: raw.organization_id, email: raw.email ? raw.email.trim().toLowerCase() : null, role: raw.role,
+        token_hash: raw.token_hash, invited_by: isId(raw.invited_by) && usersIn.has(raw.invited_by) ? raw.invited_by : null,
+        created_at: dateOf(raw.created_at), expires_at: expires,
+      });
+    }
+    return kept;
   }
 
   /**
@@ -757,9 +1203,11 @@ export function createPortability({
       try { manifest = JSON.parse(manifestBytes.toString('utf8')); } catch { throw badRequest('import_not_export'); }
       checkManifest(manifest);
       // Data this install doesn't know would be lost without anybody noticing: better to say so.
+      // Organizations too, for an app whose copies don't carry them (and for a core before 0.84).
       for (const entry of zip.entries) {
         const table = /^data\/(.+)\.json$/.exec(entry.name)?.[1];
-        if (table && table !== 'users' && !model.byName.has(table) && !model.formerly.has(table)) {
+        const suiteTable = table === 'users' || (groups && (table === 'organizations' || table === 'memberships'));
+        if (table && !suiteTable && !model.byName.has(table) && !model.formerly.has(table)) {
           throw invalidData(table, { reason: 'unknown_table' });
         }
       }
@@ -779,6 +1227,21 @@ export function createPortability({
       };
       const users = checkUsers((await readJsonEntry('data/users.json')) ?? []);
       if (!users.length || (manifest.scope === 'account' && users.length !== 1)) throw invalidData('users');
+      let orgs = [];
+      let memberships = [];
+      let invitations = [];
+      if (groups) {
+        orgs = checkOrganizations((await readJsonEntry('data/organizations.json')) ?? []);
+        // Its groups could never be told from another install's: the suite writes which it is from.
+        if (manifest.scope === 'install' && orgs.length && !sourceInstall(manifest)) throw badRequest('import_install_unnamed');
+        if (orgs.length > max.organizations[by]) throw new HttpError(413, 'zip_too_large', { entry: 'data/organizations.json' });
+        const orgIds = new Set(orgs.map((o) => o.id));
+        const userIds = new Set(users.map((u) => u.id));
+        memberships = checkMemberships((await readJsonEntry('data/memberships.json')) ?? [], orgIds, userIds);
+        if (manifest.scope === 'install') {
+          invitations = checkInvitations((await readJsonEntry('suite/invitations.json')) ?? [], orgIds, userIds);
+        }
+      }
       const tables = new Map();
       for (const table of model.tables) {
         // A copy made before the table was renamed has it under a name it had (`was`).
@@ -788,7 +1251,7 @@ export function createPortability({
       }
       const grants = manifest.scope === 'install' ? checkGrants((await readJsonEntry('suite/grants.json')) ?? []) : [];
       const billing = checkBilling(manifest.scope === 'install' ? await readJsonEntry('suite/billing.json') : null);
-      return { zip, manifest, users, tables, grants, billing };
+      return { zip, manifest, users, tables, grants, billing, organizations: orgs, memberships, invitations };
     } catch (err) {
       await zip.close();
       throw err;
@@ -885,12 +1348,117 @@ export function createPortability({
     return choices;
   }
 
+  /* --------------------------- where organizations go --------------------------- */
+
+  /**
+   * Which groups of the copy come in: in someone's own import, those of the app's kinds; in a
+   * whole install's, every one but those whose every member is left out (`insideUser`), which go
+   * with them as what is only theirs does. Their rows come with them; a row of a group left out doesn't.
+   */
+  function groupsInside(archive, mode, insideUser = () => true) {
+    if (mode === 'account') return new Set(archive.organizations.filter(ofKind).map((o) => o.id));
+    const members = new Map();
+    for (const m of archive.memberships) members.set(m.organization_id, [...(members.get(m.organization_id) || []), m.user_id]);
+    return new Set(archive.organizations
+      .filter((o) => !members.get(o.id)?.length || members.get(o.id).some(insideUser)).map((o) => o.id));
+  }
+
+  /**
+   * Where each group of the copy goes, by one rule:
+   * · someone's own import: into the oldest group of that kind they own or administer here when
+   *   the app says so (`mapOntoOwn`), one group of the copy each, never an archived one; else a
+   *   new one they own. Those "replace" hands over (`leaving`) are no longer theirs;
+   * · a whole install's: the group another module's copy of the same export run made from the
+   *   same group (`originKey`, with the run), else a new one, with its own slug when that is
+   *   free. Nothing a file says by itself —a slug, a name, a date— finds a group here, and a copy
+   *   of another run never gets this far (checkInstallAgain).
+   * → Map(id in the copy → { action: 'map', organizationId } | { action: 'create' })
+   */
+  function decideOrganizations(archive, { mode, user = null, leaving = new Set(), insideUser = () => true }) {
+    const choices = new Map();
+    if (!groups) return choices;
+    const inside = groupsInside(archive, mode, insideUser);
+    if (mode === 'account') {
+      const own = database.all(`SELECT o.id, o.kind FROM memberships m JOIN organizations o ON o.id = m.organization_id
+        WHERE m.user_id = ? AND o.archived_at IS NULL AND m.role IN ('owner', 'admin') ORDER BY o.created_at, o.id`, user.id)
+        .filter((o) => !leaving.has(o.id));
+      const taken = new Set();
+      for (const org of archive.organizations.filter((o) => inside.has(o.id))) {
+        const into = mapsOntoOwn(org.kind) && !org.archived_at ? own.find((o) => o.kind === org.kind && !taken.has(o.id)) : null;
+        if (into) taken.add(into.id);
+        choices.set(org.id, into ? { action: 'map', organizationId: into.id } : { action: 'create' });
+      }
+      return choices;
+    }
+    const from = sourceInstall(archive.manifest);
+    const run = sourceRun(archive.manifest);
+    for (const org of archive.organizations.filter((o) => inside.has(o.id))) {
+      let origin = null;
+      try { origin = from ? JSON.parse(database.getMeta(originKey(from, org.id)) || 'null') : null; } catch { origin = null; }
+      const same = isObject(origin) && origin.run === run && isId(origin.id)
+        ? database.get('SELECT id FROM organizations WHERE id = ?', origin.id) : null;
+      choices.set(org.id, same ? { action: 'map', organizationId: same.id } : { action: 'create' });
+    }
+    return choices;
+  }
+
+  /** The groups "replace" would hand over: those of the account's copy that others share. */
+  const sharedGroups = (userId) => (groups ? groupsOf(userId).filter((o) => Number(o.members) > 1) : []);
+
+  /**
+   * Someone's own "replace" takes them out of the groups they share only as they were shown them
+   * (the plan's `hand_over`, whose ids come back as `shown`): the very same groups. One more, one
+   * fewer —someone joined, or the others left and the group would be emptied instead— and nothing
+   * is done until they see it again: 409 `import_hand_over`, with the groups as they are now.
+   */
+  function checkHandOver(userId, shown) {
+    const shared = sharedGroups(userId);
+    const confirmed = new Set((Array.isArray(shown) ? shown : []).map(Number));
+    if (shared.length !== confirmed.size || shared.some((o) => !confirmed.has(o.id))) {
+      throw conflict('import_hand_over', { organizations: shared.map((o) => ({ id: o.id, name: o.name })) });
+    }
+  }
+
+  /** A slug free here: the copy's when it is, else one from the name, as organizations.js makes them. */
+  function freeSlug(wanted, name) {
+    if (wanted && !database.get('SELECT 1 FROM organizations WHERE slug = ?', wanted)) return wanted;
+    const base = slugOf(name);
+    let slug = base;
+    for (let n = 2; database.get('SELECT 1 FROM organizations WHERE slug = ?', slug); n++) slug = `${base}-${n}`;
+    return slug;
+  }
+
   /* ---------------------------------- plan ----------------------------------- */
+
+  /** Per group of a copy with one member, that member (ownership() over the copy). */
+  function soleMemberIn(archive) {
+    const members = new Map();
+    for (const m of archive.memberships) members.set(m.organization_id, [...(members.get(m.organization_id) || []), m.user_id]);
+    return (id) => (members.get(id)?.length === 1 ? members.get(id)[0] : null);
+  }
+
+  /** The groups of a copy and where each would go, for the screen and the command line. */
+  function organizationsPlan(archive, where) {
+    return archive.organizations.map((org) => {
+      const choice = where.get(org.id);
+      const here = choice?.action === 'map' ? database.get('SELECT name FROM organizations WHERE id = ?', choice.organizationId) : null;
+      return {
+        source: {
+          id: org.id, name: org.name, kind: org.kind,
+          members: archive.memberships.filter((m) => m.organization_id === org.id).length,
+        },
+        choice: !choice ? { action: 'skip' }
+          : choice.action === 'map' ? { action: 'map', organization_id: choice.organizationId, name: here?.name ?? null }
+            : { action: 'create' },
+      };
+    });
+  }
 
   /** What an import would do, before doing it: for the screen and for the command line. */
   function planFor(archive, { mode, user = null, decisions = [], replace = false }) {
     const { manifest } = archive;
     const target = targetOf(mode, user);
+    if (mode === 'install') checkInstallAgain(manifest);
     const summary = {
       id: manifest.id, scope: manifest.scope, created_at: manifest.created_at,
       app: manifest.app, source: isObject(manifest.source) ? manifest.source : null,
@@ -900,16 +1468,30 @@ export function createPortability({
       // Which tables are the attachments' rows, so a screen counts them once, as files.
       file_tables: model.tables.filter((t) => t.file).map((t) => t.name),
       applied_at: alreadyApplied(manifest, target),
+      ...(groups ? { organizations: archive.organizations.length } : {}),
     };
     const choices = decide(archive, { mode, user, decisions, replace });
     if (mode === 'account') {
-      return { mode, copy: summary, account: archive.users[0].username, replace: countsOf(ownedBy(user.id)) };
+      const plan = { mode, copy: summary, account: archive.users[0].username, replace: countsOf(ownedBy(user.id)) };
+      if (groups) {
+        // With "replace", the groups they share are handed over first, and are no longer theirs to go into.
+        const shared = sharedGroups(user.id);
+        const leaving = new Set(replace ? shared.map((o) => o.id) : []);
+        plan.organizations = organizationsPlan(archive, decideOrganizations(archive, { mode, user, leaving }));
+        plan.hand_over = shared.map((o) => ({ id: o.id, name: o.name, kind: o.kind }));
+      }
+      return plan;
     }
-    const own = ownership(model, rowsOfDb);
-    const fileOwners = ownership(model, (name) => archive.tables.get(name));
+    const own = ownership(model, rowsOfDb, { soleMember: soleMembers() });
+    const fileOwners = ownership(model, (name) => archive.tables.get(name), { soleMember: soleMemberIn(archive) });
     return {
       mode,
       copy: summary,
+      ...(groups ? {
+        organizations: organizationsPlan(archive, decideOrganizations(archive, {
+          mode, insideUser: (id) => choices.get(id)?.action !== 'skip',
+        })),
+      } : {}),
       accounts: archive.users.map((source) => {
         const choice = choices.get(source.id);
         return {
@@ -927,6 +1509,8 @@ export function createPortability({
       targets: accounts.list().map((u) => ({
         id: u.id, username: u.username, display_name: u.display_name, email: u.email ?? null, role: u.role,
         owns: own.get(u.id) || {},
+        // And the groups "replace" would take them out of, to be said before (the panel names them).
+        ...(groups ? { hand_over: sharedGroups(u.id).map((o) => ({ id: o.id, name: o.name, kind: o.kind })) } : {}),
       })),
       provider: authProvider,
     };
@@ -937,20 +1521,32 @@ export function createPortability({
   /**
    * Applies a copy. Attachments are read and checked first, into a staging
    * folder beside the pending import; then one transaction creates the
-   * accounts, empties the accounts that are replaced, writes every row with
-   * new ids, the profiles and the record that it was applied; and only after
+   * accounts, hands over the groups they share and empties the accounts that
+   * are replaced, creates or finds the organizations (decideOrganizations) with
+   * their memberships and invitations, writes every row with new ids, the
+   * profiles, grants and payments and the record that it was applied; and only after
    * it commits are the files moved into place. A failure anywhere before the
    * commit leaves the install as it was.
    */
-  async function applyArchive(archive, { mode, user = null, decisions = [], replace = false, req = null, staging, by = 'account' }) {
+  async function applyArchive(archive, {
+    mode, user = null, decisions = [], replace = false, handOver = true, req = null, staging, by = 'account',
+  }) {
     const { manifest } = archive;
     const target = targetOf(mode, user);
     const when = alreadyApplied(manifest, target);
     if (when) throw conflict('import_already_applied', { at: when });
+    // Early, to refuse before the attachments are read; again inside the transaction, where it holds.
+    if (mode === 'install') checkInstallAgain(manifest);
+    // Another module's copy of the run that came first (decided inside the transaction, see there).
+    let followUp = false;
     const choices = decide(archive, { mode, user, decisions, replace });
+    // "Replace" takes the person out of the groups they share: only those they were shown (`hand_over`).
+    const confirmHandOver = groups && mode === 'account' && replace && handOver !== true;
+    if (confirmHandOver) checkHandOver(user.id, handOver);
     const sources = new Map(archive.users.map((u) => [u.id, u]));
     const inside = (id) => choices.has(id) && choices.get(id).action !== 'skip';
-    const { kept } = selectRows(model, (name) => archive.tables.get(name), inside);
+    const orgsIn = groups ? groupsInside(archive, mode, inside) : new Set();
+    const { kept } = selectRows(model, (name) => archive.tables.get(name), inside, { organizations: (id) => orgsIn.has(id) });
     const problems = { missing: 0, refused: 0, too_large: 0, plan: 0 };
 
     // What someone's plan doesn't allow them to attach doesn't come in with their copy either.
@@ -1005,6 +1601,13 @@ export function createPortability({
       const replacedFiles = [];
       const moves = [];
       const result = database.tx(() => {
+        // The run gate, where nothing can come in between: two imports of an install (two modules, the
+        // command line) may both pass the check above while reading their attachments; the second one
+        // in here sees the run the first recorded, and is refused or follows it.
+        if (mode === 'install') {
+          checkInstallAgain(manifest);
+          followUp = sameRunHere(manifest);
+        }
         // Accounts: the ones mapped here, and the new ones, without the app's welcome content.
         const userMap = new Map();
         const created = [];
@@ -1027,18 +1630,109 @@ export function createPortability({
           // Its age, whether it was disabled, and whether its email was confirmed there (only the same address).
           const verified = choice.email && source.email && choice.email === String(source.email).trim().toLowerCase()
             ? source.email_verified_at ?? null : null;
-          database.run('UPDATE users SET created_at = COALESCE(?, created_at), disabled_at = ?, email_verified_at = ? WHERE id = ?',
-            source.created_at ?? null, mode === 'install' ? source.disabled_at ?? null : null, verified, account.id);
+          // An account waiting to be deleted goes on waiting, until the same day: only a disabled one
+          // waits (a date alone, in a file anyone could write, would have the sweep take an active account).
+          const disabled = mode === 'install' ? source.disabled_at ?? null : null;
+          const goes = disabled && source.delete_after && !Number.isNaN(Date.parse(source.delete_after))
+            ? new Date(Date.parse(source.delete_after)).toISOString() : null;
+          database.run(`UPDATE users SET created_at = COALESCE(?, created_at), disabled_at = ?, email_verified_at = ?
+            ${model.userColumns.includes('delete_after') ? ', delete_after = ?' : ''} WHERE id = ?`,
+          source.created_at ?? null, disabled, verified, ...(model.userColumns.includes('delete_after') ? [goes] : []), account.id);
           userMap.set(sourceId, account.id);
           created.push(account.id);
         }
 
-        // "Replace": what those accounts own goes first, exactly what their own copy would take.
+        // "Replace": what those accounts own goes first, exactly what their own copy would take; a
+        // group they share is handed over to the others instead of emptied.
         const replaced = {};
+        const handedOver = [];
         for (const choice of choices.values()) {
           if (choice.action !== 'map' || !choice.replace) continue;
+          // Again, inside: nothing may have changed since the check before the attachments were read.
+          if (confirmHandOver) checkHandOver(choice.userId, handOver);
+          if (groups) handedOver.push(...handOverGroups(choice.userId).map((g) => ({ ...g, user_id: choice.userId })));
           for (const [name, n] of Object.entries(emptyAccount(choice.userId, replacedFiles))) {
             replaced[name] = (replaced[name] || 0) + n;
+          }
+        }
+
+        // The groups: into one here, or new; their memberships, and the invitations still waiting.
+        const orgMap = new Map();
+        const orgsCreated = new Set();
+        const orgsMapped = new Set();
+        let membershipsImported = 0;
+        let invitationsImported = 0;
+        if (groups) {
+          const where = decideOrganizations(archive, { mode, user, insideUser: inside });
+          const roleHere = (role) => (organizations.roles.includes(role) ? role : 'member');
+          // A membership a copy brings meets the install's cap per person (organizations.kinds
+          // maxPerUser), as one made any other way does: past it, 409 organization_limit, and the
+          // whole import is undone. An archived group counts for nobody, and one already there is no more.
+          const mayJoin = (organizationId, userId, kind, archived) => {
+            if (archived || database.get('SELECT 1 AS here FROM memberships WHERE organization_id = ? AND user_id = ?', organizationId, userId)) return;
+            organizations.checkLimit?.(userId, kind);
+          };
+          const joined = new Map(archive.memberships.map((m) => [`${m.organization_id}:${m.user_id}`, m]));
+          for (const org of archive.organizations) {
+            const choice = where.get(org.id);
+            if (!choice) continue;
+            if (choice.action === 'map') {
+              orgMap.set(org.id, choice.organizationId);
+              orgsMapped.add(choice.organizationId);
+              continue;
+            }
+            // Made quietly, as accounts are: no app's welcome (a trial) for what a copy brings. Someone's
+            // own copy keeps neither its slug nor its date, which a file anyone writes could take from
+            // a group somewhere else; a whole install's comes back as it was.
+            const whole = mode === 'install';
+            const { lastInsertRowid } = database.run(`INSERT INTO organizations (slug, name, kind, settings, branding, created_at,
+              archived_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, freeSlug(whole ? org.slug : null, org.name), org.name, org.kind,
+            org.settings, org.branding, whole ? org.created_at ?? iso() : iso(), org.archived_at ? (whole ? org.archived_at : iso()) : null);
+            const id = Number(lastInsertRowid);
+            orgMap.set(org.id, id);
+            orgsCreated.add(id);
+            const from = whole ? sourceInstall(manifest) : null;
+            if (from) database.setMeta(originKey(from, org.id), JSON.stringify({ id, run: sourceRun(manifest) }));
+            // Someone's own copy: a group made for them is theirs, whatever role they had there.
+            if (mode === 'account') {
+              mayJoin(id, user.id, org.kind, Boolean(org.archived_at));
+              database.run("INSERT INTO memberships (organization_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)",
+                id, user.id, joined.get(`${org.id}:${archive.users[0].id}`)?.joined_at ?? iso());
+              membershipsImported += 1;
+            }
+          }
+          if (mode === 'install') {
+            // Which run of that install this is, so that only its other modules' copies come after it.
+            const from = sourceInstall(manifest);
+            if (from && !followUp) database.setMeta(installKey(from), sourceRun(manifest));
+            // For the groups it makes: one it found came with another module's copy of the same run,
+            // with its members, invitations, plans and payments, and only this module's rows come; but
+            // an account this import is the first to bring (left out of the first copy) joins it.
+            for (const m of archive.memberships) {
+              const organizationId = orgMap.get(m.organization_id);
+              const userId = userMap.get(m.user_id);
+              if (!organizationId || !userId || (!orgsCreated.has(organizationId) && !created.includes(userId))) continue;
+              const group = database.get('SELECT kind, archived_at FROM organizations WHERE id = ?', organizationId);
+              mayJoin(organizationId, userId, group?.kind ?? null, Boolean(group?.archived_at));
+              membershipsImported += database.run(`INSERT OR IGNORE INTO memberships (organization_id, user_id, role, invited_by,
+                joined_at) VALUES (?, ?, ?, ?, ?)`, organizationId, userId, roleHere(m.role),
+              m.invited_by == null ? null : userMap.get(m.invited_by) ?? null, m.joined_at ?? iso()).changes;
+            }
+            // A group whose owners were left out has its heir as owner, as when an account goes: never none.
+            for (const id of orgsCreated) {
+              if (database.get("SELECT 1 FROM memberships WHERE organization_id = ? AND role = 'owner'", id)) continue;
+              const heir = organizations.heirOf(id);
+              if (heir != null) database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir);
+            }
+            for (const invitation of archive.invitations) {
+              const organizationId = orgMap.get(invitation.organization_id);
+              if (!organizationId || !orgsCreated.has(organizationId)) continue;
+              invitationsImported += database.run(`INSERT OR IGNORE INTO invitations (organization_id, email, role, token_hash,
+                invited_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, organizationId, invitation.email,
+              roleHere(invitation.role), invitation.token_hash,
+              invitation.invited_by == null ? null : userMap.get(invitation.invited_by) ?? null,
+              invitation.created_at ?? iso(), invitation.expires_at).changes;
+            }
           }
         }
 
@@ -1046,6 +1740,8 @@ export function createPortability({
         const newIds = new Map(model.tables.map((t) => [t.name, new Map()]));
         const later = [];
         const imported = {};
+        // A group's one row it had already (onePerOrganization): the copy's is that one.
+        const merged = {};
         for (const table of model.tables) {
           const statements = new Map();
           for (const row of kept.get(table.name)) {
@@ -1055,7 +1751,24 @@ export function createPortability({
               const old = row[ref.column];
               if (old == null) continue;
               values[ref.column] = ref.target === 'users' ? userMap.get(old) ?? null
-                : ref.deferred ? null : newIds.get(ref.target).get(old) ?? null;
+                : ref.target === 'organizations' ? orgMap.get(old) ?? null
+                  : ref.deferred ? null : newIds.get(ref.target).get(old) ?? null;
+            }
+            if (table.onePer && values[table.onePer] != null) {
+              const existing = database.get(`SELECT id FROM ${quote(table.name)} WHERE ${quote(table.onePer)} = ?
+                ORDER BY id LIMIT 1`, values[table.onePer]);
+              if (existing) {
+                newIds.get(table.name).set(row.id, Number(existing.id));
+                merged[table.name] = (merged[table.name] || 0) + 1;
+                continue;
+              }
+            }
+            // A column that never travels takes what the app says, or the column's own default:
+            // a function that answers nothing (undefined) leaves the default too.
+            for (const [column, fallback] of table.omit) {
+              delete values[column];
+              const value = typeof fallback === 'function' ? fallback({ ...values }) : fallback;
+              if (value !== undefined && value !== null) values[column] = value;
             }
             if (table.file) {
               const file = staged.get(row[table.file.path]);
@@ -1066,7 +1779,9 @@ export function createPortability({
               values[table.file.mime] = file.mime;
               values[table.file.size] = file.size;
             }
-            if (table.clean) values = table.clean(values, { mode }) ?? values;
+            if (table.clean) {
+              values = table.clean(values, { mode, organizations: { created: orgsCreated, mapped: orgsMapped } }) ?? values;
+            }
             const columns = Object.keys(values);
             const signature = columns.join('\u0000');
             let statement = statements.get(signature);
@@ -1125,18 +1840,24 @@ export function createPortability({
 
         // The plans given there, by the administrator or paid for, to whoever came along.
         let grantsImported = 0;
+        // Only for the groups and accounts this import is the first to bring: those another module's
+        // copy of the same run brought came with theirs.
         if (mode === 'install' && archive.grants.length && database.columnsOf('entitlement_grants').length) {
           for (const grant of archive.grants) {
-            const userId = userMap.get(grant.subject_id);
-            if (!userId) continue;
+            const group = grant.subject_type === 'organization';
+            const subjectId = group ? orgMap.get(grant.subject_id) : userMap.get(grant.subject_id);
+            if (!subjectId) continue;
+            // A group's plans come with the group this import makes, never into one it found.
+            if (group && !orgsCreated.has(subjectId)) continue;
+            if (!group && followUp && !created.includes(subjectId)) continue;
             // A payment's grant already here (its webhook came first) isn't doubled.
             if (grant.external_ref != null && database.get(`SELECT 1 FROM entitlement_grants WHERE source = ?
               AND external_ref = ? AND revoked_at IS NULL`, grant.source, grant.external_ref)) continue;
             try {
               database.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, feature, value, quantity, source,
-                external_ref, starts_at, ends_at, created_at, note) VALUES ('user', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              userId, grant.plan, grant.feature, grant.value, grant.quantity, grant.source, grant.external_ref,
-              grant.starts_at ?? iso(), grant.ends_at, grant.created_at ?? iso(), grant.note);
+                external_ref, starts_at, ends_at, created_at, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              group ? 'organization' : 'user', subjectId, grant.plan, grant.feature, grant.value, grant.quantity, grant.source,
+              grant.external_ref, grant.starts_at ?? iso(), grant.ends_at, grant.created_at ?? iso(), grant.note);
             } catch (err) {
               throw invalidData('grants', { reason: String(err.message || '').slice(0, 120) });
             }
@@ -1149,19 +1870,27 @@ export function createPortability({
         let billingImported = 0;
         if (mode === 'install' && database.columnsOf('billing_customers').length) {
           const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
+          // A group's under the id of the group this import makes, never the copy's: a renewal that
+          // names the old id finds the family by its customer (billing.js), whoever has that id here.
+          // As plans: only for whom this import is the first to bring.
+          const firstHere = (userId) => (followUp && !created.includes(userId) ? null : userId);
+          const subjectOfRow = (row) => (row.subject_type !== 'organization' ? firstHere(userMap.get(row.subject_id))
+            : orgsCreated.has(orgMap.get(row.subject_id)) ? orgMap.get(row.subject_id) : null);
           for (const row of archive.billing.customers) {
-            const userId = userMap.get(row.subject_id);
-            if (!userId) continue;
+            const subjectId = subjectOfRow(row);
+            if (!subjectId) continue;
             billingImported += database.run(`INSERT OR IGNORE INTO billing_customers (subject_type, subject_id, provider,
-              customer_id, created_at) VALUES ('user', ?, ?, ?, ?)`, userId, row.provider, row.customer_id, row.created_at ?? iso()).changes;
+              customer_id, created_at) VALUES (?, ?, ?, ?, ?)`, row.subject_type, subjectId, row.provider, row.customer_id,
+            row.created_at ?? iso()).changes;
           }
           for (const row of archive.billing.subscriptions) {
-            const userId = userMap.get(row.subject_id);
-            if (!userId) continue;
+            const subjectId = subjectOfRow(row);
+            if (!subjectId) continue;
             billingImported += database.run(`INSERT OR IGNORE INTO billing_subscriptions (provider, ref, subject_type, subject_id,
               product, status, quantity, period_end, occurred_at, updated_at${refunded ? ', refunded_until' : ''})
-              VALUES (?, ?, 'user', ?, ?, ?, ?, ?, ?, ?${refunded ? ', ?' : ''})`, row.provider, row.ref, userId, row.product,
-            row.status, row.quantity, row.period_end, row.occurred_at, row.updated_at, ...(refunded ? [row.refunded_until] : [])).changes;
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?${refunded ? ', ?' : ''})`, row.provider, row.ref, row.subject_type, subjectId,
+            row.product, row.status, row.quantity, row.period_end, row.occurred_at, row.updated_at,
+            ...(refunded ? [row.refunded_until] : [])).changes;
           }
         }
 
@@ -1174,10 +1903,12 @@ export function createPortability({
           throw conflict('import_already_applied', { at: alreadyApplied(manifest, target) });
         }
         // The plan's limits, with the rows already in: the app counts what the person has now.
-        if (model.check && mode === 'account') model.check({ user, counts: imported, replaced });
+        if (model.check && mode === 'account') {
+          model.check({ user, counts: imported, replaced, ...(groups ? { organizations: { created: orgsCreated, mapped: orgsMapped } } : {}) });
+        }
         const leftOut = {};
         for (const [name, rows] of archive.tables) {
-          const missing = rows.length - (imported[name] || 0);
+          const missing = rows.length - (imported[name] || 0) - (merged[name] || 0);
           if (missing > 0) leftOut[name] = missing;
         }
         return {
@@ -1185,9 +1916,25 @@ export function createPortability({
             source: sourceId, user_id: userId, username: accounts.byId(userId)?.username ?? null, created: created.includes(userId),
           })),
           skipped: [...choices].filter(([, c]) => c.action === 'skip').map(([sourceId]) => sources.get(sourceId).username),
-          imported: { ...counts, grants: grantsImported, billing: billingImported },
+          imported: {
+            ...counts, grants: grantsImported, billing: billingImported,
+            ...(groups ? {
+              organizations: { created: orgsCreated.size, mapped: orgsMapped.size },
+              memberships: membershipsImported, invitations: invitationsImported,
+            } : {}),
+          },
           file_tables: model.tables.filter((t) => t.file).map((t) => t.name),
           replaced,
+          ...(groups ? {
+            merged,
+            organizations: [...orgMap].map(([source, id]) => ({
+              source, organization_id: id, name: database.get('SELECT name FROM organizations WHERE id = ?', id)?.name ?? null,
+              created: orgsCreated.has(id),
+            })),
+            handed_over: handedOver.map(({ id, name, kind, heir, user_id: userId }) => ({
+              organization_id: id, name, kind, user_id: userId, heir,
+            })),
+          } : {}),
           left_out: { tables: leftOut, files: problems },
         };
       });
@@ -1218,10 +1965,15 @@ export function createPortability({
 
       audit?.record({
         action: 'data.import', actor: user, req,
-        meta: { scope: manifest.scope, into: mode, accounts: result.accounts.length, rows: Object.values(result.imported.tables).reduce((a, b) => a + b, 0), files: result.imported.files },
+        meta: {
+          scope: manifest.scope, into: mode, accounts: result.accounts.length, rows: Object.values(result.imported.tables).reduce((a, b) => a + b, 0),
+          files: result.imported.files, ...(groups ? { organizations: result.organizations.length } : {}),
+        },
       });
-      // Whoever has the app open sees it all without reloading by hand.
-      live?.publish({ audience: mode === 'account' && !Object.keys(result.replaced).length ? [user.id] : null, event: 'resync', data: {} });
+      // Whoever has the app open sees it all without reloading by hand: everyone when a group
+      // others are in changed (rows came into one, or someone left it).
+      const shared = groups && (result.imported.organizations.mapped > 0 || result.handed_over.length > 0);
+      live?.publish({ audience: mode === 'account' && !Object.keys(result.replaced).length && !shared ? [user.id] : null, event: 'resync', data: {} });
       for (const { user_id: id } of result.accounts) accounts.changed?.(id);
       return result;
     } catch (err) {
@@ -1304,14 +2056,14 @@ export function createPortability({
   }
 
   /** Applies a pending import, and lets its file go. */
-  async function apply(id, { mode, user, decisions = [], replace = false, req = null }) {
+  async function apply(id, { mode, user, decisions = [], replace = false, handOver = null, req = null }) {
     const files = pending(id, { mode, user });
     const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
     try {
       const archive = await readArchive(files.zip, { by: mode });
       let result;
       try {
-        result = await applyArchive(archive, { mode, user, decisions, replace, req, staging: files.staging, by: mode });
+        result = await applyArchive(archive, { mode, user, decisions, replace, handOver, req, staging: files.staging, by: mode });
       } finally {
         await archive.zip.close();
       }
@@ -1339,14 +2091,14 @@ export function createPortability({
   }
 
   /** Applies a file on disk (the command line, with the administrator's ceilings). */
-  async function applyFile(file, { mode, user = null, decisions = [], replace = false, by = 'install' }) {
+  async function applyFile(file, { mode, user = null, decisions = [], replace = false, handOver = true, by = 'install' }) {
     const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
     try {
       fs.mkdirSync(importsDir, { recursive: true });
       const archive = await readArchive(file, { by });
       try {
         return await applyArchive(archive, {
-          mode, user, decisions, replace, staging: path.join(importsDir, `${randomToken(12)}.files`), by,
+          mode, user, decisions, replace, handOver, staging: path.join(importsDir, `${randomToken(12)}.files`), by,
         });
       } finally {
         await archive.zip.close();
@@ -1412,7 +2164,9 @@ export function registerPortabilityApi(router, {
   async function download(ctx, { scope, user }) {
     const release = portability.begin(scope === 'install' ? 'install' : `user:${user.id}`);
     try {
-      const job = portability.prepareExport({ scope, userId: user.id });
+      // `?run=`: the run of a host's other modules exported with it (the copy says which it is of).
+      const run = scope === 'install' ? ctx.query?.get('run') ?? null : null;
+      const job = portability.prepareExport({ scope, userId: user.id, run });
       const ascii = job.filename.replace(/[^\w.-]/g, '_');
       ctx.res.writeHead(200, {
         'Content-Type': 'application/zip',
@@ -1442,7 +2196,11 @@ export function registerPortabilityApi(router, {
   router.post('/api/me/import/:id', async (ctx) => {
     const user = brake(signedIn(ctx));
     const body = await readJson(ctx.req);
-    sendJson(ctx.res, 200, await portability.apply(ctx.params.id, { mode: 'account', user, replace: body.replace === true, req: ctx.req }));
+    // `hand_over`: the ids of the groups the person was shown "replace" takes them out of (the plan's).
+    const shown = Array.isArray(body.hand_over) ? body.hand_over.filter((v) => Number.isSafeInteger(v)) : null;
+    sendJson(ctx.res, 200, await portability.apply(ctx.params.id, {
+      mode: 'account', user, replace: body.replace === true, handOver: shown, req: ctx.req,
+    }));
   });
   router.delete('/api/me/import/:id', (ctx) => {
     portability.discard(ctx.params.id, { mode: 'account', user: signedIn(ctx) });

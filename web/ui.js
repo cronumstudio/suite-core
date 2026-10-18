@@ -53,8 +53,9 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
 }
 
 /**
- * Where a save stands, next to what is saved: 'saving', 'saved', 'offline'
- * (kept on this device, to be sent), 'error' or 'conflict'. Returns the node
+ * Where a save stands, next to what is saved: 'saving', 'saved', 'local'
+ * (kept on this device, its answer slow to come), 'offline' (kept on this
+ * device, to be sent), 'error' or 'conflict'. Returns the node
  * and a setter.
  */
 export function saveState(initial = 'saved') {
@@ -63,7 +64,7 @@ export function saveState(initial = 'saved') {
     node.className = `kit-saved${['offline', 'error', 'conflict'].includes(state) ? ` kit-saved--${state === 'conflict' ? 'error' : state}` : ''}`;
     node.replaceChildren(
       state === 'saving' ? el('span', { class: 'kit-spinner', 'aria-hidden': 'true' })
-        : icon(state === 'saved' ? 'check' : state === 'offline' ? 'wifi-off' : 'info'),
+        : icon(state === 'saved' ? 'check' : state === 'local' ? 'device' : state === 'offline' ? 'wifi-off' : 'info'),
       el('span', { text: t(`kit.saveState.${state}`) }));
   };
   set(initial);
@@ -274,8 +275,9 @@ export function menu(anchor, items, { header = null } = {}) {
   };
   const onOutside = (ev) => { if (!node.contains(ev.target) && !anchor.contains(ev.target)) closeMenu(); };
   document.addEventListener('keydown', onKey);
-  // On the next turn: the click that opened it must not close it.
-  setTimeout(() => document.addEventListener('pointerdown', onOutside), 0);
+  // On the next turn: the click that opened it must not close it. Not if it was closed by then
+  // (a frame destroyed at once): cleanUp has already run, and the listener would stay forever.
+  setTimeout(() => { if (openMenuNode === node) document.addEventListener('pointerdown', onOutside); }, 0);
   node.cleanUp = () => {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('pointerdown', onOutside);

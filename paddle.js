@@ -243,12 +243,25 @@ export function paddleProvider({
   /**
    * A subscription that stops: at the end of the period already paid (it
    * won't renew), or `now`. Paddle answers the subscription's change through
-   * the webhook, as when the person cancels in the portal.
+   * the webhook, as when the person cancels in the portal. → `{ already }`:
+   * whether Paddle had it so before this asked (billing.js never renews one of
+   * those again: it is the payer's own cancellation).
    */
   async function cancelSubscription(ref, { now = false } = {}) {
-    await call('POST', `/subscriptions/${encodeURIComponent(ref)}/cancel`, {
-      effective_from: now ? 'immediately' : 'next_billing_period',
-    });
+    const path = `/subscriptions/${encodeURIComponent(ref)}`;
+    try {
+      await call('POST', `${path}/cancel`, { effective_from: now ? 'immediately' : 'next_billing_period' });
+      return { already: false };
+    } catch (err) {
+      // Paddle refuses to cancel again one whose cancellation is already scheduled (in the portal, or
+      // by a request whose answer never came: subscription_locked_pending_changes), and any change
+      // to one already canceled. What was asked may be so already: it is read, and counts if it is.
+      if (err?.code !== 'billing_provider_error') throw err;
+      const subscription = await call('GET', path).catch(() => null);
+      const done = subscription?.status === 'canceled' || (!now && subscription?.scheduled_change?.action === 'cancel');
+      if (!done) throw err;
+      return { already: true };
+    }
   }
 
   /** A cancellation scheduled for the period's end taken back: it renews again. */

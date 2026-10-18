@@ -20,9 +20,21 @@
  * The app keeps its own table linking files to its records (Tasks'
  * `task_files`), its limits per record and its trash; the suite stores,
  * serves, removes, and sweeps what nobody owns any more.
+ *
+ * A file can also come from a link (`fromUrl`), for an assistant that has the
+ * address of a photo and not its bytes: an MCP tool can't carry a file, and an
+ * assistant writing a photo out as base64 would be most of its answer. The
+ * download is a stream like a request, so the app's own save function, with
+ * its permission and plan checks, takes it unchanged. The server fetching an
+ * address someone else chose is the part with an edge: see `openUrl`.
  */
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
+import dns from 'node:dns/promises';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { randomToken } from './crypto.js';
 import { HttpError, badRequest, notFound } from './http.js';
 
@@ -114,6 +126,13 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
    */
   function store(req, { folder, name }) {
     return new Promise((resolvePromise, reject) => {
+      // A stream that died before anyone read it (a download from a link, cut
+      // while the app was still checking permissions) never ends: answered now,
+      // instead of a promise that waits forever.
+      if (req.destroyed) {
+        reject(req.errored instanceof HttpError ? req.errored : badRequest('upload_cut'));
+        return;
+      }
       const target = path.join(root, String(folder));
       if (!resolve(`${folder}/x`)) {
         req.resume();
@@ -132,6 +151,19 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
       let reason = null;
 
       /**
+       * The half-written file goes. Windows can't delete a file that is still
+       * open, and the stream closes a moment after it is destroyed: there it
+       * goes once it has. Elsewhere it goes now.
+       */
+      const discard = () => {
+        if (out) out.destroy();
+        if (!partial) return;
+        const file = partial;
+        const unlink = () => { try { fs.unlinkSync(file); return true; } catch { return false; } };
+        if (!unlink() && out) out.once('close', unlink);
+      };
+
+      /**
        * Refuses the upload. By default without cutting the connection: the
        * rest is swallowed and the answer comes at the end. Cutting halfway
        * makes the browser see a network error instead of the reason, and the
@@ -143,8 +175,7 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
         if (failed) return;
         failed = true;
         reason = err;
-        if (out) out.destroy();
-        if (partial) { try { fs.unlinkSync(partial); } catch { /* never existed */ } }
+        discard();
         if (cut) { req.destroy(); reject(err); return; }
         req.resume();
       };
@@ -193,8 +224,7 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
         // `refuse` would wait for an end that just happened: here it is cleaned and answered now.
         const failNow = (err) => {
           failed = true;
-          if (out) out.destroy();
-          if (partial) { try { fs.unlinkSync(partial); } catch { /* never existed */ } }
+          discard();
           reject(err);
         };
         if (!written) { failNow(badRequest('file_empty')); return; }
@@ -344,5 +374,248 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
     return deleted;
   }
 
-  return { dir: root, maxBytes, store, resolve, remove, serve, sweep };
+  /**
+   * A file from a link, as `openUrl` with this folder's `maxBytes`: → { stream, name },
+   * the stream for `store()` (or for the app's save function, which calls it).
+   */
+  const fromUrl = (url, options = {}) => openUrl(url, { maxBytes, ...options });
+
+  return { dir: root, maxBytes, store, resolve, remove, serve, sweep, fromUrl };
+}
+
+/* ------------------------------ from a link ------------------------------- */
+
+/** Answers that send the download elsewhere: followed by hand, each new address checked again. */
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+const unreachable = () => badRequest('file_url_unreachable');
+
+function publicV4(ip) {
+  const [a, b, c] = ip.split('.').map(Number);
+  return !(a === 0 || a === 10 || a === 127                 // "this network", private, loopback
+    || (a === 100 && b >= 64 && b <= 127)                    // shared by carriers (CGNAT)
+    || (a === 169 && b === 254)                              // link-local: cloud metadata lives here
+    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+    || (a === 192 && b === 0 && (c === 0 || c === 2))        // protocol assignments, documentation
+    || (a === 192 && b === 88 && c === 99)                   // the old 6to4 relays
+    || (a === 198 && (b === 18 || b === 19))                 // benchmarking
+    || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)
+    || a >= 224);                                            // multicast, reserved, broadcast
+}
+
+/** An IPv6 address as its eight 16-bit words: `::` expanded, a dotted tail turned into two words. */
+function ipv6Words(ip) {
+  let text = ip.toLowerCase().split('%')[0];
+  const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (tail) {
+    const [a, b, c, d] = tail.slice(1).map(Number);
+    text = `${text.slice(0, tail.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, rest] = text.split('::');
+  const before = head ? head.split(':') : [];
+  const after = rest === undefined ? null : (rest ? rest.split(':') : []);
+  const words = after === null ? before : [...before, ...Array(8 - before.length - after.length).fill('0'), ...after];
+  return words.map((w) => parseInt(w, 16));
+}
+
+/** The IPv4 address two words of an IPv6 one carry. */
+const v4Of = (high, low) => `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+
+/**
+ * Whether an address is on the public internet, the only place the server
+ * fetches a file from. Anything else is somebody's inside: the NAS's admin
+ * page, the router, the cloud's metadata service at 169.254.169.254. IPv6 is
+ * only public in 2000::/3, and the forms that carry an IPv4 address inside
+ * (mapped, NAT64, 6to4) are judged by that address: `::ffff:127.0.0.1` is
+ * loopback written another way.
+ */
+export function isPublicAddress(ip) {
+  const text = String(ip || '').trim();
+  const family = net.isIP(text.split('%')[0]);
+  if (family === 4) return publicV4(text);
+  if (family !== 6) return false;
+  const w = ipv6Words(text);
+  if (w.length !== 8 || w.some((x) => !Number.isInteger(x))) return false;
+  const zeros = (from, to) => w.slice(from, to).every((x) => x === 0);
+  if (zeros(0, 5) && w[5] === 0xffff) return publicV4(v4Of(w[6], w[7]));                 // ::ffff:a.b.c.d
+  if (w[0] === 0x64 && w[1] === 0xff9b && zeros(2, 6)) return publicV4(v4Of(w[6], w[7]));  // NAT64
+  if (w[0] === 0x2002) return publicV4(v4Of(w[1], w[2]));                                // 6to4
+  if ((w[0] & 0xe000) !== 0x2000) return false;   // ::, ::1, ULA fc00::/7, link-local, multicast…
+  if (w[0] === 0x2001 && w[1] < 0x200) return false;   // protocol assignments, Teredo among them
+  if (w[0] === 0x2001 && w[1] === 0xdb8) return false;   // documentation
+  if (w[0] === 0x3fff && w[1] < 0x1000) return false;   // documentation, the newer block
+  return true;
+}
+
+/** A link a file may be fetched from: http or https, with a host and no credentials. */
+function checkedUrl(text) {
+  const raw = String(text ?? '').trim();
+  let url;
+  try { url = new URL(raw); } catch { throw badRequest('file_url'); }
+  if (raw.length > 2048 || !['http:', 'https:'].includes(url.protocol) || !url.hostname
+    || url.username || url.password) {
+    throw badRequest('file_url');
+  }
+  return url;
+}
+
+/**
+ * The address the download will connect to, after checking every address the
+ * name has: one private among public ones is enough to refuse, because which
+ * one a connection would get is the resolver's choice, not ours.
+ */
+async function addressOf(url, { lookup, allowPrivate }) {
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  let addresses;
+  if (net.isIP(host)) addresses = [{ address: host, family: net.isIP(host) }];
+  else {
+    try { addresses = await lookup(host, { all: true }); } catch { throw unreachable(); }
+  }
+  if (!Array.isArray(addresses) || !addresses.length) throw unreachable();
+  const mayBePrivate = typeof allowPrivate === 'function' ? allowPrivate(host) : allowPrivate === true;
+  if (!mayBePrivate && addresses.some((a) => !isPublicAddress(a.address))) throw badRequest('file_url_private');
+  return addresses[0];
+}
+
+/**
+ * One GET, to the address that was checked. The name is never looked up
+ * again: a resolver that answered a public address for the check and a private
+ * one a moment later (DNS rebinding) would otherwise walk the server inside.
+ * The URL keeps its name, so the Host header and the TLS certificate are the site's.
+ */
+function requestOnce(url, { address, family }, { signal, headersTimeout, userAgent }) {
+  const client = url.protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = client.request(url, {
+      method: 'GET',
+      // No pool: a socket kept from another request was checked for another name.
+      agent: false,
+      headers: { 'User-Agent': userAgent, Accept: 'image/*, application/pdf, */*;q=0.1', 'Accept-Encoding': 'identity' },
+      // Node asks with `all` when it may try several families (autoSelectFamily): one answer either way.
+      lookup: (_host, options, done) => (options?.all ? done(null, [{ address, family }]) : done(null, address, family)),
+    }, (res) => {
+      clearTimeout(timer);
+      resolve(res);
+    });
+    const timer = setTimeout(() => req.destroy(unreachable()), headersTimeout);
+    const abort = () => req.destroy(unreachable());
+    signal.addEventListener('abort', abort, { once: true });
+    req.on('close', () => signal.removeEventListener('abort', abort));
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err instanceof HttpError ? err : unreachable());
+    });
+    req.end();
+  });
+}
+
+/** The file's name: the one the site gives (Content-Disposition), else the last part of its path, else `file`. */
+export function nameFromResponse(disposition, url) {
+  const header = String(disposition || '');
+  let name = '';
+  const encoded = /filename\*\s*=\s*[\w-]*'[^']*'([^;]+)/i.exec(header);
+  if (encoded) {
+    try { name = decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, '')); } catch { /* malformed: the next one */ }
+  }
+  if (!name) {
+    const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(header);
+    if (plain) name = (plain[1] ?? plain[2] ?? '').trim();
+  }
+  if (!name) {
+    const last = url.pathname.split('/').filter(Boolean).at(-1) || '';
+    try { name = decodeURIComponent(last); } catch { name = last; }
+  }
+  // A name, not a path, and nothing a header or a page would choke on.
+  name = path.posix.basename(name.replace(/\\/g, '/')).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+  return name || 'file';
+}
+
+/**
+ * Opens a file at a link someone gave (an assistant, through an MCP tool):
+ * → { stream, name }, the stream a Readable that `store()` takes as it takes a
+ * request. What is kept is decided by `store`, by the first bytes, as for any
+ * upload: a page that says it is a photo is still refused.
+ *
+ * It is the server fetching an address it was handed, so it never fetches one
+ * inside a network (`isPublicAddress`, on every address the name has and on
+ * every redirect, at most `maxRedirects`), and it connects to the address it
+ * checked. A Content-Length over `maxBytes` is refused before reading; a body
+ * that grows past it, by `store`. 10 s to answer, 60 s for everything.
+ *
+ * Errors (HttpError): `file_url` (not an http(s) link, or one with a user and
+ * password), `file_url_private`, `file_url_unreachable` (no such name, no
+ * answer, too slow, too many redirects), `file_url_status` with the `status`,
+ * `file_too_large` (413). A download cut halfway fails `store` with
+ * `upload_cut`, or with `file_url_unreachable` when it ran out of time.
+ *
+ * `lookup` and `allowPrivate` (true, or a function of the host name) are for
+ * tests only: a test server lives on 127.0.0.1.
+ */
+export async function openUrl(given, {
+  maxBytes = 15 * 1024 * 1024, maxRedirects = 3, headersTimeout = 10_000, timeout = 60_000,
+  userAgent = 'suite-core (file from a link)', lookup = dns.lookup, allowPrivate = false,
+} = {}) {
+  let url = checkedUrl(given);
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), timeout);
+  timer.unref?.();
+  try {
+    for (let hop = 0; ; hop += 1) {
+      const address = await addressOf(url, { lookup, allowPrivate });
+      if (deadline.signal.aborted) throw unreachable();
+      const res = await requestOnce(url, address, { signal: deadline.signal, headersTimeout, userAgent });
+      if (REDIRECTS.has(res.statusCode)) {
+        res.destroy();
+        if (hop >= maxRedirects || !res.headers.location) throw unreachable();
+        let next;
+        try { next = new URL(res.headers.location, url).href; } catch { throw unreachable(); }
+        url = checkedUrl(next);
+        continue;
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.destroy();
+        throw badRequest('file_url_status', { status: res.statusCode });
+      }
+      const length = Number(res.headers['content-length']);
+      if (Number.isFinite(length) && length > maxBytes) {
+        res.destroy();
+        throw new HttpError(413, 'file_too_large', { max_mb: Math.round(maxBytes / 1024 / 1024) });
+      }
+      return {
+        stream: relay(res, deadline.signal, () => clearTimeout(timer)),
+        name: nameFromResponse(res.headers['content-disposition'], url),
+      };
+    }
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
+/**
+ * The download as the stream `store()` reads. A stream of its own and not the
+ * response: a response that fails says ECONNRESET, and `store` passes on what
+ * its stream says, which must be a code the app can answer with. Pausing it
+ * pauses the download (pipe); destroying it closes the connection.
+ */
+function relay(res, signal, done) {
+  const out = new PassThrough();
+  const fail = () => out.destroy(signal.aborted ? unreachable() : badRequest('upload_cut'));
+  res.on('aborted', fail);
+  res.on('error', fail);
+  const abort = () => {
+    out.destroy(unreachable());
+    res.destroy();
+  };
+  signal.addEventListener('abort', abort, { once: true });
+  out.on('close', () => {
+    signal.removeEventListener('abort', abort);
+    done();
+    if (!res.complete) res.destroy();
+  });
+  // Until `store` listens, an error has nobody to hear it, and an 'error' nobody listens to takes
+  // the process down. `store` finds the stream already destroyed and answers with its error.
+  out.on('error', () => {});
+  res.pipe(out);
+  return out;
 }

@@ -18,6 +18,7 @@ import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { createAccounts } from '../accounts.js';
 import { createEntitlements } from '../entitlements.js';
+import { createOrganizations } from '../organizations.js';
 import { createBilling } from '../billing.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp } from '../app.js';
@@ -315,6 +316,65 @@ test('a subscription: bought, renewed, cancelled at the end of the period, and e
     type: 'subscription.updated', occurredAt: '2027-12-02T10:00:00Z', endsAt: '2028-11-01T10:00:00Z',
   })), 'stale');
   assert.equal(planOf(ada), 'free');
+});
+
+/* A family's Pro (Focus's) and a team's seats, both sold to a group. */
+const FAMILY_PRICE = 'pri_01m46hn0famlyyearly0000001';
+const TEAM_PRICE = 'pri_01m46hn0teamseatsyear000001';
+const GROUP_PRODUCTS = {
+  ...PRODUCTS,
+  'focus-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false, price: FAMILY_PRICE },
+  'team-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', price: TEAM_PRICE },
+};
+
+test('a family\'s Pro without seats: Paddle\'s checkout buys one, and every adult joins, bought, renewed and cancelled at the period\'s end', async (t) => {
+  const paddle = fakePaddle();
+  const { database, entitlements, billing, deliver, clock, accounts } = app(t, { paddle, products: GROUP_PRODUCTS });
+  const organizations = createOrganizations({ database, seatsOf: entitlements.seatsOf, clock: () => clock.now });
+  const [ada, bob, eve, dan, kim] = ['ada', 'bob', 'eve', 'dan', 'kim'].map((username) => accounts.create({ username }));
+  const home = organizations.create({ name: 'Andersen', kind: 'family', ownerId: ada.id });
+  organizations.addMember(home.id, bob.id, 'admin');
+  const join = (user) => { const { token } = organizations.invite(home.id, { role: 'admin' }); return organizations.accept(token, user.id).id; };
+
+  // The owner buys for the family: one of the price, as Paddle sells it, and the family in custom_data.
+  await billing.checkoutUrl({ type: 'organization', id: home.id }, 'focus-pro-yearly', { user: ada, returnUrl: 'https://focus.example/?billing=done' });
+  const transaction = paddle.calls.find((c) => c.pathname === '/transactions').body;
+  assert.deepEqual(transaction.items, [{ price_id: FAMILY_PRICE, quantity: 1 }]);
+  assert.deepEqual(transaction.custom_data, { subject: `organization:${home.id}`, product: 'focus-pro-yearly' });
+  // Paddle copies custom_data to the subscription, and every one of its events says quantity 1.
+  const family = (id, fields) => subscriptionEvent(id, {
+    price: FAMILY_PRICE, sub: 'sub_01family', customer: 'ctm_01family', custom: transaction.custom_data, ...fields,
+  });
+  assert.equal(await deliver(family('evt_f1', { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' })), 'granted');
+  assert.equal(entitlements.seatsOf(home.id), null);
+  organizations.addMember(home.id, eve.id, 'admin');
+  assert.equal(join(dan), home.id, 'a fourth adult, by invitation');
+  assert.equal(entitlements.ofOrganization(home.id).plan.id, 'pro');
+
+  clock.now = Date.parse('2027-11-01T10:00:05Z');
+  assert.equal(await deliver(family('evt_f2', {
+    type: 'subscription.updated', occurredAt: '2027-11-01T10:00:01Z', endsAt: '2028-11-01T10:00:00Z',
+  })), 'extended', 'renewed');
+  assert.equal(await deliver(family('evt_f3', {
+    type: 'subscription.updated', occurredAt: '2027-12-01T10:00:00Z', endsAt: '2028-11-01T10:00:00Z',
+    scheduled: { action: 'cancel', effective_at: '2028-11-01T10:00:00Z' },
+  })), 'extended', 'cancelled in the portal: Pro until the period ends');
+  assert.equal(join(kim), home.id, 'a fifth meanwhile');
+  assert.equal(entitlements.seatsOf(home.id), null);
+  assert.deepEqual(database.all("SELECT quantity FROM entitlement_grants WHERE subject_type = 'organization'").map((g) => g.quantity), [null]);
+  assert.equal(await deliver(family('evt_f4', { type: 'subscription.canceled', status: 'canceled', occurredAt: '2028-11-01T10:00:01Z' })), 'revoked');
+  assert.equal(entitlements.ofOrganization(home.id).plan.id, 'free');
+  assert.equal(organizations.membersOf(home.id).length, 5, 'nobody leaves when it ends');
+
+  // A team's product without the option: the quantity Paddle says is its seats, as before.
+  const team = organizations.create({ name: 'Team', ownerId: ada.id });
+  await billing.checkoutUrl({ type: 'organization', id: team.id }, 'team-yearly', { user: ada, returnUrl: 'https://focus.example/' });
+  const custom = paddle.calls.filter((c) => c.pathname === '/transactions')[1].body.custom_data;
+  assert.equal(await deliver(subscriptionEvent('evt_t1', {
+    price: TEAM_PRICE, sub: 'sub_01team', customer: 'ctm_01team', custom, occurredAt: '2028-11-02T10:00:00Z', endsAt: '2029-11-02T10:00:00Z',
+  })), 'granted');
+  assert.equal(entitlements.seatsOf(team.id), 1);
+  assert.throws(() => organizations.addMember(team.id, bob.id), (err) => err.status === 402 && err.code === 'seats_full');
 });
 
 test('someone deleting their account: their subscription stops renewing, renews again, and ends (account-deletion.js)', async (t) => {

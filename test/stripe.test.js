@@ -179,6 +179,27 @@ test('a subscription: granted, renewed, a late event ignored, changed in the por
   assert.equal(planOf(ada), 'free');
 });
 
+test('a group\'s subscription: seats from Stripe\'s quantity, unless its product says seats: false', async (t) => {
+  const products = {
+    ...PRODUCTS,
+    'family-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false, price: 'price_family_y' },
+    'team-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', price: 'price_team_y' },
+  };
+  const { clock, deliver, entitlements } = setup(t, { products });
+  const subscription = (id, organizationId, price, periodEnd) => ({
+    object: 'subscription', id, customer: `cus_${id}`, status: 'active', metadata: { subject: `organization:${organizationId}` },
+    items: { data: [{ price: { id: price }, quantity: 1, current_period_end: Math.floor(periodEnd / 1000) }] },
+  });
+  const start = clock.now;
+  assert.equal(await deliver({ id: 'evt_f1', type: 'customer.subscription.created', data: { object: subscription('sub_f', 7, 'price_family_y', start + 365 * DAY) } }), 'granted');
+  assert.equal(await deliver({ id: 'evt_t1', type: 'customer.subscription.created', data: { object: subscription('sub_t', 8, 'price_team_y', start + 365 * DAY) } }), 'granted');
+  assert.deepEqual([entitlements.seatsOf(7), entitlements.seatsOf(8)], [null, 1]);
+  clock.now = start + 365 * DAY;
+  assert.equal(await deliver({ id: 'evt_f2', type: 'customer.subscription.updated', data: { object: subscription('sub_f', 7, 'price_family_y', start + 730 * DAY) } }), 'extended');
+  assert.equal(entitlements.seatsOf(7), null, 'renewed, still without seats');
+  assert.equal(entitlements.ofOrganization(7).plan.id, 'pro');
+});
+
 test('a one-off purchase, a partial refund that changes nothing and a full one that does', async (t) => {
   const { ada, deliver, planOf } = setup(t);
   const session = (extra = {}) => ({

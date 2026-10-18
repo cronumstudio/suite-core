@@ -186,6 +186,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
   // A module's copies count its own migrations, which a host keeps under its id.
   const alphaData = alpha.suite.portabilityFor({ tables: { alpha_items: { refs: { user_id: 'users' } } } });
   assert.equal(alphaData.schemaVersions().app, 1);
+  // Copies that carry organizations need the module in the host too: these modules don't use it.
+  assert.throws(() => alpha.suite.portabilityFor({ tables: { alpha_items: { refs: { user_id: 'users' } } }, organizations: {} }),
+    /organizations needs modules\.organizations/);
 
   // Each module's plan features; the plans are the install's.
   assert.ok('items.max' in alpha.suite.entitlements.of(null).features);
@@ -531,6 +534,47 @@ test('what a host can’t run stops it, and says why', async () => {
   }
 });
 
+test('a module that manages a kind of group: the host declares it the same way, and the module hears its groups', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  let host = null;
+  t.after(() => { host?.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' };
+  const hostWith = (kinds) => ({ ...HOST, modules: { ...HOST.modules, organizations: true }, organizations: { kinds } });
+  const entry = (n) => ({ mount: 'focus', entry: fixture('plain', `?id=focus&uses=organizations&kinds=family&n=${n}`) });
+  for (const [kinds, why] of [[{}, 'not declared'], [{ family: { managed: true } }, 'declared otherwise']]) {
+    fresh += 1;
+    await assert.rejects(
+      createHost({ config: hostWith(kinds), modules: [entry(`${fresh}x`)], env, handleSignals: false, exitOnError: false, log: () => {} }),
+      (err) => err instanceof SuiteConfigError
+        && err.errors.includes("focus: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
+      why,
+    );
+  }
+
+  fresh += 1;
+  const module = entry(`${fresh}y`);
+  host = await createHost({
+    config: hostWith({ family: { managed: true, maxPerUser: 1 } }), modules: [module], env, handleSignals: false, exitOnError: false, log: () => {},
+  });
+  const { heard } = await import(module.entry);
+  const { organizations, accounts } = host.suite;
+  assert.equal(organizations.isManaged('family'), true);
+  const ada = accounts.create({ username: 'ada' });
+  const bob = accounts.create({ username: 'bob' });
+  const home = organizations.create({ name: 'Home', kind: 'family', ownerId: ada.id });
+  organizations.addMember(home.id, bob.id, 'admin');
+  organizations.removeMember(home.id, bob.id, { by: bob.id });
+  // Someone asking to delete their account and taking it back: the module hears it from the host's one deletion.
+  await host.suite.deletion.request(accounts.byId(ada.id));
+  await host.suite.deletion.restore(host.suite.deletion.ticketFor(ada.id));
+  accounts.remove(ada.id);
+  assert.deepEqual(heard, [
+    ['member', 'family', bob.id, 'left'], ['deletion requested', ada.id], ['deletion cancelled', ada.id],
+    ['member', 'family', ada.id, 'account_deleted'], ['deleted', 'family', 'empty'],
+  ], 'before, a module’s deletion hooks were dropped in a host');
+  assert.equal(organizations.exists(home.id), false);
+});
+
 test('a PLANS JSON names the features of any module; one that none declares stops the start', async (t) => {
   const dirs = [];
   let host = null;
@@ -557,6 +601,32 @@ test('a PLANS JSON names the features of any module; one that none declares stop
   const someone = { id: 999, role: 'user' };
   assert.equal(host.modules[0].suite.entitlements.limit(someone, 'items.max'), 2);
   assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
+});
+
+test('a module’s ofOrganization reads the group’s own plan, and an archived group has the default one', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  fresh += 1;
+  const host = await createHost({
+    config: { ...HOST, modules: { live: true, organizations: true } },
+    modules: [{ mount: 'family', entry: fixture('plain', `?id=family&uses=organizations&n=${fresh}`) }],
+    env: {
+      DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+      PLANS: JSON.stringify({ free: { name: 'Free' }, pro: { name: 'Pro' } }),
+    },
+    handleSignals: false, exitOnError: false, log: () => {},
+  });
+  t.after(async () => {
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const { suite } = host.modules[0];
+  const owner = host.suite.accounts.create({ username: 'ada' });
+  const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: owner.id });
+  suite.entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'pro', source: 'paddle', externalRef: 'sub_1' });
+  assert.equal(suite.entitlements.ofOrganization(home.id).plan.id, 'pro');
+  suite.organizations.archive(home.id);
+  assert.equal(suite.entitlements.ofOrganization(home.id).plan.id, 'free', 'the host tells the module’s entitlements it is archived');
 });
 
 test('outside a host an app goes on as always', () => {

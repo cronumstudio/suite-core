@@ -12,7 +12,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { detectType, safeName, isImage, createUploads } from '../uploads.js';
+import {
+  detectType, safeName, isImage, createUploads, isPublicAddress, openUrl, nameFromResponse,
+} from '../uploads.js';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 7)]);
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 1)]);
@@ -180,4 +182,158 @@ test('the sweep takes loose old files, and refuses when the database looks wrong
   assert.equal(uploads.sweep(eleven), 0, 'one written less than a day ago stays: it may be an upload halfway');
   assert.ok(fs.existsSync(path.join(folder, 'uploading-now.jpg')));
   assert.equal(createUploads({ dir: path.join(dir, 'nothing-here'), log: () => {} }).sweep(['a/b']), 0);
+});
+
+/* ------------------------------ from a link ------------------------------- */
+
+test('only addresses on the public internet are fetched from, in IPv4 and IPv6', () => {
+  const pub = [
+    '8.8.8.8', '1.1.1.1', '93.184.216.34', '11.0.0.1', '172.15.255.255', '172.32.0.1', '100.63.255.255', '100.128.0.1',
+    '192.169.0.1', '198.20.0.1', '223.255.255.255',
+    '2606:4700:4700::1111', '2001:4860:4860::8888', '2a00:1450:4001::200e',
+    '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::1',
+  ];
+  const inside = [
+    '0.0.0.0', '0.1.2.3', '10.1.2.3', '100.64.0.1', '100.127.255.255', '127.0.0.1', '127.255.0.9', '169.254.169.254',
+    '172.16.0.1', '172.31.255.255', '192.168.1.1', '192.0.0.8', '192.0.2.1', '192.88.99.1', '198.18.0.1', '198.19.255.1',
+    '198.51.100.7', '203.0.113.9', '224.0.0.1', '239.1.1.1', '240.0.0.1', '255.255.255.255',
+    '::', '::1', '::127.0.0.1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:10.0.0.1', '::ffff:169.254.169.254',
+    '64:ff9b::a00:1', '64:ff9b:1::1', '2002:c0a8:101::1', '2002:7f00:1::',
+    'fc00::1', 'fd12:3456::1', 'fe80::1', 'fe80::1%eth0', 'fec0::1', 'ff02::1', '100::1',
+    '2001::1', '2001:0:4136:e378:8000:63bf:3fff:fdd2', '2001:db8::1', '3fff::1',
+    '', 'localhost', 'not an address', '1.2.3', '256.1.1.1', null, undefined,
+  ];
+  assert.deepEqual(pub.filter((ip) => !isPublicAddress(ip)), [], 'public ones are public');
+  assert.deepEqual(inside.filter((ip) => isPublicAddress(ip)), [], 'everything else is somebody’s inside');
+});
+
+test('a file’s name from a link: what the site says, else the last part of the path, else "file"', () => {
+  const at = (u) => new URL(u);
+  assert.equal(nameFromResponse('attachment; filename="Factura marzo.pdf"', at('https://x.example/d?id=1')), 'Factura marzo.pdf');
+  assert.equal(nameFromResponse("inline; filename=\"a.pdf\"; filename*=UTF-8''Se%C3%B1ora%20N%C3%BA%C3%B1ez.pdf", at('https://x.example/')),
+    'Señora Núñez.pdf', 'the encoded one wins');
+  assert.equal(nameFromResponse('attachment; filename=plain.png', at('https://x.example/')), 'plain.png');
+  assert.equal(nameFromResponse('attachment; filename="../../etc/passwd"', at('https://x.example/')), 'passwd', 'a name, never a path');
+  assert.equal(nameFromResponse(undefined, at('https://x.example/photos/Kitchen%20sink.jpg?size=2')), 'Kitchen sink.jpg');
+  assert.equal(nameFromResponse('', at('https://x.example/')), 'file');
+});
+
+/**
+ * A site with files to download, reached under made-up names that the test's
+ * lookup sends to 127.0.0.1: `files.test` may be private (the test's
+ * override), `inside.test` may not, as the real internet would have it.
+ */
+async function fileSite(t) {
+  const server = http.createServer((req, res) => {
+    const { pathname } = new URL(req.url, 'http://x');
+    const port = server.address().port;
+    const send = (status, body, headers = {}) => res.writeHead(status, { 'Content-Length': body.length, ...headers }).end(body);
+    switch (pathname) {
+      case '/photo.jpg': return send(200, JPEG, { 'Content-Type': 'image/jpeg' });
+      case '/download': return send(200, PDF, { 'Content-Disposition': 'attachment; filename="Receipt.pdf"' });
+      case '/moved': return send(302, Buffer.alloc(0), { Location: '/photo.jpg' });
+      case '/far': return send(301, Buffer.alloc(0), { Location: `http://files.test:${port}/moved` });
+      case '/loop': return send(302, Buffer.alloc(0), { Location: '/loop' });
+      case '/inside': return send(302, Buffer.alloc(0), { Location: `http://inside.test:${port}/photo.jpg` });
+      case '/loopback': return send(307, Buffer.alloc(0), { Location: `http://127.0.0.1:${port}/photo.jpg` });
+      case '/ftp': return send(302, Buffer.alloc(0), { Location: 'ftp://files.test/photo.jpg' });
+      case '/page': return send(200, Buffer.from('<!doctype html><title>A photo, honestly</title>'), { 'Content-Type': 'image/jpeg' });
+      case '/huge': return send(200, Buffer.alloc(5000, 1), { 'Content-Type': 'application/pdf' });
+      case '/growing':
+        // No Content-Length: only reading tells how big it is.
+        res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+        res.write(JPEG);
+        res.end(Buffer.alloc(5000, 7));
+        return undefined;
+      case '/cut':
+        res.writeHead(200, { 'Content-Length': 500 });
+        res.write(JPEG);
+        setTimeout(() => res.socket.destroy(), 50);
+        return undefined;
+      case '/slow': return undefined;   // never answers
+      case '/drip':
+        res.writeHead(200, { 'Content-Length': 500 });
+        res.write(JPEG);
+        return undefined;               // and nothing more
+      default: return send(404, Buffer.from('no'));
+    }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const asked = [];
+  const options = {
+    lookup: async (host) => { asked.push(host); return [{ address: '127.0.0.1', family: 4 }]; },
+    allowPrivate: (host) => host === 'files.test',
+  };
+  return { base: `http://files.test:${server.address().port}`, port: server.address().port, options, asked };
+}
+
+const failure = (promise) => promise.then(() => null, (err) => ({ status: err.status, code: err.code, ...err.extra }));
+
+test('a file from a link is downloaded into the folder like an upload, and only what is an image or a PDF is kept', async (t) => {
+  const dir = tmp(t);
+  const uploads = createUploads({ dir, maxBytes: 1000, log: () => {} });
+  const site = await fileSite(t);
+  const fetchInto = async (pathname, extra = {}) => {
+    const file = await uploads.fromUrl(`${site.base}${pathname}`, { ...site.options, ...extra });
+    return { name: file.name, stored: await uploads.store(file.stream, { folder: '3', name: file.name }) };
+  };
+
+  const photo = await fetchInto('/photo.jpg');
+  assert.equal(photo.name, 'photo.jpg');
+  assert.deepEqual([photo.stored.mime, photo.stored.size], ['image/jpeg', JPEG.length]);
+  assert.deepEqual(fs.readFileSync(uploads.resolve(photo.stored.path)), JPEG);
+  assert.equal((await fetchInto('/download')).stored.name, 'Receipt.pdf', 'the name the site gives');
+
+  site.asked.length = 0;
+  const moved = await fetchInto('/far');
+  assert.equal(moved.name, 'photo.jpg', 'two redirects followed');
+  assert.equal(site.asked.length, 3, 'every hop is looked up and checked again');
+
+  assert.deepEqual(await failure(fetchInto('/loop')), { status: 400, code: 'file_url_unreachable' }, 'at most three redirects');
+  assert.deepEqual(await failure(fetchInto('/inside')), { status: 400, code: 'file_url_private' },
+    'a link that redirects inside a network is refused');
+  assert.deepEqual(await failure(fetchInto('/loopback')), { status: 400, code: 'file_url_private' });
+  assert.deepEqual(await failure(fetchInto('/ftp')), { status: 400, code: 'file_url' });
+  assert.deepEqual(await failure(fetchInto('/missing')), { status: 400, code: 'file_url_status', status: 404 });
+  assert.deepEqual(await failure(fetchInto('/huge')), { status: 413, code: 'file_too_large', max_mb: 0 },
+    'its Content-Length says too big: refused before reading');
+  assert.deepEqual(await failure(fetchInto('/growing')), { status: 413, code: 'file_too_large', max_mb: 0 },
+    'too big once read');
+  assert.deepEqual(await failure(fetchInto('/page')), { status: 400, code: 'file_type' }, 'a page is not a photo, whatever it says');
+  assert.deepEqual(await failure(fetchInto('/cut')), { status: 400, code: 'upload_cut' }, 'a download cut halfway');
+  assert.deepEqual(await failure(fetchInto('/slow', { headersTimeout: 100 })), { status: 400, code: 'file_url_unreachable' },
+    'a site that doesn’t answer');
+  assert.deepEqual(await failure(fetchInto('/drip', { timeout: 300 })), { status: 400, code: 'file_url_unreachable' },
+    'a download that never ends runs out of time');
+  // Nothing refused was left behind, not even half.
+  assert.deepEqual(fs.readdirSync(path.join(dir, '3')).filter((f) => f.endsWith('.partial')), []);
+  assert.equal(fs.readdirSync(path.join(dir, '3')).length, 3);
+});
+
+test('a link to a private address is refused without the test’s override, and a download nobody reads is closed', async (t) => {
+  const site = await fileSite(t);
+  for (const url of [`http://127.0.0.1:${site.port}/photo.jpg`, `http://[::1]:${site.port}/photo.jpg`,
+    'http://169.254.169.254/latest/meta-data/', 'http://[::ffff:10.0.0.1]/']) {
+    assert.deepEqual(await failure(openUrl(url)), { status: 400, code: 'file_url_private' }, url);
+  }
+  assert.deepEqual(await failure(openUrl(`http://localhost:${site.port}/photo.jpg`)), { status: 400, code: 'file_url_private' },
+    'a name that resolves inside, by the real resolver');
+  assert.deepEqual(await failure(openUrl(`${site.base}/photo.jpg`, { lookup: site.options.lookup })),
+    { status: 400, code: 'file_url_private' }, 'the override is what lets the test server in');
+  assert.deepEqual(await failure(openUrl(`${site.base}/photo.jpg`, {
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.7', family: 4 }],
+  })), { status: 400, code: 'file_url_private' }, 'one private address among public ones is enough');
+  for (const url of ['ftp://files.example/a.jpg', 'file:///etc/passwd', 'https://user:secret@files.example/a.jpg',
+    'not a link', '', `https://files.example/${'a'.repeat(2100)}`]) {
+    assert.deepEqual(await failure(openUrl(url)), { status: 400, code: 'file_url' }, url);
+  }
+  assert.deepEqual(await failure(openUrl('https://nowhere.example/a.jpg', { lookup: async () => { throw new Error('ENOTFOUND'); } })),
+    { status: 400, code: 'file_url_unreachable' });
+
+  // Opened, then refused by the app before reading: destroyed, and `store` answers at once instead of waiting.
+  const uploads = createUploads({ dir: tmp(t), log: () => {} });
+  const file = await uploads.fromUrl(`${site.base}/drip`, site.options);
+  file.stream.destroy();
+  assert.deepEqual(await failure(uploads.store(file.stream, { folder: '1', name: 'x' })), { status: 400, code: 'upload_cut' });
 });

@@ -45,31 +45,32 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `rate-limit.js` | The brute-force brake kept in the database: per account, per address, the second step's codes per account, tokens, client registrations and failed device codes |
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
 | `mcp.js` | The MCP transport (Streamable HTTP, JSON-RPC): the app hands in its tools, prompts and instructions, how a token becomes a principal, and its plan check per tool |
-| `push.js` | Web Push with no dependencies (RFC 8291 encryption, RFC 8292 VAPID signature): the install's keys, one subscription per device with its language, endpoints checked before the server visits them, gone ones pruned, and `/api/push/*` with `modules.push` |
-| `uploads.js` | Files people attach: the type by the first bytes (images, PDF, never SVG), streamed to `DATA_DIR/uploads` without ever leaving half a file, served with headers that keep them from running on the app's domain, and an orphan sweep that refuses when the database looks wrong |
+| `push.js` | Web Push with no dependencies (RFC 8291 encryption, RFC 8292 VAPID signature): the install's keys, one subscription per device with its language, endpoints checked before the server visits them, gone ones pruned, and `/api/push/*` with `modules.push`; for a device the app keeps itself, with no account behind it (a paired tablet), `checkSubscription()` before the app stores the browser's subscription and `sendToSubscription()` to send to it, with the same keys and checks |
+| `uploads.js` | Files people attach: the type by the first bytes (images, PDF, never SVG), streamed to `DATA_DIR/uploads` without ever leaving half a file, served with headers that keep them from running on the app's domain, and an orphan sweep that refuses when the database looks wrong; `fromUrl()` downloads one from a link as the same kind of stream, never from an address inside a network |
+| `mcp-files.js` | Files an assistant attaches through the MCP: `receiveFile()`, the whole of an app's tool for a file (a link the server downloads, or a one-time upload link for an assistant that can run curl), `suite.uploadLinks` and their route `POST /api/mcp-uploads/:token` |
 | `zip.js` | Zip archives with no dependencies (`node:zlib`): written to any stream an entry at a time, ZIP64 past 4 GB or 65,535 entries; read through the central directory with every entry capped at the size it declares and checked against its CRC |
-| `portability.js` | Copies of the data: someone's own ("Download my data" / "Import data") and the whole install's for the admin, as a zip anyone can open, imported into another install with new ids, every reference translated, accounts mapped by email, created or left out, shares, numbers, dates and attachments kept, and a copy that isn't trusted |
+| `portability.js` | Copies of the data: someone's own ("Download my data" / "Import data") and the whole install's for the admin, as a zip anyone can open, imported into another install with new ids, every reference translated, accounts mapped by email, created or left out, shares, numbers, dates and attachments kept, and a copy that isn't trusted; with `organizations`, a group's tables in the copy of every member and every group, role, waiting invitation, plan and payment in the install's; `omit` for columns that never travel |
 | `tools/conformance.js` | What every app inherits, checked against a running copy over plain HTTP: security headers, `/health` and `/version`, JSON 404s on discovery paths, the MCP `401` challenge and its metadata (with `--no-mcp`, that there are none), every language saying what English says, sign-in and sign-out, the session cookie, CSRF and the brute-force brake. `node tools/conformance.js <url>` (with `CONFORMANCE_USER`/`CONFORMANCE_PASSWORD` for the sign-in checks), or `checkConformance()` from a smoke test |
 | `tools/data-cli.js` | The same copies from the command line (each app's `scripts/data.js`): the whole install out, and in with emails, accounts left out and "replace" given as options |
 | `live.js` | Notices for the open tabs over Server-Sent Events (`GET /api/events` with `modules.live`): `publish({ audience, data })` to the people it concerns, heartbeats, and ids so a tab that reconnects gets what it missed, or `resync` |
-| `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, `can()` / `limit()` / `require()`, `cutoff()` for what a plan keeps some days and `countDaily()` for daily limits |
+| `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, `can()` / `limit()` / `require()`, `cutoff()` for what a plan keeps some days and `countDaily()` for daily limits; `ofOrganization()` and `cutoffOrganization()`, a group's own plan for what acts for it with nobody behind (a child's device, a family's sweep) |
 | `plans.js` | The plans of the hosted suite, once for every app: an install names them with `PLANS=cronum-work`, or the catalog of a product of its own: `PLANS=cronum-focus` for Cronum Focus, whose plans are a family's (Free and Pro), and `PLANS=cronum-tracker` for Cronum Tracker (Free, Fleet and Pro); and the features every app names the same (`COMMON_FEATURES`) |
-| `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans, subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order; another product's events kept out when the app says (`billing` in suite.config.js); with the stores, a second instance on the same tables, `GET /api/billing/overview` over both, both handed to the account deletion, and `billing.forgetOnRemove` |
-| `stripe.js` | Stripe as billing's provider (`BILLING_PROVIDER=stripe`): hosted Checkout and Customer Portal with plain `fetch`, the `Stripe-Signature` checked, and its subscription, payment and refund events turned into grants — no SDK |
+| `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans (a group's with seats, or `seats: false` for a family's plan with no cap on its members), subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order; another product's events kept out when the app says (`billing` in suite.config.js); with the stores, a second instance on the same tables, `GET /api/billing/overview` over both, both handed to the account deletion, and `billing.forgetOnRemove`; a group's subscriptions stopped at the end of the period paid, once each, when it is deleted or every member asks to delete their account (`billing.stopOnOrganizationDeleted`), or when the app asks (`stopOrganization`, `keepOrganization`), and never a cancellation the payer made themselves renewed again |
+| `stripe.js` | Stripe as billing's provider (`BILLING_PROVIDER=stripe`): hosted Checkout and Customer Portal with plain `fetch`, the `Stripe-Signature` checked, its subscription, payment and refund events turned into grants, and a subscription stopped at the period's end or now — no SDK |
 | `paddle.js` | Paddle Billing as billing's provider (`BILLING_PROVIDER=paddle`), a merchant of record: a transaction per checkout, paid on a page with Paddle.js, the customer portal, the `Paddle-Signature` checked, and its subscription, transaction and refund events turned into grants for whoever the WorkOS id says, in every app — no SDK |
 | `stores.js` | Purchases in the App Store and Google Play (`STORE_BILLING`), next to the web's: the store adapter interface, an opaque id per account to buy with (`GET /api/billing/stores/customer`, never the WorkOS id), the store's webhook as a trigger to read the customer again, `POST /api/billing/stores/sync` after a purchase, and what moved away or was refunded taken back |
 | `revenuecat.js` | RevenueCat as the store adapter (`STORE_BILLING=revenuecat`): its webhook checked by its Authorization header (and signature), the customer read with `GET /v1/subscribers`, and its subscriptions (renewals, the store's grace, billing issues, pauses, expirations, refunds and their reversal, transfers) and one-off purchases turned into events — no SDK |
 | `accounts.js` | The people who can sign in: the `users` table in the suite's shape, creation with the app's own columns, sign-in that refuses disabled accounts and redoes old hashes, rules that hold whoever calls (never without an administrator; disabling or a new password ends sessions), and their identities at other providers (WorkOS, OIDC…) |
 | `tokens.js` | API tokens for the MCP and scripts: shown once and kept as hashes, with scopes and optional expiry; takes over the apps' `mcp_tokens` without breaking a connector |
 | `devices.js` | Device tokens, with `modules.devices`: an app on a phone connected through the system browser with PKCE (a code of five minutes for the signed-in person, sent back to an address in `devices.redirectUris`, exchanged with its verifier), a token with its own prefix kept as a hash, revoked from Settings, by the device or by the admin's sign-out everywhere, ended after `devices.idleDays` unused; no route of the suite takes one (except, with `stores.devices`, the store routes and the overview), and the app accepts it where it chooses (`authenticate(req)`). For phones: Focus keeps its own pairing |
-| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity, taken by every member or only by the roles the app names (`seatRoles`: Tracker's drivers), and a hand-over when someone's account goes |
+| `organizations.js` | Groups that share data, roles and a plan (a household, a school, a team): memberships, roles in order of power plus the app's own, invitation links, seats from a grant's quantity (none when the product says `seats: false`), taken by every member or only by the roles the app names (`seatRoles`: Tracker's drivers), a hand-over when someone's account goes, or (`handOver`) when someone leaves one group by an import that replaces what they have, both with one heir rule (`heirOf`), kinds an app manages itself (`organizations.kinds`: the generic routes refuse them, a cap per person, deleted rather than archived when the last member goes, the app's hooks inside the transaction) and the clean-up of used and expired invitations |
 | `audit.js` | Who did what, when and from where — never what anybody wrote |
 | `config.js` | The app's configuration: `suite.config.js` (the product) and the environment (the install), checked as a whole — anything unknown or wrong stops the start, saying what |
 | `host.js` | `createHost()`: several apps as one, each a module at its own path (`/tasks/`, `/notes/`…) with one database, one session, one sign-in and one admin panel; `joinHost()` lets an app's `platform.js` join a host that is loading it, and on its own changes nothing |
 | `app.js` | `createSuite()` wires every module from the configuration (database and migrations, sessions, accounts, tokens, audit, brake, plans, organizations, billing, WorkOS, OAuth); `createApp()` serves the suite's routes, its browser code and admin panel, the MCP endpoint, the app's routes and static files, in the order the apps learned, with clean-ups, hot reload and an orderly shutdown |
 | `watcher.js` | Hot reload by polling (`HOT_RELOAD=true`) for code mounted over SMB, the submodule included |
 | `api.js` | The common REST routes on the app's router: `/api/auth/*` (sign-in and out, in two steps when the person turned it on, a forgotten password, confirming an email, sign-up), `/api/me/*` (sessions, plan, tokens, connected apps, password, two-step verification), `/api/admin/*` (accounts, plans and grants, organizations, audit) and `/api/orgs/*` (people's own groups) |
-| `web/` | The web kit, served at `/suite/` with no build ([docs/web-kit.md](docs/web-kit.md)): the shared interface with the Cronum Studio brand —the app's frame with a sidebar that folds away (`shell.js`), sign-in (`signin.js`), Settings (`settings.js`) with the plan and its payments (`plan.js`), dialogs, menus, notices and icons (`ui.js`, `icons.js`), `tokens.css` and `kit.css` with each product's accent and the brand's fonts—; `el()` and DOM helpers that never assemble HTML, `t()` in the browser, `api` with errors in words; the new-version notice (`update.js`), the live channel (`live.js`), offline writes in IndexedDB with idempotency keys (`local.js`, `outbox.js`), Markdown drawn without HTML (`markdown.js`), drag and drop between a list and the sidebar (`drag.js`), the service worker (`sw-core.js`), QR codes (`qr.js`) and `oauth.css` for the OAuth screens |
+| `web/` | The web kit, served at `/suite/` with no build ([docs/web-kit.md](docs/web-kit.md)): the shared interface with the Cronum Studio brand —the app's frame with a sidebar that folds away (`shell.js`), sign-in (`signin.js`), Settings (`settings.js`) with the plan and its payments (`plan.js`), dialogs, menus, notices and icons (`ui.js`, `icons.js`), `tokens.css` and `kit.css` with each product's accent and the brand's fonts—; `el()` and DOM helpers that never assemble HTML, `t()` in the browser, `api` with errors in words; the new-version notice (`update.js`), the live channel (`live.js`), offline writes in IndexedDB with idempotency keys (`local.js`, `outbox.js`), Markdown drawn without HTML (`markdown.js`), drag and drop between a list and the sidebar (`drag.js`), the service worker (`sw-core.js`), a device's push subscription for an app's own route when there is no account (`push.js`), QR codes (`qr.js`) and `oauth.css` for the OAuth screens |
 | `brand.js` | What the suite's own screens share of the Cronum Studio brand: the product's colour as the accent, the text that reads on it, and the "by Cronum Studio" signature |
 | `web/admin.html` | The admin panel at `/admin`, in the app's colour and with its icon and the signature, built on the kit and `/api/admin/*`: accounts (role, plan, extras, password, sessions, two-step verification, removal), invitations with their link, what each plan allows, organizations when they are on, and the activity log |
 
@@ -263,27 +264,120 @@ export const DATA = {
   optional one pointing outside is emptied. So a person's copy takes their lists with everything
   in them and leaves what is shared with other people, counted in the manifest (`left_out`).
 - References to a later table or the same one (a tree, Next's branches and entries) must allow
-  NULL: they are set once every row exists. Every table needs a NOT NULL reference to `users` or
-  to an earlier table.
+  NULL: they are set once every row exists. Every table needs a NOT NULL reference to `users`, to
+  `organizations` or to an earlier table.
 - Importing gives every row a new id and translates every reference; accounts go where the
   admin says (the one here with the same email, a new one, or none), and an existing one takes
   the copy's preferences but keeps its username, email and role. `prefs` translates the ids the
-  app keeps in its preferences. Passwords, second steps, sessions, tokens, OAuth grants and push
-  subscriptions never travel.
+  app keeps in its preferences. `clean(values, { mode, organizations })` may change a row as it
+  comes in. Passwords, second steps, sessions, tokens, OAuth grants and push subscriptions never
+  travel.
 - A copy is not trusted: only columns this install has, plain values, references inside the
   file, attachments that are images or PDF by their first bytes, one apply per copy
   (`data_imports`), and ceilings by who imports it. Someone's own copy has at most 64 MB of data,
   32 MB per file, 2 million values counted before parsing, 64 kB of preferences, 20,000
-  attachments, and no more bytes of them on disk than about twice the upload. It can be opened or
-  applied 10 times every 15 minutes (`rateLimits.importTo`). The admin and the command line have
-  higher ceilings. `createApp` passes none of them, so these defaults hold. Zips whose entries share
-  their bytes are refused.
+  attachments, 100 organizations, and no more bytes of them on disk than about twice the upload.
+  It can be opened or applied 10 times every 15 minutes (`rateLimits.importTo`). The admin and the
+  command line have higher ceilings. `createApp` passes none of them, so these defaults hold. Zips
+  whose entries share their bytes are refused.
 - `limits` keep what a copy brings within what the app's screens accept. A number is the most
   characters, and longer text is cut there. A pattern is the shape, and a value without it is left
   out (the column's default, or what the profile had). Text without a limit is cut at 100,000
   characters.
 - Someone's own copy, its plan and "replace" read only the rows near that account. Their cost
   follows that person's data, not the whole install's.
+- **`omit`**: columns that never reach any copy (a device's key hash, its push subscription). An
+  import writes the column's default or NULL; `omit: { token_hash: (row) => … }` gives a plain value
+  or a function of the row instead, its references already translated. `null` there, or a function
+  that answers `undefined` or `null`, means the column's own default, never a NULL written over it.
+  A copy that brings an omitted column anyway has it dropped. The start refuses an omitted column
+  that is NOT NULL without a default of either kind, a reference, a file's or the key.
+
+**A group's data** (with `modules.organizations`, v0.84.0): a table that points at `organizations`
+belongs to a group, and so does every table that chains to it. Focus' shape:
+
+```js
+export const DATA = {
+  tables: {
+    focus_families: { refs: { organization_id: 'organizations' }, onePerOrganization: true,
+                      // the anchor the app keeps, never a reference a copy decides by
+                      omit: { owner_user_id: (row) => oldestOwner(row.organization_id) } },
+    focus_people: { refs: { family_id: 'focus_families', user_id: 'users' } },
+    focus_devices: { refs: { family_id: 'focus_families', person_id: 'focus_people' },
+                     omit: { token_hash: (row) => unusableHash(), push_endpoint: null, push_p256dh: null, push_auth: null } },
+  },
+  organizations: {
+    copyKinds: ['family'],      // whose rows someone's copy takes (left out: every kind)
+    copyRoles: null,            // which members' copies carry the group (left out: every member)
+    mapOntoOwn: ['family'],     // someone's import goes into the family they own or administer here
+  },
+};
+// "Replace" taking them out of a family others share: told once, by createSuite's onMemberRemoved
+// (reason 'handed_over'), as every member who goes.
+```
+
+- **Someone's copy** takes each group they are in (of `copyKinds`, where their role is one of
+  `copyRoles`, which must be roles of the install; archived ones too, marked so). These are the
+  declaration's names, apart from suite.config.js's `organizations.kinds` (each kind's rules) and
+  `organizations.roles`; a kind is written by one rule, `KIND_NAME` in organizations.js. It takes
+  its name, kind, settings and branding, their own membership (never the others') and every row of
+  the group. A row with a NOT NULL reference to another member is left out, counted in `left_out`;
+  an optional one is emptied, as before. It brings no plan or invitation, and never says which install it is.
+- **The whole install's copy** takes every group, archived ones too, every membership, the
+  invitations still waiting (by their hash, so the links people hold still open the group), the
+  groups' grants and who pays for them (`subject_type: 'organization'` in `suite/grants.json` and
+  `suite/billing.json`), so a renewal finds the family under its new id. Its manifest says which
+  install it is (`source.install`, a random id kept in `app_meta`) and which export run
+  (`source.export`): one id per run, which a host's other modules exported with it share
+  (`prepareExport({ run })`, the admin export's `?run=`, the command line's `--run`).
+- **Importing someone's copy**: each group goes into the oldest one of the same kind they own or
+  administer here when `mapOntoOwn` names the kind (never an archived one), else into a new one
+  with them as its owner, made quietly (no app welcome, no trial), with a slug made from its name
+  and today's date: nothing the file says finds or names a group here. `clean`'s and `check`'s
+  `organizations` is `{ created, mapped }`, the ids here of the groups made and of those found.
+- **A group's one row** (`onePerOrganization: true`, for a table whose NOT NULL reference to
+  organizations is UNIQUE, as Focus' `focus_families.organization_id` is): when the group a row
+  goes into has its row already, the copy's isn't written again; it is that row, what points at it
+  comes into it, and the result counts it under `merged`. Without it, someone's copy put into their
+  own family could only be refused by the UNIQUE.
+- **Importing a whole install**: every group comes back as it was, with its slug, dates, roles (one
+  this install doesn't have becomes `member`), its invitations, plans and payments, all under its id
+  here: a renewal that names the old id finds the group by its customer. **An install comes here by
+  one export run.** Each group the import makes is recorded with where it came from (that install's
+  id, its id there, and the run). The other modules' copies of the same run —a host moving one
+  module at a time— find those groups by that record alone and bring only their own rows: the
+  members, invitations, plans and payments came with the first copy, and so did the accounts'.
+  What a later copy of the run is the first to bring (an account the first left out, and a group
+  only it had) comes whole, with its plans, payers and memberships.
+  A copy of another run of an install already brought here (a trial move, then the real one) is
+  refused before anything is written, 409 `import_install_again`, in the plan and on apply: a later
+  copy merged into what an earlier one made would bring back who left, plans revoked since, and an
+  end a file says. Moving again is moving into a fresh install (or bringing people's own copies).
+  The run is checked again inside the import's transaction, so two imports racing (two modules,
+  the command line) can't both come in. A whole install's copy with groups that doesn't say which
+  install it is from is refused, 400 `import_install_unnamed`.
+  A slug, a kind and a date like a group's here find nothing. A group whose every member is left
+  out goes with them; one left without an owner gets its heir (`organizations.heirOf`) as owner.
+- **Kinds** are written by one rule (`KIND_NAME`): `organizations.create` (and `POST /api/orgs`)
+  refuses another with 400 `field_invalid` (`field: 'kind'`), and a copy's kind written otherwise
+  (a group made before the rule) comes in as none: never made into another kind ("Family" isn't
+  `family`), never a reason to refuse the copy.
+- **"Replace"** and **erasing one's data** empty what is the person's alone: their rows and those
+  of groups nobody else is in, archived ones too (the organization and its plan stay). A group
+  others share is never emptied: erasing leaves it whole, and "replace" hands it over (the core's
+  `organizations.handOver`, in one transaction: the heir when they were its last owner, the app told
+  once by `whenMemberRemoved` with reason `handed_over`, and their membership goes), as account
+  deletion does. A membership a copy brings meets the install's `maxPerUser`: past it, 409
+  `organization_limit`, and nothing of the copy comes in. Someone's own "replace" does that only with the groups they
+  were shown: the plan names them (`hand_over`), Settings shows them and asks again with them, and
+  `POST /api/me/import/:id` with `replace: true` takes their ids back (`hand_over: [ids]`). When the
+  groups they share are no longer those —someone joined one, or the others left one, which would
+  then be emptied— it answers 409 `import_hand_over` with the groups as they are now
+  (`organizations: [{ id, name }]`), and nothing changes. The administrator's plan says, for each
+  account here, which groups "replace" would take it out of (`targets[].hand_over`), and the admin
+  panel names them under the choice and in its confirmation.
+- With neither `organizations` nor a table that points at them, nothing of organizations travels
+  and a copy that has them is refused (`unknown_table`), as a core before 0.84.0 does.
 
 ```bash
 node scripts/data.js export copy.zip [--account ana]
