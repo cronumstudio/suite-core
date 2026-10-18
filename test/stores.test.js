@@ -127,7 +127,10 @@ test('the customer: a random id per account, the same each time, another in anot
   assert.match(first.body.customer, UUID, 'also what StoreKit takes as appAccountToken and Google Play as obfuscatedAccountId');
   assert.equal(await one.customerOf(one.ada), first.body.customer, 'made once');
   assert.notEqual(await one.customerOf(one.bob), first.body.customer);
-  assert.equal(JSON.stringify(first.body).includes('ada'), false);
+  // Only these two fields, and nothing of the person: the id is random hex, so look for what hex can't hold.
+  assert.deepEqual(Object.keys(first.body).sort(), ['customer', 'provider']);
+  assert.equal(JSON.stringify(first.body).includes('ada@example.com'), false);
+  assert.equal(Object.values(first.body).includes('ada'), false);
   assert.equal(one.api.calls.length, 0, 'RevenueCat hears of it from the app, when the person buys');
   const two = await setup(t);
   assert.notEqual(await two.customerOf(two.ada), first.body.customer, 'per install: another product\'s app never sees this id');
