@@ -203,6 +203,16 @@ try {
   check('With an audience set, a token for another app is refused',
     (await strict.verifyToken(tokenOf('user_bob', { aud: 'https://other/mcp' }))) === null
     && (await strict.verifyToken(tokenOf('user_bob', { aud: `${base}/mcp` })))?.sub === 'user_bob');
+  check('Another audience can be asked instead: an old address a host answers for a while',
+    (await strict.verifyToken(tokenOf('user_bob', { aud: 'https://old.example/mcp' }), { audience: 'https://old.example/mcp' }))?.sub === 'user_bob'
+    && (await strict.verifyToken(tokenOf('user_bob', { aud: `${base}/mcp` }), { audience: 'https://old.example/mcp' })) === null);
+  check('And the account of such a token is found the same way',
+    (await accounts.userFromToken(tokenOf('user_bob', { aud: 'https://old.example/mcp' }), { audience: 'https://old.example/mcp' }))?.username === 'bob'
+    && (await accounts.userFromToken(tokenOf('user_bob', { aud: 'https://other/mcp' }), { audience: 'https://old.example/mcp' })) === null);
+  const oldMetadata = accounts.resourceMetadata('https://old.example/mcp', 'Old');
+  check('The metadata of another address names it, with the same AuthKit',
+    oldMetadata.resource === 'https://old.example/mcp' && oldMetadata.resource_name === 'Old'
+    && oldMetadata.authorization_servers.join() === AUTHKIT);
 
   console.log('\nConnected AI clients');
   const bobId = bobUser.id;

@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.91.0 — 2026-10-18
+
+- **A host answers the apps' old addresses, for a while** (`legacy-domains.js`, `LEGACY_DOMAINS`):
+  when the apps move into one host, their own domains can point at it and keep working. Each
+  domain's `/mcp` is the module's connector as the app had it (its tools without the module's
+  prefix, its old names, instructions and prompts, its plan rules and the person's modules; the
+  calls of the day count with the host's), so a connector added to the app needs nothing. With
+  WorkOS, a token there must be for that address (`https://<domain>/mcp`), and its OAuth metadata
+  and 401 name it. `/sw.js` there removes itself and opens the module in the host; everything else
+  goes to the same path under `/<mount>/` (302, 307 for a write). Empty, nothing of it runs; an
+  entry that can't be right stops the start and says why. Architecture §21.2.1.
+- **WorkOS: a token can be checked for another audience** (`verifyToken(token, { audience })`,
+  `userFromToken(token, { audience })`), and the accounts give the metadata for another address
+  (`resourceMetadata(resource, name)`, `authorizationServerMetadata()`). Nothing changes for an app.
+
 ## 0.90.1 — 2026-10-18
 
 - **Tests: the stores' customer test no longer fails by chance.** It looked for `ada` anywhere in

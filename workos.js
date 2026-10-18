@@ -252,12 +252,14 @@ export function createWorkosClient({
 
   /**
    * Checks an access token issued by AuthKit for the MCP: RS256 with one of its
-   * keys, its issuer, in date and, when set, for this app's audience.
+   * keys, its issuer, in date and, when set, for this app's audience. `audience`
+   * asks for another one instead: an old address of the app a host answers for
+   * a while (legacy-domains.js).
    * @returns {object|null} its claims if valid; null if not.
    * @throws {WorkosUnavailable} if the keys can't be fetched.
    */
-  const verifyToken = (token) => verifyJwt(token, {
-    keys, issuer: AUTHKIT, audience: mcpAudience || null, algorithms: ['RS256'], clockSkew: CLOCK_SKEW_S,
+  const verifyToken = (token, { audience = null } = {}) => verifyJwt(token, {
+    keys, issuer: AUTHKIT, audience: audience || mcpAudience || null, algorithms: ['RS256'], clockSkew: CLOCK_SKEW_S,
   });
 
   /* ------------------------------ metadata ------------------------------ */

@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createHost, joinHost, mountManifest, mountedPath } from '../host.js';
@@ -255,6 +256,120 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.doesNotMatch(only, /Alpha keeps/);
   await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
   assert.equal((await call('GET', '/alpha/mcp')).status, 404, 'no MCP of its own inside a host: one for all, at the root');
+});
+
+/** A request as if it came to another address of the host (its Host header). */
+function asDomain(server, domain, method, pathname, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const data = body === undefined ? null : JSON.stringify(body);
+    const req = http.request({
+      host: '127.0.0.1', port: server.address().port, method, path: pathname,
+      headers: { Host: domain, ...(data ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { text += chunk; });
+      res.on('end', () => {
+        let parsed = text;
+        try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+        resolve({ status: res.statusCode, headers: res.headers, data: parsed, text });
+      });
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+test('the apps’ old addresses, for a while: each one’s connector as it was, its pages to the module', async (t) => {
+  const { host, call, lines } = await startHost(t, {
+    env: {
+      DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
+      BASE_URL: 'http://127.0.0.1', LEGACY_DOMAINS: 'alpha.example.test=alpha, Beta-Old.example.test=beta',
+    },
+  });
+  assert.ok(lines.some((line) => line.includes("also answering the apps' old addresses: alpha.example.test → /alpha/, beta-old.example.test → /beta/")));
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  const old = (...args) => asDomain(host.server, ...args);
+
+  // Pages go to the module, with their path and query; a write keeps its method.
+  let res = await old('alpha.example.test', 'GET', '/');
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.location, 'http://127.0.0.1/alpha/');
+  assert.equal(res.headers['cache-control'], 'no-store', 'temporary: nothing cached for good');
+  assert.equal((await old('alpha.example.test:443', 'GET', '/lists/3?x=1')).headers.location, 'http://127.0.0.1/alpha/lists/3?x=1');
+  assert.equal((await old('beta-old.example.test', 'GET', '/manifest.webmanifest')).headers.location, 'http://127.0.0.1/beta/manifest.webmanifest');
+  res = await old('alpha.example.test', 'POST', '/api/items', { text: 'x' });
+  assert.equal(res.status, 307);
+  assert.equal(res.headers.location, 'http://127.0.0.1/alpha/api/items');
+
+  // The installed app's service worker removes itself and opens the module here.
+  res = await old('alpha.example.test', 'GET', '/sw.js');
+  assert.equal(res.status, 200);
+  assert.match(res.headers['content-type'], /javascript/);
+  assert.ok(res.text.includes('registration.unregister()'));
+  assert.ok(res.text.includes('client.navigate("http://127.0.0.1/alpha/")'));
+
+  // The connector as the app had it: its tools without the module's name, its old names, its instructions.
+  let id = 0;
+  const mcp = async (domain, method, params = {}, auth = `Bearer ${token}`) => {
+    id += 1;
+    return (await old(domain, 'POST', '/mcp', { jsonrpc: '2.0', id, method, params }, auth ? { Authorization: auth } : {})).data;
+  };
+  const init = (await mcp('alpha.example.test', 'initialize', { protocolVersion: '2025-06-18' })).result;
+  assert.equal(init.serverInfo.name, 'alpha');
+  assert.equal(init.serverInfo.title, 'Alpha');
+  assert.match(init.instructions, /^Alpha keeps items\./);
+  assert.deepEqual((await mcp('alpha.example.test', 'tools/list')).result.tools.map((tool) => tool.name), ['list_items', 'add_item']);
+  const text = async (domain, name, args = {}) => (await mcp(domain, 'tools/call', { name, arguments: args })).result.content[0].text;
+  assert.equal(await text('alpha.example.test', 'add_item', { text: 'Through the old address' }), 'Added.');
+  assert.equal(await text('alpha.example.test', 'new_item', { text: 'With an old name' }), 'Added.');
+  assert.match(await text('alpha.example.test', 'alpha_list_items'), /Unknown tool/, 'only the module’s own names');
+  assert.deepEqual((await mcp('beta-old.example.test', 'tools/list')).result.tools.map((tool) => tool.name), ['list_items']);
+  assert.deepEqual((await mcp('beta-old.example.test', 'prompts/list')).result.prompts.map((p) => p.name), ['setup']);
+  // The same data as the host's own /mcp.
+  const viaHost = (await call('POST', '/mcp', { jsonrpc: '2.0', id: 999, method: 'tools/call', params: { name: 'alpha_list_items', arguments: {} } },
+    { Authorization: `Bearer ${token}` })).data.result.content[0].text;
+  assert.equal(viaHost, '["Through the old address","With an old name"]');
+
+  // Turned off for this person: the old connector says how to bring it back.
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await mcp('alpha.example.test', 'tools/list')).result.tools, []);
+  assert.match(await text('alpha.example.test', 'list_items'), /Alpha is turned off for this person: they can turn it on in Work, Settings › Modules\./);
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
+
+  // Without a token: a 401 (local accounts here, so no OAuth metadata to point at).
+  res = await old('alpha.example.test', 'POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  assert.equal(res.status, 401);
+  assert.match(res.headers['www-authenticate'], /^Bearer realm="alpha"/);
+  assert.equal((await old('alpha.example.test', 'GET', '/.well-known/oauth-protected-resource')).status, 404);
+
+  // The host's own address is as before.
+  assert.equal((await call('GET', '/alpha/mcp')).status, 404);
+  assert.equal((await call('GET', '/health')).status, 200);
+});
+
+test('LEGACY_DOMAINS that can’t be right stop the start, and say why', async () => {
+  const reasons = async (value) => {
+    try {
+      await createHost({
+        config: HOST, modules: modules(), handleSignals: false, exitOnError: false, log: () => {},
+        env: {
+          DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
+          BASE_URL: 'https://work.example.test', LEGACY_DOMAINS: value,
+        },
+      });
+    } catch (error) {
+      assert.ok(error instanceof SuiteConfigError, String(error));
+      return error.errors.join(' | ');
+    }
+    return assert.fail(`${value} started`);
+  };
+  assert.match(await reasons('gamma.example.test=gamma'), /names "gamma", which is not a module of this host \(alpha, beta\)/);
+  assert.match(await reasons('alpha.example.test'), /entry 1 is not domain=module/);
+  assert.match(await reasons('alpha.example.test:8080=alpha'), /entry 1 is not a domain name/);
+  assert.match(await reasons('work.example.test=alpha'), /the host's own address/);
+  assert.match(await reasons('a.example.test=alpha,A.example.test=beta'), /a\.example\.test is given twice/);
 });
 
 test('a host with its MCP off: neither it nor its modules offer an AI connector', async (t) => {

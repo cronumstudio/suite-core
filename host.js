@@ -36,6 +36,10 @@
  * suite's routes, /admin, /auth (the identity provider comes back to
  * /auth/callback), the OAuth paths, /health and /version.
  *
+ * For a while after the move, the host can also answer the addresses the apps
+ * had on their own (LEGACY_DOMAINS, legacy-domains.js): each one's connector
+ * as it was, and its pages sent to the module here.
+ *
  * The app on its own keeps calling createSuite() and createApp() as before:
  * nothing of this runs unless a host is loading it.
  */
@@ -56,6 +60,7 @@ import { createPortability } from './portability.js';
 import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from './http.js';
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
+import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -602,6 +607,14 @@ export async function createHost({
   // The same as the root says of itself (createApp): on, and with tools or links to serve.
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
+  // The apps' old addresses, while the bridge is up: empty, nothing of it runs.
+  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl });
+  if (legacy.errors.length) stop(legacy.errors);
+  const legacyDomains = legacy.domains.size ? createLegacyDomains({
+    domains: legacy.domains, modules: joined, suite, uses, hostName: config.app.name, baseUrl: install.baseUrl,
+    https: install.https, version, mcp: config.modules.mcp, log,
+  }) : null;
+
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp,
     routes: (api) => {
@@ -667,6 +680,9 @@ export async function createHost({
     } catch {
       return root.handle(req, res);   // a target no URL can be made of: the root answers 400
     }
+    // An app's old address: its connector as it was, everything else to its module here.
+    const legacyDomain = legacyDomains?.match(req);
+    if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
     const mount = url.pathname.split('/')[1];
     const m = byMount.get(mount);
     if (!m) {
@@ -797,6 +813,9 @@ export async function createHost({
       server.listen(install.port, install.host, () => {
         log(`${tag} listening on http://${install.host}:${server.address().port}`);
         log(`${tag} public URL: ${install.baseUrl}, with ${joined.map((m) => `/${m.mount}/`).join(', ')}`);
+        if (legacyDomains) {
+          log(`${tag} also answering the apps' old addresses: ${[...legacy.domains].map(([d, m]) => `${d} → /${m}/`).join(', ')}`);
+        }
         if (suite.mailer?.provider === 'smtp') {
           suite.mailer.verify().then(
             () => log(`[mail] SMTP ready: ${install.mail.host}:${install.mail.port} (${install.mail.secure})`),

@@ -57,6 +57,7 @@ suite-core/
   config.js             done   loads and validates suite.config.js + the environment
   app.js                done   createSuite() wires the modules; createApp() dispatches in the order of §11
   host.js               done   createHost(): several apps as one, each a module at its own path (§21)
+  legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
   watcher.js            done   hot reload by polling, for code mounted over SMB
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
   db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
@@ -1532,6 +1533,32 @@ instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TE
 longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
 from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
 `PLANS`): one count per person for the whole app, whichever module a call goes to.
+
+### 21.2.1 The apps' old addresses, for a while
+
+While people move from the apps on their own to the host, the host can answer the addresses the
+apps had (`legacy-domains.js`), with the domains pointed at it:
+
+```sh
+LEGACY_DOMAINS=tasks.example.com=tasks,notes.example.com=notes
+```
+
+- **`/mcp` is the module's connector as it was**: its tools with their own names (no prefix),
+  its old names, its instructions and prompts, its plan rules and the person's modules, with the
+  calls of the day counted with the host's `/mcp`. A connector added to the app works without
+  touching it. With WorkOS a token must be for that address (`https://<domain>/mcp` as its
+  audience, as the app asked), so the domain stays a Resource Indicator in WorkOS while it lasts.
+- **The OAuth metadata** there (`/.well-known/oauth-protected-resource[/mcp]`, and AuthKit's
+  copied) names the old address, and its 401 points at it: a client that connects again finds
+  where to sign in.
+- **`/sw.js` removes itself**: it empties its caches, unregisters and opens the module in the
+  host, so the app installed from the old address stops showing what it kept.
+- **Everything else goes to the module** (302 for a read, 307 for a write: temporary, nothing
+  cached for good), the same path under `/<mount>/`.
+
+A bridge meant to come down: emptying the variable and restarting turns it off; then the domains
+can keep a plain redirect or go. Each entry must name a module, never the host's own address or
+the same domain twice, or the start stops and says why.
 
 ### 21.3 Links between modules
 
