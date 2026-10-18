@@ -566,6 +566,7 @@
   "kit.side.unfold": "Afficher le panneau latéral",
   "kit.saveState.saving": "Enregistrement…",
   "kit.saveState.saved": "Enregistré",
+  "kit.saveState.local": "Gardé sur cet appareil, envoi…",
   "kit.saveState.offline": "Hors ligne, gardé sur cet appareil",
   "kit.saveState.error": "Non enregistré",
   "kit.saveState.conflict": "Modifiée ailleurs : une copie a été gardée",

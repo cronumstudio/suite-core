@@ -566,6 +566,7 @@
   "kit.side.unfold": "Seitenleiste einblenden",
   "kit.saveState.saving": "Wird gespeichert …",
   "kit.saveState.saved": "Gespeichert",
+  "kit.saveState.local": "Auf diesem Gerät gespeichert, wird gesendet …",
   "kit.saveState.offline": "Offline, auf diesem Gerät gespeichert",
   "kit.saveState.error": "Nicht gespeichert",
   "kit.saveState.conflict": "Anderswo geändert: eine Kopie wurde behalten",

@@ -1142,7 +1142,8 @@ Browser modules served at `/suite/`, no build, the same CSP everywhere (`script-
 - `el(tag, props, children)`: every node through `textContent` and `setAttribute`; HTML is never
   assembled from strings. That is the whole XSS defence.
 - `api.js`: fetch with JSON, error codes turned into sentences by `t()`, offline detected apart
-  from server errors, `Idempotency-Key` on the writes that may be sent again.
+  from server errors, `Idempotency-Key` on the writes that may be sent again. `setPatience(ms)`
+  (v0.90.0, opt-in): a read or a keyed write slower than that counts as offline.
 - `theme.js` (classic script, applied before the first paint), `i18n.js`, `live.js` (the SSE client
   with reconnection), `update.js` (the new-version notice), `outbox.js` (writes queued offline,
   replayed with their idempotency keys), toasts and dialogs.

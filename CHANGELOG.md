@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.90.0 — 2026-10-18
+
+- **A request may give up** (`api.js`, `setPatience(ms)`): with a weak signal (a phone between
+  cells, a Wi-Fi with no way out) a request hung for up to a minute before the browser failed it,
+  and the screen waited with it. An app that calls `setPatience(ms)` gets `Offline` when a read
+  (GET), or a write with an `Idempotency-Key` (the outbox's), takes longer than that, also when the
+  answer's body is what is slow. A write without a key and an upload always wait: giving up could
+  make something twice or cut a file. Without the call nothing changes.
+- **`saveState` has a `local` state** (`ui.js`): kept on this device, its answer slow to come
+  (`kit.saveState.local`, in the four languages), for an app that doesn't want to say "Saving…"
+  while the network takes its time.
+
 ## 0.89.0 — 2026-10-17
 
 - **An assistant can attach a file** (`mcp-files.js`): an MCP tool carries JSON, not files, and an
