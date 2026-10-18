@@ -566,6 +566,7 @@
   "kit.side.unfold": "Show the sidebar",
   "kit.saveState.saving": "Saving…",
   "kit.saveState.saved": "Saved",
+  "kit.saveState.local": "Kept on this device, sending…",
   "kit.saveState.offline": "Offline, kept on this device",
   "kit.saveState.error": "Not saved",
   "kit.saveState.conflict": "Changed elsewhere: a copy was kept",

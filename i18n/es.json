@@ -566,6 +566,7 @@
   "kit.side.unfold": "Mostrar el panel lateral",
   "kit.saveState.saving": "Guardando…",
   "kit.saveState.saved": "Guardado",
+  "kit.saveState.local": "Guardado en este dispositivo, enviando…",
   "kit.saveState.offline": "Sin conexión, guardado en este dispositivo",
   "kit.saveState.error": "Sin guardar",
   "kit.saveState.conflict": "Cambiada en otro sitio: se guardó una copia",

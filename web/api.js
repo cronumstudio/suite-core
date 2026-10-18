@@ -5,6 +5,13 @@
  * details the server sent). `errorMessage()` turns any of them into a
  * sentence in the person's language. A write may carry an Idempotency-Key
  * (`api.write`), so sending it twice does it once.
+ *
+ * With a weak signal (a phone between cells, a Wi-Fi with no way out) a
+ * request may hang for a minute before the browser gives up, and the screen
+ * with it. An app may say how long it waits (`setPatience(ms)`): a read, or a
+ * write with a key, that takes longer counts as no network. A write without a
+ * key and an upload always wait: giving up on them could make one twice, or
+ * cut a file half way. Without `setPatience` nothing gives up, as before.
  */
 import { t } from './i18n.js';
 import { at } from './base.js';
@@ -20,7 +27,18 @@ export class ApiError extends Error {
 export class SessionExpired extends ApiError {}
 export class Offline extends Error {}
 
+let patience = null;
+
+/** How long a read or a write with a key waits for its answer, in ms; null, as long as it takes. */
+export function setPatience(ms) {
+  patience = Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+const gaveUp = (err) => err?.name === 'TimeoutError' || err?.name === 'AbortError';
+
 async function request(method, path, body, { file = false, key = null } = {}) {
+  const patient = patience && !file && (method === 'GET' || key) && typeof AbortSignal?.timeout === 'function';
+  const signal = patient ? AbortSignal.timeout(patience) : undefined;
   let res;
   try {
     // The app's path at its base: the same on its own, under the module's path in a host (base.js).
@@ -35,11 +53,15 @@ async function request(method, path, body, { file = false, key = null } = {}) {
         ...(key ? { 'Idempotency-Key': key } : {}),
       },
       body: file ? body : body === undefined ? undefined : JSON.stringify(body),
+      ...(signal ? { signal } : {}),
     });
   } catch {
     throw new Offline();
   }
-  const data = await res.json().catch(() => null);
+  // The answer's body may be what is slow: cut half way, it is no network too, never an empty answer.
+  let cut = false;
+  const data = await res.json().catch((err) => { cut = gaveUp(err); return null; });
+  if (cut) throw new Offline();
   if (res.ok) return data;
   const code = data?.error || 'generic';
   if (res.status === 401) throw new SessionExpired(401, code, data);

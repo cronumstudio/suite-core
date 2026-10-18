@@ -14,9 +14,54 @@ import { installFakeDom } from './fake-dom.js';
 installFakeDom();
 const { createOutbox, tempId, isTempId } = await import('../web/outbox.js');
 const { memoryLocal } = await import('../web/local.js');
-const { Offline, SessionExpired, ApiError } = await import('../web/api.js');
+const { api, setPatience, Offline, SessionExpired, ApiError } = await import('../web/api.js');
 const { connectLive } = await import('../web/live.js');
 const { watchUpdates, applyUpdate } = await import('../web/update.js');
+
+/* ---------------------------------- api ----------------------------------- */
+
+test('api: without patience it waits; with it a slow read or keyed write is no network, never a keyless write', async () => {
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  // A server that never answers, unless the request gives up.
+  globalThis.fetch = (path, { method, signal } = {}) => new Promise((resolve, reject) => {
+    seen.push({ method, path, signal: Boolean(signal) });
+    signal?.addEventListener('abort', () => reject(signal.reason));
+    if (path.endsWith('/fast')) resolve({ ok: true, json: async () => ({ ok: 1 }) });
+  });
+  try {
+    api.get('/api/slow');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(seen.at(-1).signal, false, 'without setPatience nothing gives up, as before');
+
+    setPatience(20);
+    await assert.rejects(api.get('/api/slow'), Offline);
+    await assert.rejects(api.write('PATCH', '/api/slow', {}, { key: 'k1' }), Offline);
+    assert.deepEqual(await api.get('/api/fast'), { ok: 1 });
+    api.post('/api/slow', {});
+    api.upload('/api/slow', { type: 'image/png' });
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(seen.slice(-2).map((s) => s.signal), [false, false], 'a write without a key and an upload wait');
+  } finally {
+    setPatience(null);
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('api: an answer whose body is cut by the wait is no network, not an empty answer', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path, { signal } = {}) => ({
+    ok: true,
+    json: () => new Promise((resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason))),
+  });
+  try {
+    setPatience(20);
+    await assert.rejects(api.get('/api/notes'), Offline);
+  } finally {
+    setPatience(null);
+    globalThis.fetch = realFetch;
+  }
+});
 
 /* --------------------------------- outbox --------------------------------- */
 
