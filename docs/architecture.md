@@ -1636,7 +1636,10 @@ screen, on a phone a second, and the rail came last, pushing the sidebar aside. 
   `host.modules`), and again when the host answers.
 - **One page fades into the next** (`@view-transition` in kit.css, 200 ms), the rail standing
   still, where the browser has view transitions (Chrome and Edge, Safari 18.2 on), never for whoever
-  asks for less motion.
+  asks for less motion. The browser starts the fade at the new page's first paint, before the
+  module has drawn much, so the fade is held (0.92.1, `holdPageFade` in shell.js): the old page
+  stays whole until the new one has its frame and is quiet for a moment, then it fades, within
+  900 ms of the click at most. kit.css's 400 ms pause stands in for it where there is no kit frame.
 
 Measured in a headless Edge over HTTP/2 with 45 ms to the server (90 ms and a four times slower
 processor for a phone): the new frame came 0.37–0.54 s after the click instead of 0.81–0.87 s

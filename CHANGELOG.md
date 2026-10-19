@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.92.1 — 2026-10-19
+
+- **The fade between modules waits for the new one to be drawn** (`shell.js`, `holdPageFade`;
+  kit.css). The browser started the 0.92.0 fade at the new page's first paint, when the module
+  had drawn little: it faded into a half-empty frame and the rest came in after it, with a jump.
+  Now the old page stays still and whole while the new one draws itself, and the fade starts
+  once its frame is there and quiet for 60 ms (or 100 ms after the frame came, while the module
+  fills it in, and never later than 900 ms from its start). kit.css gives the fade a 400 ms pause
+  that the frame ends early, so a page without the kit's frame still fades after it. Measured
+  with frame-by-frame comparisons, the switch now goes one way only, from the old page to the
+  finished new one, about 0.1 s later than before. Nothing changes for an app on its own.
+
 ## 0.92.0 — 2026-10-19
 
 - **From one module to another without an empty screen** (Cronum Work; architecture §21.4). Each
