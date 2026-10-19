@@ -720,7 +720,7 @@
   "kit.modules.off": "Un módulo desactivado conserva tus datos: solo sale de tus menús.",
   "kit.modules.last": "Al menos uno se queda activo.",
   "kit.modules.icons": "Iconos en la pantalla de inicio",
-  "kit.modules.install": "Cada módulo puede tener su propio icono, que abre directamente en él: abre el módulo e instálalo desde el menú del navegador.",
+  "kit.modules.install": "Instala {host} para tenerlo todo en un icono, que abre en el último módulo que usaste, o cada módulo con su propio icono, que abre directamente en él: ábrelo e instálalo desde el menú del navegador (en el iPhone, Compartir → Añadir a pantalla de inicio).",
   "kit.modules.open": "Abrir {name}",
   "kit.links.label": "Vinculado",
   "kit.links.add": "Vincular",

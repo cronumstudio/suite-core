@@ -509,6 +509,13 @@ export function openSettings(options) {
         switches.append(row);
       }
       clear(icons);
+      // The host itself first: one icon for all of it, opening on the module used last. Its page
+      // at /?modules stays put instead of going on to a module, so it can be installed from there.
+      if (answer.host?.name) {
+        icons.append(el('a', { class: 'kit-btn kit-btn--small', href: '/?modules', target: '_blank', rel: 'noopener' },
+          answer.host.icon ? el('img', { src: answer.host.icon, alt: '', width: 18, height: 18 }) : null,
+          t('kit.modules.open', { name: answer.host.name })));
+      }
       for (const m of inUse.filter((x) => x.active)) {
         icons.append(el('a', { class: 'kit-btn kit-btn--small', href: m.path, target: '_blank', rel: 'noopener' },
           el('img', { src: m.icon, alt: '', width: 18, height: 18 }), t('kit.modules.open', { name: m.name })));
@@ -519,7 +526,7 @@ export function openSettings(options) {
       .then((answer) => { paint(answer); paintList(); }, fail);
     return el('div', {},
       block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off'))),
-      block(t('kit.modules.icons'), hint(t('kit.modules.install')), icons));
+      block(t('kit.modules.icons'), hint(t('kit.modules.install', { host: host.name })), icons));
   }
 
   function ai() {

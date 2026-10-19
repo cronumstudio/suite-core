@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.93.0 — 2026-10-19
+
+- **Settings › Modules opens the host too** (Cronum Work). "Home screen icons" offered a button
+  for each module, but none for the host, whose page went straight on to a module: on an iPhone
+  there was nowhere to add Cronum Work itself from. Its first button is now "Open Cronum Work",
+  to the host's page at `/?modules`, which stays put and carries the host's web manifest (Work
+  0.3.2); the hint says what each icon opens and how to add one on an iPhone. Nothing changes
+  for an app on its own.
+- **A banner over a view's head keeps clear of the clock** (kit.css). Where the bar gives way to
+  a head (a phone), a banner is the first thing on the screen, but the gap for the status bar
+  stayed in the head: in an iPhone's installed app the banner went under the clock and an empty
+  gap sat between it and the head. Now the first banner keeps that gap, in its own colour, and
+  the head under it doesn't. Without a banner, nothing changes.
+
 ## 0.92.1 — 2026-10-19
 
 - **The fade between modules waits for the new one to be drawn** (`shell.js`, `holdPageFade`;

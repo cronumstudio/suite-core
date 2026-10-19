@@ -720,7 +720,7 @@
   "kit.modules.off": "Ein ausgeschaltetes Modul behält deine Daten: Es verschwindet nur aus deinen Menüs.",
   "kit.modules.last": "Mindestens eines bleibt an.",
   "kit.modules.icons": "Symbole auf dem Startbildschirm",
-  "kit.modules.install": "Jedes Modul kann ein eigenes Symbol haben, das direkt darin öffnet: Öffne das Modul und installiere es über das Menü des Browsers.",
+  "kit.modules.install": "Installiere {host}, um alles unter einem Symbol zu haben, das im zuletzt genutzten Modul öffnet, oder jedes Modul mit einem eigenen Symbol, das direkt darin öffnet: Öffne es und installiere es über das Menü des Browsers (auf dem iPhone: Teilen → Zum Home-Bildschirm).",
   "kit.modules.open": "{name} öffnen",
   "kit.links.label": "Verknüpft",
   "kit.links.add": "Verknüpfen",
