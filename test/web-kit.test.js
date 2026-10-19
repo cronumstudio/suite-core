@@ -435,6 +435,20 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.doesNotMatch(css, /\.kit-side\[data-rail\] \{[^}]*width:/, 'the drawer keeps its own width');
 });
 
+test('from one module to another: the rail of last time at once, and one page fading into the next', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  // The host's last answer, kept and drawn before asking again; only one that has this module.
+  assert.match(shell, /const RAIL_KEY = 'host\.modules';/);
+  assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\)/);
+  assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\);/);
+  assert.match(shell, /res\.status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
+  // A crossfade between pages of the site, the rail standing still; none for less motion.
+  assert.match(css, /@view-transition \{ navigation: auto; \}/);
+  assert.match(css, /\.kit-rail \{ view-transition-name: kit-rail; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*@view-transition \{ navigation: none; \}\s*\}/);
+});
+
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');

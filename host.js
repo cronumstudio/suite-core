@@ -61,6 +61,7 @@ import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from '.
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
+import { createPageHints } from './page-hints.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -646,6 +647,10 @@ export async function createHost({
 
   /* ------------------------------- dispatch ------------------------------ */
 
+  // What a module's page asks for as it starts, named with the page: from one module to another
+  // the browser asks for it all at once instead of one file after another (page-hints.js).
+  const hintsFor = createPageHints();
+
   /** A module's manifest, rewritten for its place, kept until the file changes. */
   function manifestOf(m) {
     const dir = m.parts.publicDir;
@@ -728,6 +733,10 @@ export async function createHost({
         res.end(req.method === 'HEAD' ? undefined : manifest.body);
         return undefined;
       }
+    }
+    if ((rest === '/' || rest === '/index.html') && ['GET', 'HEAD'].includes(req.method)) {
+      const hints = hintsFor({ mount: m.mount, publicDir: m.parts.publicDir, languages: m.config.app.languages }, req);
+      if (hints) res.setHeader('Link', hints);
     }
     req.url = rest + url.search;
     return m.app.handle(req, res);

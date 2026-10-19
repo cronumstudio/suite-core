@@ -36,6 +36,8 @@ import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
+/** The host's last answer of which modules there are (GET /api/modules), for the rail at once. */
+const RAIL_KEY = 'host.modules';
 
 /**
  * @param {object} options
@@ -531,12 +533,16 @@ export function createShell({
     try {
       const res = await fetch('/api/modules', { credentials: 'same-origin' });
       if (res.status === 404) {   // no host there: an app on its own under a path
+        try { localStorage.removeItem(RAIL_KEY); } catch { /* private mode */ }
         dropRail();
         return asModule(false);
       }
       // A frame destroyed while the host was asked has no rail to paint, nor a module to remember.
       if (destroyed || !res.ok) return null;
-      return paintRail(await res.json());
+      const answer = await res.json();
+      if (destroyed) return null;
+      try { localStorage.setItem(RAIL_KEY, JSON.stringify(answer)); } catch { /* private mode, full */ }
+      return paintRail(answer);
     } catch {
       return null;   // offline: the rail stays as it was
     } finally {
@@ -548,6 +554,12 @@ export function createShell({
     // Under a module's path it is a host's, almost surely: as one from the start, so the
     // person's button doesn't show and go once the host answers.
     asModule(true);
+    // The rail of last time at once, with the frame: coming from another module it is the same,
+    // and drawn only once the host answered it came in late, pushing the sidebar aside. The
+    // answer, when it comes, draws it again.
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem(RAIL_KEY) || 'null'); } catch { /* none, or not JSON */ }
+    if (Array.isArray(last?.modules) && last.modules.some((m) => m?.mount === mount)) paintRail(last);
     refreshModules();
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
     window.addEventListener('resize', syncSwitcher, { signal });
