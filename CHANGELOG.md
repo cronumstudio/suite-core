@@ -11,8 +11,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   on a phone, and the rail last.
   - **The host names what a module's page will ask for** (`page-hints.js`): a `Link` header with
     the page, every module script its imports reach, `app-version.js`, its catalogs, its
-    `/api/auth/config` and the host's `/api/modules`, so the browser asks for them at once. Only the
-    host sends it; nothing changes for an app on its own, nor for a module.
+    `/api/auth/config`, who the person is (`/api/auth/me`, or what the module asks first, a new
+    optional `createModule().preload` of its own GET paths) and the host's `/api/modules`, so the
+    browser asks for them at once. Only the host sends it; nothing changes for an app on its own,
+    nor for a module.
   - **Each catalog once per page** (`i18n.js`): the language of last time and the person's, most
     often the same, were two requests. One that failed is asked for again.
   - **The rail of last time with the frame** (`shell.js`, `host.modules` on the device), drawn

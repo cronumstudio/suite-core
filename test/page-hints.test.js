@@ -76,14 +76,20 @@ test('the Link header: the code, the tab’s version, the catalogs, the install�
     '</tasks/suite/update.js>; rel=modulepreload',
     '</tasks/suite/shell.js>; rel=modulepreload',
     '</tasks/js/a.js>; rel=modulepreload',
-    ...links.slice(5, -5),
+    ...links.slice(5, -6),
     '</tasks/js/app-version.js>; rel=modulepreload',
     '</tasks/i18n/en.json>; rel=preload; as=fetch; crossorigin',
     '</tasks/i18n/es.json>; rel=preload; as=fetch; crossorigin',
     '</tasks/api/auth/config>; rel=preload; as=fetch; crossorigin',
+    '</tasks/api/auth/me>; rel=preload; as=fetch; crossorigin',
     '</api/modules>; rel=preload; as=fetch; crossorigin',
   ]);
-  assert.ok(links.slice(5, -5).every((l) => /^<\/tasks\/suite\/[\w-]+\.js>; rel=modulepreload$/.test(l)), 'then what the kit’s files import');
+  assert.ok(links.slice(5, -6).every((l) => /^<\/tasks\/suite\/[\w-]+\.js>; rel=modulepreload$/.test(l)), 'then what the kit’s files import');
+
+  // What the module says it asks first, in place of the suite's /api/auth/me; only its own paths.
+  const declared = hintsFor({ mount: 'tasks', publicDir: dir, preload: ['/api/me', '/api/bootstrap', '//evil.example/x', 'api/x', 7] }, req);
+  assert.match(declared, /<\/tasks\/api\/me>; rel=preload; as=fetch; crossorigin, <\/tasks\/api\/bootstrap>; rel=preload; as=fetch; crossorigin, <\/api\/modules>/);
+  assert.doesNotMatch(declared, /auth\/me|evil|tasks\/api\/x|7/);
 
   const english = hintsFor({ mount: 'tasks', publicDir: dir, languages: ['en', 'es'] }, { headers: { 'accept-language': 'en-GB' } });
   assert.doesNotMatch(english, /es\.json/, 'English only once');

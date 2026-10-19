@@ -735,7 +735,9 @@ export async function createHost({
       }
     }
     if ((rest === '/' || rest === '/index.html') && ['GET', 'HEAD'].includes(req.method)) {
-      const hints = hintsFor({ mount: m.mount, publicDir: m.parts.publicDir, languages: m.config.app.languages }, req);
+      const hints = hintsFor({
+        mount: m.mount, publicDir: m.parts.publicDir, languages: m.config.app.languages, preload: m.parts.preload ?? null,
+      }, req);
       if (hints) res.setHeader('Link', hints);
     }
     req.url = rest + url.search;

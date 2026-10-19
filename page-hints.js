@@ -14,8 +14,9 @@
  * Read from the module's files: the `<script type="module">` of its
  * index.html and every static import from there (`import … from './x.js'`,
  * the kit's `../suite/…` too), checked again whenever one of them changes.
- * Nothing in a module says what to name, and nothing changes for an app on
- * its own: only the host sends these.
+ * Who the person is comes from `/api/auth/me`, unless the module says which
+ * of its own GET paths it asks first (`createModule().preload`). Nothing
+ * changes for an app on its own: only the host sends these.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -89,7 +90,7 @@ export function createPageHints() {
     return graph;
   }
 
-  return function hintsFor({ mount, publicDir, languages = ['en'] }, req) {
+  return function hintsFor({ mount, publicDir, languages = ['en'], preload = null }, req) {
     if (!publicDir) return null;
     const graph = graphOf(mount, publicDir);
     if (!graph.length) return null;
@@ -104,8 +105,12 @@ export function createPageHints() {
       const lang = languageOf(req.headers['accept-language'], languages);
       if (lang && lang !== 'en') links.push(fetched(at(`/i18n/${lang}.json`)));
     }
-    // What every module asks before it draws, and the host's list of modules for the rail.
+    // What every module asks before it draws, and the host's list of modules for the rail. Who
+    // the person is: what the module says it asks first (`createModule().preload`, its own GET
+    // paths), else the suite's own route for it.
     links.push(fetched(at('/api/auth/config')));
+    const own = Array.isArray(preload) ? preload : ['/api/auth/me'];
+    for (const p of own) if (typeof p === 'string' && /^\/[^/]/.test(p)) links.push(fetched(at(p)));
     if (graph.includes('/suite/shell.js')) links.push(fetched('/api/modules'));
     return links.join(', ');
   };

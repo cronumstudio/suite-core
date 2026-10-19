@@ -1625,9 +1625,11 @@ screen, on a phone a second, and the rail came last, pushing the sidebar aside. 
 - **The host names what a module's page will ask for** with the page itself (`page-hints.js`, a
   `Link` header on `/<mount>/` and `/<mount>/index.html`): every module script its static imports
   reach (read from its files and the kit's, again whenever one of them changes), `app-version.js`,
-  the English catalog and the browser's language among the module's, `/<mount>/api/auth/config`
-  and the host's `/api/modules`. The browser asks for all of it at once. A module adds nothing for
-  this, and an app on its own sends none of it.
+  the English catalog and the browser's language among the module's, `/<mount>/api/auth/config`,
+  who the person is (`/<mount>/api/auth/me`, or the module's own GET paths it asks first, as
+  `createModule().preload: ['/api/me', '/api/bootstrap']`) and the host's `/api/modules`. The
+  browser asks for all of it at once. A module needs nothing for this, and an app on its own sends
+  none of it.
 - **The kit asks for each catalog once per page** (`i18n.js`): an app loads the language of last
   time before it knows who it is and the person's own once it does, most often the same one.
 - **The rail of last time is drawn with the frame** (`shell.js`, the host's last answer kept as
