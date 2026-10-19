@@ -12,7 +12,9 @@ change an interface and a patch never does. Apps pin a version through the submo
   from one person there, and what is shared with one is accepted, declined or left there. The app
   says what it shares (`kinds`: Tasks its lists; Notes its groups, notebooks and notes), gives
   `load()` → `{ mine, withMe }` and a function for each change; after every change the page asks
-  `load()` again, so it always shows the server's state, also after a refusal. On a narrow phone
+  `load()` again, so it always shows the server's state, also after a refusal. `open(item, { close })`
+  gets the close of the Settings it is in (an app's section's `render` now gets `{ close }`), so an
+  app needn't keep the handle, which a change of language would replace. On a narrow phone
   each person's choice goes under their name, never off the screen. Its texts are the kit's
   (`kit.shared.*`, four languages); the service worker keeps it (`sw-core.js`). Nothing changes
   for an app that doesn't add it.

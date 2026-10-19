@@ -12,7 +12,7 @@
  *     remove: async (item, person) => {},        // take it back from one person
  *     leave: async (item) => {},                 // decline it, or leave it, when it is shared with me
  *     accept: async (item) => {},                // take up an invitation (optional)
- *     open: (item) => {},                        // go to it (optional; the app closes Settings)
+ *     open: (item, { close }) => {},             // go to it (optional; `close` closes Settings)
  *   })] });
  *
  * An item: { kind, id, name, color, icon, path }. What the person shares
@@ -39,12 +39,12 @@ export function sharedSection(options) {
     iconName: 'users',
     label: t('kit.shared.title'),
     hint: () => t('kit.shared.hint'),
-    render: () => sharedPage(options),
+    render: ({ close } = {}) => sharedPage({ ...options, close }),
   };
 }
 
 /** The page itself, for an app that shows it somewhere else too. */
-export function sharedPage({ load, kinds = {}, setPermission, remove, leave, accept = null, open = null }) {
+export function sharedPage({ load, kinds = {}, setPermission, remove, leave, accept = null, open = null, close = () => {} }) {
   const page = el('div', { class: 'kit-shared', 'aria-busy': 'true' });
   const kindOf = (item) => kinds[item.kind] || { label: '', iconName: 'folder' };
 
@@ -73,7 +73,7 @@ export function sharedPage({ load, kinds = {}, setPermission, remove, leave, acc
       : el('span', { class: 'kit-shared__icon', style: item.color ? `color: ${item.color}` : null }, icon(kind.iconName || 'folder'));
     const where = [kind.label, item.path].filter(Boolean).join(' · ');
     const name = open
-      ? el('button', { type: 'button', class: 'kit-shared__name kit-shared__name--link', text: item.name, onClick: () => open(item) })
+      ? el('button', { type: 'button', class: 'kit-shared__name kit-shared__name--link', text: item.name, onClick: () => open(item, { close }) })
       : el('strong', { class: 'kit-shared__name', text: item.name });
     return el('div', { class: 'kit-shared__head' }, mark,
       el('span', { class: 'kit-shared__title' }, name, where ? el('small', { text: where }) : null), ...after);

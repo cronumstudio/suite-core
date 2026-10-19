@@ -53,7 +53,7 @@ function fixture() {
     remove: async (item, person) => { calls.push(['remove', item.id, person.user.id]); },
     leave: async (item) => { calls.push(['leave', item.kind, item.id]); },
     accept: async (item) => { calls.push(['accept', item.kind, item.id]); },
-    open: (item) => { calls.push(['open', item.kind, item.id]); },
+    open: (item, { close }) => { calls.push(['open', item.kind, item.id, typeof close]); },
   };
   return { state, calls, options };
 }
@@ -125,7 +125,7 @@ test('each change goes through the app and the page asks again', async () => {
   assert.deepEqual(calls, []);
 
   buttons(page, 'Trip')[0].dispatch('click');
-  assert.deepEqual(calls, [['open', 'note', 9]], 'a name opens it where the app has a way');
+  assert.deepEqual(calls, [['open', 'note', 9, 'function']], 'a name opens it where the app has a way, with Settings’ close');
 });
 
 test('a refusal is said, and the page shows what the server has', async () => {
@@ -175,6 +175,7 @@ test('a load that fails says why and offers to try again', async () => {
 
 test('in Settings it is one more of the app’s sections', async () => {
   const { options } = fixture();
+  options.open = (item, { close }) => close();
   const root = document.createElement('div');
   const settings = openSettings({
     app: { id: 'notes', name: 'Notes' }, user: { username: 'ana', role: 'user' }, root, start: 'shared',
@@ -183,5 +184,7 @@ test('in Settings it is one more of the app’s sections', async () => {
   await settle();
   assert.match(root.textContent, /Recipes/);
   assert.ok(root.all().some((n) => n.getAttribute('class')?.includes('kit-settings__item') && n.textContent.includes(t('kit.shared.title'))));
+  root.all().find((n) => n.tagName === 'BUTTON' && n.textContent === 'Trip').dispatch('click');
+  assert.equal(root.all().length, 0, 'opening something closes the Settings it is in, without the app keeping its handle');
   settings.close();
 });
