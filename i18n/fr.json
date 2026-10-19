@@ -720,7 +720,7 @@
   "kit.modules.off": "Un module désactivé garde vos données : il quitte seulement vos menus.",
   "kit.modules.last": "Il en reste au moins un activé.",
   "kit.modules.icons": "Icônes sur l’écran d’accueil",
-  "kit.modules.install": "Chaque module peut avoir sa propre icône, qui l’ouvre directement : ouvrez le module et installez-le depuis le menu du navigateur.",
+  "kit.modules.install": "Installez {host} pour tout avoir sous une seule icône, qui s’ouvre sur le dernier module utilisé, ou chaque module avec sa propre icône, qui l’ouvre directement : ouvrez-le et installez-le depuis le menu du navigateur (sur iPhone, Partager → Sur l’écran d’accueil).",
   "kit.modules.open": "Ouvrir {name}",
   "kit.links.label": "Lié",
   "kit.links.add": "Lier",

@@ -720,7 +720,7 @@
   "kit.modules.off": "A module turned off keeps your data: it only leaves your menus.",
   "kit.modules.last": "At least one stays on.",
   "kit.modules.icons": "Home screen icons",
-  "kit.modules.install": "Each module can have an icon of its own that opens straight in it: open the module and install it from the browser’s menu.",
+  "kit.modules.install": "Install {host} to have it all under one icon, which opens on the module you used last, or each module with an icon of its own that opens straight in it: open it and install it from the browser’s menu (on an iPhone, Share → Add to Home Screen).",
   "kit.modules.open": "Open {name}",
   "kit.links.label": "Linked",
   "kit.links.add": "Link",
