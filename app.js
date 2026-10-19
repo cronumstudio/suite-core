@@ -562,11 +562,13 @@ function inCatalogDir(pathname) {
  *   /mcp answers. A host passes a function for its modules, whose MCP is the host's: read on each
  *   request, it says whether the host's /mcp exists, which is known only once every module has
  *   joined (host.js).
+ * @param {'none'|'self'} [options.frames]  who may frame its pages: nobody (default), or pages of
+ *   the same site, a host's module in its split view (host.js `split`)
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
-  sweep = null, offersMcp = null, devices: deviceRules = null,
+  sweep = null, offersMcp = null, devices: deviceRules = null, frames = 'none',
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -773,7 +775,7 @@ export function createApp({
     let pathname = String(req.url || '');
 
     // Before anything else, so they reach every response.
-    securityHeaders(res, { https: install.https });
+    securityHeaders(res, { https: install.https, frames });
 
     try {
       // Inside the try: a target or a Host no URL can be made of (`GET //`,

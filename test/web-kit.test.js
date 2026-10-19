@@ -420,8 +420,15 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
   assert.match(shell, /class: 'kit-side__app', 'aria-haspopup': 'menu'/);
   assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),\s*others\.length \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
-  // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views).
-  assert.match(shell, /const want = hosted && !\(beside\(\) && \(rail \|\| !answered\)\);/);
+  // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
+  // and always in a frame of the host's split view, which has no rail.
+  assert.match(shell, /const want = hosted && \(FRAMED \|\| !\(beside\(\) && \(rail \|\| !answered\)\)\);/);
+  assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules');
+  // The split view's views on the rail, where the host has one, over Settings.
+  assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
+  assert.match(shell, /href: n === 1 \? null : `\$\{page\}\?layout=\$\{n\}&from=\$\{encodeURIComponent\(mount\)\}`/);
+  assert.match(css, /\.kit-rail__split \+ \.kit-rail__settings \{ margin-top: 0; \}/);
+  for (const n of [1, 2, 3, 4]) assert.match(icons, new RegExp(` {2}'layout-${n}': '[^']+',\n`));
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
   assert.match(shell, /foot\.hidden = on;/, 'the person\'s button gives way in a host');
   assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the person\'s button opened');
@@ -528,7 +535,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)? \} from '\.\/base\.js'/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses.
     assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
@@ -1244,4 +1251,27 @@ test('every listener the frame adds goes with its one signal, or by hand with de
   assert.equal(signed, added - 1);
   assert.match(shell, /const listening = new AbortController\(\);/);
   assert.match(shell, /listening\.abort\(\);/);
+});
+
+test('a frame of the host\'s own page is FRAMED; a page on its own, or framed by another site, is not', async () => {
+  const { framedIn } = await import('../web/base.js');
+  const page = { location: { origin: 'https://work.example' } };
+  page.top = page;
+  page.self = page;
+  assert.equal(framedIn(page), false, 'a page on its own');
+  const frame = { location: { origin: 'https://work.example' }, top: page };
+  frame.self = frame;
+  assert.equal(framedIn(frame), true, 'a frame of the split view');
+  const elsewhere = { location: { origin: 'https://work.example' }, top: { get location() { throw new Error('SecurityError'); } } };
+  elsewhere.self = elsewhere;
+  assert.equal(framedIn(elsewhere), false, 'another site\'s page can\'t be read');
+  assert.equal(framedIn(undefined), false, 'no window: Node');
+});
+
+test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
+  const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
+  assert.match(read('signin.js'), /href: '\/auth\/login', target: FRAMED \? '_top' : null/);
+  assert.match(read('signin.js'), /const page = FRAMED \? window\.top : window;/);
+  assert.match(read('settings.js'), /const page = FRAMED \? window\.top : window;/);
+  assert.match(read('plan.js'), /\(FRAMED \? globalThis\.top : globalThis\)\.location\.assign\(url\)/);
 });

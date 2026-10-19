@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.94.0 — 2026-10-19
+
+- **A host's split view** (`createHost({ split: '/split/' })`, Cronum Work 0.3.8). A host can
+  have a page of its own that shows several modules at once, each in a frame. With it:
+  - the rail has a button over Settings whose menu has the views: this module alone (now), two or
+    three side by side, or four in a grid (`/split/?layout=2&from=<mount>`); `/api/modules` says
+    where the page is (`host.split`);
+  - the modules' pages may be framed by the host's own pages (`frame-ancestors 'self'`,
+    `X-Frame-Options: SAMEORIGIN`; `createApp({ frames: 'self' })`, `securityHeaders({ frames })`).
+    Another site still can't frame them, and the host's own pages are framed by nobody;
+  - a module in a frame (`base.js` `FRAMED`) has no rail and doesn't become the module used last;
+    its name keeps Settings at hand. Signing in with the provider, signing out, paying and deleting
+    one's account take the whole window, not the frame.
+  A `split` that isn't a path of the host (`/split/`) stops the start. Without it nothing changes,
+  nor for an app on its own.
+- **A menu's entry in use** (`ui.js` `menu`, `current: true`): a tick at its end.
+- **Icons `layout-1` to `layout-4`**: one module, two or three side by side, four in a grid.
+
 ## 0.93.0 — 2026-10-19
 
 - **Settings › Modules opens the host too** (Cronum Work). "Home screen icons" offered a button

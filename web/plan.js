@@ -19,6 +19,7 @@ import { el, clear } from './dom.js';
 import { t, formatDateTime } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { toast } from './ui.js';
+import { FRAMED } from './base.js';
 
 /** What `billingReturn` tells the page each time it reads the plan again: an open Settings repaints. */
 export const PLAN_EVENT = 'kit-plan';
@@ -101,7 +102,8 @@ function recall() {
 /** Only to the provider's page: an address that isn't http(s) is not followed. */
 function follow(url) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw new Error('not a page');
-  globalThis.location.assign(url);
+  // From a frame of the host's split view the whole window goes: a payment page isn't framed.
+  (FRAMED ? globalThis.top : globalThis).location.assign(url);
 }
 
 /**

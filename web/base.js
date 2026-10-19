@@ -30,3 +30,17 @@ export const pathAt = (base, path) => (base !== '/' && typeof path === 'string' 
 
 /** A path of the app at this page's base. */
 export const at = (path) => pathAt(BASE, path);
+
+/**
+ * Whether this page is a frame of another page of the same site: a host's module in its split
+ * view (host.js `split`). Another site can't frame it (http.js), and its page can't be read here.
+ */
+export function framedIn(win = globalThis.window) {
+  try {
+    return Boolean(win) && win.top !== win.self && win.top.location.origin === win.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+export const FRAMED = framedIn();

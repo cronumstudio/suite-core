@@ -765,3 +765,37 @@ test('a module’s manifest and paths, at its place in the host', () => {
     { action: '/notes/share', method: 'POST' });
   assert.deepEqual(mountManifest({}, 'next'), { start_url: '/next/', scope: '/next/' });
 });
+
+test('a host with a split view: the rail offers it, and only its own pages may frame the modules', async (t) => {
+  const { call } = await startHost(t, { split: '/split/' });
+  assert.equal((await call('GET', '/api/modules')).data.host.split, '/split/');
+  const module = await call('GET', '/alpha/api/auth/config');
+  assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+  assert.equal(module.headers.get('x-frame-options'), 'SAMEORIGIN');
+  // The host's own pages are framed by nobody.
+  const root = await call('GET', '/api/modules');
+  assert.match(root.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(root.headers.get('x-frame-options'), 'DENY');
+});
+
+test('a host without a split view: nobody may frame its modules, and the rail offers none', async (t) => {
+  const { call } = await startHost(t);
+  assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
+  const module = await call('GET', '/alpha/api/auth/config');
+  assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(module.headers.get('x-frame-options'), 'DENY');
+});
+
+test('a split view that isn’t a page of the host stops the start', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  try {
+    for (const split of ['https://elsewhere.example/split/', '/split', '//evil/', 42]) {
+      await assert.rejects(
+        createHost({ config: HOST, modules: modules(), split, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }, handleSignals: false, exitOnError: false, log: () => {} }),
+        (err) => err instanceof SuiteConfigError && /split: .* is not a page of the host/.test(err.errors.join('\n')),
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

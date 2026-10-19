@@ -34,7 +34,7 @@
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
 import { api, errorMessage } from './api.js';
-import { at } from './base.js';
+import { at, FRAMED } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
@@ -843,8 +843,10 @@ export function openSettings(options) {
         },
       });
       if (!done) return;
-      if (done.logout_url) window.location.href = done.logout_url;
-      else window.location.reload();
+      // From a frame of the host's split view, the whole window leaves with the account.
+      const page = FRAMED ? window.top : window;
+      if (done.logout_url) page.location.href = done.logout_url;
+      else page.location.reload();
     }, 'danger-quiet');
 
     return [
