@@ -129,6 +129,26 @@ test('the page is translated as the language loads: data-i18n and data-i18n-attr
   page.attrs = [];
 });
 
+test('each catalog is asked for once per page, and one that failed is asked for again', async () => {
+  const i18n = await kit({ en: CATALOGS.en });
+  const asked = [];
+  const serve = globalThis.fetch;
+  globalThis.fetch = (url, options) => { asked.push(/\/i18n\/([a-z]+)\.json/.exec(String(url))?.[1]); return serve(url, options); };
+  try {
+    await i18n.loadLanguage('es');
+    await i18n.loadLanguage('es');
+    assert.deepEqual(asked, ['en', 'es', 'es'], 'English once; Spanish, which failed, again');
+    catalogs = CATALOGS;
+    await i18n.loadLanguage('es');
+    await i18n.loadLanguage('en');
+    await i18n.loadLanguage('es');
+    assert.deepEqual(asked, ['en', 'es', 'es', 'es'], 'once it came, never again');
+    assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hola Ana');
+  } finally {
+    globalThis.fetch = serve;
+  }
+});
+
 test('changeLanguage loads it and tells the app, which draws itself again', async () => {
   const i18n = await kit(CATALOGS);
   events.length = 0;

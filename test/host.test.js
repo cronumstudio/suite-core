@@ -79,6 +79,11 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('GET', '/gamma/')).status, 404, 'no module there');
   const security = await call('GET', '/alpha/');
   assert.ok(security.headers.get('content-security-policy'), 'a module’s answers carry the security headers');
+  // A module's page names the code it starts with, and what it asks first (page-hints.js).
+  assert.match(security.headers.get('link'), /^<\/alpha\/js\/main\.js>; rel=modulepreload, .*<\/alpha\/api\/auth\/config>; rel=preload; as=fetch; crossorigin/);
+  assert.equal((await call('GET', '/alpha/index.html')).headers.get('link'), security.headers.get('link'));
+  assert.equal((await call('GET', '/beta/')).headers.get('link'), null, 'a page without code names nothing');
+  assert.equal((await call('GET', '/alpha/js/main.js')).headers.get('link'), null, 'only the page');
 
   // One sign-in for every module: the host's cookie.
   assert.equal((await call('GET', '/alpha/api/items')).status, 401);

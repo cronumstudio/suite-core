@@ -28,10 +28,20 @@ let english = {};
 /** Dotted keys ("errors.not_found") in a flat catalog or a nested one alike. */
 const lookup = (dict, key) => dict[key] ?? key.split('.').reduce((node, part) => node?.[part], dict);
 
-async function fetchCatalog(lang) {
-  const res = await fetch(at(`/i18n/${lang}.json`), { credentials: 'same-origin' });
-  if (!res.ok) throw new Error(`i18n ${lang}: ${res.status}`);
-  return res.json();
+// Each catalog once per page: an app loads the language of last time before it knows who it is,
+// and the person's own once it does, most often the same one, which was a second trip to the
+// server before anything could be drawn. One that failed is asked for again next time.
+const catalogs = new Map();
+function fetchCatalog(lang) {
+  if (!catalogs.has(lang)) {
+    const loading = fetch(at(`/i18n/${lang}.json`), { credentials: 'same-origin' }).then((res) => {
+      if (!res.ok) throw new Error(`i18n ${lang}: ${res.status}`);
+      return res.json();
+    });
+    loading.catch(() => catalogs.delete(lang));
+    catalogs.set(lang, loading);
+  }
+  return catalogs.get(lang);
 }
 
 /** Where this browser keeps the choice: `<app>.lang`. */

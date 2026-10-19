@@ -54,7 +54,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `$`, `$$`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings |
-| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`), `savedLanguage`, `changeLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
+| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key; `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
@@ -143,7 +143,11 @@ As a module of a host (a page under `/<mount>/`, Cronum Work), the person's butt
 640 px a rail at the sidebar's start has the host's home, the modules the person uses (one too) and
 Settings at its foot. On a phone the drawer has no rail: the app's icon and name at its head open a
 menu with the other modules and, last, what the person's button opened (Settings). So does a
-computer's when the host couldn't be asked (offline), until it answers.
+computer's when the host couldn't be asked (offline), until it answers. The host's last answer is
+kept on the device (`host.modules`): the rail is drawn with the frame, and again when the host
+answers. From one module to another one page fades into the next (`@view-transition` in kit.css,
+200 ms, the rail standing still), in browsers that have view transitions and not for whoever asks
+for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
 **Drawing the frame again.** The frame listens on the document (touches at the screen's edges,

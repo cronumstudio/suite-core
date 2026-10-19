@@ -1613,3 +1613,33 @@ relative to the module (`?list=27&task=389`). A thing is named by a ref, `module
   another item and `row.refresh(events)` from the live channel (`events: ['links']`). On its own an
   app gets a hidden row, and nothing is asked.
 
+
+### 21.4 From one module to another
+
+Going from one module to another (the rail, or the menu at the drawer's head on a phone) opens
+another page of the same site, and each module's page draws itself from its code: a few lines of
+HTML, then main.js and what it imports, in four or five steps, then the catalogs, the install's
+settings and the person, one after another. On a computer that was over half a second of an empty
+screen, on a phone a second, and the rail came last, pushing the sidebar aside. Since 0.92.0:
+
+- **The host names what a module's page will ask for** with the page itself (`page-hints.js`, a
+  `Link` header on `/<mount>/` and `/<mount>/index.html`): every module script its static imports
+  reach (read from its files and the kit's, again whenever one of them changes), `app-version.js`,
+  the English catalog and the browser's language among the module's, `/<mount>/api/auth/config`,
+  who the person is (`/<mount>/api/auth/me`, or the module's own GET paths it asks first, as
+  `createModule().preload: ['/api/me', '/api/bootstrap']`) and the host's `/api/modules`. The
+  browser asks for all of it at once. A module needs nothing for this, and an app on its own sends
+  none of it.
+- **The kit asks for each catalog once per page** (`i18n.js`): an app loads the language of last
+  time before it knows who it is and the person's own once it does, most often the same one.
+- **The rail of last time is drawn with the frame** (`shell.js`, the host's last answer kept as
+  `host.modules`), and again when the host answers.
+- **One page fades into the next** (`@view-transition` in kit.css, 200 ms), the rail standing
+  still, where the browser has view transitions (Chrome and Edge, Safari 18.2 on), never for whoever
+  asks for less motion.
+
+Measured in a headless Edge over HTTP/2 with 45 ms to the server (90 ms and a four times slower
+processor for a phone): the new frame came 0.37–0.54 s after the click instead of 0.81–0.87 s
+(0.65–0.90 s instead of 1.37–1.44 s), and the empty screen between the two pages went from 0.6 s to
+0–0.1 s (from 1 s to 0.1–0.25 s). What is left is the module's own first answers (the person, its
+data), which drawing from what the device keeps would take away, module by module.
