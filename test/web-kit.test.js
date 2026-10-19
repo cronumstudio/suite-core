@@ -447,6 +447,47 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(css, /@view-transition \{ navigation: auto; \}/);
   assert.match(css, /\.kit-rail \{ view-transition-name: kit-rail; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*@view-transition \{ navigation: none; \}\s*\}/);
+  // The fade waits for the new page to draw itself: a pause in kit.css, ended by the frame.
+  assert.match(css, /::view-transition-group\(\*\), ::view-transition-old\(\*\), ::view-transition-new\(\*\) \{ animation-delay: 400ms; \}/);
+  assert.match(shell, /^holdPageFade\(\);$/m, 'held from the moment the kit loads');
+});
+
+test('holdPageFade: the fade stays still until the frame is drawn and quiet, then plays from the end of its pause', async () => {
+  const { holdPageFade } = await import('../web/shell.js');
+  const listeners = {};
+  const saved = { MutationObserver: globalThis.MutationObserver, addEventListener: globalThis.addEventListener };
+  const performance = Object.getOwnPropertyDescriptor(globalThis, 'performance');
+  // The page has just started: the most it may be held is still ahead.
+  Object.defineProperty(globalThis, 'performance', { value: { now: () => 0 }, configurable: true, writable: true });
+  let notify = null;
+  globalThis.MutationObserver = class { constructor(fn) { notify = fn; } observe() {} disconnect() { notify = null; } };
+  globalThis.addEventListener = (type, fn) => { listeners[type] = fn; };
+  const anim = (pseudoElement) => ({
+    effect: { pseudoElement, getTiming: () => ({ delay: 400 }) }, currentTime: 30, state: 'running',
+    pause() { this.state = 'paused'; }, play() { this.state = 'running'; },
+  });
+  const fades = [anim('::view-transition-old(root)'), anim('::view-transition-new(root)')];
+  let shell = false;
+  const doc = {
+    documentElement: {}, getAnimations: () => [...fades, anim(null)],
+    querySelector: (s) => (s === '.kit-shell' && shell ? {} : null),
+  };
+  try {
+    holdPageFade(doc);
+    assert.deepEqual(fades.map((a) => a.state), ['paused', 'paused'], 'held as soon as the kit runs');
+    await new Promise((r) => setTimeout(r, 120));
+    assert.deepEqual(fades.map((a) => a.state), ['paused', 'paused'], 'no frame yet: still held');
+    shell = true;
+    notify();
+    await new Promise((r) => setTimeout(r, 90));
+    assert.deepEqual(fades.map((a) => [a.state, a.currentTime]), [['running', 400], ['running', 400]],
+      'drawn and quiet: the fade plays, its pause skipped');
+    assert.equal(typeof listeners.pagereveal, 'function', 'and a fade that starts later is held too');
+  } finally {
+    globalThis.MutationObserver = saved.MutationObserver;
+    globalThis.addEventListener = saved.addEventListener;
+    Object.defineProperty(globalThis, 'performance', performance);
+  }
 });
 
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
