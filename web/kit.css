@@ -729,6 +729,17 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 
 .kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head) .kit-bar,
 .kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head) .kit-bar { display: none; }
+/*
+ * With the bar gone, a banner is the first thing on the screen: it keeps the clock's gap, in its
+ * own colour, and the head under it no longer needs it. Without this, in an iPhone's installed
+ * app the banner went under the clock and the head kept an empty gap below it.
+ */
+.kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head):has(.kit-banners > *) .kit-banners > :first-child,
+.kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head):has(.kit-banners > *) .kit-banners > :first-child {
+  padding-top: calc(8px + var(--kit-safe-top));
+}
+.kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head):has(.kit-banners > *) .kit-head,
+.kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head):has(.kit-banners > *) .kit-head { padding-top: 8px; }
 @container kit-app (min-width: 960px) {
   /* The list and its detail side by side: the list's head has ☰ and create, and nothing goes back. */
   .kit-app[data-panes="split"]:has(.kit-pane--list .kit-head) .kit-bar { display: none; }

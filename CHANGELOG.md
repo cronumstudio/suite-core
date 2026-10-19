@@ -11,6 +11,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   to the host's page at `/?modules`, which stays put and carries the host's web manifest (Work
   0.3.2); the hint says what each icon opens and how to add one on an iPhone. Nothing changes
   for an app on its own.
+- **A banner over a view's head keeps clear of the clock** (kit.css). Where the bar gives way to
+  a head (a phone), a banner is the first thing on the screen, but the gap for the status bar
+  stayed in the head: in an iPhone's installed app the banner went under the clock and an empty
+  gap sat between it and the head. Now the first banner keeps that gap, in its own colour, and
+  the head under it doesn't. Without a banner, nothing changes.
 
 ## 0.92.1 — 2026-10-19
 
