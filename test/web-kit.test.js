@@ -494,7 +494,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)? \} from '\.\/base\.js'/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses.
     assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
@@ -1225,6 +1225,18 @@ test('a frame of the host\'s own page is FRAMED; a page on its own, or framed by
   elsewhere.self = elsewhere;
   assert.equal(framedIn(elsewhere), false, 'another site\'s page can\'t be read');
   assert.equal(framedIn(undefined), false, 'no window: Node');
+});
+
+test('in a frame, the split view opens the module\'s Settings, and hears when they open and close', () => {
+  const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
+  assert.match(read('base.js'), /export const SETTINGS_EVENT = 'kit:settings';/);
+  assert.match(read('base.js'), /export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';/);
+  assert.match(read('shell.js'), /if \(FRAMED && onSettings\) window\.addEventListener\(SETTINGS_EVENT, \(\) => \{ closeDrawer\(\); onSettings\(\); \}, \{ signal \}\);/);
+  const settings = read('settings.js');
+  assert.match(settings, /if \(!FRAMED\) return;/);
+  assert.match(settings, /new window\.parent\.CustomEvent\(SETTINGS_SHOWN_EVENT, \{ detail: \{ open, source: window \} \}\)/);
+  assert.match(settings, /shown\(true\);/);
+  assert.match(settings, /overlay\.remove\(\);\s*shown\(false\);/);
 });
 
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {

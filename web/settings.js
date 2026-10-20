@@ -34,7 +34,7 @@
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
 import { api, errorMessage } from './api.js';
-import { at, FRAMED } from './base.js';
+import { at, FRAMED, SETTINGS_SHOWN_EVENT } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
@@ -122,6 +122,14 @@ export function openSettings(options) {
   const overlay = el('div', { class: 'kit-settings-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('kit.settings.title') },
     el('header', { class: 'kit-settings-page__bar' }, backButton, title), scroller);
   root.append(overlay);
+  // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
+  const shown = (open) => {
+    if (!FRAMED) return;
+    try {
+      window.parent.dispatchEvent(new window.parent.CustomEvent(SETTINGS_SHOWN_EVENT, { detail: { open, source: window } }));
+    } catch { /* the view went */ }
+  };
+  shown(true);
 
   const items = new Map();
   const built = new Map();
@@ -184,6 +192,7 @@ export function openSettings(options) {
     document.removeEventListener('keydown', onKey);
     for (const cleanup of cleanups.splice(0)) cleanup();
     overlay.remove();
+    shown(false);
     options.onClose?.();
   }
   const onKey = (ev) => { if (ev.key === 'Escape') back(); };

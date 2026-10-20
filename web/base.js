@@ -44,3 +44,12 @@ export function framedIn(win = globalThis.window) {
 }
 
 export const FRAMED = framedIn();
+
+/**
+ * Between the host's split view and a module in one of its frames, both pages of the same site:
+ * the view asks the module for its Settings with `kit:settings` on the frame's window (shell.js),
+ * and the module says on its parent's when they open and close, `kit:settings-shown` with
+ * `{ open, source }`, `source` its window (settings.js), so the view gives them the whole space.
+ */
+export const SETTINGS_EVENT = 'kit:settings';
+export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';
