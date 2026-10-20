@@ -57,7 +57,9 @@ var SUITE_KIT_FILES = [
 ];
 
 var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];
-var SUITE_EXACT_NEVER = ['/version', '/health'];
+// `/devices/session` spends a one-time code and sets the session cookie (device-pages.js): never a
+// copy, nor a page in its place when the network is slow.
+var SUITE_EXACT_NEVER = ['/version', '/health', '/devices/session'];
 var SUITE_WAIT_MS = 4000;
 
 /** The worker's scope as a path: `/` for an app on its own, `/tasks/` for a module of a host. */

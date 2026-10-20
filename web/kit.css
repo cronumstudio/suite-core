@@ -839,6 +839,8 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-signin__notice { margin: 0; padding: 10px 12px; border-radius: 9px; background: var(--kit-accent-soft); font-size: 14px; }
 .kit-signin__notice p { margin: 4px 0 0; }
 .kit-signin__sig { display: flex; justify-content: center; padding: 22px 16px calc(22px + var(--kit-safe-bottom)); }
+/* The connect page (connect.js): the device's name is what the app sent, set apart from the page's words. */
+.kit-connect__device { color: var(--kit-text); font-weight: 600; overflow-wrap: anywhere; }
 @media (min-width: 760px) {
   .kit-signin { flex-direction: row; }
   .kit-signin__hero { flex: 0 0 44%; align-content: center; padding: 56px; }
