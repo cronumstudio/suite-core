@@ -104,7 +104,7 @@ document.removeEventListener = docEvents.removeEventListener.bind(docEvents);
 document.dispatchEvent = docEvents.dispatchEvent.bind(docEvents);
 
 const { el } = await import('../web/dom.js');
-const { makeDraggable, edgeSpeed, zoneAt } = await import('../web/drag.js');
+const { makeDraggable, edgeSpeed, zoneAt, redrawInPlace } = await import('../web/drag.js');
 
 /** A list of two notes and a sidebar of three notebooks, each with its box on the screen. */
 function page() {
@@ -691,4 +691,80 @@ test('held with a finger and let go where it was is a long press, not a move', (
   } finally {
     mock.timers.reset();
   }
+});
+
+/* ------------------------------ drawing again in place ------------------------------ */
+
+/** A box emptied goes back to the top, as a browser's does; filled again, it stays there. */
+function emptyAndFill(box, rows) {
+  box.childNodes = [];
+  box.scrollTop = 0;
+  for (let i = 0; i < rows; i++) box.append(el('div', { 'data-row': String(i) }));
+}
+
+test('drawn again whole, a box keeps how far it was scrolled', () => {
+  const p = page();
+  p.notes.scrollTop = 640;
+  const drawn = redrawInPlace(p.notes, () => emptyAndFill(p.notes, 30));
+  assert.equal(drawn, true);
+  assert.equal(p.notes.children.length, 30);
+  assert.equal(p.notes.scrollTop, 640);
+  p.drag.destroy();
+});
+
+test('a part that does not scroll keeps the scroll of the box above it', () => {
+  const p = page();
+  const part = el('ul', {});
+  p.notes.append(part);
+  p.notes.scrollTop = 300;
+  redrawInPlace(part, () => { emptyAndFill(part, 5); p.notes.scrollTop = 0; });
+  assert.equal(p.notes.scrollTop, 300);
+  // Nothing scrolls: it is only drawn.
+  const loose = el('div', {});
+  let times = 0;
+  assert.equal(redrawInPlace(loose, () => { times += 1; }), true);
+  assert.equal(times, 1);
+  p.drag.destroy();
+});
+
+test('while something is carried it waits, and draws once when it is let go', () => {
+  const p = page();
+  p.notes.scrollTop = 500;
+  const draws = [];
+  pointer(p.first, 'pointerdown', 400, 110);
+  pointer(p.first, 'pointermove', 400, 150);
+  assert.ok(document.documentElement.hasAttribute('data-kit-dragging'));
+  // A live notice and another: the rows under the pointer stay.
+  assert.equal(redrawInPlace(p.notes, () => draws.push('first')), false);
+  assert.equal(redrawInPlace(p.notes, () => { draws.push('second'); emptyAndFill(p.notes, 2); }), false);
+  assert.deepEqual(draws, []);
+  assert.ok(p.notes.children.includes(p.first));
+  pointer(p.first, 'pointermove', 100, 150);
+  pointer(p.first, 'pointerup', 100, 150);
+  assert.deepEqual(draws, ['second'], 'once, with the last it was asked');
+  assert.equal(p.notes.scrollTop, 500);
+  assert.deepEqual(p.dropped, [['1', 'work']]);
+  // The next drag starts with nothing waiting.
+  pointer(p.second, 'pointerdown', 400, 210);
+  pointer(p.second, 'pointermove', 400, 250);
+  pointer(p.second, 'pointerup', 400, 250);
+  assert.deepEqual(draws, ['second']);
+  // Once the drag is over it draws at once again.
+  assert.equal(redrawInPlace(p.notes, () => draws.push('after')), true);
+  assert.deepEqual(draws, ['second', 'after']);
+  p.drag.destroy();
+});
+
+test('boxes waiting for the same drag each draw once', () => {
+  const p = page();
+  const side = document.body.children[1];
+  const draws = [];
+  pointer(p.first, 'pointerdown', 400, 110);
+  pointer(p.first, 'pointermove', 400, 150);
+  redrawInPlace(p.notes, () => draws.push('list'));
+  redrawInPlace(side, () => draws.push('sidebar'));
+  redrawInPlace(side, () => draws.push('sidebar again'));
+  pointer(p.first, 'pointerup', 400, 150);
+  assert.deepEqual(draws.sort(), ['list', 'sidebar again']);
+  p.drag.destroy();
 });

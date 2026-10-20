@@ -38,6 +38,17 @@
  *
  * It is never the only way: the keyboard and a screen reader can't drag, so
  * whatever can be dropped somewhere can also be moved from a menu.
+ *
+ * A list or a sidebar drawn again whole on every change keeps still with
+ * `redrawInPlace(container, draw)`: it keeps how far its box was scrolled
+ * (emptied, a box goes back to the top, so a long sidebar jumped on every drop
+ * and again with the live notice that follows it), and while something is
+ * carried it doesn't draw at all (the rows and the gap under the pointer would
+ * go, and the drag with them): it draws once, when it is let go.
+ *
+ *   export function renderNav() {
+ *     redrawInPlace(shell.nav, () => { clear(shell.nav); … });
+ *   }
  */
 import { el } from './dom.js';
 import { icon } from './icons.js';
@@ -91,6 +102,44 @@ function scrollerOf(node) {
     if ((overflowY === 'auto' || overflowY === 'scroll') && at.scrollHeight > at.clientHeight) return at;
   }
   return null;
+}
+
+/** What each box waiting for the end of a drag will draw then: the last it was asked. */
+const waiting = new Map();
+
+/**
+ * Draws `container` again with `draw()` without moving what is on the screen.
+ * The box that scrolls it (itself, or the nearest one above it) keeps how far
+ * it was scrolled. While something is carried (`data-kit-dragging` on the page)
+ * nothing is drawn: it waits for `kit-dragend` and draws then, once, with the
+ * last `draw` it was given, however many times it was asked during the drag.
+ *
+ * @param {Element} container
+ * @param {Function} draw    empties and fills the container (or whatever inside the box)
+ * @returns {boolean}        true if it was drawn now, false if it waits for the drag to end
+ */
+export function redrawInPlace(container, draw) {
+  if (document.documentElement.hasAttribute('data-kit-dragging')) {
+    if (!waiting.has(container)) {
+      const then = () => {
+        document.removeEventListener('kit-dragend', then);
+        const last = waiting.get(container);
+        waiting.delete(container);
+        redrawInPlace(container, last);
+      };
+      document.addEventListener('kit-dragend', then);
+    }
+    waiting.set(container, draw);
+    return false;
+  }
+  const box = scrollerOf(container);
+  const scrolled = box ? box.scrollTop : 0;
+  try {
+    draw();
+  } finally {
+    if (box) box.scrollTop = scrolled;
+  }
+  return true;
 }
 
 /**

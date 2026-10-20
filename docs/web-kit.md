@@ -74,7 +74,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
-| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place |
+| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
 
 ## Starting an app
@@ -425,6 +425,28 @@ makeDraggable(list, {
 - **Where it landed.** `onDrop` also gets `x` and `y`, where it was let go, and `top`, that of the
   gap (null without one): the list is drawn again after a move, and keeping the moved row at `top`
   keeps it under the finger instead of somewhere the eye has to look for.
+
+**Drawing again without moving.** A sidebar or a list drawn again whole on every change jumps:
+emptied, its box goes back to the top (a long sidebar did on every drop, and again with the live
+notice that follows it), and a live notice during a drag takes away the rows and the gap under
+the pointer. `redrawInPlace(container, draw)` does both things the kit's way:
+
+```js
+import { redrawInPlace } from '/suite/drag.js';
+
+export function renderNav() {
+  redrawInPlace(shell.nav, () => {
+    clear(shell.nav);
+    // … the rows
+  });
+}
+```
+
+- The box that scrolls the container (itself, or the nearest one above it that scrolls) keeps how
+  far it was scrolled.
+- While something is carried (`data-kit-dragging`) it doesn't draw: it waits for `kit-dragend` and
+  draws once, with the last `draw` it was given, however many times it was asked meanwhile. It
+  answers `true` when it drew, `false` when it waits.
 
 **One drag for everything.** A task may go in order, into another category and onto a list of the
 sidebar in the same drag: its places are all of them, and `check` says which is which.
