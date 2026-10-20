@@ -802,5 +802,9 @@
   "kit.shared.remove": "Arrêter de partager avec {name}",
   "kit.shared.removeConfirm": "{name} n’aura plus « {item} ».",
   "kit.shared.leaveConfirm": "Vous n’aurez plus « {item} ». Seul son propriétaire peut le repartager avec vous.",
-  "kit.shared.retry": "Réessayer"
+  "kit.shared.retry": "Réessayer",
+  "kit.people.label": "Les personnes avec qui vous partagez",
+  "kit.people.sharedOne": "Partagé avec {name}.",
+  "kit.people.sharedMany": "Partagé avec {count} personnes.",
+  "kit.people.notShared": "Non partagé avec {name} : {reason}"
 }

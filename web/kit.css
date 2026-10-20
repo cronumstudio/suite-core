@@ -757,6 +757,20 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   .kit-app[data-panes="split"] .kit-head .kit-bar__back { display: none; }
 }
 
+/* --------------------------------- people ---------------------------------- */
+/* The people one already shares with, as chips under a share dialog's email (people.js). */
+.kit-people { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.kit-people[hidden] { display: none; }
+.kit-people__label { flex-basis: 100%; font-size: 12.5px; color: var(--kit-muted); }
+.kit-people__chip {
+  max-width: 100%; min-height: 32px; padding: 4px 12px; border: 1px solid var(--kit-border); border-radius: 999px;
+  background: var(--kit-panel); color: var(--kit-text); font: 500 13.5px/1.2 var(--kit-font); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kit-people__chip:hover { background: var(--kit-hover); }
+.kit-people__chip[aria-pressed="true"] { background: var(--kit-accent-soft); border-color: var(--kit-accent); color: var(--kit-accent); }
+.kit-people__chip[aria-pressed="true"]::before { content: "✓ "; }
+
 /* ---------------------------------- links ---------------------------------- */
 /* The "Linked" row of an item (links.js): one chip per link, a dot in the other module's colour. */
 .kit-linked { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
