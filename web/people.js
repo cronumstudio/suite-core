@@ -6,7 +6,7 @@
  * share is made; the kit draws the chips and says how it went.
  *
  *   import { peopleChips, shareWithEach } from '../suite/people.js';
- *   const chips = peopleChips(people, { onChange: (ids) => {} });   // [{ id, name }]
+ *   const chips = peopleChips(people, { onChange: (ids) => {}, selected: [] });   // [{ id, name }]
  *   form.append(email, chips.node);
  *   const { done, failed } = await shareWithEach(
  *     [...chips.selected().map((id) => people.find((p) => p.id === id)), { email: email.value, name: email.value }],
@@ -22,8 +22,9 @@ import { errorMessage } from './api.js';
 import { toast } from './ui.js';
 
 /** The chips: none at all (a hidden node) when there is nobody to offer. */
-export function peopleChips(people = [], { onChange = null } = {}) {
-  const picked = new Set();
+export function peopleChips(people = [], { onChange = null, selected = [] } = {}) {
+  // `selected`: those picked from the start (a dialog drawn again keeps who was refused picked).
+  const picked = new Set(selected);
   const node = el('div', { class: 'kit-people', role: 'group', 'aria-label': t('kit.people.label') });
   const paint = (list) => {
     clear(node);

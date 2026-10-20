@@ -49,6 +49,12 @@ test('a chip for each person, picked and unpicked by tapping, several at once', 
   assert.ok(chipsOf(chips.node).every((n) => n.getAttribute('aria-pressed') === 'false'));
 });
 
+test('some picked from the start, if they are among the people', () => {
+  const chips = peopleChips(PEOPLE, { selected: [4, 99] });
+  assert.deepEqual(chips.selected(), [4]);
+  assert.equal(chipNamed(chips.node, 'Ben').getAttribute('aria-pressed'), 'true');
+});
+
 test('nobody to offer: no chips and nothing shown; other people keep what is still there picked', () => {
   assert.equal(peopleChips([]).node.hidden, true);
   assert.equal(peopleChips().node.textContent, '');

@@ -8,7 +8,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **The people one already shares with, as chips in a share dialog** (`web/people.js`; kit.css).
   `peopleChips(people, { onChange })` draws a chip for each person the app says one already shares
   with, under the dialog's email field, so nobody's email has to be remembered: one or several are
-  picked (`selected()`, `clear()`, `set()` after a share). `shareWithEach(targets, shareOne)`
+  picked (`selected()`, `clear()`, `set()` after a share; `selected: [ids]` picks some from the start). `shareWithEach(targets, shareOne)`
   sends one share for each, one after another, and says once how it went: "Shared with 3 people",
   or who was refused and why, keeping the ones that went. Who those people are is each app's rule;
   an app shares by id only with someone the person already knows. Texts `kit.people.*` in four
