@@ -91,6 +91,11 @@ test('the Link header: the code, the tabâ€™s version, the catalogs, the installâ
   assert.match(declared, /<\/tasks\/api\/me>; rel=preload; as=fetch; crossorigin, <\/tasks\/api\/bootstrap>; rel=preload; as=fetch; crossorigin, <\/api\/modules>/);
   assert.doesNotMatch(declared, /auth\/me|evil|tasks\/api\/x|7/);
 
+  // Signed out: no one's answers, which would be 401s read after signing in without a reload.
+  const out = hintsFor({ mount: 'tasks', publicDir: dir, languages: ['en', 'es'], signedIn: false }, req);
+  assert.match(out, /<\/tasks\/api\/auth\/config>; rel=preload; as=fetch; crossorigin$/);
+  assert.doesNotMatch(out, /auth\/me|api\/modules/);
+
   const english = hintsFor({ mount: 'tasks', publicDir: dir, languages: ['en', 'es'] }, { headers: { 'accept-language': 'en-GB' } });
   assert.doesNotMatch(english, /es\.json/, 'English only once');
   assert.doesNotMatch(hintsFor({ mount: 'tasks', publicDir: dir, languages: ['en'] }, req), /es\.json/, 'not a language of the module');

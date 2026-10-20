@@ -59,7 +59,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) |
 | `settings.js` | `openSettings({ … })`; `subscribePush()`; `deviceName()` |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |

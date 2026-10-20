@@ -15,6 +15,8 @@
  * - The OAuth metadata (`/.well-known/oauth-protected-resource[/mcp]` and the
  *   authorization server's) names that address, so a client that connects
  *   again still finds where to sign in.
+ *   `LEGACY_MCP=off` takes the connectors down first: `/mcp` answers 404 with
+ *   the host's address, and the metadata 404s; the rest stays.
  * - `/sw.js` is a service worker that removes itself and opens the module in
  *   the host: the app installed from the old address stops showing what it
  *   kept and lands in the host.
@@ -35,12 +37,15 @@ const DOMAIN = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](
 /**
  * Reads `LEGACY_DOMAINS`: `domain=mount` entries separated by commas (or
  * spaces). Every mount must be a module of the host, and no domain the host's
- * own or given twice.
- * @returns {{ domains: Map<string, string>, errors: string[] }}
+ * own or given twice. And `LEGACY_MCP` (`on` when empty, or `off`): `off`
+ * takes the old connectors down before the rest of the bridge.
+ * @returns {{ domains: Map<string, string>, mcp: boolean, errors: string[] }}
  */
-export function parseLegacyDomains(value, { mounts, baseUrl }) {
+export function parseLegacyDomains(value, { mounts, baseUrl, mcp: mcpValue = '' }) {
   const domains = new Map();
   const errors = [];
+  const mcp = String(mcpValue || 'on').trim().toLowerCase();
+  if (!['on', 'off'].includes(mcp)) errors.push(`LEGACY_MCP "${mcpValue}": use on or off`);
   const own = new URL(baseUrl).hostname.toLowerCase();
   const entries = String(value || '').split(/[\s,]+/).filter(Boolean);
   entries.forEach((entry, i) => {
@@ -59,7 +64,7 @@ export function parseLegacyDomains(value, { mounts, baseUrl }) {
       domains.set(domain, mount);
     }
   });
-  return { domains, errors };
+  return { domains, mcp: mcp !== 'off', errors };
 }
 
 /** The service worker an old address serves: it goes, and its pages open the module in the host. */
@@ -78,7 +83,7 @@ self.addEventListener('activate', (event) => event.waitUntil((async () => {
  * @param {object[]} options.modules   the host's joined modules ({ mount, config, parts, view })
  * @param {object} options.suite       the host's suite (tokens, workos, entitlements, limiter, devices)
  * @param {(user, mount) => boolean} options.uses   whether someone uses a module
- * @param {boolean} options.mcp        whether the host's MCP is on
+ * @param {boolean} options.mcp        whether the old connectors are served: the host's MCP on, and LEGACY_MCP not off
  */
 export function createLegacyDomains({ domains, modules, suite, uses, hostName, baseUrl, https, version, mcp, log = () => {} }) {
   const base = String(baseUrl).replace(/\/+$/, '');

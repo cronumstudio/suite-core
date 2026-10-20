@@ -78,4 +78,27 @@ test('with WorkOS, an old address describes itself and takes only tokens for it'
   const page = await call('GET', '/lists/2');
   assert.equal(page.status, 302);
   assert.equal(page.headers.get('location'), 'https://work.example.test/tasks/lists/2');
+
+  // LEGACY_MCP=off: no connector there, and no metadata naming one; the pages still go.
+  const off = parseLegacyDomains('tasks.example.test=tasks', { mounts: ['tasks'], baseUrl: 'https://work.example.test', mcp: 'OFF' });
+  assert.deepEqual(off.errors, []);
+  assert.equal(off.mcp, false);
+  assert.equal(parseLegacyDomains('', { mounts: ['tasks'], baseUrl: 'https://work.example.test' }).mcp, true, 'on when empty');
+  const quiet = createLegacyDomains({
+    domains: off.domains, modules: [tasks], suite, uses: () => true, hostName: 'Work', baseUrl: 'https://work.example.test',
+    https: true, version: '9.9.9', mcp: off.mcp,
+  });
+  const quietServer = http.createServer((req, res) => {
+    quiet.handle(req, res, new URL(req.url, 'http://x'), 'tasks.example.test');
+  });
+  await new Promise((resolve) => quietServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => quietServer.close());
+  const ask = (method, pathname) => fetch(`http://127.0.0.1:${quietServer.address().port}${pathname}`, { method, redirect: 'manual' });
+  const gone = await ask('POST', '/mcp');
+  assert.equal(gone.status, 404);
+  assert.deepEqual(await gone.json(), { error: 'not_found', mcp: 'https://work.example.test/mcp' });
+  assert.equal((await ask('GET', '/.well-known/oauth-protected-resource/mcp')).status, 404);
+  assert.equal((await ask('GET', '/.well-known/oauth-protected-resource')).status, 404);
+  assert.equal((await ask('GET', '/.well-known/oauth-authorization-server')).status, 404);
+  assert.equal((await ask('GET', '/lists/2')).status, 302);
 });
