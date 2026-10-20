@@ -212,3 +212,17 @@ test('the public description', async (t) => {
   assert.match(info.auth, /OAuth 2.1/);
   assert.equal(info.tools.length, 3);
 });
+
+test('a token in the address is not read: it would end up in logs', async (t) => {
+  const { base } = await start(t);
+  const res = await fetch(`${base}/mcp?token=good-token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  assert.equal(res.status, 401);
+  const header = await fetch(`${base}/mcp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-MCP-Token': 'good-token' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  assert.equal(header.status, 200, 'the header still works');
+});

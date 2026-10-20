@@ -17,7 +17,14 @@ change an interface and a patch never does. Apps pin a version through the submo
   other people access, `destructiveHint: true`. `openWorldHint` is `true` only for a tool that
   reaches outside the app.
 - The host's link tools have theirs (`links.js`): `linked_items` reads, `link_item` adds (it may
-  create the thing in another module). Their names don't change.
+  create the thing in another module).
+- **The link tools start with the host's id**, as a module's tools start with its own:
+  `work_linked_items` and `work_link_item` in Cronum Work (`hostMcp({ hostId })`, the host's
+  `app.id`). The bare names are gone, with no hidden alias: a client with the old schema lists the
+  tools again. The host's instructions say so ("or with work_ for the ones that link things").
+- **No token in the address** (`mcp.js`, `bearerToken`). `/mcp?token=…` is no longer read: an
+  address ends up in logs and browser histories. A manual token still goes in `Authorization:
+  Bearer` or `X-MCP-Token`; OAuth is untouched.
 - **The old addresses' connectors can go before the rest of the bridge** (`LEGACY_MCP`, host.js,
   legacy-domains.js). With `LEGACY_MCP=off` (`on` when empty; anything else stops the start) the
   domains of `LEGACY_DOMAINS` keep their redirects and the service worker that removes itself, and

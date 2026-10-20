@@ -241,16 +241,17 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.match(init.instructions, /Beta keeps other items\./);
   assert.doesNotMatch(init.instructions, /paragraph/, 'without a brief, the first paragraph only');
   assert.ok(init.instructions.length <= 2048);
+  assert.match(init.instructions, /or with work_ for the ones that link things between modules/, 'the link tools’ prefix');
 
   const announced = (await mcp('tools/list')).result.tools;
   const listed = announced.map((tool) => tool.name);
-  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'linked_items', 'link_item']);
+  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'work_linked_items', 'work_link_item']);
   const hints = Object.fromEntries(announced.map((tool) => [tool.name, tool.annotations]));
   assert.deepEqual(hints.alpha_list_items, { title: 'List items', readOnlyHint: true, openWorldHint: false },
     'a module’s tool keeps its hints under the host’s name');
   assert.equal(hints.alpha_add_item, undefined, 'and one without them announces none');
-  assert.deepEqual(hints.linked_items, { title: 'What is linked with something', readOnlyHint: true, openWorldHint: false });
-  assert.deepEqual(hints.link_item, {
+  assert.deepEqual(hints.work_linked_items, { title: 'What is linked with something', readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(hints.work_link_item, {
     title: 'Link, or add to another module and link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
   });
   const text = async (name, args = {}) => (await mcp('tools/call', { name, arguments: args })).result.content[0].text;
@@ -515,11 +516,11 @@ test('links between modules: each sees what they could see, created where it liv
   let id = 0;
   const tool = async (name, args) => (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } },
     { Authorization: `Bearer ${token}` })).data.result.content[0].text;
-  assert.match(await tool('linked_items', { item: { module: 'alpha', type: 'item', id: '1' } }), /Beta item beta:item:3: "Write the proposal" \(done\) in Items \[done together\]/);
-  assert.match(await tool('link_item', { from: { module: 'alpha', type: 'item', id: '1' }, create: { module: 'beta', type: 'item', title: 'From Claude' } }),
+  assert.match(await tool('work_linked_items', { item: { module: 'alpha', type: 'item', id: '1' } }), /Beta item beta:item:3: "Write the proposal" \(done\) in Items \[done together\]/);
+  assert.match(await tool('work_link_item', { from: { module: 'alpha', type: 'item', id: '1' }, create: { module: 'beta', type: 'item', title: 'From Claude' } }),
     /^Linked: Beta item beta:item:5: "From Claude" \(open\)/);
   const listed = (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/list' }, { Authorization: `Bearer ${token}` })).data.result.tools;
-  assert.ok(listed.some((x) => x.name === 'link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
+  assert.ok(listed.some((x) => x.name === 'work_link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
 
   // A side its module won't complete stays as it was, all of it; the one completed here still is.
   await call('POST', '/alpha/api/items', { text: 'Second' });

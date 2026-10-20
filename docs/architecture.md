@@ -1621,7 +1621,7 @@ relative to the module (`?list=27&task=389`). A thing is named by a ref, `module
   `complete()` runs in it; a chain of such links completes once each. `suite.links?.changed(type,
   id)` repaints the links of something that changed or was deleted: both modules' live channels
   get a `links` event `{ ref, link }` for whoever sees it. On its own an app has no `suite.links`.
-- **For assistants**, the host's MCP adds `linked_items` and `link_item` (link, or create in another
+- **For assistants**, the host's MCP adds `<host id>_linked_items` and `<host id>_link_item` (`work_` in Cronum Work) (link, or create in another
   module and link) for whoever uses two modules with things to link.
 - **In the page**, the kit's `web/links.js`: `linksRow({ ref, title })` is the "Linked" row of an
   item's panel, one chip per link in the other module's colour that opens it there (crossed out when
