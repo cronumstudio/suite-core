@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.103.0 — 2026-10-20
+## 0.104.0 — 2026-10-20
 
 - **One Settings for a whole host** (`settings.js`, `host.js`, `base.js`, `shell.js`). In a host
   (Cronum Work) each module opened Settings of its own: its own sections only, its own data and
@@ -28,6 +28,28 @@ change an interface and a patch never does. Apps pin a version through the submo
   chooses the modules, which only took people out of what they were doing; the modules are chosen
   in Settings › Modules.
 
+
+## 0.103.0 — 2026-10-20
+
+- **One service worker for a host and its modules** (`createHost({ worker })`, new
+  `host-worker.js`; `web/sw-core.js` `modules`; new `web/worker.js`; `web/update.js`). A host with
+  `worker` writes its own /sw.js at `/` from the files: its pages, every module's shell (read from
+  the module's own public/sw.js) and the kit at every path, and shows every notice as the host's.
+  Its /version and /js/app-version.js become the whole app's: the host's version and name with one
+  fingerprint of the host's, the kit's and every module's files. A module's page told so by
+  /api/auth/config (`app.host.worker`) registers it with the kit's `registerWorker()`, retires
+  every module's worker the device still has, and carries their push subscriptions over (the old
+  addresses forgotten on the server); where the browser won't subscribe on its own,
+  Settings › Notifications asks to turn them on again (`kit.notifications.renew`). `watchUpdates()`
+  then asks the host's /version, names the host in the notice (`theirs.name`) and says nothing in
+  a frame of the split view; `applyUpdate()` from a frame reloads the view, and waits up to 20 s
+  (not 3) for the host's worker, which keeps the whole app, to take over before reloading. A module's notices open
+  at its path (`url` under `/<mount>/`, `tag` with the mount, `module`). Settings' About names
+  what runs (`Cronum Work v0.3.19`), and `subscribePush()` subscribes with the host's worker; in
+  such a host Settings' notifications and the carry-over use the host's /api/push/… at the root
+  (`api.root`), which a module without notices of its own (Next, Notes) doesn't have under its path. An app
+  on its own, and a host without `worker`, change nothing: `registerWorker()` registers
+  `at('/sw.js')` as before.
 ## 0.102.0 — 2026-10-20
 
 - **Tools announce their hints** (`mcp.js`). A tool may carry `annotations` (`readOnlyHint`,

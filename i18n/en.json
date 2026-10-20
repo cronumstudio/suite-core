@@ -631,6 +631,7 @@
   "kit.notifications.enabled": "Notifications on for this device.",
   "kit.notifications.notAllowed": "The browser didn’t allow notifications.",
   "kit.notifications.denied": "Notifications are blocked for this site in the browser’s settings.",
+  "kit.notifications.renew": "Notifications on this device were disabled when the app moved to a single service worker, and couldn’t be enabled again by themselves. Turn them on again here.",
   "kit.notifications.unsupported": "This browser can’t receive notifications. On an iPhone, install the app on the home screen first.",
   "kit.notifications.test": "Send a test",
   "kit.notifications.testSent": "Test sent to your devices.",

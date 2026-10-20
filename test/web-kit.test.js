@@ -295,6 +295,27 @@ test('update: a different fingerprint is announced; closing it keeps it quiet fo
   assert.equal(offline.latest(), null);
 });
 
+test('update: in a host with one worker, the whole app’s version, and no notice in a frame of the split view', async () => {
+  const asked = [];
+  const notices = [];
+  const server = { app: '0.3.15', name: 'Cronum Work', version: 'bbb' };
+  const options = {
+    onUpdate: (theirs) => notices.push(theirs.name),
+    fetch: async (url) => { asked.push(url); return { ok: true, json: async () => server }; },
+    loadLocal: async () => ({ app: '0.3.14', version: 'aaa', name: 'Cronum Work' }),
+    timers: fakeTimers(), doc: null, host: async () => ({ worker: '/sw.js' }),
+  };
+  const page = watchUpdates({ ...options, framed: false });
+  assert.equal(await page.check(), true);
+  assert.equal(asked.at(-1), '/version', 'the host’s, at the root');
+  assert.ok(notices.length >= 1 && notices.every((n) => n === 'Cronum Work'), 'named after the host');
+  const frame = watchUpdates({ ...options, framed: true });
+  await new Promise((done) => setTimeout(done, 10));
+  notices.length = 0;
+  assert.equal(await frame.check({ announce: true }), true, 'a frame knows it');
+  assert.deepEqual(notices, [], 'but the split view says it, once');
+});
+
 test('update: the server\'s version number is kept for About', async () => {
   let server = { app: '1.2.3', version: 'aaa' };
   const watcher = watchUpdates({
@@ -600,6 +621,57 @@ test('a module’s service worker keeps to its path: its API, its caches, its no
   assert.equal(host.answers('https://work.example/tasks/js/main.js'), false, 'its modules’ paths are theirs');
   assert.equal(host.answers('https://work.example/tasks'), false);
   assert.equal(host.answers('https://work.example/js/shell.js'), true);
+});
+
+test('a host’s one worker serves every module’s paths as the module did, and opens a notice in its module', async () => {
+  const keys = ['/tasks/tasks-v31', '/notes/notes-v5', 'work-old', 'work-new'];
+  const host = await serviceWorker('https://work.example/', keys);
+  host.self.suiteWorker({
+    version: 'work-new', modules: ['/tasks/', '/notes/'], shell: ['/', '/tasks/', '/tasks/js/main.js'],
+    push: { title: 'Cronum Work', icon: '/icons/icon-192.png', url: '/' },
+  });
+  // File by file: one missing file must not leave every module without its copy.
+  await host.fire('install', {});
+  assert.deepEqual(host.installed, [], 'not all at once (addAll)');
+  await host.fire('activate', {});
+  assert.deepEqual(host.deleted.sort(), ['/notes/notes-v5', '/tasks/tasks-v31', 'work-old'], 'its old copy and the modules’ workers’');
+  assert.equal(host.answers('https://work.example/tasks/api/lists'), false, 'a module’s API always reaches the server');
+  assert.equal(host.answers('https://work.example/tasks/version'), false);
+  assert.equal(host.answers('https://work.example/notes/mcp'), false);
+  assert.equal(host.answers('https://work.example/version'), false);
+  assert.equal(host.answers('https://work.example/tasks/js/main.js'), true, 'a module’s code: network first');
+  assert.equal(host.answers('https://work.example/notes/list/3', 'navigate'), true);
+  assert.equal(host.answers('https://work.example/split/', 'navigate'), true);
+
+  // A notice opens its module: already open there, it gets it; elsewhere, the open page goes there.
+  const page = (url, frameType = 'top-level') => ({
+    url, frameType, got: [], focused: 0, went: null,
+    postMessage(m) { this.got.push(m); }, focus() { this.focused += 1; return Promise.resolve(this); },
+    navigate(to) { this.went = to; return Promise.resolve(this); },
+  });
+  const notes = page('https://work.example/notes/');
+  const tasks = page('https://work.example/tasks/?list=1');
+  host.self.clients.matchAll = async () => [notes, tasks];
+  await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4', module: 'tasks' } } });
+  assert.equal(tasks.got[0].type, 'notification');
+  assert.equal(tasks.focused, 1);
+  assert.equal(notes.got.length, 0, 'never another module’s page');
+
+  host.self.clients.matchAll = async () => [notes];
+  await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4' } } });
+  assert.equal(notes.went, '/tasks/?list=4', 'the page open goes to the module');
+
+  const split = page('https://work.example/split/');
+  const framed = page('https://work.example/tasks/', 'nested');
+  host.self.clients.matchAll = async () => [split, framed];
+  await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=5' } } });
+  assert.equal(framed.got.length, 1, 'in the split view, the module’s frame gets it');
+  assert.equal(split.focused, 1, 'and the view the focus');
+  assert.equal(split.went, null);
+
+  host.self.clients.matchAll = async () => [];
+  await host.fire('notificationclick', { notification: { close() {}, data: {} } });
+  assert.deepEqual(host.opened, ['/'], 'without a page open, a new window');
 });
 
 /* ------------------------------ texts in code ----------------------------- */

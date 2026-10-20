@@ -15,14 +15,27 @@
  * take control before reloading, or the old one serves the old code again.
  *
  *   const updates = watchUpdates({ onUpdate: () => shell.showBanner('update', {…, action: { onClick: applyUpdate } }) });
+ *
+ * A module of a host with one worker for everything (host.js `worker`,
+ * worker.js) has one version with the whole app: it asks the host's /version
+ * and compares it with the host's /js/app-version.js, and the notice names the
+ * host (`theirs.name`, "Cronum Work"). In a frame of the host's split view it
+ * says nothing: the view shows the one notice for every frame.
  */
 
 import { el } from './dom.js';
 import { t } from './i18n.js';
-import { at } from './base.js';
+import { at, FRAMED } from './base.js';
+import { hostWorker } from './worker.js';
 
 const CHECK_EVERY = 10 * 60 * 1000;
 const HANDOVER_MS = 3000;
+/**
+ * A host's one worker keeps the whole app (every module's shell): on a slow
+ * phone it takes longer to install, and reloading before it takes over would
+ * bring the old copy back, and with it the notice.
+ */
+const HOST_HANDOVER_MS = 20000;
 
 /**
  * @param {object} options
@@ -30,16 +43,22 @@ const HANDOVER_MS = 3000;
  * @param {Function} [options.fetch]      for tests
  * @param {Function} [options.loadLocal]  () → { version } of this tab; default: the app's js/app-version.js, at its base
  * @param {number}   [options.every]
+ * @param {Function} [options.host]       () → Promise of the host's one worker or null (worker.js hostWorker)
+ * @param {boolean}  [options.framed]     a frame of the host's split view (base.js FRAMED)
  * @returns {{ check: (opts?) => Promise<boolean|null>, stop: () => void, dismiss: () => void, loaded: () => object, latest: () => object }}
  */
 export function watchUpdates({
   onUpdate, fetch: get = (...args) => globalThis.fetch(...args), every = CHECK_EVERY,
-  loadLocal = async () => {
-    const mod = await import(at('/js/app-version.js'));
-    return { app: mod.APP_NAME_VERSION, version: mod.APP_VERSION, built: mod.APP_BUILT };
-  },
-  timers = globalThis, doc = globalThis.document, now = Date.now,
+  loadLocal = null,
+  timers = globalThis, doc = globalThis.document, now = Date.now, host = hostWorker, framed = FRAMED,
 }) {
+  // The whole app's version where the host has one worker for everything; the app's own otherwise.
+  const hosted = Promise.resolve().then(() => host()).catch(() => null);
+  const where = async (file) => ((await hosted) ? file : at(file));
+  const loadOwn = loadLocal || (async () => {
+    const mod = await import(await where('/js/app-version.js'));
+    return { app: mod.APP_NAME_VERSION, version: mod.APP_VERSION, built: mod.APP_BUILT, ...(mod.APP_NAME ? { name: mod.APP_NAME } : {}) };
+  });
   let loaded = null;
   // What the server said last time it was asked: { app, version, built }.
   let latest = null;
@@ -49,7 +68,8 @@ export function watchUpdates({
   async function local() {
     if (loaded) return loaded;
     try {
-      loaded = await loadLocal();
+      loaded = await loadOwn();
+      if (loaded?.name) wholeApp = true;
     } catch {
       // A server older than the generated module: its own version at start-up
       // at least tells successive checks apart.
@@ -59,7 +79,7 @@ export function watchUpdates({
   }
 
   async function server() {
-    const res = await get(at('/version'), { cache: 'no-store' });
+    const res = await get(await where('/version'), { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
@@ -76,7 +96,9 @@ export function watchUpdates({
     latest = theirs;
     if (!mine?.version) return null;
     const isNew = theirs.version !== mine.version;
-    if (isNew && (announce || now() >= quietUntil)) onUpdate?.(theirs, mine);
+    // A frame of the host's split view: the view says it, once for every frame.
+    const quiet = framed && (await hosted);
+    if (isNew && !quiet && (announce || now() >= quietUntil)) onUpdate?.(theirs, mine);
     return isNew;
   }
 
@@ -99,6 +121,8 @@ export function watchUpdates({
 }
 
 let updating = null;
+/** Whether this page runs a host's whole app (its app-version.js names the host): its worker keeps everything. */
+let wholeApp = false;
 
 /**
  * Brings the new code in: the new service worker first (waiting for it to
@@ -134,17 +158,20 @@ async function bringNewCode() {
     const sw = navigator.serviceWorker;
     if (sw) {
       const registrations = await sw.getRegistrations();
+      const wait = wholeApp ? HOST_HANDOVER_MS : HANDOVER_MS;
       const handover = new Promise((done) => {
         sw.addEventListener('controllerchange', done, { once: true });
-        setTimeout(done, HANDOVER_MS);
+        setTimeout(done, wait);
       });
       await Promise.all(registrations.map((r) => r.update().catch(() => {})));
       if (registrations.some((r) => r.installing || r.waiting)) await handover;
     }
   } catch { /* a plain reload is usually enough */ }
-  const url = new URL(window.location.href);
+  // From a frame of the host's split view, the view is what reloads, with every frame in it.
+  const page = FRAMED ? window.top : window;
+  const url = new URL(page.location.href);
   url.searchParams.set('fresh', String(Date.now()));
-  window.location.replace(url.pathname + url.search + url.hash);
+  page.location.replace(url.pathname + url.search + url.hash);
 }
 
 /** Takes away the `fresh` parameter applyUpdate() left in the address. */

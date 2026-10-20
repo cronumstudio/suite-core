@@ -1536,7 +1536,7 @@ other active ones and Settings, when the page is a module's; `PUT /api/me/module
 Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
 only leaves that person's menus, MCP and links.
 
-Settings are one for the whole host (web-kit.md, v0.103.0): every module lists the account's
+Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the account's
 sections, then a group for each module in use, then the host's. A module names its sections for
 the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }], ai, about }`,
 with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
@@ -1668,3 +1668,30 @@ processor for a phone): the new frame came 0.37–0.54 s after the click instead
 (0.65–0.90 s instead of 1.37–1.44 s), and the empty screen between the two pages went from 0.6 s to
 0–0.1 s (from 1 s to 0.1–0.25 s). What is left is the module's own first answers (the person, its
 data), which drawing from what the device keeps would take away, module by module.
+
+### 21.5 One service worker
+
+`createHost({ worker })` (0.103.0, `host-worker.js`). Without it every module registers its own
+worker at its own path, and an app installed from the host's page (its manifest's scope is `/`)
+had four copies, four updates and four push subscriptions: a module's notice reached the device
+once for each worker, titled with that module's name. With it:
+
+- **`/sw.js` at `/` is the host's**, written from the files: the host's public folder, each
+  module's `shell` and `optional` read from its own public/sw.js (the file it uses on its own,
+  run with only `suiteWorker()`), the kit at every path. sw-core's `modules` option serves each
+  module's paths as its own worker did (its /api, /version and the rest never cached, its code
+  network first, a page of it offline is its index.html), installs file by file, clears the old
+  workers' copies, and a notice tapped opens its module (`suiteOpenModule`).
+- **One version for the whole app**: `/version` and `/js/app-version.js` at the root are the
+  host's version (`app`), its name and one fingerprint of the host's, the kit's and every module's
+  files (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
+  release is a new worker. Each module keeps its own `/<mount>/version`.
+- **The modules' pages** learn of it from `/api/auth/config` (`app.host.worker`) and, with the kit's
+  `registerWorker()`, register the host's and retire theirs (a narrower scope would go on serving
+  their pages), carrying the push subscription over where the browser allows it; the update notice
+  is the host's, once, and none in a frame of the split view.
+- **A module's notice** opens at its path: `url` under `/<mount>/`, its `tag` prefixed with the
+  mount and `module` added (`hostedPush`). A module's own worker, where a device still has one,
+  reads the same paths.
+
+The app on its own never sees any of it: its /sw.js, scope and manifest stay as they are (§9).

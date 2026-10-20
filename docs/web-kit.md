@@ -70,7 +70,8 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
 | `outbox.js` | `createOutbox({ local, … })`: changes made offline, sent once each; `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
-| `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host |
+| `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
+| `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
@@ -143,7 +144,7 @@ phone). It opens Settings
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
 Settings, Administration (for admins, at `/admin`) and Sign out.
 As a module of a host (a page under `/<mount>/`, Cronum Work), the person's button gives way. From
-640 px a rail at the sidebar's start has the host's mark (not a link, v0.103.0), the modules the person uses (one too) and
+640 px a rail at the sidebar's start has the host's mark (not a link, v0.104.0), the modules the person uses (one too) and
 Settings at its foot. On a phone the drawer has no rail: the app's icon and name at its head open a
 menu with the other modules and, last, what the person's button opened (Settings). So does a
 computer's when the host couldn't be asked (offline), until it answers. The host's last answer is
@@ -233,7 +234,7 @@ confirmed by typing a word and, with a password here, the password and the code;
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
 screen offers back an account waiting to be deleted.
 
-**In a host** (Cronum Work, v0.103.0) Settings are one for the whole app, the same list in every
+**In a host** (Cronum Work, v0.104.0) Settings are one for the whole app, the same list in every
 module: the account's sections (with notices and the plan when the host says so,
 `app.host.push` and `app.host.plans` in `/api/auth/config`, whatever the module passes); then a
 group for each module the person uses, in the host's order, with its own sections, its data
@@ -504,9 +505,19 @@ The kit's own files join the shell by themselves. Every file the app adds to `pu
 
 To run also as a module of a host (architecture §21), the app writes its paths relative to the
 worker (`importScripts('suite/sw-core.js')`, `shell: ['./', 'index.html', 'css/app.css', …]`) and
-registers it at its base (`navigator.serviceWorker.register(at('/sw.js'))`). On its own those are
-the same URLs as before; in a host they are the module's, and the worker reads everything else
-(the API, the kit, its cache's name) from its scope.
+registers it with `registerWorker()` (`worker.js`), which registers `at('/sw.js')`. On its own
+those are the same URLs as before; in a host they are the module's, and the worker reads everything
+else (the API, the kit, its cache's name) from its scope.
+
+A host with one worker for everything (`createHost({ worker })`, architecture §21.5) writes its
+own /sw.js at `/` from the modules' files: each module's `shell` read from its public/sw.js, the
+host's pages and the kit at every path. There `registerWorker()` registers the host's and retires
+every module's worker the device still has, carrying their push subscriptions over to it (the
+server told: the new address kept, the old ones forgotten). Where the browser won't subscribe
+without a tap, `noticesToRenew()` is true and Settings › Notifications asks to turn them on again.
+`watchUpdates()` then compares the host's /version with the host's /js/app-version.js: one notice
+for the whole app, named after the host (`theirs.name`), and none in a frame of the split view,
+whose page shows it once.
 
 ### Notices on a device with no account
 
