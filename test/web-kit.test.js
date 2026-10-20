@@ -1246,3 +1246,25 @@ test('in a frame, signing in or out, paying and leaving with the account take th
   assert.match(read('settings.js'), /const page = FRAMED \? window\.top : window;/);
   assert.match(read('plan.js'), /\(FRAMED \? globalThis\.top : globalThis\)\.location\.assign\(url\)/);
 });
+
+test('signing out clears every app’s copy on this device, without waiting on a tab that holds one', async () => {
+  const { clearDeviceCopies } = await import('../web/signin.js');
+  const deleted = [];
+  const idb = {
+    databases: async () => [{ name: 'tasks-local' }, { name: 'next-local' }, { name: 'other-db' }, { name: 'notes-local' }],
+    deleteDatabase(name) {
+      const req = {};
+      deleted.push(name);
+      // notes-local is held by a tab that never lets go: its request never ends.
+      if (name !== 'notes-local') setTimeout(() => req.onsuccess?.(), 5);
+      return req;
+    },
+  };
+  const started = Date.now();
+  assert.deepEqual(await clearDeviceCopies({ indexedDB: idb, wait: 60 }), ['tasks-local', 'next-local', 'notes-local']);
+  assert.deepEqual(deleted, ['tasks-local', 'next-local', 'notes-local'], 'only the apps’ copies (`<app>-local`)');
+  assert.ok(Date.now() - started < 1000, 'a blocked one is not waited for');
+  assert.deepEqual(await clearDeviceCopies({ indexedDB: {} }), [], 'a browser that can’t list them: nothing');
+  const signin = fs.readFileSync(new URL('../web/signin.js', import.meta.url), 'utf8');
+  assert.match(signin, /await local\?\.clearAll\?\.\(\)\.catch\(\(\) => \{\}\);\s*await clearDeviceCopies\(\)\.catch\(\(\) => \{\}\);/);
+});
