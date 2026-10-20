@@ -515,7 +515,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)? \} from '\.\/base\.js'/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses.
     assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
@@ -859,6 +859,92 @@ test('Settings offers the AI connector only where there is one; a server that sa
     delete document.addEventListener;
     delete document.removeEventListener;
   }
+});
+
+test('in a host, Settings are one for the whole app: the account\'s, a group for each module in use, the host\'s last', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const { el } = await import('../web/dom.js');
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  const assigned = [];
+  const modules = [
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', active: true, settings: { sections: [{ id: 'preferences', label: 'settings.prefs.title' }], data: true, ai: true, about: true } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', active: true, settings: { sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.short' }, { id: 'gone', label: 'no.such.key' }], data: true, ai: true, about: false } },
+    { mount: 'next', path: '/next/', name: 'Next', active: false, settings: { sections: [{ id: 'line', label: 'settings.line.title' }], data: true, ai: false, about: false } },
+  ];
+  globalThis.fetch = async (path) => {
+    asked.push(path);
+    const data = path === '/api/modules' ? { modules }
+      : path === '/notes/i18n/en.json' ? { 'templates.title': 'Templates', 'templates.short': 'Your own' } : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, json: async () => data };
+  };
+  globalThis.window = { location: { assign: (to) => assigned.push(to) } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  try {
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'tasks', name: 'Tasks' }, user: { username: 'ada', role: 'admin' }, root,
+      config: {
+        deletion_days: 30,
+        app: { modules: { data: true, mcp: true }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: true, plans: true } },
+      },
+      sections: [{ id: 'preferences', label: 'Preferences', render: () => [] }],
+      aiExtra: () => el('p', { text: 'Paste this' }),
+      aboutExtra: () => el('p', { text: 'What Tasks is' }),
+    });
+    for (let i = 0; i < 4; i++) await settle();
+    const texts = (className) => root.all().filter((node) => node.className === className).map((node) => node.textContent);
+    const groups = texts('kit-settings__group');
+    const labels = texts('kit-settings__label');
+    assert.deepEqual(groups, [
+      t('kit.settings.groups.account'), t('kit.settings.groups.security'), t('kit.settings.groups.connections'),
+      t('kit.settings.groups.plan'), 'Tasks', 'Notes', 'Cronum Work',
+    ], 'the account\'s, each module in use in the host\'s order, the host\'s last; Next is off');
+    // Notices and the plan are the host's to say, the same in every module, whatever this one passed.
+    assert.ok(labels.includes(t('kit.notifications.title')));
+    assert.ok(labels.includes(t('kit.plan.title')));
+    // This module's own, drawn here: its sections, its data, what it adds to Your AI and what it is.
+    assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 4),
+      ['Preferences', t('kit.data.title'), t('kit.settings.moduleAi'), t('kit.about.title', { app: 'Tasks' })]);
+    // Another's, named from its own catalog; one its catalog doesn't name is left out.
+    assert.deepEqual(labels.slice(labels.indexOf('Templates'), labels.indexOf('Templates') + 3),
+      ['Templates', t('kit.data.title'), t('kit.settings.moduleAi')]);
+    assert.ok(!labels.includes('no.such.key'));
+    assert.ok(asked.includes('/notes/i18n/en.json'));
+    assert.ok(!asked.some((path) => path.startsWith('/next/')), 'a module not in use isn\'t asked');
+    // The host's: deleting the whole account, administration and about the host.
+    assert.deepEqual(labels.slice(-3), [t('kit.data.deleteTitle'), t('kit.admin.title'), t('kit.about.title', { app: 'Cronum Work' })]);
+    // Choosing another module's section goes there, with Settings open on it.
+    const templates = root.all().find((node) => node.className === 'kit-settings__item' && node.textContent.includes('Templates'));
+    for (const fn of templates.listeners.click) fn({ currentTarget: templates });
+    assert.deepEqual(assigned, ['/notes/?settings=templates']);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
+test('the section another module sent the person to is read off the address, and taken off it', async () => {
+  const { settingsAsked } = await import('../web/settings.js');
+  const replaced = [];
+  const page = (href) => ({ location: { href }, history: { state: null, replaceState: (_s, _t, to) => replaced.push(to) } });
+  assert.equal(settingsAsked(page('https://work.example/notes/?settings=templates#/all')), 'templates');
+  assert.deepEqual(replaced, ['/notes/#/all'], 'going back or reloading doesn\'t open Settings again');
+  assert.equal(settingsAsked(page('https://work.example/notes/?a=1&settings=data')), 'data');
+  assert.equal(replaced.at(-1), '/notes/?a=1');
+  assert.equal(settingsAsked(page('https://work.example/notes/')), null, 'nothing asked');
+  assert.equal(settingsAsked(page('https://work.example/notes/?settings=%3Cscript%3E')), null, 'not a section\'s id');
+  assert.equal(settingsAsked(undefined), null, 'no window: Node');
+});
+
+test('the rail\'s top is the host\'s mark, not a way out to the page that chooses the modules', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  assert.match(shell, /el\('span', \{ class: 'kit-rail__home', role: 'img', 'aria-label': host\.name \|\| t\('kit\.modules\.rail'\) \}/);
+  assert.doesNotMatch(shell, /href: '\/\?modules'/);
 });
 
 /**
@@ -1303,7 +1389,9 @@ test('in a frame, the split view opens the module\'s Settings, and hears when th
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
   assert.match(read('base.js'), /export const SETTINGS_EVENT = 'kit:settings';/);
   assert.match(read('base.js'), /export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';/);
-  assert.match(read('shell.js'), /if \(FRAMED && onSettings\) window\.addEventListener\(SETTINGS_EVENT, \(\) => \{ closeDrawer\(\); onSettings\(\); \}, \{ signal \}\);/);
+  // The view may name the section: one of this module's, chosen in Settings in another frame.
+  assert.match(read('shell.js'), /if \(FRAMED && onSettings\) \{\s*window\.addEventListener\(SETTINGS_EVENT, \(ev\) => \{\s*closeDrawer\(\);\s*const start = ev\?\.detail\?\.start;\s*if \(typeof start === 'string' && start\) onSettings\(start\);\s*else onSettings\(\);\s*\}, \{ signal \}\);/);
+  assert.match(read('base.js'), /export const SETTINGS_GOTO_EVENT = 'kit:settings-goto';/);
   const settings = read('settings.js');
   assert.match(settings, /if \(!FRAMED\) return;/);
   assert.match(settings, /new window\.parent\.CustomEvent\(SETTINGS_SHOWN_EVENT, \{ detail: \{ open, source: window \} \}\)/);

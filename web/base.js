@@ -53,3 +53,10 @@ export const FRAMED = framedIn();
  */
 export const SETTINGS_EVENT = 'kit:settings';
 export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';
+/**
+ * Settings in a frame sending the person to another module's section, on its parent's window:
+ * `{ mount, start, source, handled }`, `source` the frame's window. The view opens it in the frame
+ * that shows that module (with `kit:settings` and `{ start }`), or brings that module into the
+ * frame that asked, and says `handled = true`; otherwise the whole window goes there.
+ */
+export const SETTINGS_GOTO_EVENT = 'kit:settings-goto';

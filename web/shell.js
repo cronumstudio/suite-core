@@ -16,7 +16,7 @@
  * As a module of a host (suite-core host.js, Cronum Work), the person's button
  * at the sidebar's foot gives way, and Settings is reached another way. Where
  * the sidebar stays (a tablet, a computer), a rail at its start has the host's
- * home, the modules the person uses and Settings at its foot. On a phone the
+ * mark, the modules the person uses and Settings at its foot. On a phone the
  * drawer keeps its width without the rail: the app's icon and name at its head
  * are a button whose menu has the other modules and, last, Settings.
  *
@@ -205,8 +205,16 @@ export function createShell({
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); }, { signal });
   // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
-  // opens this module's: the page asks with `kit:settings` on this frame's window.
-  if (FRAMED && onSettings) window.addEventListener(SETTINGS_EVENT, () => { closeDrawer(); onSettings(); }, { signal });
+  // opens this module's: the page asks with `kit:settings` on this frame's window, and may name
+  // the section (`detail.start`), one of this module's chosen in Settings in another frame.
+  if (FRAMED && onSettings) {
+    window.addEventListener(SETTINGS_EVENT, (ev) => {
+      closeDrawer();
+      const start = ev?.detail?.start;
+      if (typeof start === 'string' && start) onSettings(start);
+      else onSettings();
+    }, { signal });
+  }
   // On a phone the sidebar is a closed drawer, and a note or a task picked up from the list
   // (drag.js) would have nowhere to go. When its only places are in the drawer, the drawer opens
   // as the drag starts. When it may also go somewhere in the list (in order, another category:
@@ -522,11 +530,12 @@ export function createShell({
     try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
     others = shown.filter((m) => m.mount !== mount);
-    // With one module too: the rail has Settings, and the host's home to choose more.
+    // With one module too: the rail has Settings, where more are chosen (Settings › Modules).
     const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
-      // The host's home: where the modules are chosen.
-      el('a', { class: 'kit-rail__home', href: '/?modules', title: t('kit.modules.home'), 'aria-label': t('kit.modules.home') },
+      // The host's mark, and nothing more: as a link to the page that chooses the modules it only
+      // took people out of what they were doing, and the modules are chosen in Settings.
+      el('span', { class: 'kit-rail__home', role: 'img', 'aria-label': host.name || t('kit.modules.rail') },
         host.icon ? el('img', { src: host.icon, alt: '', width: 32, height: 32 }) : icon('grid')),
       ...shown.map((m) => el('a', {
         class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,

@@ -30,11 +30,17 @@
  * app's web view; `open()`, the app's own way to buy that a 402 met here
  * offers instead of the plan section (with hideCheckout, the only one);
  * `render(answer)` adds the app's own block.
+ *
+ * In a host (Cronum Work) Settings are one for the whole app, the same list
+ * in every module: the account's sections, a group for each module in use and
+ * the host's last (hostSections below). The module open draws its own; another
+ * module's are named from the host's list and drawn there (`?settings=`,
+ * settingsAsked()).
  */
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
 import { api, errorMessage } from './api.js';
-import { at, FRAMED, SETTINGS_SHOWN_EVENT } from './base.js';
+import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
@@ -51,6 +57,70 @@ const button = (text, onClick, kind = '') => el('button', {
 });
 const showError = (err) => toast(errorMessage(err), { error: true });
 const input = (props) => el('input', { class: 'kit-input', ...props });
+
+/** A section's id, as `?settings=` names it (host.js moduleSettings). */
+const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
+
+/** The host's last answer of its modules that the frame keeps (shell.js RAIL_KEY), or none. */
+function hostModulesKept() {
+  try {
+    const kept = JSON.parse(localStorage.getItem('host.modules') || 'null');
+    return Array.isArray(kept?.modules) ? kept.modules : [];
+  } catch {
+    return [];   // private mode, or not JSON
+  }
+}
+
+/**
+ * Another module's words, for naming its sections of Settings here: its catalog in `lang`
+ * (`/<module>/i18n/<lang>.json`), asked for once per page and kept. → the words; undefined while
+ * they are on their way (`then` is called when they come); null when they couldn't be had, which
+ * is asked again the next time Settings opens.
+ */
+const moduleCatalogs = new Map();
+function moduleWords(m, lang, then) {
+  const key = `${m.mount}:${lang}`;
+  const known = moduleCatalogs.get(key);
+  if (known instanceof Promise) {
+    known.then(then);
+    return undefined;
+  }
+  if (known) return known;
+  if (known === null) {
+    moduleCatalogs.delete(key);
+    return null;
+  }
+  const asking = fetch(`${m.path}i18n/${lang}.json`, { credentials: 'same-origin' })
+    .then((res) => (res.ok ? res.json() : null))
+    .catch(() => null)
+    .then((words) => {
+      moduleCatalogs.set(key, words && typeof words === 'object' ? words : null);
+    });
+  moduleCatalogs.set(key, asking);
+  asking.then(then);
+  return undefined;
+}
+
+/**
+ * The section of Settings this page was opened for (`?settings=<id>`): another module's Settings
+ * sent the person here, to one of this module's sections. Taken off the address, so going back or
+ * reloading doesn't open Settings again. A module opens its Settings on it once it has started:
+ *
+ *   const asked = settingsAsked();
+ *   if (asked) settings(asked);
+ */
+export function settingsAsked(win = globalThis.window) {
+  try {
+    const url = new URL(win.location.href);
+    const id = url.searchParams.get('settings');
+    if (id === null) return null;
+    url.searchParams.delete('settings');
+    win.history.replaceState(win.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    return SECTION_ID.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Opens Settings over the app. Returns { close, show(sectionId) }.
@@ -83,11 +153,16 @@ export function openSettings(options) {
   const fail = (err) => (openPlan && offerPlan(err, { open: openPlan })) || showError(err);
   // What Settings listens to while it is open, let go when it closes.
   const cleanups = [];
-  let inUse = [];
+  // The host's modules, with the ones this person uses (GET /api/modules): the last answer the
+  // frame kept (shell.js), at once, and the server's when it comes.
+  let inUse = host ? hostModulesKept() : [];
+  let closed = false;
 
   /* -------------------------------- sections -------------------------------- */
 
-  const all = [
+  // What every account has. In a host (Cronum Work) these are the same in every module: notices
+  // and the plan are the host's to say, not each module's.
+  const common = () => [
     { group: t('kit.settings.groups.account'), id: 'profile', iconName: 'user', label: t('kit.profile.title'),
       hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() },
     host ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
@@ -100,17 +175,121 @@ export function openSettings(options) {
     // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
     modules.mcp !== false ? { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
       hint: () => t('kit.ai.hint'), render: () => ai() } : null,
-    options.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
+    options.push || host?.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
       hint: () => t('kit.notifications.hint'), render: () => notifications() } : null,
-    options.plan ? { group: t('kit.settings.groups.plan'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
+    options.plan || host?.plans ? { group: t('kit.settings.groups.plan'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
       hint: () => t('kit.plan.hint'), render: () => plan() } : null,
-    ...sections.map((section) => ({ group: app.name, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' })),
+  ];
+  const own = (group) => sections.map((section) => ({ group, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' }));
+  const admin = (group) => (state.user?.role === 'admin'
+    ? { group, id: 'admin', iconName: 'shield', label: t('kit.admin.title'), hint: () => t('kit.admin.hint'), href: '/admin' } : null);
+
+  /** An app on its own: the account's sections, then the app's, its data, administration and about. */
+  const appSections = () => [
+    ...common(),
+    ...own(app.name),
     modules.data || deletionDays != null
       ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'), hint: () => t(modules.data ? 'kit.data.hint' : 'kit.data.hintDelete'), render: () => data() }
       : null,
-    state.user?.role === 'admin' ? { group: app.name, id: 'admin', iconName: 'shield', label: t('kit.admin.title'), hint: () => t('kit.admin.hint'), href: '/admin' } : null,
+    admin(app.name),
     { group: app.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: app.name }), hint: () => t('kit.about.hint', { app: app.name }), render: () => about() },
-  ].filter(Boolean);
+  ];
+
+  /**
+   * A module of a host: one Settings for the whole app, the same list in every module. The
+   * account's sections; then a group for each module the person uses, in the host's order, with
+   * that module's own sections, its data, what it adds to Your AI and what it is; last the host's:
+   * deleting the account (every module's), administration and about. This module draws its own
+   * sections here; another's are named here and drawn in that module (goTo).
+   */
+  const hostSections = () => {
+    const shownModules = inUse.filter((m) => m.active || m.mount === host.mount);
+    const groups = shownModules.length && shownModules.some((m) => m.mount === host.mount) ? shownModules : [{ mount: host.mount }];
+    return [
+      ...common(),
+      ...groups.flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
+      deletionDays != null ? { group: host.name, id: 'account', iconName: 'user', label: t('kit.data.deleteTitle'),
+        hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
+      admin(host.name),
+      { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hint', { app: host.name }), render: () => about() },
+    ];
+  };
+
+  /** This module's group: its sections, drawn here. */
+  const thisModule = () => [
+    ...own(app.name),
+    modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
+      hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => data({ account: false }) } : null,
+    options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'),
+      hint: () => t('kit.settings.moduleAiHint', { app: app.name }), render: () => [options.aiExtra()] } : null,
+    options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }),
+      hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
+  ];
+
+  /**
+   * Another module's group: its sections as the host lists them (host.js moduleSettings), named
+   * in this language from its own catalog. Choosing one goes there, with Settings open on it.
+   */
+  function otherModule(m) {
+    const declared = m.settings;
+    if (!declared || !m.path) return [];
+    const words = moduleWords(m, currentLanguage(), () => { if (!closed) repaint(); });
+    if (words === undefined) return [];   // on its way: painted when it comes
+    const go = (id, iconName, label, text = '') => ({
+      group: m.name, id: `${m.mount}:${id}`, iconName, label, hint: () => text, go: () => goTo(m, id),
+    });
+    // Without its words (offline, say), one way into its Settings all the same.
+    if (words === null) {
+      const first = declared.sections[0]?.id || (declared.data ? 'data' : null);
+      return first ? [go(first, 'sliders', t('kit.settings.moduleOpen', { app: m.name }))] : [];
+    }
+    const say = (key) => (key && typeof words[key] === 'string' ? words[key] : '');
+    return [
+      ...declared.sections.filter((s) => say(s.label)).map((s) => go(s.id, s.icon || 'sliders', say(s.label), say(s.hint))),
+      declared.data ? go('data', 'box', t('kit.data.title'), t('kit.settings.dataHint', { app: m.name })) : null,
+      declared.ai ? go('ai-extra', 'spark', t('kit.settings.moduleAi'), t('kit.settings.moduleAiHint', { app: m.name })) : null,
+      declared.about ? go('about-extra', 'info', t('kit.about.title', { app: m.name }), t('kit.settings.moduleAboutHint', { app: m.name })) : null,
+    ];
+  }
+
+  /**
+   * To another module's section: there, with Settings open on it (`?settings=`, settingsAsked()).
+   * In a frame of the host's split view, the view opens it in the frame that shows that module, if
+   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes.
+   */
+  function goTo(m, id) {
+    const address = `${m.path}?settings=${encodeURIComponent(id)}`;
+    if (FRAMED) {
+      const detail = { mount: m.mount, start: id, source: window, handled: false };
+      close();
+      try {
+        window.parent.dispatchEvent(new window.parent.CustomEvent(SETTINGS_GOTO_EVENT, { detail }));
+      } catch { /* the view went */ }
+      if (!detail.handled) window.top.location.assign(address);
+      return;
+    }
+    window.location.assign(address);
+  }
+
+  const sectionsNow = () => (host ? hostSections() : appSections()).filter(Boolean);
+  let all = sectionsNow();
+  /** The list again, with what is known now: the modules in use, another module's words. */
+  function repaint() {
+    all = sectionsNow();
+    paintList();
+    // The groups that came in above may have pushed the open section out of sight.
+    reveal();
+  }
+  if (host) {
+    fetch('/api/modules', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((answer) => {
+        if (closed || !Array.isArray(answer?.modules)) return;
+        inUse = answer.modules;
+        repaint();
+      })
+      .catch(() => { /* offline: the modules of last time */ });
+  }
 
   /* ---------------------------------- frame --------------------------------- */
 
@@ -153,16 +332,19 @@ export function openSettings(options) {
       ];
       const item = section.href
         ? el('a', { ...props, href: section.href, target: '_blank', rel: 'noopener' }, content)
-        : el('button', { ...props, type: 'button', onClick: () => show(section.id) }, content);
+        : el('button', { ...props, type: 'button', onClick: () => (section.go ? section.go() : show(section.id)) }, content);
       items.set(section.id, item);
       list.append(item);
     }
   }
 
-  /** Opens a section: built the first time and kept, so what was typed survives a visit to another. */
+  /**
+   * Opens a section: built the first time and kept, so what was typed survives a visit to another.
+   * → whether there was one of that id to open here.
+   */
   function show(id) {
-    const section = all.find((s) => s.id === id && !s.href);
-    if (!section) return;
+    const section = all.find((s) => s.id === id && !s.href && !s.go);
+    if (!section) return false;
     current = id;
     if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close })));
     clear(page).append(built.get(id));
@@ -171,11 +353,27 @@ export function openSettings(options) {
       if (key === id) item.setAttribute('aria-current', 'page');
       else item.removeAttribute('aria-current');
     }
+    reveal();
     title.textContent = wide() ? t('kit.settings.title') : section.label;
     // Side by side the section scrolls on its own; on a phone the whole page does.
     page.scrollTop = 0;
     if (!wide()) scroller.scrollTop = 0;
     page.focus({ preventScroll: true });
+    return true;
+  }
+
+  /**
+   * Beside the list, the section open is in sight in it: one far down, reached from another
+   * module's Settings, would otherwise be open with nothing in the list saying which. Only the
+   * list scrolls, never the page around it (a frame's view).
+   */
+  function reveal() {
+    const item = current && items.get(current);
+    if (!item || !wide() || typeof item.getBoundingClientRect !== 'function') return;
+    const box = list.getBoundingClientRect();
+    const at = item.getBoundingClientRect();
+    if (at.top >= box.top && at.bottom <= box.bottom) return;
+    list.scrollTop += at.top - box.top - Math.max(0, (box.height - at.height) / 2);
   }
 
   /** Back: from a section to the list on a phone; out of Settings otherwise. */
@@ -190,6 +388,8 @@ export function openSettings(options) {
   }
 
   function close() {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('keydown', onKey);
     for (const cleanup of cleanups.splice(0)) cleanup();
     overlay.remove();
@@ -200,8 +400,8 @@ export function openSettings(options) {
   document.addEventListener('keydown', onKey);
 
   paintList();
-  // On a computer a section is always open beside the list.
-  if (start || wide()) show(start || 'profile');
+  // On a computer a section is always open beside the list: the one asked for, if it is here.
+  if (!(start && show(start)) && wide()) show('profile');
 
   /* --------------------------------- profile -------------------------------- */
 
@@ -504,7 +704,7 @@ export function openSettings(options) {
               const answer = await send(active);
               // A later change still on its way repaints when it arrives.
               if (shownOn().join() === active.join()) paint(answer);
-              paintList();
+              repaint();
               // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
               document.dispatchEvent(new CustomEvent('kit-modules'));
             } catch (err) {
@@ -533,7 +733,7 @@ export function openSettings(options) {
     };
     fetch('/api/modules', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((answer) => { paint(answer); paintList(); }, fail);
+      .then((answer) => { paint(answer); repaint(); }, fail);
     return el('div', {},
       block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off'))),
       block(t('kit.modules.icons'), hint(t('kit.modules.install', { host: host.name })), icons));
@@ -601,7 +801,8 @@ export function openSettings(options) {
       }))),
       appsBlock,
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
-      ...(options.aiExtra ? [options.aiExtra()] : []),
+      // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
+      ...(options.aiExtra && !host ? [options.aiExtra()] : []),
     ];
   }
 
@@ -753,7 +954,7 @@ export function openSettings(options) {
    * Last, what goes for good: erasing what one has in this app and keeping the
    * account, and deleting the account, which waits the install's days first.
    */
-  function data() {
+  function data({ module: withModule = true, account: withAccount = true } = {}) {
     const describe = options.describeData || ((tables = {}) => t('kit.data.rows', { n: Object.values(tables).reduce((a, b) => a + b, 0) }));
     const area = el('div', { class: 'kit-stack' });
     const file = el('input', { type: 'file', accept: '.zip,application/zip', id: 'kit-data-file' });
@@ -862,14 +1063,14 @@ export function openSettings(options) {
     }, 'danger-quiet');
 
     return [
-      ...(modules.data ? [
+      ...(modules.data && withModule ? [
         // A link, not a fetch: the browser saves the zip as it arrives, whatever its size.
         block(t('kit.data.exportTitle'), hint(t('kit.data.exportHint', { app: app.name })),
           row(el('a', { class: 'kit-btn kit-btn--small', href: at('/api/me/export'), download: '' }, icon('download'), t('kit.data.export')))),
         block(t('kit.data.importTitle'), hint(t('kit.data.importHint')), field(t('kit.data.file'), file), row(check), area),
         block(t('kit.data.eraseTitle'), hint(t('kit.data.eraseHint', { app: app.name })), note(), row(erase)),
       ] : []),
-      ...(deletionDays != null ? [
+      ...(deletionDays != null && withAccount ? [
         block(t('kit.data.deleteTitle'), hint(t('kit.data.deleteHint', { app: product, n: deletionDays })), note(), row(remove)),
       ] : []),
     ];
@@ -927,7 +1128,8 @@ export function openSettings(options) {
         el('img', { src: at(app.icon || '/icons/favicon.svg'), alt: '', width: 54, height: 54 }),
         el('div', {}, el('strong', { text: app.name }), app.tagline ? el('p', { text: app.tagline }) : null))),
       block(null, facts),
-      ...(options.aboutExtra ? [options.aboutExtra()] : []),
+      // In a host, what a module says it is goes in its own group: this is the host's.
+      ...(options.aboutExtra && !host ? [options.aboutExtra()] : []),
       block(null, el('div', { class: 'kit-signature' }, signature())),
     ];
   }

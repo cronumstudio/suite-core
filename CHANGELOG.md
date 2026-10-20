@@ -3,6 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.104.0 — 2026-10-20
+
+- **One Settings for a whole host** (`settings.js`, `host.js`, `base.js`, `shell.js`). In a host
+  (Cronum Work) each module opened Settings of its own: its own sections only, its own data and
+  about, and notices or the plan only where that module asked for them. Now the list is the same
+  in every module: the account's sections (profile, modules, language and theme, password and
+  sign-in, your AI, notices and plan, the last two when the host says so: `app.host.push` and
+  `app.host.plans` in `/api/auth/config`); then a group for each module the person uses, in the
+  host's order, with its own sections, its data (export, import, erase), what it adds to Your AI
+  and what it is; and last the host's: deleting the account, administration and About. A module
+  not in use shows nothing. The module open draws its own sections; another's are named from the
+  host's `/api/modules` (`settings`, from `createModule().settings`, host.js `moduleSettings()`) in
+  the person's language, read from that module's catalog, and choosing one goes there with
+  `?settings=<id>`: the module opens its Settings on it once it has started (`settingsAsked()`).
+  In a frame of the split view the view opens it in the frame that shows that module
+  (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`; `kit:settings` may now name the section), or the
+  window goes there. An app on its own sees no change.
+- **Notices answer at every module's path in a host** (`host.js`). With one Settings, Settings ›
+  Notices shows in every module, and a module that sends no notices (Next, Notes) had no
+  `/<module>/api/push/*` to ask: the host's root answers them there, as it does at `/api/push/*`.
+  A host without notices answers them nowhere, as before.
+- **The rail's top is the host's mark** (`shell.js`, kit.css). It was a link to the host's page that
+  chooses the modules, which only took people out of what they were doing; the modules are chosen
+  in Settings › Modules.
+
+
 ## 0.103.0 — 2026-10-20
 
 - **One service worker for a host and its modules** (`createHost({ worker })`, new
