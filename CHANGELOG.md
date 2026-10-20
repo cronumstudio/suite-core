@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.99.0 — 2026-10-20
+## 0.100.0 — 2026-10-20
 
 - **One Settings for a whole host** (`settings.js`, `host.js`, `base.js`, `shell.js`). In a host
   (Cronum Work) each module opened Settings of its own: its own sections only, its own data and

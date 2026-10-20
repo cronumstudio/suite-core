@@ -143,7 +143,7 @@ phone). It opens Settings
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
 Settings, Administration (for admins, at `/admin`) and Sign out.
 As a module of a host (a page under `/<mount>/`, Cronum Work), the person's button gives way. From
-640 px a rail at the sidebar's start has the host's mark (not a link, v0.99.0), the modules the person uses (one too) and
+640 px a rail at the sidebar's start has the host's mark (not a link, v0.100.0), the modules the person uses (one too) and
 Settings at its foot. On a phone the drawer has no rail: the app's icon and name at its head open a
 menu with the other modules and, last, what the person's button opened (Settings). So does a
 computer's when the host couldn't be asked (offline), until it answers. The host's last answer is
@@ -233,7 +233,7 @@ confirmed by typing a word and, with a password here, the password and the code;
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
 screen offers back an account waiting to be deleted.
 
-**In a host** (Cronum Work, v0.99.0) Settings are one for the whole app, the same list in every
+**In a host** (Cronum Work, v0.100.0) Settings are one for the whole app, the same list in every
 module: the account's sections (with notices and the plan when the host says so,
 `app.host.push` and `app.host.plans` in `/api/auth/config`, whatever the module passes); then a
 group for each module the person uses, in the host's order, with its own sections, its data

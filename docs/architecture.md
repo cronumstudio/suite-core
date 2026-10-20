@@ -1521,7 +1521,7 @@ other active ones and Settings, when the page is a module's; `PUT /api/me/module
 Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
 only leaves that person's menus, MCP and links.
 
-Settings are one for the whole host (web-kit.md, v0.99.0): every module lists the account's
+Settings are one for the whole host (web-kit.md, v0.100.0): every module lists the account's
 sections, then a group for each module in use, then the host's. A module names its sections for
 the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }], ai, about }`,
 with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
