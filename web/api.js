@@ -36,13 +36,13 @@ export function setPatience(ms) {
 
 const gaveUp = (err) => err?.name === 'TimeoutError' || err?.name === 'AbortError';
 
-async function request(method, path, body, { file = false, key = null } = {}) {
+async function request(method, path, body, { file = false, key = null, root = false } = {}) {
   const patient = patience && !file && (method === 'GET' || key) && typeof AbortSignal?.timeout === 'function';
   const signal = patient ? AbortSignal.timeout(patience) : undefined;
   let res;
   try {
     // The app's path at its base: the same on its own, under the module's path in a host (base.js).
-    res = await fetch(at(path), {
+    res = await fetch(root ? path : at(path), {
       method,
       credentials: 'same-origin',
       // A file goes as the raw body, as the suite's uploads expect: no multipart.
@@ -78,6 +78,12 @@ export const api = {
   upload: (path, file) => request('POST', path, file, { file: true }),
   /** A write that may be sent again (the outbox): `key` makes the server do it once. */
   write: (method, path, body, { key = null } = {}) => request(method, path, body ?? undefined, { key }),
+  /** The same, at the site's root and not the app's base: a host's own routes, from a module's page. */
+  root: {
+    get: (path) => request('GET', path, undefined, { root: true }),
+    post: (path, body = {}) => request('POST', path, body, { root: true }),
+    delete: (path) => request('DELETE', path, undefined, { root: true }),
+  },
 };
 
 /** What went wrong, as a sentence: errors.<code>, with the field named in the language. */

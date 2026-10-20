@@ -636,6 +636,78 @@ test('a host with pages of its own serves them at the root, and its own routes',
   assert.equal((await call('GET', '/api/modules')).data.modules.length, 2);
 });
 
+test('a host with one worker: /sw.js for every module, one version for the whole app, notices at the module’s path', async (t) => {
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
+  t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Which one?</title>');
+  fs.mkdirSync(path.join(publicDir, 'split'));
+  fs.writeFileSync(path.join(publicDir, 'split', 'index.html'), '<!DOCTYPE html><title>Split</title>');
+  const { host, call } = await startHost(t, { publicDir, worker: { icon: '/icons/icon-192.png' } });
+
+  const sw = await call('GET', '/sw.js');
+  assert.equal(sw.status, 200);
+  assert.match(sw.headers.get('content-type'), /javascript/);
+  assert.equal(sw.headers.get('cache-control'), 'no-cache');
+  const options = (() => {
+    let given = null;
+    // The worker as a browser runs it: sw-core's suiteWorker, here only what it is given.
+    new Function('importScripts', 'suiteWorker', sw.data)(() => {}, (o) => { given = o; });
+    return given;
+  })();
+  assert.deepEqual(options.modules, ['/alpha/', '/beta/']);
+  for (const kept of ['/', '/index.html', '/split/', '/split/index.html', '/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/beta/']) {
+    assert.ok(options.shell.includes(kept), `${kept} in its copy`);
+  }
+  assert.deepEqual(options.push, { title: 'Work', icon: '/icons/icon-192.png', url: '/' });
+
+  const version = (await call('GET', '/version')).data;
+  assert.equal(version.app, '9.9.9');
+  assert.equal(version.name, 'Work');
+  assert.match(version.version, /^[0-9a-f]{12}$/);
+  assert.deepEqual(Object.keys(version.modules), ['alpha', 'beta']);
+  assert.equal(options.version, `work-${version.version}`, 'a new release is a new worker');
+  const own = await call('GET', '/js/app-version.js');
+  assert.match(own.data, new RegExp(`APP_VERSION = '${version.version}'`));
+  assert.match(own.data, /APP_NAME = "Work"/);
+  assert.equal((await call('GET', '/alpha/version')).data.version === version.version, false, 'a module keeps its own');
+
+  // Each module's page learns of the worker, and retires its own (web/worker.js).
+  assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.host.worker, '/sw.js');
+  assert.equal(host.modules.length, 2);
+});
+
+test('without one worker, each module keeps its own, and the host’s /version is its own files’', async (t) => {
+  const { call } = await startHost(t);
+  assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.host.worker, undefined);
+  assert.equal((await call('GET', '/alpha/sw.js')).status, 200, 'the module’s worker, as before');
+  assert.equal((await call('GET', '/version')).data.modules, undefined);
+});
+
+test('a module’s notices with the host’s one worker open at its path (host-worker.js)', async () => {
+  const { hostedPush } = await import('../host-worker.js');
+  const sent = [];
+  const push = { publicKey: 'k', deliver: async (subs, payload) => { sent.push(typeof payload === 'function' ? payload({ lang: 'es' }) : payload); }, send: async (sub, payload) => { sent.push(payload); } };
+  const tasks = hostedPush(push, 'tasks');
+  assert.equal(tasks.publicKey, 'k');
+  await tasks.deliver([], { title: 'List', url: '/?list=4', tag: 'lista-4', list_id: 4 });
+  await tasks.deliver([], (sub) => ({ title: sub.lang }));
+  await tasks.send({}, { title: 'x', url: '/tasks/?list=5' });
+  await tasks.send({}, 'plain text');
+  assert.deepEqual(sent, [
+    { title: 'List', url: '/tasks/?list=4', tag: 'tasks-lista-4', list_id: 4, module: 'tasks' },
+    { title: 'es', url: '/tasks/', tag: 'tasks-notice', module: 'tasks' },
+    { title: 'x', url: '/tasks/?list=5', tag: 'tasks-notice', module: 'tasks' },
+    'plain text',
+  ]);
+});
+
+test('a module’s shell, read from its own worker, at its path (host-worker.js)', async () => {
+  const { moduleShell } = await import('../host-worker.js');
+  const dir = new URL('./fixtures/host/alpha/public', import.meta.url);
+  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js'], optional: [] });
+  assert.deepEqual(moduleShell(null, 'beta'), { shell: ['/beta/', '/beta/index.html'], optional: [] }, 'without a worker, its page');
+});
+
 test('a module’s jobs stop when the host closes', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
   const list = modules();

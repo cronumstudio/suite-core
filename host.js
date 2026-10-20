@@ -47,7 +47,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createSuite, createApp, SuiteConfigError } from './app.js';
 import { resolveConfig } from './config.js';
 import { migrate } from './migrate.js';
@@ -62,6 +62,7 @@ import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
+import { fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -306,13 +307,19 @@ function moduleListErrors(modules) {
  * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
  *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
  *   framed by the host's own pages (never by another site's)
+ * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
+ *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
+ *   host's icon without them). The host's /version and /js/app-version.js are then the whole
+ *   app's (the host's, the kit's and every module's files), the modules' pages retire their own
+ *   workers (web/worker.js, told by /api/auth/config's `host.worker`) and show one notice of a
+ *   new version, and every module's notice opens at the module's path. Without it, as before.
  * @param {string} [options.version]
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
-  version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
+  worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
@@ -348,6 +355,11 @@ export async function createHost({
   if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
     listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
   }
+  if (worker != null && worker !== false && worker !== true && (typeof worker !== 'object' || Array.isArray(worker))) {
+    listErrors.push('worker: true, or { icon, badge } for its notices');
+  }
+  /** The host's one worker (host-worker.js), or null: each module keeps its own, as before. */
+  const hostWorker = worker ? (worker === true ? {} : worker) : null;
   if (listErrors.length) stop(listErrors);
 
   suite = createSuite({
@@ -415,7 +427,11 @@ export async function createHost({
       defaultPlan: resolved.defaultPlan,
       install: moduleInstall,
       // Where it is: for what an app does differently inside a host, if anything.
-      host: { id: config.app.id, name: config.app.name, mount: entry.mount, base: `/${entry.mount}/` },
+      host: {
+        id: config.app.id, name: config.app.name, mount: entry.mount, base: `/${entry.mount}/`,
+        // The host's one worker: the module's page registers it and retires its own (web/worker.js).
+        ...(hostWorker ? { worker: '/sw.js' } : {}),
+      },
       errors: [],
       warnings: [],
     };
@@ -481,7 +497,8 @@ export async function createHost({
         : null,
       texts: ownHooks.texts || createTexts(),
       portabilityFor,
-      push: resolved.modules.push ? suite.push : null,
+      // With the host's one worker, a notice opens at the module's path (host-worker.js).
+      push: resolved.modules.push && suite.push ? (hostWorker ? hostedPush(suite.push, entry.mount) : suite.push) : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
       billing: resolved.modules.billing ? suite.billing : null,
       stores: resolved.modules.billing ? suite.stores ?? null : null,
@@ -691,6 +708,76 @@ export async function createHost({
     res.end();
   };
 
+  /* ---------------------------- the host's worker ---------------------------- */
+
+  const KIT_DIR = path.join(path.dirname(fileURLToPath(HERE)), 'web');
+  let printCache = { value: null, at: 0 };
+  /**
+   * What the whole app is now: the host's version and one fingerprint of the host's files, the
+   * kit's and every module's, each module's own beside it. Cached for a few seconds, as an app's.
+   */
+  function hostVersion() {
+    if (printCache.value && Date.now() - printCache.at < 5000) return printCache.value;
+    const prints = [['host', fingerprint(publicDir)], ['kit', fingerprint(KIT_DIR)],
+      ...joined.map((m) => [m.mount, fingerprint(m.parts.publicDir)])];
+    const value = {
+      app: version, name: config.app.name, ...combine(prints),
+      modules: Object.fromEntries(joined.map((m, i) => [m.mount, { app: m.parts.version ?? '0.0.0', version: prints[i + 2][1].version }])),
+    };
+    printCache = { value, at: Date.now() };
+    return value;
+  }
+
+  /** The worker's script, written again when the fingerprint changes. */
+  let script = { version: null, body: null };
+  function workerBody() {
+    const now = hostVersion();
+    if (script.version === now.version) return script.body;
+    const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
+    const icon = hostWorker.icon || config.app.icon || null;
+    const options = {
+      version: `${config.app.id}-${now.version}`,
+      modules: joined.map((m) => `/${m.mount}/`),
+      shell: [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell)])],
+      optional: [...new Set(shells.flatMap((s) => s.optional))],
+      push: { title: config.app.name, icon, ...(hostWorker.badge ? { badge: hostWorker.badge } : {}), url: '/' },
+    };
+    script = { version: now.version, body: workerScript({ name: config.app.name, options }) };
+    return script.body;
+  }
+
+  /** The host's /sw.js, /version and /js/app-version.js, when it has one worker; false for anything else. */
+  function answerWorker(req, res, url) {
+    if (!hostWorker || !['GET', 'HEAD'].includes(req.method)) return false;
+    const send = (type, body, extra = {}) => {
+      securityHeaders(res, { https: install.https });
+      res.writeHead(200, {
+        'Content-Type': type, 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-cache', ...extra,
+      });
+      res.end(req.method === 'HEAD' ? undefined : body);
+      return true;
+    };
+    if (url.pathname === '/sw.js') return send('text/javascript; charset=utf-8', workerBody());
+    if (url.pathname === '/version') {
+      securityHeaders(res, { https: install.https });
+      sendJson(res, 200, hostVersion());
+      return true;
+    }
+    // As an app's (app.js), with the host's name: the code of the whole app that this tab runs.
+    if (url.pathname === '/js/app-version.js') {
+      const { app, name, version: print, built } = hostVersion();
+      return send('text/javascript; charset=utf-8', `export const APP_NAME_VERSION = '${app}';
+`
+        + `export const APP_VERSION = '${print}';
+`
+        + `export const APP_BUILT = ${built ? `'${built}'` : 'null'};
+`
+        + `export const APP_NAME = ${JSON.stringify(name)};
+`, { ETag: `W/"${print}"` });
+    }
+    return false;
+  }
+
   /** The module a request is for, with the prefix taken off; anything else is the root's. */
   async function handle(req, res) {
     let url;
@@ -705,6 +792,7 @@ export async function createHost({
     const mount = url.pathname.split('/')[1];
     const m = byMount.get(mount);
     if (!m) {
+      if (answerWorker(req, res, url)) return undefined;
       // Without a page of its own, the host opens on its first module.
       if (!hasHome && url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
         redirect(res, 302, `/${joined[0].mount}/${url.search}`);
