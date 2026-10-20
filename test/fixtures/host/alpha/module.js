@@ -40,6 +40,8 @@ export function createModule({ mount }) {
       doneRoute(api, { suite, table: 'alpha_items' });
     },
     cards: itemCards({ suite, table: 'alpha_items' }),
+    // Its sections of Settings, for the other modules' Settings to list them.
+    settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], about: true },
     // As if each item were a 1000-byte photo: what the host adds up for storage.mb.
     storage: (userId) => 1000 * suite.database.get('SELECT COUNT(*) AS n FROM alpha_items WHERE user_id = ?', userId).n,
     mcp: {

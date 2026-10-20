@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { createHost, joinHost, mountManifest, mountedPath } from '../host.js';
+import { createHost, joinHost, mountManifest, mountedPath, moduleSettings } from '../host.js';
 import { SuiteConfigError } from '../app.js';
 
 const HOST = {
@@ -103,18 +103,20 @@ test('a host serves each module at its own path, with one sign-in, one database 
   const where = (await call('GET', '/alpha/api/where')).data;
   assert.equal(where.baseUrl, 'http://127.0.0.1/alpha', 'links a module writes point into it');
   assert.equal(where.install, 'http://127.0.0.1/alpha');
-  assert.deepEqual(where.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' });
+  assert.deepEqual(where.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false });
 
   // What each module is, for the host's pages, and which ones this person uses: all until they choose.
   assert.deepEqual((await call('GET', '/api/modules')).data, {
     host: { name: 'Work', icon: '/icons/work.svg' },
     chosen: false,
     modules: [
-      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } }, active: true },
-      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', links: { item: { creates: true } }, active: true },
+      { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } },
+        settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], data: false, ai: false, about: true }, active: true },
+      { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', links: { item: { creates: true } },
+        settings: { sections: [], data: false, ai: false, about: false }, active: true },
     ],
   });
-  assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/' },
+  assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false },
     'a module tells the kit it is in a host');
   assert.equal((await call('GET', '/api/auth/config')).data.app.host, undefined, 'the host itself isn’t a module');
   assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.modules.mcp, true,
@@ -798,4 +800,25 @@ test('a split view that isn’t a page of the host stops the start', async () =>
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a module\'s sections of Settings, as the host lists them for the others: what is well formed', () => {
+  assert.deepEqual(moduleSettings(undefined), { sections: [], data: false, ai: false, about: false }, 'a module that declares none');
+  const listed = moduleSettings({
+    sections: [
+      { id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.short' },
+      { id: 'line', label: 'settings.line.title', icon: '<b>', hint: 'has spaces in it' },
+      { id: 'Bad Id', label: 'x.y' },
+      { id: 'nolabel' },
+      null,
+    ],
+    ai: true, about: 'yes',
+  }, { data: true });
+  assert.deepEqual(listed, {
+    sections: [
+      { id: 'templates', label: 'templates.title', icon: 'copy', hint: 'templates.short' },
+      { id: 'line', label: 'settings.line.title' },
+    ],
+    data: true, ai: true, about: false,
+  });
 });

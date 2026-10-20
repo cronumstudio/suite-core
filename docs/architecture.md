@@ -1514,12 +1514,18 @@ kept to the module that sent them, and coming back to the module after signing i
 The host's own tables have their own scope, `host`, and an app on its own never gets them. The
 first, `host_modules`, keeps which modules each person turned on: no row, they haven't chosen and
 use every one; a module added to the host after they chose comes on for them. `GET /api/modules`
-answers `{ host, chosen, modules: [{ mount, path, name, color, icon, active }] }` for the host's
+answers `{ host, chosen, modules: [{ mount, path, name, color, icon, links, settings, active }] }` for the host's
 pages and the kit's shell, which draws a rail with the active ones and Settings where the sidebar
 stays (from 640 px) and, on a phone, turns the app's icon at the drawer's head into a menu of the
 other active ones and Settings, when the page is a module's; `PUT /api/me/modules { active: [mount…] }` sets them, at least one, from
 Settings › Modules. Turning a module off keeps its data and leaves it reachable at its path: it
 only leaves that person's menus, MCP and links.
+
+Settings are one for the whole host (web-kit.md, v0.99.0): every module lists the account's
+sections, then a group for each module in use, then the host's. A module names its sections for
+the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }], ai, about }`,
+with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
+with `data` when the module declares its data) and drops what isn't well formed.
 
 ### 21.2 One MCP
 

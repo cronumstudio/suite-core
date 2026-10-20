@@ -141,6 +141,40 @@ export function mountManifest(manifest, mount) {
   return out;
 }
 
+/** A section's id in Settings: what `?settings=` and a module's `settings(start)` name. */
+const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
+/** A key of a module's catalog (`settings.prefs.title`). */
+const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
+
+/**
+ * A module's sections of Settings as the host lists them, for the Settings of
+ * every other module (web/settings.js): in a host, Settings are one page with
+ * a group for each module the person uses, and each module draws only its own
+ * sections, so the others only need to name them. `createModule().settings`:
+ *
+ *   settings: {
+ *     sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.hintShort' }],
+ *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
+ *     about: true,   // it says what it is (aboutExtra): its own section in its group
+ *   }
+ *
+ * `label` and `hint` are keys of the module's catalog, read in the person's
+ * language by whoever lists them; a hint takes no values. `data` is the host's
+ * to say (the module has a declaration of its data). What isn't well formed is
+ * left out: a section with no label can't be listed.
+ */
+export function moduleSettings(declared, { data = false } = {}) {
+  const given = declared && typeof declared === 'object' ? declared : {};
+  const sections = (Array.isArray(given.sections) ? given.sections : [])
+    .filter((s) => typeof s?.id === 'string' && SECTION_ID.test(s.id) && typeof s.label === 'string' && CATALOG_KEY.test(s.label))
+    .map((s) => ({
+      id: s.id, label: s.label,
+      ...(typeof s.icon === 'string' && /^[a-z0-9-]{1,40}$/.test(s.icon) ? { icon: s.icon } : {}),
+      ...(typeof s.hint === 'string' && CATALOG_KEY.test(s.hint) ? { hint: s.hint } : {}),
+    }));
+  return { sections, data: Boolean(data), ai: given.ai === true, about: given.about === true };
+}
+
 /**
  * What Claude Code reads of the server's instructions and of a tool's
  * description: the rest is cut, without a sign.
@@ -409,8 +443,13 @@ export async function createHost({
       plans: resolved.plans,
       defaultPlan: resolved.defaultPlan,
       install: moduleInstall,
-      // Where it is: for what an app does differently inside a host, if anything.
-      host: { id: config.app.id, name: config.app.name, mount: entry.mount, base: `/${entry.mount}/` },
+      // Where it is: for what an app does differently inside a host, if anything. Settings are
+      // the host's, the same in every module: whether they have notices and a plan is the host's
+      // to say too, not each module's.
+      host: {
+        id: config.app.id, name: config.app.name, mount: entry.mount, base: `/${entry.mount}/`,
+        push: Boolean(config.modules.push), plans: Boolean(suite.entitlements?.describe?.().several),
+      },
       errors: [],
       warnings: [],
     };
@@ -580,6 +619,8 @@ export async function createHost({
     color: m.config.app.color, icon: mountedPath(m.mount, m.config.app.icon),
     // What can be linked of it (links.js), and whether "Add to…" can create it there.
     links: Object.fromEntries(Object.entries(m.parts.cards || {}).map(([type, card]) => [type, { creates: typeof card.create === 'function' }])),
+    // Its sections of Settings, for every other module's Settings to list them (settings.js).
+    settings: moduleSettings(m.parts.settings, { data: Boolean(m.parts.portable) }),
   }));
 
   /**

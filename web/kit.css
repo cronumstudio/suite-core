@@ -671,7 +671,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-rail__module img { width: 28px; height: 28px; border-radius: 8px; display: block; }
 .kit-rail__name { font: 500 10.5px/1.2 var(--kit-font); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kit-rail__module:hover, .kit-rail__home:hover { background: rgba(255, 247, 230, .08); }
+.kit-rail__module:hover { background: rgba(255, 247, 230, .08); }
 .kit-rail__module[aria-current="page"] { background: rgba(255, 247, 230, .12); color: var(--cr-cream); }
 /* The module open now: its colour at the rail's edge. */
 .kit-rail__module[aria-current="page"]::before {
