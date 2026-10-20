@@ -3,6 +3,27 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.102.0 — 2026-10-20
+
+- **Tools announce their hints** (`mcp.js`). A tool may carry `annotations` (`readOnlyHint`,
+  `destructiveHint`, `idempotentHint`, `openWorldHint`), and `tools/list` announces them with the
+  tool's title: `{ title, ...annotations }`. The Claude connectors directory and the ChatGPT App
+  Directory require them, and clients use them to decide when to ask the person first. A tool
+  without them is announced as before. A host keeps them under its names (`tasks_list_tasks`), and
+  an old address under the module's own. Every app writes them the same way (architecture §13):
+  reads `{ readOnlyHint: true, openWorldHint: false }`; additive writes `{ readOnlyHint: false,
+  destructiveHint: false, idempotentHint: false, openWorldHint: false }`; setting a state or a field
+  the same with `idempotentHint: true`; deleting, overwriting for good, moving in bulk or giving
+  other people access, `destructiveHint: true`. `openWorldHint` is `true` only for a tool that
+  reaches outside the app.
+- The host's link tools have theirs (`links.js`): `linked_items` reads, `link_item` adds (it may
+  create the thing in another module). Their names don't change.
+- **The old addresses' connectors can go before the rest of the bridge** (`LEGACY_MCP`, host.js,
+  legacy-domains.js). With `LEGACY_MCP=off` (`on` when empty; anything else stops the start) the
+  domains of `LEGACY_DOMAINS` keep their redirects and the service worker that removes itself, and
+  `/mcp` there answers 404 with the host's (`{ "error": "not_found", "mcp": "<BASE_URL>/mcp" }`),
+  as does their OAuth metadata. `parseLegacyDomains()` reads it (`{ mcp }` in, `mcp` out).
+
 ## 0.101.0 — 2026-10-20
 
 - **Signing out clears every app's copy on this device** (`signin.js`, `clearDeviceCopies()`).

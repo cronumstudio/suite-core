@@ -618,11 +618,11 @@ export async function createHost({
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
   // The apps' old addresses, while the bridge is up: empty, nothing of it runs.
-  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl });
+  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl, mcp: env.LEGACY_MCP });
   if (legacy.errors.length) stop(legacy.errors);
   const legacyDomains = legacy.domains.size ? createLegacyDomains({
     domains: legacy.domains, modules: joined, suite, uses, hostName: config.app.name, baseUrl: install.baseUrl,
-    https: install.https, version, mcp: config.modules.mcp, log,
+    https: install.https, version, mcp: config.modules.mcp && legacy.mcp, log,
   }) : null;
 
   const root = createApp({

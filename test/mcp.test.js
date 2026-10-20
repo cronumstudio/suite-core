@@ -21,6 +21,7 @@ async function start(t, overrides = {}) {
     tools: [
       {
         name: 'greet', title: 'Greet', description: 'Says hello',
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: { type: 'object', properties: { who: { type: 'string' } } },
         handler: (principal, args) => ({ content: [{ type: 'text', text: `Hello ${args.who}, from ${principal.name}` }] }),
       },
@@ -129,6 +130,9 @@ test('initialize, tools and prompts', async (t) => {
   assert.ok(init.headers.get('mcp-session-id'));
   const tools = (await rpc('good-token', 'tools/list')).result.tools;
   assert.deepEqual(tools.map((tool) => tool.name), ['greet', 'export_all', 'find'], 'old names are not announced');
+  assert.deepEqual(tools[0].annotations, { title: 'Greet', readOnlyHint: true, openWorldHint: false },
+    'the hints are announced, with the title');
+  assert.equal(tools[1].annotations, undefined, 'a tool without hints announces none');
   assert.equal((await rpc('good-token', 'prompts/list')).result.prompts[0].name, 'setup');
   assert.equal((await rpc('good-token', 'prompts/get', { name: 'nope' })).error.code, -32602);
   assert.equal((await rpc('good-token', 'no/such')).error.code, -32601);

@@ -91,8 +91,12 @@ export function createMcpServer({
   /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
   const sessions = new Map();
 
+  // The hints (readOnlyHint, destructiveHint, idempotentHint, openWorldHint) tell the client
+  // which tools only read and which change or delete: the directories of Claude and ChatGPT
+  // ask for them, and clients use them to decide when to ask the person first.
   const descriptor = (tool) => ({
     name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema,
+    ...(tool.annotations && { annotations: { title: tool.title, ...tool.annotations } }),
   });
 
   const withCurrentParams = (args) => {

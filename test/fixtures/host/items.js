@@ -28,6 +28,7 @@ export function itemTools({ suite, table, name, add = false }) {
   const tools = [{
     name: 'list_items', title: 'List items', description: `Lists the person's ${name} items.`,
     inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, openWorldHint: false },
     handler: (user) => text(JSON.stringify(suite.database.all(`SELECT text FROM ${table} WHERE user_id = ? ORDER BY id`, user.id).map((r) => r.text))),
   }];
   if (add) {
