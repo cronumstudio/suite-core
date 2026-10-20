@@ -175,7 +175,8 @@ async function carryNotices(root, endpoints) {
   const send = async (method, path, body) => {
     let res;
     try {
-      res = await fetch(at(path), {
+      // The host's own routes: one push for every module, at its root (Next and Notes have none of their own).
+      res = await fetch(path, {
         method, credentials: 'same-origin',
         headers: body ? { 'Content-Type': 'application/json' } : {},
         body: body ? JSON.stringify(body) : undefined,

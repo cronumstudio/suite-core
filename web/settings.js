@@ -38,7 +38,7 @@ import { at, FRAMED, SETTINGS_SHOWN_EVENT } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
-import { workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
+import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch' };
 
@@ -615,7 +615,7 @@ export function openSettings(options) {
     const status = hint('');
     const paint = async () => {
       let devices = [];
-      try { devices = await api.get('/api/push/devices'); } catch (err) { fail(err); }
+      try { devices = await (await pushApi()).get('/api/push/devices'); } catch (err) { fail(err); }
       clear(box).append(...(devices.length ? devices.map((d) => el('div', { class: 'kit-list__row' },
         icon(/mobile|android|iphone/i.test(d.label || '') ? 'phone' : 'device'),
         el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(d.label, t('kit.security.unknownDevice')) }),
@@ -639,7 +639,7 @@ export function openSettings(options) {
     enable.disabled = !supported;
     const test = button(t('kit.notifications.test'), async () => {
       try {
-        const result = await api.post('/api/push/test');
+        const result = await (await pushApi()).post('/api/push/test');
         toast(t(result.no_devices ? 'kit.notifications.none' : 'kit.notifications.testSent'));
       } catch (err) { fail(err); }
     });
@@ -962,13 +962,23 @@ function download(name, text) {
 }
 
 /**
+ * Where a page's notices are kept: the app's /api/push/…, or in a host with one worker for
+ * everything (worker.js) the host's at the root, one for every module, which a module without
+ * notices of its own (Next, Notes) doesn't have under its path.
+ */
+async function pushApi() {
+  return (await hostWorker()) ? api.root : api;
+}
+
+/**
  * Notices on this device: permission, the browser's subscription with the
  * install's key, and the server told, with the device's language.
  */
 export async function subscribePush() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('not_allowed');
-  const { public_key: key } = await api.get('/api/push/config');
+  const push = await pushApi();
+  const { public_key: key } = await push.get('/api/push/config');
   // The host's one worker where there is one, not a module's about to be retired (worker.js).
   const registration = await workerRegistration();
   const raw = atob(key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (key.length % 4)) % 4));
@@ -976,7 +986,7 @@ export async function subscribePush() {
     userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
   });
   const json = subscription.toJSON();
-  await api.post('/api/push/subscribe', {
+  await push.post('/api/push/subscribe', {
     endpoint: json.endpoint, keys: json.keys, label: navigator.userAgent.slice(0, 120), lang: currentLanguage(),
   });
   noticesRenewed();
