@@ -20,7 +20,7 @@
 import { el, clear } from './dom.js';
 import { t, formatDateTime } from './i18n.js';
 import { api, errorMessage } from './api.js';
-import { at } from './base.js';
+import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
@@ -125,9 +125,9 @@ export async function signIn({ app, config = null, root = document.body }) {
           notice,
           el('h2', { text: t('kit.signin.title') }),
           message ? el('p', { class: 'kit-error', role: 'alert', text: message }) : null,
-          el('a', { class: 'kit-btn kit-btn--primary kit-btn--block', href: '/auth/login', text: name ? t('kit.signin.with', { provider: name }) : t('kit.signin.submit') }),
+          el('a', { class: 'kit-btn kit-btn--primary kit-btn--block', href: '/auth/login', target: FRAMED ? '_top' : null, text: name ? t('kit.signin.with', { provider: name }) : t('kit.signin.submit') }),
           // Signing up is AuthKit's; an OIDC provider has its own, if it allows it.
-          settings.provider === 'workos' ? el('a', { class: 'kit-btn kit-btn--block', href: '/auth/login?signup=1', text: t('kit.signin.signupLink') }) : null);
+          settings.provider === 'workos' ? el('a', { class: 'kit-btn kit-btn--block', href: '/auth/login?signup=1', target: FRAMED ? '_top' : null, text: t('kit.signin.signupLink') }) : null);
         return;
       }
       const username = input({ id: 'kit-signin-username', name: 'username', autocomplete: 'username', required: true });
@@ -329,6 +329,8 @@ export async function confirmEmailFromLink() {
 export async function signOut({ local = null } = {}) {
   const answer = await api.post('/api/auth/logout').catch(() => null);
   await local?.clearAll?.().catch(() => {});
-  if (answer?.logout_url) window.location.href = answer.logout_url;
-  else window.location.reload();
+  // From a frame of the host's split view the whole window signs out, not the frame alone.
+  const page = FRAMED ? window.top : window;
+  if (answer?.logout_url) page.location.href = answer.logout_url;
+  else page.location.reload();
 }

@@ -298,12 +298,15 @@ function moduleListErrors(modules) {
  * @param {string} [options.publicDir]  the host's own files at the root; without an index.html there, / goes to
  *   the first module
  * @param {Function} [options.routes]   (router) => { … }: the host's own routes at /api/
+ * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
+ *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
+ *   framed by the host's own pages (never by another site's)
  * @param {string} [options.version]
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
   version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
@@ -336,6 +339,10 @@ export async function createHost({
   };
 
   const listErrors = moduleListErrors(modules);
+  // The split view is a page of the host's own: a path of this site, never an address elsewhere.
+  if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
+    listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
+  }
   if (listErrors.length) stop(listErrors);
 
   suite = createSuite({
@@ -529,6 +536,8 @@ export async function createHost({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
       i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
+      // In the split view each module is a frame of the host's page.
+      frames: split ? 'self' : 'none',
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
@@ -583,7 +592,7 @@ export async function createHost({
     const chosen = rows.length > 0;
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
     return {
-      host: { name: config.app.name, icon: config.app.icon },
+      host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}) },
       chosen,
       // A module added to the host after someone chose comes on for them: nothing hides by itself.
       modules: listed.map((m) => ({ ...m, active: chosen ? on.get(m.mount) ?? true : true })),

@@ -20,6 +20,11 @@
  * drawer keeps its width without the rail: the app's icon and name at its head
  * are a button whose menu has the other modules and, last, Settings.
  *
+ * A host with a split view (host.js `split`) has its views on the rail, over
+ * Settings: this module alone, or two to four at once on the host's page. There
+ * each module is a frame (base.js FRAMED), drawn without the rail: the page says
+ * which module each frame shows, and the app's name keeps Settings at hand.
+ *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
@@ -31,13 +36,15 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at, BASE } from './base.js';
+import { at, BASE, FRAMED } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
 /** The host's last answer of which modules there are (GET /api/modules), for the rail at once. */
 const RAIL_KEY = 'host.modules';
+/** How many modules the host's split view shows at once: one, two or three side by side, four in a grid. */
+export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 
 /**
  * From one page of the site to another, kit.css fades the old into the new (@view-transition).
@@ -518,7 +525,8 @@ export function createShell({
    * views it waits for the host's answer, so the rail doesn't come with a switcher that goes.
    */
   function syncSwitcher() {
-    const want = hosted && !(beside() && (rail || !answered));
+    // In a frame of the host's split view there is no rail: the view says which module is in it.
+    const want = hosted && (FRAMED || !(beside() && (rail || !answered)));
     if (want && !switcher) {
       switcher = el('button', {
         type: 'button', class: 'kit-side__app', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
@@ -539,6 +547,14 @@ export function createShell({
     }
   }
 
+  /** The views of the host's split view (at `page`): this module alone, as now, or two to four at once. */
+  function splitMenuItems(page) {
+    return SPLIT_LAYOUTS.map((n) => ({
+      label: t(`kit.split.layout${n}`), iconName: `layout-${n}`, current: n === 1,
+      href: n === 1 ? null : `${page}?layout=${n}&from=${encodeURIComponent(mount)}`,
+    }));
+  }
+
   /** Takes the rail away, and the sidebar's content back to where it was. */
   function dropRail() {
     if (!rail) return;
@@ -554,6 +570,12 @@ export function createShell({
       dropRail();
       return asModule(false);
     }
+    // A frame of the host's split view: the view has the modules, and remembers what it shows.
+    if (FRAMED) {
+      others = [];
+      asModule(true);
+      return null;
+    }
     // The host's home opens the module used last.
     try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
@@ -568,6 +590,12 @@ export function createShell({
         class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,
         style: m.color ? `--module: ${m.color}` : null,
       }, el('img', { src: m.icon, alt: '', width: 28, height: 28 }), el('span', { class: 'kit-rail__name', text: m.name }))),
+      // The split view, where the host has one: this module alone (now), or two to four at once.
+      host.split ? el('button', {
+        type: 'button', class: 'kit-rail__split', title: t('kit.split.title'), 'aria-label': t('kit.split.title'),
+        'aria-haspopup': 'menu', 'aria-expanded': 'false',
+        onClick: (ev) => toggleMenu(ev.currentTarget, splitMenuItems(host.split)),
+      }, icon('layout-2')) : null,
       // Settings at its foot, in place of the person's button.
       onSettings || accountItems.length || onSignOut ? el('button', {
         type: 'button', class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,

@@ -322,6 +322,8 @@ export function serveStatic(root, urlPath, res) {
  *   with values computed on the fly. An injected style is far less dangerous
  *   than a script.
  * · Nobody may frame the app inside another site and trick whoever clicks.
+ *   A host's module with a split view (host.js `split`) may be framed by its
+ *   own site only: securityHeaders' `frames: 'self'`.
  */
 export const DEFAULT_CSP = [
   "default-src 'self'",
@@ -343,11 +345,15 @@ export const DEFAULT_CSP = [
  * Sets the security headers on a response. Called at the start of every
  * request: `writeHead` keeps what `setHeader` set, so they reach every
  * response without each place that answers remembering them.
+ *
+ * `frames: 'self'` lets pages of the same site frame this one (a host's split
+ * view); by default no page may, of any site.
  */
-export function securityHeaders(res, { https = false, csp = DEFAULT_CSP } = {}) {
-  res.setHeader('Content-Security-Policy', csp);
+export function securityHeaders(res, { https = false, csp = DEFAULT_CSP, frames = 'none' } = {}) {
+  const framed = frames === 'self';
+  res.setHeader('Content-Security-Policy', framed ? csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'") : csp);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Frame-Options', framed ? 'SAMEORIGIN' : 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Permissions-Policy',
     'geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()');

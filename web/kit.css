@@ -347,6 +347,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-menu__image { width: 20px; height: 20px; border-radius: 6px; flex: none; display: block; margin-inline: -1px; }
 .kit-menu__item--danger, .kit-menu__item--danger .kit-icon { color: var(--kit-danger); }
 .kit-menu__item .kit-menu__end { margin-inline-start: auto; }
+/* The one in use now: its tick in the accent. */
+.kit-menu__item[aria-current="true"] { font-weight: 600; }
+.kit-menu__item[aria-current="true"] .kit-menu__end .kit-icon { color: var(--kit-accent); }
 .kit-menu__sep { height: 1px; background: var(--kit-border); margin: 4px 6px; }
 
 /* --------------------------------- notices -------------------------------- */
@@ -681,6 +684,14 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-rail__settings .kit-icon { width: 20px; height: 20px; }
 .kit-rail__settings:hover, .kit-rail__settings[aria-expanded="true"] { background: rgba(255, 247, 230, .08); color: var(--cr-cream); }
+/* The split view's views, just over Settings at the rail's foot. */
+.kit-rail__split {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin-top: auto; border: 0; border-radius: 12px;
+  background: none; color: var(--cr-stone-dark); cursor: pointer;
+}
+.kit-rail__split .kit-icon { width: 20px; height: 20px; }
+.kit-rail__split:hover, .kit-rail__split[aria-expanded="true"] { background: rgba(255, 247, 230, .08); color: var(--cr-cream); }
+.kit-rail__split + .kit-rail__settings { margin-top: 0; }
 .kit-rail a:focus-visible, .kit-rail button:focus-visible { outline: 2px solid var(--cr-cream); outline-offset: 1px; }
 @container kit-app (min-width: 640px) {
   .kit-rail { display: flex; }
