@@ -321,13 +321,16 @@ export function createDevices({
     return user;
   }
 
-  /** Whether a device still works: for a connection the app keeps open (a socket's heartbeat). */
-  function isActive(id) {
+  /** A device's row when it still works, else null. */
+  function workingRow(id) {
     const row = database.get(`SELECT d.created_at, d.last_used_at, d.revoked_at, u.disabled_at, u.id AS user_id
       FROM device_tokens d JOIN users u ON u.id = d.user_id WHERE d.id = ?`, id);
-    if (!row || row.revoked_at || row.disabled_at || endOf(row) <= clock()) return false;
-    return allowed(database.get('SELECT * FROM users WHERE id = ?', row.user_id));
+    if (!row || row.revoked_at || row.disabled_at || endOf(row) <= clock()) return null;
+    return allowed(database.get('SELECT * FROM users WHERE id = ?', row.user_id)) ? row : null;
   }
+
+  /** Whether a device still works: for a connection the app keeps open (a socket's heartbeat). */
+  const isActive = (id) => Boolean(workingRow(id));
 
   /** A person's devices that still work, last used first. */
   const list = (userId) => database.all(`SELECT ${columns} FROM device_tokens
@@ -400,10 +403,13 @@ export function createDevices({
    * reaches `idleDays`.
    */
   function sessionAlive(id) {
-    if (!isActive(id)) return false;
+    const row = workingRow(id);
+    if (!row) return false;
     const now = clock();
-    database.run(`UPDATE device_tokens SET last_used_at = ?
-      WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)`, iso(now), id, iso(now - MINUTE));
+    // Written only when it is a minute old: a page load makes several requests.
+    if (!row.last_used_at || now - Date.parse(row.last_used_at) > MINUTE) {
+      database.run('UPDATE device_tokens SET last_used_at = ? WHERE id = ?', iso(now), id);
+    }
     return true;
   }
 
