@@ -19,7 +19,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   a frame of the split view; `applyUpdate()` from a frame reloads the view, and waits up to 20 s
   (not 3) for the host's worker, which keeps the whole app, to take over before reloading. A module's notices open
   at its path (`url` under `/<mount>/`, `tag` with the mount, `module`). Settings' About names
-  what runs (`Cronum Work v0.3.15`), and `subscribePush()` subscribes with the host's worker; in
+  what runs (`Cronum Work v0.3.19`), and `subscribePush()` subscribes with the host's worker; in
   such a host Settings' notifications and the carry-over use the host's /api/push/… at the root
   (`api.root`), which a module without notices of its own (Next, Notes) doesn't have under its path. An app
   on its own, and a host without `worker`, change nothing: `registerWorker()` registers
