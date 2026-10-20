@@ -377,6 +377,7 @@ export function linkTools({ links, modules }) {
           + ` Give the thing as module, type and id (from that module's tools). Kinds: ${kinds()}.`;
       },
       inputSchema: { type: 'object', properties: { item: ref }, required: ['item'] },
+      annotations: { readOnlyHint: true, openWorldHint: false },
       handler: (user, args) => {
         const found = links.of(user, formatRef(args.item || {}));
         return text(found.length
@@ -403,6 +404,8 @@ export function linkTools({ links, modules }) {
         },
         required: ['from'],
       },
+      // It may create the thing in another module: a write, and each call adds a link.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       handler: (user, args) => {
         const from = formatRef(args.from || {});
         const made = args.create

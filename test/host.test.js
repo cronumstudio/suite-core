@@ -84,12 +84,15 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('GET', '/alpha/index.html')).headers.get('link'), security.headers.get('link'));
   assert.equal((await call('GET', '/beta/')).headers.get('link'), null, 'a page without code names nothing');
   assert.equal((await call('GET', '/alpha/js/main.js')).headers.get('link'), null, 'only the page');
+  assert.doesNotMatch(security.headers.get('link'), /auth\/me|\/api\/modules/, 'signed out: no one’s answers');
 
   // One sign-in for every module: the host's cookie.
   assert.equal((await call('GET', '/alpha/api/items')).status, 401);
   const signedIn = await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
   assert.equal(signedIn.data.user.username, 'admin');
   assert.equal((await call('GET', '/beta/api/auth/me')).data.user.username, 'admin', 'signed in for beta too');
+  assert.match((await call('GET', '/alpha/')).headers.get('link'), /<\/alpha\/api\/auth\/me>; rel=preload; as=fetch; crossorigin/,
+    'signed in: who the person is, with the page');
   assert.equal((await call('GET', '/api/auth/me')).data.user.username, 'admin', 'and at the root');
   assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.id, 'alpha', 'each module says who it is');
 
@@ -240,9 +243,19 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.match(init.instructions, /Beta keeps other items\./);
   assert.doesNotMatch(init.instructions, /paragraph/, 'without a brief, the first paragraph only');
   assert.ok(init.instructions.length <= 2048);
+  assert.match(init.instructions, /or with work_ for the ones that link things between modules/, 'the link tools’ prefix');
 
-  const listed = (await mcp('tools/list')).result.tools.map((tool) => tool.name);
-  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'linked_items', 'link_item']);
+  const announced = (await mcp('tools/list')).result.tools;
+  const listed = announced.map((tool) => tool.name);
+  assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'work_linked_items', 'work_link_item']);
+  const hints = Object.fromEntries(announced.map((tool) => [tool.name, tool.annotations]));
+  assert.deepEqual(hints.alpha_list_items, { title: 'List items', readOnlyHint: true, openWorldHint: false },
+    'a module’s tool keeps its hints under the host’s name');
+  assert.equal(hints.alpha_add_item, undefined, 'and one without them announces none');
+  assert.deepEqual(hints.work_linked_items, { title: 'What is linked with something', readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(hints.work_link_item, {
+    title: 'Link, or add to another module and link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
+  });
   const text = async (name, args = {}) => (await mcp('tools/call', { name, arguments: args })).result.content[0].text;
   assert.equal(await text('alpha_add_item', { text: 'From the AI' }), 'Added.');
   assert.equal(await text('alpha_list_items'), '["From the AI"]');
@@ -327,7 +340,9 @@ test('the apps’ old addresses, for a while: each one’s connector as it was, 
   assert.equal(init.serverInfo.name, 'alpha');
   assert.equal(init.serverInfo.title, 'Alpha');
   assert.match(init.instructions, /^Alpha keeps items\./);
-  assert.deepEqual((await mcp('alpha.example.test', 'tools/list')).result.tools.map((tool) => tool.name), ['list_items', 'add_item']);
+  const oldTools = (await mcp('alpha.example.test', 'tools/list')).result.tools;
+  assert.deepEqual(oldTools.map((tool) => tool.name), ['list_items', 'add_item']);
+  assert.deepEqual(oldTools[0].annotations, { title: 'List items', readOnlyHint: true, openWorldHint: false }, 'with their hints');
   const text = async (domain, name, args = {}) => (await mcp(domain, 'tools/call', { name, arguments: args })).result.content[0].text;
   assert.equal(await text('alpha.example.test', 'add_item', { text: 'Through the old address' }), 'Added.');
   assert.equal(await text('alpha.example.test', 'new_item', { text: 'With an old name' }), 'Added.');
@@ -356,14 +371,36 @@ test('the apps’ old addresses, for a while: each one’s connector as it was, 
   assert.equal((await call('GET', '/health')).status, 200);
 });
 
+test('LEGACY_MCP=off: the old addresses keep their redirects and worker, and their connectors point at the host’s', async (t) => {
+  const { host } = await startHost(t, {
+    env: {
+      DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
+      BASE_URL: 'http://127.0.0.1', LEGACY_DOMAINS: 'alpha.example.test=alpha', LEGACY_MCP: 'off',
+    },
+  });
+  const old = (...args) => asDomain(host.server, ...args);
+  for (const pathname of ['/mcp', '/mcp/sse']) {
+    const res = await old('alpha.example.test', 'POST', pathname, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    assert.equal(res.status, 404, pathname);
+    assert.deepEqual(res.data, { error: 'not_found', mcp: 'http://127.0.0.1/mcp' }, 'it names the host’s connector');
+    assert.equal(res.headers['www-authenticate'], undefined, 'with no challenge');
+  }
+  assert.equal((await old('alpha.example.test', 'GET', '/.well-known/oauth-protected-resource/mcp')).status, 404);
+  assert.equal((await old('alpha.example.test', 'GET', '/.well-known/oauth-authorization-server')).status, 404);
+  const page = await old('alpha.example.test', 'GET', '/lists/3');
+  assert.equal(page.status, 302, 'the pages still go to the module');
+  assert.equal(page.headers.location, 'http://127.0.0.1/alpha/lists/3');
+  assert.ok((await old('alpha.example.test', 'GET', '/sw.js')).text.includes('registration.unregister()'), 'and the worker still removes itself');
+});
+
 test('LEGACY_DOMAINS that can’t be right stop the start, and say why', async () => {
-  const reasons = async (value) => {
+  const reasons = async (value, more = {}) => {
     try {
       await createHost({
         config: HOST, modules: modules(), handleSignals: false, exitOnError: false, log: () => {},
         env: {
           DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
-          BASE_URL: 'https://work.example.test', LEGACY_DOMAINS: value,
+          BASE_URL: 'https://work.example.test', LEGACY_DOMAINS: value, ...more,
         },
       });
     } catch (error) {
@@ -377,6 +414,7 @@ test('LEGACY_DOMAINS that can’t be right stop the start, and say why', async (
   assert.match(await reasons('alpha.example.test:8080=alpha'), /entry 1 is not a domain name/);
   assert.match(await reasons('work.example.test=alpha'), /the host's own address/);
   assert.match(await reasons('a.example.test=alpha,A.example.test=beta'), /a\.example\.test is given twice/);
+  assert.match(await reasons('alpha.example.test=alpha', { LEGACY_MCP: 'of' }), /LEGACY_MCP "of": use on or off/);
 });
 
 test('a host with its MCP off: neither it nor its modules offer an AI connector', async (t) => {
@@ -480,11 +518,11 @@ test('links between modules: each sees what they could see, created where it liv
   let id = 0;
   const tool = async (name, args) => (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } },
     { Authorization: `Bearer ${token}` })).data.result.content[0].text;
-  assert.match(await tool('linked_items', { item: { module: 'alpha', type: 'item', id: '1' } }), /Beta item beta:item:3: "Write the proposal" \(done\) in Items \[done together\]/);
-  assert.match(await tool('link_item', { from: { module: 'alpha', type: 'item', id: '1' }, create: { module: 'beta', type: 'item', title: 'From Claude' } }),
+  assert.match(await tool('work_linked_items', { item: { module: 'alpha', type: 'item', id: '1' } }), /Beta item beta:item:3: "Write the proposal" \(done\) in Items \[done together\]/);
+  assert.match(await tool('work_link_item', { from: { module: 'alpha', type: 'item', id: '1' }, create: { module: 'beta', type: 'item', title: 'From Claude' } }),
     /^Linked: Beta item beta:item:5: "From Claude" \(open\)/);
   const listed = (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/list' }, { Authorization: `Bearer ${token}` })).data.result.tools;
-  assert.ok(listed.some((x) => x.name === 'link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
+  assert.ok(listed.some((x) => x.name === 'work_link_item' && /Kinds: alpha: item; beta: item/.test(x.description)));
 
   // A side its module won't complete stays as it was, all of it; the one completed here still is.
   await call('POST', '/alpha/api/items', { text: 'Second' });

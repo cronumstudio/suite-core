@@ -325,10 +325,30 @@ export async function confirmEmailFromLink() {
   }
 }
 
+/**
+ * What every app of the site keeps on this device (local.js names each `<app>-local`), gone. In a
+ * host the modules share one origin and one session: each one draws itself from its copy before the
+ * server answers, so signing out in one of them, or on the host's home, must not leave another
+ * module's copy for whoever signs in next. Never waits more than `wait` ms: a tab holding a
+ * database lets go of it (local.js closes on `versionchange`), and one that doesn't is not waited for.
+ */
+export async function clearDeviceCopies({ indexedDB: idb = globalThis.indexedDB, wait = 1500 } = {}) {
+  if (!idb?.databases) return [];
+  let names = [];
+  try { names = (await idb.databases()).map((d) => d.name).filter((n) => typeof n === 'string' && n.endsWith('-local')); } catch { return []; }
+  const gone = (name) => new Promise((resolve) => {
+    const req = idb.deleteDatabase(name);
+    req.onsuccess = req.onerror = () => resolve(name);
+  });
+  await Promise.race([Promise.all(names.map(gone)), new Promise((r) => setTimeout(r, wait))]);
+  return names;
+}
+
 /** Signs out here (and at the provider, which then comes back to the app). */
 export async function signOut({ local = null } = {}) {
   const answer = await api.post('/api/auth/logout').catch(() => null);
   await local?.clearAll?.().catch(() => {});
+  await clearDeviceCopies().catch(() => {});
   // From a frame of the host's split view the whole window signs out, not the frame alone.
   const page = FRAMED ? window.top : window;
   if (answer?.logout_url) page.location.href = answer.logout_url;

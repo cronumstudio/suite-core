@@ -21,6 +21,7 @@ async function start(t, overrides = {}) {
     tools: [
       {
         name: 'greet', title: 'Greet', description: 'Says hello',
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: { type: 'object', properties: { who: { type: 'string' } } },
         handler: (principal, args) => ({ content: [{ type: 'text', text: `Hello ${args.who}, from ${principal.name}` }] }),
       },
@@ -129,6 +130,9 @@ test('initialize, tools and prompts', async (t) => {
   assert.ok(init.headers.get('mcp-session-id'));
   const tools = (await rpc('good-token', 'tools/list')).result.tools;
   assert.deepEqual(tools.map((tool) => tool.name), ['greet', 'export_all', 'find'], 'old names are not announced');
+  assert.deepEqual(tools[0].annotations, { title: 'Greet', readOnlyHint: true, openWorldHint: false },
+    'the hints are announced, with the title');
+  assert.equal(tools[1].annotations, undefined, 'a tool without hints announces none');
   assert.equal((await rpc('good-token', 'prompts/list')).result.prompts[0].name, 'setup');
   assert.equal((await rpc('good-token', 'prompts/get', { name: 'nope' })).error.code, -32602);
   assert.equal((await rpc('good-token', 'no/such')).error.code, -32601);
@@ -207,4 +211,18 @@ test('the public description', async (t) => {
   assert.equal(info.endpoint, 'https://app.example/mcp');
   assert.match(info.auth, /OAuth 2.1/);
   assert.equal(info.tools.length, 3);
+});
+
+test('a token in the address is not read: it would end up in logs', async (t) => {
+  const { base } = await start(t);
+  const res = await fetch(`${base}/mcp?token=good-token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  assert.equal(res.status, 401);
+  const header = await fetch(`${base}/mcp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-MCP-Token': 'good-token' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  assert.equal(header.status, 200, 'the header still works');
 });

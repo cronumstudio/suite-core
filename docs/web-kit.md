@@ -59,7 +59,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `subscribePush()`; `deviceName()` |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
@@ -143,7 +143,7 @@ phone). It opens Settings
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
 Settings, Administration (for admins, at `/admin`) and Sign out.
 As a module of a host (a page under `/<mount>/`, Cronum Work), the person's button gives way. From
-640 px a rail at the sidebar's start has the host's mark (not a link, v0.100.0), the modules the person uses (one too) and
+640 px a rail at the sidebar's start has the host's mark (not a link, v0.103.0), the modules the person uses (one too) and
 Settings at its foot. On a phone the drawer has no rail: the app's icon and name at its head open a
 menu with the other modules and, last, what the person's button opened (Settings). So does a
 computer's when the host couldn't be asked (offline), until it answers. The host's last answer is
@@ -233,7 +233,7 @@ confirmed by typing a word and, with a password here, the password and the code;
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
 screen offers back an account waiting to be deleted.
 
-**In a host** (Cronum Work, v0.100.0) Settings are one for the whole app, the same list in every
+**In a host** (Cronum Work, v0.103.0) Settings are one for the whole app, the same list in every
 module: the account's sections (with notices and the plan when the host says so,
 `app.host.push` and `app.host.plans` in `/api/auth/config`, whatever the module passes); then a
 group for each module the person uses, in the host's order, with its own sections, its data
