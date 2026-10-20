@@ -155,12 +155,13 @@ const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
  * each tool's name as the host gives it; without it, the first paragraph of
  * its instructions). Whole parts only, as many as fit.
  */
-export function hostInstructions({ modules, hostName, max = MCP_TEXT_MAX, log = () => {} }) {
+export function hostInstructions({ modules, hostName, hostId = null, max = MCP_TEXT_MAX, log = () => {} }) {
   if (!modules.length) return '';
   const names = modules.map((m) => m.config.app.name);
   const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
   const parts = [`${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
-    + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')}).`];
+    + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')})`
+    + `${hostId ? `, or with ${hostId}_ for the ones that link things between modules` : ''}.`];
   for (const m of modules) {
     const spec = m.parts.mcp;
     const name = (tool) => `${m.mount}_${tool}`;
@@ -186,7 +187,7 @@ export function hostInstructions({ modules, hostName, max = MCP_TEXT_MAX, log = 
  * on its own still reaches it (not announced). Prompts the same way. Null
  * when no module brings tools.
  */
-export function hostMcp({ modules, uses = () => true, hostName = 'The app', log = () => {}, links = null }) {
+export function hostMcp({ modules, uses = () => true, hostName = 'The app', hostId = 'host', log = () => {}, links = null }) {
   const entries = [];
   for (const m of modules) {
     for (const tool of m.parts?.mcp?.tools || []) entries.push({ m, tool, name: `${m.mount}_${tool.name}` });
@@ -239,7 +240,10 @@ export function hostMcp({ modules, uses = () => true, hostName = 'The app', log 
   // A module's tools for whoever uses it; the links', for whoever uses two modules with things to link.
   const linking = (principal) => linkable.filter((m) => uses(principal, m.mount)).length >= 2;
   const visible = (principal, tool) => !principal || (tool.module ? uses(principal, tool.module) : linking(principal));
-  if (linkable.length >= 2) tools.push(...linkTools({ links, modules: () => linkable }));
+  // Named with the host's id, as a module's tools are with its own (no old bare names kept).
+  if (linkable.length >= 2) {
+    tools.push(...linkTools({ links, modules: () => linkable }).map((tool) => ({ ...tool, name: `${hostId}_${tool.name}` })));
+  }
 
   const sources = modules.filter((m) => m.parts?.mcp?.prompts);
   const prompts = sources.length ? {
@@ -254,6 +258,7 @@ export function hostMcp({ modules, uses = () => true, hostName = 'The app', log 
 
   const instructions = (principal) => hostInstructions({
     modules: modules.filter((m) => m.parts?.mcp && (!principal || uses(principal, m.mount))), hostName, log,
+    hostId: linkable.length >= 2 && (!principal || linking(principal)) ? hostId : null,
   });
   return { instructions, tools, prompts, legacyTools, legacyParams, allows, visible };
 }
@@ -613,16 +618,16 @@ export async function createHost({
     setImmediate(safely('links clean-up', () => links.prune()));
   });
 
-  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, log, links });
+  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, hostId: config.app.id, log, links });
   // The same as the root says of itself (createApp): on, and with tools or links to serve.
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
   // The apps' old addresses, while the bridge is up: empty, nothing of it runs.
-  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl });
+  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl, mcp: env.LEGACY_MCP });
   if (legacy.errors.length) stop(legacy.errors);
   const legacyDomains = legacy.domains.size ? createLegacyDomains({
     domains: legacy.domains, modules: joined, suite, uses, hostName: config.app.name, baseUrl: install.baseUrl,
-    https: install.https, version, mcp: config.modules.mcp, log,
+    https: install.https, version, mcp: config.modules.mcp && legacy.mcp, log,
   }) : null;
 
   const root = createApp({

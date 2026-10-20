@@ -54,13 +54,16 @@ export function dailyLimitText({ plan_name: planName, limit, more }, appName) {
     + `to ${appName}, and today's are used up. They start again at 00:00 UTC.${better} Tell the person, and don't retry today.`;
 }
 
-/** The token of a request: the Authorization header, the X-MCP-Token header, or ?token=. */
+/**
+ * The token of a request: the Authorization header, or the X-MCP-Token header.
+ * Never the address (?token=): an address ends up in logs and histories.
+ */
 export function bearerToken(req, url = null) {
   const header = req.headers.authorization;
   if (header && /^bearer\s+/i.test(header)) return header.replace(/^bearer\s+/i, '').trim();
   // For clients that can't set custom headers. It ends up in logs: use it knowingly.
   if (req.headers['x-mcp-token']) return String(req.headers['x-mcp-token']).trim();
-  return url?.searchParams.get('token') || null;
+  return null;
 }
 
 /**
@@ -91,8 +94,12 @@ export function createMcpServer({
   /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
   const sessions = new Map();
 
+  // The hints (readOnlyHint, destructiveHint, idempotentHint, openWorldHint) tell the client
+  // which tools only read and which change or delete: the directories of Claude and ChatGPT
+  // ask for them, and clients use them to decide when to ask the person first.
   const descriptor = (tool) => ({
     name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema,
+    ...(tool.annotations && { annotations: { title: tool.title, ...tool.annotations } }),
   });
 
   const withCurrentParams = (args) => {

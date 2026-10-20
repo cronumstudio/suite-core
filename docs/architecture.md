@@ -1093,8 +1093,23 @@ them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` w
 be reached, and the token brake. The app hands in its tools, prompts and instructions:
 
 ```js
-{ name, title, description, inputSchema, feature?, legacyNames?, handler(principal, args) }
+{ name, title, description, inputSchema, annotations?, feature?, legacyNames?, handler(principal, args) }
 ```
+
+`annotations` are the MCP hints, announced in `tools/list` with the tool's title
+(`{ title, ...annotations }`); a tool without them is announced as before. The Claude connectors
+directory and the ChatGPT App Directory require them, and clients use them to decide when to ask
+the person first. Every app writes them the same way:
+
+| The tool | `annotations` |
+| --- | --- |
+| Reads | `{ readOnlyHint: true, openWorldHint: false }` |
+| Adds something | `{ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }` |
+| Sets a state or a field | the same, with `idempotentHint: true` |
+| Deletes, overwrites for good, moves in bulk or gives other people access | `destructiveHint: true` |
+
+`openWorldHint` is `true` only for a tool that reaches outside the app (fetching from the
+internet, another service).
 
 `feature` makes the transport check the plan before calling the tool. `legacyNames` and legacy
 parameter names keep clients with a cached schema working after a rename (as Next did when it moved
@@ -1556,6 +1571,10 @@ LEGACY_DOMAINS=tasks.example.com=tasks,notes.example.com=notes
 - **Everything else goes to the module** (302 for a read, 307 for a write: temporary, nothing
   cached for good), the same path under `/<mount>/`.
 
+The connectors can go before the rest: `LEGACY_MCP=off` (`on` when empty; anything else stops
+the start) keeps the redirects and the service worker, and `/mcp` on an old address answers 404
+with the host's (`{ "error": "not_found", "mcp": "<BASE_URL>/mcp" }`), and so does its OAuth metadata.
+
 A bridge meant to come down: emptying the variable and restarting turns it off; then the domains
 can keep a plain redirect or go. Each entry must name a module, never the host's own address or
 the same domain twice, or the start stops and says why.
@@ -1602,7 +1621,7 @@ relative to the module (`?list=27&task=389`). A thing is named by a ref, `module
   `complete()` runs in it; a chain of such links completes once each. `suite.links?.changed(type,
   id)` repaints the links of something that changed or was deleted: both modules' live channels
   get a `links` event `{ ref, link }` for whoever sees it. On its own an app has no `suite.links`.
-- **For assistants**, the host's MCP adds `linked_items` and `link_item` (link, or create in another
+- **For assistants**, the host's MCP adds `<host id>_linked_items` and `<host id>_link_item` (`work_` in Cronum Work) (link, or create in another
   module and link) for whoever uses two modules with things to link.
 - **In the page**, the kit's `web/links.js`: `linksRow({ ref, title })` is the "Linked" row of an
   item's panel, one chip per link in the other module's colour that opens it there (crossed out when
