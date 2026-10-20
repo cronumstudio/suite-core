@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.96.1 — 2026-10-20
+
+- **The fade between modules is no longer held** (`shell.js`, kit.css; 0.92.1 undone). Holding
+  it until the new module had its frame looked worse with real data: the frame came in with a
+  jump, and the data with another. The fade starts again at the new page's first paint, as in
+  0.92.0, until each module draws at once from what the device keeps. Nothing changes for an app
+  on its own.
+
 ## 0.96.0 — 2026-10-20
 
 - **The people one already shares with, as chips in a share dialog** (`web/people.js`; kit.css).

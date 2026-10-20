@@ -149,7 +149,7 @@ menu with the other modules and, last, what the person's button opened (Settings
 computer's when the host couldn't be asked (offline), until it answers. The host's last answer is
 kept on the device (`host.modules`): the rail is drawn with the frame, and again when the host
 answers. From one module to another one page fades into the next (`@view-transition` in kit.css,
-200 ms, the rail standing still, held until the new page has drawn its frame), in browsers that
+200 ms, the rail standing still), in browsers that
 have view transitions and not for whoever asks for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
