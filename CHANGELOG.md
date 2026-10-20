@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.97.0 — 2026-10-20
+
+- **Drawing a list again without it moving** (`web/drag.js`, `redrawInPlace(container, draw)`).
+  A sidebar or a list drawn again whole keeps how far its box was scrolled (the container, or the
+  nearest box above it that scrolls), and while something is carried (`data-kit-dragging`) it
+  isn't drawn: it waits for `kit-dragend` and draws once, with the last `draw` asked for. Notes
+  0.29.1 did both by hand in its sidebar and Tasks kept the scroll by hand (#72 there); now every
+  app does it with one call, in its sidebar and in its lists. Nothing changes for an app that
+  doesn't use it.
+
 ## 0.96.1 — 2026-10-20
 
 - **The fade between modules is no longer held** (`shell.js`, kit.css; 0.92.1 undone). Holding
