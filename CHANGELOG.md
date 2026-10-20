@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.98.0 — 2026-10-20
+
+- **Settings at hand in the host's split view** (`base.js`, `shell.js`, `settings.js`). In a frame
+  of the split view a module has no rail, and its Settings were only behind its name in the
+  sidebar, which a narrow section folds behind ☰. Now the view can open them itself: it asks with
+  `kit:settings` (`SETTINGS_EVENT`) on the frame's window, and the module opens its Settings. A
+  module's Settings in a frame also say on the view's window when they open and close
+  (`kit:settings-shown`, `SETTINGS_SHOWN_EVENT`, `{ open, source }`), so the view can give that
+  section the whole space meanwhile. Cronum Work 0.3.14 puts the button at its rail's foot.
+  Nothing changes outside a frame.
+
 ## 0.97.0 — 2026-10-20
 
 - **Drawing a list again without it moving** (`web/drag.js`, `redrawInPlace(container, draw)`).

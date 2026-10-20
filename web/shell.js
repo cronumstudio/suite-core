@@ -36,7 +36,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at, BASE, FRAMED } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_EVENT } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
@@ -204,6 +204,9 @@ export function createShell({
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); }, { signal });
+  // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
+  // opens this module's: the page asks with `kit:settings` on this frame's window.
+  if (FRAMED && onSettings) window.addEventListener(SETTINGS_EVENT, () => { closeDrawer(); onSettings(); }, { signal });
   // On a phone the sidebar is a closed drawer, and a note or a task picked up from the list
   // (drag.js) would have nowhere to go. When its only places are in the drawer, the drawer opens
   // as the drag starts. When it may also go somewhere in the list (in order, another category:
