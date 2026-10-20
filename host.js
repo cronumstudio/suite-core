@@ -760,6 +760,13 @@ export async function createHost({
       sendJson(res, 404, { error: 'not_found', mcp: `${install.baseUrl}/mcp` });
       return undefined;
     }
+    // Notices are the host's (one push for every module): a module that sends none still has
+    // Settings › Notices, Settings being one for the whole host, and its page asks at its own
+    // path. The root's routes answer there, as they answer at the root.
+    if (config.modules.push && !m.config.modules?.push && (rest === '/api/push' || rest.startsWith('/api/push/'))) {
+      req.url = rest + url.search;
+      return root.handle(req, res);
+    }
     // One admin panel for the whole host, at the root.
     if (rest === '/admin' || rest === '/admin/') {
       redirect(res, 302, '/admin');

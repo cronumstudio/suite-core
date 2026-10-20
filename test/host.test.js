@@ -822,3 +822,21 @@ test('a module\'s sections of Settings, as the host lists them for the others: w
     data: true, ai: true, about: false,
   });
 });
+
+test('notices are the host\'s: a module that sends none answers them at its own path, as the root does', async (t) => {
+  const { call } = await startHost(t, { config: { ...HOST, modules: { ...HOST.modules, push: true } } });
+  assert.equal((await call('GET', '/alpha/api/push/config')).status, 401, 'behind a session, as at the root');
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const root = await call('GET', '/api/push/config');
+  assert.equal(root.status, 200);
+  // Settings are one for the whole host: Settings › Notices in a module that sends none asks at its path.
+  assert.deepEqual((await call('GET', '/alpha/api/push/config')).data, root.data);
+  assert.deepEqual((await call('GET', '/beta/api/push/devices')).data, []);
+  assert.equal((await call('GET', '/alpha/api/pushy')).status, 404, 'only the notices\' routes');
+});
+
+test('a host without notices doesn\'t answer them at a module\'s path either', async (t) => {
+  const { call } = await startHost(t);
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal((await call('GET', '/alpha/api/push/config')).status, 404);
+});

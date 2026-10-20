@@ -20,6 +20,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   In a frame of the split view the view opens it in the frame that shows that module
   (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`; `kit:settings` may now name the section), or the
   window goes there. An app on its own sees no change.
+- **Notices answer at every module's path in a host** (`host.js`). With one Settings, Settings ›
+  Notices shows in every module, and a module that sends no notices (Next, Notes) had no
+  `/<module>/api/push/*` to ask: the host's root answers them there, as it does at `/api/push/*`.
+  A host without notices answers them nowhere, as before.
 - **The rail's top is the host's mark** (`shell.js`, kit.css). It was a link to the host's page that
   chooses the modules, which only took people out of what they were doing; the modules are chosen
   in Settings › Modules.
