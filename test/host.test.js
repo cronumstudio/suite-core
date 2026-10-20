@@ -84,12 +84,15 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('GET', '/alpha/index.html')).headers.get('link'), security.headers.get('link'));
   assert.equal((await call('GET', '/beta/')).headers.get('link'), null, 'a page without code names nothing');
   assert.equal((await call('GET', '/alpha/js/main.js')).headers.get('link'), null, 'only the page');
+  assert.doesNotMatch(security.headers.get('link'), /auth\/me|\/api\/modules/, 'signed out: no one’s answers');
 
   // One sign-in for every module: the host's cookie.
   assert.equal((await call('GET', '/alpha/api/items')).status, 401);
   const signedIn = await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
   assert.equal(signedIn.data.user.username, 'admin');
   assert.equal((await call('GET', '/beta/api/auth/me')).data.user.username, 'admin', 'signed in for beta too');
+  assert.match((await call('GET', '/alpha/')).headers.get('link'), /<\/alpha\/api\/auth\/me>; rel=preload; as=fetch; crossorigin/,
+    'signed in: who the person is, with the page');
   assert.equal((await call('GET', '/api/auth/me')).data.user.username, 'admin', 'and at the root');
   assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.id, 'alpha', 'each module says who it is');
 

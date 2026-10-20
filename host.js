@@ -746,6 +746,9 @@ export async function createHost({
     if ((rest === '/' || rest === '/index.html') && ['GET', 'HEAD'].includes(req.method)) {
       const hints = hintsFor({
         mount: m.mount, publicDir: m.parts.publicDir, languages: m.config.app.languages, preload: m.parts.preload ?? null,
+        // Someone's answers only for someone: without a session they would be 401s, and a page that
+        // signs in without reloading would read those instead of asking again.
+        signedIn: Boolean(suite.sessions.userFrom(req)),
       }, req);
       if (hints) res.setHeader('Link', hints);
     }

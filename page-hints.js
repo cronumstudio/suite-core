@@ -90,7 +90,7 @@ export function createPageHints() {
     return graph;
   }
 
-  return function hintsFor({ mount, publicDir, languages = ['en'], preload = null }, req) {
+  return function hintsFor({ mount, publicDir, languages = ['en'], preload = null, signedIn = true }, req) {
     if (!publicDir) return null;
     const graph = graphOf(mount, publicDir);
     if (!graph.length) return null;
@@ -109,6 +109,9 @@ export function createPageHints() {
     // the person is: what the module says it asks first (`createModule().preload`, its own GET
     // paths), else the suite's own route for it.
     links.push(fetched(at('/api/auth/config')));
+    // Without a session the person's answers would be 401s, which a page signing in without
+    // reloading would then read: they are named only for someone signed in.
+    if (!signedIn) return links.join(', ');
     const own = Array.isArray(preload) ? preload : ['/api/auth/me'];
     for (const p of own) if (typeof p === 'string' && /^\/[^/]/.test(p)) links.push(fetched(at(p)));
     if (graph.includes('/suite/shell.js')) links.push(fetched('/api/modules'));
