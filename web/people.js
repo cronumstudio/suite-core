@@ -22,16 +22,17 @@ import { errorMessage } from './api.js';
 import { toast } from './ui.js';
 
 /** The chips: none at all (a hidden node) when there is nobody to offer. */
-export function peopleChips(people = [], { onChange = null, selected = [] } = {}) {
+export function peopleChips(people = [], { onChange = null, selected = [], label = t('kit.people.label') } = {}) {
   // `selected`: those picked from the start (a dialog drawn again keeps who was refused picked).
   const picked = new Set(selected);
-  const node = el('div', { class: 'kit-people', role: 'group', 'aria-label': t('kit.people.label') });
+  // `label`: what is said above the chips; '' says nothing (the dialog says it already).
+  const node = el('div', { class: 'kit-people', role: 'group', 'aria-label': label || null });
   const paint = (list) => {
     clear(node);
     picked.forEach((id) => { if (!list.some((p) => p.id === id)) picked.delete(id); });
     node.hidden = !list.length;
     if (!list.length) return;
-    node.append(el('span', { class: 'kit-people__label', text: t('kit.people.label') }));
+    if (label) node.append(el('span', { class: 'kit-people__label', text: label }));
     for (const person of list) {
       const chip = el('button', {
         type: 'button', class: 'kit-people__chip', 'aria-pressed': String(picked.has(person.id)), text: person.name,
@@ -72,11 +73,14 @@ export async function shareWithEach(targets, shareOne) {
       failed.push({ target, error });
     }
   }
+  const went = !done.length ? null
+    : done.length === 1 ? t('kit.people.sharedOne', { name: done[0].name || done[0].email })
+      : t('kit.people.sharedMany', { count: done.length });
   if (failed.length) {
-    const lines = failed.map(({ target, error }) => `${target.name || target.email}: ${errorMessage(error)}`);
-    toast([done.length ? t('kit.people.sharedSome', { count: done.length }) : null, ...lines].filter(Boolean).join(' · '), { error: true });
-  } else if (done.length) {
-    toast(done.length === 1 ? t('kit.people.sharedOne', { name: done[0].name || done[0].email }) : t('kit.people.sharedMany', { count: done.length }));
+    const refused = failed.map(({ target, error }) => t('kit.people.notShared', { name: target.name || target.email, reason: errorMessage(error) }));
+    toast([went, ...refused].filter(Boolean).join(' '), { error: true });
+  } else if (went) {
+    toast(went);
   }
   return { done, failed };
 }

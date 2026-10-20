@@ -55,6 +55,13 @@ test('some picked from the start, if they are among the people', () => {
   assert.equal(chipNamed(chips.node, 'Ben').getAttribute('aria-pressed'), 'true');
 });
 
+test('what is said above the chips is the app’s to change, or leave out', () => {
+  assert.match(peopleChips(PEOPLE, { label: 'Household' }).node.textContent, /^Household/);
+  const quiet = peopleChips(PEOPLE, { label: '' });
+  assert.equal(quiet.node.textContent, 'AnaBenCarla');
+  assert.equal(quiet.node.getAttribute('aria-label'), null);
+});
+
 test('nobody to offer: no chips and nothing shown; other people keep what is still there picked', () => {
   assert.equal(peopleChips([]).node.hidden, true);
   assert.equal(peopleChips().node.textContent, '');
@@ -86,8 +93,8 @@ test('every share sent one after another, and one notice of how it went', async 
   assert.deepEqual(result.done.map((p) => p.id), [2], 'the one that went stays');
   assert.equal(result.failed.length, 1);
   const notice = toasts().at(-1);
-  assert.match(notice, new RegExp(t('kit.people.sharedSome', { count: 1 })));
-  assert.match(notice, /nobody@example\.com/, 'the refused one by name');
+  assert.ok(notice.startsWith(t('kit.people.sharedOne', { name: 'Ana' })), 'what went first');
+  assert.match(notice, /Not shared with nobody@example\.com: /, 'the refused one by name, with why');
 
   const before = toasts().length;
   result = await shareWithEach([], async () => {});

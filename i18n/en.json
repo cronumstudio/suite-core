@@ -806,5 +806,5 @@
   "kit.people.label": "People you share with",
   "kit.people.sharedOne": "Shared with {name}.",
   "kit.people.sharedMany": "Shared with {count} people.",
-  "kit.people.sharedSome": "Shared with {count}"
+  "kit.people.notShared": "Not shared with {name}: {reason}"
 }
