@@ -16,7 +16,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   addresses forgotten on the server); where the browser won't subscribe on its own,
   Settings › Notifications asks to turn them on again (`kit.notifications.renew`). `watchUpdates()`
   then asks the host's /version, names the host in the notice (`theirs.name`) and says nothing in
-  a frame of the split view; `applyUpdate()` from a frame reloads the view. A module's notices open
+  a frame of the split view; `applyUpdate()` from a frame reloads the view, and waits up to 20 s
+  (not 3) for the host's worker, which keeps the whole app, to take over before reloading. A module's notices open
   at its path (`url` under `/<mount>/`, `tag` with the mount, `module`). Settings' About names
   what runs (`Cronum Work v0.3.15`), and `subscribePush()` subscribes with the host's worker. An app
   on its own, and a host without `worker`, change nothing: `registerWorker()` registers

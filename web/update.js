@@ -30,6 +30,12 @@ import { hostWorker } from './worker.js';
 
 const CHECK_EVERY = 10 * 60 * 1000;
 const HANDOVER_MS = 3000;
+/**
+ * A host's one worker keeps the whole app (every module's shell): on a slow
+ * phone it takes longer to install, and reloading before it takes over would
+ * bring the old copy back, and with it the notice.
+ */
+const HOST_HANDOVER_MS = 20000;
 
 /**
  * @param {object} options
@@ -63,6 +69,7 @@ export function watchUpdates({
     if (loaded) return loaded;
     try {
       loaded = await loadOwn();
+      if (loaded?.name) wholeApp = true;
     } catch {
       // A server older than the generated module: its own version at start-up
       // at least tells successive checks apart.
@@ -114,6 +121,8 @@ export function watchUpdates({
 }
 
 let updating = null;
+/** Whether this page runs a host's whole app (its app-version.js names the host): its worker keeps everything. */
+let wholeApp = false;
 
 /**
  * Brings the new code in: the new service worker first (waiting for it to
@@ -149,9 +158,10 @@ async function bringNewCode() {
     const sw = navigator.serviceWorker;
     if (sw) {
       const registrations = await sw.getRegistrations();
+      const wait = wholeApp ? HOST_HANDOVER_MS : HANDOVER_MS;
       const handover = new Promise((done) => {
         sw.addEventListener('controllerchange', done, { once: true });
-        setTimeout(done, HANDOVER_MS);
+        setTimeout(done, wait);
       });
       await Promise.all(registrations.map((r) => r.update().catch(() => {})));
       if (registrations.some((r) => r.installing || r.waiting)) await handover;
