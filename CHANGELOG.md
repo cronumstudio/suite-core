@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.94.0 — 2026-10-19
+## 0.95.0 — 2026-10-20
 
 - **A host's split view** (`createHost({ split: '/split/' })`, Cronum Work 0.3.8). A host can
   have a page of its own that shows several modules at once, each in a frame. With it:
@@ -20,6 +20,21 @@ change an interface and a patch never does. Apps pin a version through the submo
   nor for an app on its own.
 - **A menu's entry in use** (`ui.js` `menu`, `current: true`): a tick at its end.
 - **Icons `layout-1` to `layout-4`**: one module, two or three side by side, four in a grid.
+## 0.94.0 — 2026-10-19
+
+- **Settings › Sharing** (`web/shared.js`, `sharedSection()`; kit.css). An app adds one more
+  section to Settings and it shows, in one place, everything the person shares —each thing with
+  who has it, whether they accepted yet and what they may do— and everything shared with them,
+  invitations to answer first. Permissions are changed there (view or edit), sharing is taken back
+  from one person there, and what is shared with one is accepted, declined or left there. The app
+  says what it shares (`kinds`: Tasks its lists; Notes its groups, notebooks and notes), gives
+  `load()` → `{ mine, withMe }` and a function for each change; after every change the page asks
+  `load()` again, so it always shows the server's state, also after a refusal. `open(item, { close })`
+  gets the close of the Settings it is in (an app's section's `render` now gets `{ close }`), so an
+  app needn't keep the handle, which a change of language would replace. On a narrow phone
+  each person's choice goes under their name, never off the screen. Its texts are the kit's
+  (`kit.shared.*`, four languages); the service worker keeps it (`sw-core.js`). Nothing changes
+  for an app that doesn't add it.
 
 ## 0.93.0 — 2026-10-19
 
