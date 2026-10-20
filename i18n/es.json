@@ -625,6 +625,7 @@
   "kit.notifications.enabled": "Avisos activados en este dispositivo.",
   "kit.notifications.notAllowed": "El navegador no permitió los avisos.",
   "kit.notifications.denied": "Los avisos están bloqueados para este sitio en los ajustes del navegador.",
+  "kit.notifications.renew": "Los avisos de este dispositivo se apagaron al pasar la aplicación a un solo service worker y no se han podido reactivar solos. Vuelve a activarlos aquí.",
   "kit.notifications.unsupported": "Este navegador no puede recibir avisos. En un iPhone, instala antes la app en la pantalla de inicio.",
   "kit.notifications.test": "Enviar una prueba",
   "kit.notifications.testSent": "Prueba enviada a tus dispositivos.",

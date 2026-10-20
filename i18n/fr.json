@@ -625,6 +625,7 @@
   "kit.notifications.enabled": "Notifications activées sur cet appareil.",
   "kit.notifications.notAllowed": "Le navigateur n’a pas autorisé les notifications.",
   "kit.notifications.denied": "Les notifications sont bloquées pour ce site dans les réglages du navigateur.",
+  "kit.notifications.renew": "Les notifications de cet appareil ont été coupées lors du passage de l’application à un seul service worker et n’ont pas pu être réactivées seules. Réactivez-les ici.",
   "kit.notifications.unsupported": "Ce navigateur ne peut pas recevoir de notifications. Sur un iPhone, installez d’abord l’application sur l’écran d’accueil.",
   "kit.notifications.test": "Envoyer un test",
   "kit.notifications.testSent": "Test envoyé à vos appareils.",

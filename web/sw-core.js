@@ -34,6 +34,15 @@
  * worker at `/` leaves its modules' paths alone with `skip: ['/tasks/', …]`.
  * On its own, an app sees nothing different: the scope is `/`, the cache keeps
  * its name and the paths are the ones it always had.
+ *
+ * A host's one worker for everything (host.js `worker`, which writes its /sw.js)
+ * passes `modules: ['/tasks/', …]` instead: at `/`, it also serves each module's
+ * paths as the module's own worker did (`/tasks/api/…` never cached, `/tasks/js/…`
+ * network first, a page of /tasks/ offline is /tasks/index.html), adds the kit at
+ * each module's path to its copy, clears the copies of the modules' old workers
+ * when it takes over, and a notice tapped opens the module it came from. Its
+ * shell is installed file by file: one missing file mustn't leave every module
+ * without its copy.
  */
 
 var SUITE_KIT_FILES = [
@@ -44,7 +53,7 @@ var SUITE_KIT_FILES = [
   '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/local.js', '/suite/outbox.js',
   '/suite/signin.js', '/suite/settings.js', '/suite/plan.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js', '/suite/links.js', '/suite/shared.js', '/suite/people.js',
   '/suite/keyboard.js',
-  '/suite/push.js',
+  '/suite/push.js', '/suite/worker.js',
 ];
 
 var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];
@@ -128,6 +137,17 @@ function suiteWorker(options) {
   var skipped = function (pathname) {
     return skip.some(function (prefix) { return pathname.indexOf(prefix) === 0 || pathname + '/' === prefix; });
   };
+  // A host's worker: the modules' paths it serves too, each read as the module reads its own.
+  var modules = scope === '/' && Array.isArray(options.modules) ? options.modules : [];
+  var moduleOf = function (pathname) {
+    for (var i = 0; i < modules.length; i++) {
+      if (pathname.indexOf(modules[i]) === 0 || pathname + '/' === modules[i]) return modules[i];
+    }
+    return null;
+  };
+  modules.forEach(function (base) {
+    shell = shell.concat(options.kit === false ? [] : SUITE_KIT_FILES.map(function (file) { return suiteAt(file, base); }));
+  });
 
   var store = function (request, response) {
     if (!response || !response.ok) return response;
@@ -139,7 +159,12 @@ function suiteWorker(options) {
   self.addEventListener('install', function (event) {
     event.waitUntil(caches.open(version)
       .then(function (cache) {
-        return cache.addAll(shell.map(function (url) { return new Request(url, { cache: 'reload' }); }))
+        var load = function (url) { return new Request(url, { cache: 'reload' }); };
+        // A host's: file by file, a missing one is left out rather than every module's copy.
+        var first = modules.length
+          ? Promise.all(shell.map(function (url) { return cache.add(load(url)).catch(function () {}); }))
+          : cache.addAll(shell.map(load));
+        return first
           .then(function () {
             // Nice to have offline, never a reason for the install to fail.
             return Promise.all(optional.map(function (url) {
@@ -154,7 +179,10 @@ function suiteWorker(options) {
   self.addEventListener('activate', function (event) {
     event.waitUntil(caches.keys()
       .then(function (keys) {
-        return Promise.all(keys.filter(function (key) { return key !== version && suiteOwnsCache(key, scope); })
+        // A host's worker also clears the copies of the modules' own workers, which it replaces.
+        return Promise.all(keys.filter(function (key) {
+          return key !== version && (suiteOwnsCache(key, scope) || moduleOf(key.split('/').slice(0, 2).join('/') + '/') !== null);
+        })
           .map(function (key) { return caches.delete(key); }));
       })
       .then(function () { return self.clients.claim(); }));
@@ -165,13 +193,19 @@ function suiteWorker(options) {
     if (request.method !== 'GET') return;
     var url = new URL(request.url);
     if (url.origin !== self.location.origin) return;
-    var local = suiteLocal(url.pathname, scope);
+    // In a host's worker, a module's path is read as the module reads it: its own base.
+    var base = moduleOf(url.pathname) || scope;
+    var local = suiteLocal(url.pathname, base);
     // Outside the scope, a path a host's module has, or one that must reach the server: left alone.
     if (local === null || skipped(url.pathname) || suiteNeverCached(local)) return;
 
     if (request.mode === 'navigate') {
       event.respondWith(suiteNetworkFirst(fetch(request), function () {
-        return caches.match(suiteAt('/index.html', scope)).then(function (page) { return page || caches.match(scope); });
+        // A page of a folder of its own (the host's /split/) has its index.html there.
+        var page = url.pathname.slice(-1) === '/' && url.pathname !== base ? url.pathname + 'index.html' : null;
+        return (page ? caches.match(page) : Promise.resolve(null))
+          .then(function (found) { return found || caches.match(suiteAt('/index.html', base)); })
+          .then(function (found) { return found || caches.match(base); });
       }, wait));
       return;
     }
@@ -216,6 +250,11 @@ function suiteWorker(options) {
     // A path the server wrote is the app's: in a host it goes under the module's.
     var given = data.url && data.url.indexOf('/') === 0 && data.url.indexOf('//') !== 0 ? data.url : null;
     var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/?app', scope));
+    if (modules.length) {
+      event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then(function (clients) { return suiteOpenModule(clients, target, data, moduleOf); }));
+      return;
+    }
     event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clients) {
       // The app already open gets the focus and the notice, instead of a second window.
       for (var i = 0; i < clients.length; i++) {
@@ -230,7 +269,39 @@ function suiteWorker(options) {
   });
 }
 
+/**
+ * A host's notice tapped: the module it came from. Its page already open gets
+ * the notice and the focus (in a frame of the split view, the view gets the
+ * focus); otherwise a page of the app open goes there, and without one a new
+ * window opens it.
+ */
+function suiteOpenModule(clients, target, data, moduleOf) {
+  var origin = self.location.origin;
+  var mine = clients.filter(function (c) { return new URL(c.url).origin === origin; });
+  var top = function (c) { return c.frameType !== 'nested'; };
+  var wanted = moduleOf(new URL(target, origin).pathname);
+  var same = wanted ? mine.filter(function (c) { return moduleOf(new URL(c.url).pathname) === wanted; }) : [];
+  var page = same.filter(top)[0];
+  if (page) {
+    page.postMessage({ type: 'notification', data: data });
+    return page.focus();
+  }
+  var frame = same[0];
+  var other = mine.filter(top)[0];
+  if (frame) {
+    frame.postMessage({ type: 'notification', data: data });
+    return other ? other.focus() : undefined;
+  }
+  if (other && typeof other.navigate === 'function') {
+    return other.focus()
+      .then(function (focused) { return (focused || other).navigate(target); })
+      .catch(function () { return self.clients.openWindow(target); });
+  }
+  return self.clients.openWindow(target);
+}
+
 self.suiteWorker = suiteWorker;
+self.suiteOpenModule = suiteOpenModule;
 self.suiteScopeOf = suiteScopeOf;
 self.suiteLocal = suiteLocal;
 self.suiteAt = suiteAt;

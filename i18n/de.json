@@ -625,6 +625,7 @@
   "kit.notifications.enabled": "Benachrichtigungen auf diesem Gerät aktiviert.",
   "kit.notifications.notAllowed": "Der Browser hat Benachrichtigungen nicht erlaubt.",
   "kit.notifications.denied": "Benachrichtigungen sind für diese Seite in den Browser-Einstellungen blockiert.",
+  "kit.notifications.renew": "Die Benachrichtigungen auf diesem Gerät wurden beim Wechsel der App zu einem einzigen Service Worker ausgeschaltet und konnten nicht von selbst wieder eingeschaltet werden. Schalte sie hier wieder ein.",
   "kit.notifications.unsupported": "Dieser Browser kann keine Benachrichtigungen empfangen. Auf einem iPhone installiere die App zuerst auf dem Home-Bildschirm.",
   "kit.notifications.test": "Test senden",
   "kit.notifications.testSent": "Test an deine Geräte gesendet.",

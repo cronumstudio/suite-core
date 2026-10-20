@@ -38,6 +38,7 @@ import { at, FRAMED, SETTINGS_SHOWN_EVENT } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
+import { workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch' };
 
@@ -621,7 +622,9 @@ export function openSettings(options) {
           el('small', { text: t('kit.notifications.since', { when: formatDateTime(d.created_at) }) }))))
         : [el('div', { class: 'kit-list__row' }, hint(t('kit.notifications.none')))]));
       status.textContent = !supported ? t('kit.notifications.unsupported')
-        : Notification.permission === 'denied' ? t('kit.notifications.denied') : '';
+        : Notification.permission === 'denied' ? t('kit.notifications.denied')
+          // The modules' own workers were retired for the host's one, and their notices couldn't follow (worker.js).
+          : noticesToRenew() ? t('kit.notifications.renew') : '';
     };
     const enable = button(t('kit.notifications.enable'), async () => {
       try {
@@ -886,7 +889,8 @@ export function openSettings(options) {
     // What runs and the live channel are known a moment after opening: painted again after each check.
     const paintFacts = () => {
       const loaded = options.updates?.loaded?.() || null;
-      running.replaceWith(running = fact(t('kit.about.version'), loaded?.app ? `v${loaded.app}` : '—',
+      // In a host with one worker for everything, the whole app's version, with its name (update.js).
+      running.replaceWith(running = fact(t('kit.about.version'), loaded?.app ? `${loaded.name ? `${loaded.name} ` : ''}v${loaded.app}` : '—',
         [loaded?.built ? formatDateTime(loaded.built) : null, loaded?.version].filter(Boolean).join(' · ')));
       liveFact.replaceWith(liveFact = fact(t('kit.about.live'), t(`kit.live.${options.live?.state || 'closed'}`)));
     };
@@ -965,7 +969,8 @@ export async function subscribePush() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('not_allowed');
   const { public_key: key } = await api.get('/api/push/config');
-  const registration = await navigator.serviceWorker.ready;
+  // The host's one worker where there is one, not a module's about to be retired (worker.js).
+  const registration = await workerRegistration();
   const raw = atob(key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (key.length % 4)) % 4));
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
@@ -974,5 +979,6 @@ export async function subscribePush() {
   await api.post('/api/push/subscribe', {
     endpoint: json.endpoint, keys: json.keys, label: navigator.userAgent.slice(0, 120), lang: currentLanguage(),
   });
+  noticesRenewed();
   return subscription;
 }
