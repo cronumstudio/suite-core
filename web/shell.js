@@ -47,67 +47,6 @@ const RAIL_KEY = 'host.modules';
 export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 
 /**
- * From one page of the site to another, kit.css fades the old into the new (@view-transition).
- * The browser starts it at the new page's first paint, when the app has drawn little or nothing:
- * the fade went to an empty frame and the rest came in after it, with a jump. So kit.css starts
- * the fade after a pause, the old page still and whole, and here it starts as soon as this page
- * has its frame and has been quiet a moment (HOLD_QUIET_MS), or at most HOLD_FILL_MS after the
- * frame came while the app fills it in, and never later than HOLD_MAX_MS from the page's start.
- * Without view transitions, or with no fade under way, nothing happens; a page without the kit's
- * frame fades after kit.css's pause on its own.
- */
-const HOLD_QUIET_MS = 60;
-const HOLD_FILL_MS = 100;
-const HOLD_MAX_MS = 900;
-export function holdPageFade(doc = globalThis.document) {
-  if (!doc || typeof doc.getAnimations !== 'function' || typeof MutationObserver !== 'function') return;
-  const held = new Set();
-  let quiet = null;
-  let fill = null;
-  let done = false;
-  const fades = () => doc.getAnimations().filter((a) => String(a.effect?.pseudoElement || '').startsWith('::view-transition'));
-  const observer = new MutationObserver(() => settle());
-  const release = () => {
-    if (done) return;
-    done = true;
-    observer.disconnect();
-    clearTimeout(quiet);
-    clearTimeout(fill);
-    clearTimeout(cap);
-    for (const a of held) {
-      try {
-        // Past kit.css's pause, if it is still in it: the fade starts now.
-        const delay = a.effect?.getTiming?.().delay || 0;
-        if ((a.currentTime ?? 0) < delay) a.currentTime = delay;
-        a.play();
-      } catch { /* finished already */ }
-    }
-  };
-  const settle = () => {
-    clearTimeout(quiet);
-    quiet = setTimeout(() => (doc.querySelector('.kit-shell') ? release() : settle()), HOLD_QUIET_MS);
-    if (!fill && doc.querySelector('.kit-shell')) fill = setTimeout(release, HOLD_FILL_MS);
-  };
-  /** The fade's animations, held where they are: in kit.css's pause, nothing has moved yet. */
-  const grab = () => {
-    if (done) return;
-    const now = fades().filter((a) => !held.has(a));
-    for (const a of now) {
-      try { a.pause(); held.add(a); } catch { /* gone */ }
-    }
-    if (held.size && now.length) {
-      observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true });
-      settle();
-    }
-  };
-  const cap = setTimeout(release, Math.max(0, HOLD_MAX_MS - (globalThis.performance?.now() ?? 0)));
-  // A fade already under way (the page painted before this ran), or one about to start.
-  grab();
-  globalThis.addEventListener?.('pagereveal', (ev) => ev.viewTransition?.ready.then(grab, () => {}), { once: true });
-}
-holdPageFade();
-
-/**
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers

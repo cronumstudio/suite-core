@@ -699,13 +699,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 
 /* From one module to another (a host's rail, its menu on a phone) is a page of the same site
    after another: one fades into the next instead of a cut, and the rail, the same in both,
-   stays where it is. The fade waits, the old page still, while the new one draws itself: the
-   frame (shell.js, holdPageFade) starts it as soon as it is drawn, and the pause here is for a
-   page without it. Browsers without view transitions go on with the cut; whoever asks for less
-   motion gets the cut too. */
+   stays where it is. Browsers without view transitions go on with the cut; whoever asks for
+   less motion gets the cut too. */
 @view-transition { navigation: auto; }
 .kit-rail { view-transition-name: kit-rail; }
-::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-delay: 400ms; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 200ms; }
 @media (prefers-reduced-motion: reduce) {
   @view-transition { navigation: none; }
