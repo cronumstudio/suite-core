@@ -62,6 +62,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
 | `settings.js` | `openSettings({ … })`; `subscribePush()`; `deviceName()` |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
+| `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
@@ -238,6 +239,13 @@ edit, changed there; taken back there), and everything shared with them (accept,
 leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
 it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
 notebooks and notes.
+
+**Sharing with people one knows** (`people.js`, v0.96.0): a share dialog puts `peopleChips(people)`
+under its email field, with the people the app says the person already shares with (each app's
+own rule, in either direction, never the person nor those who already have the thing). One or
+several are picked; `shareWithEach()` sends one share each (by id; the email typed, if any, too)
+and says once how it went, naming who was refused. The server shares by id only with someone the
+person already knows, and answers an id it doesn't know as it would an unknown email.
 
 **Settings › Sharing** (`shared.js`, v0.94.0) is a section an app adds to `sections`: everything
 the person shares, each with who has it, whether they accepted and what they may do (view or

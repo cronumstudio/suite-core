@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.96.0 — 2026-10-20
+
+- **The people one already shares with, as chips in a share dialog** (`web/people.js`; kit.css).
+  `peopleChips(people, { onChange })` draws a chip for each person the app says one already shares
+  with, under the dialog's email field, so nobody's email has to be remembered: one or several are
+  picked (`selected()`, `clear()`, `set()` after a share). `shareWithEach(targets, shareOne)`
+  sends one share for each, one after another, and says once how it went: "Shared with 3 people",
+  or who was refused and why, keeping the ones that went. Who those people are is each app's rule;
+  an app shares by id only with someone the person already knows. Texts `kit.people.*` in four
+  languages; the service worker keeps it. Nothing changes for an app that doesn't use it. Tasks
+  1.70.0 and Notes 0.29.0 are the first; Projects and Next can follow with the same two calls.
+
 ## 0.95.0 — 2026-10-20
 
 - **A host's split view** (`createHost({ split: '/split/' })`, Cronum Work 0.3.8). A host can

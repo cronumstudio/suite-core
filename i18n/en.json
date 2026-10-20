@@ -802,5 +802,9 @@
   "kit.shared.remove": "Stop sharing with {name}",
   "kit.shared.removeConfirm": "{name} will no longer have “{item}”.",
   "kit.shared.leaveConfirm": "You will no longer have “{item}”. Only its owner can share it with you again.",
-  "kit.shared.retry": "Try again"
+  "kit.shared.retry": "Try again",
+  "kit.people.label": "People you share with",
+  "kit.people.sharedOne": "Shared with {name}.",
+  "kit.people.sharedMany": "Shared with {count} people.",
+  "kit.people.sharedSome": "Shared with {count}"
 }
