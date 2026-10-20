@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.101.0 — 2026-10-20
+
+- **Signing out clears every app's copy on this device** (`signin.js`, `clearDeviceCopies()`).
+  In a host the modules share one origin, and each one now draws itself from what the device
+  keeps before the server answers. Signing out in one module, or on the host's home, left the
+  others' copies (`<app>-local` in IndexedDB) for whoever signed in next, who would have seen them
+  for a moment. `signOut()` now deletes every `*-local` database of the site, without waiting more
+  than 1.5 s on a tab that holds one. On its own an app has only its own copy, which it already
+  cleared.
+- **A module page names the person's answers only to someone signed in** (`page-hints.js`).
+  Without a session `/api/auth/me`, a module's `preload` and `/api/modules` were preloaded as 401s,
+  and a page that signs in without reloading (local accounts) read those instead of asking again.
+  Signed out, the page names only its code, catalogs and `/api/auth/config`.
+
 ## 0.98.0 — 2026-10-20
 
 - **Settings at hand in the host's split view** (`base.js`, `shell.js`, `settings.js`). In a frame
