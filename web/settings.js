@@ -9,7 +9,7 @@
  *     app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg', tagline: tagline },
  *     user, config,                       // /api/auth/me's user, /api/auth/config
  *     live, updates,                      // from connectLive() and watchUpdates(), for About
- *     sections: [{ id: 'notes', label: sectionLabel, hint: …, iconName: 'notes', render: () => node }],
+ *     sections: [{ id: 'notes', label: sectionLabel, hint: …, iconName: 'notes', render: ({ close }) => node }],
  *     onUser: (user) => { state.user = user; },   // the account changed here
  *     onSignOut: () => signOut({ local }),
  *     applyTheme,                         // (theme) → paint it now
@@ -155,7 +155,7 @@ export function openSettings(options) {
     const section = all.find((s) => s.id === id && !s.href);
     if (!section) return;
     current = id;
-    if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render()));
+    if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close })));
     clear(page).append(built.get(id));
     frame.setAttribute('data-open', '');
     for (const [key, item] of items) {

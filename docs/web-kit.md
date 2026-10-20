@@ -61,6 +61,8 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })` |
 | `settings.js` | `openSettings({ … })`; `subscribePush()`; `deviceName()` |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
@@ -229,6 +231,20 @@ app (with `data`) and deleting the account (when the install offers it, `deletio
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
 screen offers back an account waiting to be deleted.
+
+**Settings › Sharing** (`shared.js`, v0.94.0) is a section an app adds to `sections`: everything
+the person shares, each with who has it, whether they accepted and what they may do (view or
+edit, changed there; taken back there), and everything shared with them (accept, decline or
+leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
+it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
+notebooks and notes.
+
+**Settings › Sharing** (`shared.js`, v0.94.0) is a section an app adds to `sections`: everything
+the person shares, each with who has it, whether they accepted and what they may do (view or
+edit, changed there; taken back there), and everything shared with them (accept, decline or
+leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
+it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
+notebooks and notes.
 
 ### Plans and payments
 
