@@ -202,6 +202,10 @@ export function openSettings(options) {
     // The plan is the account's: what it is and what it includes, with the account's other things.
     options.plan || host?.plans ? { group: t('kit.settings.groups.account'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
       hint: () => t('kit.plan.hint'), render: () => plan() } : null,
+    // In a host, deleting the account (every module's) is the account's too, last. An app on its
+    // own says it in Your data, with its data.
+    host && deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
+      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
     { group: t('kit.settings.groups.security'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
       hint: () => t(local ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
     // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
@@ -227,16 +231,14 @@ export function openSettings(options) {
 
   /**
    * A module of a host: one Settings for the whole app, the same list in every module. The
-   * account's sections; then a group for each module the person uses, in the host's order, with
-   * that module's own sections and its data; last the host's: deleting the account (every
-   * module's), administration and about the whole app. This module draws its own sections here;
+   * account's sections, deleting it (every module's) among them; then a group for each module the
+   * person uses, in the host's order, with that module's own sections and its data; last the
+   * host's: administration and about the whole app. This module draws its own sections here;
    * another's are named here and drawn in that module (goTo).
    */
   const hostSections = () => [
     ...common(),
     ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
-    deletionDays != null ? { group: host.name, id: 'account', iconName: 'user', label: t('kit.data.deleteTitle'),
-      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
     admin(host.name),
     { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hostHint'), render: () => about() },
   ];

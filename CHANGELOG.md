@@ -13,6 +13,7 @@ change an interface and a patch never does. Apps pin a version through the submo
     `createModule().settings.standingMore`, keys of its catalog (paragraphs) and pairs of keys
     (lines of a list, a label in bold), drawn under Copy. Nothing in a fold takes the person
     elsewhere any more ("More about…" and `kit.ai.standingMore` go).
+  - **In a host, deleting the account is under Account** (after Plan), not in the host's group.
   - **"What it is" is the app's website**: `site` (an https address) in both, linked from its
     card in About, in a tab of its own; without one, no link.
   - **A host's notices show the icon of the module that sent them**: the host's worker gets
