@@ -671,6 +671,9 @@ test('a host with one worker: /sw.js for every module, one version for the whole
   const own = await call('GET', '/js/app-version.js');
   assert.match(own.data, new RegExp(`APP_VERSION = '${version.version}'`));
   assert.match(own.data, /APP_NAME = "Work"/);
+  // Each module's version in this code, for About's cards.
+  const modulesLine = /APP_MODULES = (\{.*\});/.exec(own.data);
+  assert.deepEqual(JSON.parse(modulesLine[1]), Object.fromEntries(Object.entries(version.modules).map(([mount, m]) => [mount, { app: m.app }])));
   assert.equal((await call('GET', '/alpha/version')).data.version === version.version, false, 'a module keeps its own');
 
   // Each module's page learns of the worker, and retires its own (web/worker.js).
@@ -931,6 +934,10 @@ test('a module\'s sections of Settings, as the host lists them for the others: w
     ],
     data: true, ai: true, about: false,
   });
+  // Its instruction for an assistant, a key of its catalog, for Your AI to show; anything else, none.
+  assert.equal(moduleSettings({ standing: 'settings.standing.text' }).standing, 'settings.standing.text');
+  assert.ok(!('standing' in moduleSettings({ standing: 'not a key!' })));
+  assert.ok(!('standing' in moduleSettings({ standing: true })));
 });
 
 test('notices are the host\'s: a module that sends none answers them at its own path, as the root does', async (t) => {

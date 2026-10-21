@@ -867,7 +867,21 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings { container: kit-settings / inline-size; position: relative; min-height: 100%; }
 .kit-settings__grid { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100%; }
 .kit-settings__list { padding: 10px 10px 24px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 2px; }
-.kit-settings__group { font: 600 11px/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); padding: 16px 10px 6px; }
+/* A group's heading folds and unfolds it (one open at a time); a group of one section opens it. */
+.kit-settings__group {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; margin-top: 2px;
+  border: 0; border-radius: 10px; background: none; cursor: pointer; text-align: start;
+  font: 600 11px/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted);
+}
+.kit-settings__group:hover { background: var(--kit-hover); color: var(--kit-text); }
+.kit-settings__group[aria-expanded="true"], .kit-settings__group[aria-current="page"] { color: var(--kit-text); }
+.kit-settings__group[aria-current="page"] { background: var(--kit-accent-soft); }
+.kit-settings__group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-settings__fold { width: 16px; height: 16px; flex: none; transition: transform .15s ease; }
+.kit-settings__group[aria-expanded="true"] .kit-settings__fold { transform: rotate(90deg); }
+.kit-settings__folder { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding-bottom: 6px; }
+.kit-settings__folder[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .kit-settings__fold { transition: none; } }
 .kit-settings__item {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 9px 10px; border-radius: 10px;
   border: 0; background: none; color: var(--kit-text); text-align: start; cursor: pointer; text-decoration: none;
@@ -946,6 +960,39 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-plan__offer .kit-list__text { flex: 1 1 150px; }
 .kit-plan__offer .kit-btn { flex: none; }
 .kit-plan__offer .kit-badge { margin-inline-start: 8px; vertical-align: 1px; }
+/* Your AI's instructions: one fold per app, one open at a time (settings.js fold()). */
+.kit-folds { display: grid; gap: 8px; }
+.kit-fold { border: 1px solid var(--kit-border); border-radius: 12px; background: var(--kit-panel); }
+.kit-fold > summary {
+  display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 14px; cursor: pointer;
+  list-style: none; font-weight: 600; border-radius: 12px;
+}
+.kit-fold > summary::-webkit-details-marker { display: none; }
+.kit-fold > summary:hover { background: var(--kit-hover); }
+.kit-fold > summary img { width: 22px; height: 22px; border-radius: 6px; flex: none; }
+.kit-fold > summary span { flex: 1; min-width: 0; }
+.kit-fold__chevron { color: var(--kit-muted); transition: transform .15s ease; }
+.kit-fold[open] .kit-fold__chevron { transform: rotate(180deg); }
+.kit-fold__body { display: grid; gap: 10px; padding: 0 14px 14px; }
+@media (prefers-reduced-motion: reduce) { .kit-fold__chevron { transition: none; } }
+
+/* What a plan includes: a check for what is in, a dash for what isn't. */
+.kit-benefits__title { margin: 16px 0 8px; font-size: 15px; font-weight: 600; }
+.kit-benefits { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.kit-benefits li { display: flex; align-items: flex-start; gap: 10px; line-height: 1.35; }
+.kit-benefits li svg { width: 18px; height: 18px; flex: none; color: var(--kit-ok); margin-top: 1px; }
+.kit-benefits li.kit-benefits__no { color: var(--kit-muted); }
+.kit-benefits li.kit-benefits__no svg { color: var(--kit-muted); }
+
+/* The host's About: a card for each of its apps, with its version. */
+.kit-about-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.kit-about-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--kit-border); border-radius: 12px; background: var(--kit-panel); min-width: 0; }
+.kit-about-card img { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+.kit-about-card__text { display: grid; gap: 3px; min-width: 0; justify-items: start; }
+.kit-about-card__text strong { font-weight: 600; }
+.kit-about-card__text p { margin: 0; color: var(--kit-muted); font-size: 13px; line-height: 1.35; }
+.kit-about-card__text small { color: var(--kit-muted); font: 12px/1.4 var(--kit-font-mono); font-variant-numeric: tabular-nums; }
+
 .kit-about { display: flex; align-items: center; gap: 14px; }
 .kit-about img { width: 54px; height: 54px; border-radius: 14px; }
 .kit-about strong { display: block; font: 700 22px/1 var(--kit-font-display); letter-spacing: -.03em; }

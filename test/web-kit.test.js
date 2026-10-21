@@ -838,6 +838,8 @@ test('Settings offers the AI connector only where there is one; a server that sa
   const { t } = await import('../web/i18n.js');
   // Settings listens for Escape on the page; the fake page only needs to take the listener.
   Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  // Your AI, opened, names the address to connect to.
+  globalThis.window = { location: { origin: 'https://demo.example' } };
   try {
     const listed = (config, start = null) => {
       const root = document.createElement('div');
@@ -846,16 +848,20 @@ test('Settings offers the AI connector only where there is one; a server that sa
       return { labels: texts('kit-settings__label'), groups: texts('kit-settings__group'), page: root.all().find((node) => node.className === 'kit-settings__page') };
     };
     const ai = t('kit.ai.title');
+    const connections = t('kit.settings.groups.connections');
     const off = listed({ provider: 'workos', app: { id: 'demo', modules: { organizations: false, billing: false, data: false, mcp: false } } });
-    assert.ok(off.labels.length >= 4, 'the rest is there');
+    assert.ok(off.labels.length + off.groups.length >= 4, 'the rest is there');
     assert.ok(!off.labels.includes(ai), 'no AI section without an MCP');
-    assert.ok(!off.groups.includes(t('kit.settings.groups.connections')), 'nor its heading, with nothing else under it');
+    assert.ok(!off.groups.includes(connections), 'nor its heading, with nothing else under it');
     assert.equal(listed({ app: { modules: { mcp: false } } }, 'ai').page.children.length, 0, 'asked for by name, nothing opens');
-    assert.ok(listed({ app: { modules: { mcp: true } } }).labels.includes(ai), 'with an MCP, as always');
-    assert.ok(listed({ app: { modules: { organizations: false, billing: false, data: false } } }).labels.includes(ai),
+    // Alone in its group (no notices here), Your AI is the group's heading, which opens it.
+    assert.ok(listed({ app: { modules: { mcp: true } } }).groups.includes(connections), 'with an MCP, as always');
+    assert.equal(listed({ app: { modules: { mcp: true } } }, 'ai').page.children.length, 1);
+    assert.ok(listed({ app: { modules: { organizations: false, billing: false, data: false } } }).groups.includes(connections),
       'a server from before the flag keeps it');
-    assert.ok(listed({}).labels.includes(ai), 'and so does a config without the app');
+    assert.ok(listed({}).groups.includes(connections), 'and so does a config without the app');
   } finally {
+    delete globalThis.window;
     delete document.addEventListener;
     delete document.removeEventListener;
   }
@@ -900,14 +906,17 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     const labels = texts('kit-settings__label');
     assert.deepEqual(groups, [
       t('kit.settings.groups.account'), t('kit.settings.groups.security'), t('kit.settings.groups.connections'),
-      t('kit.settings.groups.plan'), 'Tasks', 'Notes', 'Cronum Work',
+      'Tasks', 'Notes', 'Cronum Work',
     ], 'the account\'s, each module in use in the host\'s order, the host\'s last; Next is off');
-    // Notices and the plan are the host's to say, the same in every module, whatever this one passed.
+    // Notices and the plan are the host's to say, the same in every module, whatever this one passed;
+    // the plan is the account's.
     assert.ok(labels.includes(t('kit.notifications.title')));
-    assert.ok(labels.includes(t('kit.plan.title')));
-    // This module's own, drawn here: its sections, its data, what it adds to Your AI and what it is.
-    assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 4),
-      ['Preferences', t('kit.data.title'), t('kit.settings.moduleAi'), t('kit.about.title', { app: 'Tasks' })]);
+    assert.equal(labels[labels.indexOf(t('kit.appearance.title')) + 1], t('kit.plan.title'));
+    // This module's own, drawn here: its sections, its data and what it adds to Your AI (it has no
+    // instruction for Your AI to show); what it is goes in About's card.
+    assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 3),
+      ['Preferences', t('kit.data.title'), t('kit.settings.moduleAi')]);
+    assert.equal(labels.at(labels.indexOf('Preferences') + 3), 'Templates');
     // Another's, named from its own catalog; one its catalog doesn't name is left out.
     assert.deepEqual(labels.slice(labels.indexOf('Templates'), labels.indexOf('Templates') + 3),
       ['Templates', t('kit.data.title'), t('kit.settings.moduleAi')]);
@@ -923,6 +932,51 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
   } finally {
     globalThis.fetch = realFetch;
     delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
+test('the list folds by group: one open at a time, the section\'s own when it opens; a group of one is its way in', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  try {
+    const root = document.createElement('div');
+    const settings = openSettings({
+      app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, root,
+      config: { app: { modules: { mcp: true, data: true } } },
+      sections: [{ id: 'mine', label: 'Mine', render: () => [] }],
+    });
+    const headings = () => root.all().filter((node) => node.className === 'kit-settings__group');
+    const heading = (name) => headings().find((node) => node.textContent === name);
+    const folder = (name) => root.all().find((node) => node.className === 'kit-settings__folder' && node.getAttribute('aria-label') === name);
+    const press = (node) => { for (const fn of node.listeners.click) fn({ currentTarget: node }); };
+    const account = t('kit.settings.groups.account');
+    // On a phone (no width here) nothing is open at first: only the headings.
+    assert.ok(headings().every((node) => node.getAttribute('aria-expanded') !== 'true'));
+    assert.ok(folder(account).hasAttribute('hidden'));
+    press(heading(account));
+    assert.equal(heading(account).getAttribute('aria-expanded'), 'true');
+    assert.ok(!folder(account).hasAttribute('hidden'));
+    // Another one open folds the first.
+    press(heading('Demo'));
+    assert.equal(heading('Demo').getAttribute('aria-expanded'), 'true');
+    assert.equal(heading(account).getAttribute('aria-expanded'), 'false');
+    assert.ok(folder(account).hasAttribute('hidden'));
+    // Pressed again, it folds: none open.
+    press(heading('Demo'));
+    assert.ok(headings().every((node) => node.getAttribute('aria-expanded') !== 'true'));
+    // A section opened by name unfolds its group.
+    settings.show('appearance');
+    assert.equal(heading(account).getAttribute('aria-expanded'), 'true');
+    // Security has one section: its heading opens it, with no fold.
+    const security = heading(t('kit.settings.groups.security'));
+    assert.equal(security.getAttribute('aria-expanded'), null);
+    press(security);
+    assert.equal(root.all().find((node) => node.className === 'kit-settings__page').textContent.startsWith(t('kit.security.title')), true);
+    assert.equal(heading(t('kit.settings.groups.security')).getAttribute('aria-current'), 'page');
+  } finally {
     delete document.addEventListener;
     delete document.removeEventListener;
   }

@@ -162,13 +162,15 @@ const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
  *   settings: {
  *     sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.hintShort' }],
  *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
- *     about: true,   // it says what it is (aboutExtra): its own section in its group
+ *     about: true,   // it says what it is (aboutExtra): opened from its card in About
+ *     standing: 'settings.standing.text',   // its instruction for an assistant, in Your AI
  *   }
  *
  * `label` and `hint` are keys of the module's catalog, read in the person's
  * language by whoever lists them; a hint takes no values. `data` is the host's
  * to say (the module has a declaration of its data). What isn't well formed is
- * left out: a section with no label can't be listed.
+ * left out: a section with no label can't be listed. With `standing`, what it adds to
+ * Your AI is opened from its instruction there, not from its group.
  */
 export function moduleSettings(declared, { data = false } = {}) {
   const given = declared && typeof declared === 'object' ? declared : {};
@@ -179,7 +181,10 @@ export function moduleSettings(declared, { data = false } = {}) {
       ...(typeof s.icon === 'string' && /^[a-z0-9-]{1,40}$/.test(s.icon) ? { icon: s.icon } : {}),
       ...(typeof s.hint === 'string' && CATALOG_KEY.test(s.hint) ? { hint: s.hint } : {}),
     }));
-  return { sections, data: Boolean(data), ai: given.ai === true, about: given.about === true };
+  return {
+    sections, data: Boolean(data), ai: given.ai === true, about: given.about === true,
+    ...(typeof given.standing === 'string' && CATALOG_KEY.test(given.standing) ? { standing: given.standing } : {}),
+  };
 }
 
 /**
@@ -825,7 +830,7 @@ export async function createHost({
     }
     // As an app's (app.js), with the host's name: the code of the whole app that this tab runs.
     if (url.pathname === '/js/app-version.js') {
-      const { app, name, version: print, built } = hostVersion();
+      const { app, name, version: print, built, modules } = hostVersion();
       return send('text/javascript; charset=utf-8', `export const APP_NAME_VERSION = '${app}';
 `
         + `export const APP_VERSION = '${print}';
@@ -833,6 +838,9 @@ export async function createHost({
         + `export const APP_BUILT = ${built ? `'${built}'` : 'null'};
 `
         + `export const APP_NAME = ${JSON.stringify(name)};
+`
+        // Each module's version in this code, for About's cards (settings.js).
+        + `export const APP_MODULES = ${JSON.stringify(Object.fromEntries(Object.entries(modules).map(([mount, m]) => [mount, { app: m.app }])))};
 `, { ETag: `W/"${print}"` });
     }
     return false;

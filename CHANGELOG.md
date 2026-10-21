@@ -3,6 +3,31 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.109.0 — 2026-10-21
+
+- **Settings, shorter and in one piece** (`web/settings.js`, `web/kit.css`, `host.js`,
+  `web/update.js`, catalogs). Additive: an app or module that passes nothing new behaves as before,
+  but its list folds.
+  - **The list folds by group**, one open at a time: a heading unfolds its group and folds the one
+    that was open; opening a section unfolds its own. On a phone nothing is unfolded at first. A
+    group with one section is a heading that opens it.
+  - **The plan is the account's**: Plan moves from its own group into Account, and says **what it
+    includes**, a line per feature it can name (`planBenefits(features, { app })`, exported), what
+    is in first and what isn't marked as such. In a host, every module in use answers for its own
+    features (`<module>/api/me/entitlements`), joined.
+  - **Instructions for your AI, in Your AI**: `openSettings({ standing: '<catalog key>' })` names the
+    app's instruction to paste into an assistant's own instructions; Your AI explains once what to
+    do and why, with one fold per app holding its text and Copy (one open at a time, `<details
+    name>` and a fallback). A host module declares the same key in `createModule().settings.standing`
+    (`moduleSettings()` passes it on when it is a catalog key), and its fold is drawn from its
+    catalog in every other module. With it, the module's `aiExtra` section leaves the list and is
+    opened from its fold. Your AI names the host, not the module, as what the assistant connects to.
+  - **About, the whole app's in a host**: the host's icon, name and source (`https://github.com/cronumstudio/<host id>`)
+    —before, the module open's—, its version and update check as before, and a card for each
+    module in use with its icon, line and version, and a way to what it says it is (`aboutExtra`,
+    no longer in the module's group). The host's `/js/app-version.js` exports `APP_MODULES`
+    (`{ [mount]: { app } }`), which `watchUpdates().loaded()` passes on as `modules`.
+
 ## 0.108.0 — 2026-10-21
 
 - **Actions from a phone's notification, without opening the app** (`devices.js`, `app.js`,
