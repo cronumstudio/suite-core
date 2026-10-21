@@ -745,9 +745,10 @@
   "kit.data.erased": "Tus datos se han borrado.",
   "kit.data.deleteTitle": "Borrar mi cuenta",
   "kit.data.deleteHint": {
-    "one": "Tu cuenta y todo lo que tienes en {app} se borran a los {n} día. Hasta entonces no se puede usar; si entras antes, puedes recuperarla.",
-    "other": "Tu cuenta y todo lo que tienes en {app} se borran a los {n} días. Hasta entonces no se puede usar; si entras antes, puedes recuperarla."
+    "one": "Si borras tu cuenta, quedará desactivada durante {n} día y después se eliminará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba.",
+    "other": "Si borras tu cuenta, quedará desactivada durante {n} días y después se eliminará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba."
   },
+  "kit.data.deleteShared": "Lo que compartes con otras personas se queda con ellas, salvo que dejes de compartirlo antes de borrar tu cuenta.",
   "kit.data.deleteButton": "Borrar mi cuenta…",
   "kit.data.deleteAsk": "¿Borrar tu cuenta?",
   "kit.data.deleteText": {

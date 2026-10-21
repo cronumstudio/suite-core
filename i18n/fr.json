@@ -745,9 +745,10 @@
   "kit.data.erased": "Vos données ont été effacées.",
   "kit.data.deleteTitle": "Supprimer mon compte",
   "kit.data.deleteHint": {
-    "one": "Votre compte et tout ce que vous avez dans {app} sont supprimés au bout de {n} jour. D’ici là, il ne peut pas être utilisé ; si vous vous connectez avant, vous pouvez le récupérer.",
-    "other": "Votre compte et tout ce que vous avez dans {app} sont supprimés au bout de {n} jours. D’ici là, il ne peut pas être utilisé ; si vous vous connectez avant, vous pouvez le récupérer."
+    "one": "Si tu supprimes ton compte, il reste désactivé pendant {n} jour, puis il est supprimé automatiquement avec tout ce que tu as dans {app}. Si tu changes d’avis avant, connecte-toi et tu pourras le récupérer tel qu’il était.",
+    "other": "Si tu supprimes ton compte, il reste désactivé pendant {n} jours, puis il est supprimé automatiquement avec tout ce que tu as dans {app}. Si tu changes d’avis avant, connecte-toi et tu pourras le récupérer tel qu’il était."
   },
+  "kit.data.deleteShared": "Ce que tu partages avec d’autres personnes reste chez elles, sauf si tu arrêtes de le partager avant de supprimer ton compte.",
   "kit.data.deleteButton": "Supprimer mon compte…",
   "kit.data.deleteAsk": "Supprimer votre compte ?",
   "kit.data.deleteText": {

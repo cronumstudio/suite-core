@@ -745,9 +745,10 @@
   "kit.data.erased": "Deine Daten wurden gelöscht.",
   "kit.data.deleteTitle": "Mein Konto löschen",
   "kit.data.deleteHint": {
-    "one": "Dein Konto und alles, was du in {app} hast, werden nach {n} Tag gelöscht. Bis dahin kann es nicht verwendet werden; wenn du dich vorher anmeldest, kannst du es zurückholen.",
-    "other": "Dein Konto und alles, was du in {app} hast, werden nach {n} Tagen gelöscht. Bis dahin kann es nicht verwendet werden; wenn du dich vorher anmeldest, kannst du es zurückholen."
+    "one": "Wenn du dein Konto löschst, wird es {n} Tag lang deaktiviert und danach automatisch gelöscht, mit allem, was du in {app} hast. Wenn du es dir vorher anders überlegst, melde dich an und du kannst es so zurückholen, wie es war.",
+    "other": "Wenn du dein Konto löschst, wird es {n} Tage lang deaktiviert und danach automatisch gelöscht, mit allem, was du in {app} hast. Wenn du es dir vorher anders überlegst, melde dich an und du kannst es so zurückholen, wie es war."
   },
+  "kit.data.deleteShared": "Was du mit anderen teilst, bleibt bei ihnen, es sei denn, du hörst vor dem Löschen deines Kontos auf, es zu teilen.",
   "kit.data.deleteButton": "Mein Konto löschen…",
   "kit.data.deleteAsk": "Dein Konto löschen?",
   "kit.data.deleteText": {

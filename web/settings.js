@@ -1250,8 +1250,10 @@ export function openSettings(options) {
     }
 
     const note = () => (options.shareNote ? hint(options.shareNote) : null);
-    // In a host the account is the host's: deleting it takes every module.
+    // In a host the account is the host's: deleting it takes every module. What is shared, said
+    // for all of them: each module's own note speaks only of its things.
     const product = host?.name || app.name;
+    const sharedOnDelete = host ? t('kit.data.deleteShared') : options.shareNote;
     const downloadFirst = () => (modules.data
       ? el('p', {}, t('kit.data.downloadFirst'), ' ', el('a', { class: 'kit-link', href: at('/api/me/export'), download: '', text: t('kit.data.export') }))
       : null);
@@ -1273,7 +1275,7 @@ export function openSettings(options) {
       const done = await sure({
         title: t('kit.data.deleteAsk'),
         lines: [
-          t('kit.data.deleteText', { app: product, n: deletionDays }), options.shareNote,
+          t('kit.data.deleteText', { app: product, n: deletionDays }), sharedOnDelete,
           modules.billing ? t('kit.data.deleteBilling') : null, downloadFirst(),
         ],
         confirm: t('kit.data.deleteConfirm'),
@@ -1308,7 +1310,9 @@ export function openSettings(options) {
         block(t('kit.data.eraseTitle'), hint(t('kit.data.eraseHint', { app: app.name })), note(), row(erase)),
       ] : []),
       ...(deletionDays != null && withAccount ? [
-        block(t('kit.data.deleteTitle'), hint(t('kit.data.deleteHint', { app: product, n: deletionDays })), note(), row(remove)),
+        // In a host it is a section of its own, already named: no second title.
+        block(host ? null : t('kit.data.deleteTitle'), hint(t('kit.data.deleteHint', { app: product, n: deletionDays })),
+          sharedOnDelete ? hint(sharedOnDelete) : null, row(remove)),
       ] : []),
     ];
   }
