@@ -4,9 +4,16 @@
  * browser —the app's own (`<app>.theme`, when the page names the app with
  * data-app, as the OAuth consent screen does) or the suite's—, else the
  * system's. The page applies the person's own choice once it knows who they are.
+ *
+ * In a host, the look the person chose last time in this browser too
+ * (`host.look`, kept by shell.js from GET /api/modules): `clean` paints the
+ * Clean look from the start; the suite's own look needs nothing.
  */
 (function () {
   var root = document.documentElement;
+  try {
+    if (!root.getAttribute('data-look') && localStorage.getItem('host.look') === 'clean') root.setAttribute('data-look', 'clean');
+  } catch (err) { /* no storage: the suite's look */ }
   if (root.getAttribute('data-theme')) return;
   var theme = 'light';
   try {

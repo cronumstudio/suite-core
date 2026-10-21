@@ -36,7 +36,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at, BASE, FRAMED, SETTINGS_EVENT } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_EVENT, applyLook, LOOK_KEY } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 import { nativeReady } from './native.js';
 
@@ -575,6 +575,7 @@ export function createShell({
       const res = await fetch('/api/modules', { credentials: 'same-origin' });
       if (res.status === 404) {   // no host there: an app on its own under a path
         try { localStorage.removeItem(RAIL_KEY); } catch { /* private mode */ }
+        applyLook(null);
         dropRail();
         return asModule(false);
       }
@@ -583,6 +584,8 @@ export function createShell({
       const answer = await res.json();
       if (destroyed) return null;
       try { localStorage.setItem(RAIL_KEY, JSON.stringify(answer)); } catch { /* private mode, full */ }
+      // The look the person chose, from any device: painted now and kept for the next page.
+      if ('look' in answer) applyLook(answer.look);
       return paintRail(answer);
     } catch {
       return null;   // offline: the rail stays as it was
@@ -606,6 +609,12 @@ export function createShell({
     window.addEventListener('resize', syncSwitcher, { signal });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
     document.addEventListener('kit-modules', () => refreshModules(), { signal });
+    // A look chosen in another tab, or in another frame of the split view: this page follows at once.
+    window.addEventListener('storage', (ev) => {
+      if (ev.key !== LOOK_KEY) return;
+      if (ev.newValue === 'clean') document.documentElement.setAttribute('data-look', 'clean');
+      else document.documentElement.removeAttribute('data-look');
+    }, { signal });
   }
 
   /* --------------------------------- notices -------------------------------- */

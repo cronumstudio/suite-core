@@ -86,6 +86,49 @@
   --kit-sig-dot: var(--cr-cream);
 }
 
+/*
+ * The Clean look (<html data-look="clean">, a host's choice for each person:
+ * theme.js and shell.js): white and greys with no hue in them, hairline
+ * borders, soft shadows and Inter everywhere. The product's accent stays, as
+ * the one colour; yolk still marks "now". Light and dark each have their own.
+ */
+:root[data-look="clean"] {
+  --kit-font: var(--cr-font-clean);
+  --kit-font-display: var(--cr-font-clean);
+  --kit-radius: 12px;
+  --kit-radius-large: 18px;
+}
+:root[data-look="clean"]:not([data-theme="dark"]) {
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 10%, #FFFFFF);
+  --kit-bg: #FFFFFF;
+  --kit-side: #F5F5F7;
+  --kit-panel: #FFFFFF;
+  --kit-hover: #F2F2F7;
+  --kit-text: #1D1D1F;
+  --kit-muted: #6E6E73;
+  --kit-border: #E5E5EA;
+  --kit-toast: #1D1D1F;
+  --kit-toast-text: #FFFFFF;
+  --kit-scrim: rgba(0, 0, 0, .32);
+  --kit-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 4px 16px rgba(0, 0, 0, .05);
+  --kit-shadow-high: 0 10px 36px rgba(0, 0, 0, .14);
+}
+:root[data-look="clean"][data-theme="dark"] {
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 18%, #1C1C1E);
+  --kit-bg: #000000;
+  --kit-side: #0E0E10;
+  --kit-panel: #1C1C1E;
+  --kit-hover: #2C2C2E;
+  --kit-text: #F5F5F7;
+  --kit-muted: #98989D;
+  --kit-border: #38383A;
+  --kit-md-mark: color-mix(in oklab, var(--cr-yolk-500) 34%, #1C1C1E);
+  --kit-toast: #F5F5F7;
+  --kit-toast-text: #1D1D1F;
+  --kit-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+  --kit-shadow-high: 0 12px 40px rgba(0, 0, 0, .6);
+}
+
 /* ---------------------------------- base ---------------------------------- */
 
 * { box-sizing: border-box; }

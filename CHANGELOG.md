@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.111.0 — 2026-10-21
+
+- **A second look for a host: Clean** (`host.js`, `web/kit.css`, `web/tokens.css`, `web/theme.js`,
+  `web/base.js`, `web/shell.js`, `web/settings.js`, `web/sw-core.js`, `web/fonts/`, catalogs).
+  Additive: an app on its own, and a host's page whose person chose nothing, look as before.
+  - **Clean** (`<html data-look="clean">`): white and greys with no hue in them, hairline borders,
+    soft shadows, larger radii and **Inter** for text and headings; the product's accent stays the
+    one colour and yolk still marks "now". Light and dark each have their tokens; the modules'
+    own variables follow the kit's, so they need nothing.
+  - **Inter** is the suite's own file, like Geist (`web/fonts/inter-latin*.woff2`, OFL): a browser
+    only fetches it on a page that uses it. `--cr-font-clean` names it. The host's worker keeps
+    the Latin file offline.
+  - **One choice for the whole host, on every device**: host migration 3 (`host_looks`, scope
+    `host`; no row is the suite's own look). `GET /api/modules` says `look` (`cronum` or `clean`),
+    and `PUT /api/me/look { look }` saves it (`field_invalid` for any other; the person's tabs hear
+    their account changed). `LOOKS` is exported by `host.js` and `web/base.js`.
+  - **Painted before anything shows**: `applyLook(look)` (`web/base.js`) sets or takes away
+    `data-look` and keeps `host.look` in the browser; `web/theme.js` reads it before the first
+    paint (a module with its own `theme.js` adds the same line). The frame applies the host's
+    answer each time it asks for the modules, and follows a change made in another tab or frame of
+    the split view at once.
+  - **Settings › Language and theme**, in a host only: **Look**, Cronum or Clean, saved at once and
+    undone on the page if the server refuses it.
+
 ## 0.110.0 — 2026-10-21
 
 - **The admin sees where each plan comes from** (`entitlements.js`, `api.js`, `web/admin.js`,
