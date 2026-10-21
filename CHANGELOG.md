@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.111.0 — 2026-10-21
+## 0.114.0 — 2026-10-21
 
 - **Settings, a second pass** (`web/settings.js`, `web/kit.css`, `host.js`, `host-worker.js`,
   `web/sw-core.js`, catalogs). Additive.
@@ -20,6 +20,74 @@ change an interface and a patch never does. Apps pin a version through the submo
     `push.icons` (`{ [mount]: icon }`, each module's `push.icon` from its sw.js, else its
     `icons/icon-192.png`) and keeps those icons; sw-core uses the notice's `module` (put on by
     `hostedPush`). Notices without one, and hosts without icons, as before.
+
+## 0.113.0 — 2026-10-21
+
+- **Clean gets an iPhone's type, corners and room** (`web/kit.css`). Additive: the Cronum look
+  computes exactly what it did, value for value.
+  - **`--look-*` variables**, set only under `<html data-look="clean">`: Apple's text styles
+    (`--look-large-title` 34px, `--look-title1`…`--look-title3`, `--look-headline` and
+    `--look-body` 17px, `--look-callout`, `--look-subhead`, `--look-footnote` 13px,
+    `--look-caption`, `--look-caption2`, and `--look-base` for the page's own text), radii
+    (`--look-r-xs`…`--look-r-xl`, 6–18px) and room (`--look-gutter` 20px, `--look-row-y`,
+    `--look-row-gap`, `--look-head-y`, `--look-item-y`, `--look-bar-y`, `--look-section`).
+  - **Every size in the kit uses one, with today's value as its fallback**
+    (`font-size: var(--look-subhead, 14px)`): 78 font sizes, 49 radii and the main rows, heads
+    and items. An app's stylesheet does the same for its own; with no Clean look, the fallback is
+    what applies. App icons, pills, circles and the sign-in hero keep their sizes.
+  - In Clean, a view's head (`.kit-head`) has a 34px title and no line under it, sidebar entries
+    are 44px tall, and section labels are spaced like an iPhone's.
+
+## 0.112.1 — 2026-10-21
+
+- **Opening the drawer from the edge no longer switches module** (`web/shell.js`). In the installed
+  app on an iPhone, a swipe from the screen's edge that began just past the kit's 20 px went to the
+  system, which took it as Back: the page before was the module used last, so Projects turned into
+  Tasks. Now, in the installed app (`display-mode: standalone`), going to another of the host's
+  modules (the rail, the switcher's menu, any link to one) replaces this page in the history
+  instead of stacking on it, as a phone app's tabs do; a browser keeps its history as it was. The
+  strip at the edge that opens the drawer is 28 px.
+
+## 0.112.0 — 2026-10-21
+
+- **The admin's account dialog, compact** (`web/admin.js`, `web/kit.css`, catalogs). Only the page changes; the API
+  is the same.
+  - **Folds that say what they hold**: Account (email and role), Plan (the plan and until when, or
+    «(by default)» in the warning colour), Extras (how many are in force) and, with local accounts,
+    Password. One open at a time; Plan opens first. Signing out everywhere, the second step and
+    deleting the account sit apart at the end, the deletion on its own on the right.
+  - **Plan**: plan, end and reason in one row with one line of help; the reason the admin gave is
+    in the form, so changing only the end keeps it. «Back to the default plan» only shows when the
+    plan is the admin's: a subscription is not taken back here.
+  - **Extras**: only those in force, each with Take back; adding one and the history (ended, taken
+    back, the plans set) fold away.
+  - Catalog keys: new `admin.users.optional`, `admin.users.planHint`, `admin.grants.noneShort`,
+    `activeCount`, `history`, `value`, `addOne`, `addHint`; gone `admin.users.planLead`,
+    `planUntilHint`, `planNoteHint`, `access` and `admin.grants.limitHint`.
+
+## 0.111.0 — 2026-10-21
+
+- **A second look for a host: Clean** (`host.js`, `web/kit.css`, `web/tokens.css`, `web/theme.js`,
+  `web/base.js`, `web/shell.js`, `web/settings.js`, `web/sw-core.js`, `web/fonts/`, catalogs).
+  Additive: an app on its own, and a host's page whose person chose nothing, look as before.
+  - **Clean** (`<html data-look="clean">`): white and greys with no hue in them, a white rail, hairline borders,
+    soft shadows, larger radii and **Inter** for text and headings; the product's accent stays the
+    one colour and yolk still marks "now". Light and dark each have their tokens; the modules'
+    own variables follow the kit's, so they need nothing.
+  - **Inter** is the suite's own file, like Geist (`web/fonts/inter-latin*.woff2`, OFL): a browser
+    only fetches it on a page that uses it. `--cr-font-clean` names it. The host's worker keeps
+    the Latin file offline.
+  - **One choice for the whole host, on every device**: host migration 3 (`host_looks`, scope
+    `host`; no row is the suite's own look). `GET /api/modules` says `look` (`cronum` or `clean`),
+    and `PUT /api/me/look { look }` saves it (`field_invalid` for any other; the person's tabs hear
+    their account changed). `LOOKS` is exported by `host.js` and `web/base.js`.
+  - **Painted before anything shows**: `applyLook(look)` (`web/base.js`) sets or takes away
+    `data-look` and keeps `host.look` in the browser; `web/theme.js` reads it before the first
+    paint (a module with its own `theme.js` adds the same line). The frame applies the host's
+    answer each time it asks for the modules, and follows a change made in another tab or frame of
+    the split view at once.
+  - **Settings › Language and theme**, in a host only: **Look**, Cronum or Clean, saved at once and
+    undone on the page if the server refuses it.
 
 ## 0.110.0 — 2026-10-21
 

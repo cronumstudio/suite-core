@@ -39,7 +39,7 @@ test('Users: the default plan says it is the default, a gift for good and why, a
   const server = {
     'GET /api/auth/config': { provider: 'local', app: { name: 'Work', languages: ['en'], modules: {} } },
     'GET /api/auth/me': { user: { username: 'root', display_name: 'Root', role: 'admin' } },
-    'GET /api/admin/plans': { defaultPlan: 'pro', plans: [{ id: 'free', name: 'Free', features: {} }, { ...PRO, features: {} }], features: {}, several: true },
+    'GET /api/admin/plans': { defaultPlan: 'pro', plans: [{ id: 'free', name: 'Free', features: {} }, { ...PRO, features: {} }], features: { 'lists.max': { type: 'limit', label: 'more lists' } }, several: true },
     'GET /api/admin/users': { users: USERS },
     'GET /api/admin/users/1/grants': { grants: [] },
     'PUT /api/admin/users/1/plan': USERS[0],
@@ -70,11 +70,39 @@ test('Users: the default plan says it is the default, a gift for good and why, a
   const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
   assert.ok(dialog, 'the account opens');
   assert.match(dialog.textContent, new RegExp(t('admin.users.planIsDefault', { plan: 'Pro' }).replace(/[()]/g, '\\$&')));
-  const label = dialog.find('label').find((node) => node.textContent === t('admin.users.planNote'));
-  const reason = dialog.find('input').find((node) => node.id === label.getAttribute('for'));
+  const reasonIn = (box) => {
+    const label = box.find('label').find((node) => node.textContent === t('admin.users.planNote'));
+    return box.find('input').find((node) => node.id === label.getAttribute('for'));
+  };
+  const buttonIn = (box, key) => box.find('button').find((node) => node.textContent === t(key));
+  assert.equal(buttonIn(dialog, 'admin.users.defaultPlan'), undefined, 'nothing to take back: it already is the default');
+  const reason = reasonIn(dialog);
+  assert.equal(reason.value, '');
   reason.value = '  lifetime, early tester ';
-  dialog.find('button').find((node) => node.textContent === t('admin.users.setPlan')).dispatch('click');
+  buttonIn(dialog, 'admin.users.setPlan').dispatch('click');
   for (let turn = 0; turn < 10; turn++) await settle();
   const put = sent.find((r) => r.method === 'PUT');
   assert.deepEqual(put, { method: 'PUT', path: '/api/admin/users/1/plan', body: { plan: 'pro', ends_at: null, note: 'lifetime, early tester' } });
+  dialog.close();
+
+  // A gift's account: closed, each fold says what it holds and the plan's is open; its reason stays
+  // in the form, it can be taken back, and the extras show what is in force, the rest under History.
+  server['GET /api/admin/users/2/grants'] = { grants: [
+    { id: 5, plan: null, feature: 'lists.max', value: '50', source: 'admin', ends_at: null, revoked_at: null, note: 'big project' },
+    { id: 4, plan: 'pro', feature: null, value: null, source: 'admin', ends_at: null, revoked_at: null, note: 'early tester' },
+    { id: 3, plan: 'pro', feature: null, value: null, source: 'admin', ends_at: null, revoked_at: '2026-10-20T00:00:00Z', note: null },
+  ] };
+  rows[1].dispatch('click');
+  for (let turn = 0; turn < 20; turn++) await settle();
+  const ben = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
+  const folds = ben.find('details').filter((node) => node.className === 'kit-fold');
+  assert.deepEqual(folds.map((node) => node.find('summary')[0].childNodes.map((n) => n.textContent).filter(Boolean)),
+    [[t('admin.users.profile'), t('admin.roles.user')], [t('admin.users.plan'), `Pro · ${t('admin.users.forever')}`],
+      [t('admin.grants.title'), '1 in force'], [t('admin.users.password')]]);
+  assert.deepEqual(folds.map((node) => node.hasAttribute('open')), [false, true, false, false], 'the plan, open');
+  assert.equal(reasonIn(ben).value, 'early tester', 'changing the end keeps the reason');
+  assert.ok(buttonIn(ben, 'admin.users.defaultPlan'), 'a gift can be taken back');
+  const extras = folds[2];
+  assert.deepEqual(extras.find('table')[0].find('tr').slice(1).map((row) => row.find('td')[0].textContent), ['more lists: 50big project']);
+  assert.ok(extras.find('summary').some((node) => node.textContent === t('admin.grants.history', { n: 2 })), 'the plans and what was taken back');
 });

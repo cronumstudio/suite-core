@@ -60,3 +60,25 @@ export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';
  * frame that asked, and says `handled = true`; otherwise the whole window goes there.
  */
 export const SETTINGS_GOTO_EVENT = 'kit:settings-goto';
+
+/** The looks a host offers each person (host.js `LOOKS`): the suite's own, and Clean. */
+export const LOOKS = Object.freeze(['cronum', 'clean']);
+/** Where this browser keeps the look of last time, for theme.js to paint it before anything shows. */
+export const LOOK_KEY = 'host.look';
+
+/**
+ * Paints a look now and keeps it for the next page (theme.js): `clean` sets `<html data-look>`,
+ * anything else is the suite's own look, which needs nothing.
+ */
+export function applyLook(look, doc = globalThis.document) {
+  const clean = look === 'clean';
+  const root = doc?.documentElement;
+  if (root) {
+    if (clean) root.setAttribute('data-look', 'clean');
+    else root.removeAttribute('data-look');
+  }
+  try {
+    if (clean) localStorage.setItem(LOOK_KEY, 'clean');
+    else localStorage.removeItem(LOOK_KEY);
+  } catch { /* private mode: this page only */ }
+}

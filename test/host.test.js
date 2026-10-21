@@ -112,6 +112,7 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.deepEqual((await call('GET', '/api/modules')).data, {
     host: { name: 'Work', icon: '/icons/work.svg' },
     chosen: false,
+    look: 'cronum',
     modules: [
       { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } },
         settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], data: false, ai: false, about: true }, active: true },
@@ -132,6 +133,13 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.deepEqual((await call('GET', '/api/modules')).data.modules.map((m) => m.active), [false, true], 'kept');
   assert.equal((await call('GET', '/alpha/')).status, 200, 'a module turned off still opens: its data is there');
   await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
+
+  // The look of every module, one choice for the whole host: the suite's own until they choose.
+  assert.equal((await call('PUT', '/api/me/look', { look: 'pink' })).data.field, 'look', 'only the looks there are');
+  assert.equal((await call('PUT', '/api/me/look', { look: 'clean' })).data.look, 'clean');
+  assert.equal((await call('GET', '/api/modules')).data.look, 'clean', 'kept, for every device');
+  assert.equal((await call('PUT', '/api/me/look', { look: 'cronum' })).data.look, 'cronum');
+  assert.equal(host.suite.database.get('SELECT COUNT(*) AS n FROM host_looks').n, 1, 'one row a person');
 
   // Each module's own catalogs, version and kit, at its path.
   const catalog = await call('GET', '/alpha/i18n/en.json');

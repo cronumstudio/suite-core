@@ -112,7 +112,19 @@ export const HOST_MIGRATIONS = Object.freeze([
   },
   // Links between the modules' things (links.js).
   { version: 2, name: 'links', up: linksSchema },
+  {
+    version: 3,
+    name: 'looks',
+    // The look each person chose for the whole host (LOOKS). No row: the suite's own.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_looks (
+      user_id   INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      look      TEXT NOT NULL,
+      chosen_at TEXT NOT NULL
+    )`),
+  },
 ]);
+/** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
+export const LOOKS = Object.freeze(['cronum', 'clean']);
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
 /** What a kind of group says (organizations.js): a module's and the host's must agree on each. */
@@ -681,9 +693,12 @@ export async function createHost({
     const rows = user ? suite.database.all('SELECT module, active FROM host_modules WHERE user_id = ?', user.id) : [];
     const chosen = rows.length > 0;
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
+    const look = user ? suite.database.get('SELECT look FROM host_looks WHERE user_id = ?', user.id)?.look : null;
     return {
       host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}) },
       chosen,
+      // How the host's pages look for them, on every device (shell.js paints it).
+      look: LOOKS.includes(look) ? look : LOOKS[0],
       // A module added to the host after someone chose comes on for them: nothing hides by itself.
       modules: listed.map((m) => ({ ...m, active: chosen ? on.get(m.mount) ?? true : true })),
     };
@@ -745,6 +760,18 @@ export async function createHost({
           }
         });
         // Their open tabs, in every module, repaint their menus.
+        suite.accounts.changed(ctx.user.id);
+        sendJson(ctx.res, 200, modulesOf(ctx.user));
+      });
+      // The look of every module for this person (LOOKS): one choice for the whole host.
+      api.put('/api/me/look', async (ctx) => {
+        if (!ctx.user) throw unauthorized();
+        const body = await readJson(ctx.req);
+        if (!LOOKS.includes(body.look)) throw badRequest('field_invalid', { field: 'look', options: [...LOOKS] });
+        suite.database.run(`INSERT INTO host_looks (user_id, look, chosen_at) VALUES (?, ?, ?)
+          ON CONFLICT (user_id) DO UPDATE SET look = excluded.look, chosen_at = excluded.chosen_at`,
+        ctx.user.id, body.look, new Date().toISOString());
+        // Their open tabs, in every module, paint it.
         suite.accounts.changed(ctx.user.id);
         sendJson(ctx.res, 200, modulesOf(ctx.user));
       });

@@ -477,6 +477,18 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*@view-transition \{ navigation: none; \}\s*\}/);
 });
 
+test('in the installed app, going to another module takes its place in the history, and the edge is wider', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  // The system's Back (an edge swipe on an iPhone) must not lead to the module used before.
+  assert.match(shell, /const installed = \(\) => navigator\.standalone === true\s*\|\| Boolean\(globalThis\.matchMedia\?\.\('\(display-mode: standalone\)'\)\?\.matches\);/);
+  assert.match(shell, /modulePaths = new Set\(modules\.map\(\(m\) => new URL\(m\.path, window\.location\.href\)\.pathname\)\);/);
+  assert.match(shell, /if \(!link \|\| link\.target === '_blank' \|\| !installed\(\)\) return;/, 'a browser keeps its history');
+  assert.match(shell, /ev\.preventDefault\(\);\s*window\.location\.replace\(to\.href\);\s*\}, \{ capture: true, signal \}\);/);
+  assert.match(shell, /if \(FRAMED \|\| ev\.defaultPrevented \|\| ev\.button !== 0 \|\| ev\.metaKey/, 'a new tab or window as ever');
+  // A swipe that opens the drawer is taken a little further from the edge than the system's strip.
+  assert.match(shell, /const EDGE = 28;/);
+});
+
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
@@ -515,9 +527,41 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)? \} from '\.\/base\.js'/, file);
-    // Only the host's own routes are asked at the root: which modules someone uses.
-    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`])|import\(['`]\/|get\(['`]\/version/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)? \} from '\.\/base\.js'/, file);
+    // Only the host's own routes are asked at the root: which modules someone uses, and their look.
+    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`]|api\/me\/look['`])|import\(['`]\/|get\(['`]\/version/, file);
+  }
+});
+
+test('a host’s look: applyLook paints Clean on <html> and keeps it for theme.js, the suite’s own needs nothing', async () => {
+  const { applyLook, LOOK_KEY } = await import('../web/base.js');
+  const attrs = new Map();
+  const doc = { documentElement: { setAttribute: (k, v) => attrs.set(k, v), removeAttribute: (k) => attrs.delete(k) } };
+  const kept = new Map();
+  const before = globalThis.localStorage;
+  globalThis.localStorage = { setItem: (k, v) => kept.set(k, v), removeItem: (k) => kept.delete(k), getItem: (k) => kept.get(k) ?? null };
+  try {
+    applyLook('clean', doc);
+    assert.equal(attrs.get('data-look'), 'clean');
+    assert.equal(kept.get(LOOK_KEY), 'clean');
+    applyLook('cronum', doc);
+    assert.equal(attrs.has('data-look'), false);
+    assert.equal(kept.has(LOOK_KEY), false);
+    applyLook('pink', doc);
+    assert.equal(attrs.has('data-look'), false, 'a look it doesn’t know is the suite’s own');
+  } finally {
+    globalThis.localStorage = before;
+  }
+  // Before the first paint, the look of last time; and the Clean look's tokens, light and dark apart.
+  const theme = fs.readFileSync(new URL('../web/theme.js', import.meta.url), 'utf8');
+  assert.match(theme, /localStorage\.getItem\('host\.look'\) === 'clean'/);
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(css, /:root\[data-look="clean"\]:not\(\[data-theme="dark"\]\) \{/);
+  assert.match(css, /:root\[data-look="clean"\]\[data-theme="dark"\] \{/);
+  const tokens = fs.readFileSync(new URL('../web/tokens.css', import.meta.url), 'utf8');
+  for (const face of ['inter-latin.woff2', 'inter-latin-ext.woff2']) {
+    assert.match(tokens, new RegExp(`url\\(fonts/${face.replace('.', '\\.')}\\)`));
+    assert.ok(fs.existsSync(new URL(`../web/fonts/${face}`, import.meta.url)), face);
   }
 });
 
