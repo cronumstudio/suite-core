@@ -8,7 +8,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **A second look for a host: Clean** (`host.js`, `web/kit.css`, `web/tokens.css`, `web/theme.js`,
   `web/base.js`, `web/shell.js`, `web/settings.js`, `web/sw-core.js`, `web/fonts/`, catalogs).
   Additive: an app on its own, and a host's page whose person chose nothing, look as before.
-  - **Clean** (`<html data-look="clean">`): white and greys with no hue in them, hairline borders,
+  - **Clean** (`<html data-look="clean">`): white and greys with no hue in them, a white rail, hairline borders,
     soft shadows, larger radii and **Inter** for text and headings; the product's accent stays the
     one colour and yolk still marks "now". Light and dark each have their tokens; the modules'
     own variables follow the kit's, so they need nothing.

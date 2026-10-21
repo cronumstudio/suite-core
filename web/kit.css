@@ -739,6 +739,18 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-rail__split:hover, .kit-rail__split[aria-expanded="true"] { background: rgba(255, 247, 230, .08); color: var(--cr-cream); }
 .kit-rail__split + .kit-rail__settings { margin-top: 0; }
 .kit-rail a:focus-visible, .kit-rail button:focus-visible { outline: 2px solid var(--cr-cream); outline-offset: 1px; }
+/* The Clean look, light: a white rail with a hairline, the modules' names in grey and the open one in ink. */
+:root[data-look="clean"]:not([data-theme="dark"]) .kit-rail {
+  background: var(--kit-panel); border-inline-end: 1px solid var(--kit-border);
+}
+:root[data-look="clean"]:not([data-theme="dark"]) :is(.kit-rail__module, .kit-rail__settings, .kit-rail__split) { color: var(--kit-muted); }
+:root[data-look="clean"]:not([data-theme="dark"]) :is(.kit-rail__module, .kit-rail__settings, .kit-rail__split):hover,
+:root[data-look="clean"]:not([data-theme="dark"]) :is(.kit-rail__settings, .kit-rail__split)[aria-expanded="true"] {
+  background: var(--kit-hover); color: var(--kit-text);
+}
+:root[data-look="clean"]:not([data-theme="dark"]) .kit-rail__module[aria-current="page"] { background: var(--kit-hover); color: var(--kit-text); }
+:root[data-look="clean"]:not([data-theme="dark"]) .kit-rail__home { color: var(--kit-text); }
+:root[data-look="clean"]:not([data-theme="dark"]) .kit-rail :is(a, button):focus-visible { outline-color: var(--kit-accent); }
 @container kit-app (min-width: 640px) {
   .kit-rail { display: flex; }
 }
