@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.113.1 — 2026-10-21
+## 0.114.1 — 2026-10-21
 
 - **Security fix: a code for `/devices/session` can no longer sign a reader into someone else's
   account** (`device-pages.js`, `devices.js`). An image in a shared note
@@ -34,6 +34,24 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `devices.takeWebCode(code, { refuse })`: `refuse(userId)` is asked last, for a code that would
     open a session; a reason leaves the code unspent and answers `{ refused, userId }`. The audit
     reason `signed_in` is new.
+
+## 0.114.0 — 2026-10-21
+
+- **Settings, a second pass** (`web/settings.js`, `web/kit.css`, `host.js`, `host-worker.js`,
+  `web/sw-core.js`, catalogs). Additive.
+  - **The plan is a card**: its name large, until when under it (`kit.plan.untilDate`), more room
+    around it and below what it includes.
+  - **What an app says of its instruction is in its fold**: `openSettings({ standingMore })` and
+    `createModule().settings.standingMore`, keys of its catalog (paragraphs) and pairs of keys
+    (lines of a list, a label in bold), drawn under Copy. Nothing in a fold takes the person
+    elsewhere any more ("More about…" and `kit.ai.standingMore` go).
+  - **In a host, deleting the account is under Account** (after Plan), not in the host's group. Its text says what will happen if the person deletes it (`kit.data.deleteHint`), and in a host what happens to what they share, for every module (`kit.data.deleteShared`), with no second title.
+  - **"What it is" is the app's website**: `site` (an https address) in both, linked from its
+    card in About, in a tab of its own; without one, no link.
+  - **A host's notices show the icon of the module that sent them**: the host's worker gets
+    `push.icons` (`{ [mount]: icon }`, each module's `push.icon` from its sw.js, else its
+    `icons/icon-192.png`) and keeps those icons; sw-core uses the notice's `module` (put on by
+    `hostedPush`). Notices without one, and hosts without icons, as before.
 
 ## 0.113.0 — 2026-10-21
 

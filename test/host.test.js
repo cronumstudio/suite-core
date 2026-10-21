@@ -717,8 +717,25 @@ test('a module’s notices with the host’s one worker open at its path (host-w
 test('a module’s shell, read from its own worker, at its path (host-worker.js)', async () => {
   const { moduleShell } = await import('../host-worker.js');
   const dir = new URL('./fixtures/host/alpha/public', import.meta.url);
-  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js'], optional: [] });
+  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js'], optional: [], icon: null });
   assert.deepEqual(moduleShell(null, 'beta'), { shell: ['/beta/', '/beta/index.html'], optional: [] }, 'without a worker, its page');
+});
+
+test('a module’s notices show its own icon in the host’s worker: its push.icon, else its icon of 192 px', (t) => {
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-icon-'));
+  t.after(() => fs.rmSync(own, { recursive: true, force: true }));
+  const write = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(own, rel)), { recursive: true });
+    fs.writeFileSync(path.join(own, rel), text);
+  };
+  return import('../host-worker.js').then(({ moduleShell }) => {
+    write('sw.js', "importScripts('suite/sw-core.js'); suiteWorker({ version: 'g-v1', shell: ['./'], push: { title: 'G', icon: 'icons/bell.png?v=2' } });");
+    assert.equal(moduleShell(own, 'gamma').icon, '/gamma/icons/bell.png?v=2', 'its notices\' own, at its path');
+    write('sw.js', "importScripts('suite/sw-core.js'); suiteWorker({ version: 'g-v1', shell: ['./'] });");
+    assert.equal(moduleShell(own, 'gamma').icon, null, 'no notices and no icon: the host\'s');
+    write('icons/icon-192.png', 'png');
+    assert.equal(moduleShell(own, 'gamma').icon, '/gamma/icons/icon-192.png', 'no notices of its own: its app icon');
+  });
 });
 
 test('a module’s jobs stop when the host closes', async () => {
@@ -949,6 +966,12 @@ test('a module\'s sections of Settings, as the host lists them for the others: w
   // Where its catalog keeps its line, for About's card.
   assert.equal(moduleSettings({ tagline: 'about.tagline' }).tagline, 'about.tagline');
   assert.ok(!('tagline' in moduleSettings({ tagline: '<b>' })));
+  // What it says under its instruction: keys and pairs of keys; anything else is left out.
+  assert.deepEqual(moduleSettings({ standingMore: ['a.b', ['c.d', 'c.dAsk'], ['only.one'], 7, 'not a key!'] }).standingMore, ['a.b', ['c.d', 'c.dAsk']]);
+  assert.ok(!('standingMore' in moduleSettings({ standingMore: 'a.b' })));
+  // Its website, https only.
+  assert.equal(moduleSettings({ site: 'https://tasks.cronumstudio.com/' }).site, 'https://tasks.cronumstudio.com/');
+  for (const site of ['http://x.example/', 'javascript:alert(1)', 'https://x.example/"><b>']) assert.ok(!('site' in moduleSettings({ site })), site);
 });
 
 test('notices are the host\'s: a module that sends none answers them at its own path, as the root does', async (t) => {

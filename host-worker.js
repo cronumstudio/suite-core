@@ -90,9 +90,10 @@ function atBase(base, url) {
 
 /**
  * What a module's own worker keeps (`shell`, `optional`), read from its
- * public/sw.js and placed under its path. → { shell, optional }; empty
+ * public/sw.js and placed under its path. → { shell, optional, icon }; empty
  * without a file or with one that isn't `suiteWorker({ … })`, but its page
- * always: the module opens offline at least.
+ * always: the module opens offline at least. `icon` is its notices' icon
+ * (`push.icon`, else its icons/icon-192.png), under its path, or null.
  */
 export function moduleShell(publicDir, mount, { log = () => {} } = {}) {
   const base = `/${mount}/`;
@@ -112,9 +113,13 @@ export function moduleShell(publicDir, mount, { log = () => {} } = {}) {
     return found;
   }
   const place = (list) => (Array.isArray(list) ? list.map((url) => atBase(base, url)).filter(Boolean) : []);
+  // Without notices of its own, its app icon of 192 px if it has one, as the suite's apps do.
+  const icon = typeof options?.push?.icon === 'string' ? atBase(base, options.push.icon)
+    : fs.existsSync(path.join(publicDir, 'icons', 'icon-192.png')) ? `${base}icons/icon-192.png` : null;
   return {
     shell: [...new Set([...found.shell, ...place(options?.shell)])],
     optional: [...new Set(place(options?.optional))],
+    icon,
   };
 }
 
