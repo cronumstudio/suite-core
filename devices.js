@@ -26,10 +26,20 @@
  *   disabled account's are refused, as its API tokens are.
  * · No route of the suite takes one, except, when the app sets
  *   `stores.devices`, the store routes (`/api/billing/stores/*`) and
- *   `/api/billing/overview` (stores.js): `ctx.user` only ever comes from the
- *   session cookie. An app accepts a device on the routes it chooses with
+ *   `/api/billing/overview` (stores.js), and with `devices.webSessions`
+ *   `/api/devices/web-session`, which only gives a code: `ctx.user` only ever
+ *   comes from the session cookie. An app accepts a device on the routes it chooses with
  *   `authenticate(req)`, and the app can refuse people (`canConnect`, through
  *   `createApp({ devices })`) when they connect and on every use.
+ *
+ * With `devices.webSessions` (an app whose screens are its web pages in a
+ * WebView, Cronum Work's), the device turns its token into a session of the
+ * web: `issueWebCode` gives it a code of one minute, once, that the WebView
+ * opens at `/devices/session` (device-pages.js), where `takeWebCode` spends it
+ * and an ordinary session is opened, linked to the device. That session ends
+ * with the device: revoking it (here, by its owner, by itself, by the admin)
+ * closes its sessions, and every use of one asks `sessionAlive` first, which
+ * also refuses it once the device stopped working for any other reason.
  *
  * Focus pairs kiosks and its future screens another way (a code shown on the
  * signed-in screen and typed or scanned on the device, bound to a profile with
@@ -38,6 +48,7 @@
  * its database.
  */
 import { randomToken, sha256, safeEqual } from './crypto.js';
+import { ensureColumn } from './migrate.js';
 import {
   HttpError, badRequest, forbidden, notFound, unauthorized, readJson, sendJson, str,
 } from './http.js';
@@ -50,6 +61,10 @@ const CODE_MS = 5 * MINUTE;
 /** Codes waiting at once per account: a page reloaded a few times, never a table filled by a script. */
 const OPEN_CODES = 10;
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** How long a web-session code waits: the app opens it in its WebView at once. */
+const WEB_CODE_MS = MINUTE;
+/** Web-session codes waiting at once per device: a WebView reloaded, never a table filled by a script. */
+const OPEN_WEB_CODES = 10;
 const iso = (ms) => new Date(ms).toISOString();
 
 export function deviceTokensSchema(d) {
@@ -80,6 +95,27 @@ export function deviceTokensSchema(d) {
     device_id      INTEGER REFERENCES device_tokens(id) ON DELETE SET NULL
   );
   CREATE INDEX ix_device_codes_user ON device_codes (user_id)`);
+}
+
+/**
+ * Sessions of the web opened from a device (`devices.webSessions`): the codes
+ * a device asks for, and the device a session came from. Every app gets them,
+ * as every app has `device_tokens`; they stay empty unless it turns them on.
+ * The link cascades: a device forgotten by the purge takes its sessions along,
+ * never leaving them as ordinary sessions of nobody's device.
+ */
+export function deviceWebSessionsSchema(d) {
+  d.exec(`CREATE TABLE device_web_codes (
+    code_hash  TEXT PRIMARY KEY,
+    device_id  INTEGER NOT NULL REFERENCES device_tokens(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT
+  );
+  CREATE INDEX ix_device_web_codes_device ON device_web_codes (device_id)`);
+  ensureColumn(d, 'sessions', 'device_id', 'device_id INTEGER REFERENCES device_tokens(id) ON DELETE CASCADE');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_sessions_device ON sessions(device_id)');
 }
 
 /**
@@ -122,6 +158,13 @@ export function createDevices({
     if (answer && typeof answer.then === 'function') throw new Error('devices.canConnect must answer true or false at once, not a promise');
     return Boolean(answer);
   };
+
+  // The sessions a device opened on the web (migration 23): a database without the column has none.
+  const sessionsLinked = database.columnsOf('sessions').includes('device_id');
+  /** Closes the web sessions of devices just revoked: `where` picks them in device_tokens. */
+  const endSessions = (where, ...params) => (sessionsLinked
+    ? database.run(`DELETE FROM sessions WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params).changes
+    : 0);
 
   const columns = 'id, name, platform, app_version, created_at, last_used_at';
   /** The end of a token that goes on unused: its last use (or its creation) plus idleDays. */
@@ -204,6 +247,7 @@ export function createDevices({
         const revoked = proven && row.device_id
           ? database.run('UPDATE device_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL', iso(now), row.device_id).changes > 0
           : false;
+        if (revoked) endSessions('id = ?', row.device_id);
         return { failed: 'reused', row, revoked: revoked ? row.device_id : null };
       }
       database.run('UPDATE device_codes SET used_at = ? WHERE code_hash = ?', iso(now), row.code_hash);
@@ -277,26 +321,97 @@ export function createDevices({
     return user;
   }
 
-  /** Whether a device still works: for a connection the app keeps open (a socket's heartbeat). */
-  function isActive(id) {
+  /** A device's row when it still works, else null. */
+  function workingRow(id) {
     const row = database.get(`SELECT d.created_at, d.last_used_at, d.revoked_at, u.disabled_at, u.id AS user_id
       FROM device_tokens d JOIN users u ON u.id = d.user_id WHERE d.id = ?`, id);
-    if (!row || row.revoked_at || row.disabled_at || endOf(row) <= clock()) return false;
-    return allowed(database.get('SELECT * FROM users WHERE id = ?', row.user_id));
+    if (!row || row.revoked_at || row.disabled_at || endOf(row) <= clock()) return null;
+    return allowed(database.get('SELECT * FROM users WHERE id = ?', row.user_id)) ? row : null;
   }
+
+  /** Whether a device still works: for a connection the app keeps open (a socket's heartbeat). */
+  const isActive = (id) => Boolean(workingRow(id));
 
   /** A person's devices that still work, last used first. */
   const list = (userId) => database.all(`SELECT ${columns} FROM device_tokens
     WHERE user_id = ? AND revoked_at IS NULL AND COALESCE(last_used_at, created_at) > ?
     ORDER BY COALESCE(last_used_at, created_at) DESC, id DESC`, userId, iso(clock() - idleMs)).map(view);
 
-  /** Revokes one of a person's devices. False if it isn't theirs or no longer works. */
-  const revoke = (userId, id) => database.run(`UPDATE device_tokens SET revoked_at = ?
-    WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, iso(clock()), id, userId).changes > 0;
+  /**
+   * Revokes one of a person's devices, and the sessions it opened on the web
+   * with it. False if it isn't theirs or no longer works.
+   */
+  const revoke = (userId, id) => database.tx(() => {
+    const done = database.run(`UPDATE device_tokens SET revoked_at = ?
+      WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, iso(clock()), id, userId).changes > 0;
+    if (done) endSessions('id = ?', id);
+    return done;
+  });
 
-  /** Revokes all of a person's devices (the admin's "sign out everywhere"): how many were. */
-  const revokeAllOf = (userId) => database.run(`UPDATE device_tokens SET revoked_at = ?
-    WHERE user_id = ? AND revoked_at IS NULL`, iso(clock()), userId).changes;
+  /** Revokes all of a person's devices (the admin's "sign out everywhere"), their web sessions too: how many were. */
+  const revokeAllOf = (userId) => database.tx(() => {
+    const count = database.run(`UPDATE device_tokens SET revoked_at = ?
+      WHERE user_id = ? AND revoked_at IS NULL`, iso(clock()), userId).changes;
+    endSessions('user_id = ? AND revoked_at IS NOT NULL', userId);
+    return count;
+  });
+
+  /**
+   * A code for the device's WebView to open at `/devices/session`, for the
+   * device `principal` is (what `authenticate` answered, with its `device_id`):
+   * one minute, once, kept as a hash. → { code, expires_at }
+   */
+  function issueWebCode(principal) {
+    if (!principal?.device_id) throw unauthorized();
+    const now = clock();
+    const open = Number(database.get(`SELECT COUNT(*) AS n FROM device_web_codes
+      WHERE device_id = ? AND used_at IS NULL AND expires_at > ?`, principal.device_id, iso(now)).n);
+    if (open >= OPEN_WEB_CODES) throw new HttpError(429, 'too_many_attempts', { retry_after: Math.ceil(WEB_CODE_MS / 1000) });
+    const code = randomToken(32);
+    database.run(`INSERT INTO device_web_codes (code_hash, device_id, user_id, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)`, sha256(code), principal.device_id, principal.id, iso(now), iso(now + WEB_CODE_MS));
+    return { code, expires_at: iso(now + WEB_CODE_MS) };
+  }
+
+  /**
+   * Spends a web-session code: → { user, deviceId } for a session, or
+   * { failed, userId } (`unknown`, `reused`, `expired`, `device`: the device or
+   * its account no longer works, or the app no longer lets the person in). A
+   * code is spent by its first use, right or wrong. One that comes back is only
+   * refused, never the device revoked: a WebView going back in its history
+   * opens the same address again.
+   */
+  function takeWebCode(code) {
+    const given = typeof code === 'string' && code.length > 0 && code.length <= 200 ? code : null;
+    if (!given) return { failed: 'unknown', userId: null };
+    const now = clock();
+    return database.tx(() => {
+      const row = database.get('SELECT * FROM device_web_codes WHERE code_hash = ?', sha256(given));
+      if (!row) return { failed: 'unknown', userId: null };
+      if (row.used_at) return { failed: 'reused', userId: row.user_id };
+      database.run('UPDATE device_web_codes SET used_at = ? WHERE code_hash = ?', iso(now), row.code_hash);
+      if (Date.parse(row.expires_at) <= now) return { failed: 'expired', userId: row.user_id };
+      if (!isActive(row.device_id)) return { failed: 'device', userId: row.user_id };
+      return { user: database.get('SELECT * FROM users WHERE id = ?', row.user_id), deviceId: row.device_id };
+    });
+  }
+
+  /**
+   * Whether a session the device opened on the web may still be used: what
+   * `isActive` says. Using it is using the device, so its last use is noted
+   * (at most once a minute) and a phone used only through its WebView never
+   * reaches `idleDays`.
+   */
+  function sessionAlive(id) {
+    const row = workingRow(id);
+    if (!row) return false;
+    const now = clock();
+    // Written only when it is a minute old: a page load makes several requests.
+    if (!row.last_used_at || now - Date.parse(row.last_used_at) > MINUTE) {
+      database.run('UPDATE device_tokens SET last_used_at = ? WHERE id = ?', iso(now), id);
+    }
+    return true;
+  }
 
   /**
    * Forgets codes a day after they expired, and devices a month after they
@@ -304,7 +419,8 @@ export function createDevices({
    */
   function purge() {
     const now = clock();
-    const codes = database.run('DELETE FROM device_codes WHERE expires_at < ?', iso(now - DAY)).changes;
+    const codes = database.run('DELETE FROM device_codes WHERE expires_at < ?', iso(now - DAY)).changes
+      + database.run('DELETE FROM device_web_codes WHERE expires_at < ?', iso(now - DAY)).changes;
     const gone = database.run(`DELETE FROM device_tokens WHERE revoked_at < ? OR COALESCE(last_used_at, created_at) < ?`,
       iso(now - 30 * DAY), iso(now - idleMs - 30 * DAY)).changes;
     return codes + gone;
@@ -312,6 +428,7 @@ export function createDevices({
 
   return {
     prefix, idleDays, maxPerUser, issueCode, exchange, authenticate, isActive, list, revoke, revokeAllOf, purge,
+    issueWebCode, takeWebCode, sessionAlive,
     /** createApp's `devices.canConnect(user)`: whether the app lets that person connect devices. */
     setCanConnect(fn) {
       if (typeof fn !== 'function') throw new Error('devices.canConnect must be a function (user) => boolean');
@@ -324,9 +441,11 @@ export function createDevices({
  * The routes, with `modules.devices`. Codes and the list are for the person
  * signed in on the web (`ctx.user` comes only from the session cookie); the
  * token is for the app with its code and verifier, with the brake per address
- * for failures; and a device signs itself out with its own token.
+ * for failures; and a device signs itself out with its own token. With
+ * `webSessions` (`devices.webSessions`), a device also asks for a code that
+ * opens a session of the web in its WebView (device-pages.js).
  */
-export function registerDevicesApi(router, { devices, limiter, audit = null }) {
+export function registerDevicesApi(router, { devices, limiter, audit = null, webSessions = false }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
@@ -386,4 +505,25 @@ export function registerDevicesApi(router, { devices, limiter, audit = null }) {
     });
     sendJson(ctx.res, 200, { ok: true });
   });
+
+  if (!webSessions) return;
+
+  /**
+   * The device's token for the address its WebView opens to be signed in on the
+   * web: `/devices/session?code=…`, one minute, once. The token only, never a
+   * session: a session is what this makes. Failures count against the address
+   * as the token's exchange does, in the same bucket.
+   */
+  router.post('/api/devices/web-session', answeredOnce((ctx) => {
+    const brake = limiter.checkFailures('devices', ctx.req);
+    if (!brake.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: brake.retryAfter });
+    const device = devices.authenticate(ctx.req);
+    if (!device) {
+      limiter.noteFailure('devices', ctx.req);
+      throw unauthorized();
+    }
+    const { code, expires_at: expiresAt } = devices.issueWebCode(device);
+    // The value travels once, here, to the device; the database keeps its hash.
+    sendJson(ctx.res, 201, { url: `/devices/session?code=${encodeURIComponent(code)}`, expires_at: expiresAt });
+  }));
 }

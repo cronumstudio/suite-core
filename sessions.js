@@ -109,6 +109,8 @@ export function createSessions({
   const withoutDisabled = database.columnsOf('users').includes('disabled_at') ? ' AND u.disabled_at IS NULL' : '';
 
   const tokenFrom = (req) => parseCookies(req)[cookieName] || null;
+  /** Whether a device a session came from still works: nobody's until the suite says (`checkDevices`). */
+  let deviceAlive = () => false;
 
   function setCookie(res, token) {
     appendHeader(res, 'Set-Cookie', serializeCookie(cookieName, token, {
@@ -126,19 +128,22 @@ export function createSessions({
    * browser's previous session is closed (rotation) and the device noted.
    * With `res`, the cookie is set too.
    */
-  function open(userId, { req = null, res = null, idpSessionId = null } = {}) {
+  function open(userId, { req = null, res = null, idpSessionId = null, deviceId = null } = {}) {
     const now = clock();
     const token = randomToken(32);
     database.tx(() => {
       const previous = req ? tokenFrom(req) : null;
       if (previous) database.run('DELETE FROM sessions WHERE token_hash = ?', hashOf(previous));
+      // The device's column only when there is one: a database before migration 23 has none.
+      const linked = deviceId != null;
       database.run(`INSERT INTO sessions (token_hash, user_id, created_at, last_used_at, expires_at,
-          absolute_expires_at, user_agent, ip, idp_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          absolute_expires_at, user_agent, ip, idp_session_id${linked ? ', device_id' : ''})
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?${linked ? ', ?' : ''})`,
       hashOf(token), userId, iso(now), iso(now), iso(now + Math.min(idleDays, maxDays) * DAY),
       iso(now + maxDays * DAY),
       req ? String(req.headers['user-agent'] || '').slice(0, 300) : null,
       req ? clientIp(req, { trustProxy }) : null,
-      idpSessionId);
+      idpSessionId, ...(linked ? [deviceId] : []));
     });
     if (res) setCookie(res, token);
     return token;
@@ -153,6 +158,11 @@ export function createSessions({
       hashOf(token), iso(now), iso(now),
     );
     if (!row) return null;
+    // Opened from a device: alive while the device is, and gone for good once it isn't.
+    if (row.device_id != null && !deviceAlive(row.device_id)) {
+      database.run('DELETE FROM sessions WHERE token_hash = ?', row.token_hash);
+      return null;
+    }
     // At most once a minute: a page load makes several requests.
     if (now - Date.parse(row.last_used_at) > 60 * 1000) {
       const end = Math.min(now + idleDays * DAY, Date.parse(row.absolute_expires_at));
@@ -232,5 +242,10 @@ export function createSessions({
   return {
     cookieName, open, alive, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign,
     setCookie, clearCookie,
+    /** createSuite's, with modules.devices: `(deviceId) → boolean`, asked on every use of a session from a device. */
+    checkDevices(fn) {
+      if (typeof fn !== 'function') throw new Error('sessions.checkDevices needs a function (deviceId) => boolean');
+      deviceAlive = fn;
+    },
   };
 }

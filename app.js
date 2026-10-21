@@ -35,6 +35,7 @@ import { createSessions, resolveSessionSecret } from './sessions.js';
 import { createAccounts } from './accounts.js';
 import { createTokens } from './tokens.js';
 import { createDevices, registerDevicesApi } from './devices.js';
+import { createDevicePages } from './device-pages.js';
 import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
@@ -153,6 +154,8 @@ export function createSuite({
     database, prefix: config.devices.prefix, redirectUris: config.devices.redirectUris,
     idleDays: config.devices.idleDays, audit,
   }) : null;
+  // A session of the web opened from a device (devices.webSessions) lives while the device does.
+  if (devices) sessions.checkDevices((id) => devices.sessionAlive(id));
   const limiter = createRateLimiter({
     database,
     // A key derived from the session secret: the buckets say nothing without it.
@@ -638,7 +641,7 @@ export function createApp({
   }
   if (suite.devices) {
     if (deviceRules?.canConnect) suite.devices.setCanConnect(deviceRules.canConnect);
-    registerDevicesApi(api, { devices: suite.devices, limiter, audit });
+    registerDevicesApi(api, { devices: suite.devices, limiter, audit, webSessions: Boolean(config.devices?.webSessions) });
   } else if (deviceRules) {
     log(`${tag} createApp({ devices }) is given, but modules.devices is off: no phone can connect`);
   }
@@ -649,6 +652,9 @@ export function createApp({
       portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords }),
     });
   }
+
+  // The connect page and sessions from a device (device-pages.js), when the app turned them on.
+  const devicePages = createDevicePages({ suite });
 
   let appApi = routes;
   if (typeof routes === 'function') {
@@ -875,6 +881,8 @@ export function createApp({
         sendText(res, 405, 'Method Not Allowed');
         return;
       }
+      // Before the app's pages: `/` back from the provider to the connect page, and the pages themselves.
+      if (devicePages && (devicePages.back(req, res, url) || devicePages.handle(req, res, url))) return;
       // The suite's browser code (the web kit) and its admin panel.
       if (pathname.startsWith('/suite/') && serveStatic(WEB_DIR, pathname.slice('/suite'.length), res)) return;
       if (config.modules.admin && (pathname === '/admin' || pathname === '/admin/')) {
@@ -1025,5 +1033,5 @@ export function createApp({
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
-  return { server, api, mcp: mcpServer, portability, handle, listen, close };
+  return { server, api, mcp: mcpServer, portability, handle, listen, close, devicePages };
 }
