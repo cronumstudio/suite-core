@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.112.1 — 2026-10-21
+
+- **Opening the drawer from the edge no longer switches module** (`web/shell.js`). In the installed
+  app on an iPhone, a swipe from the screen's edge that began just past the kit's 20 px went to the
+  system, which took it as Back: the page before was the module used last, so Projects turned into
+  Tasks. Now, in the installed app (`display-mode: standalone`), going to another of the host's
+  modules (the rail, the switcher's menu, any link to one) replaces this page in the history
+  instead of stacking on it, as a phone app's tabs do; a browser keeps its history as it was. The
+  strip at the edge that opens the drawer is 28 px.
+
 ## 0.112.0 — 2026-10-21
 
 - **The admin's account dialog, compact** (`web/admin.js`, `web/kit.css`, catalogs). Only the page changes; the API

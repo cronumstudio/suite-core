@@ -477,6 +477,18 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*@view-transition \{ navigation: none; \}\s*\}/);
 });
 
+test('in the installed app, going to another module takes its place in the history, and the edge is wider', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  // The system's Back (an edge swipe on an iPhone) must not lead to the module used before.
+  assert.match(shell, /const installed = \(\) => navigator\.standalone === true\s*\|\| Boolean\(globalThis\.matchMedia\?\.\('\(display-mode: standalone\)'\)\?\.matches\);/);
+  assert.match(shell, /modulePaths = new Set\(modules\.map\(\(m\) => new URL\(m\.path, window\.location\.href\)\.pathname\)\);/);
+  assert.match(shell, /if \(!link \|\| link\.target === '_blank' \|\| !installed\(\)\) return;/, 'a browser keeps its history');
+  assert.match(shell, /ev\.preventDefault\(\);\s*window\.location\.replace\(to\.href\);\s*\}, \{ capture: true, signal \}\);/);
+  assert.match(shell, /if \(FRAMED \|\| ev\.defaultPrevented \|\| ev\.button !== 0 \|\| ev\.metaKey/, 'a new tab or window as ever');
+  // A swipe that opens the drawer is taken a little further from the edge than the system's strip.
+  assert.match(shell, /const EDGE = 28;/);
+});
+
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
