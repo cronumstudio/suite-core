@@ -8,6 +8,7 @@ import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
 import { toast, field, openDialog, confirmDialog } from './ui.js';
+import { icon } from './icons.js';
 
 const root = $('#admin');
 const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false };
@@ -255,8 +256,7 @@ function userDialog(user) {
   email.addEventListener('input', () => {
     verified.checked = email.value.trim().toLowerCase() === (user.email || '') && Boolean(user.email_verified);
   });
-  const profile = el('div', { class: 'kit-section' },
-    el('h3', { text: t('admin.users.profile') }),
+  const profile = fold({ title: t('admin.users.profile'), now: [user.email, t(`admin.roles.${user.role}`)].filter(Boolean).join(' · ') },
     el('div', { class: 'kit-grid' },
       field(t('fields.display_name'), name),
       field(t('fields.email'), email, user.email && !user.email_verified ? t('admin.users.unconfirmed') : null),
@@ -283,10 +283,9 @@ function userDialog(user) {
 
   // A new password (local accounts): their other sessions end.
   const password = el('input', { type: 'password', autocomplete: 'new-password' });
-  const passwordSection = local() ? el('div', { class: 'kit-section' },
-    el('h3', { text: t('admin.users.password') }),
+  const passwordSection = local() ? fold({ title: t('admin.users.password') },
     el('p', { class: 'kit-hint', text: t('admin.users.passwordLead') }),
-    el('div', { class: 'kit-row' },
+    el('div', { class: 'kit-row kit-row--end' },
       field(t('fields.password'), password),
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
@@ -306,16 +305,16 @@ function userDialog(user) {
     plan.value = user.plan?.id || state.catalog.defaultPlan;
     const until = el('input', { type: 'date' });
     if (user.plan_ends) until.value = user.plan_ends.slice(0, 10);
-    const note = el('input', { maxlength: '200' });
+    // The reason the admin gave stays when only the end changes.
+    const note = el('input', { maxlength: '200', placeholder: t('admin.users.optional'), value: user.plan_source?.kind === 'admin' ? user.plan_source.note || '' : '' });
     const byDefault = user.plan_source?.kind === 'default';
-    planSection = el('div', { class: 'kit-section' },
-      el('h3', { text: t('admin.users.plan') }),
-      el('p', { class: 'kit-plan-now' }, ...planParts(user)),
+    planSection = fold({ title: t('admin.users.plan'), now: planSummary(user), open: true },
       // Nothing keeps it: it follows the install's default plan, and goes when that changes.
-      byDefault ? el('p', { class: 'kit-notice', text: t('admin.users.planIsDefault', { plan: user.plan ? t(user.plan.name || user.plan.id) : '' }) }) : null,
-      el('p', { class: 'kit-hint', text: user.unlimited ? t('admin.users.adminsUnlimited') : t('admin.users.planLead') }),
-      el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan), field(t('admin.users.planUntil'), until, t('admin.users.planUntilHint')),
-        field(t('admin.users.planNote'), note, t('admin.users.planNoteHint'))),
+      byDefault ? el('p', { class: 'kit-warning', text: t('admin.users.planIsDefault', { plan: user.plan ? t(user.plan.name || user.plan.id) : '' }) }) : null,
+      user.unlimited ? el('p', { class: 'kit-hint', text: t('admin.users.adminsUnlimited') }) : null,
+      el('div', { class: 'kit-grid kit-grid--3' }, field(t('admin.users.planName'), plan), field(t('admin.users.planUntil'), until),
+        field(t('admin.users.planNote'), note)),
+      el('p', { class: 'kit-hint', text: t('admin.users.planHint') }),
       el('div', { class: 'kit-row' },
         el('button', {
           type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.users.setPlan'),
@@ -327,7 +326,8 @@ function userDialog(user) {
             } catch (err) { fail(err); }
           },
         }),
-        el('button', {
+        // Only what the admin gave can be taken back here; a subscription is the person's.
+        user.plan_source?.kind === 'admin' ? el('button', {
           type: 'button', class: 'kit-link', text: t('admin.users.defaultPlan'),
           onClick: async () => {
             try {
@@ -336,14 +336,16 @@ function userDialog(user) {
               refresh();
             } catch (err) { fail(err); }
           },
-        })));
+        }) : null));
   }
 
-  const grants = state.catalog ? el('div', { class: 'kit-section' }) : null;
+  const grantsNow = el('small', { class: 'kit-fold__now' });
+  // Drawn when they arrive, inside the fold's body as if they were its own.
+  const grantsBox = el('div', { class: 'kit-contents' });
+  const grants = state.catalog ? fold({ title: t('admin.grants.title'), now: grantsNow }, grantsBox) : null;
 
-  // Everywhere they are signed in, their second step, and the account itself.
-  const endSection = el('div', { class: 'kit-section' },
-    el('h3', { text: t('admin.users.access') }),
+  // Everywhere they are signed in, their second step, and the account itself: at the end, apart.
+  const endSection = el('div', { class: 'kit-dialog__end' },
     local() && user.two_factor ? el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLead')}` }) : null,
     el('div', { class: 'kit-row' },
       local() && user.two_factor ? el('button', {
@@ -368,7 +370,7 @@ function userDialog(user) {
         },
       }),
       self ? null : el('button', {
-        type: 'button', class: 'kit-btn kit-btn--small kit-btn--danger', text: t('admin.users.delete'),
+        type: 'button', class: 'kit-btn kit-btn--small kit-btn--danger kit-row__last', text: t('admin.users.delete'),
         onClick: async () => {
           if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name })))) return;
           try {
@@ -383,73 +385,112 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [profile, passwordSection, planSection, grants, endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, grants, passwordSection), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
-  if (grants) paintGrants(grants, user).catch(fail);
+  if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
 }
 
-/** The grants of an account: what the admin gave on top of its plan, and adding one. */
-async function paintGrants(box, user) {
+/**
+ * A part of the account's dialog that folds: its title, what it holds now (so the closed dialog
+ * reads as a summary), and what changes it. One open at a time, like Settings' folds.
+ */
+function fold({ title, now = null, open = false }, ...body) {
+  return el('details', { class: 'kit-fold', name: 'kit-admin-user', open },
+    el('summary', {}, el('span', { text: title }),
+      typeof now === 'string' ? el('small', { class: 'kit-fold__now', text: now }) : now,
+      icon('chevron-down', { className: 'kit-fold__chevron' })),
+    el('div', { class: 'kit-fold__body' }, ...body));
+}
+
+/** The plan in a few words, for its fold's title: the default one marked as such. */
+function planSummary(user) {
+  if (user.unlimited) return t('admin.users.unlimited');
+  const name = user.plan ? t(user.plan.name || user.plan.id) : '';
+  if (user.plan_source?.kind === 'default') return el('small', { class: 'kit-fold__now kit-fold__now--warn', text: t('admin.users.byDefault', { plan: name }) });
+  const ends = user.plan_ends ? t('admin.users.until', { date: formatDate(user.plan_ends) }) : user.plan_source ? t('admin.users.forever') : null;
+  return [name, ends].filter(Boolean).join(' · ');
+}
+
+/**
+ * The grants of an account: what is given now beyond the plan, with a way to take each back; the
+ * rest (ended, taken back, the plans the admin set) under History; and adding one, folded away.
+ * `now` is the fold's summary: how many are given.
+ */
+async function paintGrants(box, user, now) {
   const { grants } = await api.get(`/api/admin/users/${user.id}/grants`);
-  const now = new Date().toISOString();
-  const stateOf = (g) => (g.revoked_at ? 'revoked' : g.ends_at && g.ends_at <= now ? 'ended' : 'active');
+  const at = new Date().toISOString();
+  const stateOf = (g) => (g.revoked_at ? 'revoked' : g.ends_at && g.ends_at <= at ? 'ended' : 'active');
   const features = Object.entries(state.catalog.features || {});
+  // The extras in force; the plans are the Plan fold's, and what is over is history.
+  const extras = grants.filter((g) => g.feature && stateOf(g) === 'active');
+  const history = grants.filter((g) => !extras.includes(g));
+  now.textContent = extras.length ? t('admin.grants.activeCount', { n: extras.length }) : t('admin.grants.noneShort');
+
+  const what = (g) => el('td', {},
+    el('span', { text: g.plan ? t('admin.grants.planGrant', { plan: planName(g.plan) }) : `${featureLabel(g.feature)}: ${valueText(g.feature, JSON.parse(g.value ?? 'null'))}` }),
+    g.note ? el('small', { text: g.note }) : null);
+  const ends = (g) => (g.ends_at ? formatDate(g.ends_at) : t('admin.grants.forever'));
+  const revoke = (g) => el('button', {
+    type: 'button', class: 'kit-link kit-link--danger', text: t('admin.grants.revoke'),
+    onClick: async () => {
+      if (!(await confirmDialog(t('admin.grants.revokeConfirm')))) return;
+      try {
+        await api.delete(`/api/admin/grants/${g.id}`);
+        paintGrants(box, user, now).catch(fail);
+      } catch (err) { fail(err); }
+    },
+  });
 
   const feature = el('select', {}, features.map(([key]) => el('option', { value: key, text: featureLabel(key) })));
   const flag = el('input', { type: 'checkbox', checked: true });
   const amount = el('input', { type: 'number', min: '0', step: '1', placeholder: t('admin.plans.noLimit') });
   const until = el('input', { type: 'date' });
-  const note = el('input', { maxlength: '200' });
+  const note = el('input', { maxlength: '200', placeholder: t('admin.users.optional') });
   const valueField = el('div', {});
   const paintValue = () => {
     const type = state.catalog.features[feature.value]?.type;
     clear(valueField).append(type === 'flag'
-      ? el('label', { class: 'kit-check' }, flag, el('span', { text: t('admin.grants.on') }))
-      : field(t('admin.grants.limit'), amount, t('admin.grants.limitHint')));
+      ? field(t('admin.grants.value'), el('label', { class: 'kit-check' }, flag, el('span', { text: t('admin.grants.on') })))
+      : field(t('admin.grants.limit'), amount));
   };
   feature.addEventListener('change', paintValue);
   paintValue();
 
   clear(box).append(
-    el('h3', { text: t('admin.grants.title') }),
     el('p', { class: 'kit-hint', text: t('admin.grants.lead') }),
-    grants.length ? table([t('admin.grants.what'), t('admin.grants.source'), t('admin.grants.until'), ''],
-      grants.map((g) => el('tr', {},
-        el('td', {}, el('span', { text: g.plan ? t('admin.grants.planGrant', { plan: planName(g.plan) }) : `${featureLabel(g.feature)}: ${valueText(g.feature, JSON.parse(g.value ?? 'null'))}` }),
-          g.note ? el('small', { text: g.note }) : null),
-        el('td', { text: g.source }),
-        el('td', {}, el('span', { text: g.ends_at ? formatDate(g.ends_at) : t('admin.grants.forever') }),
-          el('small', { class: `kit-badge kit-badge--${stateOf(g) === 'active' ? 'ok' : 'warn'}`, text: t(`admin.grants.${stateOf(g)}`) })),
-        el('td', {}, stateOf(g) === 'active' ? el('button', {
-          type: 'button', class: 'kit-link kit-link--danger', text: t('admin.grants.revoke'),
-          onClick: async () => {
-            if (!(await confirmDialog(t('admin.grants.revokeConfirm')))) return;
-            try {
-              await api.delete(`/api/admin/grants/${g.id}`);
-              paintGrants(box, user).catch(fail);
-            } catch (err) { fail(err); }
-          },
-        }) : null)))) : el('p', { class: 'kit-empty', text: t('admin.grants.none') }),
-    features.length ? el('div', { class: 'kit-grid' },
-      field(t('admin.grants.feature'), feature), valueField,
-      field(t('admin.grants.untilField'), until, t('admin.users.planUntilHint')), field(t('admin.grants.note'), note)) : null,
-    features.length ? el('div', { class: 'kit-row' }, el('button', {
-      type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.grants.add'),
-      onClick: async () => {
-        const type = state.catalog.features[feature.value]?.type;
-        try {
-          await api.post('/api/admin/grants', {
-            subject_id: user.id, feature: feature.value,
-            value: type === 'flag' ? flag.checked : amount.value === '' ? null : Number(amount.value),
-            ends_at: endOfDay(until.value), note: note.value.trim() || null,
-          });
-          toast(t('admin.saved'));
-          paintGrants(box, user).catch(fail);
-        } catch (err) { fail(err); }
-      },
-    })) : null,
+    extras.length ? table([t('admin.grants.what'), t('admin.grants.until'), ''],
+      extras.map((g) => el('tr', {}, what(g), el('td', { text: ends(g) }), el('td', {}, revoke(g)))))
+      : el('p', { class: 'kit-empty', text: t('admin.grants.none') }),
+    features.length ? el('details', { class: 'kit-subfold' },
+      el('summary', { text: t('admin.grants.addOne') }),
+      el('div', { class: 'kit-grid kit-grid--4' },
+        field(t('admin.grants.feature'), feature), valueField,
+        field(t('admin.grants.untilField'), until), field(t('admin.grants.note'), note)),
+      el('p', { class: 'kit-hint', text: t('admin.grants.addHint') }),
+      el('div', { class: 'kit-row' }, el('button', {
+        type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.grants.add'),
+        onClick: async () => {
+          const type = state.catalog.features[feature.value]?.type;
+          try {
+            await api.post('/api/admin/grants', {
+              subject_id: user.id, feature: feature.value,
+              value: type === 'flag' ? flag.checked : amount.value === '' ? null : Number(amount.value),
+              ends_at: endOfDay(until.value), note: note.value.trim() || null,
+            });
+            toast(t('admin.saved'));
+            paintGrants(box, user, now).catch(fail);
+          } catch (err) { fail(err); }
+        },
+      }))) : null,
+    history.length ? el('details', { class: 'kit-subfold' },
+      el('summary', { text: t('admin.grants.history', { n: history.length }) }),
+      table([t('admin.grants.what'), t('admin.grants.source'), t('admin.grants.until'), ''],
+        history.map((g) => el('tr', {}, what(g), el('td', { text: g.source }),
+          el('td', {}, el('span', { text: ends(g) }),
+            el('small', { class: `kit-badge kit-badge--${stateOf(g) === 'active' ? 'ok' : 'warn'}`, text: t(`admin.grants.${stateOf(g)}`) })),
+          el('td', {}, stateOf(g) === 'active' ? revoke(g) : null))))) : null,
   );
 }
 

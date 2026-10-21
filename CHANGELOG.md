@@ -14,11 +14,38 @@ change an interface and a patch never does. Apps pin a version through the submo
     (`--look-r-xs`…`--look-r-xl`, 6–18px) and room (`--look-gutter` 20px, `--look-row-y`,
     `--look-row-gap`, `--look-head-y`, `--look-item-y`, `--look-bar-y`, `--look-section`).
   - **Every size in the kit uses one, with today's value as its fallback**
-    (`font-size: var(--look-subhead, 14px)`): 75 font sizes, 48 radii and the main rows, heads
+    (`font-size: var(--look-subhead, 14px)`): 78 font sizes, 49 radii and the main rows, heads
     and items. An app's stylesheet does the same for its own; with no Clean look, the fallback is
     what applies. App icons, pills, circles and the sign-in hero keep their sizes.
   - In Clean, a view's head (`.kit-head`) has a 34px title and no line under it, sidebar entries
     are 44px tall, and section labels are spaced like an iPhone's.
+
+## 0.112.1 — 2026-10-21
+
+- **Opening the drawer from the edge no longer switches module** (`web/shell.js`). In the installed
+  app on an iPhone, a swipe from the screen's edge that began just past the kit's 20 px went to the
+  system, which took it as Back: the page before was the module used last, so Projects turned into
+  Tasks. Now, in the installed app (`display-mode: standalone`), going to another of the host's
+  modules (the rail, the switcher's menu, any link to one) replaces this page in the history
+  instead of stacking on it, as a phone app's tabs do; a browser keeps its history as it was. The
+  strip at the edge that opens the drawer is 28 px.
+
+## 0.112.0 — 2026-10-21
+
+- **The admin's account dialog, compact** (`web/admin.js`, `web/kit.css`, catalogs). Only the page changes; the API
+  is the same.
+  - **Folds that say what they hold**: Account (email and role), Plan (the plan and until when, or
+    «(by default)» in the warning colour), Extras (how many are in force) and, with local accounts,
+    Password. One open at a time; Plan opens first. Signing out everywhere, the second step and
+    deleting the account sit apart at the end, the deletion on its own on the right.
+  - **Plan**: plan, end and reason in one row with one line of help; the reason the admin gave is
+    in the form, so changing only the end keeps it. «Back to the default plan» only shows when the
+    plan is the admin's: a subscription is not taken back here.
+  - **Extras**: only those in force, each with Take back; adding one and the history (ended, taken
+    back, the plans set) fold away.
+  - Catalog keys: new `admin.users.optional`, `admin.users.planHint`, `admin.grants.noneShort`,
+    `activeCount`, `history`, `value`, `addOne`, `addHint`; gone `admin.users.planLead`,
+    `planUntilHint`, `planNoteHint`, `access` and `admin.grants.limitHint`.
 
 ## 0.111.0 — 2026-10-21
 

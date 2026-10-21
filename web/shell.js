@@ -267,7 +267,9 @@ export function createShell({
    * lifting the finger it opens or closes by how far the finger went. It was
    * Tasks' own gesture; the other apps' drawer came out all at once.
    */
-  const EDGE = 20;
+  // A little wider than the system's own strip seems to be: a swipe to open the drawer that began
+  // just past 20 px went to the system, which took it as Back (the installed app, an iPhone).
+  const EDGE = 28;
   /** How far a finger goes sideways before the drawer follows it. */
   const DRAG_ARM = 12;
   /**
@@ -461,6 +463,7 @@ export function createShell({
   let hosted = false;     // drawn as a host's module
   let answered = false;   // the host said (or failed to say) which modules: the rail is known
   let others = [];        // the other modules the person uses, for the switcher's menu
+  let modulePaths = new Set();   // where each of the host's modules is, for going between them
 
   /** As a host's module (`on`) the person's button gives way; off, it is as in an app on its own. */
   function asModule(on) {
@@ -469,6 +472,25 @@ export function createShell({
     foot.hidden = on;
     syncSwitcher();
   }
+
+  /**
+   * In the installed app, going to another module takes this one's place in the history instead of
+   * stacking on it. There is no Back button there, only the system's: on an iPhone a swipe from the
+   * screen's edge, the same one that opens the drawer, and a finger that began a few pixels too far
+   * in went back to the module used before instead of opening it. Each module is a place of its
+   * own, as a tab is in a phone's app. In a browser, with its Back button, the history is as it was.
+   */
+  const installed = () => navigator.standalone === true
+    || Boolean(globalThis.matchMedia?.('(display-mode: standalone)')?.matches);
+  document.addEventListener('click', (ev) => {
+    if (FRAMED || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    const link = ev.target instanceof Element ? ev.target.closest('a[href]') : null;
+    if (!link || link.target === '_blank' || !installed()) return;
+    const to = new URL(link.href, window.location.href);
+    if (to.origin !== window.location.origin || !modulePaths.has(to.pathname) || to.pathname === window.location.pathname) return;
+    ev.preventDefault();
+    window.location.replace(to.href);
+  }, { capture: true, signal });
 
   /**
    * The app's icon and name are the switcher where the rail doesn't show: on a phone, or where
@@ -531,6 +553,7 @@ export function createShell({
     try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
     others = shown.filter((m) => m.mount !== mount);
+    modulePaths = new Set(modules.map((m) => new URL(m.path, window.location.href).pathname));
     // With one module too: the rail has Settings, where more are chosen (Settings › Modules).
     const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
