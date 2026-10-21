@@ -3,6 +3,38 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.114.1 — 2026-10-21
+
+- **Security fix: a code for `/devices/session` can no longer sign a reader into someone else's
+  account** (`device-pages.js`, `devices.js`). An image in a shared note
+  (`![](/devices/session?code=<a fresh code>&next=/notes/)`) loaded the address from this same
+  site, spent the code, closed the reader's session and opened one in the account of whoever made
+  the code. Now:
+  - **Only the app's own top-level load of the page opens a session**: `Sec-Fetch-Site` absent or
+    `none`, `Sec-Fetch-Dest` absent or `document`, and `Sec-Fetch-Mode` absent or `navigate`
+    (Android's WebView and WKWebView send `none`, `navigate` and `document`; an old WebView that
+    sends none of them still works). Images, frames and fetches are refused, and so is a link
+    followed from a page of this site (`same-origin`: a link in a shared note) as well as from
+    another site. Nothing of this site links to the route.
+  - **A live session of another person is replaced only when a device opened it, and only by a
+    load that says `Sec-Fetch-Site: none`** (`signed_in` otherwise). That is the app's WebView,
+    which kept the cookie of the account it had after a sign-out that didn't reach the server. An
+    ordinary session of the web never is, and a load with no Fetch Metadata (WKWebView before
+    iOS 16.4, any `http://` address) replaces no one's session: the app clears its cookies and
+    its second load opens. A session of the same person is replaced as before.
+  - **A refusal spends nothing and doesn't count against the address**: the code stays good for
+    its minute, and a page that loads the address many times can't lock the reader's phone out
+    of `rateLimits.devices`. It goes to `/?device_session=refused` (`REFUSED_PATH`), so the app can
+    clear its WebView's cookies and try once more; a request from another site now goes there too
+    instead of `/`. A code that is unknown, spent or expired still goes to `/` and counts.
+  - **The audit log can't be flooded by refusals**: one decided by the headers alone writes
+    nothing (it reads no code, and anyone can send it; `cross_site` is no longer written), and
+    `signed_in` is written at most ten times per address in the window (a new, internal
+    `devicesRefused` bucket of the limiter, apart from the token's).
+  - `devices.takeWebCode(code, { refuse })`: `refuse(userId)` is asked last, for a code that would
+    open a session; a reason leaves the code unspent and answers `{ refused, userId }`. The audit
+    reason `signed_in` is new.
+
 ## 0.114.0 — 2026-10-21
 
 - **Settings, a second pass** (`web/settings.js`, `web/kit.css`, `host.js`, `host-worker.js`,

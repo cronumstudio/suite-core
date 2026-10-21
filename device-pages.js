@@ -35,10 +35,21 @@
  * device's token) into an ordinary session of the web, the same cookie a
  * sign-in sets, linked to the device so that it ends with it (sessions.js,
  * devices.js). Then to `next`, a path of this site only. A code that is not one,
- * was spent or expired, a device that no longer works, or a request another
- * site started, opens nothing and goes to `/`, where whoever is there signs in
- * as usual; failures count against the address as the token's exchange does
- * (`rateLimits.devices`) and every outcome is in the audit log.
+ * was spent or expired, or a device that no longer works, opens nothing and
+ * goes to `/`, where whoever is there signs in as usual; these failures count
+ * against the address as the token's exchange does (`rateLimits.devices`).
+ * Refused, without spending the code and without counting, and sent to
+ * `/?device_session=refused` (so the app can clear its WebView's cookies and
+ * try once more): a request that is not the app's own load (`Sec-Fetch-Site`
+ * other than `none`: another site, or a link or an image in a note of this
+ * one), one that is not the page itself (`Sec-Fetch-Dest` other than
+ * `document`, `Sec-Fetch-Mode` other than `navigate`: an image, a frame, a
+ * fetch; a WebView that sends none of the three is let through), and one from
+ * a browser where someone else is signed in (only a session a device opened
+ * before is replaced, and only by a load that says `Sec-Fetch-Site: none`).
+ * Every opened session and every failure is in the audit log; of the
+ * refusals, only someone else's session (`signed_in`), a few times per
+ * address in the window.
  *
  * No second step is asked there: the token was given to a session that had
  * already passed it (`/api/devices/codes` takes only a session, and a session
@@ -53,6 +64,8 @@ import { brandedAdmin } from './brand.js';
 
 export const CONNECT_PATH = '/devices/connect';
 export const SESSION_PATH = '/devices/session';
+/** Where a refused `/devices/session` goes, so the app can tell it from a code that failed. */
+export const REFUSED_PATH = '/?device_session=refused';
 /** How long the request waits in the cookie for the sign-in to come back. */
 export const CONNECT_MS = 10 * 60 * 1000;
 const PAGE = fileURLToPath(new URL('./web/connect.html', import.meta.url));
@@ -216,14 +229,45 @@ export function createDevicePages({ suite, clock = () => Date.now() }) {
       audit?.record({ action: 'device.web_session_failed', actor: userId, req, meta: { reason } });
       return send(res, '/');
     };
+    // A refusal is no guess at a code (the code is not spent, often not even looked at), so it
+    // doesn't count against the address: a page that loads the address many times over would
+    // otherwise lock the reader's own phone out of the token's bucket. Nor does one that only the
+    // headers decided write to the audit log, or anyone could fill it with no code and no brake.
+    const refuse = () => send(res, REFUSED_PATH);
     const brake = limiter.checkFailures('devices', req);
     if (!brake.allowed) return send(res, '/');
-    // Opened by the app in its WebView (`none`) or from a page of this site; never from a link on
-    // another site, which would sign whoever follows it into the account of whoever made the code.
+    // Only the app's own load of the page, the way its WebView opens it: `Sec-Fetch-Site: none`.
+    // Never from another site, nor from a page of this one (a note shared with someone can hold
+    // `[open](/devices/session?…)` or `![](/devices/session?…)`), nor as an image, a frame or a
+    // fetch: any of them would sign the reader into the account of whoever made the code. Nothing
+    // of this site links here. A WebView too old to send these headers sends none, and goes on.
     const site = req.headers['sec-fetch-site'];
-    if (site === 'cross-site' || site === 'same-site') return fail('cross_site');
+    const dest = req.headers['sec-fetch-dest'];
+    const mode = req.headers['sec-fetch-mode'];
+    if (site !== undefined && site !== 'none') return refuse();
+    if ((dest !== undefined && dest !== 'document') || (mode !== undefined && mode !== 'navigate')) return refuse();
+    // A live session of someone else is replaced only by the app's own load as the browser vouches
+    // for it (`none`), and only when a device opened it (its WebView kept the cookie of the account
+    // it had, after signing out as best it could; the app would never get back in otherwise). An
+    // ordinary session of the web never is, and with no headers at all (an old WebView, a page over
+    // http://, where an image in a note sends none either) no session of someone else is: the app
+    // clears its WebView's cookies and opens the address again, now with nothing in the way.
+    const current = sessions.alive(sessions.tokenFrom(req));
+    const replaceable = current != null && current.device_id != null && site === 'none';
+    const holder = current && !replaceable ? sessions.userFrom(req)?.id ?? null : null;
     const codes = url.searchParams.getAll('code');
-    const outcome = devices.takeWebCode(codes.length === 1 ? codes[0] : null);
+    const outcome = devices.takeWebCode(codes.length === 1 ? codes[0] : null, {
+      refuse: (userId) => (holder != null && holder !== userId ? 'signed_in' : null),
+    });
+    if (outcome.refused) {
+      // Only a good code gets here, and it stays good for its minute: written down a few times per
+      // address in the window (their own bucket, not the token's), never as often as it is opened.
+      if (limiter.checkFailures('devicesRefused', req).allowed) {
+        limiter.noteFailure('devicesRefused', req);
+        audit?.record({ action: 'device.web_session_failed', actor: outcome.userId, req, meta: { reason: outcome.refused } });
+      }
+      return refuse();
+    }
     if (outcome.failed) return fail(outcome.failed, outcome.userId);
     sessions.open(outcome.user.id, { req, res, deviceId: outcome.deviceId });
     accounts.signedIn(outcome.user.id);

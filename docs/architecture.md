@@ -597,10 +597,26 @@ as a hash and bound to the device. `GET /devices/session?code=…&next=<path>` o
 session (the same cookie as a sign-in, with its `sessions.idleDays` and `maxDays`), noted as a
 sign-in, and goes to `next` when it is a path of this site, else to `/`. A code that is unknown,
 spent, expired, or whose device no longer works (revoked, idle, a disabled account, `canConnect`
-saying no) opens nothing and goes to `/`; one opened by a link of another site (`Sec-Fetch-Site:
-cross-site` or `same-site`) too, so nobody can sign a visitor into their own account. Failures of
-both count against the address in the token's bucket (`rateLimits.devices`); `device.web_session`
-and `device.web_session_failed` (with its reason) are in the audit log. The session keeps its
+saying no) opens nothing and goes to `/`; these failures count against the address in the token's
+bucket (`rateLimits.devices`). So that nobody can sign someone else into their own account, three
+requests are refused without spending the code or counting against the address, and go to
+`/?device_session=refused`, which tells the app to clear its WebView's cookies and try once more:
+one that is not the app's own load (`Sec-Fetch-Site` other than `none`: another site, or a link
+or an image in a note of this one; nothing of this site links to the route); one that is not a
+top-level load of the page (`Sec-Fetch-Dest` other than `document` or `Sec-Fetch-Mode` other than
+`navigate`: an image in a shared note, `![](/devices/session?code=…)`, a frame, a fetch; a WebView
+too old to send them sends none of the three, and is let through; Android's WebView and WKWebView
+send `none`, `navigate` and `document`); and one from a browser where another person has a live
+session (`signed_in`). Only a session that a device opened before (`sessions.device_id` set: a
+WebView that kept the cookie of the account it had) is replaced, and only by a load that says
+`Sec-Fetch-Site: none`; an ordinary session of the web never is, and a load with no Fetch Metadata
+(WKWebView before iOS 16.4, any `http://` address, where an image sends none either) replaces no
+one's session: the app clears the cookies and its second load, with none, opens. One of the same
+person is replaced as before. `device.web_session` and `device.web_session_failed` are in the audit
+log, the latter with its reason: `unknown`, `reused`, `expired` or `device`, and `signed_in` at
+most ten times per address in the window (a good code is not spent by it, so it could be loaded
+over and over); a refusal decided by the headers alone writes nothing, since it reads no code and
+anyone could send it. The session keeps its
 device (`sessions.device_id`): revoking the device by its owner, by itself or by the admin closes
 it at once, and every use asks the device first (`sessionAlive`), so it also ends when the device
 stops working any other way, or the module is switched off; using it is using the device, which
