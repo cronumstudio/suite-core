@@ -528,7 +528,6 @@
   "kit.ai.standingWhere.chatgpt": "ChatGPT: Personalización → instrucciones personalizadas.",
   "kit.ai.standingWhere.claudeCode": "Claude Code: ~/.claude/CLAUDE.md para todos los proyectos, o el CLAUDE.md del repositorio.",
   "kit.ai.standingCopy": "Copiar la instrucción",
-  "kit.ai.standingMore": "Más sobre {app} y tu IA",
   "kit.profile.email.title": "Email",
   "kit.profile.email.help": "Con un email se puede recuperar una contraseña olvidada.",
   "kit.profile.email.unconfirmed": "Aún sin confirmar.",
@@ -686,6 +685,7 @@
   "kit.plan.current": "Tu plan",
   "kit.plan.unlimited": "Sin límites",
   "kit.plan.until": "Hasta",
+  "kit.plan.untilDate": "Hasta el {date}",
   "kit.plan.benefitsTitle": "Lo que incluye",
   "kit.plan.benefits.lists": "Hasta {n} listas",
   "kit.plan.benefits.listsUnlimited": "Todas las listas que quieras",
@@ -756,9 +756,10 @@
   "kit.data.erased": "Tus datos se han borrado.",
   "kit.data.deleteTitle": "Borrar mi cuenta",
   "kit.data.deleteHint": {
-    "one": "Tu cuenta y todo lo que tienes en {app} se borran a los {n} día. Hasta entonces no se puede usar; si entras antes, puedes recuperarla.",
-    "other": "Tu cuenta y todo lo que tienes en {app} se borran a los {n} días. Hasta entonces no se puede usar; si entras antes, puedes recuperarla."
+    "one": "Si borras tu cuenta, quedará desactivada durante {n} día y después se eliminará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba.",
+    "other": "Si borras tu cuenta, quedará desactivada durante {n} días y después se eliminará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba."
   },
+  "kit.data.deleteShared": "Lo que compartes con otras personas se queda con ellas, salvo que dejes de compartirlo antes de borrar tu cuenta.",
   "kit.data.deleteButton": "Borrar mi cuenta…",
   "kit.data.deleteAsk": "¿Borrar tu cuenta?",
   "kit.data.deleteText": {

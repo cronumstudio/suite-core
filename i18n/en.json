@@ -528,7 +528,6 @@
   "kit.ai.standingWhere.chatgpt": "ChatGPT: Personalization → custom instructions.",
   "kit.ai.standingWhere.claudeCode": "Claude Code: ~/.claude/CLAUDE.md for every project, or the repository’s CLAUDE.md.",
   "kit.ai.standingCopy": "Copy the instruction",
-  "kit.ai.standingMore": "More about {app} and your AI",
   "kit.profile.email.title": "Email",
   "kit.profile.email.help": "With an email, a forgotten password can be recovered.",
   "kit.profile.email.unconfirmed": "Not confirmed yet.",
@@ -686,6 +685,7 @@
   "kit.plan.current": "Your plan",
   "kit.plan.unlimited": "No limits",
   "kit.plan.until": "Until",
+  "kit.plan.untilDate": "Until {date}",
   "kit.plan.benefitsTitle": "What it includes",
   "kit.plan.benefits.lists": "Up to {n} lists",
   "kit.plan.benefits.listsUnlimited": "As many lists as you want",
@@ -756,9 +756,10 @@
   "kit.data.erased": "Your data is erased.",
   "kit.data.deleteTitle": "Delete my account",
   "kit.data.deleteHint": {
-    "one": "Your account and everything you have in {app} go after {n} day. Until then it can’t be used; if you sign in before, you can take it back.",
-    "other": "Your account and everything you have in {app} go after {n} days. Until then it can’t be used; if you sign in before, you can take it back."
+    "one": "If you delete your account, it is switched off for {n} day and then deleted automatically, with everything you have in {app}. If you change your mind before then, sign in and you can take it back as it was.",
+    "other": "If you delete your account, it is switched off for {n} days and then deleted automatically, with everything you have in {app}. If you change your mind before then, sign in and you can take it back as it was."
   },
+  "kit.data.deleteShared": "What you share with other people stays with them, unless you stop sharing it before deleting your account.",
   "kit.data.deleteButton": "Delete my account…",
   "kit.data.deleteAsk": "Delete your account?",
   "kit.data.deleteText": {

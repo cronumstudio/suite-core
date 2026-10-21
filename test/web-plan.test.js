@@ -283,7 +283,7 @@ test('the subscriptions unknown (the server didn’t answer): nothing offered, r
 });
 
 test('"Until" beside a live subscription that holds the plan is its period, shown there; a pass keeps it', async () => {
-  const until = (view) => view.page.all().filter((n) => n.className === 'kit-fact' && /^Until/.test(n.textContent) && view.visible(n)).length;
+  const until = (view) => view.page.all().filter((n) => n.className === 'kit-plan-card__until' && /^Until/.test(n.textContent) && view.visible(n)).length;
   const server = (subscriptions) => ({
     'GET /api/me/entitlements': { data: PRO },
     'GET /api/billing/products': { data: PRODUCTS },

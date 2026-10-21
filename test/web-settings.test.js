@@ -18,7 +18,7 @@ const { loadLanguage } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
 globalThis.fetch = realFetch;
 
-test('in a host, Your AI has every module\'s instruction folded under its name, and About a card for each with its version', async () => {
+test('in a host, Your AI has every module\'s instruction folded under its name with what it says of it, and About a card for each with its version and website', async () => {
   const { openSettings } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');
   const { el } = await import('../web/dom.js');
@@ -26,12 +26,18 @@ test('in a host, Your AI has every module\'s instruction folded under its name, 
   const assigned = [];
   const modules = [
     { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: true, about: true, standing: 'settings.mcp.standingText' } },
-    { mount: 'next', path: '/next/', name: 'Next', icon: '/next/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: true, standing: 'settings.standing.text' } },
+    { mount: 'next', path: '/next/', name: 'Next', icon: '/next/icons/favicon.svg', active: true,
+      settings: { sections: [], data: false, ai: false, about: true, standing: 'settings.standing.text', site: 'https://next.example/',
+        standingMore: ['settings.standing.prompt', ['ex.a', 'ex.aAsk'], ['ex.b', 'ex.bAsk'], 'no.such.key', 'settings.standing.close'] } },
     { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: false } },
   ];
   globalThis.fetch = async (path) => {
     const data = path === '/api/modules' ? { host: { name: 'Cronum Work', icon: '/icons/favicon.svg?v=2' }, modules }
-      : path === '/next/i18n/en.json' ? { 'settings.standing.text': '- Log progress in Next.', 'app.tagline': 'Where each project stands' }
+      : path === '/next/i18n/en.json' ? {
+        'settings.standing.text': '- Log progress in Next.', 'app.tagline': 'Where each project stands',
+        'settings.standing.prompt': 'Or launch setup_next.', 'settings.standing.close': 'Close with close_session.',
+        'ex.a': 'At work:', 'ex.aAsk': 'log this', 'ex.b': 'At home:', 'ex.bAsk': 'what next?',
+      }
         : path === '/notes/i18n/en.json' ? { 'app.tagline': 'Your notes' } : undefined;
     return { ok: data !== undefined, status: data === undefined ? 404 : 200, json: async () => data };
   };
@@ -46,6 +52,8 @@ test('in a host, Your AI has every module\'s instruction folded under its name, 
         app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg', tagline: 'Your lists' }, user: { username: 'ada', role: 'user' }, root, start,
         config: { app: { modules: { mcp: true }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: false, plans: false } } },
         standing: 'kit.settings.title',   // a key this catalog has, for the test
+        standingMore: ['kit.settings.title', 'no.such.key'],
+        site: 'https://tasks.example/',
         aiExtra: () => el('p', { text: 'Examples' }),
         aboutExtra: () => el('p', { text: 'What Tasks is' }),
         updates: { check: async () => false, loaded: () => loaded, latest: () => loaded },
@@ -68,10 +76,13 @@ test('in a host, Your AI has every module\'s instruction folded under its name, 
     folds[1].open = true;
     folds[1].dispatch('toggle');
     assert.equal(folds[0].open, false);
-    // From its fold, what the module adds to Your AI: drawn here for this one.
-    const more = folds[0].find('button').find((node) => node.textContent === t('kit.ai.standingMore', { app: 'Tasks' }));
-    for (const fn of more.listeners.click) fn({ currentTarget: more });
-    assert.ok(ai.all().find((node) => node.className === 'kit-settings__page').textContent.includes('Examples'));
+    // Under the instruction, what each says of it, from its catalog: paragraphs, and pairs in a row as one list.
+    const body = (fold) => fold.all().find((node) => node.className === 'kit-fold__body');
+    assert.deepEqual(body(folds[1]).children.slice(2).map((node) => node.tagName), ['P', 'UL', 'P'], 'a key it lacks is left out');
+    assert.deepEqual(body(folds[1]).find('li').map((li) => li.textContent), ['At work: log this', 'At home: what next?']);
+    assert.equal(body(folds[1]).find('strong')[0].textContent, 'At work:');
+    assert.equal(body(folds[0]).children.at(-1).textContent, t('kit.settings.title'), 'this module\'s from its own catalog');
+    assert.ok(!body(folds[0]).find('button').some((node) => node.className === 'kit-link'), 'nothing takes the person away from here');
 
     const about = open('about');
     await settle();
@@ -84,11 +95,11 @@ test('in a host, Your AI has every module\'s instruction folded under its name, 
     assert.deepEqual(cards.map((card) => card.find('strong')[0].textContent), ['Tasks', 'Next', 'Notes']);
     assert.deepEqual(cards.map((card) => card.find('small')[0].textContent), ['v1.80.0', 'v0.23.0', 'v0.35.0']);
     assert.deepEqual(cards.map((card) => card.find('p')[0]?.textContent), ['Your lists', 'Where each project stands', 'Your notes']);
-    // What a module says it is: another's, there; Notes says nothing.
-    assert.equal(cards[2].find('button').length, 0);
-    const nextMore = cards[1].find('button')[0];
-    for (const fn of nextMore.listeners.click) fn({ currentTarget: nextMore });
-    assert.deepEqual(assigned, ['/next/?settings=about-extra']);
+    // What it is, on its website, in a tab of its own; Notes has none.
+    const links = cards.map((card) => card.find('a')[0]);
+    assert.deepEqual(links.map((a) => a?.getAttribute('href')), ['https://tasks.example/', 'https://next.example/', undefined]);
+    assert.equal(links[1].getAttribute('target'), '_blank');
+    assert.deepEqual(assigned, []);
   } finally {
     globalThis.fetch = realFetch;
     delete globalThis.window;

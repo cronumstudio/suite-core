@@ -967,8 +967,9 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     assert.ok(!labels.includes('no.such.key'));
     assert.ok(asked.includes('/notes/i18n/en.json'));
     assert.ok(!asked.some((path) => path.startsWith('/next/')), 'a module not in use isn\'t asked');
-    // The host's: deleting the whole account, administration and about the host.
-    assert.deepEqual(labels.slice(-3), [t('kit.data.deleteTitle'), t('kit.admin.title'), t('kit.about.title', { app: 'Cronum Work' })]);
+    // Deleting the whole account is the account's, after the plan; the host's last: administration and about it.
+    assert.equal(labels[labels.indexOf(t('kit.plan.title')) + 1], t('kit.data.deleteTitle'));
+    assert.deepEqual(labels.slice(-2), [t('kit.admin.title'), t('kit.about.title', { app: 'Cronum Work' })]);
     // Choosing another module's section goes there, with Settings open on it.
     const templates = root.all().find((node) => node.className === 'kit-settings__item' && node.textContent.includes('Templates'));
     for (const fn of templates.listeners.click) fn({ currentTarget: templates });

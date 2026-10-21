@@ -12,6 +12,10 @@
  *     push: { title: 'Notes', icon: '/icons/icon-192.png?v=1', badge: '/icons/badge-96.png?v=1' },
  *   });
  *
+ * A host's one worker (host-worker.js) also has `push.icons`, each module's own icon by its path
+ * (`{ tasks: '/tasks/icons/icon-192.png' }`): a notice that says which module sent it (`module`,
+ * put on by the host) shows that module's icon, and anything else the host's.
+ *
  * What it does, and why:
  * - The shell is installed from the server, not the browser's HTTP cache
  *   (`cache: 'reload'`): otherwise a new version stored the old icons and code.
@@ -235,9 +239,12 @@ function suiteWorker(options) {
   self.addEventListener('push', function (event) {
     var data = {};
     try { data = event.data ? event.data.json() : {}; } catch (err) { data = { body: event.data && event.data.text() }; }
+    // In a host, the icon of the module that sent it.
+    var own = push.icons && typeof data.module === 'string' && Object.prototype.hasOwnProperty.call(push.icons, data.module)
+      ? push.icons[data.module] : null;
     event.waitUntil(self.registration.showNotification(data.title || push.title, {
       body: data.body || '',
-      icon: push.icon,
+      icon: own || push.icon,
       // Android uses only the alpha channel: the bare glyph.
       badge: push.badge,
       tag: data.tag || push.title,
