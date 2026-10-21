@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.112.0 — 2026-10-21
+
+- **The admin's account dialog, compact** (`web/admin.js`, `web/kit.css`, catalogs). Only the page changes; the API
+  is the same.
+  - **Folds that say what they hold**: Account (email and role), Plan (the plan and until when, or
+    «(by default)» in the warning colour), Extras (how many are in force) and, with local accounts,
+    Password. One open at a time; Plan opens first. Signing out everywhere, the second step and
+    deleting the account sit apart at the end, the deletion on its own on the right.
+  - **Plan**: plan, end and reason in one row with one line of help; the reason the admin gave is
+    in the form, so changing only the end keeps it. «Back to the default plan» only shows when the
+    plan is the admin's: a subscription is not taken back here.
+  - **Extras**: only those in force, each with Take back; adding one and the history (ended, taken
+    back, the plans set) fold away.
+  - Catalog keys: new `admin.users.optional`, `admin.users.planHint`, `admin.grants.noneShort`,
+    `activeCount`, `history`, `value`, `addOne`, `addHint`; gone `admin.users.planLead`,
+    `planUntilHint`, `planNoteHint`, `access` and `admin.grants.limitHint`.
+
 ## 0.111.0 — 2026-10-21
 
 - **A second look for a host: Clean** (`host.js`, `web/kit.css`, `web/tokens.css`, `web/theme.js`,

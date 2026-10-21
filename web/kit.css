@@ -297,9 +297,25 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-table tbody tr[data-open] { cursor: pointer; }
 .kit-table tbody tr[data-open]:hover { background: var(--kit-hover); }
 .kit-table small { display: block; color: var(--kit-muted); font-size: 12.5px; }
-/* An account's plan in the admin's dialog: the plan, then where it comes from. */
-.kit-plan-now { margin: 0; font-weight: 600; }
-.kit-plan-now small { display: block; color: var(--kit-muted); font-size: 12.5px; font-weight: 400; }
+/* The admin's account dialog (admin.js): folds that say what they hold, closed. */
+.kit-fold__now {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--kit-muted); font-size: 13px; font-weight: 400;
+}
+.kit-fold__now--warn { color: var(--kit-warn); font-weight: 600; }
+.kit-grid--3 { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
+.kit-grid--4 { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
+.kit-row--end { align-items: end; }
+.kit-row__last { margin-inline-start: auto; }
+.kit-warning {
+  margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.4;
+  background: var(--kit-warn-soft); color: var(--kit-warn);
+}
+.kit-subfold > summary { cursor: pointer; color: var(--kit-accent); font-size: 14px; font-weight: 500; width: fit-content; }
+.kit-subfold[open] > summary { margin-bottom: 10px; }
+.kit-subfold > :not(summary) + :not(summary) { margin-top: 10px; }
+.kit-contents { display: contents; }
+.kit-dialog__end { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--kit-border); }
 /* A QR code (qr.js): black on white in any theme, with its quiet zone drawn in. */
 .kit-qr { display: block; width: min(220px, 100%); height: auto; border-radius: 6px; }
 
