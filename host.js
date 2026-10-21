@@ -410,6 +410,10 @@ export async function createHost({
   const { config } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
+  // The host's own phone pages answer at /devices/… (device-pages.js): no module can have that path then.
+  if ((config.devices?.connectPage || config.devices?.webSessions) && modules.some((spec) => spec.mount === 'devices')) {
+    stop(['modules: "devices" is the path of the host’s phone pages (devices.connectPage, devices.webSessions)']);
+  }
   migrate(suite.database, HOST_MIGRATIONS, { scope: 'host', log });
 
   /**
@@ -436,7 +440,8 @@ export async function createHost({
     for (const name of SHARED_MODULES) {
       if (resolved.modules[name] && !config.modules[name]) errors.push(`${entry.mount}: it uses modules.${name}, which the host has off`);
     }
-    // A phone connects to a product on its own (Tracker), with its own prefix and return addresses.
+    // A phone connects to a product, with its own prefix and return addresses: an app on its own
+    // (Tracker), or a host as a whole from its own suite.config.js (Cronum Work), never one module.
     if (resolved.modules.devices) errors.push(`${entry.mount}: modules.devices is for an app on its own, not a module of a host`);
     // The groups are one set for every module, with the host's kinds: a kind a module manages that the
     // host doesn't declare the same way would leave the generic routes open to it without a word.
@@ -832,6 +837,11 @@ export async function createHost({
     const m = byMount.get(mount);
     if (!m) {
       if (answerWorker(req, res, url)) return undefined;
+      // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else.
+      if (root.devicePages && url.pathname === '/') {
+        securityHeaders(res, { https: install.https });
+        if (root.devicePages.back(req, res, url)) return undefined;
+      }
       // Without a page of its own, the host opens on its first module.
       if (!hasHome && url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
         redirect(res, 302, `/${joined[0].mount}/${url.search}`);

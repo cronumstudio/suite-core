@@ -136,7 +136,7 @@ test('the sessions of an app before suite-core carry on, signed in', (t) => {
       created_at TEXT NOT NULL DEFAULT (datetime('now')), expires_at TEXT NOT NULL, workos_sid TEXT)`);
     d.run("INSERT INTO sessions (token, user_id, expires_at, workos_sid) VALUES (?, 1, datetime('now', '+20 days'), 'authkit_1')", hash);
   });
-  assert.deepEqual(database.columnsOf('sessions').sort(), ['absolute_expires_at', 'created_at', 'expires_at',
+  assert.deepEqual(database.columnsOf('sessions').sort(), ['absolute_expires_at', 'created_at', 'device_id', 'expires_at',
     'idp_session_id', 'ip', 'last_used_at', 'token_hash', 'user_agent', 'user_id']);
   const row = database.get('SELECT * FROM sessions');
   assert.match(row.expires_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/, 'dates become ISO 8601 with Z');

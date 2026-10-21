@@ -65,8 +65,8 @@ const STORE_KEYS = new Set(['products', 'devices']);
 /** What a store product may say; anything else is a typo that would sell nothing. */
 const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', ...Object.keys(STORE_FIELDS)]);
 
-/** suite.config.js `devices`: how an app on a phone connects (devices.js). */
-const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays']);
+/** suite.config.js `devices`: how an app on a phone connects (devices.js, device-pages.js). */
+const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays', 'connectPage', 'webSessions']);
 
 /**
  * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
@@ -218,6 +218,15 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     if (problem) errors.push(`devices.redirectUris: "${String(uri).slice(0, 80)}" is not valid: ${problem}`);
   }
   if (!wholeNumber(devices.idleDays, 1, 3650)) errors.push('devices.idleDays: a whole number of days from 1 to 3650');
+  // The suite's own pages for a phone (device-pages.js): the connect page at /devices/connect, and
+  // sessions of the web from a device's token. Off unless the app says, and then said in the
+  // configuration: an app that leaves them out keeps the shape it always had.
+  for (const key of ['connectPage', 'webSessions']) {
+    if (dv[key] === undefined) continue;
+    if (typeof dv[key] !== 'boolean') errors.push(`devices.${key} must be true or false`);
+    else if (dv[key] && !modules.devices) errors.push(`devices.${key} needs modules.devices: the device tokens it works with`);
+    else devices[key] = dv[key];
+  }
   if (modules.devices && devices.prefix === null) errors.push('modules.devices needs devices.prefix: how the app’s device tokens start ("appdev_")');
   if (modules.devices && !devices.redirectUris.length) {
     errors.push('modules.devices needs devices.redirectUris: where the system browser hands the code back to the app (com.example.app:/auth)');

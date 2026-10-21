@@ -68,6 +68,7 @@ suite-core/
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
+  device-pages.js       done   the connect page and sessions of the web from a device's token (devices.connectPage, webSessions)
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats, kinds an app manages
@@ -171,6 +172,9 @@ export default {
   tokens: { prefix: 'mcp_' },     // how the app's API tokens start
   // Only with modules.devices: an app on a phone (section 7). Both values end up in the installed apps.
   devices: { prefix: 'appdev_', redirectUris: ['com.example.app:/auth'], idleDays: 90 },
+  // With it, also (both off by default): the suite's connect page at /devices/connect, and sessions
+  // of the web opened from a device's token (POST /api/devices/web-session, GET /devices/session).
+  // devices: { …, connectPage: true, webSessions: true },
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
@@ -338,6 +342,17 @@ CREATE TABLE device_codes (              -- what the browser hands back to the a
   expires_at     TEXT NOT NULL,
   used_at        TEXT,                   -- spent by its first exchange, right or wrong
   device_id      INTEGER REFERENCES device_tokens(id) ON DELETE SET NULL   -- revoked if the code comes back
+);
+-- Sessions of the web from a device's token (devices.webSessions, migration 23): what the WebView
+-- opens at /devices/session, one minute, once; and sessions.device_id (nullable, ON DELETE
+-- CASCADE), the device a session came from, which it lives and ends with.
+CREATE TABLE device_web_codes (
+  code_hash  TEXT PRIMARY KEY,           -- sha256; the value goes once, to the device
+  device_id  INTEGER NOT NULL REFERENCES device_tokens(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT                        -- spent by its first use, right or wrong
 );
 
 CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
@@ -532,14 +547,46 @@ phones connected from one office is never stopped. A token ends when it is revok
 the admin signing the person out everywhere or setting their password, `devices.revokeAllOf(id)`),
 after `devices.idleDays` (90) without use, and with the account; a disabled account's are refused,
 as its API tokens are. No route of the suite takes one, the MCP included (except, with
-`stores.devices`, the store routes and `/api/billing/overview`): `ctx.user` only ever comes from
+`stores.devices`, the store routes and `/api/billing/overview`; with `devices.webSessions`,
+`/api/devices/web-session`, below): `ctx.user` only ever comes from
 the session cookie. The app accepts a device on the routes it chooses with
 `suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
 connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
-(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host. Focus
+(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host: a
+host turns it on in its own suite.config.js, and its phone connects to the whole app. Focus
 pairs its kiosks the other way round (a code shown on the signed-in screen and typed or scanned on
 the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header) and keeps
 its own pairing; the tables are named so that both live in its database.
+
+**The connect page** (**done**, v0.105.0, `device-pages.js` and `web/connect.js`, with
+`devices.connectPage`): the suite serves `/devices/connect` itself, ported from Tracker's (which
+Tracker keeps), for any app or host with `modules.devices`. The app opens it with
+`?code_challenge&state&redirect_uri&name&platform`; a query that is not a request the core takes
+(the address exactly one of `devices.redirectUris`) goes to the bare page, which says the link
+can't connect a device. Signed out with local accounts, the page signs in in place (second step
+included); under a provider's sign-in the request waits in a signed cookie (`<app id>_connect`, ten
+minutes, HttpOnly, SameSite=Lax) while the browser goes to `/auth/login`, and `/` brings it back
+once the provider's callback lands there with a session (in a host, before `/` goes to the first
+module). Allow asks `POST /api/devices/codes` and goes back to the app with the code; Cancel goes
+back with `error=access_denied`. In the product's name and colours, in the person's language.
+
+**Sessions of the web from a device** (**done**, v0.105.0, with `devices.webSessions`): an app
+whose screens are its web pages in a WebView (Cronum Work) turns its token into the web's own
+session. `POST /api/devices/web-session` with `Authorization: Bearer <device token>` (the token
+only) answers `{ url: '/devices/session?code=…', expires_at }`: a code of one minute, once, kept
+as a hash and bound to the device. `GET /devices/session?code=…&next=<path>` opens an ordinary
+session (the same cookie as a sign-in, with its `sessions.idleDays` and `maxDays`), noted as a
+sign-in, and goes to `next` when it is a path of this site, else to `/`. A code that is unknown,
+spent, expired, or whose device no longer works (revoked, idle, a disabled account, `canConnect`
+saying no) opens nothing and goes to `/`; one opened by a link of another site (`Sec-Fetch-Site:
+cross-site` or `same-site`) too, so nobody can sign a visitor into their own account. Failures of
+both count against the address in the token's bucket (`rateLimits.devices`); `device.web_session`
+and `device.web_session_failed` (with its reason) are in the audit log. The session keeps its
+device (`sessions.device_id`): revoking the device by its owner, by itself or by the admin closes
+it at once, and every use asks the device first (`sessionAlive`), so it also ends when the device
+stops working any other way, or the module is switched off; using it is using the device, which
+then never goes idle while its WebView is in use. No second step is asked: the token was given
+to a session that had already passed it, and the session it opens dies with it.
 
 **Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
 limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).
@@ -1055,6 +1102,9 @@ apps learned the hard way:
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
    `/api/push/*`, `/api/billing/*`, and with `modules.devices` `/api/devices/*` and `/api/me/devices`.
+   Then, after the identity provider's and OAuth's own paths and for a GET only, the suite's pages
+   for a phone when the app turned them on (device-pages.js): `/devices/connect`, `/devices/session`,
+   and `/` back from the provider's sign-in to the connect page.
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
@@ -1433,7 +1483,7 @@ first, then Tasks, then the rest.
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser; v0.34.0: texts written in the code; v0.49.0: Tasks' stricter scan for everyone, and the server; v0.51.0: one translator for every app, `appTexts` on the server and the kit's in the browser, and `appChecks`) | adopted by Tasks, Projects, Next and Notes; each app's tests run `appChecks` |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
-| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE) | Tracker's native app (its steps A2 and A3); Focus keeps its own pairing |
+| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE; v0.105.0: the connect page and sessions of the web, `device-pages.js`) | Tracker's native app (its steps A2 and A3); Cronum Work's app (its steps S1 and S2); Focus keeps its own pairing |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
 | `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
 | `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |

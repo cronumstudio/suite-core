@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.106.0 — 2026-10-20
+## 0.106.0 — 2026-10-21
 
 - **The kit's bridge to the suite's app on a phone** (new `web/native.js`; `settings.js`,
   `plan.js`, `shell.js`, `signin.js`, `push.js`, `worker.js`, `sw-core.js`). Cronum Work's app for
@@ -30,6 +30,39 @@ change an interface and a patch never does. Apps pin a version through the submo
   registration is the phone's one channel.
 - Outside the app nothing changes: every function of `native.js` does nothing there, and every
   page and Settings behave and ask the server exactly as before.
+
+## 0.105.0 — 2026-10-20
+
+- **The connect page as a suite piece** (new `device-pages.js` and `web/connect.js`, `config.js`,
+  `app.js`, `host.js`; `devices.connectPage`). An app or a host with `modules.devices` that sets
+  `devices: { connectPage: true }` gets `/devices/connect` from the suite, ported from Tracker's
+  own page (which Tracker keeps): the native app opens it in the system browser with
+  `?code_challenge&state&redirect_uri&name&platform`, the person signs in and allows the device,
+  and the page asks `POST /api/devices/codes` and goes back to the app with the code (Cancel goes
+  back with `error=access_denied`). A query that is not a request the core takes goes to the bare
+  page. With local accounts the page signs in in place; under a provider's sign-in the request
+  waits in a signed cookie (`<app id>_connect`, ten minutes) and `/` brings the browser back to it
+  after the provider's callback, at a host's root too, before `/` goes to the first module. In the
+  product's name and colours and the person's language (`kit.connect.*` in en/es/fr/de).
+- **Sessions of the web from a device** (`devices.js`, `sessions.js`, `device-pages.js`;
+  `devices.webSessions`; **suite migration 23**, `device-web-sessions`). For an app whose screens
+  are its web pages in a WebView (Cronum Work): `POST /api/devices/web-session` with the device's
+  token answers `{ url: '/devices/session?code=…', expires_at }`, a code of one minute, once, kept
+  as a hash and bound to the device; `GET /devices/session?code=…&next=<path>` opens an ordinary
+  session for the device's account (the same cookie as a sign-in), linked to the device, and goes
+  to `next` when it is a path of the site, else to `/`. A bad, spent or expired code, a device
+  that no longer works, or a link of another site (`Sec-Fetch-Site`) opens nothing and goes to `/`.
+  Failures count against the address in the token's bucket (`rateLimits.devices`); the audit log
+  names `device.web_session` and `device.web_session_failed`. The session ends with its device:
+  revoked by its owner, by itself or by the admin, gone idle, its account disabled or deleted, or
+  refused by `canConnect`; using it counts as using the device. No second step is asked: the token
+  was given to a session that had passed it. The migration adds the table `device_web_codes` and a
+  nullable `sessions.device_id`: every app gets them, and they stay empty without the option.
+- **The service worker never answers `/devices/session`** (`web/sw-core.js`): a one-time code is
+  never served from a copy, nor a page put in its place when the network is slow.
+- Without the new options nothing changes: an app with `modules.devices` (Tracker) serves neither
+  page nor `/api/devices/web-session`, and its configuration's `devices` keeps its shape. A host
+  with either option refuses a module mounted at `/devices/`.
 
 
 ## 0.104.0 — 2026-10-20

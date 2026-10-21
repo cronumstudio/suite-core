@@ -106,7 +106,7 @@ test('the tables: migration 22, beside a table of an app’s own called devices 
   const database = openDatabase({ dataDir: dir, name: 'focus' });
   t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   database.exec("CREATE TABLE devices (id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('kiosk')))");
-  assert.deepEqual(migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} }).at(-1), 22);
+  assert.ok(migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} }).includes(22));
   assert.equal(SUITE_MIGRATIONS[21].name, 'device-tokens');
   assert.ok(database.columnsOf('device_tokens').includes('token_hash'));
   assert.ok(database.columnsOf('device_codes').includes('code_challenge'));
@@ -481,7 +481,7 @@ test('the admin signing someone out everywhere, or setting their password, revok
 });
 
 test('the admin’s activity log names every device entry, in every language', () => {
-  const actions = ['device.create', 'device.revoke', 'device.token_failed'];
+  const actions = ['device.create', 'device.revoke', 'device.token_failed', 'device.web_session', 'device.web_session_failed'];
   for (const lang of ['en', 'es', 'fr', 'de']) {
     const catalog = JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
     for (const action of actions) {
