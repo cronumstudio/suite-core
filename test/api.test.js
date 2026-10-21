@@ -198,6 +198,33 @@ test('plans and grants from the admin', async (t) => {
   assert.equal(entitlements.limit(accounts.byId(ada), 'lists.max'), 3);
 });
 
+test('the admin sees where each plan comes from, and the reason for one goes with it into the log', async (t) => {
+  const { call, root, accounts, entitlements, audit } = await start(t);
+  const ada = accounts.create({ username: 'ada' }).id;
+  const eve = accounts.create({ username: 'eve' }).id;
+  entitlements.grant({ subjectId: eve, plan: 'pro', source: 'paddle', externalRef: 'sub_1', endsAt: '2099-01-01T00:00:00Z' });
+
+  const sourceOf = async (id) => (await call('GET', '/api/admin/users', { as: root })).body.users.find((u) => u.id === id).plan_source;
+  assert.deepEqual(await sourceOf(ada), { kind: 'default' }, 'no grant: the default plan, said as such');
+  assert.deepEqual(await sourceOf(root), { kind: 'unlimited' });
+  assert.deepEqual(await sourceOf(eve), { kind: 'subscription', provider: 'paddle', ends: '2099-01-01T00:00:00.000Z', note: null });
+
+  const set = await call('PUT', `/api/admin/users/${ada}/plan`, { as: root, body: { plan: 'pro', note: '  lifetime, early tester  ' } });
+  assert.deepEqual(set.body.plan_source, { kind: 'admin', ends: null, note: 'lifetime, early tester' });
+  assert.equal(entitlements.grantsOf('user', ada)[0].note, 'lifetime, early tester');
+  assert.deepEqual(audit.list()[0].meta, { plan: 'pro', ends_at: null, note: 'lifetime, early tester' });
+
+  // No reason, or only spaces: none in the grant, none in the log; a long one is cut, never refused.
+  await call('PUT', `/api/admin/users/${ada}/plan`, { as: root, body: { plan: 'pro', note: '   ' } });
+  assert.equal(entitlements.grantsOf('user', ada)[0].note, null);
+  assert.deepEqual(audit.list()[0].meta, { plan: 'pro', ends_at: null });
+  await call('PUT', `/api/admin/users/${ada}/plan`, { as: root, body: { plan: 'pro', note: 'x'.repeat(500) } });
+  assert.equal(entitlements.grantsOf('user', ada)[0].note.length, 200);
+  const back = await call('PUT', `/api/admin/users/${ada}/plan`, { as: root, body: { plan: null, note: 'trial over' } });
+  assert.deepEqual(back.body.plan_source, { kind: 'default' });
+  assert.deepEqual(audit.list()[0].meta, { plan: null, ends_at: null, note: 'trial over' });
+});
+
 test('people’s own groups: create, invite, join, roles, leave', async (t) => {
   const { call, root, accounts, entitlements, audit } = await start(t);
   const [ada, bob, eve] = ['ada', 'bob', 'eve'].map((name) => accounts.create({ username: name }).id);

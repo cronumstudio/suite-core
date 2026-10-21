@@ -44,6 +44,30 @@ const actionText = (action) => {
   const text = t(key);
   return text === key ? action : text;
 };
+/** A payment provider by the name people know it by (a grant's source). */
+const providerName = (source) => ({
+  stripe: 'Stripe', paddle: 'Paddle',
+  'paddle-sandbox': t('admin.users.providerSandbox', { provider: 'Paddle' }), revenuecat: t('admin.users.providerStores'),
+}[source] || source);
+/**
+ * An account's plan and where it comes from: the default plan says so, never passing for one that
+ * was given; a gift says until when (or for good) and why; a subscription, where it is paid.
+ */
+const planParts = (user) => {
+  if (user.unlimited) return [el('span', { text: t('admin.users.unlimited') })];
+  const name = user.plan ? t(user.plan.name || user.plan.id) : '';
+  const source = user.plan_source;
+  if (source?.kind === 'default') return [el('span', { text: t('admin.users.byDefault', { plan: name }) })];
+  const until = user.plan_ends ? t('admin.users.until', { date: formatDate(user.plan_ends) }) : null;
+  if (!source) return [el('span', { text: name }), until ? el('small', { text: until }) : null];
+  const from = [
+    source.kind === 'subscription' ? t('admin.users.viaProvider', { provider: providerName(source.provider) }) : null,
+    source.organization_id ? t('admin.users.viaGroup') : null,
+    until || t('admin.users.forever'),
+  ].filter(Boolean).join(' · ');
+  return [el('span', { text: name }), el('small', { text: from }),
+    source.kind === 'admin' && source.note ? el('small', { text: source.note }) : null];
+};
 /** A date input's day as the end of that day, in ISO. */
 const endOfDay = (day) => (day ? new Date(`${day}T23:59:59`).toISOString() : null);
 
@@ -172,9 +196,7 @@ async function renderUsers(main) {
           user.email ? el('span', { text: user.email }) : el('span', { class: 'kit-hint', text: '—' }),
           user.email && !user.email_verified ? el('small', { text: t('admin.users.unconfirmed') }) : null),
         el('td', {}, el('span', { class: `kit-badge${user.role === 'admin' ? ' kit-badge--accent' : ''}`, text: t(`admin.roles.${user.role}`) })),
-        el('td', {},
-          user.unlimited ? el('span', { text: t('admin.users.unlimited') }) : el('span', { text: user.plan ? t(user.plan.name || user.plan.id) : '' }),
-          user.plan_ends && !user.unlimited ? el('small', { text: t('admin.users.until', { date: formatDate(user.plan_ends) }) }) : null),
+        el('td', {}, ...planParts(user)),
         el('td', { text: user.last_login_at ? formatDateTime(user.last_login_at) : t('admin.users.never') }))),
     ),
   );
@@ -284,16 +306,22 @@ function userDialog(user) {
     plan.value = user.plan?.id || state.catalog.defaultPlan;
     const until = el('input', { type: 'date' });
     if (user.plan_ends) until.value = user.plan_ends.slice(0, 10);
+    const note = el('input', { maxlength: '200' });
+    const byDefault = user.plan_source?.kind === 'default';
     planSection = el('div', { class: 'kit-section' },
       el('h3', { text: t('admin.users.plan') }),
+      el('p', { class: 'kit-plan-now' }, ...planParts(user)),
+      // Nothing keeps it: it follows the install's default plan, and goes when that changes.
+      byDefault ? el('p', { class: 'kit-notice', text: t('admin.users.planIsDefault', { plan: user.plan ? t(user.plan.name || user.plan.id) : '' }) }) : null,
       el('p', { class: 'kit-hint', text: user.unlimited ? t('admin.users.adminsUnlimited') : t('admin.users.planLead') }),
-      el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan), field(t('admin.users.planUntil'), until, t('admin.users.planUntilHint'))),
+      el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan), field(t('admin.users.planUntil'), until, t('admin.users.planUntilHint')),
+        field(t('admin.users.planNote'), note, t('admin.users.planNoteHint'))),
       el('div', { class: 'kit-row' },
         el('button', {
           type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.users.setPlan'),
           onClick: async () => {
             try {
-              await api.put(`/api/admin/users/${user.id}/plan`, { plan: plan.value, ends_at: endOfDay(until.value) });
+              await api.put(`/api/admin/users/${user.id}/plan`, { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null });
               toast(t('admin.saved'));
               refresh();
             } catch (err) { fail(err); }
@@ -303,7 +331,7 @@ function userDialog(user) {
           type: 'button', class: 'kit-link', text: t('admin.users.defaultPlan'),
           onClick: async () => {
             try {
-              await api.put(`/api/admin/users/${user.id}/plan`, { plan: null });
+              await api.put(`/api/admin/users/${user.id}/plan`, { plan: null, note: note.value.trim() || null });
               toast(t('admin.saved'));
               refresh();
             } catch (err) { fail(err); }

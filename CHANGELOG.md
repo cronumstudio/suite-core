@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.110.0 — 2026-10-21
+
+- **The admin sees where each plan comes from** (`entitlements.js`, `api.js`, `web/admin.js`,
+  `web/kit.css`, catalogs). Additive: `of()` keeps its shape and nothing else changes for an app.
+  - `entitlements.sourceOf(user)`: `{ kind: 'default' }` when no grant gives the plan shown —it is
+    the install's default (`DEFAULT_PLAN` or the catalog's first), and goes when that changes, even
+    when a grant would give the same plan—, `{ kind: 'unlimited' }` for the instance admin, else the
+    grant that gives it: `kind` `admin` or `subscription` (`provider`), `ends`, `note` and
+    `organization_id` when it is a group's. Of two grants of the plan shown, the one that keeps it longest.
+  - `GET /api/admin/users` and the other answers about an account carry it as `plan_source`.
+  - **Users**: the default plan reads «Pro (by default)», never as a gift; a gift says until when or
+    «for good», and its reason; a subscription where it is paid, and whether it is a group's. The
+    account's dialog says the same at the top of Plan and, on the default plan, that nothing keeps it.
+  - **A reason for a plan**: the plan form has an optional Reason, sent as `note`. `PUT
+    /api/admin/users/:id/plan` trims it, keeps 200 characters, and records it in the log's
+    `admin.plan.set` too (only when there is one).
+
 ## 0.109.0 — 2026-10-21
 
 - **Settings, shorter and in one piece** (`web/settings.js`, `web/kit.css`, `host.js`,
