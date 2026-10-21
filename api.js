@@ -629,8 +629,12 @@ export function registerAdminApi(router, {
     const view = { ...accounts.publicUser(user), providers: accounts.identitiesOf(user.id).map((i) => i.provider) };
     if (!entitlements) return view;
     const { plan, ends, unlimited } = entitlements.of(user);
-    return { ...view, plan, plan_ends: ends, unlimited };
+    // Where it comes from: the install's default plan must never read as one that was given.
+    const source = entitlements.sourceOf?.(user);
+    return { ...view, plan, plan_ends: ends, unlimited, ...(source ? { plan_source: source } : {}) };
   };
+  /** The admin's reason for a plan, as the grant and the log keep it: short text, or null. */
+  const noteOf = (note) => (typeof note === 'string' && note.trim() ? note.trim().slice(0, 200) : null);
 
   router.get('/api/admin/users', (ctx) => {
     requireAdmin(ctx);
@@ -722,8 +726,9 @@ export function registerAdminApi(router, {
       const id = idOf(ctx.params.id);
       if (!accounts.byId(id)) throw notFound('user_not_found');
       const body = await readJson(ctx.req);
-      entitlements.setPlan(id, body.plan ?? null, { endsAt: body.ends_at ?? null, note: body.note ?? null });
-      record(ctx, 'admin.plan.set', 'user', id, { plan: body.plan ?? null, ends_at: body.ends_at ?? null });
+      const note = noteOf(body.note);
+      entitlements.setPlan(id, body.plan ?? null, { endsAt: body.ends_at ?? null, note });
+      record(ctx, 'admin.plan.set', 'user', id, { plan: body.plan ?? null, ends_at: body.ends_at ?? null, ...(note ? { note } : {}) });
       sendJson(ctx.res, 200, withPlan(accounts.byId(id)));
     });
 

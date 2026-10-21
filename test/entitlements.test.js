@@ -550,6 +550,40 @@ test('the admin sets a plan: the previous admin grant ends, a subscription is le
   assert.throws(() => e.setPlan(1, 'gold'), (err) => err.code === 'plan_unknown');
 });
 
+test('sourceOf: the default plan never passes for a grant, even when it is the same plan', (t) => {
+  const database = setup(t);
+  const now = Date.parse('2026-10-21T09:00:00Z');
+  const at = (days) => new Date(now + days * DAY).toISOString();
+  // DEFAULT_PLAN=pro: everyone reads Pro, and nobody has it of their own.
+  const e = createEntitlements({ database, appId: 'tasks', features: FEATURES, plans: PLANS, plansJson: '',
+    defaultPlanOverride: 'pro', clock: () => now, organizationsOf: (user) => (user.id === 3 ? [7] : []) });
+  assert.equal(e.of(ada).plan.id, 'pro');
+  assert.deepEqual(e.sourceOf(ada), { kind: 'default' });
+  assert.deepEqual(e.sourceOf(root), { kind: 'unlimited' });
+  // A lower plan given under a higher default leaves the default shown, and it says so.
+  e.setPlan(ada.id, 'plus', { note: 'beta' });
+  assert.deepEqual(e.sourceOf(ada), { kind: 'default' });
+
+  // The admin's Pro, for good and with its reason: the same plan, now given.
+  e.setPlan(ada.id, 'pro', { note: 'founder' });
+  assert.deepEqual(e.sourceOf(ada), { kind: 'admin', ends: null, note: 'founder' });
+  e.setPlan(ada.id, 'pro', { endsAt: at(30) });
+  assert.deepEqual(e.sourceOf(ada), { kind: 'admin', ends: at(30), note: null });
+  // Two grants of one plan: the one that keeps it longest.
+  e.grant({ subjectId: ada.id, plan: 'pro', source: 'paddle', externalRef: 'sub_1', endsAt: at(60) });
+  assert.deepEqual(e.sourceOf(ada), { kind: 'subscription', provider: 'paddle', ends: at(60), note: null });
+
+  // A group's subscription covers a member: where it is paid, and that it is the group's.
+  const eve = { id: 3, role: 'user' };
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'pro', source: 'stripe', externalRef: 'sub_7' });
+  assert.deepEqual(e.sourceOf(eve), { kind: 'subscription', provider: 'stripe', ends: null, note: null, organization_id: 7 });
+  // Taking the plan back returns to the default, and says so again.
+  e.setPlan(ada.id, null);
+  e.revoke({ source: 'paddle', externalRef: 'sub_1' });
+  assert.deepEqual(e.sourceOf(ada), { kind: 'default' });
+  assert.deepEqual(Object.keys(e.of(ada)), ['plan', 'ends', 'features', 'unlimited'], 'of() keeps its shape');
+});
+
 test('plans moved in from the users table of an app (Tasks)', (t) => {
   const database = setup(t);
   database.run("UPDATE users SET plan = 'pro', plan_expires_at = '2099-12-31 23:59:59' WHERE id = 1");

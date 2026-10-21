@@ -254,6 +254,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-table tbody tr[data-open] { cursor: pointer; }
 .kit-table tbody tr[data-open]:hover { background: var(--kit-hover); }
 .kit-table small { display: block; color: var(--kit-muted); font-size: 12.5px; }
+/* An account's plan in the admin's dialog: the plan, then where it comes from. */
+.kit-plan-now { margin: 0; font-weight: 600; }
+.kit-plan-now small { display: block; color: var(--kit-muted); font-size: 12.5px; font-weight: 400; }
 /* A QR code (qr.js): black on white in any theme, with its quiet zone drawn in. */
 .kit-qr { display: block; width: min(220px, 100%); height: auto; border-radius: 6px; }
 

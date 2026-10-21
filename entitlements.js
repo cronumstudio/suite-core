@@ -302,8 +302,13 @@ export function createEntitlements({
    * until" its end (Settings, Focus's last-days notice).
    */
   function entitledBy(grants) {
+    return shownBy(grants).entitled;
+  }
+
+  /** entitledBy(), and the grant that gives the plan shown: null when it is the default one. */
+  function shownBy(grants) {
     const features = { ...(catalog[fallbackPlan]?.features || allDefaults()) };
-    let shown = { plan: catalog[fallbackPlan], ends: null, granted: false };
+    let shown = { plan: catalog[fallbackPlan], ends: null, granted: false, grant: null };
     for (const grant of grants) {
       if (grant.plan) {
         const plan = catalog[localKey(grant.plan)];
@@ -312,8 +317,13 @@ export function createEntitlements({
           features[key] = generous(declared[key].type, features[key], value);
         }
         const higher = rank(plan.id) - rank(shown.plan?.id);
-        if (higher > 0 || (higher === 0 && !shown.granted)) shown = { plan, ends: grant.ends_at, granted: true };
-        else if (higher === 0) shown.ends = laterEnd(shown.ends, grant.ends_at);
+        if (higher > 0 || (higher === 0 && !shown.granted)) shown = { plan, ends: grant.ends_at, granted: true, grant };
+        else if (higher === 0) {
+          const ends = laterEnd(shown.ends, grant.ends_at);
+          // The grant shown is the one that keeps the plan longest.
+          if (ends !== shown.ends) shown.grant = grant;
+          shown.ends = ends;
+        }
       } else {
         const key = localKey(grant.feature);
         if (!(key in declared)) continue;   // another app's feature
@@ -324,7 +334,27 @@ export function createEntitlements({
         features[key] = generous(declared[key].type, features[key], value);
       }
     }
-    return { plan: { id: shown.plan?.id, name: shown.plan?.name }, ends: shown.ends, features, unlimited: false };
+    return { entitled: { plan: { id: shown.plan?.id, name: shown.plan?.name }, ends: shown.ends, features, unlimited: false }, grant: shown.grant };
+  }
+
+  /**
+   * Where someone's plan comes from, for the admin panel, so the default plan never passes for a
+   * gift: `{ kind: 'default' }` when no grant gives it (it changes with DEFAULT_PLAN, even when it
+   * is the same plan a grant would give), `{ kind: 'unlimited' }` for the instance admin, else the
+   * grant that gives the plan shown: `kind` 'admin' or 'subscription' (`provider`, the grant's
+   * source), `ends` (null: for good), `note`, and `organization_id` when it is a group's.
+   */
+  function sourceOf(user) {
+    if (!user) return { kind: 'default' };
+    if (isUnlimited(user)) return { kind: 'unlimited' };
+    const { grant } = shownBy(activeGrants(user, null));
+    if (!grant) return { kind: 'default' };
+    const admin = grant.source === 'admin';
+    return {
+      kind: admin ? 'admin' : 'subscription', ...(admin ? {} : { provider: grant.source }),
+      ends: grant.ends_at, note: grant.note ?? null,
+      ...(grant.subject_type === 'organization' ? { organization_id: grant.subject_id } : {}),
+    };
   }
 
   const known = (feature) => {
@@ -521,7 +551,7 @@ export function createEntitlements({
   const knows = (key) => key in declared || key in aliasOf;
 
   return {
-    errors, ignored, knows, of, ofOrganization, can, limit, require, allows, cutoff, cutoffOrganization, countDaily,
+    errors, ignored, knows, of, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, countDaily,
     grant, revoke, setPlan, seatsOf, grantsOf, describe,
   };
 }
