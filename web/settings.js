@@ -55,7 +55,7 @@
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
 import { api, errorMessage } from './api.js';
-import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT } from './base.js';
+import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
@@ -572,7 +572,28 @@ export function openSettings(options) {
     return [
       block(null, field(t('kit.appearance.language'), select)),
       block(t('kit.appearance.themeTitle'), theme, hint(t('kit.appearance.themeHint'))),
+      host ? lookBlock() : null,
     ];
+  }
+
+  /** In a host, the look of every module (host.js LOOKS): the suite's own, or Clean. */
+  function lookBlock() {
+    let saved = document.documentElement.getAttribute('data-look') === 'clean' ? 'clean' : 'cronum';
+    const look = segmented(LOOKS.map((value) => ({ value, label: t(`kit.appearance.look.${value}`) })), saved, async (value) => {
+      applyLook(value);
+      try {
+        const res = await fetch('/api/me/look', {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ look: value }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        saved = value;
+      } catch (err) {
+        applyLook(saved);   // not saved: the page goes back to the look this account has
+        fail(err);
+      }
+    });
+    return block(t('kit.appearance.lookTitle'), look, hint(t('kit.appearance.lookHint', { app: hostInfo.name || host.name })));
   }
 
   /* -------------------------------- security -------------------------------- */

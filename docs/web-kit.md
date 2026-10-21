@@ -47,6 +47,13 @@ app that isn't there sets `--app`, `--app-accent`, `--app-on`, `--app-accent-dar
 `--app-on-dark` on `<html>` itself. `theme.js` sets `data-theme` before the first paint; the app
 saves the person's choice as `<app>.theme` in `localStorage` so the next start gets it right.
 
+In a host, each person also chooses a look (v0.111.0): the suite's own, or **Clean**
+(`<html data-look="clean">`: white and plain greys, hairline borders, soft shadows and Inter, with
+the product's accent as the one colour). `kit.css` changes only the kit's variables for it, light
+and dark apart, so an app's own variables built on them follow. `applyLook(look)` (`base.js`) paints
+it and keeps `host.look` in `localStorage`; `theme.js` reads that before the first paint, and an app
+with its own pre-paint script adds the same line.
+
 ## The modules
 
 | File | What it gives |
