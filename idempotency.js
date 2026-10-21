@@ -30,6 +30,13 @@ const MAX_BODY = 256 * 1024;
  */
 export const answeredOnce = (handler) => Object.assign(handler, { answeredOnce: true });
 
+/**
+ * Marks a route whose principal isn't the session's (a device's token): app.js
+ * leaves it alone, since `ctx.user` is null there or someone else, and the
+ * route calls `run()` itself with the account it found, once it found it.
+ */
+export const keyedByRoute = (handler) => Object.assign(handler, { keyedByRoute: true });
+
 export function idempotencySchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
