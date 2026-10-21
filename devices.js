@@ -431,8 +431,13 @@ export function createDevices({
    * code is spent by its first use, right or wrong. One that comes back is only
    * refused, never the device revoked: a WebView going back in its history
    * opens the same address again.
+   *
+   * `refuse(userId)`, when given, is asked last, for a code that would open a
+   * session: a reason (a string) leaves the code unspent and answers
+   * { refused: reason, userId }, so the app can clear what stood in the way
+   * and open the same address again.
    */
-  function takeWebCode(code) {
+  function takeWebCode(code, { refuse = null } = {}) {
     const given = typeof code === 'string' && code.length > 0 && code.length <= 200 ? code : null;
     if (!given) return { failed: 'unknown', userId: null };
     const now = clock();
@@ -440,9 +445,12 @@ export function createDevices({
       const row = database.get('SELECT * FROM device_web_codes WHERE code_hash = ?', sha256(given));
       if (!row) return { failed: 'unknown', userId: null };
       if (row.used_at) return { failed: 'reused', userId: row.user_id };
-      database.run('UPDATE device_web_codes SET used_at = ? WHERE code_hash = ?', iso(now), row.code_hash);
-      if (Date.parse(row.expires_at) <= now) return { failed: 'expired', userId: row.user_id };
-      if (!isActive(row.device_id)) return { failed: 'device', userId: row.user_id };
+      const spend = () => database.run('UPDATE device_web_codes SET used_at = ? WHERE code_hash = ?', iso(now), row.code_hash);
+      if (Date.parse(row.expires_at) <= now) { spend(); return { failed: 'expired', userId: row.user_id }; }
+      if (!isActive(row.device_id)) { spend(); return { failed: 'device', userId: row.user_id }; }
+      const reason = refuse ? refuse(row.user_id) : null;
+      if (reason) return { refused: reason, userId: row.user_id };
+      spend();
       return { user: database.get('SELECT * FROM users WHERE id = ?', row.user_id), deviceId: row.device_id };
     });
   }

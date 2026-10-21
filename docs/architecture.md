@@ -597,10 +597,20 @@ as a hash and bound to the device. `GET /devices/session?code=…&next=<path>` o
 session (the same cookie as a sign-in, with its `sessions.idleDays` and `maxDays`), noted as a
 sign-in, and goes to `next` when it is a path of this site, else to `/`. A code that is unknown,
 spent, expired, or whose device no longer works (revoked, idle, a disabled account, `canConnect`
-saying no) opens nothing and goes to `/`; one opened by a link of another site (`Sec-Fetch-Site:
-cross-site` or `same-site`) too, so nobody can sign a visitor into their own account. Failures of
-both count against the address in the token's bucket (`rateLimits.devices`); `device.web_session`
-and `device.web_session_failed` (with its reason) are in the audit log. The session keeps its
+saying no) opens nothing and goes to `/`; these failures count against the address in the token's
+bucket (`rateLimits.devices`). So that nobody can sign someone else into their own account, three
+requests are refused without spending the code or counting against the address, and go to
+`/?device_session=refused`, which tells the app to clear its WebView's cookies and try once more:
+one started by another site (`Sec-Fetch-Site: cross-site` or `same-site`); one that is not a
+top-level load of the page (`Sec-Fetch-Dest` other than `document` or `Sec-Fetch-Mode` other than
+`navigate`: an image in a shared note, `![](/devices/session?code=…)`, a frame, a fetch; a WebView
+too old to send them sends neither, and is let through; Android's WebView and WKWebView send
+`none`, `navigate` and `document`); and one from a browser where another person has a live,
+ordinary session of the web (`sessions.device_id` null). A live session that a device opened
+before (a WebView that kept the cookie of the account it had) is replaced, and so is one of the
+same person. `device.web_session` and `device.web_session_failed` (with its reason: `unknown`,
+`reused`, `expired`, `device`, `cross_site`, `not_navigation`, `signed_in`) are in the audit
+log. The session keeps its
 device (`sessions.device_id`): revoking the device by its owner, by itself or by the admin closes
 it at once, and every use asks the device first (`sessionAlive`), so it also ends when the device
 stops working any other way, or the module is switched off; using it is using the device, which

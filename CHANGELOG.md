@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.113.1 — 2026-10-21
+
+- **Security fix: a code for `/devices/session` can no longer sign a reader into someone else's
+  account** (`device-pages.js`, `devices.js`). An image in a shared note
+  (`![](/devices/session?code=<a fresh code>&next=/notes/)`) loaded the address from this same
+  site, spent the code, closed the reader's session and opened one in the account of whoever made
+  the code. Now:
+  - **Only a top-level load of the page opens a session**: `Sec-Fetch-Dest` absent or `document`
+    and `Sec-Fetch-Mode` absent or `navigate` (Android's WebView and WKWebView send `document` and
+    `navigate`; an old WebView that sends neither still works). Images, frames and fetches are
+    refused, as a request from another site already was.
+  - **A live, ordinary session of the web of another person is never replaced** (`signed_in`). A
+    live session that a device opened before (`sessions.device_id` set: a WebView that kept the
+    cookie of the account it had after a sign-out that didn't reach the server) still is, and so
+    is one of the same person.
+  - **A refusal spends nothing and doesn't count against the address**: the code stays good for
+    its minute, and a page that loads the address many times can't lock the reader's phone out
+    of `rateLimits.devices`. It goes to `/?device_session=refused` (`REFUSED_PATH`), so the app can
+    clear its WebView's cookies and try once more; a request from another site now goes there too
+    instead of `/`. A code that is unknown, spent or expired still goes to `/` and counts.
+  - `devices.takeWebCode(code, { refuse })`: `refuse(userId)` is asked last, for a code that would
+    open a session; a reason leaves the code unspent and answers `{ refused, userId }`. Audit
+    reasons `not_navigation` and `signed_in` are new.
+
 ## 0.113.0 — 2026-10-21
 
 - **Clean gets an iPhone's type, corners and room** (`web/kit.css`). Additive: the Cronum look
