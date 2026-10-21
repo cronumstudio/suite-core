@@ -12,6 +12,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   modules (the rail, the switcher's menu, any link to one) replaces this page in the history
   instead of stacking on it, as a phone app's tabs do; a browser keeps its history as it was. The
   strip at the edge that opens the drawer is 28 px.
+
 ## 0.112.0 — 2026-10-21
 
 - **The admin's account dialog, compact** (`web/admin.js`, `web/kit.css`, catalogs). Only the page changes; the API
