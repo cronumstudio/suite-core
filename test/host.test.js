@@ -938,6 +938,9 @@ test('a module\'s sections of Settings, as the host lists them for the others: w
   assert.equal(moduleSettings({ standing: 'settings.standing.text' }).standing, 'settings.standing.text');
   assert.ok(!('standing' in moduleSettings({ standing: 'not a key!' })));
   assert.ok(!('standing' in moduleSettings({ standing: true })));
+  // Where its catalog keeps its line, for About's card.
+  assert.equal(moduleSettings({ tagline: 'about.tagline' }).tagline, 'about.tagline');
+  assert.ok(!('tagline' in moduleSettings({ tagline: '<b>' })));
 });
 
 test('notices are the host\'s: a module that sends none answers them at its own path, as the root does', async (t) => {

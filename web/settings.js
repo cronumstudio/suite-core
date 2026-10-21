@@ -1367,7 +1367,8 @@ export function openSettings(options) {
     const here = m.mount === host.mount;
     const name = here ? app.name : m.name || m.mount;
     const words = here ? null : moduleWords(m, currentLanguage(), () => paintCards());
-    const tagline = here ? app.tagline : typeof words?.['app.tagline'] === 'string' ? words['app.tagline'] : '';
+    const taglineKey = m.settings?.tagline || 'app.tagline';
+    const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
     const version = (options.updates?.loaded?.()?.modules || options.updates?.latest?.()?.modules || {})[m.mount]?.app;
     const more = here ? (options.aboutExtra ? () => show('about-extra') : null)
       : m.settings?.about ? () => goTo(m, 'about-extra') : null;

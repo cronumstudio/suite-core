@@ -164,6 +164,7 @@ const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
  *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
  *     about: true,   // it says what it is (aboutExtra): opened from its card in About
  *     standing: 'settings.standing.text',   // its instruction for an assistant, in Your AI
+ *     tagline: 'about.tagline',             // its line in About's card (default: app.tagline)
  *   }
  *
  * `label` and `hint` are keys of the module's catalog, read in the person's
@@ -184,6 +185,7 @@ export function moduleSettings(declared, { data = false } = {}) {
   return {
     sections, data: Boolean(data), ai: given.ai === true, about: given.about === true,
     ...(typeof given.standing === 'string' && CATALOG_KEY.test(given.standing) ? { standing: given.standing } : {}),
+    ...(typeof given.tagline === 'string' && CATALOG_KEY.test(given.tagline) ? { tagline: given.tagline } : {}),
   };
 }
 

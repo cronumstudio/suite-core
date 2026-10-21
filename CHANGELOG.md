@@ -25,7 +25,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   - **About, the whole app's in a host**: the host's icon, name and source (`https://github.com/cronumstudio/<host id>`)
     —before, the module open's—, its version and update check as before, and a card for each
     module in use with its icon, line and version, and a way to what it says it is (`aboutExtra`,
-    no longer in the module's group). The host's `/js/app-version.js` exports `APP_MODULES`
+    no longer in the module's group). The line is the module's `app.tagline`, or the key it names
+    in `createModule().settings.tagline`. The host's `/js/app-version.js` exports `APP_MODULES`
     (`{ [mount]: { app } }`), which `watchUpdates().loaded()` passes on as `modules`.
 
 ## 0.108.0 — 2026-10-21
