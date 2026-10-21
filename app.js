@@ -34,7 +34,9 @@ import { randomToken } from './crypto.js';
 import { createSessions, resolveSessionSecret } from './sessions.js';
 import { createAccounts } from './accounts.js';
 import { createTokens } from './tokens.js';
-import { createDevices, registerDevicesApi } from './devices.js';
+import {
+  createDevices, registerDevicesApi, deviceActionOf, deviceActionsProblem,
+} from './devices.js';
 import { createDevicePages } from './device-pages.js';
 import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
@@ -567,6 +569,12 @@ function inCatalogDir(pathname) {
  *   download and import their data, and the admin the whole install
  * @param {object} [options.devices]      with modules.devices: `{ canConnect(user) → boolean }`, whom
  *   the app lets connect a phone (an allowlist), asked when one connects and on every use
+ * @param {object|Function} [options.deviceActions]  with modules.devices: what the phone does from a
+ *   notification without opening the app, at `POST /api/devices/actions` with its token:
+ *   `{ [action]: async ({ user, id, params, suite }) => result }`, or `(action) => handler | null`
+ *   (devices.js). Without modules.devices it is not used, without a word: an app on its own spreads
+ *   its module's parts here, phones or not. A host gives `resolveDeviceAction` instead, over its
+ *   modules' (host.js)
  * @param {boolean|(() => boolean)} [options.offersMcp]   whether the app's pages offer an AI
  *   connector (`modules.mcp` in /api/auth/config, Settings' AI section); by default, whether its
  *   /mcp answers. A host passes a function for its modules, whose MCP is the host's: read on each
@@ -579,6 +587,7 @@ export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, devices: deviceRules = null, frames = 'none',
+  deviceActions = null, resolveDeviceAction = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -646,10 +655,20 @@ export function createApp({
     registerStoreApi(api, { stores: suite.stores, principal });
     registerBillingOverviewApi(api, { instances: [billing, suite.stores], entitlements, organizations, principal });
   }
+  // What a phone may do from a notification: the app's own actions (the body's `module`, when it
+  // names one, must be the app's id), or the host's over its modules.
+  const actionsProblem = deviceActionsProblem(deviceActions);
+  if (actionsProblem) throw new Error(`createApp: ${actionsProblem}`);
+  const actionsOf = resolveDeviceAction || ((module, action) => {
+    if (module !== null && module !== config.app.id) return null;
+    const handler = deviceActionOf(deviceActions, action);
+    return handler ? { handler, suite, module: config.app.id } : null;
+  });
   if (suite.devices) {
     if (deviceRules?.canConnect) suite.devices.setCanConnect(deviceRules.canConnect);
     registerDevicesApi(api, {
       devices: suite.devices, limiter, audit, webSessions: Boolean(config.devices?.webSessions),
+      idempotency: suite.idempotency ?? null, actions: actionsOf,
       // With push.native, the list says which devices get notices.
       ...(suite.nativePush ? { pushTokens: (ids) => suite.nativePush.withTokens(ids) } : {}),
     });
@@ -877,7 +896,8 @@ export function createApp({
         // A write with an Idempotency-Key runs once; the same key again gets the same answer. Not one
         // whose answer is a secret shown once (answeredOnce: a token, a two-step secret, recovery codes,
         // an invitation's link): it is never kept in clear, and the same key runs the route again.
-        const replayable = suite.idempotency && !match.handler.answeredOnce;
+        // Nor one that keys its writes itself, for an account it finds on its own (keyedByRoute).
+        const replayable = suite.idempotency && !match.handler.answeredOnce && !match.handler.keyedByRoute;
         await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
         return;
       }

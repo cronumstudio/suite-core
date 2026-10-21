@@ -52,7 +52,7 @@ import { ensureColumn } from './migrate.js';
 import {
   HttpError, badRequest, forbidden, notFound, unauthorized, readJson, sendJson, str,
 } from './http.js';
-import { answeredOnce } from './idempotency.js';
+import { answeredOnce, keyedByRoute } from './idempotency.js';
 
 const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
@@ -133,6 +133,49 @@ export function redirectUriProblem(uri) {
   if (u.protocol === 'http:') return LOOPBACK.has(u.hostname) ? null : 'http only on loopback';
   if (/^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+:$/.test(u.protocol)) return null;
   return 'a reverse-domain scheme such as com.example.app:/auth, https, or http on loopback';
+}
+
+/* ------------------------------ device actions ------------------------------ */
+
+/**
+ * What a phone does from a notification without opening the app (Complete,
+ * Snooze on a reminder): `POST /api/devices/actions` with its device token,
+ * handed to the app's or the module's `deviceActions`, declared as an object
+ *
+ *   deviceActions: {
+ *     complete: async ({ user, id, params, suite }) => ({ done: true }),
+ *     snooze: async ({ user, id, params: { minutes }, suite }) => ({ until }),
+ *   }
+ *
+ * or as a function `(action) => handler | null`, for a module that builds its
+ * handlers itself. A handler acts as `user` (the account of the device, with
+ * its `device_id`) with that person's permissions only: it checks the item is
+ * theirs or shared with them as its own API does, throws the same HttpErrors,
+ * and goes through the same code as its web route, so the change reaches the
+ * open tabs (its live channel) and the links as any change from the web does.
+ * What it answers, when a plain object, goes in the answer beside `ok: true`.
+ */
+const ACTION_NAME = /^[a-z][a-z0-9_.-]{0,62}$/;
+
+/** Why a `deviceActions` declaration can't be used, or null: for a start that says what is wrong. */
+export function deviceActionsProblem(declared) {
+  if (declared == null || typeof declared === 'function') return null;
+  if (typeof declared !== 'object' || Array.isArray(declared)) {
+    return 'deviceActions must be an object { [action]: async ({ user, id, params, suite }) => result } or a function (action) => handler';
+  }
+  for (const [name, handler] of Object.entries(declared)) {
+    if (!ACTION_NAME.test(name)) return `deviceActions.${name}: an action's name is lowercase letters, digits, _ . or -, starting with a letter`;
+    if (typeof handler !== 'function') return `deviceActions.${name} must be a function ({ user, id, params, suite }) => result`;
+  }
+  return null;
+}
+
+/** The handler of `action` in a `deviceActions` declaration, or null. Never one of Object's own. */
+export function deviceActionOf(declared, action) {
+  if (!declared || typeof action !== 'string' || !ACTION_NAME.test(action)) return null;
+  const handler = typeof declared === 'function' ? declared(action)
+    : Object.hasOwn(declared, action) ? declared[action] : null;
+  return typeof handler === 'function' ? handler : null;
 }
 
 /**
@@ -452,8 +495,15 @@ export function createDevices({
  * for failures; and a device signs itself out with its own token. With
  * `webSessions` (`devices.webSessions`), a device also asks for a code that
  * opens a session of the web in its WebView (device-pages.js).
+ *
+ * A device acts from a notification at `POST /api/devices/actions`: `actions`
+ * is `(module, action) => { handler, suite, module } | null`, what app.js makes
+ * of the app's `deviceActions` or a host of its modules'; `idempotency` the
+ * suite's, for a retried action to run once.
  */
-export function registerDevicesApi(router, { devices, limiter, audit = null, webSessions = false, pushTokens = null }) {
+export function registerDevicesApi(router, {
+  devices, limiter, audit = null, webSessions = false, pushTokens = null, actions = null, idempotency = null,
+}) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
@@ -520,6 +570,47 @@ export function registerDevicesApi(router, { devices, limiter, audit = null, web
     });
     sendJson(ctx.res, 200, { ok: true });
   });
+
+  /**
+   * An action from a notification, without opening the app: `{ module, action,
+   * id, ...params }` with the device's token (never a session), handed to the
+   * module's `deviceActions[action]` as that person. → 200 `{ ok: true, ... }`;
+   * 404 `action_not_found` for a module or action nobody declared; the
+   * handler's own HttpErrors as they are. A bad token counts against the
+   * address in the devices' bucket, as the other device routes do. With an
+   * `Idempotency-Key`, the same key from the same account runs it once (keyed
+   * here, once the account is known: `ctx.user` only comes from a session).
+   */
+  router.post('/api/devices/actions', keyedByRoute(async (ctx) => {
+    const brake = limiter.checkFailures('devices', ctx.req);
+    if (!brake.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: brake.retryAfter });
+    const user = devices.authenticate(ctx.req);
+    if (!user) {
+      limiter.noteFailure('devices', ctx.req);
+      throw unauthorized();
+    }
+    const act = async () => {
+      const { module: named = null, action: asked, id: given = null, ...params } = await readJson(ctx.req);
+      const module = str(named, { field: 'module', max: 40, allowNull: true }) || null;
+      const action = str(asked, { field: 'action', max: 64, min: 1 });
+      if (!(given === null || typeof given === 'string' || (typeof given === 'number' && Number.isFinite(given)))
+        || String(given ?? '').length > 200) {
+        throw badRequest('field_invalid', { field: 'id' });
+      }
+      const id = given === null || given === '' ? null : String(given);
+      const target = actions?.(module, action);
+      if (!target) throw notFound('action_not_found');
+      const result = await target.handler({ user, id, params, suite: target.suite, action });
+      // What was done, never with what: the params may be someone's words (a note, a new title).
+      audit?.record({
+        action: 'device.action', actor: user, req: ctx.req, targetType: 'device', targetId: user.device_id,
+        meta: { module: target.module ?? module, action, id },
+      });
+      const extra = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+      sendJson(ctx.res, 200, { ...extra, ok: true });
+    };
+    await (idempotency ? idempotency.run({ ...ctx, user }, act) : act());
+  }));
 
   if (!webSessions) return;
 

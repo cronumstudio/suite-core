@@ -3,6 +3,35 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.108.0 — 2026-10-21
+
+- **Actions from a phone's notification, without opening the app** (`devices.js`, `app.js`,
+  `host.js`, `idempotency.js`). For Cronum Work's app: the Complete and Snooze buttons on a task's
+  reminder act on the server with the device's token. Only with `modules.devices`; without it no
+  route is added and nothing runs.
+  - `POST /api/devices/actions` with `Authorization: Bearer <devices.prefix>…` (a session cookie
+    alone is a 401) and `{ module, action, id, ...params }`, e.g. `{ module: 'tasks', action:
+    'complete', id: '123' }` or `{ module: 'tasks', action: 'snooze', id: '123', minutes: 60 }`.
+    → 200 `{ ok: true, ... }` with what the handler answered (a plain object); 404
+    `action_not_found` for a module or action nobody declared; the handler's own `HttpError`s as
+    they are; 400 `field_required`/`field_invalid` for a body without `action` or with an `id`
+    (text or number) or `module` (text) of another kind. A bad token is a 401 that counts against
+    the address in the devices' bucket, as the other device routes; a module's refusal counts
+    nothing. An `Idempotency-Key` runs a retried action once, keyed by the device's account.
+    Audit: `device.action` with `{ module, action, id }` (never the params), the device as target.
+  - A host's module declares them in `createModule().deviceActions`, reached by its path as
+    `module`; an app on its own in `createApp({ deviceActions })` (`module` absent or its own app
+    id), which an app that spreads its module's parts into `createApp()` gets for free. An object
+    `{ [action]: async ({ user, id, params, suite, action }) => result }` or a function `(action) =>
+    handler | null`; a name of lowercase letters, digits, `_ . -`; declared wrong, the start stops
+    saying which. The handler acts as `user` (the device's account, with `device_id`) with that
+    person's permissions only, through the same code as its web route, so its live channel, links
+    and plan limits work as for any change from the web; `suite` is the module's own.
+  - `keyedByRoute(handler)` (idempotency.js): a route that runs `idempotency.run()` itself, for an
+    account it finds on its own; app.js leaves it alone, as it does `answeredOnce`.
+- New texts in the catalogs (en, es, fr, de): `errors.action_not_found`, `fields.action`,
+  `admin.actions.device_action`.
+
 ## 0.107.0 — 2026-10-21
 
 - **Native push, straight to Apple and Google** (new `native-push.js`; `push.js`, `config.js`,

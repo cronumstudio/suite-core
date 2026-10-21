@@ -567,7 +567,7 @@ the admin signing the person out everywhere or setting their password, `devices.
 after `devices.idleDays` (90) without use, and with the account; a disabled account's are refused,
 as its API tokens are. No route of the suite takes one, the MCP included (except, with
 `stores.devices`, the store routes and `/api/billing/overview`; with `devices.webSessions`,
-`/api/devices/web-session`, below): `ctx.user` only ever comes from
+`/api/devices/web-session`; and `/api/devices/actions`, below): `ctx.user` only ever comes from
 the session cookie. The app accepts a device on the routes it chooses with
 `suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
 connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
@@ -606,6 +606,58 @@ it at once, and every use asks the device first (`sessionAlive`), so it also end
 stops working any other way, or the module is switched off; using it is using the device, which
 then never goes idle while its WebView is in use. No second step is asked: the token was given
 to a session that had already passed it, and the session it opens dies with it.
+
+**Actions from a notification** (**done**, v0.108.0, with `modules.devices`): a phone acts on a
+notification's buttons (Complete, Snooze on a task's reminder) without opening the app.
+`POST /api/devices/actions` with `Authorization: Bearer <device token>` (the token only: a session
+cookie alone is a 401, and with both the token decides) and the body `{ module, action, id,
+...params }`, e.g. `{ module: 'tasks', action: 'complete', id: '123' }` or `{ module: 'tasks',
+action: 'snooze', id: '123', minutes: 60 }`. `module` is the module's path in a host (an app on its
+own takes none, or its own app id), `action` a name of lowercase letters, digits, `_`, `.` or `-`,
+`id` a text or a number (handed over as text, or null), and every other key of the body is a
+param. It answers 200 `{ ok: true, ... }` with what the handler answered (a plain object) beside
+`ok`; 404 `action_not_found` for a module or an action nobody declared (a module that declares
+none, `constructor` and the like included); 400 `field_required`/`field_invalid` for a body
+without `action` or with an `id` or `module` of the wrong kind; and the handler's own `HttpError`s
+as they are (a 404 for an item that isn't the person's, a 400 for a param). A device token that is
+missing, unknown, revoked, idle, of a disabled account or refused by `canConnect` is a 401, and
+counts against the address in the devices' bucket (`rateLimits.devices`), as the other device
+routes do; a refusal of the module's counts nothing. With an `Idempotency-Key` a retried action
+runs once: the route keys it itself, by the device's account, once it knows it (`keyedByRoute` in
+idempotency.js; `ctx.user` only ever comes from a session). Each action done is in the audit log,
+`device.action` with `{ module, action, id }` and the device as its target, never the params
+(they may be someone's words). Without `modules.devices` the route doesn't exist and nothing of it
+runs.
+
+What answers is declared next to the routes: a host's module in `createModule().deviceActions`, an
+app on its own in `createApp({ deviceActions })` (so an app that spreads its module's parts into
+`createApp()` gets the same actions on its own, and ignores them without `modules.devices`). An
+object of handlers, or a function `(action) => handler | null` for a module that builds them
+itself; what is declared wrong (not a function, a name of the wrong shape) stops the start, saying
+which:
+
+```js
+// a module's server/module.js (Tasks, for its reminders)
+export function createModule() {
+  return {
+    routes: api,
+    deviceActions: {
+      // The same code as PATCH /api/tasks/:id: its permission check, its transaction, its live notice.
+      complete: async ({ user, id }) => ({ task: completeTask(user, Number(id)) }),
+      snooze: async ({ user, id, params }) => ({ remind_at: snoozeReminder(user, Number(id), params.minutes) }),
+    },
+  };
+}
+```
+
+A handler gets `{ user, id, params, suite, action }`: `user` is the device's account (with its
+`device_id`), as `suite.devices.authenticate()` gives it; `suite` is the module's own (in a host,
+its view: its live channel, its plans, its links). It acts as that person, with that person's
+permissions only: it must check the item is theirs or shared with them as its own API does, and
+answer 404 for one they can't see. It goes through the same code its web route uses, so the change
+is announced on the module's live channel (open tabs repaint), tells its links and keeps its plan
+limits as any change from the web does: the suite adds nothing of that itself. A module the person
+turned off in Settings › Modules still acts, as its pages still open at its path.
 
 **Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
 limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).
@@ -1555,7 +1607,7 @@ first, then Tasks, then the rest.
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser; v0.34.0: texts written in the code; v0.49.0: Tasks' stricter scan for everyone, and the server; v0.51.0: one translator for every app, `appTexts` on the server and the kit's in the browser, and `appChecks`) | adopted by Tasks, Projects, Next and Notes; each app's tests run `appChecks` |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
-| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE; v0.105.0: the connect page and sessions of the web, `device-pages.js`) | Tracker's native app (its steps A2 and A3); Cronum Work's app (its steps S1 and S2); Focus keeps its own pairing |
+| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE; v0.105.0: the connect page and sessions of the web, `device-pages.js`; v0.108.0: actions from a notification, `deviceActions`) | Tracker's native app (its steps A2 and A3); Cronum Work's app (its steps S1 and S2); Focus keeps its own pairing |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
 | `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
 | `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |
@@ -1633,6 +1685,7 @@ export const suite = joinHost({ config: product, migrations: MIGRATIONS, hooks }
 export function createModule() {
   return { publicDir, routes: api, serializeUser, version: APP_VERSION, portable, sweep, start: startJobs };
 }
+// …and, for a phone's notification buttons, `deviceActions` (section 7, "Actions from a notification")
 
 // server/index.js
 const parts = createModule();

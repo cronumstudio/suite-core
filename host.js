@@ -20,6 +20,11 @@
  *     return { publicDir, routes: api, serializeUser, version, portable, start: () => stopTimers };
  *   }
  *
+ * A module may also say what a phone does from one of its notifications
+ * without opening the app (`deviceActions`, devices.js): with the host's
+ * `modules.devices`, `POST /api/devices/actions { module: '<mount>', action, id, ... }`
+ * with the device's token reaches it, as that person.
+ *
  * One process, one database (DATA_DIR/<host id>.db), one session cookie, one
  * table of accounts, one sign-in and one admin panel, all of them the host's,
  * from its own configuration. Each module keeps what is its own: its tables
@@ -62,6 +67,7 @@ import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
+import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import { fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
@@ -596,6 +602,8 @@ export async function createHost({
     if (typeof imported.createModule !== 'function') stop([`${entry.mount}: ${entry.entry} exports no createModule()`]);
     const parts = (await imported.createModule({ mount: entry.mount, base: `/${entry.mount}/` })) || {};
     entry.parts = parts;
+    const actionsProblem = deviceActionsProblem(parts.deviceActions);
+    if (actionsProblem) stop([`${entry.mount}: ${actionsProblem}`]);
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
@@ -691,8 +699,16 @@ export async function createHost({
     https: install.https, version, mcp: config.modules.mcp && legacy.mcp, log,
   }) : null;
 
+  // What a phone does from a module's notification, at the root's POST /api/devices/actions: the
+  // module named by its path, acting with its own suite (its live channel, its plans).
+  const resolveDeviceAction = (module, action) => {
+    const m = module === null ? null : byMount.get(module);
+    const handler = m ? deviceActionOf(m.parts.deviceActions, action) : null;
+    return handler ? { handler, suite: m.view, module: m.mount } : null;
+  };
+
   const root = createApp({
-    suite, publicDir, version, handleSignals: false, log, mcp,
+    suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
     routes: (api) => {
       api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
       registerLinksApi(api, { links });
