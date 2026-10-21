@@ -41,6 +41,9 @@
  * `standing`: the key, in the app's catalog, of the instruction to paste into
  * an assistant's own instructions. Your AI shows it, folded under the app's
  * name, with a way to copy it; in a host, one fold for each module in use.
+ * `standingMore`: what goes under it, keys of the catalog (a paragraph each)
+ * and pairs of keys (a line of a list: a label in bold, then its text).
+ * `site`: the app's website, which About links to in a host.
  *
  * In a host (Cronum Work) Settings are one for the whole app, the same list
  * in every module: the account's sections, a group for each module in use and
@@ -893,21 +896,20 @@ export function openSettings(options) {
     const section = block(t('kit.ai.standingTitle'), hint(t('kit.ai.standingIntro')),
       el('ul', { class: 'kit-hint' }, ['claude', 'chatgpt', 'claudeCode'].map((k) => el('li', { text: t(`kit.ai.standingWhere.${k}`) }))),
       folds);
+    // This app's words from its own catalog; another module's from its own (moduleWords).
     const said = (key) => {
       const text = key ? t(key) : '';
       return text === key ? '' : text;
     };
+    const mine = { name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing), more: notesOf(options.standingMore, said) };
     const paint = () => {
-      const apps = !host ? [{ name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing) }]
+      const apps = !host ? [mine]
         : modulesHere().map((m) => {
-          if (m.mount === host.mount) {
-            return { name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing),
-              more: options.aiExtra ? () => show('ai-extra') : null };
-          }
+          if (m.mount === host.mount) return mine;
           const key = m.settings?.standing;
           const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) paint(); }) : null;
-          return { name: m.name, src: m.icon, text: typeof words?.[key] === 'string' ? words[key] : '',
-            more: m.settings?.ai ? () => goTo(m, 'ai-extra') : null };
+          const say = (k) => (typeof words?.[k] === 'string' ? words[k] : '');
+          return { name: m.name, src: m.icon, text: say(key), more: notesOf(m.settings?.standingMore, say) };
         });
       const shown = apps.filter((a) => a.text);
       section.hidden = !shown.length;
@@ -918,15 +920,38 @@ export function openSettings(options) {
     return section;
   }
 
-  /** One app's instruction, folded under its name; opening it folds the others. */
-  function fold({ name, src, text, more = null }, open) {
+  /**
+   * What an app says under its instruction (`standingMore`): each entry a key of its catalog, a
+   * paragraph, or a pair of keys, a line of a list (a label in bold, then its text); pairs in a row
+   * are one list. What its catalog doesn't have is left out.
+   */
+  function notesOf(entries, say) {
+    const nodes = [];
+    let list = null;
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      if (Array.isArray(entry)) {
+        const [label, text] = entry.map((key) => say(key));
+        if (!label && !text) continue;
+        if (!list) nodes.push(list = el('ul', { class: 'kit-hint kit-fold__list' }));
+        list.append(el('li', {}, label ? el('strong', { text: label }) : null, label && text ? ' ' : null, text || null));
+        continue;
+      }
+      list = null;
+      const text = say(entry);
+      if (text) nodes.push(hint(text));
+    }
+    return nodes;
+  }
+
+  /** One app's instruction, folded under its name, with what it says about it; opening it folds the others. */
+  function fold({ name, src, text, more = [] }, open) {
     const instruction = el('pre', { class: 'kit-instruction', text });
     const node = el('details', { class: 'kit-fold', name: 'kit-standing', open },
       el('summary', {}, src ? el('img', { src, alt: '', width: 22, height: 22 }) : null, el('span', { text: name }),
         icon('chevron-down', { className: 'kit-fold__chevron' })),
       el('div', { class: 'kit-fold__body' }, instruction,
-        row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary'),
-          more ? el('button', { type: 'button', class: 'kit-link', text: t('kit.ai.standingMore', { app: name }), onClick: more }) : null)));
+        row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary')),
+        ...more));
     // `name` makes them one-at-a-time where the browser knows it; here, where it doesn't.
     node.addEventListener('toggle', () => {
       if (!node.open) return;
@@ -1031,9 +1056,13 @@ export function openSettings(options) {
     const benefits = el('div', {});
     const paint = (answer) => {
       const name = answer.plan?.name ? t(answer.plan.name) : '—';
-      const until = answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null;
-      clear(box).append(el('div', { class: 'kit-facts' },
-        fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name), until), benefits);
+      const until = answer.ends
+        ? el('p', { class: 'kit-plan-card__until', text: t('kit.plan.untilDate', { date: formatDateTime(answer.ends, { dateStyle: 'long' }) }) }) : null;
+      // The plan as a card of its own: its name large, and until when, under what it is.
+      clear(box).append(el('div', { class: 'kit-plan-card' },
+        el('span', { class: 'kit-plan-card__label', text: t('kit.plan.current') }),
+        el('strong', { class: 'kit-plan-card__name', text: answer.unlimited ? t('kit.plan.unlimited') : name }),
+        until), benefits);
       paintBenefits(benefits, answer);
       if (options.plan?.render) box.append(options.plan.render(answer));
       if (storeBlock) {
@@ -1361,7 +1390,7 @@ export function openSettings(options) {
 
   /**
    * A module's card in the host's About: its icon, name and line, the version of it this tab runs
-   * (the server's until the tab has said), and a way to what it says it is.
+   * (the server's until the tab has said), and a link to its website, where what it is is told.
    */
   function moduleCard(m) {
     const here = m.mount === host.mount;
@@ -1370,15 +1399,16 @@ export function openSettings(options) {
     const taglineKey = m.settings?.tagline || 'app.tagline';
     const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
     const version = (options.updates?.loaded?.()?.modules || options.updates?.latest?.()?.modules || {})[m.mount]?.app;
-    const more = here ? (options.aboutExtra ? () => show('about-extra') : null)
-      : m.settings?.about ? () => goTo(m, 'about-extra') : null;
+    // What it is, on its own website (`site`), in a tab of its own: not a page of Settings.
+    const site = here ? options.site : m.settings?.site;
     return el('div', { class: 'kit-about-card' },
       el('img', { src: here ? at(app.icon || '/icons/favicon.svg') : m.icon, alt: '', width: 36, height: 36 }),
       el('div', { class: 'kit-about-card__text' },
         el('strong', { text: name }),
         tagline ? el('p', { text: tagline }) : null,
         el('small', { text: version ? `v${version}` : '—' }),
-        more ? el('button', { type: 'button', class: 'kit-link', text: t('kit.about.more', { app: name }), onClick: more }) : null));
+        typeof site === 'string' && site.startsWith('https://')
+          ? el('a', { class: 'kit-link', href: site, target: '_blank', rel: 'noopener', text: t('kit.about.more', { app: name }) }) : null));
   }
 
   return { close, show };

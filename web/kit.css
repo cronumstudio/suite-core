@@ -979,9 +979,16 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-fold__body { display: grid; gap: 10px; padding: 0 14px 14px; }
 @media (prefers-reduced-motion: reduce) { .kit-fold__chevron { transition: none; } }
 
-/* What a plan includes: a check for what is in, a dash for what isn't. */
-.kit-benefits__title { margin: 16px 0 8px; font-size: 15px; font-weight: 600; }
-.kit-benefits { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+/* The plan: its own card, then what it includes, a check for what is in, a dash for what isn't. */
+.kit-plan-card {
+  display: grid; gap: 6px; padding: 20px 22px; border: 1px solid var(--kit-border); border-radius: 14px;
+  background: var(--kit-panel); max-width: 640px;
+}
+.kit-plan-card__label { font: 600 11px/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); }
+.kit-plan-card__name { font: 700 28px/1.1 var(--kit-font-display); letter-spacing: -.02em; color: var(--kit-text); }
+.kit-plan-card__until { margin: 0; color: var(--kit-muted); font-size: 13.5px; }
+.kit-benefits__title { margin: 26px 0 12px; font-size: 15px; font-weight: 600; }
+.kit-benefits { list-style: none; margin: 0 0 12px; padding: 0 2px; display: grid; gap: 10px; }
 .kit-benefits li { display: flex; align-items: flex-start; gap: 10px; line-height: 1.35; }
 .kit-benefits li svg { width: 18px; height: 18px; flex: none; color: var(--kit-ok); margin-top: 1px; }
 .kit-benefits li.kit-benefits__no { color: var(--kit-muted); }

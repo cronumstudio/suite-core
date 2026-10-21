@@ -162,9 +162,11 @@ const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
  *   settings: {
  *     sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.hintShort' }],
  *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
- *     about: true,   // it says what it is (aboutExtra): opened from its card in About
+ *     about: true,   // it says what it is (aboutExtra), out of the list
  *     standing: 'settings.standing.text',   // its instruction for an assistant, in Your AI
+ *     standingMore: ['settings.standing.prompt', ['examples.home', 'examples.homeAsk']],   // under it
  *     tagline: 'about.tagline',             // its line in About's card (default: app.tagline)
+ *     site: 'https://tasks.cronumstudio.com/',   // its website, linked from that card
  *   }
  *
  * `label` and `hint` are keys of the module's catalog, read in the person's
@@ -182,10 +184,17 @@ export function moduleSettings(declared, { data = false } = {}) {
       ...(typeof s.icon === 'string' && /^[a-z0-9-]{1,40}$/.test(s.icon) ? { icon: s.icon } : {}),
       ...(typeof s.hint === 'string' && CATALOG_KEY.test(s.hint) ? { hint: s.hint } : {}),
     }));
+  // Under its instruction: keys (a paragraph each) and pairs of keys (a line of a list), twenty at most.
+  const isKey = (key) => typeof key === 'string' && CATALOG_KEY.test(key);
+  const standingMore = (Array.isArray(given.standingMore) ? given.standingMore : [])
+    .filter((entry) => isKey(entry) || (Array.isArray(entry) && entry.length === 2 && entry.every(isKey)))
+    .slice(0, 20);
   return {
     sections, data: Boolean(data), ai: given.ai === true, about: given.about === true,
     ...(typeof given.standing === 'string' && CATALOG_KEY.test(given.standing) ? { standing: given.standing } : {}),
     ...(typeof given.tagline === 'string' && CATALOG_KEY.test(given.tagline) ? { tagline: given.tagline } : {}),
+    ...(standingMore.length ? { standingMore } : {}),
+    ...(typeof given.site === 'string' && /^https:\/\/[^\s"<>]+$/.test(given.site) ? { site: given.site } : {}),
   };
 }
 
@@ -802,12 +811,17 @@ export async function createHost({
     if (script.version === now.version) return script.body;
     const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
     const icon = hostWorker.icon || config.app.icon || null;
+    const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
     const options = {
       version: `${config.app.id}-${now.version}`,
       modules: joined.map((m) => `/${m.mount}/`),
       shell: [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell)])],
-      optional: [...new Set(shells.flatMap((s) => s.optional))],
-      push: { title: config.app.name, icon, ...(hostWorker.badge ? { badge: hostWorker.badge } : {}), url: '/' },
+      // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
+      optional: [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])],
+      push: {
+        title: config.app.name, icon, ...(hostWorker.badge ? { badge: hostWorker.badge } : {}), url: '/',
+        ...(Object.keys(icons).length ? { icons } : {}),
+      },
     };
     script = { version: now.version, body: workerScript({ name: config.app.name, options }) };
     return script.body;
