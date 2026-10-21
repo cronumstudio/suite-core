@@ -11,6 +11,7 @@
  *   openSettings({ …, plan: { billing: true, hideCheckout: true } });   // a native app's web view
  *   billingReturn({ onPlan: refresh, open: () => openPlan() });         // once, at the start
  *   catch (err) { if (!offerPlan(err, { open: () => openPlan() })) fail(err); }
+ *   storePurchase();                                                     // inside the suite's app: its store
  *
  * The browser only names a product: the price, a founder's included, is the server's to choose,
  * and the provider's page shows it.
@@ -20,6 +21,7 @@ import { t, formatDateTime } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { toast } from './ui.js';
 import { FRAMED } from './base.js';
+import { nativePurchase, onNative } from './native.js';
 
 /** What `billingReturn` tells the page each time it reads the plan again: an open Settings repaints. */
 export const PLAN_EVENT = 'kit-plan';
@@ -226,6 +228,47 @@ export function planPayments({ hideCheckout = false, fail = (err) => toast(error
   }
 
   return { blocks, paint };
+}
+
+/* ----------------------- inside the suite's app: its store ---------------------- */
+
+/** The purchase sent to the app and not answered yet: a second one takes its place. */
+let pendingPurchase = null;
+
+/**
+ * Buying inside the suite's app on a phone (native.js, with its 'purchase'): the app's store sells,
+ * never the web's checkout. Sends `purchase` with `product` (a product key, or null for the app's
+ * own choice) and waits for the app's `purchase-result`: bought, the plan is read again and goes
+ * to `kit-plan` (PLAN_EVENT), which an open Settings repaints with; each outcome is said in a
+ * notice. → a promise of the app's answer (`{ product, status }`), or null when nothing was sent
+ * (outside the app, or an app that doesn't sell) or another purchase took its place.
+ */
+export function storePurchase(product = null) {
+  pendingPurchase?.(null);
+  return new Promise((resolve) => {
+    let stop = () => {};
+    const finish = (answer) => {
+      stop();
+      if (pendingPurchase === finish) pendingPurchase = null;
+      resolve(answer);
+    };
+    stop = onNative('purchase-result', async (detail) => {
+      finish(detail);
+      if (detail.status === 'purchased') {
+        toast(t('kit.plan.returned'));
+        try {
+          const answer = await api.get('/api/me/entitlements');
+          const CustomEventOf = globalThis.CustomEvent;
+          if (CustomEventOf) globalThis.document?.dispatchEvent?.(new CustomEventOf(PLAN_EVENT, { detail: answer }));
+        } catch { /* Settings reads it again when it opens */ }
+      } else if (detail.status === 'pending') toast(t('kit.plan.storePending'));
+      else if (detail.status === 'canceled') toast(t('kit.plan.canceled'));
+      else if (detail.status === 'failed') toast(t('kit.plan.storeFailed'), { error: true });
+      // Another status, from a later app: nothing said.
+    });
+    pendingPurchase = finish;
+    if (!nativePurchase(product)) finish(null);
+  });
 }
 
 /* --------------------------- anywhere in an app --------------------------- */

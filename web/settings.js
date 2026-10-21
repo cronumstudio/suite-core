@@ -31,6 +31,13 @@
  * offers instead of the plan section (with hideCheckout, the only one);
  * `render(answer)` adds the app's own block.
  *
+ * Inside the suite's app on a phone (native.js) the plan is always shown as
+ * `hideCheckout`, whatever the module passed: the stores' rules keep the web's
+ * payments out of the app. Where the app sells (its 'purchase'), a plan's
+ * barrier offers its store and the plan section has a way to it; where it
+ * doesn't, only the reason. Notifications there are the app's: no Web Push,
+ * and a way to the app's own settings.
+ *
  * In a host (Cronum Work) Settings are one for the whole app, the same list
  * in every module: the account's sections, a group for each module in use and
  * the host's last (hostSections below). The module open draws its own; another
@@ -43,7 +50,8 @@ import { api, errorMessage } from './api.js';
 import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
-import { planPayments, offerPlan, PLAN_EVENT } from './plan.js';
+import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
+import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch' };
@@ -143,13 +151,18 @@ export function openSettings(options) {
   // What the plan section sells (plan.js): only when the app asks for it and the server doesn't say it can't.
   const planOptions = options.plan && typeof options.plan === 'object' ? options.plan : {};
   const selling = planOptions.billing === true && modules.billing !== false;
-  const hideCheckout = planOptions.hideCheckout === true;
+  // Inside the suite's app the web's checkout never shows (the stores' rules), whatever the module passed.
+  const inTheApp = inApp();
+  const hideCheckout = planOptions.hideCheckout === true || inTheApp;
+  // The app's own store, where the app sells and so does this install: its way to buy here.
+  const store = inTheApp && can('purchase') && Boolean(options.plan || host?.plans) && modules.billing !== false;
   // Where it sells, a plan's barrier met here offers a way to buy: the app's own (`plan.open`, a native
   // app's store) when it gives one, else the plan section, unless that sells nothing here (hideCheckout).
-  // Elsewhere a notice, as always.
-  const openPlan = !selling ? null
-    : typeof planOptions.open === 'function' ? planOptions.open
-      : hideCheckout ? null : () => show('plan');
+  // Inside the suite's app, its store, or only the reason. Elsewhere a notice, as always.
+  const openPlan = inTheApp ? (store ? () => storePurchase() : null)
+    : !selling ? null
+      : typeof planOptions.open === 'function' ? planOptions.open
+        : hideCheckout ? null : () => show('plan');
   const fail = (err) => (openPlan && offerPlan(err, { open: openPlan })) || showError(err);
   // What Settings listens to while it is open, let go when it closes.
   const cleanups = [];
@@ -811,6 +824,7 @@ export function openSettings(options) {
   /* ------------------------------ notifications ----------------------------- */
 
   function notifications() {
+    if (inTheApp) return appNotifications();
     const box = el('div', { class: 'kit-list' });
     const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     const status = hint('');
@@ -849,17 +863,67 @@ export function openSettings(options) {
       block(t('kit.notifications.devices'), box)];
   }
 
+  /**
+   * Inside the suite's app on a phone: its notices are the app's own, never Web Push (the web view
+   * has none, and a notice would come twice). An app that notifies (its 'push') says whether the
+   * phone allows them (`push-state`) and opens its own settings; one from before says they come
+   * with an update. The devices and the test, as anywhere.
+   */
+  function appNotifications() {
+    const product = host?.name || app.name;
+    const pushing = can('push');
+    const status = hint('');
+    const paintState = () => {
+      const state = lastNative('push-state')?.state;
+      status.textContent = pushing && state === 'denied' ? t('kit.notifications.appDenied', { app: product }) : '';
+      status.hidden = !status.textContent;
+    };
+    paintState();
+    if (pushing) {
+      const stop = onNative('push-state', paintState);
+      cleanups.push(stop);
+    }
+    const box = el('div', { class: 'kit-list' });
+    const paint = async () => {
+      let devices = [];
+      try { devices = await (await pushApi()).get('/api/push/devices'); } catch (err) { fail(err); }
+      clear(box).append(...(devices.length ? devices.map((d) => el('div', { class: 'kit-list__row' },
+        icon(/mobile|android|iphone/i.test(d.label || '') ? 'phone' : 'device'),
+        el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(d.label, t('kit.security.unknownDevice')) }),
+          el('small', { text: t('kit.notifications.since', { when: formatDateTime(d.created_at) }) }))))
+        : [el('div', { class: 'kit-list__row' }, hint(t('kit.notifications.none')))]));
+    };
+    const test = button(t('kit.notifications.test'), async () => {
+      try {
+        const result = await (await pushApi()).post('/api/push/test');
+        toast(t(result.no_devices ? 'kit.notifications.none' : 'kit.notifications.testSent'));
+      } catch (err) { fail(err); }
+    });
+    const settings = pushing ? button(t('kit.notifications.appSettings'), () => openAppSettings(), 'primary') : null;
+    paint();
+    return [block(null, hint(t(pushing ? 'kit.notifications.inApp' : 'kit.notifications.appUpdate', { app: product })), status, row(settings, test)),
+      block(t('kit.notifications.devices'), box)];
+  }
+
   /* ---------------------------------- plan ---------------------------------- */
 
   function plan() {
     const box = el('div', { class: 'kit-stack' });
     const payments = selling ? planPayments({ hideCheckout, fail, refresh: () => load() }) : null;
+    // Inside the suite's app that sells: its store, for whoever has a plan above theirs to go to.
+    const storeBlock = store ? block(t('kit.plan.upgradeTitle'), hint(t('kit.plan.storeHint')),
+      row(button(t('kit.plan.see'), () => storePurchase(), 'primary'))) : null;
+    if (storeBlock) storeBlock.hidden = true;
     const paint = (answer) => {
       const name = answer.plan?.name ? t(answer.plan.name) : '—';
       const until = answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null;
       clear(box).append(el('div', { class: 'kit-facts' },
         fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name), until));
       if (options.plan?.render) box.append(options.plan.render(answer));
+      if (storeBlock) {
+        const order = (answer.plans || []).map((p) => p.id);
+        storeBlock.hidden = Boolean(answer.unlimited) || (order.length > 0 && order.at(-1) === (answer.plan?.id ?? null));
+      }
       if (!payments) return;
       // Held by a live subscription, the plan's end is its period's (shown there), not the grace after it.
       if (until) until.hidden = true;
@@ -875,8 +939,8 @@ export function openSettings(options) {
       } catch (err) { if (turn === reading) fail(err); }
     };
     load();
-    if (payments) {
-      // Back from the checkout, the plan read again (plan.js billingReturn) is painted here too.
+    if (payments || storeBlock) {
+      // Back from the checkout, or from the app's store (plan.js storePurchase), the plan read again is painted here too.
       const onPlan = (event) => {
         if (!event?.detail) return;
         reading++;
@@ -885,7 +949,7 @@ export function openSettings(options) {
       document.addEventListener(PLAN_EVENT, onPlan);
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
     }
-    return [block(null, box), ...(payments ? payments.blocks : [])];
+    return [block(null, box), ...(payments ? payments.blocks : []), ...(storeBlock ? [storeBlock] : [])];
   }
 
   /* ---------------------------------- data ---------------------------------- */
@@ -1177,6 +1241,8 @@ async function pushApi() {
  * install's key, and the server told, with the device's language.
  */
 export async function subscribePush() {
+  // Inside the suite's app its own notices are the device's one channel: never Web Push there too.
+  if (inApp()) throw new Error('in_app');
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('not_allowed');
   const push = await pushApi();

@@ -22,6 +22,7 @@ import { t, formatDateTime } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
+import { nativeSignOut } from './native.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -349,6 +350,8 @@ export async function signOut({ local = null } = {}) {
   const answer = await api.post('/api/auth/logout').catch(() => null);
   await local?.clearAll?.().catch(() => {});
   await clearDeviceCopies().catch(() => {});
+  // Inside the suite's app on a phone, the app lets go of its device too (native.js); nothing elsewhere.
+  nativeSignOut();
   // From a frame of the host's split view the whole window signs out, not the frame alone.
   const page = FRAMED ? window.top : window;
   if (answer?.logout_url) page.location.href = answer.logout_url;

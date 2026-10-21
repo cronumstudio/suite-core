@@ -23,6 +23,7 @@
  * yet stays until a page with one comes: retired then, its notices go on.
  */
 import { BASE, at } from './base.js';
+import { inApp } from './native.js';
 
 /** What the device remembers of its host: { worker } or null, for a page that opens offline. */
 const HOST_KEY = 'host.worker';
@@ -190,7 +191,8 @@ async function carryNotices(root, endpoints) {
   const config = await send('GET', '/api/push/config');
   if (!config?.public_key) throw new Error(NOT_YET);
   // Without the permission there is nothing to carry: the old addresses are forgotten all the same.
-  const allowed = globalThis.Notification?.permission === 'granted';
+  // Inside the suite's app there is no Web Push to carry them to: its own notices are the device's.
+  const allowed = globalThis.Notification?.permission === 'granted' && !inApp();
   let kept = null;
   if (allowed) {
     try {

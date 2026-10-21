@@ -3,6 +3,34 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.106.0 — 2026-10-21
+
+- **The kit's bridge to the suite's app on a phone** (new `web/native.js`; `settings.js`,
+  `plan.js`, `shell.js`, `signin.js`, `push.js`, `worker.js`, `sw-core.js`). Cronum Work's app for
+  iPhone and Android is a web view of the web; a page now knows it runs there, from the user
+  agent (`CronumWorkApp/<version>`) or `window.CronumNative` (`{ v, platform, version,
+  capabilities }`): `inApp()`, `nativeInfo()`, `can(capability)`. It sends the app `{ v: 1, type,
+  ...payload }` through `window.ReactNativeWebView.postMessage`: `ready` (the frame drawn,
+  `createShell()`), `badge` `{ count }`, `reminders` `{ items: [{ id, module, title, at, url }] }`
+  (the full set of the next days, replacing the one before), `purchase` `{ product }`,
+  `open-external` `{ url }`, `sign-out` (`signOut()`), `haptic` `{ style }` and
+  `open-app-settings`; and hears the app's on a `cronum-native` event (`onNative()`,
+  `lastNative()`): `purchase-result` `{ product, status }` and `push-state` `{ state }`. The
+  messages are only ever added, never renamed or changed in meaning, and an unknown one is
+  ignored on both sides (docs/web-kit.md, Inside the app on a phone).
+- **Settings inside the app** do it by themselves, whatever the module passes. The plan section
+  never shows the web's checkout (`hideCheckout`); where the app sells (`purchase`), a plan's
+  barrier offers its store (`storePurchase()` in plan.js: the `purchase` message, then the plan
+  read again and `kit-plan` when bought, each outcome said in a notice), and the section has
+  "See plans" for whoever has a plan above theirs; where it doesn't, only the reason. In a host
+  this comes with the host's plan (`app.host.plans`). Notifications offer no Web Push there: the
+  app sends them (with `push`: whether the phone has them off, and the app's own settings), or
+  they come with an update of the app. `subscribePush()` refuses inside the app, `pushSupport()`
+  says `'unsupported'`, and the host's one worker carries no subscription over: the app's own
+  registration is the phone's one channel.
+- Outside the app nothing changes: every function of `native.js` does nothing there, and every
+  page and Settings behave and ask the server exactly as before.
+
 ## 0.105.0 — 2026-10-20
 
 - **The connect page as a suite piece** (new `device-pages.js` and `web/connect.js`, `config.js`,

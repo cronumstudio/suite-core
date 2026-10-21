@@ -38,6 +38,7 @@ import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
+import { nativeReady } from './native.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -681,6 +682,9 @@ export function createShell({
       below);
     return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
   }
+
+  // Inside the suite's app on a phone, the page is drawn and listens: the app's bridge (native.js), once a page.
+  nativeReady();
 
   return {
     element, nav, list, detail, actions, banners, head: viewHead,

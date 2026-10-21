@@ -78,6 +78,7 @@ saves the person's choice as `<app>.theme` in `localStorage` so the next start g
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
+| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`. Nothing outside the app |
 
 ## Starting an app
 
@@ -307,6 +308,11 @@ it also sells, from the suite's routes (`billing.js`), with nothing of one app o
   the portal or founder's price.
 - **A 402 met in Settings** offers a way to buy: `plan.open()` when the app gives one (a native
   app's store), or else the plan section; under `hideCheckout` without `open`, only the reason.
+- **Inside the suite's app on a phone** (`native.js`, v0.106.0) Settings do this by themselves,
+  whatever the module passes: always `hideCheckout`; where the app sells (`can('purchase')`) and
+  the section is there (`plan`, or the host's `app.host.plans`), `plan.open` is the app's store
+  (`storePurchase()`: the `purchase` message) and the section adds "See plans" to it, for whoever
+  has a plan above theirs; where it doesn't, a 402 says only why.
 - **A group's products** (`for: 'organization'`) are not offered: buying for a group needs its
   seats in the checkout and the group's subscriptions, which the routes don't give the browser yet
   (`GET /api/billing/subscriptions` lists the person's). An app that sells to groups keeps its own
@@ -346,6 +352,69 @@ openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, op
 - `offerFor(answer, products, subscriptions)` and `productText(product, plans)`, for an app's own
   page of prices, choose and name what Settings offers; `offerFor` offers nothing without the
   subscriptions' list. `isLive(subscription)` says whether one holds its plan.
+
+### Inside the app on a phone
+
+Cronum Work's app for iPhone and Android is a web view of the web with the native pieces the web
+can't have. `native.js` (v0.106.0) is the bridge between them; outside the app every one of its
+functions does nothing (false, null), and every page behaves as it always did.
+
+**Knowing it.** In the app when the user agent carries `CronumWorkApp/<version>` (the app appends
+it) or the app injected, before the page loaded,
+`window.CronumNative = { v: 1, platform: 'ios' | 'android', version, capabilities: [...] }`.
+`inApp()`, `nativeInfo()` (`{ v, platform, version, capabilities }`, frozen, or null) and
+`can(capability)` say so; the capabilities are `push`, `reminders`, `badge`, `purchase`,
+`biometrics` and `share`. Known from the user agent alone, the app can do nothing. In a frame of
+a host's split view the bridge is the top window's.
+
+```js
+import { can, setBadge, setReminders, onNative } from '../suite/native.js';
+
+if (can('badge')) setBadge(openTasks);
+if (can('reminders')) setReminders(nextWeek.map((task) => ({ id: task.id, module: 'tasks', title: task.title, at: task.remind_at, url: `?task=${task.id}` })));
+const stop = onNative('push-state', ({ state }) => paint(state));
+```
+
+**The web to the app**: `window.ReactNativeWebView.postMessage(JSON.stringify({ v: 1, type, ...payload }))`.
+
+| `type` | Payload | Sent by |
+| --- | --- | --- |
+| `ready` | — | `nativeReady()`: the page is drawn and listening; `createShell()` sends it, once a page, never from a frame |
+| `badge` | `{ count }`, an integer from 0 | `setBadge(n)`, with `badge` |
+| `reminders` | `{ items: [{ id, module, title, at, url }] }` | `setReminders(items)`, with `reminders`: every reminder of the next days, **the full set, which replaces the one before** (an empty list clears them). `at` ISO 8601 in UTC, `url` a path of this site (one elsewhere is left out), the soonest 64 (iOS keeps no more) |
+| `purchase` | `{ product }` | `nativePurchase(product)`, with `purchase`: a product key (`stores.products`), or null for the app's own choice. `storePurchase()` in plan.js sends it and waits for its answer |
+| `open-external` | `{ url }` | `openExternal(url)`: http, https, mailto, tel or sms, opened outside the app |
+| `sign-out` | — | `nativeSignOut()`: the person signed out here (`signOut()` sends it); the app lets go of its device |
+| `haptic` | `{ style }` | `haptic(style)`: `light`, `medium`, `heavy`, `selection`, `success`, `warning`, `error` |
+| `open-app-settings` | — | `openAppSettings()`: Settings › Notifications in the app |
+
+`postNative(type, payload)` sends any message, for one the kit has no helper for yet; the payload
+never changes `v` or `type`.
+
+**The app to the web**: a `cronum-native` CustomEvent on the window (`NATIVE_EVENT`), its `detail`
+`{ v: 1, type, ... }` (an object, or the same as JSON). `onNative(type, handler)` hears one type and
+returns the function that stops it; `lastNative(type)` is the last one of that type since the page
+loaded.
+
+| `type` | Detail | What the kit does |
+| --- | --- | --- |
+| `purchase-result` | `{ product, status }`: `purchased`, `pending`, `canceled` or `failed` | `storePurchase()` says it in a notice; bought, it reads the plan again and sends it as `kit-plan` (`PLAN_EVENT`), which an open Settings repaints with |
+| `push-state` | `{ state }`: `granted`, `denied` or `undetermined` | Settings › Notifications says when the phone has them off |
+
+**The messages are only ever added.** Never renamed, never given another meaning, never a payload
+field taken away or changed: a build of the app lives for months on people's phones next to a web
+that changes every day. Either side may meet a message it doesn't know and ignores it, and
+neither side waits on an answer to go on. Every message carries `v: 1`; one with another `v` is
+ignored. A new message, or a new optional field, goes into native.js's header, these tables and the
+CHANGELOG.
+
+**What the kit does by itself in the app.** Settings' plan never shows the web's checkout, and
+sells through the app's store where it can (above, Plans and payments). Settings › Notifications
+offers no Web Push: with `push` it says the app sends them, whether the phone has them off, and
+opens the app's settings (`open-app-settings`); without it, that they come with an update of the
+app. `subscribePush()` refuses (`Error('in_app')`) before asking anything, `pushSupport()` says
+`'unsupported'`, and the host's one worker carries no subscription over: the app's own
+registration is the phone's one channel, so a notice never comes twice.
 
 ### Offline
 

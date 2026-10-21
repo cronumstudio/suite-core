@@ -21,7 +21,11 @@
  * in suiteWorker()). A browser has one subscription per service worker: a
  * person who turns notices on in Settings on the same device gets this same
  * one, so neither side should unsubscribe the browser to forget the other.
+ *
+ * Inside the suite's app on a phone (native.js) there is no Web Push: the app's
+ * own notifications are the device's one channel, so a notice never comes twice.
  */
+import { inApp } from './native.js';
 
 /** How long to wait for the page's service worker: `ready` never settles on a page that registered none. */
 const WORKER_WAIT_MS = 10000;
@@ -61,9 +65,11 @@ function appleTab() {
  *   'install'      an iPhone or iPad tab (iOS 16.4+): add the app to the home
  *                  screen and open it from there
  *   'unsupported'  no service worker or no Push API (also an iPhone or iPad
- *                  before 16.4)
+ *                  before 16.4, and inside the suite's app, whose notices are its own)
  */
 export function pushSupport() {
+  // In the app's web view an iPhone isn't a Safari tab to install from, and the app notifies itself.
+  if (inApp()) return 'unsupported';
   const nav = globalThis.navigator;
   const able = Boolean(nav && 'serviceWorker' in nav) && 'PushManager' in globalThis && 'Notification' in globalThis;
   if (!able) return appleTab() ? 'install' : 'unsupported';
