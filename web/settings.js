@@ -38,11 +38,19 @@
  * doesn't, only the reason. Notifications there are the app's: no Web Push,
  * and a way to the app's own settings.
  *
+ * `standing`: the key, in the app's catalog, of the instruction to paste into
+ * an assistant's own instructions. Your AI shows it, folded under the app's
+ * name, with a way to copy it; in a host, one fold for each module in use.
+ *
  * In a host (Cronum Work) Settings are one for the whole app, the same list
  * in every module: the account's sections, a group for each module in use and
  * the host's last (hostSections below). The module open draws its own; another
  * module's are named from the host's list and drawn there (`?settings=`,
- * settingsAsked()).
+ * settingsAsked()). About is the whole app's there: a card for the host and
+ * one for each module, with its version.
+ *
+ * The list folds by group, one open at a time, so it stays short: the group
+ * of the section open, or none on a phone until one is chosen.
  */
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
@@ -73,9 +81,9 @@ const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
 function hostModulesKept() {
   try {
     const kept = JSON.parse(localStorage.getItem('host.modules') || 'null');
-    return Array.isArray(kept?.modules) ? kept.modules : [];
+    return Array.isArray(kept?.modules) ? kept : { modules: [] };
   } catch {
-    return [];   // private mode, or not JSON
+    return { modules: [] };   // private mode, or not JSON
   }
 }
 
@@ -167,8 +175,13 @@ export function openSettings(options) {
   // What Settings listens to while it is open, let go when it closes.
   const cleanups = [];
   // The host's modules, with the ones this person uses (GET /api/modules): the last answer the
-  // frame kept (shell.js), at once, and the server's when it comes.
-  let inUse = host ? hostModulesKept() : [];
+  // frame kept (shell.js), at once, and the server's when it comes. With them, what the host is
+  // (its name and icon, for About).
+  const kept = host ? hostModulesKept() : { modules: [] };
+  let inUse = kept.modules;
+  let hostInfo = kept.host || {};
+  // What is drawn from the modules in use, drawn again when the server's answer comes.
+  const onModules = [];
   let closed = false;
 
   /* -------------------------------- sections -------------------------------- */
@@ -183,6 +196,9 @@ export function openSettings(options) {
     { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
       hint: () => `${LANGUAGE_NAMES[currentLanguage()] || currentLanguage()} · ${t(`kit.appearance.theme.${state.user?.theme || 'system'}`)}`,
       render: () => appearance() },
+    // The plan is the account's: what it is and what it includes, with the account's other things.
+    options.plan || host?.plans ? { group: t('kit.settings.groups.account'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
+      hint: () => t('kit.plan.hint'), render: () => plan() } : null,
     { group: t('kit.settings.groups.security'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
       hint: () => t(local ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
     // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
@@ -190,8 +206,6 @@ export function openSettings(options) {
       hint: () => t('kit.ai.hint'), render: () => ai() } : null,
     options.push || host?.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
       hint: () => t('kit.notifications.hint'), render: () => notifications() } : null,
-    options.plan || host?.plans ? { group: t('kit.settings.groups.plan'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
-      hint: () => t('kit.plan.hint'), render: () => plan() } : null,
   ];
   const own = (group) => sections.map((section) => ({ group, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' }));
   const admin = (group) => (state.user?.role === 'admin'
@@ -211,31 +225,37 @@ export function openSettings(options) {
   /**
    * A module of a host: one Settings for the whole app, the same list in every module. The
    * account's sections; then a group for each module the person uses, in the host's order, with
-   * that module's own sections, its data, what it adds to Your AI and what it is; last the host's:
-   * deleting the account (every module's), administration and about. This module draws its own
-   * sections here; another's are named here and drawn in that module (goTo).
+   * that module's own sections and its data; last the host's: deleting the account (every
+   * module's), administration and about the whole app. This module draws its own sections here;
+   * another's are named here and drawn in that module (goTo).
    */
-  const hostSections = () => {
-    const shownModules = inUse.filter((m) => m.active || m.mount === host.mount);
-    const groups = shownModules.length && shownModules.some((m) => m.mount === host.mount) ? shownModules : [{ mount: host.mount }];
-    return [
-      ...common(),
-      ...groups.flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
-      deletionDays != null ? { group: host.name, id: 'account', iconName: 'user', label: t('kit.data.deleteTitle'),
-        hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
-      admin(host.name),
-      { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hint', { app: host.name }), render: () => about() },
-    ];
-  };
+  const hostSections = () => [
+    ...common(),
+    ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
+    deletionDays != null ? { group: host.name, id: 'account', iconName: 'user', label: t('kit.data.deleteTitle'),
+      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
+    admin(host.name),
+    { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hostHint'), render: () => about() },
+  ];
 
-  /** This module's group: its sections, drawn here. */
+  /** The host's modules this person uses, in the host's order, and always the one open here. */
+  function modulesHere() {
+    const shown = inUse.filter((m) => m.active || m.mount === host.mount);
+    return shown.some((m) => m.mount === host.mount) ? shown : [{ mount: host.mount }];
+  }
+
+  /**
+   * This module's group: its sections, drawn here. What it adds to Your AI is out of the list when
+   * Your AI has its instruction (`standing`), and what it is always (About has its card): both are
+   * still opened from there.
+   */
   const thisModule = () => [
     ...own(app.name),
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
       hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => data({ account: false }) } : null,
-    options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'),
+    options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'), unlisted: Boolean(options.standing),
       hint: () => t('kit.settings.moduleAiHint', { app: app.name }), render: () => [options.aiExtra()] } : null,
-    options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }),
+    options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
       hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
   ];
 
@@ -257,11 +277,11 @@ export function openSettings(options) {
       return first ? [go(first, 'sliders', t('kit.settings.moduleOpen', { app: m.name }))] : [];
     }
     const say = (key) => (key && typeof words[key] === 'string' ? words[key] : '');
+    // Its instruction is in Your AI, and what it is in About's card: there they are opened from.
     return [
       ...declared.sections.filter((s) => say(s.label)).map((s) => go(s.id, s.icon || 'sliders', say(s.label), say(s.hint))),
       declared.data ? go('data', 'box', t('kit.data.title'), t('kit.settings.dataHint', { app: m.name })) : null,
-      declared.ai ? go('ai-extra', 'spark', t('kit.settings.moduleAi'), t('kit.settings.moduleAiHint', { app: m.name })) : null,
-      declared.about ? go('about-extra', 'info', t('kit.about.title', { app: m.name }), t('kit.settings.moduleAboutHint', { app: m.name })) : null,
+      declared.ai && !declared.standing ? go('ai-extra', 'spark', t('kit.settings.moduleAi'), t('kit.settings.moduleAiHint', { app: m.name })) : null,
     ];
   }
 
@@ -299,7 +319,9 @@ export function openSettings(options) {
       .then((answer) => {
         if (closed || !Array.isArray(answer?.modules)) return;
         inUse = answer.modules;
+        hostInfo = answer.host || hostInfo;
         repaint();
+        for (const paint of onModules) paint();
       })
       .catch(() => { /* offline: the modules of last time */ });
   }
@@ -327,27 +349,58 @@ export function openSettings(options) {
   const items = new Map();
   const built = new Map();
   let current = null;
+  // The group unfolded in the list, by its name: one at a time.
+  let unfolded = null;
   const wide = () => frame.clientWidth >= 720;
 
+  /**
+   * The list, folded by group: a group's heading unfolds it and folds the one that was open, or
+   * folds it again. A group with one section is that section's way in, with no fold of its own.
+   * Sections marked `unlisted` are opened from another one, never from the list.
+   */
   function paintList() {
     clear(list);
-    let group = null;
-    for (const section of all) {
-      if (section.group !== group) {
-        group = section.group;
-        list.append(el('div', { class: 'kit-settings__group', text: group }));
+    items.clear();
+    const groups = [];
+    for (const section of all.filter((s) => !s.unlisted)) {
+      const last = groups.at(-1);
+      if (last?.name === section.group) last.sections.push(section);
+      else groups.push({ name: section.group, sections: [section] });
+    }
+    for (const { name, sections } of groups) {
+      if (sections.length === 1) {
+        const [section] = sections;
+        const heading = el('button', {
+          type: 'button', class: 'kit-settings__group', 'aria-current': section.id === current ? 'page' : null,
+          onClick: () => (section.go ? section.go() : show(section.id)),
+        }, el('span', { class: 'kit-settings__group-name', text: name }), icon('chevron', { className: 'kit-settings__fold' }));
+        items.set(section.id, heading);
+        list.append(heading);
+        continue;
       }
-      const props = { class: 'kit-settings__item', 'aria-current': section.id === current ? 'page' : null };
-      const content = [
-        el('span', { class: 'kit-settings__icon' }, icon(section.iconName || 'sliders')),
-        el('span', { class: 'kit-settings__text' }, el('span', { class: 'kit-settings__label', text: section.label }), el('small', { text: section.hint() })),
-        icon(section.href ? 'external' : 'chevron', { className: 'kit-settings__chevron' }),
-      ];
-      const item = section.href
-        ? el('a', { ...props, href: section.href, target: '_blank', rel: 'noopener' }, content)
-        : el('button', { ...props, type: 'button', onClick: () => (section.go ? section.go() : show(section.id)) }, content);
-      items.set(section.id, item);
-      list.append(item);
+      const open = name === unfolded;
+      const folder = el('div', { class: 'kit-settings__folder', role: 'group', 'aria-label': name, hidden: !open });
+      const heading = el('button', {
+        type: 'button', class: 'kit-settings__group', 'aria-expanded': String(open),
+        onClick: () => {
+          unfolded = unfolded === name ? null : name;
+          paintList();
+        },
+      }, el('span', { class: 'kit-settings__group-name', text: name }), icon('chevron', { className: 'kit-settings__fold' }));
+      for (const section of sections) {
+        const props = { class: 'kit-settings__item', 'aria-current': section.id === current ? 'page' : null };
+        const content = [
+          el('span', { class: 'kit-settings__icon' }, icon(section.iconName || 'sliders')),
+          el('span', { class: 'kit-settings__text' }, el('span', { class: 'kit-settings__label', text: section.label }), el('small', { text: section.hint() })),
+          icon(section.href ? 'external' : 'chevron', { className: 'kit-settings__chevron' }),
+        ];
+        const item = section.href
+          ? el('a', { ...props, href: section.href, target: '_blank', rel: 'noopener' }, content)
+          : el('button', { ...props, type: 'button', onClick: () => (section.go ? section.go() : show(section.id)) }, content);
+        items.set(section.id, item);
+        folder.append(item);
+      }
+      list.append(heading, folder);
     }
   }
 
@@ -362,6 +415,11 @@ export function openSettings(options) {
     if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close })));
     clear(page).append(built.get(id));
     frame.setAttribute('data-open', '');
+    // Its group unfolds in the list, folding the one that was open; one opened from another stays as it was.
+    if (!section.unlisted && unfolded !== section.group) {
+      unfolded = section.group;
+      paintList();
+    }
     for (const [key, item] of items) {
       if (key === id) item.setAttribute('aria-current', 'page');
       else item.removeAttribute('aria-current');
@@ -753,8 +811,10 @@ export function openSettings(options) {
   }
 
   function ai() {
+    // What the assistant connects to: in a host, the whole app, at its one /mcp.
+    const connected = host?.name || app.name;
     const endpoint = el('code', { text: `${window.location.origin}/mcp` });
-    const intro = hint(t('kit.ai.intro', { app: app.name }));
+    const intro = hint(t('kit.ai.intro', { app: connected }));
     const apps = el('div', { class: 'kit-list' });
     const appsBlock = block(t('kit.ai.apps'), apps);
     appsBlock.hidden = true;
@@ -764,7 +824,7 @@ export function openSettings(options) {
     const paintApps = async () => {
       let answer = { enabled: false, grants: [] };
       try { answer = await api.get('/api/me/apps'); } catch { /* without the built-in OAuth: tokens only */ }
-      intro.textContent = t(answer.enabled ? 'kit.ai.introOAuth' : 'kit.ai.intro', { app: app.name });
+      intro.textContent = t(answer.enabled ? 'kit.ai.introOAuth' : 'kit.ai.intro', { app: connected });
       appsBlock.hidden = !answer.enabled;
       const rows = answer.grants.map((g) => el('div', { class: 'kit-list__row' },
         icon('spark'),
@@ -813,6 +873,7 @@ export function openSettings(options) {
         type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(endpoint.textContent, endpoint),
       }))),
       appsBlock,
+      instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
       // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
       ...(options.aiExtra && !host ? [options.aiExtra()] : []),
@@ -820,6 +881,59 @@ export function openSettings(options) {
   }
 
   const used = (when) => (when ? t('kit.ai.lastUsed', { when: formatDateTime(when) }) : t('kit.ai.neverUsed'));
+
+  /**
+   * What to paste into the assistant's own instructions, for each app: connecting is not enough,
+   * an assistant only reaches for an app when it is named. A fold for each, one open at a time:
+   * this app's alone, open, or in a host one for every module in use, each in its own words
+   * (another module's from its catalog). Hidden while no app has one.
+   */
+  function instructions() {
+    const folds = el('div', { class: 'kit-folds' });
+    const section = block(t('kit.ai.standingTitle'), hint(t('kit.ai.standingIntro')),
+      el('ul', { class: 'kit-hint' }, ['claude', 'chatgpt', 'claudeCode'].map((k) => el('li', { text: t(`kit.ai.standingWhere.${k}`) }))),
+      folds);
+    const said = (key) => {
+      const text = key ? t(key) : '';
+      return text === key ? '' : text;
+    };
+    const paint = () => {
+      const apps = !host ? [{ name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing) }]
+        : modulesHere().map((m) => {
+          if (m.mount === host.mount) {
+            return { name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing),
+              more: options.aiExtra ? () => show('ai-extra') : null };
+          }
+          const key = m.settings?.standing;
+          const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) paint(); }) : null;
+          return { name: m.name, src: m.icon, text: typeof words?.[key] === 'string' ? words[key] : '',
+            more: m.settings?.ai ? () => goTo(m, 'ai-extra') : null };
+        });
+      const shown = apps.filter((a) => a.text);
+      section.hidden = !shown.length;
+      clear(folds).append(...shown.map((a) => fold(a, shown.length === 1)));
+    };
+    paint();
+    onModules.push(paint);
+    return section;
+  }
+
+  /** One app's instruction, folded under its name; opening it folds the others. */
+  function fold({ name, src, text, more = null }, open) {
+    const instruction = el('pre', { class: 'kit-instruction', text });
+    const node = el('details', { class: 'kit-fold', name: 'kit-standing', open },
+      el('summary', {}, src ? el('img', { src, alt: '', width: 22, height: 22 }) : null, el('span', { text: name }),
+        icon('chevron-down', { className: 'kit-fold__chevron' })),
+      el('div', { class: 'kit-fold__body' }, instruction,
+        row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary'),
+          more ? el('button', { type: 'button', class: 'kit-link', text: t('kit.ai.standingMore', { app: name }), onClick: more }) : null)));
+    // `name` makes them one-at-a-time where the browser knows it; here, where it doesn't.
+    node.addEventListener('toggle', () => {
+      if (!node.open) return;
+      for (const other of node.parentNode?.children || []) if (other !== node && other.open) other.open = false;
+    });
+    return node;
+  }
 
   /* ------------------------------ notifications ----------------------------- */
 
@@ -914,11 +1028,13 @@ export function openSettings(options) {
     const storeBlock = store ? block(t('kit.plan.upgradeTitle'), hint(t('kit.plan.storeHint')),
       row(button(t('kit.plan.see'), () => storePurchase(), 'primary'))) : null;
     if (storeBlock) storeBlock.hidden = true;
+    const benefits = el('div', {});
     const paint = (answer) => {
       const name = answer.plan?.name ? t(answer.plan.name) : '—';
       const until = answer.ends ? fact(t('kit.plan.until'), formatDateTime(answer.ends, { dateStyle: 'long' })) : null;
       clear(box).append(el('div', { class: 'kit-facts' },
-        fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name), until));
+        fact(t('kit.plan.current'), answer.unlimited ? t('kit.plan.unlimited') : name), until), benefits);
+      paintBenefits(benefits, answer);
       if (options.plan?.render) box.append(options.plan.render(answer));
       if (storeBlock) {
         const order = (answer.plans || []).map((p) => p.id);
@@ -950,6 +1066,32 @@ export function openSettings(options) {
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
     }
     return [block(null, box), ...(payments ? payments.blocks : []), ...(storeBlock ? [storeBlock] : [])];
+  }
+
+  /**
+   * What the plan includes, line by line: the features this app declares and, in a host, those of
+   * every other module in use too (each answers for its own, at its /api/me/entitlements), once
+   * they come. Without any the kit can name, nothing.
+   */
+  let othersFeatures = null;
+  function paintBenefits(node, answer) {
+    const draw = (features) => {
+      const lines = planBenefits(features, { app: host?.name || app.name });
+      clear(node).append(...(lines.length ? [
+        el('h3', { class: 'kit-benefits__title', text: t('kit.plan.benefitsTitle') }),
+        el('ul', { class: 'kit-benefits' }, lines.map(({ text, included }) => el('li', { class: included ? null : 'kit-benefits__no' },
+          icon(included ? 'check' : 'minus'), el('span', { text })))),
+      ] : []));
+    };
+    const own = answer.features || {};
+    draw(own);
+    const others = host ? inUse.filter((m) => m.active && m.mount !== host.mount && m.path) : [];
+    if (!others.length) return;
+    othersFeatures ||= Promise.all(others.map((m) => fetch(`${m.path}api/me/entitlements`, { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null)))
+      .then((answers) => Object.assign({}, ...answers.map((a) => a?.features || {})));
+    othersFeatures.then((more) => { if (!closed && node.isConnected !== false) draw({ ...more, ...own }); });
   }
 
   /* ---------------------------------- data ---------------------------------- */
@@ -1163,6 +1305,7 @@ export function openSettings(options) {
       clear(serverLine).append(hint(t('kit.about.checking')));
       const isNew = options.updates ? await options.updates.check({ announce: true }) : null;
       paintFacts();
+      paintCards?.();
       clear(serverLine).append(...(isNew === null ? [hint(t('kit.about.unknown'))]
         : isNew ? newest() : [el('strong', { class: 'kit-fact__ok', text: t('kit.about.upToDate') })]));
     };
@@ -1178,30 +1321,107 @@ export function openSettings(options) {
         button(t('kit.about.update'), (event) => options.applyUpdate?.(event), 'primary'),
       ].filter(Boolean);
     };
-    const source = app.source || `https://github.com/cronumstudio/${app.id}`;
+    // In a host, the host's: its source, its icon, its name. A module's own are its card's below.
+    const source = host ? hostInfo.source || `https://github.com/cronumstudio/${host.id}` : app.source || `https://github.com/cronumstudio/${app.id}`;
     const facts = el('div', { class: 'kit-facts' },
       running,
       liveFact,
       el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.latest') }), serverLine, button(t('kit.about.check'), check)),
       // The AGPL asks modified versions to offer their source.
       el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.source') }), el('a', { href: source, target: '_blank', rel: 'noopener', text: source.replace(/^https?:\/\//, '') })));
+    const cards = host ? el('div', { class: 'kit-about-cards' }) : null;
+    // The host's icon and its modules' names come with its answer of the modules: painted again then.
+    const hostIcon = el('img', { alt: '', width: 54, height: 54 });
+    const hostLine = el('p', {});
+    const paintCards = host ? () => {
+      if (closed) return;
+      hostIcon.setAttribute('src', hostInfo.icon || '/icons/favicon.svg');
+      const names = modulesHere().map((m) => (m.mount === host.mount ? app.name : m.name || m.mount));
+      hostLine.textContent = t('kit.about.hostTagline', { apps: listFormat({ type: 'conjunction' }).format(names) });
+      clear(cards).append(...modulesHere().map((m) => moduleCard(m)));
+    } : null;
     paintFacts();
+    paintCards?.();
+    if (host) onModules.push(paintCards);
     check();
-    return [
-      block(null, el('div', { class: 'kit-about' },
+    const head = host
+      ? el('div', { class: 'kit-about' }, hostIcon, el('div', {}, el('strong', { text: host.name }), hostLine))
+      : el('div', { class: 'kit-about' },
         el('img', { src: at(app.icon || '/icons/favicon.svg'), alt: '', width: 54, height: 54 }),
-        el('div', {}, el('strong', { text: app.name }), app.tagline ? el('p', { text: app.tagline }) : null))),
+        el('div', {}, el('strong', { text: app.name }), app.tagline ? el('p', { text: app.tagline }) : null));
+    return [
+      block(null, head),
       block(null, facts),
-      // In a host, what a module says it is goes in its own group: this is the host's.
+      // In a host, a card for each module in use, with its version: the whole app updates as one.
+      ...(host ? [block(t('kit.about.modulesTitle'), hint(t('kit.about.modulesHint', { app: host.name })), cards)] : []),
       ...(options.aboutExtra && !host ? [options.aboutExtra()] : []),
       block(null, el('div', { class: 'kit-signature' }, signature())),
     ];
+  }
+
+  /**
+   * A module's card in the host's About: its icon, name and line, the version of it this tab runs
+   * (the server's until the tab has said), and a way to what it says it is.
+   */
+  function moduleCard(m) {
+    const here = m.mount === host.mount;
+    const name = here ? app.name : m.name || m.mount;
+    const words = here ? null : moduleWords(m, currentLanguage(), () => paintCards());
+    const taglineKey = m.settings?.tagline || 'app.tagline';
+    const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
+    const version = (options.updates?.loaded?.()?.modules || options.updates?.latest?.()?.modules || {})[m.mount]?.app;
+    const more = here ? (options.aboutExtra ? () => show('about-extra') : null)
+      : m.settings?.about ? () => goTo(m, 'about-extra') : null;
+    return el('div', { class: 'kit-about-card' },
+      el('img', { src: here ? at(app.icon || '/icons/favicon.svg') : m.icon, alt: '', width: 36, height: 36 }),
+      el('div', { class: 'kit-about-card__text' },
+        el('strong', { text: name }),
+        tagline ? el('p', { text: tagline }) : null,
+        el('small', { text: version ? `v${version}` : '—' }),
+        more ? el('button', { type: 'button', class: 'kit-link', text: t('kit.about.more', { app: name }), onClick: more }) : null));
   }
 
   return { close, show };
 }
 
 /* --------------------------------- helpers --------------------------------- */
+
+/**
+ * The plan's features the kit can name (plans.js), in the order they are read, each with its
+ * name in the catalogs (`kit.plan.benefits.<name>`, and `<name>Unlimited` for a limit without one).
+ */
+const BENEFITS = Object.freeze([
+  ['lists.max', 'lists'], ['projects.max', 'projects'], ['notebooks.max', 'notebooks'],
+  ['storage.mb', 'storage'], ['attachments', 'attachments'], ['files.per_note', 'filesPerNote'],
+  ['sharing', 'sharing'], ['assign', 'assign'], ['publish', 'publish'], ['templates', 'templates'], ['activity', 'activity'],
+  ['retention.days', 'retention'], ['history.days', 'history'], ['mcp', 'mcp'], ['mcp.calls_per_day', 'calls'],
+]);
+
+/**
+ * What a plan includes as people read it: `features` as /api/me/entitlements gives them →
+ * [{ text, included }], what is included first. A limit is a number, or null for none; a flag,
+ * whether it is in. A key the kit doesn't name is left out, and so are the assistant's calls when
+ * the assistant isn't included.
+ */
+export function planBenefits(features = {}, { app = '' } = {}) {
+  const lines = [];
+  for (const [key, name] of BENEFITS) {
+    if (!(key in features)) continue;
+    const value = features[key];
+    if (key === 'mcp.calls_per_day' && features.mcp === false) continue;
+    if (typeof value === 'boolean') {
+      lines.push({ text: t(`kit.plan.benefits.${name}`, { app }), included: value });
+    } else if (value === null) {
+      lines.push({ text: t(`kit.plan.benefits.${name}Unlimited`, { app }), included: true });
+    } else if (typeof value === 'number') {
+      const size = key === 'storage.mb' ? (value >= 1024 ? `${numberText(value / 1024)} GB` : `${numberText(value)} MB`) : null;
+      lines.push({ text: t(`kit.plan.benefits.${name}`, { n: value, size, app }), included: value > 0 });
+    }
+  }
+  return [...lines.filter((l) => l.included), ...lines.filter((l) => !l.included)];
+}
+
+const numberText = (n) => new Intl.NumberFormat(currentLanguage(), { maximumFractionDigits: 1 }).format(n);
 
 function fact(label, value, detail = '') {
   return el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value }), detail ? el('small', { text: detail }) : null);

@@ -57,7 +57,7 @@ export function watchUpdates({
   const where = async (file) => ((await hosted) ? file : at(file));
   const loadOwn = loadLocal || (async () => {
     const mod = await import(await where('/js/app-version.js'));
-    return { app: mod.APP_NAME_VERSION, version: mod.APP_VERSION, built: mod.APP_BUILT, ...(mod.APP_NAME ? { name: mod.APP_NAME } : {}) };
+    return { app: mod.APP_NAME_VERSION, version: mod.APP_VERSION, built: mod.APP_BUILT, ...(mod.APP_NAME ? { name: mod.APP_NAME } : {}), ...(mod.APP_MODULES ? { modules: mod.APP_MODULES } : {}) };
   });
   let loaded = null;
   // What the server said last time it was asked: { app, version, built }.
