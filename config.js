@@ -20,6 +20,7 @@ import { workosConfigFromEnv } from './workos.js';
 import { oidcConfigFromEnv } from './oidc.js';
 import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { vapidKeyErrors } from './push.js';
+import { nativePushFromEnv } from './native-push.js';
 import { PADDLE_API } from './paddle.js';
 import { REVENUECAT_API, STORE_FIELDS } from './revenuecat.js';
 import { productSeatsProblem } from './billing.js';
@@ -48,7 +49,7 @@ export const MODULES = Object.freeze({
 const PRODUCT_KEYS = new Set([
   'app', 'modules', 'accounts', 'sessions', 'organizations', 'tokens', 'rateLimits',
   'features', 'plans', 'defaultPlan', 'products', 'billing', 'trustProxy',
-  'devices', 'stores',
+  'devices', 'stores', 'push',
 ]);
 
 /**
@@ -64,6 +65,9 @@ const BILLING_KEYS = new Set([
 const STORE_KEYS = new Set(['products', 'devices']);
 /** What a store product may say; anything else is a typo that would sell nothing. */
 const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', ...Object.keys(STORE_FIELDS)]);
+
+/** suite.config.js `push`: notices beyond Web Push (native-push.js). */
+const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
 
 /** suite.config.js `devices`: how an app on a phone connects (devices.js, device-pages.js). */
 const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays', 'connectPage', 'webSessions']);
@@ -232,6 +236,27 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     errors.push('modules.devices needs devices.redirectUris: where the system browser hands the code back to the app (com.example.app:/auth)');
   }
 
+  // Native push (native-push.js): the suite's app on a phone gets the same notices through APNs and
+  // FCM, straight to Apple and Google. Off unless the app says; it needs the device tokens it hangs on.
+  const pu = isObject(p.push) ? p.push : {};
+  if (p.push !== undefined && !isObject(p.push)) errors.push("push: an object, such as { native: true, apnsTopic: 'com.example.app' }");
+  for (const key of Object.keys(pu)) {
+    if (!PUSH_KEYS.has(key)) errors.push(`push.${key} is not a setting (a typo?)`);
+  }
+  const pushRules = { native: false, apnsTopic: pu.apnsTopic ?? null, androidChannel: pu.androidChannel ?? 'default' };
+  if (pu.native !== undefined) {
+    if (typeof pu.native !== 'boolean') errors.push('push.native must be true or false');
+    else if (pu.native && !modules.push) errors.push('push.native needs modules.push: native notices are the same sends as Web Push');
+    else if (pu.native && !modules.devices) errors.push('push.native needs modules.devices: a phone registers its token with its device token');
+    else pushRules.native = pu.native;
+  }
+  if (pushRules.apnsTopic !== null && !/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(String(pushRules.apnsTopic))) {
+    errors.push('push.apnsTopic: the app’s bundle id, such as com.example.app');
+  }
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(String(pushRules.androidChannel))) {
+    errors.push('push.androidChannel: the id of the Android notification channel the app creates, such as default');
+  }
+
   const rl = isObject(p.rateLimits) ? p.rateLimits : {};
   const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, code: 5, importTo: 10, devices: 30, ...rl };
   for (const [key, value] of Object.entries(rateLimits)) {
@@ -302,6 +327,16 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     push.privateKey = null;
   }
   if (!/^(mailto:|https:)/.test(push.subject)) warnings.push('VAPID_SUBJECT should be a mailto: or https: address');
+  // Native push: Apple's and Google's credentials, only read with push.native. A platform without
+  // them is off and said once here (the names, never a value); one that can't be used stops the start.
+  let nativePush = null;
+  if (pushRules.native) {
+    nativePush = nativePushFromEnv(env, { topic: pushRules.apnsTopic });
+    errors.push(...nativePush.errors);
+    if (nativePush.missing.apns.length) warnings.push(`push.native: notices for iPhones are off, these are missing: ${nativePush.missing.apns.join(', ')}`);
+    if (nativePush.missing.fcm.length) warnings.push(`push.native: notices for Android phones are off, this is missing: ${nativePush.missing.fcm.join(', ')}`);
+    nativePush = { apns: nativePush.apns, fcm: nativePush.fcm };
+  }
   if (accounts.signup !== 'admin' && mail.provider === 'log') {
     warnings.push(`Sign-up is "${accounts.signup}" but MAIL_PROVIDER is log: confirmation and invitation links only reach the server's log`);
   }
@@ -390,11 +425,14 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     stores: storeBilling,
     mail,
     push,
+    // With push.native: { apns, fcm }, each null when its credentials aren't set.
+    ...(nativePush ? { nativePush } : {}),
     hotReload: env.HOT_RELOAD === 'true',
   };
 
   return {
     app, modules, accounts, sessions, organizations, tokens, devices, rateLimits,
+    push: pushRules,
     features: isObject(p.features) ? p.features : {},
     plans: isObject(p.plans) ? p.plans : null,
     defaultPlan: p.defaultPlan ?? null,

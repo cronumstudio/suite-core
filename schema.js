@@ -31,6 +31,7 @@ import { dataImportsSchema } from './portability.js';
 import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
+import { devicePushTokensSchema } from './native-push.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -69,4 +70,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 22, name: 'device-tokens', up: deviceTokensSchema },
   // Sessions of the web opened from a device's token, and the codes that open them (devices.webSessions).
   { version: 23, name: 'device-web-sessions', up: deviceWebSessionsSchema },
+  // A phone's native push token, one per device, for APNs and FCM (native-push.js, push.native).
+  { version: 24, name: 'device-push-tokens', up: devicePushTokensSchema },
 ]);

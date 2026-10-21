@@ -306,8 +306,12 @@ export function checkSubscription(subscription) {
  * @param {{publicKey, privateKey, subject}} options.vapid   from vapidKeys()
  * @param {Function} [options.fetch]
  * @param {Function} [options.log]
+ * @param {object} [options.native]  native-push.js, with `push.native`: the same sends also reach
+ *   the person's phones through APNs and FCM. Without it everything here is Web Push only.
  */
-export function createPush({ database, vapid, fetch = globalThis.fetch, log = console.error, clock = () => Date.now() }) {
+export function createPush({
+  database, vapid, fetch = globalThis.fetch, log = console.error, clock = () => Date.now(), native = null,
+}) {
   const publicPoint = fromB64url(vapid.publicKey);
   const signingKey = privateKeyFromD(vapid.privateKey, publicPoint);
 
@@ -333,6 +337,11 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
    * over MAX_PAYLOAD bytes is refused with a TypeError before anything is sent.
    */
   async function send(subscription, payload, { ttl = 3600, urgency = 'normal', topic = null } = {}) {
+    // A phone's native token (push.native), among what subscriptionsOf() gave: APNs or FCM.
+    if (native && subscription?.native) {
+      checkTopic(topic);
+      return native.send(subscription, payload, { ttl, urgency, topic });
+    }
     // Outside the try: a payload or a topic that can't be written is the app's mistake, not the device's.
     checkTopic(topic);
     const plain = Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
@@ -404,7 +413,7 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
    * written wrong is the same mistake for every device, so it rejects with a
    * TypeError before anything is sent. → { sent, gone, failed }
    */
-  async function deliver(subscriptions, payload, options = {}) {
+  async function deliverWeb(subscriptions, payload, options = {}) {
     checkTopic(options.topic);
     const results = [];
     for (let i = 0; i < subscriptions.length; i += DELIVER_BATCH) {
@@ -421,11 +430,44 @@ export function createPush({ database, vapid, fetch = globalThis.fetch, log = co
     };
   }
 
-  /** The subscriptions of some people (every device of each). */
+  /**
+   * With `push.native`, the same delivery reaches phones: the native targets
+   * in the list (subscriptionsOf() gives them, `native: true`) and those of
+   * every person whose Web Push subscriptions are in it, for an app that reads
+   * `push_subscriptions` itself. Each target once per delivery.
+   */
+  async function deliver(subscriptions, payload, options = {}) {
+    if (!native) return deliverWeb(subscriptions, payload, options);
+    checkTopic(options.topic);
+    const web = subscriptions.filter((sub) => !sub?.native);
+    const phones = subscriptions.filter((sub) => sub?.native);
+    const listed = new Set(phones.map((target) => target.id));
+    const people = web.map((sub) => sub?.user_id).filter((id) => id != null);
+    for (const target of people.length ? native.targetsOf(people) : []) {
+      if (!listed.has(target.id)) {
+        listed.add(target.id);
+        phones.push(target);
+      }
+    }
+    const [a, b] = await Promise.all([
+      deliverWeb(web, payload, options),
+      native.deliver(phones, payload, options).catch((err) => {
+        log(`[push] native notices failed: ${err?.message || err}`);
+        return { sent: 0, gone: 0, failed: phones.length };
+      }),
+    ]);
+    return { sent: a.sent + b.sent, gone: a.gone + b.gone, failed: a.failed + b.failed };
+  }
+
+  /**
+   * The subscriptions of some people (every device of each). With
+   * `push.native`, their phones' native tokens too, marked `native: true`.
+   */
   function subscriptionsOf(userIds) {
     const ids = [...new Set([...userIds].map(Number))];
     if (!ids.length) return [];
-    return database.all(`SELECT * FROM push_subscriptions WHERE user_id IN (${ids.map(() => '?').join(', ')})`, ...ids);
+    const rows = database.all(`SELECT * FROM push_subscriptions WHERE user_id IN (${ids.map(() => '?').join(', ')})`, ...ids);
+    return native ? [...rows, ...native.targetsOf(ids)] : rows;
   }
 
   /**

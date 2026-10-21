@@ -173,6 +173,10 @@ export function createAccounts({
   function shutOut(id) {
     sessions?.closeAllOf(id);
     if (database.columnsOf('push_subscriptions').length) database.run('DELETE FROM push_subscriptions WHERE user_id = ?', id);
+    // Its phones' native push tokens too (push.native, migration 24).
+    if (database.columnsOf('device_push_tokens').length) {
+      database.run('DELETE FROM device_push_tokens WHERE device_id IN (SELECT id FROM device_tokens WHERE user_id = ?)', id);
+    }
   }
 
   function checkPassword(password) {
