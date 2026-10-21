@@ -143,24 +143,36 @@ test('the credentials: missing ones are said by name only, and that platform is 
   assert.equal(resolveConfig(base, { FCM_SERVICE_ACCOUNT: Buffer.from(JSON.stringify(SERVICE_ACCOUNT)).toString('base64') }).install.nativePush.fcm.projectId, 'cronum-work');
 });
 
-test('the credentials: values that are there but can’t be used stop the start, naming the variable', () => {
-  const errorsOf = (env) => nativePushFromEnv(env, { topic: 'com.cronumstudio.work' }).errors;
+test('the credentials: a value that can’t be used turns its platform off, named, never stopping the start', () => {
+  const problemsOf = (env) => {
+    const { problems } = nativePushFromEnv(env, { topic: 'com.cronumstudio.work' });
+    return [...problems.apns, ...problems.fcm];
+  };
   const good = { APNS_KEY_ID: 'ABCDE12345', APNS_TEAM_ID: 'TEAM123456', APNS_PRIVATE_KEY: APNS_PEM };
-  assert.deepEqual(errorsOf(good), []);
-  assert.deepEqual(errorsOf({ ...good, APNS_KEY_ID: 'abc' }), ['APNS_KEY_ID is not an APNs key id (10 letters and digits, from the key in Apple Developer)']);
-  assert.deepEqual(errorsOf({ ...good, APNS_TEAM_ID: 'team' }), ['APNS_TEAM_ID is not an Apple team id (10 letters and digits)']);
-  assert.match(errorsOf({ ...good, APNS_PRIVATE_KEY: 'not a key' })[0], /^APNS_PRIVATE_KEY is not the \.p8 key/);
-  assert.match(errorsOf({ ...good, APNS_PRIVATE_KEY: RSA_PEM })[0], /^APNS_PRIVATE_KEY/, 'an RSA key is not Apple’s');
-  assert.deepEqual(errorsOf({ ...good, APNS_TOPIC: 'nodots' }), ['APNS_TOPIC (or push.apnsTopic) is not a bundle id, such as com.example.app']);
-  assert.deepEqual(errorsOf({ FCM_SERVICE_ACCOUNT: '{nope' }), ['FCM_SERVICE_ACCOUNT is not JSON (the service account key file from Firebase, or it in base64)']);
-  assert.deepEqual(errorsOf({ FCM_SERVICE_ACCOUNT: JSON.stringify({ ...SERVICE_ACCOUNT, project_id: undefined }) }), ['FCM_SERVICE_ACCOUNT has no project_id']);
-  assert.deepEqual(errorsOf({ FCM_SERVICE_ACCOUNT: JSON.stringify({ ...SERVICE_ACCOUNT, client_email: 'x' }) }), ['FCM_SERVICE_ACCOUNT has no client_email']);
-  assert.deepEqual(errorsOf({ FCM_SERVICE_ACCOUNT: JSON.stringify({ ...SERVICE_ACCOUNT, private_key: APNS_PEM }) }), ['FCM_SERVICE_ACCOUNT: its private_key is not an RSA private key in PEM']);
+  assert.deepEqual(problemsOf(good), []);
+  assert.deepEqual(problemsOf({ ...good, APNS_KEY_ID: 'abc' }), ['APNS_KEY_ID is not an APNs key id (10 letters and digits, from the key in Apple Developer)']);
+  assert.deepEqual(problemsOf({ ...good, APNS_TEAM_ID: 'team' }), ['APNS_TEAM_ID is not an Apple team id (10 letters and digits)']);
+  assert.match(problemsOf({ ...good, APNS_PRIVATE_KEY: 'not a key' })[0], /^APNS_PRIVATE_KEY is not the \.p8 key/);
+  assert.match(problemsOf({ ...good, APNS_PRIVATE_KEY: RSA_PEM })[0], /^APNS_PRIVATE_KEY/, 'an RSA key is not Apple’s');
+  assert.deepEqual(problemsOf({ ...good, APNS_TOPIC: 'nodots' }), ['APNS_TOPIC (or push.apnsTopic) is not a bundle id, such as com.example.app']);
+  assert.equal(nativePushFromEnv({ ...good, APNS_KEY_ID: 'abc' }, { topic: 'com.cronumstudio.work' }).apns, null);
+  assert.deepEqual(problemsOf({ FCM_SERVICE_ACCOUNT: '{nope' }), ['FCM_SERVICE_ACCOUNT is not JSON (the service account key file from Firebase, or it in base64)']);
+  assert.deepEqual(problemsOf({ FCM_SERVICE_ACCOUNT: JSON.stringify({ ...SERVICE_ACCOUNT, project_id: undefined }) }), ['FCM_SERVICE_ACCOUNT has no project_id']);
+  assert.deepEqual(problemsOf({ FCM_SERVICE_ACCOUNT: JSON.stringify({ ...SERVICE_ACCOUNT, client_email: 'x' }) }), ['FCM_SERVICE_ACCOUNT has no client_email']);
+  assert.deepEqual(problemsOf({ FCM_SERVICE_ACCOUNT: JSON.stringify({ ...SERVICE_ACCOUNT, private_key: APNS_PEM }) }), ['FCM_SERVICE_ACCOUNT: its private_key is not an RSA private key in PEM']);
+
   const config = resolveConfig({
     app: { id: 'work', name: 'Work' }, modules: { push: true, devices: true },
     devices: { prefix: 'workdev_', redirectUris: [BACK] }, push: { native: true },
-  }, { FCM_SERVICE_ACCOUNT: '{nope' });
-  assert.deepEqual(config.errors, ['FCM_SERVICE_ACCOUNT is not JSON (the service account key file from Firebase, or it in base64)']);
+  }, { ...good, APNS_TOPIC: 'com.cronumstudio.work', APNS_PRIVATE_KEY: 'secret-typo-value', FCM_SERVICE_ACCOUNT: '{secret-typo-value' });
+  assert.deepEqual(config.errors, [], 'a typo in the panel never takes the app down');
+  assert.deepEqual(config.install.nativePush, { apns: null, fcm: null });
+  const said = config.warnings.filter((w) => w.startsWith('push.native'));
+  assert.deepEqual(said.map((w) => w.replace(/ \(.*$/, '')), [
+    'push.native: notices for iPhones are off: APNS_PRIVATE_KEY is not the .p8 key Apple gives',
+    'push.native: notices for Android phones are off: FCM_SERVICE_ACCOUNT is not JSON',
+  ]);
+  assert.equal(said.some((w) => w.includes('secret-typo-value')), false, 'never the value');
 });
 
 /* ---------------------------------- table --------------------------------- */
@@ -716,18 +728,18 @@ test('over HTTP: bad device tokens count against the address, in the devices’ 
   assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, bad)).status, 429);
 });
 
-test('over HTTP: credentials that can’t be used stop the start', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-native-push-bad-'));
-  try {
-    assert.throws(() => createSuite({
-      config: {
-        app: { id: 'work', name: 'Work' }, modules: { push: true, devices: true },
-        devices: { prefix: 'workdev_', redirectUris: [BACK] }, push: { native: true },
-      },
-      env: { DATA_DIR: dir, APNS_KEY_ID: 'ABCDE12345', APNS_TEAM_ID: 'TEAM123456', APNS_PRIVATE_KEY: 'junk', APNS_TOPIC: 'com.cronumstudio.work' },
-      log: () => {}, exitOnError: false,
-    }), /APNS_PRIVATE_KEY/);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+test('over HTTP: credentials that can’t be used start the app anyway, that platform off and its tokens kept', async (t) => {
+  const { suite, call, device, lines } = await startApp(t, {
+    env: {
+      APNS_KEY_ID: 'ABCDE12345', APNS_TEAM_ID: 'TEAM123456', APNS_PRIVATE_KEY: 'secret-typo-value', APNS_TOPIC: 'com.cronumstudio.work',
+      FCM_SERVICE_ACCOUNT: JSON.stringify(SERVICE_ACCOUNT),
+    },
+  });
+  assert.deepEqual(suite.nativePush.platforms, { ios: false, android: true });
+  assert.ok(lines.some((l) => l.includes('notices for iPhones are off: APNS_PRIVATE_KEY')));
+  assert.equal(lines.some((l) => l.includes('secret-typo-value')), false, 'never the value');
+  const phone = await device();
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).data.sending, false);
+  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 1 });
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM device_push_tokens').n, 1, 'kept for when the key is fixed');
 });

@@ -328,11 +328,13 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   if (!/^(mailto:|https:)/.test(push.subject)) warnings.push('VAPID_SUBJECT should be a mailto: or https: address');
   // Native push: Apple's and Google's credentials, only read with push.native. A platform without
-  // them is off and said once here (the names, never a value); one that can't be used stops the start.
+  // them, or with one that can't be used, is off and said once here (the names, never a value). As
+  // with VAPID, never an error: a typo in an install's panel must not take the whole app down.
   let nativePush = null;
   if (pushRules.native) {
     nativePush = nativePushFromEnv(env, { topic: pushRules.apnsTopic });
-    errors.push(...nativePush.errors);
+    for (const problem of nativePush.problems.apns) warnings.push(`push.native: notices for iPhones are off: ${problem}`);
+    for (const problem of nativePush.problems.fcm) warnings.push(`push.native: notices for Android phones are off: ${problem}`);
     if (nativePush.missing.apns.length) warnings.push(`push.native: notices for iPhones are off, these are missing: ${nativePush.missing.apns.join(', ')}`);
     if (nativePush.missing.fcm.length) warnings.push(`push.native: notices for Android phones are off, this is missing: ${nativePush.missing.fcm.join(', ')}`);
     nativePush = { apns: nativePush.apns, fcm: nativePush.fcm };

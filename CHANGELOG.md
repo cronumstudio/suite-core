@@ -36,8 +36,10 @@ change an interface and a patch never does. Apps pin a version through the submo
     OAuth access token, cached until five minutes before it ends.
   - Gone tokens (APNs 410, `BadDeviceToken`; FCM `UNREGISTERED`, 404, `INVALID_ARGUMENT` on the
     token) are dropped, three refusals in a row too; our own credentials or message and outages
-    count against no device. A platform without its variables is off and said once at the start
-    by their names; a value that can't be used stops the start, naming it.
+    count against no device. Credentials never stop the start, as with VAPID: a platform with
+    variables missing, or with a value that can't be used, is off, said once at the start by the
+    variable's name and what is wrong (never its value), and its tokens are kept. Only
+    suite.config.js's `push.*` written wrong stops the start.
 - **`hostedPush().sendTo`** goes through the marked delivery too: it was spread from the suite's
   push and sent a module's notices without its path and tag. No module used it.
 - New field names in the catalogs (en, es, fr, de): `fields.token`, `fields.environment`,

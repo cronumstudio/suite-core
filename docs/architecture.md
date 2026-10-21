@@ -1345,11 +1345,13 @@ kit's), then Notes is built on it whole, then the others as they move to English
     provider token, `INVALID_ARGUMENT` elsewhere, 401) and outages (429, 5xx, the network) count
     against nobody and are logged; a refused provider token or access token is made again. No
     send ever throws for a device.
-  - **Credentials**: a platform with none, or only some, of its variables is off, said once at the
-    start by their names (never a value), and its phones' tokens are kept for when they come; a
-    value that is there but can't be used (not a P-256 .p8, a key id or team id that isn't 10
-    letters and digits, a bundle id that isn't one, a service account that isn't JSON or has no
-    project_id, client_email or RSA private_key) stops the start, naming the variable.
+  - **Credentials**: never stop the start, as with VAPID (a typo in an install's panel must not
+    take the whole app down). A platform with none, or only some, of its variables, or with a value
+    that can't be used (not a P-256 .p8, a key id or team id that isn't 10 letters and digits, a
+    bundle id that isn't one, a service account that isn't JSON or has no project_id, client_email
+    or RSA private_key), is off: a warning at the start names the variable and what is wrong, never
+    its value, and its phones' tokens are kept for when it works. Only suite.config.js's own
+    `push.native`, `push.apnsTopic` and `push.androidChannel` written wrong stop the start.
 - **Uploads** (**done**, v0.24.0, from Tasks, `suite.uploads` with `modules.uploads`): the file
   travels as the raw request body and is streamed to `DATA_DIR/uploads/<folder>/<random>-<name>`
   (written as `.partial` and renamed at the end); the type is decided by its first bytes (images

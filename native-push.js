@@ -93,16 +93,18 @@ const pemOf = (text) => String(text).trim().replace(/\\n/g, '\n');
 
 /**
  * The credentials of an install, from its environment, for `push.native`:
- * → { apns, fcm, missing: { apns: [names], fcm: [names] }, errors: [text] }.
+ * → { apns, fcm, missing: { apns: [names], fcm: [names] }, problems: { apns: [text], fcm: [text] } }.
  * A platform with none of its variables, or only some, is off (`missing` names
- * what it lacks, never a value); a value that is there but can't be used is an
- * error, so the start says so instead of every notice failing.
+ * what it lacks); one with a value that can't be used is off too (`problems`
+ * names the variable and what is wrong, never its value). Neither stops the
+ * start: as with Web Push, notifications are an extra, and a typo in an
+ * install's panel must not take the whole app down.
  * @param {object} env
  * @param {object} [options]
  * @param {string|null} [options.topic]  suite.config.js push.apnsTopic: the app's bundle id
  */
 export function nativePushFromEnv(env, { topic = null } = {}) {
-  const errors = [];
+  const problems = { apns: [], fcm: [] };
   const missing = { apns: [], fcm: [] };
   let apns = null;
   let fcm = null;
@@ -112,18 +114,17 @@ export function nativePushFromEnv(env, { topic = null } = {}) {
   missing.apns = Object.entries(apnsGiven).filter(([, value]) => !value).map(([name]) => name);
   if (!apnsTopic) missing.apns.push('APNS_TOPIC');
   if (!missing.apns.length) {
-    const before = errors.length;
-    if (!/^[A-Z0-9]{10}$/.test(env.APNS_KEY_ID)) errors.push('APNS_KEY_ID is not an APNs key id (10 letters and digits, from the key in Apple Developer)');
-    if (!/^[A-Z0-9]{10}$/.test(env.APNS_TEAM_ID)) errors.push('APNS_TEAM_ID is not an Apple team id (10 letters and digits)');
-    if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(apnsTopic)) errors.push('APNS_TOPIC (or push.apnsTopic) is not a bundle id, such as com.example.app');
+    if (!/^[A-Z0-9]{10}$/.test(env.APNS_KEY_ID)) problems.apns.push('APNS_KEY_ID is not an APNs key id (10 letters and digits, from the key in Apple Developer)');
+    if (!/^[A-Z0-9]{10}$/.test(env.APNS_TEAM_ID)) problems.apns.push('APNS_TEAM_ID is not an Apple team id (10 letters and digits)');
+    if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(apnsTopic)) problems.apns.push('APNS_TOPIC (or push.apnsTopic) is not a bundle id, such as com.example.app');
     const pem = pemOf(env.APNS_PRIVATE_KEY);
     try {
       const key = crypto.createPrivateKey(pem);
       if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') throw new Error('not P-256');
     } catch {
-      errors.push('APNS_PRIVATE_KEY is not the .p8 key Apple gives (a P-256 private key in PEM, the .p8 file’s text)');
+      problems.apns.push('APNS_PRIVATE_KEY is not the .p8 key Apple gives (a P-256 private key in PEM, the .p8 file’s text)');
     }
-    if (errors.length === before) apns = { keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, privateKey: pem, topic: apnsTopic };
+    if (!problems.apns.length) apns = { keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, privateKey: pem, topic: apnsTopic };
   }
 
   if (!env.FCM_SERVICE_ACCOUNT) missing.fcm.push('FCM_SERVICE_ACCOUNT');
@@ -139,18 +140,18 @@ export function nativePushFromEnv(env, { topic = null } = {}) {
       : !account.project_id || typeof account.project_id !== 'string' ? 'has no project_id'
         : !/^[^\s@]+@[^\s@]+$/.test(String(account.client_email || '')) ? 'has no client_email'
           : !account.private_key ? 'has no private_key' : null;
-    if (problem) errors.push(`FCM_SERVICE_ACCOUNT ${problem}`);
+    if (problem) problems.fcm.push(`FCM_SERVICE_ACCOUNT ${problem}`);
     else {
       try {
         const key = crypto.createPrivateKey(pemOf(account.private_key));
         if (key.asymmetricKeyType !== 'rsa') throw new Error('not RSA');
         fcm = { projectId: account.project_id, clientEmail: account.client_email, privateKey: pemOf(account.private_key) };
       } catch {
-        errors.push('FCM_SERVICE_ACCOUNT: its private_key is not an RSA private key in PEM');
+        problems.fcm.push('FCM_SERVICE_ACCOUNT: its private_key is not an RSA private key in PEM');
       }
     }
   }
-  return { apns, fcm, missing, errors };
+  return { apns, fcm, missing, problems };
 }
 
 /* ------------------------------ what is sent ------------------------------ */
