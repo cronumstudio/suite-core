@@ -1008,6 +1008,8 @@ export async function createHost({
     // Open tabs would keep the server from closing.
     suite.live.close();
     for (const m of joined) m.view.live.close();
+    // The connections to Apple kept open for native notices (push.native).
+    suite.nativePush?.close();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 

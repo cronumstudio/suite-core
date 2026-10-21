@@ -161,10 +161,18 @@ export function createDevices({
 
   // The sessions a device opened on the web (migration 23): a database without the column has none.
   const sessionsLinked = database.columnsOf('sessions').includes('device_id');
-  /** Closes the web sessions of devices just revoked: `where` picks them in device_tokens. */
-  const endSessions = (where, ...params) => (sessionsLinked
-    ? database.run(`DELETE FROM sessions WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params).changes
-    : 0);
+  // A device's native push token (migration 24): a database without the table has none.
+  const pushLinked = database.columnsOf('device_push_tokens').length > 0;
+  /**
+   * Closes the web sessions of devices just revoked, and forgets their native
+   * push tokens so no notice reaches them after: `where` picks them in device_tokens.
+   */
+  const endSessions = (where, ...params) => {
+    if (pushLinked) database.run(`DELETE FROM device_push_tokens WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params);
+    return sessionsLinked
+      ? database.run(`DELETE FROM sessions WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params).changes
+      : 0;
+  };
 
   const columns = 'id, name, platform, app_version, created_at, last_used_at';
   /** The end of a token that goes on unused: its last use (or its creation) plus idleDays. */
@@ -445,7 +453,7 @@ export function createDevices({
  * `webSessions` (`devices.webSessions`), a device also asks for a code that
  * opens a session of the web in its WebView (device-pages.js).
  */
-export function registerDevicesApi(router, { devices, limiter, audit = null, webSessions = false }) {
+export function registerDevicesApi(router, { devices, limiter, audit = null, webSessions = false, pushTokens = null }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
@@ -484,7 +492,14 @@ export function registerDevicesApi(router, { devices, limiter, audit = null, web
 
   router.get('/api/me/devices', (ctx) => {
     const user = requireUser(ctx);
-    sendJson(ctx.res, 200, devices.list(user.id));
+    const list = devices.list(user.id);
+    if (!pushTokens) {
+      sendJson(ctx.res, 200, list);
+      return;
+    }
+    // With push.native: whether each device has registered its token for notices.
+    const withTokens = pushTokens(list.map((device) => device.id));
+    sendJson(ctx.res, 200, list.map((device) => ({ ...device, notifications: withTokens.has(device.id) })));
   });
 
   router.delete('/api/me/devices/:id', (ctx) => {

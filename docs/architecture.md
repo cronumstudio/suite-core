@@ -83,6 +83,7 @@ suite-core/
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language;
                                sending to an app's own devices, with no user behind them
+  native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
@@ -175,6 +176,9 @@ export default {
   // With it, also (both off by default): the suite's connect page at /devices/connect, and sessions
   // of the web opened from a device's token (POST /api/devices/web-session, GET /devices/session).
   // devices: { …, connectPage: true, webSessions: true },
+  // With modules.push and modules.devices (off by default): the same notices to the phone's app
+  // through APNs and FCM (section 16), APNS_* and FCM_SERVICE_ACCOUNT in the environment.
+  // push: { native: true, apnsTopic: 'com.example.app', androidChannel: 'default' },
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
@@ -236,7 +240,8 @@ Environment variables configure the install, never the product (`config.js` read
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
 `BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, and `EARLY_ACCESS_UNTIL`,
 `STORE_BILLING` (`revenuecat`) with `REVENUECAT_*`, `MAIL_PROVIDER` (`log` |
-`smtp`) with `MAIL_*`; `VAPID_*`. Three product settings may be overridden
+`smtp`) with `MAIL_*`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
+`APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
 names the new one, and `BASE_URL` is required when `NODE_ENV=production`.
@@ -354,6 +359,20 @@ CREATE TABLE device_web_codes (
   expires_at TEXT NOT NULL,
   used_at    TEXT                        -- spent by its first use, right or wrong
 );
+-- A phone's native push token (push.native, migration 24): one per device, gone with it.
+CREATE TABLE device_push_tokens (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id   INTEGER NOT NULL UNIQUE REFERENCES device_tokens(id) ON DELETE CASCADE,
+  platform    TEXT NOT NULL,             -- ios | android
+  token       TEXT NOT NULL,             -- APNs device token (hex) or FCM registration token
+  environment TEXT,                      -- APNs: sandbox | production
+  lang        TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  last_ok_at  TEXT,
+  failures    INTEGER NOT NULL DEFAULT 0  -- refusals in a row; three and it goes
+);
+CREATE UNIQUE INDEX ux_device_push_tokens_token ON device_push_tokens (platform, token);
 
 CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX ix_login_attempts ON login_attempts (bucket, at);
@@ -1280,6 +1299,59 @@ kit's), then Notes is built on it whole, then the others as they move to English
   encryption, signature and time limit as a person's, the endpoint checked again, and
   `{ ok, status, gone }` back; on `gone`, and only then, the app drops it. No table and no migration: the
   subscription is a column of the app's device. Needs `modules.push`.
+- **Native push** (v0.107.0, `native-push.js`, for Cronum Work's app on iPhone and Android): with
+  `modules.push`, `modules.devices` and `push: { native: true, apnsTopic: '<bundle id>' }` in
+  suite.config.js (off by default; with it off nothing here runs and nothing is read), the same
+  sends the modules make for Web Push also reach the person's phones, straight to Apple and Google,
+  with no push service in between and no dependency:
+  - **Registration**, with the device's token (`Authorization: Bearer <devices.prefix>…`), never a
+    session: `POST /api/devices/push` `{ platform: 'ios' | 'android', token, environment?:
+    'sandbox' | 'production' (APNs only, `production` by default), lang? }` keeps one token per
+    device (`device_push_tokens`, **suite migration 24**, hanging on `device_tokens` with
+    `ON DELETE CASCADE`; the same token on another device moves here); `DELETE /api/devices/push`
+    forgets it; `POST /api/devices/push/test` sends this device a test notice. A device revoked
+    (by its owner, by itself, by the admin) loses its token at once; one gone idle, refused by
+    `canConnect` or of a disabled account gets nothing, and its row goes with the device. Bad device
+    tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
+  - **Sending**: `subscriptionsOf(userIds)` also gives the people's phones (rows with
+    `native: true`, `platform`, `lang`, `user_id`), and `deliver()` sends each where it goes; given
+    Web Push rows only (an app that reads `push_subscriptions` itself, as Tasks does), it also sends
+    to those people's phones. Each phone once per delivery. `sendTo`, `send` and the host's
+    `hostedPush` (the module's path in `url`, its `module` and tag) go the same way, and
+    `/api/push/test` reaches the phones too. What a Web Push payload becomes: `title` and `body`
+    the alert's texts (the body, then the title, shortened to fit 4 KB, never refused); `badge`
+    when it is a whole number (on the web it is an image, and ignored); `category` (the actions the
+    app defines, such as `task-reminder`); every other plain value (`url`, `module`, `id`, `tag`,
+    `task_id`…) as data, and the same data as JSON under `body`, where expo-notifications reads
+    `content.data`. The send's `topic`, else the payload's `tag`, collapses notices
+    (`apns-collapse-id`, FCM `collapse_key`); `ttl` and `urgency` map to `apns-expiration`,
+    `apns-priority` (10, or 5 for `low`) and FCM's `ttl` and priority (`HIGH`, or `NORMAL`).
+  - **APNs** over one HTTP/2 connection per host, kept (api.push.apple.com, or
+    api.sandbox.push.apple.com for a development build's token), token auth: an ES256 JWT of
+    `APNS_KEY_ID` and `APNS_TEAM_ID` signed with `APNS_PRIVATE_KEY` (the .p8 text; `
+` for line
+    breaks in one line of .env), made again every 50 minutes; topic `APNS_TOPIC` or
+    `push.apnsTopic`. Payload `aps: { alert: { title, body }, sound: 'default', badge?, category?,
+    thread-id }` (the module, else the tag) plus the data; headers `apns-push-type: alert`,
+    `apns-topic`, `apns-priority`, `apns-expiration`, `apns-collapse-id`.
+  - **FCM HTTP v1** with `FCM_SERVICE_ACCOUNT` (the service account's JSON, or it in base64): an
+    RS256 JWT exchanged at oauth2.googleapis.com for an access token, kept until five minutes before
+    it ends; `notification: { title, body }`, `android: { priority, ttl, collapse_key,
+    notification: { channel_id (push.androidChannel, 'default'), tag, notification_count } }`,
+    `data` (strings only).
+  - **Answers**: APNs 410, `BadDeviceToken`, `Unregistered` and FCM `UNREGISTERED`, 404, or
+    `INVALID_ARGUMENT` on the token drop it; another refusal of the device (`DeviceTokenNotForTopic`,
+    `SENDER_ID_MISMATCH`…) three times in a row too; our credentials or our message (403
+    provider token, `INVALID_ARGUMENT` elsewhere, 401) and outages (429, 5xx, the network) count
+    against nobody and are logged; a refused provider token or access token is made again. No
+    send ever throws for a device.
+  - **Credentials**: never stop the start, as with VAPID (a typo in an install's panel must not
+    take the whole app down). A platform with none, or only some, of its variables, or with a value
+    that can't be used (not a P-256 .p8, a key id or team id that isn't 10 letters and digits, a
+    bundle id that isn't one, a service account that isn't JSON or has no project_id, client_email
+    or RSA private_key), is off: a warning at the start names the variable and what is wrong, never
+    its value, and its phones' tokens are kept for when it works. Only suite.config.js's own
+    `push.native`, `push.apnsTopic` and `push.androidChannel` written wrong stop the start.
 - **Uploads** (**done**, v0.24.0, from Tasks, `suite.uploads` with `modules.uploads`): the file
   travels as the raw request body and is streamed to `DATA_DIR/uploads/<folder>/<random>-<name>`
   (written as `.partial` and renamed at the end); the type is decided by its first bytes (images

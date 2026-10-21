@@ -3,6 +3,52 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.107.0 — 2026-10-21
+
+- **Native push, straight to Apple and Google** (new `native-push.js`; `push.js`, `config.js`,
+  `app.js`, `devices.js`, `accounts.js`, `host-worker.js`, `host.js`; **suite migration 24**,
+  `device-push-tokens`). For Cronum Work's app on iPhone and Android, with no push service in
+  between and no dependency. Behind a new setting, off by default: `push: { native: true,
+  apnsTopic: '<bundle id>', androidChannel?: 'default' }` in suite.config.js, which needs
+  `modules.push` and `modules.devices`. With it off nothing runs, no variable is read, no route is
+  added and every send is Web Push only, as before.
+  - The phone's app registers its token with its device token (`Authorization: Bearer
+    <devices.prefix>…`): `POST /api/devices/push` `{ platform: 'ios' | 'android', token,
+    environment?: 'sandbox' | 'production' (APNs only; production by default), lang? }`,
+    `DELETE /api/devices/push`, and `POST /api/devices/push/test` for a test notice to that device.
+    One token per device in `device_push_tokens` (`ON DELETE CASCADE` on `device_tokens`; the same
+    token registered by another device moves there). A device revoked loses its token at once; one
+    idle, refused by `canConnect` or of a disabled account gets nothing. `GET /api/me/devices` adds
+    `notifications: true | false` to each device.
+  - The same sends reach the phones: `subscriptionsOf()` also returns the people's phones (rows
+    with `native: true`), `deliver()` sends each where it goes and, given Web Push rows only (Tasks
+    reads `push_subscriptions` itself), adds those people's phones; `sendTo`, `send`,
+    `/api/push/test` and the host's `hostedPush` too, each phone once per delivery. The payload the
+    modules already send maps to APNs (`aps.alert` title and body, sound, `badge` when a whole
+    number, `category`, `thread-id` from the module or tag, `apns-collapse-id` from the topic or
+    tag) and to FCM v1 (`notification`, `android.collapse_key`, `channel_id`, `tag`, `data` as
+    strings); every other plain value (`url`, `module`, `id`, `task_id`…) travels as data, also as
+    JSON under `body` for expo-notifications. A body too long for 4 KB is shortened, never refused.
+  - APNs over HTTP/2 (`node:http2`), one connection per host kept, token auth with an ES256 JWT
+    from the .p8 key (`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, topic `APNS_TOPIC` or
+    `push.apnsTopic`), made again every 50 minutes; the sandbox host for a development build's
+    token. FCM HTTP v1 with `FCM_SERVICE_ACCOUNT` (the JSON, or it in base64): an RS256 JWT for an
+    OAuth access token, cached until five minutes before it ends.
+  - Gone tokens (APNs 410, `BadDeviceToken`; FCM `UNREGISTERED`, 404, `INVALID_ARGUMENT` on the
+    token) are dropped, three refusals in a row too; our own credentials or message and outages
+    count against no device. Credentials never stop the start, as with VAPID: a platform with
+    variables missing, or with a value that can't be used, is off, said once at the start by the
+    variable's name and what is wrong (never its value), and its tokens are kept. Only
+    suite.config.js's `push.*` written wrong stops the start.
+- **`hostedPush().sendTo`** goes through the marked delivery too: it was spread from the suite's
+  push and sent a module's notices without its path and tag. No module used it.
+- New field names in the catalogs (en, es, fr, de): `fields.token`, `fields.environment`,
+  `fields.lang`.
+- A module that picks the people to notify from `push_subscriptions` itself reaches a person's
+  phone only when that person also has a Web Push subscription; through
+  `suite.push.subscriptionsOf([userId])` it reaches someone with the phone alone (a one-line change
+  in Tasks' `notify.js` and Projects' daily summary, for a release of theirs).
+
 ## 0.106.0 — 2026-10-21
 
 - **The kit's bridge to the suite's app on a phone** (new `web/native.js`; `settings.js`,

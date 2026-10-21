@@ -61,6 +61,7 @@ import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
+import { createNativePush, registerNativePushApi } from './native-push.js';
 import { createUploads } from './uploads.js';
 import { createUploadLinks, registerUploadLinksApi } from './mcp-files.js';
 import { createPortability, registerPortabilityApi } from './portability.js';
@@ -379,8 +380,14 @@ export function createSuite({
   if (oauth) accounts.whenRemoved((userId) => oauth.forgetUser(userId));
 
   // Web Push, with modules.push: the install's VAPID keys (the environment's, or the database's).
+  // With push.native, the same sends reach the phones' app through APNs and FCM (native-push.js).
+  const nativePush = config.modules.push && config.push?.native && devices ? createNativePush({
+    database, devices, apns: install.nativePush?.apns ?? null, fcm: install.nativePush?.fcm ?? null,
+    channel: config.push.androidChannel, log,
+  }) : null;
   const push = config.modules.push ? createPush({
     database, vapid: vapidKeys(database, install.push, { log: (line) => log(`${tag} ${line}`) }), log,
+    ...(nativePush ? { native: nativePush } : {}),
   }) : null;
   // Files people attach, with modules.uploads: stored, served and swept here; the app keeps its table.
   const uploads = config.modules.uploads
@@ -526,7 +533,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor, idempotency, deletion, devices, stores, uploadLinks,
+    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush,
   };
 }
 
@@ -641,7 +648,15 @@ export function createApp({
   }
   if (suite.devices) {
     if (deviceRules?.canConnect) suite.devices.setCanConnect(deviceRules.canConnect);
-    registerDevicesApi(api, { devices: suite.devices, limiter, audit, webSessions: Boolean(config.devices?.webSessions) });
+    registerDevicesApi(api, {
+      devices: suite.devices, limiter, audit, webSessions: Boolean(config.devices?.webSessions),
+      // With push.native, the list says which devices get notices.
+      ...(suite.nativePush ? { pushTokens: (ids) => suite.nativePush.withTokens(ids) } : {}),
+    });
+    // The phone's app registers its native push token (push.native).
+    if (suite.nativePush && push) {
+      registerNativePushApi(api, { devices: suite.devices, nativePush: suite.nativePush, limiter, texts, appName: config.app.name });
+    }
   } else if (deviceRules) {
     log(`${tag} createApp({ devices }) is given, but modules.devices is off: no phone can connect`);
   }
@@ -1030,6 +1045,7 @@ export function createApp({
     for (const timer of timers) clearInterval(timer);
     // Open tabs would keep the server from closing.
     live.close();
+    suite.nativePush?.close();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 

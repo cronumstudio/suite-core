@@ -161,5 +161,7 @@ export function hostedPush(push, mount) {
     ...push,
     send: (subscription, payload, options) => push.send(subscription, mark(payload), options),
     deliver: (subscriptions, payload, options) => push.deliver(subscriptions, each(payload), options),
+    // Through the marked delivery too: spread from `push`, it sent the module's notices unmarked.
+    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), each(payload), options),
   };
 }
