@@ -36,6 +36,9 @@ export const DEFAULT_LIMITS = Object.freeze({
   importTo: 10,
   // Codes that failed to become a device token (devices.js), per address.
   devices: 30,
+  // A good web-session code refused because someone else is signed in (device-pages.js): how many
+  // times per address it is written to the audit log. It brakes nothing; it only bounds the rows.
+  devicesRefused: 10,
 });
 
 export function rateLimitSchema(d) {

@@ -40,13 +40,16 @@
  * against the address as the token's exchange does (`rateLimits.devices`).
  * Refused, without spending the code and without counting, and sent to
  * `/?device_session=refused` (so the app can clear its WebView's cookies and
- * try once more): a request another site started (`Sec-Fetch-Site` cross-site
- * or same-site), one that is not the page itself (`Sec-Fetch-Dest` other than
- * `document`, `Sec-Fetch-Mode` other than `navigate`: an image in a shared
- * note, a frame, a fetch; a WebView that sends neither is let through), and one
- * from a browser where someone else is signed in with an ordinary session of
- * the web (a session a device opened before may be replaced). Every outcome is
- * in the audit log.
+ * try once more): a request that is not the app's own load (`Sec-Fetch-Site`
+ * other than `none`: another site, or a link or an image in a note of this
+ * one), one that is not the page itself (`Sec-Fetch-Dest` other than
+ * `document`, `Sec-Fetch-Mode` other than `navigate`: an image, a frame, a
+ * fetch; a WebView that sends none of the three is let through), and one from
+ * a browser where someone else is signed in (only a session a device opened
+ * before is replaced, and only by a load that says `Sec-Fetch-Site: none`).
+ * Every opened session and every failure is in the audit log; of the
+ * refusals, only someone else's session (`signed_in`), a few times per
+ * address in the window.
  *
  * No second step is asked there: the token was given to a session that had
  * already passed it (`/api/devices/codes` takes only a session, and a session
@@ -228,36 +231,43 @@ export function createDevicePages({ suite, clock = () => Date.now() }) {
     };
     // A refusal is no guess at a code (the code is not spent, often not even looked at), so it
     // doesn't count against the address: a page that loads the address many times over would
-    // otherwise lock the reader's own phone out of the token's bucket.
-    const refuse = (reason, userId = null) => {
-      audit?.record({ action: 'device.web_session_failed', actor: userId, req, meta: { reason } });
-      return send(res, REFUSED_PATH);
-    };
+    // otherwise lock the reader's own phone out of the token's bucket. Nor does one that only the
+    // headers decided write to the audit log, or anyone could fill it with no code and no brake.
+    const refuse = () => send(res, REFUSED_PATH);
     const brake = limiter.checkFailures('devices', req);
     if (!brake.allowed) return send(res, '/');
-    // Opened by the app in its WebView (`none`) or from a page of this site; never from a link on
-    // another site, which would sign whoever follows it into the account of whoever made the code.
+    // Only the app's own load of the page, the way its WebView opens it: `Sec-Fetch-Site: none`.
+    // Never from another site, nor from a page of this one (a note shared with someone can hold
+    // `[open](/devices/session?…)` or `![](/devices/session?…)`), nor as an image, a frame or a
+    // fetch: any of them would sign the reader into the account of whoever made the code. Nothing
+    // of this site links here. A WebView too old to send these headers sends none, and goes on.
     const site = req.headers['sec-fetch-site'];
-    if (site === 'cross-site' || site === 'same-site') return refuse('cross_site');
-    // Only as the page itself, the way the WebView loads it: never as an image, a frame or a fetch
-    // that a page of this site makes (a note shared with someone can hold `![](/devices/session?…)`),
-    // which would sign the reader into the account of whoever made the code. A WebView too old to
-    // send these headers sends none, and is let through.
     const dest = req.headers['sec-fetch-dest'];
     const mode = req.headers['sec-fetch-mode'];
-    if ((dest !== undefined && dest !== 'document') || (mode !== undefined && mode !== 'navigate')) {
-      return refuse('not_navigation');
-    }
-    // A live session of the web of someone else is never replaced: whoever is signed in in this
-    // browser stays so. One a device opened before (its WebView kept the cookie of the account it
-    // had, after signing out as best it could) is, or the app would never get back in.
+    if (site !== undefined && site !== 'none') return refuse();
+    if ((dest !== undefined && dest !== 'document') || (mode !== undefined && mode !== 'navigate')) return refuse();
+    // A live session of someone else is replaced only by the app's own load as the browser vouches
+    // for it (`none`), and only when a device opened it (its WebView kept the cookie of the account
+    // it had, after signing out as best it could; the app would never get back in otherwise). An
+    // ordinary session of the web never is, and with no headers at all (an old WebView, a page over
+    // http://, where an image in a note sends none either) no session of someone else is: the app
+    // clears its WebView's cookies and opens the address again, now with nothing in the way.
     const current = sessions.alive(sessions.tokenFrom(req));
-    const holder = current && current.device_id == null ? sessions.userFrom(req)?.id ?? null : null;
+    const replaceable = current != null && current.device_id != null && site === 'none';
+    const holder = current && !replaceable ? sessions.userFrom(req)?.id ?? null : null;
     const codes = url.searchParams.getAll('code');
     const outcome = devices.takeWebCode(codes.length === 1 ? codes[0] : null, {
       refuse: (userId) => (holder != null && holder !== userId ? 'signed_in' : null),
     });
-    if (outcome.refused) return refuse(outcome.refused, outcome.userId);
+    if (outcome.refused) {
+      // Only a good code gets here, and it stays good for its minute: written down a few times per
+      // address in the window (their own bucket, not the token's), never as often as it is opened.
+      if (limiter.checkFailures('devicesRefused', req).allowed) {
+        limiter.noteFailure('devicesRefused', req);
+        audit?.record({ action: 'device.web_session_failed', actor: outcome.userId, req, meta: { reason: outcome.refused } });
+      }
+      return refuse();
+    }
     if (outcome.failed) return fail(outcome.failed, outcome.userId);
     sessions.open(outcome.user.id, { req, res, deviceId: outcome.deviceId });
     accounts.signedIn(outcome.user.id);

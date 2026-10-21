@@ -424,10 +424,10 @@ test('a web session from a device: the token asks, the WebView opens it once, si
 
   const actions = suite.audit.list({ action: 'device.web_session' }).map((e) => `${e.action}${e.meta?.reason ? ` ${e.meta.reason}` : ''}`).reverse();
   assert.deepEqual(actions, ['device.web_session', 'device.web_session_failed reused', 'device.web_session',
-    'device.web_session_failed cross_site', 'device.web_session']);
+    'device.web_session'], 'a refusal the headers decided writes nothing');
 });
 
-/** The headers a browser sends with a top-level load: the WebView's own (`none`), or a link on this site. */
+/** The headers a WebView sends with its own top-level load. */
 const NAVIGATE = { 'Sec-Fetch-Site': 'none', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
 
 test('a web session opens only as the page itself, and never over someone else’s session of the web', async (t) => {
@@ -463,9 +463,19 @@ test('a web session opens only as the page itself, and never over someone else�
   assert.equal(spent(lure), false, 'a refusal spends nothing');
   assert.equal(await me(ana1), 'ana', 'Ana is still herself');
 
-  // The same code opened as a page in Ana's browser: still refused, Ana's session stays, the code too.
-  const forced = await ana1.call('GET', lure, undefined, { ...NAVIGATE, 'Sec-Fetch-Site': 'same-origin' });
-  assert.deepEqual([forced.status, forced.headers.get('location'), forced.setCookies.length], [302, REFUSED_PATH, 0]);
+  // The same code as a link in the note, followed in Ana's browser or from another site: refused.
+  for (const site of ['same-origin', 'same-site', 'cross-site']) {
+    const forced = await ana1.call('GET', lure, undefined, { ...NAVIGATE, 'Sec-Fetch-Site': site });
+    assert.deepEqual([forced.status, forced.headers.get('location'), forced.setCookies.length], [302, REFUSED_PATH, 0], site);
+  }
+  assert.equal(await me(ana1), 'ana');
+  assert.equal(spent(lure), false);
+  // Typed into Ana's browser (`none`), or with no headers at all (an image in a note on a page
+  // over http://): Ana's ordinary session is never replaced.
+  for (const headers of [NAVIGATE, {}]) {
+    const typed = await ana1.call('GET', lure, undefined, headers);
+    assert.deepEqual([typed.status, typed.headers.get('location'), typed.setCookies.length], [302, REFUSED_PATH, 0]);
+  }
   assert.equal(await me(ana1), 'ana');
   assert.equal(spent(lure), false);
   // None of it counts against the address: Ana's phone still gets its codes.
@@ -490,14 +500,53 @@ test('a web session opens only as the page itself, and never over someone else�
   assert.equal(await me(ana2), 'ana');
 
   // A WebView still holding the session a device of another account opened (a sign-out that didn't
-  // reach the server): replaced, or the app could never sign the new account in.
+  // reach the server). A link in a note Eve shares, followed there, is not the app's load: refused,
+  // and the WebView is still Eve's.
   assert.equal(await me(webview), 'eve');
+  const anaCode = `${await codeOf(anaPhone)}&next=/tasks/`;
+  const tapped = await webview.call('GET', anaCode, undefined, { ...NAVIGATE, 'Sec-Fetch-Site': 'same-origin' });
+  assert.deepEqual([tapped.status, tapped.headers.get('location'), tapped.setCookies.length], [302, REFUSED_PATH, 0]);
+  assert.equal(spent(anaCode), false);
+  assert.equal(await me(webview), 'eve');
+  // Nor is a load with no headers, which an image in a note sends where the browser sends none
+  // (WKWebView before iOS 16.4, http://): refused too, and the same load with no cookie opens.
+  const bare = await webview.call('GET', anaCode);
+  assert.deepEqual([bare.status, bare.headers.get('location'), bare.setCookies.length], [302, REFUSED_PATH, 0]);
+  assert.equal(spent(anaCode), false);
+  assert.equal(await me(webview), 'eve');
+  const cleared = fresh();
+  assert.equal((await cleared.call('GET', anaCode)).headers.get('location'), '/tasks/');
+  assert.equal(await me(cleared), 'ana');
+  // The app's own load (`none`) replaces it, or the app could never sign the new account in.
   const switched = await webview.call('GET', `${await codeOf(anaPhone)}&next=/tasks/`, undefined, NAVIGATE);
   assert.deepEqual([switched.headers.get('location'), switched.setCookies.length], ['/tasks/', 1]);
   assert.equal(await me(webview), 'ana');
 
-  const reasons = suite.audit.list({ action: 'device.web_session_failed' }).map((e) => e.meta.reason).reverse();
-  assert.deepEqual(reasons, [...Array(5).fill('not_navigation'), 'signed_in']);
+  // Only a good code over someone else's session is written down, and only a few times per address.
+  const reasons = suite.audit.list({ action: 'device.web_session_failed' }).map((e) => e.meta.reason);
+  assert.deepEqual(reasons, Array(3).fill('signed_in'), 'typed, bare in Ana’s browser, bare in the WebView');
+});
+
+test('refusals: none counts against the address, and the audit log is written a few times at most', async (t) => {
+  const { suite, call, fresh } = await startApp(t, { product: ON });
+  const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password-123' });
+  const eve = suite.accounts.create({ username: 'eve', displayName: 'Eve', password: 'eve-password-123' });
+  const evePhone = { Authorization: `Bearer ${phoneOf(suite, eve).token}` };
+  const lure = (await call('POST', '/api/devices/web-session', undefined, evePhone)).data.url;
+  const browser = fresh();
+  await browser.call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password-123' });
+  assert.equal((await browser.call('GET', '/api/auth/me')).data.user.username, ana.username);
+
+  // No code and no session, only headers: refused every time, and nothing written anywhere.
+  for (let i = 0; i < 40; i++) {
+    const headers = i % 2 ? { 'Sec-Fetch-Dest': 'image' } : { 'Sec-Fetch-Site': 'cross-site' };
+    assert.equal((await fresh().call('GET', '/devices/session', undefined, headers)).headers.get('location'), REFUSED_PATH);
+  }
+  // A good code over Ana's session, again and again within its minute: refused every time.
+  for (let i = 0; i < 15; i++) assert.equal((await browser.call('GET', lure, undefined, NAVIGATE)).headers.get('location'), REFUSED_PATH);
+  assert.equal(suite.audit.list({ action: 'device.web_session_failed' }).length, 10, 'rateLimits’ devicesRefused, 10');
+  // The token's bucket is untouched: the code still opens where nobody is signed in.
+  assert.equal((await fresh().call('GET', lure, undefined, NAVIGATE)).headers.get('location'), '/');
 });
 
 test('revoked from Settings, by the admin, a disabled account or the app’s rule: the session goes, and no new one opens', async (t) => {
