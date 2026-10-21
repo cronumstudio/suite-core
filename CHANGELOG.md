@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.113.0 — 2026-10-21
+
+- **Clean gets an iPhone's type, corners and room** (`web/kit.css`). Additive: the Cronum look
+  computes exactly what it did, value for value.
+  - **`--look-*` variables**, set only under `<html data-look="clean">`: Apple's text styles
+    (`--look-large-title` 34px, `--look-title1`…`--look-title3`, `--look-headline` and
+    `--look-body` 17px, `--look-callout`, `--look-subhead`, `--look-footnote` 13px,
+    `--look-caption`, `--look-caption2`, and `--look-base` for the page's own text), radii
+    (`--look-r-xs`…`--look-r-xl`, 6–18px) and room (`--look-gutter` 20px, `--look-row-y`,
+    `--look-row-gap`, `--look-head-y`, `--look-item-y`, `--look-bar-y`, `--look-section`).
+  - **Every size in the kit uses one, with today's value as its fallback**
+    (`font-size: var(--look-subhead, 14px)`): 78 font sizes, 49 radii and the main rows, heads
+    and items. An app's stylesheet does the same for its own; with no Clean look, the fallback is
+    what applies. App icons, pills, circles and the sign-in hero keep their sizes.
+  - In Clean, a view's head (`.kit-head`) has a 34px title and no line under it, sidebar entries
+    are 44px tall, and section labels are spaced like an iPhone's.
+
 ## 0.112.1 — 2026-10-21
 
 - **Opening the drawer from the edge no longer switches module** (`web/shell.js`). In the installed
