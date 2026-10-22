@@ -1,10 +1,16 @@
-# Runs the tests and the secret scan on every push and pull request. Both jobs
-# are the suite's shared workflows in cronumstudio/.github.
+# Runs the tests and the secret scan on every pull request and every push to
+# main. Both jobs are the suite's shared workflows in cronumstudio/.github.
+#
+# A branch is tested through its pull request only: with `push` on every branch
+# too, each commit ran twice and each failure came by mail twice. A branch
+# without a pull request can still be run by hand from the Actions tab.
 name: Test
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
