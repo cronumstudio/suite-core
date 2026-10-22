@@ -366,6 +366,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-usage__days { display: flex; align-items: end; gap: 2px; block-size: 48px; border-block-end: 1px solid var(--kit-border); }
 .kit-usage__days > span { flex: 1; min-inline-size: 0; border-radius: 2px 2px 0 0; background: var(--kit-accent); }
 .kit-usage__days > .kit-usage__day--none { background: var(--kit-border); }
+/* Settings › Plan › Your usage: near a cap of one's own plan, said first. */
+.kit-usage__alert--near { border-color: var(--kit-warn); }
+.kit-usage__alert--reached { border-color: var(--kit-danger); }
 /* A QR code (qr.js): black on white in any theme, with its quiet zone drawn in. */
 .kit-qr { display: block; width: min(220px, 100%); height: auto; border-radius: var(--look-r-sm, 6px); }
 

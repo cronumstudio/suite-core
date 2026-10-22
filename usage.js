@@ -1,8 +1,9 @@
 /**
- * What each person uses of the app, for the admin: how much they keep in each
- * module, how close that is to their plan's caps, their storage and their calls
- * from assistants. /admin › Users shows it in an account's dialog (Usage) and,
- * in the list, how near each account is to its nearest cap.
+ * What each person uses of the app: how much they keep in each module, how
+ * close that is to their plan's caps, their storage and their calls from
+ * assistants. /admin › Users shows it in an account's dialog (Usage) and, in
+ * the list, how near each account is to its nearest cap; Settings › Plan shows
+ * each person their own (GET /api/me/usage).
  *
  * A module says what someone has with `createModule().usage(userId)`:
  *
@@ -26,7 +27,7 @@
  */
 import { sendJson, unauthorized, forbidden, notFound, int } from './http.js';
 
-/** What a module may count, as the admin panel names them (admin.usage.items.<id>). */
+/** What a module may count, as the panels name them (kit.usage.items.<id>). */
 export const USAGE_ITEMS = Object.freeze(['lists', 'tasks', 'subtasks', 'notebooks', 'notes', 'projects', 'entries', 'files']);
 
 const MB = 1024 * 1024;
@@ -150,5 +151,16 @@ export function registerUsageApi(api, { accounts, usageFor }) {
     const peaks = {};
     for (const user of accounts.list()) peaks[user.id] = usageFor(user).peak;
     sendJson(ctx.res, 200, { peaks });
+  });
+}
+
+/**
+ * Each person's own usage, for Settings › Plan: what the admin sees of them, and nothing of anyone
+ * else. Signed in on the web only: /api routes know no token from an assistant (app.js).
+ */
+export function registerOwnUsageApi(api, { usageFor }) {
+  api.get('/api/me/usage', (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    sendJson(ctx.res, 200, usageFor(ctx.user));
   });
 }

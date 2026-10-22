@@ -672,6 +672,30 @@ test('the admin sees what each person uses: every module’s counts against its 
   assert.equal((await call('GET', '/api/admin/users/9999/usage')).status, 404);
 });
 
+test('each person sees their own usage, signed in on the web: nobody else’s, and not with an assistant’s token', async (t) => {
+  const config = { ...HOST, features: { 'mcp.calls_per_day': { type: 'limit', default: null, label: 'calls a day' } } };
+  const plans = { free: { name: 'Free', 'items.max': 4, 'mcp.calls_per_day': 10 } };
+  const { call } = await startHost(t, { config, env: { DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: JSON.stringify(plans) } });
+  assert.equal((await call('GET', '/api/me/usage')).status, 401, 'nobody signed in');
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  await call('POST', '/alpha/api/items', { text: 'The admin’s' });
+  await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' });
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  await call('POST', '/alpha/api/items', { text: 'One' });
+  await call('POST', '/alpha/api/items', { text: 'Two' });
+
+  const { status, data } = await call('GET', '/api/me/usage');
+  assert.equal(status, 200);
+  assert.deepEqual(data.modules[0].counts[0], { id: 'tasks', count: 2, feature: 'items.max', limit: 4, share: 0.5 }, 'hers, not the admin’s');
+  assert.equal(data.mcp.limit, 10);
+  assert.deepEqual(data.peak, { share: 0.5, mount: 'alpha', name: 'Alpha', id: 'tasks' });
+
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  await call('POST', '/api/auth/logout');
+  assert.equal((await call('GET', '/api/me/usage', undefined, { Authorization: `Bearer ${token}` })).status, 401, 'an assistant’s token reads no usage');
+});
+
 test('the host’s instructions keep under what assistants read, whole parts only', async () => {
   const { hostInstructions } = await import('../host.js');
   const modules = ['one', 'two', 'three'].map((mount) => ({

@@ -150,6 +150,107 @@ test('Settings without the option: the plan and until when, as always, and nothi
   gone.settings.close();
 });
 
+/* -------------------------------- Your usage ------------------------------- */
+
+const IN_HOST = { app: { id: 'demo', modules: { billing: true, mcp: false }, host: { id: 'work', name: 'Work', mount: 'demo', base: '/demo/', plans: true } } };
+const days = Array.from({ length: 30 }, (_, i) => ({ day: `2026-10-${String(i + 1).padStart(2, '0')}`, used: i === 29 ? 3 : 0 }));
+const MINE = {
+  user_id: 7,
+  modules: [
+    { mount: 'tasks', name: 'Tasks', on: true, active_at: '2026-10-21T18:22:00.000Z', failed: false, bytes: 2048,
+      counts: [{ id: 'lists', count: 17, feature: 'lists.max', limit: 20, share: 0.85 }, { id: 'tasks', count: 340, feature: null, limit: null, share: null }] },
+    { mount: 'notes', name: 'Notes', on: false, active_at: null, failed: false, counts: [{ id: 'notes', count: 4, feature: null, limit: null, share: null }], bytes: 0 },
+    { mount: 'next', name: 'Next', on: true, active_at: null, failed: true, counts: [] },
+  ],
+  storage: { bytes: 2048, files: 1, limit_mb: 50, share: 0.00004 },
+  mcp: { limit: 50, today: 3, share: 0.06, days, total: 3 },
+  peak: { share: 0.85, mount: 'tasks', name: 'Tasks', id: 'lists' },
+};
+
+test('Your usage, in a host: under the plan, the modules in use against their caps, the storage and the calls; near a cap, said first with the way to the plans', async () => {
+  const view = await planPage({ billing: true }, {
+    config: IN_HOST,
+    server: {
+      'GET /api/me/entitlements': { data: FREE },
+      'GET /api/me/usage': { data: MINE },
+      'GET /api/billing/products': { data: PRODUCTS },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+    },
+  });
+  await settle();
+  assert.ok(asked.includes('GET /api/me/usage'), 'at the host’s root');
+  const blocks = view.blocks();
+  const usage = blocks.find((b) => b.find('h3')[0]?.textContent === t('kit.usage.title'));
+  assert.ok(usage, 'the block');
+  assert.equal(blocks.indexOf(usage), 1, 'right under the plan, before what can be bought');
+  const text = textOf(usage);
+  assert.match(text, /Lists17 of 20 · 85\s?%/);
+  assert.match(text, /Tasks340/, 'a count without a limit, alone');
+  assert.doesNotMatch(text, /Notes/, 'only the modules they use');
+  assert.match(text, new RegExp(t('kit.usage.failed')), 'a module that couldn’t count says so, to them');
+  assert.match(text, /2 kB of 50 MB/);
+  assert.match(text, /Today3 of 50 · 6\s?%/);
+  assert.doesNotMatch(text, /Last change/, 'the admin’s detail stays the admin’s');
+  const meters = usage.all().filter((n) => n.getAttribute('role') === 'meter');
+  assert.deepEqual(meters.map((m) => m.getAttribute('aria-valuenow')), ['85', '0', '6']);
+
+  const alert = usage.all().find((n) => /kit-usage__alert--near/.test(n.className || ''));
+  assert.ok(alert, 'near a cap, said first');
+  assert.equal(textOf(alert.find('p')[0]), t('kit.usage.nearNotice', { what: t('kit.usage.peakIn', { what: 'Lists', module: 'Tasks' }) }));
+  const see = view.buttons(t('kit.plan.see'));
+  assert.equal(see.length, 1, 'with the way to the plans on offer');
+  let scrolled = 0;
+  const offer = blocks.find((b) => /Upgrade/.test(textOf(b.find('h3')[0])));
+  offer.scrollIntoView = () => { scrolled++; };
+  click(see[0]);
+  assert.equal(scrolled, 1);
+  view.settings.close();
+});
+
+test('Your usage: at a cap with nothing more to buy, no way to it; without limits, numbers and no bars; nowhere to ask, no block', async () => {
+  // Nothing more to buy: no button; the notice stays.
+  const top = await planPage({ billing: true }, {
+    config: IN_HOST,
+    server: {
+      'GET /api/me/entitlements': { data: PRO },
+      'GET /api/me/usage': { data: { ...MINE, peak: { share: 1, id: 'mcp' } } },
+      'GET /api/billing/products': { data: { ...PRODUCTS, products: [] } },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+    },
+  });
+  await settle();
+  const reached = top.page.all().find((n) => /kit-usage__alert--reached/.test(n.className || ''));
+  assert.ok(reached && top.visible(reached));
+  assert.equal(textOf(reached.find('p')[0]), t('kit.usage.reachedNotice', { what: t('kit.usage.mcp') }));
+  assert.equal(top.buttons(t('kit.plan.see')).length, 0);
+  top.settings.close();
+
+  // No limits (the instance's administrator): what they keep, without a meter or a notice.
+  const free = { ...MINE, modules: [{ ...MINE.modules[0], counts: [{ id: 'lists', count: 17, feature: 'lists.max', limit: null, share: null }] }],
+    storage: { bytes: 2048, files: 1, limit_mb: null, share: null }, mcp: { limit: null, today: 3, share: null, days, total: 3 }, peak: null };
+  const unlimited = await planPage(true, { config: IN_HOST, server: { 'GET /api/me/entitlements': { data: { ...PRO, unlimited: true } }, 'GET /api/me/usage': { data: free } } });
+  await settle();
+  const block = unlimited.blocks().find((b) => b.find('h3')[0]?.textContent === t('kit.usage.title'));
+  assert.match(textOf(block), /Lists17/);
+  assert.match(textOf(block), new RegExp(t('kit.usage.noDailyLimit')));
+  assert.equal(block.all().filter((n) => n.getAttribute('role') === 'meter').length, 0);
+  assert.equal(block.all().filter((n) => /kit-usage__alert/.test(n.className || '')).length, 0);
+  unlimited.settings.close();
+
+  // A host that doesn't answer (older, or offline): the block goes.
+  const older = await planPage(true, { config: IN_HOST, server: { 'GET /api/me/entitlements': { data: FREE } } });
+  await settle();
+  assert.ok(asked.includes('GET /api/me/usage'));
+  assert.ok(!older.blocks().some((b) => b.find('h3')[0]?.textContent === t('kit.usage.title')));
+  older.settings.close();
+
+  // An app on its own: nothing asked.
+  const alone = await planPage(true, { server: { 'GET /api/me/entitlements': { data: FREE } } });
+  assert.ok(!asked.includes('GET /api/me/usage'));
+  assert.ok(!alone.page.all().some((n) => n.textContent === t('kit.usage.title')));
+  alone.settings.close();
+});
+
 /* --------------------------- Upgrade and Manage --------------------------- */
 
 test('Upgrade: the products with their names, the founder’s price marked, and the checkout followed', async () => {
@@ -565,7 +666,7 @@ test('an open Settings that sells paints the plan read again after the checkout'
 
 test('the kit caches plan.js for offline use, and it fetches nothing at the site’s root', () => {
   const sw = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
-  assert.match(sw, /'\/suite\/settings\.js', '\/suite\/plan\.js'/);
+  assert.match(sw, /'\/suite\/settings\.js', '\/suite\/plan\.js', '\/suite\/usage-view\.js'/);
   const code = fs.readFileSync(new URL('../web/plan.js', import.meta.url), 'utf8');
   assert.doesNotMatch(code, /fetch\(|import\(['`]\//, 'everything through api.js, at the app’s base');
   assert.doesNotMatch(code, /\b(?:Cronum Work|Tasks|Projects|Next|Notes|Tracker|Paddle|Stripe)\b/, 'nothing of one app or provider');

@@ -1674,13 +1674,15 @@ await host.listen();
   in bytes) and `suite.storage.used(userId)` adds them up, for a module to check the whole. A
   PLANS JSON may name the features of any module: each part reads its own keys, and the host stops
   for a key that no part declares.
-- **What someone uses**, for the admin (`usage.js`): each module may say what a person has in it
+- **What someone uses**, for the admin and for each person (`usage.js`): each module may say what a person has in it
   (`createModule().usage(userId)` → `{ counts: [{ id, count, feature? }], active_at }`, `id` one of
   `USAGE_ITEMS`). A count with a `feature` is set against that limit of the module's plan, so it
   must be what the module's barrier counts. The host adds the storage and the calls from
   assistants of the last 30 days (`entitlements.dailyUsage()`), and answers
   `GET /api/admin/users/:id/usage` and, for the list, `GET /api/admin/usage` (each account's
-  nearest cap). `/admin › Users` shows both.
+  nearest cap). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
+  signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
+  web's session only, never an assistant's token.
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
   module's own with the prefix taken off, so its API answers at `/<mount>/api/…`, the kit at
   `/<mount>/suite/…`, and its catalogs, `app-version.js`, service worker and files at their usual

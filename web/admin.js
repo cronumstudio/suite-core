@@ -6,9 +6,10 @@
  */
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
-import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, numberFormat } from './i18n.js';
+import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
 import { toast, field, openDialog, confirmDialog } from './ui.js';
 import { icon } from './icons.js';
+import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
 const root = $('#admin');
 const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false };
@@ -518,100 +519,16 @@ async function paintGrants(box, user, now) {
 
 /* ---------------------------------- usage ---------------------------------- */
 
-const MB = 1024 * 1024;
-const percent = (share) => numberFormat({ style: 'percent', maximumFractionDigits: 0 }).format(share);
-const whole = (n) => numberFormat({ maximumFractionDigits: 1 }).format(n);
-/** Bytes in the unit people read them in: kB under a megabyte, MB under a gigabyte, GB above. */
-function sizeText(bytes) {
-  const [unit, size] = bytes >= 1024 * MB ? ['gigabyte', 1024 * MB] : bytes >= MB ? ['megabyte', MB] : ['kilobyte', 1024];
-  return numberFormat({ style: 'unit', unit, maximumFractionDigits: 1 }).format(bytes / size);
-}
-/** Near a cap from 80 %, at it from 100 %: what colours its meter and puts it in words. */
-const levelOf = (share) => (share == null ? null : share >= 1 ? 'reached' : share >= 0.8 ? 'near' : 'ok');
-
-/** How much of a limit is taken, as a bar; past the limit it stays full. */
-function meter(share) {
-  const level = levelOf(share);
-  const value = Math.round(Math.min(1, share) * 100);
-  return el('span', {
-    class: `kit-meter${level === 'ok' ? '' : ` kit-meter--${level}`}`,
-    role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(value), 'aria-label': percent(share),
-  }, el('span', { style: `inline-size: ${value}%` }));
-}
-
-/** What a cap is, in words: a module's count, the storage or the calls of the day. */
-function peakWhat(peak) {
-  if (peak.id === 'storage') return t('admin.usage.storage');
-  if (peak.id === 'mcp') return t('admin.usage.mcp');
-  return t('admin.usage.peakIn', { what: t(`admin.usage.items.${peak.id}`), module: peak.name || peak.mount });
-}
-
 /**
- * One line of Usage: what it is, how much, of how much, and the bar when there is a limit. Near
- * or at the limit it says so in words too, not only in colour.
- */
-function usageRow(label, value, share = null, note = null) {
-  const level = levelOf(share);
-  return el('div', { class: 'kit-usage__row' },
-    el('span', { class: 'kit-usage__label', text: label }),
-    el('span', { class: 'kit-usage__value', text: share == null ? value : `${value} · ${percent(share)}` }),
-    share == null ? null : meter(share),
-    level === 'near' || level === 'reached'
-      ? el('small', { class: `kit-badge kit-badge--${level === 'reached' ? 'danger' : 'warn'}`, text: t(`admin.usage.${level}`) }) : null,
-    note ? el('small', { class: 'kit-usage__note', text: note }) : null);
-}
-
-/** The calls of the last 30 days as bars, today the last; each says its day and count on hover. */
-function dayBars(days) {
-  const top = Math.max(1, ...days.map((d) => d.used));
-  return el('div', { class: 'kit-usage__days', role: 'img', 'aria-label': t('admin.usage.monthChart') },
-    days.map((d) => el('span', {
-      class: d.used ? null : 'kit-usage__day--none',
-      title: t('admin.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), n: whole(d.used) }),
-      style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%`,
-    })));
-}
-
-/**
- * What an account uses: per module its counts against the plan's caps, then the storage of all
- * of them and the calls from assistants. `now` is the fold's summary: the cap they are nearest to.
+ * What an account uses (usage-view.js): per module its counts against the plan's caps, then the
+ * storage of all of them and the calls from assistants. `now` is the fold's summary: the cap they
+ * are nearest to.
  */
 async function paintUsage(box, user, now) {
   const usage = await api.get(`/api/admin/users/${user.id}/usage`);
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
   if (['near', 'reached'].includes(levelOf(usage.peak?.share ?? null))) now.setAttribute('class', 'kit-fold__now kit-fold__now--warn');
-
-  const groups = usage.modules.map((m) => el('section', { class: 'kit-usage__group' },
-    el('h4', { class: 'kit-usage__title' },
-      el('span', { text: m.name }),
-      m.on ? null : el('small', { class: 'kit-badge', text: t('admin.usage.off') })),
-    m.active_at ? el('small', { class: 'kit-usage__note', text: t('admin.usage.lastChange', { date: formatDateTime(m.active_at) }) }) : null,
-    m.counts.map((c) => usageRow(t(`admin.usage.items.${c.id}`),
-      c.limit == null ? whole(c.count) : t('admin.usage.ofLimit', { count: whole(c.count), limit: whole(c.limit) }), c.share,
-      c.id === 'files' && m.bytes ? t('admin.usage.used', { size: sizeText(m.bytes) }) : null)),
-    m.failed ? el('p', { class: 'kit-hint', text: t('admin.usage.failed') })
-      : m.counts.length ? null : el('p', { class: 'kit-hint', text: m.bytes ? t('admin.usage.used', { size: sizeText(m.bytes) }) : t('admin.usage.nothing') })));
-
-  const storage = usage.storage;
-  const mcp = usage.mcp;
-  const average = mcp?.days.length ? mcp.total / mcp.days.length : 0;
-  clear(box).append(
-    el('p', { class: 'kit-hint', text: t('admin.usage.lead') }),
-    el('div', { class: 'kit-usage' },
-      groups,
-      storage ? el('section', { class: 'kit-usage__group' },
-        el('h4', { class: 'kit-usage__title', text: t('admin.usage.storage') }),
-        usageRow(t('admin.usage.inAll'),
-          storage.limit_mb == null ? t('admin.usage.used', { size: sizeText(storage.bytes) })
-            : t('admin.usage.ofLimit', { count: sizeText(storage.bytes), limit: sizeText(storage.limit_mb * MB) }),
-          storage.share, t('admin.usage.filesCount', { n: storage.files }))) : null,
-      mcp ? el('section', { class: 'kit-usage__group' },
-        el('h4', { class: 'kit-usage__title', text: t('admin.usage.mcp') }),
-        usageRow(t('admin.usage.today'), mcp.limit == null ? whole(mcp.today) : t('admin.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }),
-          mcp.share, mcp.limit == null ? t('admin.usage.noDailyLimit') : null),
-        el('small', { class: 'kit-usage__note', text: t('admin.usage.month', { n: whole(mcp.total), avg: whole(average) }) }),
-        dayBars(mcp.days)) : null),
-  );
+  clear(box).append(el('p', { class: 'kit-hint', text: t('admin.usage.lead') }), usageGroups(usage, { admin: true }));
 }
 
 /* ------------------------------- invitations ------------------------------- */

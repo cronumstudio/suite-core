@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.117.0 — 2026-10-22
+
+- **Your usage in Settings › Plan** (`usage.js`, `host.js`, `web/usage-view.js`,
+  `web/settings.js`, `web/admin.js`, `web/kit.css`, `web/sw-core.js`). In a host, everyone sees
+  under their plan what the admin's Usage shows of them: what they keep in each module they use,
+  against the plan's caps with a bar and its percentage, their storage across the modules and
+  their calls from assistants today and over 30 days. Near a cap (80 %) or at it, a notice says
+  which first, with "See plans" when there is a way to more here (the plans on offer below, or the
+  app's store). Without limits, the numbers alone. A standalone app, or a host that doesn't answer,
+  shows no block.
+  - `GET /api/me/usage`: the person's own `usageOf()`, registered by the host whether or not it has
+    the admin panel. 401 without a web session; an assistant's token isn't one.
+  - `web/usage-view.js` draws it for both: `usageGroups(usage, { admin })`, with `meter`,
+    `levelOf`, `peakWhat`, `percent` and `sizeText`. The kit caches it.
+  - Texts: what both say moves from `admin.usage.*` to `kit.usage.*` (`items.*`, `near`, `reached`,
+    `peakIn`, `ofLimit`, `storage`, `inAll`, `filesCount`, `used`, `mcp`, `today`, `month`,
+    `monthChart`, `dayCalls`); new for Settings: `kit.usage.title`, `lead`, `loading`, `failed`,
+    `nothing`, `noDailyLimit`, `nearNotice`, `reachedNotice`. An app that overrode one of the moved
+    keys has to rename it.
+
 ## 0.116.0 — 2026-10-22
 
 - **Calls from assistants are counted for everyone, with a limit or without**
