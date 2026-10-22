@@ -20,6 +20,9 @@
  *     return { publicDir, routes: api, serializeUser, version, portable, start: () => stopTimers };
  *   }
  *
+ * A module may also say what someone has in it (`usage`: its counts, and the
+ * plan caps they meet, usage.js), for the admin's Usage of an account.
+ *
  * A module may also say what a phone does from one of its notifications
  * without opening the app (`deviceActions`, devices.js): with the host's
  * `modules.devices`, `POST /api/devices/actions { module: '<mount>', action, id, ... }`
@@ -67,6 +70,7 @@ import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
+import { usageOf, registerUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import { fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush } from './host-worker.js';
 
@@ -743,6 +747,13 @@ export async function createHost({
     routes: (api) => {
       api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
       registerLinksApi(api, { links });
+      // What each person uses of every module, for the admin panel (usage.js).
+      if (config.modules.admin) {
+        registerUsageApi(api, {
+          accounts: suite.accounts,
+          usageFor: (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log }),
+        });
+      }
       api.put('/api/me/modules', async (ctx) => {
         if (!ctx.user) throw unauthorized();
         const body = await readJson(ctx.req);

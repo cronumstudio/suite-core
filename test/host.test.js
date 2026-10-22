@@ -613,6 +613,63 @@ test('the storage a plan allows is the person’s, added up across the modules',
   assert.ok(lines.some((line) => /\[beta\] storage of user \d+ failed: unreadable/.test(line)));
 });
 
+test('the admin sees what each person uses: every module’s counts against its caps, the storage and the calls of the month', async (t) => {
+  const config = { ...HOST, features: {
+    'mcp.calls_per_day': { type: 'limit', default: null, label: 'calls a day' },
+    'storage.mb': { type: 'limit', default: null, label: 'storage (MB)' },
+  } };
+  const plans = { free: { name: 'Free', 'items.max': 4, 'mcp.calls_per_day': 10, 'storage.mb': 1 }, pro: { name: 'Pro', 'items.max': null, 'mcp.calls_per_day': null, 'storage.mb': null } };
+  const { host, call, lines } = await startHost(t, { config, env: { DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: JSON.stringify(plans) } });
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const ana = (await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' })).data.id;
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  assert.equal((await call('GET', `/api/admin/users/${ana}/usage`)).status, 403, 'the admin’s only');
+  await call('POST', '/alpha/api/items', { text: 'One' });
+  await call('POST', '/alpha/api/items', { text: 'Two' });
+  await call('POST', '/alpha/api/items', { text: 'Three' });
+  await call('POST', '/beta/api/items', { text: 'Four' });
+  // Two calls from an assistant, as /mcp spends them (the test above goes through /mcp itself).
+  const user = host.suite.accounts.byId(ana);
+  host.suite.entitlements.countDaily(user, 'mcp.calls_per_day');
+  host.suite.entitlements.countDaily(user, 'mcp.calls_per_day');
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+
+  const { status, data } = await call('GET', `/api/admin/users/${ana}/usage`);
+  assert.equal(status, 200);
+  const [alpha, beta] = data.modules;
+  assert.deepEqual(alpha, {
+    mount: 'alpha', name: 'Alpha', on: true, active_at: '2026-10-21T18:22:00.000Z', failed: false, bytes: 3000,
+    counts: [{ id: 'tasks', count: 3, feature: 'items.max', limit: 4, share: 0.75 }, { id: 'files', count: 3, feature: null, limit: null, share: null }],
+  }, 'its counts with their caps, without what the admin has no words for');
+  assert.deepEqual(beta, { mount: 'beta', name: 'Beta', on: true, counts: [], active_at: null, failed: false, bytes: 500 }, 'a module with no usage shows its storage');
+  assert.deepEqual(data.storage, { bytes: 3500, files: 3, limit_mb: 1, share: 3500 / (1024 * 1024) });
+  assert.equal(data.mcp.limit, 10);
+  assert.equal(data.mcp.today, 2);
+  assert.equal(data.mcp.total, 2);
+  assert.equal(data.mcp.days.length, 30);
+  assert.deepEqual(data.peak, { share: 0.75, mount: 'alpha', name: 'Alpha', id: 'tasks' }, 'the cap they are nearest to');
+
+  // The list: each account's nearest cap. The admin has no limits, so none.
+  const peaks = (await call('GET', '/api/admin/usage')).data.peaks;
+  assert.deepEqual(peaks[ana], data.peak);
+  const admin = host.suite.database.get("SELECT id FROM users WHERE username = 'admin'").id;
+  assert.equal(peaks[admin], null);
+  const unlimited = (await call('GET', `/api/admin/users/${admin}/usage`)).data;
+  assert.deepEqual([unlimited.mcp.limit, unlimited.mcp.today, unlimited.mcp.days], [null, null, []], 'without a limit nothing is counted');
+  assert.equal(unlimited.storage.limit_mb, null);
+
+  // A module whose usage fails says so; the rest still answer.
+  await call('POST', '/alpha/api/items', { text: 'Locked' });
+  const failing = (await call('GET', `/api/admin/users/${admin}/usage`)).data;
+  assert.equal(failing.modules[0].failed, true);
+  assert.deepEqual(failing.modules[0].counts, []);
+  assert.equal(failing.modules[0].bytes, 1000, 'its storage still counts');
+  assert.ok(lines.some((line) => /\[alpha\] usage of user \d+ failed: locked/.test(line)));
+  assert.equal((await call('GET', '/api/admin/users/9999/usage')).status, 404);
+});
+
 test('the host’s instructions keep under what assistants read, whole parts only', async () => {
   const { hostInstructions } = await import('../host.js');
   const modules = ['one', 'two', 'three'].map((mount) => ({

@@ -392,7 +392,14 @@ test('countDaily: calls of the day per person, refused ones not counted, back th
 
   now += 2 * 3600 * 1000;   // past midnight UTC
   assert.equal(e.countDaily(ada, 'mcp.calls_per_day').used, 1);
-  assert.deepEqual(database.all('SELECT day FROM entitlement_usage WHERE user_id = 1').map((r) => r.day), ['2026-03-02'], 'yesterday is cleared');
+  assert.deepEqual(database.all('SELECT day FROM entitlement_usage WHERE user_id = 1').map((r) => r.day), ['2026-03-01', '2026-03-02'], 'yesterday is kept');
+  assert.deepEqual(e.dailyUsage(1, 'mcp.calls_per_day', { days: 3 }),
+    [{ day: '2026-02-28', used: 0 }, { day: '2026-03-01', used: 2 }, { day: '2026-03-02', used: 1 }], 'a day without calls at 0, today last');
+  assert.equal(e.dailyUsage(1, 'mcp.calls_per_day').length, 30);
+  // A month on, the first call of the day clears what the admin's Usage no longer shows.
+  now += 30 * 24 * 3600 * 1000;
+  e.countDaily(ada, 'mcp.calls_per_day');
+  assert.deepEqual(database.all('SELECT day FROM entitlement_usage WHERE user_id = 1').map((r) => r.day), ['2026-04-01'], 'older than 30 days is cleared');
   e.grant({ subjectId: 1, plan: 'pro', source: 'paddle' });
   assert.deepEqual([e.countDaily(ada, 'mcp.calls_per_day').limit, e.countDaily(ada, 'mcp.calls_per_day').more], [5, null]);
 });
