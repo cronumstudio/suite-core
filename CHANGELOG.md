@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.121.1 — 2026-10-22
+## 0.122.1 — 2026-10-22
 
 - **Signing out inside the app on a phone stays in the app** (`web/signin.js`). With WorkOS or
   OpenID Connect, `signOut()` went to the provider's page (`logout_url`), another site: Cronum

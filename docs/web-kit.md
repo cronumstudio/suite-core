@@ -428,7 +428,7 @@ offers no Web Push: with `push` it says the app sends them, whether the phone ha
 opens the app's settings (`open-app-settings`); without it, that they come with an update of the
 app. `subscribePush()` refuses (`Error('in_app')`) before asking anything, `pushSupport()` says
 `'unsupported'`, and the host's one worker carries no subscription over: the app's own
-registration is the phone's one channel, so a notice never comes twice. `signOut()` (v0.121.1)
+registration is the phone's one channel, so a notice never comes twice. `signOut()` (v0.122.1)
 never goes to the provider's page (`logout_url`, WorkOS or OpenID Connect): another site, which the
 app would open in the phone's browser or race with its own sign-in. It ends the session at the
 server and clears the device's copies as anywhere, sends `sign-out`, then reloads to the site's own
