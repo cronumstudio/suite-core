@@ -759,8 +759,47 @@
   "kit.usage.failed": "Ce module n’a pas pu le compter pour l’instant.",
   "kit.usage.nothing": "Rien ici pour l’instant.",
   "kit.usage.noDailyLimit": "Votre offre n’a pas de limite quotidienne.",
-  "kit.usage.nearNotice": "Vous approchez d’une limite de votre offre : {what}.",
-  "kit.usage.reachedNotice": "Vous avez atteint une limite de votre offre : {what}.",
+  "kit.usage.reachedNotice": "Vous avez atteint la limite de votre offre :",
+  "kit.usage.nearNotice": "Vous approchez de la limite de votre offre :",
+  "kit.usage.counted.lists": {
+    "one": "{n} liste",
+    "other": "{n} listes"
+  },
+  "kit.usage.counted.tasks": {
+    "one": "{n} tâche",
+    "other": "{n} tâches"
+  },
+  "kit.usage.counted.subtasks": {
+    "one": "{n} sous-tâche",
+    "other": "{n} sous-tâches"
+  },
+  "kit.usage.counted.notebooks": {
+    "one": "{n} carnet",
+    "other": "{n} carnets"
+  },
+  "kit.usage.counted.notes": {
+    "one": "{n} note",
+    "other": "{n} notes"
+  },
+  "kit.usage.counted.projects": {
+    "one": "{n} projet",
+    "other": "{n} projets"
+  },
+  "kit.usage.counted.entries": {
+    "one": "{n} entrée",
+    "other": "{n} entrées"
+  },
+  "kit.usage.counted.files": {
+    "one": "{n} fichier",
+    "other": "{n} fichiers"
+  },
+  "kit.usage.counted.storage": "{size} de stockage",
+  "kit.usage.counted.mcp": {
+    "one": "{n} appel d’assistant aujourd’hui",
+    "other": "{n} appels d’assistants aujourd’hui"
+  },
+  "kit.usage.free": "Libre",
+  "kit.usage.storageChart": "Stockage par module",
   "kit.usage.peakIn": "{what} dans {module}",
   "kit.usage.near": "Proche de la limite",
   "kit.usage.reached": "Limite atteinte",

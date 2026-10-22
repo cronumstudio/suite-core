@@ -62,7 +62,7 @@ import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
-import { usageGroups, levelOf, peakWhat } from './usage-view.js';
+import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 
@@ -1147,10 +1147,15 @@ export function openSettings(options) {
     sync();
     api.root.get('/api/me/usage').then((usage) => {
       if (closed) return;
-      const level = levelOf(usage.peak?.share ?? null);
-      const alert = level === 'near' || level === 'reached'
+      // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
+      const capped = atLimit(usage);
+      const level = capped[0]?.level;
+      const alert = level
         ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
-          el('p', { text: t(`kit.usage.${level}Notice`, { what: peakWhat(usage.peak) }) }), way) : null;
+          el('p', { text: t(`kit.usage.${level}Notice`) }),
+          el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
+            class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
+          }))), way) : null;
       clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
     }).catch(() => { node.hidden = true; });
     return { node, sync };

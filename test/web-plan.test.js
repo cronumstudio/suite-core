@@ -192,11 +192,19 @@ test('Your usage, in a host: under the plan, the modules in use against their ca
   assert.match(text, /Today3 of 50 · 6\s?%/);
   assert.doesNotMatch(text, /Last change/, 'the admin’s detail stays the admin’s');
   const meters = usage.all().filter((n) => n.getAttribute('role') === 'meter');
-  assert.deepEqual(meters.map((m) => m.getAttribute('aria-valuenow')), ['85', '0', '6']);
+  assert.deepEqual(meters.map((m) => m.getAttribute('aria-valuenow')), ['85', '6'], 'the storage is its own bar');
+
+  // The storage as a phone shows it: a part for each module that keeps something, and the room left.
+  const parts = usage.all().filter((n) => n.getAttribute('class') === 'kit-storage__part');
+  assert.deepEqual(parts.map((n) => [n.getAttribute('data-module'), n.getAttribute('title')]), [['tasks', 'Tasks: 2 kB']]);
+  const legend = usage.all().find((n) => n.getAttribute('class') === 'kit-storage__legend');
+  assert.deepEqual(legend.find('li').map(textOf), ['Tasks2 kB', `${t('kit.usage.free')}50 MB`], 'each part named with its size, not by colour alone');
 
   const alert = usage.all().find((n) => /kit-usage__alert--near/.test(n.className || ''));
   assert.ok(alert, 'near a cap, said first');
-  assert.equal(textOf(alert.find('p')[0]), t('kit.usage.nearNotice', { what: t('kit.usage.peakIn', { what: 'Lists', module: 'Tasks' }) }));
+  assert.equal(textOf(alert.find('p')[0]), t('kit.usage.nearNotice'));
+  const capped = alert.all().filter((n) => n.getAttribute('data-level'));
+  assert.deepEqual(capped.map((n) => [textOf(n), n.getAttribute('data-level')]), [['17 lists', 'near']], 'what is near, as they count it, without the module');
   const see = view.buttons(t('kit.plan.see'));
   assert.equal(see.length, 1, 'with the way to the plans on offer');
   let scrolled = 0;
@@ -213,7 +221,7 @@ test('Your usage: at a cap with nothing more to buy, no way to it; without limit
     config: IN_HOST,
     server: {
       'GET /api/me/entitlements': { data: PRO },
-      'GET /api/me/usage': { data: { ...MINE, peak: { share: 1, id: 'mcp' } } },
+      'GET /api/me/usage': { data: { ...MINE, mcp: { ...MINE.mcp, today: 50, share: 1 }, peak: { share: 1, id: 'mcp' } } },
       'GET /api/billing/products': { data: { ...PRODUCTS, products: [] } },
       'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
     },
@@ -221,7 +229,9 @@ test('Your usage: at a cap with nothing more to buy, no way to it; without limit
   await settle();
   const reached = top.page.all().find((n) => /kit-usage__alert--reached/.test(n.className || ''));
   assert.ok(reached && top.visible(reached));
-  assert.equal(textOf(reached.find('p')[0]), t('kit.usage.reachedNotice', { what: t('kit.usage.mcp') }));
+  assert.equal(textOf(reached.find('p')[0]), t('kit.usage.reachedNotice'));
+  assert.deepEqual(reached.all().filter((n) => n.getAttribute('data-level')).map((n) => [textOf(n), n.getAttribute('data-level')]),
+    [['50 assistant calls today', 'reached'], ['17 lists', 'near']], 'the worst first, each in its own colour');
   assert.equal(top.buttons(t('kit.plan.see')).length, 0);
   top.settings.close();
 

@@ -366,9 +366,32 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-usage__days { display: flex; align-items: end; gap: 2px; block-size: 48px; border-block-end: 1px solid var(--kit-border); }
 .kit-usage__days > span { flex: 1; min-inline-size: 0; border-radius: 2px 2px 0 0; background: var(--kit-accent); }
 .kit-usage__days > .kit-usage__day--none { background: var(--kit-border); }
-/* Settings › Plan › Your usage: near a cap of one's own plan, said first. */
+/* Settings › Plan › Your usage: near a cap of one's own plan, said first, with what is at it. */
 .kit-usage__alert--near { border-color: var(--kit-warn); }
 .kit-usage__alert--reached { border-color: var(--kit-danger); }
+.kit-usage__at { display: flex; flex-wrap: wrap; gap: 6px; }
+.kit-usage__at > .kit-badge { font-size: var(--look-subhead, 14px); padding: 3px 10px; }
+/*
+ * The storage by module, as a phone shows its own: each module in its icon's hue, a step that
+ * tells the four apart with any colour vision (light and dark each checked), the room left grey,
+ * 2px of ground between parts. Another module, the muted ink.
+ */
+.kit-usage [data-module] { --kit-part: var(--kit-muted); }
+.kit-usage [data-module="tasks"] { --kit-part: #EF4B2A; }
+.kit-usage [data-module="projects"] { --kit-part: #A12A83; }
+.kit-usage [data-module="next"] { --kit-part: #2BA8D2; }
+.kit-usage [data-module="notes"] { --kit-part: #7C3AED; }
+:root[data-theme="dark"] .kit-usage [data-module="tasks"] { --kit-part: #E8603F; }
+:root[data-theme="dark"] .kit-usage [data-module="projects"] { --kit-part: #AD3D92; }
+:root[data-theme="dark"] .kit-usage [data-module="next"] { --kit-part: #2A9FC6; }
+:root[data-theme="dark"] .kit-usage [data-module="notes"] { --kit-part: #9C7CF0; }
+.kit-storage { display: flex; gap: 2px; block-size: 12px; border-radius: 4px; background: var(--kit-border); overflow: hidden; }
+.kit-storage__part { flex-grow: 0; flex-shrink: 0; min-inline-size: 3px; background: var(--kit-part); }
+.kit-storage__legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: var(--look-footnote, 12.5px); }
+.kit-storage__legend li { display: flex; align-items: center; gap: 6px; }
+.kit-storage__size { color: var(--kit-muted); font-variant-numeric: tabular-nums; }
+.kit-storage__dot { inline-size: 10px; block-size: 10px; border-radius: 3px; background: var(--kit-part); }
+.kit-storage__dot[data-free] { background: var(--kit-border); }
 /* A QR code (qr.js): black on white in any theme, with its quiet zone drawn in. */
 .kit-qr { display: block; width: min(220px, 100%); height: auto; border-radius: var(--look-r-sm, 6px); }
 

@@ -284,9 +284,10 @@ The plan section shows the person's plan and until when (`GET /api/me/entitlemen
 `plan.render(answer)` adds the app's own block. In a host, under the plan, **Your usage**
 (v0.117.0): what they keep in each module they use against the plan's caps, their storage and
 their calls from assistants, with a bar where there is a limit (`GET /api/me/usage` at the host's
-root, drawn by `web/usage-view.js`, the same as /admin's Usage). Near a cap (80 %) or at it, a
-notice says which first, with "See plans" when there is a way to more here: the plans on offer
-below, or the app's store. Without limits, the numbers alone; an app on its own, or a host that
+root, drawn by `web/usage-view.js`, the same as /admin's Usage), the storage as one bar split by
+module in each one's colour with a legend of sizes. Near a cap (80 %) or at it, a notice comes
+first with what is there as people count it ("2 projects", red at the cap, amber near it), and
+"See plans" when there is a way to more here: the plans on offer below, or the app's store. Without limits, the numbers alone; an app on its own, or a host that
 doesn't answer, no block. That is all it does with `plan: true`, and with
 `plan: { billing: true }` on a server whose `/api/auth/config` doesn't say `modules.billing: false`
 it also sells, from the suite's routes (`billing.js`), with nothing of one app or provider in it

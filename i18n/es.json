@@ -759,8 +759,47 @@
   "kit.usage.failed": "Este módulo no ha podido contarlo ahora.",
   "kit.usage.nothing": "Aquí aún no hay nada.",
   "kit.usage.noDailyLimit": "Tu plan no tiene tope diario.",
-  "kit.usage.nearNotice": "Estás cerca de un límite de tu plan: {what}.",
-  "kit.usage.reachedNotice": "Has llegado a un límite de tu plan: {what}.",
+  "kit.usage.reachedNotice": "Has llegado al límite de tu plan:",
+  "kit.usage.nearNotice": "Te acercas al límite de tu plan:",
+  "kit.usage.counted.lists": {
+    "one": "{n} lista",
+    "other": "{n} listas"
+  },
+  "kit.usage.counted.tasks": {
+    "one": "{n} tarea",
+    "other": "{n} tareas"
+  },
+  "kit.usage.counted.subtasks": {
+    "one": "{n} subtarea",
+    "other": "{n} subtareas"
+  },
+  "kit.usage.counted.notebooks": {
+    "one": "{n} cuaderno",
+    "other": "{n} cuadernos"
+  },
+  "kit.usage.counted.notes": {
+    "one": "{n} nota",
+    "other": "{n} notas"
+  },
+  "kit.usage.counted.projects": {
+    "one": "{n} proyecto",
+    "other": "{n} proyectos"
+  },
+  "kit.usage.counted.entries": {
+    "one": "{n} entrada",
+    "other": "{n} entradas"
+  },
+  "kit.usage.counted.files": {
+    "one": "{n} archivo",
+    "other": "{n} archivos"
+  },
+  "kit.usage.counted.storage": "{size} de espacio",
+  "kit.usage.counted.mcp": {
+    "one": "{n} llamada del asistente hoy",
+    "other": "{n} llamadas del asistente hoy"
+  },
+  "kit.usage.free": "Libre",
+  "kit.usage.storageChart": "Espacio por módulo",
   "kit.usage.peakIn": "{what} en {module}",
   "kit.usage.near": "Cerca del límite",
   "kit.usage.reached": "En el límite",

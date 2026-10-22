@@ -759,8 +759,47 @@
   "kit.usage.failed": "Dieses Modul konnte es gerade nicht zählen.",
   "kit.usage.nothing": "Hier ist noch nichts.",
   "kit.usage.noDailyLimit": "Dein Tarif hat keine Tagesgrenze.",
-  "kit.usage.nearNotice": "Du bist nahe an einer Grenze deines Tarifs: {what}.",
-  "kit.usage.reachedNotice": "Du hast eine Grenze deines Tarifs erreicht: {what}.",
+  "kit.usage.reachedNotice": "Du hast die Grenze deines Tarifs erreicht:",
+  "kit.usage.nearNotice": "Du näherst dich der Grenze deines Tarifs:",
+  "kit.usage.counted.lists": {
+    "one": "{n} Liste",
+    "other": "{n} Listen"
+  },
+  "kit.usage.counted.tasks": {
+    "one": "{n} Aufgabe",
+    "other": "{n} Aufgaben"
+  },
+  "kit.usage.counted.subtasks": {
+    "one": "{n} Unteraufgabe",
+    "other": "{n} Unteraufgaben"
+  },
+  "kit.usage.counted.notebooks": {
+    "one": "{n} Notizbuch",
+    "other": "{n} Notizbücher"
+  },
+  "kit.usage.counted.notes": {
+    "one": "{n} Notiz",
+    "other": "{n} Notizen"
+  },
+  "kit.usage.counted.projects": {
+    "one": "{n} Projekt",
+    "other": "{n} Projekte"
+  },
+  "kit.usage.counted.entries": {
+    "one": "{n} Eintrag",
+    "other": "{n} Einträge"
+  },
+  "kit.usage.counted.files": {
+    "one": "{n} Datei",
+    "other": "{n} Dateien"
+  },
+  "kit.usage.counted.storage": "{size} Speicher",
+  "kit.usage.counted.mcp": {
+    "one": "{n} Aufruf eines Assistenten heute",
+    "other": "{n} Aufrufe von Assistenten heute"
+  },
+  "kit.usage.free": "Frei",
+  "kit.usage.storageChart": "Speicher nach Modul",
   "kit.usage.peakIn": "{what} in {module}",
   "kit.usage.near": "Nahe an der Grenze",
   "kit.usage.reached": "Grenze erreicht",

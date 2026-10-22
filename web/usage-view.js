@@ -6,6 +6,10 @@
  *
  *   usageGroups(usage)                          // each person's own: the modules they use
  *   usageGroups(usage, { admin: true })         // the admin's: every module, off or on, and its last change
+ *   atLimit(usage)                              // what is near or at a cap, as "17 lists", for a notice
+ *
+ * The storage is one bar split by module, as a phone shows its own: each module in the colour of
+ * its icon (kit.css, by `data-module`), the room left grey, and a legend with each one's size.
  */
 import { el } from './dom.js';
 import { t, formatDate, formatDateTime, numberFormat } from './i18n.js';
@@ -40,13 +44,13 @@ export function peakWhat(peak) {
   return t('kit.usage.peakIn', { what: t(`kit.usage.items.${peak.id}`), module: peak.name || peak.mount });
 }
 
-/** One line: what it is, how much, of how much, and the bar when there is a limit. */
-function usageRow(label, value, share = null, note = null) {
+/** One line: what it is, how much, of how much, and the bar when there is a limit (unless `bar` is false). */
+function usageRow(label, value, share = null, note = null, { bar = true } = {}) {
   const level = levelOf(share);
   return el('div', { class: 'kit-usage__row' },
     el('span', { class: 'kit-usage__label', text: label }),
     el('span', { class: 'kit-usage__value', text: share == null ? value : `${value} · ${percent(share)}` }),
-    share == null ? null : meter(share),
+    share == null || !bar ? null : meter(share),
     level === 'near' || level === 'reached'
       ? el('small', { class: `kit-badge kit-badge--${level === 'reached' ? 'danger' : 'warn'}`, text: t(`kit.usage.${level}`) }) : null,
     note ? el('small', { class: 'kit-usage__note', text: note }) : null);
@@ -61,6 +65,50 @@ function dayBars(days) {
       title: t('kit.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), n: whole(d.used) }),
       style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%`,
     })));
+}
+
+/**
+ * The storage of every module as one bar, the largest first, and the room left when the plan has
+ * a limit; then a legend that names each part with its size, so no part is told by colour alone.
+ */
+function storageBreakdown(usage) {
+  const { storage } = usage;
+  const limit = storage.limit_mb == null ? null : storage.limit_mb * MB;
+  const whole = Math.max(limit ?? 0, storage.bytes);
+  const parts = usage.modules.filter((m) => m.bytes > 0).sort((a, b) => b.bytes - a.bytes);
+  if (!whole || !parts.length) return null;
+  const free = limit == null ? 0 : Math.max(0, limit - storage.bytes);
+  const legend = [...parts.map((m) => ({ module: m.mount, name: m.name, size: sizeText(m.bytes) })),
+    ...(limit == null ? [] : [{ module: null, name: t('kit.usage.free'), size: sizeText(free) }])];
+  return [
+    el('div', { class: 'kit-storage', role: 'img', 'aria-label': `${t('kit.usage.storageChart')}: ${legend.map((p) => `${p.name} ${p.size}`).join(', ')}` },
+      parts.map((m) => el('span', {
+        class: 'kit-storage__part', 'data-module': m.mount, title: `${m.name}: ${sizeText(m.bytes)}`,
+        style: `flex-basis: ${((m.bytes / whole) * 100).toFixed(2)}%`,
+      }))),
+    el('ul', { class: 'kit-storage__legend' }, legend.map((p) => el('li', {},
+      el('span', { class: 'kit-storage__dot', ...(p.module ? { 'data-module': p.module } : { 'data-free': '' }) }),
+      el('span', { text: p.name }), el('span', { class: 'kit-storage__size', text: p.size })))),
+  ];
+}
+
+/**
+ * What is near a cap or at it, the worst first, each as people count it ("17 lists", "45 assistant
+ * calls today"): the name of the thing says which module it is. Only the modules in use.
+ */
+export function atLimit(usage) {
+  const found = [];
+  const add = (share, text) => {
+    const level = levelOf(share);
+    if (level === 'near' || level === 'reached') found.push({ level, share, text });
+  };
+  for (const m of usage.modules) {
+    if (!m.on) continue;
+    for (const c of m.counts) add(c.share, t(`kit.usage.counted.${c.id}`, { n: c.count }));
+  }
+  if (usage.storage) add(usage.storage.share, t('kit.usage.counted.storage', { size: sizeText(usage.storage.bytes) }));
+  if (usage.mcp) add(usage.mcp.share, t('kit.usage.counted.mcp', { n: usage.mcp.today }));
+  return found.sort((a, b) => b.share - a.share);
 }
 
 /**
@@ -90,7 +138,10 @@ export function usageGroups(usage, { admin = false } = {}) {
       usageRow(t('kit.usage.inAll'),
         storage.limit_mb == null ? t('kit.usage.used', { size: sizeText(storage.bytes) })
           : t('kit.usage.ofLimit', { count: sizeText(storage.bytes), limit: sizeText(storage.limit_mb * MB) }),
-        storage.share, t('kit.usage.filesCount', { n: storage.files }))) : null,
+        storage.share, null, { bar: false }),
+      // Without a part to show (nothing kept yet), the bar of the limit alone.
+      storageBreakdown(usage) ?? (storage.share == null ? null : meter(storage.share)),
+      el('small', { class: 'kit-usage__note', text: t('kit.usage.filesCount', { n: storage.files }) })) : null,
     mcp ? el('section', { class: 'kit-usage__group' },
       el('h4', { class: 'kit-usage__title', text: t('kit.usage.mcp') }),
       usageRow(t('kit.usage.today'), mcp.limit == null ? whole(mcp.today) : t('kit.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }),
