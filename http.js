@@ -240,7 +240,8 @@ export function createRouter() {
         }
         if (!ok) continue;
         if (route.method !== wanted) { allow.add(route.method); continue; }
-        return { handler: route.handler, params };
+        // The pattern too: what an alert names a request by, never its values (alerts.js).
+        return { handler: route.handler, params, pattern: `/${route.segments.join('/')}` };
       }
       return allow.size ? { methodMismatch: true, allow: [...allow].join(', ') } : null;
     },

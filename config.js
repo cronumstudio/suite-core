@@ -19,6 +19,7 @@ import { LANGUAGES } from './i18n.js';
 import { workosConfigFromEnv } from './workos.js';
 import { oidcConfigFromEnv } from './oidc.js';
 import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
+import { alertsFromEnv } from './alerts.js';
 import { vapidKeyErrors } from './push.js';
 import { nativePushFromEnv } from './native-push.js';
 import { PADDLE_API } from './paddle.js';
@@ -306,6 +307,11 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
 
   const mail = mailConfigFromEnv(env);
   errors.push(...mailConfigErrors(mail));
+  // Emails to whoever runs the install when the server fails (alerts.js): off unless ALERT_EMAIL is
+  // set, never ADMIN_EMAIL on its own (an install that moves up would start getting mail it never
+  // asked for), and only with a mail server. A mistake is a warning: alerts are an extra.
+  const alerts = alertsFromEnv(env, mail);
+  if (alerts.warning) warnings.push(alerts.warning);
 
   // Web Push: the install's VAPID keys, both or neither (without them the app
   // generates a pair on its first start and keeps it in the database).
@@ -426,6 +432,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // Purchases in the App Store and Google Play (STORE_BILLING), next to the web's.
     stores: storeBilling,
     mail,
+    // ALERT_EMAIL, when alerts can go out; null otherwise.
+    alerts: { to: alerts.to },
     push,
     // With push.native: { apns, fcm }, each null when its credentials aren't set.
     ...(nativePush ? { nativePush } : {}),

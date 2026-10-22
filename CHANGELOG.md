@@ -3,6 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.120.0 — 2026-10-22
+
+- **Emails to whoever runs the install when the server fails** (`alerts.js`, `app.js`, `host.js`,
+  `config.js`, `http.js`). With `ALERT_EMAIL` set and `MAIL_PROVIDER=smtp`, an app or a host
+  emails that address when an exception reaches the top (before the process exits with 1 as
+  before, waiting 4 s at most for the email), when a rejection nobody awaited is logged, when the
+  server answers 5 or more 5xx within 5 minutes, and when a scheduled job of the suite throws (the
+  clean-ups, the account deletion, the groups' renewals, a module's sweep). Off unless set: an
+  install without `ALERT_EMAIL` behaves exactly as before, and `ADMIN_EMAIL` is never used on its
+  own (an install that moves up would start getting mail it never asked for). With
+  `MAIL_PROVIDER=log`, or an `ALERT_EMAIL` that isn't an address, a warning at the start and no
+  alerts: never a reason not to start.
+  - **One email per kind every 30 minutes at most**, across restarts: the time of the last one is
+    saved in `app_meta` (`suite.alerts.<kind>`) before it goes, and none goes when it can't be
+    saved, so a crash loop sends one. What happened meanwhile is counted, and the next email says
+    how many were held back; one the mail server refused is counted too.
+  - **What it says**: the app's name and version, `BASE_URL`, the machine, the kind, the time and
+    the error's name, message and first 15 frames, without emails, long tokens or the queries of
+    URLs. Of a request only its method, status and route pattern (`POST /tasks/api/lists/:id`; a
+    path no route took, its first two words): never its query, body, headers, cookies or who made
+    it. Plain text in English, like the log it comes from.
+  - `createSuite()` returns `alerts` (and a module of a host gets the host's): an app's own timers
+    can call `suite.alerts.jobFailed(name, error)`, which never throws and does nothing with alerts
+    off; `createApp()` and `createHost()` wire the rest. The router's `match()` also returns the
+    route's `pattern`.
+
 ## 0.118.0 — 2026-10-22
 
 - **Talk leaves the suite** (`web/tokens.css`, `tools/i18n.mjs`). PapaTalk is no longer a Cronum

@@ -982,7 +982,10 @@ export async function createHost({
   }
 
   const server = http.createServer((req, res) => {
+    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, while req.url is still the whole path.
+    suite.alerts.watch(req, res);
     handle(req, res).catch((err) => {
+      suite.alerts.noteError(req, err);
       console.error(`[error] ${req.method} ${req.url}`, err);
       if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
       else res.end();
@@ -995,13 +998,19 @@ export async function createHost({
 
   const timers = [];
   const stops = [];
-  /** A clean-up that fails is logged and tried again next time: it must not take the host down. */
+  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
+  const failed = (name) => (err) => {
+    log(`${tag} ${name} failed: ${err?.stack || err}`);
+    suite.alerts.jobFailed(name, err);
+  };
+  /** A clean-up that fails must not take the host down. */
   const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { log(`${tag} ${name} failed: ${err?.stack || err}`); }
+    try { fn(); } catch (err) { failed(name)(err); }
   };
 
   /** Creates the first administrator, starts the clean-ups and each module's own jobs, and listens. */
   function listen() {
+    suite.alerts.setVersion(version);
     suite.ensureAdmin();
     const cleanUp = safely('clean-up', () => {
       suite.purge();
@@ -1017,13 +1026,13 @@ export async function createHost({
     }
     if (suite.deletion) {
       // The accounts whose owners asked to delete them, once their days are over: once for every module.
-      const sweepAccounts = () => suite.deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
+      const sweepAccounts = () => suite.deletion.sweep().catch(failed('account deletion'));
       timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
     }
     if (suite.billing?.enabled) {
       // Groups' renewals asked to stop that the provider didn't take yet, once for every module.
-      const sendStops = () => suite.billing.sendStops().catch((err) => log(`${tag} stopping groups' renewals failed: ${err?.stack || err}`));
+      const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));
       timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sendStops, HOUR).unref());
     }
@@ -1044,17 +1053,21 @@ export async function createHost({
       }
     }
     if (handleSignals) {
-      const shutdown = (reason, code = 0) => {
+      // As an app's (app.js): `waitFor` is the crash's alert, which gives itself less than those 5 s.
+      const shutdown = (reason, code = 0, waitFor = null) => {
         log(`${tag} ${reason}, closing…`);
-        close().then(() => process.exit(code), () => process.exit(code));
+        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
         setTimeout(() => process.exit(code), 5000).unref();
       };
       process.once('SIGTERM', () => shutdown('SIGTERM received'));
       process.once('SIGINT', () => shutdown('SIGINT received'));
-      process.on('unhandledRejection', (err) => log(`${tag} unhandled rejection: ${err?.stack || err}`));
+      process.on('unhandledRejection', (err) => {
+        log(`${tag} unhandled rejection: ${err?.stack || err}`);
+        suite.alerts.report('rejection', err);
+      });
       process.once('uncaughtException', (err) => {
         log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1);
+        shutdown('uncaught exception', 1, suite.alerts.crashed(err));
       });
     }
     return new Promise((resolve) => {
@@ -1081,6 +1094,8 @@ export async function createHost({
   function close() {
     for (const timer of timers) clearInterval(timer);
     for (const stopIt of stops) safely('stop', stopIt)();
+    // What the alerts held back since their last email, for the next one after a restart.
+    suite.alerts.flush();
     // Open tabs would keep the server from closing.
     suite.live.close();
     for (const m of joined) m.view.live.close();
