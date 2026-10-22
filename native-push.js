@@ -22,6 +22,12 @@
  * is dropped; one refused three times in a row too; a failure that says
  * nothing of the device (the network, a 429, the service down, our own
  * credentials) is only logged. One device's failure never throws.
+ *
+ * A phone's app may also show some notices itself: the reminders it scheduled
+ * as local notifications, which ring with the phone offline. It says which
+ * (`PUT /api/devices/reminders`, `device_reminders`), and a send that names
+ * its reminder (`deliver(…, { reminder: { id, at } })`) skips the phones that
+ * already show it, so none rings twice. Web Push is never skipped.
  */
 import crypto from 'node:crypto';
 import http2 from 'node:http2';
@@ -61,6 +67,16 @@ const APNS_TOKEN = /^[0-9a-fA-F]{64,200}$/;
 const FCM_TOKEN = /^[A-Za-z0-9_:.-]{20,1000}$/;
 const LANG = /^[A-Za-z]{2,3}([_-][A-Za-z0-9]{1,8}){0,3}$/;
 const CATEGORY = /^[A-Za-z0-9._-]{1,64}$/;
+/** Reminders a device says it shows at once: a week of one person's, never a table filled by a script. */
+export const MAX_DEVICE_REMINDERS = 64;
+/** A reminder's id: the module's own, as text. */
+const REMINDER_ID_MAX = 64;
+/** The time the phone scheduled and the one the server sends are the same reminder this close. */
+export const REMINDER_SLACK_MS = 60 * 1000;
+/** A module as a host mounts it (host.js MOUNT), or an app's id on its own. */
+const MODULE = /^[a-z][a-z0-9-]{1,30}$/;
+/** An ISO-8601 instant with its date, time and offset: `2026-10-21T08:00:00.000Z`, `…T10:00+02:00`. */
+const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 /* --------------------------------- table --------------------------------- */
 
@@ -84,6 +100,81 @@ export function devicePushTokensSchema(d) {
     failures    INTEGER NOT NULL DEFAULT 0
   );
   CREATE UNIQUE INDEX ux_device_push_tokens_token ON device_push_tokens (platform, token)`);
+}
+
+/**
+ * The reminders a phone's app scheduled as its own local notifications (suite
+ * migration 26), as it last said them: a send of the same reminder skips that
+ * phone. Each list the device sends replaces the one before. It hangs on the
+ * device as its token does, and goes when the device is revoked or signs out,
+ * and when the app forgets its token. Never exported: it is the phone's, and
+ * the phone says it again.
+ */
+export function deviceRemindersSchema(d) {
+  d.exec(`CREATE TABLE device_reminders (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL REFERENCES device_tokens(id) ON DELETE CASCADE,
+    module    TEXT,
+    item_id   TEXT NOT NULL,
+    at        TEXT NOT NULL
+  );
+  CREATE INDEX ix_device_reminders_device ON device_reminders (device_id, item_id)`);
+}
+
+/* -------------------------------- reminders ------------------------------- */
+
+/** The milliseconds of an ISO-8601 instant, or null: a day that doesn't exist (February 30) is not one. */
+export function instantOf(text) {
+  if (typeof text !== 'string' || text.length > 40) return null;
+  const m = ISO_INSTANT.exec(text);
+  if (!m) return null;
+  const [year, month, day, hour, minute, second = 0] = m.slice(1, 7).map((part) => (part == null ? undefined : Number(part)));
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) return null;
+  if (new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) return null;
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * The reminder a send names (`options.reminder`), as it is compared:
+ * { module: text | null, id: text, at: milliseconds }, or null when there is
+ * none or it can't be read, and then nothing is skipped (a notice twice is
+ * better than none). `id` a text or a number; `at` an ISO-8601 text, a Date or
+ * milliseconds.
+ */
+export function reminderOf(value) {
+  if (!value || typeof value !== 'object') return null;
+  const id = typeof value.id === 'string' ? value.id
+    : typeof value.id === 'number' && Number.isFinite(value.id) ? String(value.id) : null;
+  if (!id || id.length > REMINDER_ID_MAX) return null;
+  const at = value.at instanceof Date ? value.at.getTime()
+    : typeof value.at === 'number' ? value.at : instantOf(value.at);
+  if (!Number.isFinite(at)) return null;
+  const module = typeof value.module === 'string' && value.module ? value.module : null;
+  return { module, id, at };
+}
+
+/**
+ * A device's list as `PUT /api/devices/reminders` takes it: at most
+ * MAX_DEVICE_REMINDERS of { module: a module's path or null, id: up to 64
+ * characters, at: an ISO-8601 instant }. → [{ module, id, at (ms) }], or a
+ * coded 400 naming the field.
+ */
+export function deviceRemindersOf(items) {
+  if (items == null) throw badRequest('field_required', { field: 'items' });
+  if (!Array.isArray(items)) throw badRequest('field_invalid', { field: 'items' });
+  if (items.length > MAX_DEVICE_REMINDERS) throw badRequest('field_too_long', { field: 'items', max: MAX_DEVICE_REMINDERS });
+  return items.map((item, i) => {
+    const field = (name) => `items[${i}].${name}`;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw badRequest('field_invalid', { field: `items[${i}]` });
+    const module = item.module ?? null;
+    if (module !== null && (typeof module !== 'string' || !MODULE.test(module))) throw badRequest('field_invalid', { field: field('module') });
+    const id = str(item.id, { field: field('id'), max: REMINDER_ID_MAX, min: 1 });
+    if (item.at == null) throw badRequest('field_required', { field: field('at') });
+    const at = instantOf(item.at);
+    if (at == null) throw badRequest('field_invalid', { field: field('at') });
+    return { module, id, at };
+  });
 }
 
 /* ------------------------------- credentials ------------------------------ */
@@ -531,6 +622,8 @@ export function createNativePush({
 }) {
   const apnsSender = senders.apns ?? (apns ? createApnsSender({ ...apns, connect, clock, log }) : null);
   const fcmSender = senders.fcm ?? (fcm ? createFcmSender({ ...fcm, channel, fetch, clock, log }) : null);
+  // What phones show themselves (migration 26): a database without the table has nothing to skip.
+  const remindersLinked = database.columnsOf('device_reminders').length > 0;
 
   /** The working devices' tokens of some people, as rows push.js can tell from a subscription. */
   function targetsOf(userIds) {
@@ -569,7 +662,47 @@ export function createNativePush({
     });
   }
 
-  const unregister = (deviceId) => database.run('DELETE FROM device_push_tokens WHERE device_id = ?', deviceId).changes > 0;
+  /** Forgets a device's token, and the reminders it said it shows: without notices, it shows none. */
+  const unregister = (deviceId) => database.tx(() => {
+    clearReminders(deviceId);
+    return database.run('DELETE FROM device_push_tokens WHERE device_id = ?', deviceId).changes > 0;
+  });
+
+  /**
+   * Replaces the reminders a device says it shows itself with `items`, as
+   * deviceRemindersOf() gave them (the same one twice is kept once). → how many
+   */
+  function setReminders(deviceId, items) {
+    const rows = new Map();
+    for (const item of items) {
+      const row = [item.module ?? null, String(item.id), new Date(item.at).toISOString()];
+      rows.set(JSON.stringify(row), row);
+    }
+    database.tx(() => {
+      database.run('DELETE FROM device_reminders WHERE device_id = ?', deviceId);
+      for (const [module, id, at] of rows.values()) {
+        database.run('INSERT INTO device_reminders (device_id, module, item_id, at) VALUES (?, ?, ?, ?)', deviceId, module, id, at);
+      }
+    });
+    return rows.size;
+  }
+
+  function clearReminders(deviceId) {
+    return remindersLinked ? database.run('DELETE FROM device_reminders WHERE device_id = ?', deviceId).changes : 0;
+  }
+
+  /**
+   * Which of these devices said they show this reminder (reminderOf()) themselves:
+   * the same module and id, at the same instant give or take REMINDER_SLACK_MS.
+   */
+  function scheduledOn(deviceIds, reminder) {
+    const ids = [...new Set([...deviceIds].map(Number))].filter(Number.isInteger);
+    if (!remindersLinked || !reminder || !ids.length) return new Set();
+    return new Set(database.all(`SELECT device_id, at FROM device_reminders
+      WHERE item_id = ? AND module IS ? AND device_id IN (${ids.map(() => '?').join(', ')})`, reminder.id, reminder.module, ...ids)
+      .filter((row) => Math.abs(Date.parse(row.at) - reminder.at) <= REMINDER_SLACK_MS)
+      .map((row) => row.device_id));
+  }
 
   /** Which of these devices have a token: for the list in Settings. */
   function withTokens(deviceIds) {
@@ -585,8 +718,14 @@ export function createNativePush({
 
   /**
    * Sends one notice to one target, writing nothing. → { ok, status, gone, outcome, reason? }
+   * With `options.reminder`, a device that shows that reminder itself gets
+   * nothing: → { ok: false, skipped: true, outcome: 'scheduled' }.
    */
   async function send(target, payload, options = {}) {
+    const reminder = reminderOf(options.reminder);
+    if (reminder && scheduledOn([target.device_id], reminder).size) {
+      return { ok: false, status: 0, gone: false, outcome: 'scheduled', reason: 'scheduled_on_device', skipped: true };
+    }
     const notice = noticeOf(payload);
     if (target.platform === 'ios') {
       if (!apnsSender) {
@@ -627,12 +766,21 @@ export function createNativePush({
     return res;
   }
 
-  /** Sends to several targets and keeps the table clean; never rejects for a device. → { sent, gone, failed } */
+  /**
+   * Sends to several targets and keeps the table clean; never rejects for a
+   * device. → { sent, gone, failed }. With `options.reminder` ({ module, id,
+   * at }: reminderOf()), the devices that show it themselves are left out and
+   * counted apart: → { sent, gone, failed, skipped }.
+   */
   async function deliver(targets, payload, options = {}) {
+    const { reminder: named, ...rest } = options;
+    const reminder = reminderOf(named);
+    const skip = reminder ? scheduledOn(targets.map((target) => target.device_id), reminder) : new Set();
+    const sending = skip.size ? targets.filter((target) => !skip.has(target.device_id)) : targets;
     const results = [];
-    for (let i = 0; i < targets.length; i += DELIVER_BATCH) {
-      const batch = targets.slice(i, i + DELIVER_BATCH);
-      results.push(...await Promise.all(batch.map((target) => deliverOne(target, payload, options).catch((err) => {
+    for (let i = 0; i < sending.length; i += DELIVER_BATCH) {
+      const batch = sending.slice(i, i + DELIVER_BATCH);
+      results.push(...await Promise.all(batch.map((target) => deliverOne(target, payload, rest).catch((err) => {
         log(`[push] a native notice failed: ${err?.message || err}`);
         return { ok: false, gone: false };
       }))));
@@ -641,6 +789,7 @@ export function createNativePush({
       sent: results.filter((r) => r.ok).length,
       gone: results.filter((r) => r.gone).length,
       failed: results.filter((r) => !r.ok && !r.gone).length,
+      ...(reminder ? { skipped: targets.length - sending.length } : {}),
     };
   }
 
@@ -652,6 +801,7 @@ export function createNativePush({
   return {
     platforms: { ios: Boolean(apnsSender), android: Boolean(fcmSender) },
     targetsOf, targetOfDevice, register, unregister, withTokens, send, deliver, close,
+    setReminders, clearReminders, scheduledOn,
   };
 }
 
@@ -663,6 +813,7 @@ export function createNativePush({
  *   POST   /api/devices/push       { platform, token, environment?, lang? }
  *   DELETE /api/devices/push
  *   POST   /api/devices/push/test  a test notice to this device
+ *   PUT    /api/devices/reminders  { items: [{ module, id, at }] }: the reminders it shows itself
  * A bad device token counts against the address in the devices' bucket, as the
  * other device routes do.
  */
@@ -705,6 +856,18 @@ export function registerNativePushApi(router, { devices, nativePush, limiter, te
     const device = deviceOf(ctx);
     nativePush.unregister(device.device_id);
     sendJson(ctx.res, 200, { ok: true });
+  });
+
+  /**
+   * The reminders this device scheduled as its own notifications, all of them
+   * (the next week's, at most MAX_DEVICE_REMINDERS): they replace what it said
+   * before, and an empty list clears it. → { ok: true, count }
+   */
+  router.put('/api/devices/reminders', async (ctx) => {
+    const device = deviceOf(ctx);
+    const body = await readJson(ctx.req);
+    const items = deviceRemindersOf(body?.items);
+    sendJson(ctx.res, 200, { ok: true, count: nativePush.setReminders(device.device_id, items) });
   });
 
   /** A test notice to this device, in the person's language (else the device's). → { sent, gone, failed } */

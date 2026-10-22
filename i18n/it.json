@@ -982,6 +982,7 @@
   "fields.lang": "Lingua",
   "fields.app_version": "Versione dell’app",
   "fields.state": "Stato della richiesta",
+  "fields.items": "Promemoria del dispositivo",
   "kit.shared.title": "Condivisione",
   "kit.shared.hint": "Ciò che condividi e ciò che viene condiviso con te",
   "kit.shared.mine": "Condiviso da te",

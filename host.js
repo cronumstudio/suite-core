@@ -73,7 +73,9 @@ import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
 import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
-import { fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush } from './host-worker.js';
+import {
+  fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush, moduleReminderPush,
+} from './host-worker.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -582,7 +584,8 @@ export async function createHost({
       texts: ownHooks.texts || createTexts(),
       portabilityFor,
       // With the host's one worker, a notice opens at the module's path (host-worker.js).
-      push: resolved.modules.push && suite.push ? (hostWorker ? hostedPush(suite.push, entry.mount) : suite.push) : null,
+      push: resolved.modules.push && suite.push
+        ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
       // The host's payments in every module, whether the app sells on its own or not: Settings ›
       // Plan is the host's, the same in all of them, and a checkout comes back to the module it left.

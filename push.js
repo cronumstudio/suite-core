@@ -308,6 +308,11 @@ export function checkSubscription(subscription) {
  * @param {Function} [options.log]
  * @param {object} [options.native]  native-push.js, with `push.native`: the same sends also reach
  *   the person's phones through APNs and FCM. Without it everything here is Web Push only.
+ *
+ * `send`, `deliver` and `sendTo` take `reminder: { id, at, module? }` among
+ * their options, for a reminder's notice: with `push.native`, a phone whose app
+ * said it shows that reminder itself (`PUT /api/devices/reminders`) is skipped,
+ * and `deliver` adds how many to its answer (`skipped`). Web Push never is.
  */
 export function createPush({
   database, vapid, fetch = globalThis.fetch, log = console.error, clock = () => Date.now(), native = null,
@@ -336,11 +341,11 @@ export function createPush({
    * one the push service still holds for a device that is offline. A notice
    * over MAX_PAYLOAD bytes is refused with a TypeError before anything is sent.
    */
-  async function send(subscription, payload, { ttl = 3600, urgency = 'normal', topic = null } = {}) {
+  async function send(subscription, payload, { ttl = 3600, urgency = 'normal', topic = null, reminder = null } = {}) {
     // A phone's native token (push.native), among what subscriptionsOf() gave: APNs or FCM.
     if (native && subscription?.native) {
       checkTopic(topic);
-      return native.send(subscription, payload, { ttl, urgency, topic });
+      return native.send(subscription, payload, { ttl, urgency, topic, ...(reminder != null ? { reminder } : {}) });
     }
     // Outside the try: a payload or a topic that can't be written is the app's mistake, not the device's.
     checkTopic(topic);
@@ -456,7 +461,11 @@ export function createPush({
         return { sent: 0, gone: 0, failed: phones.length };
       }),
     ]);
-    return { sent: a.sent + b.sent, gone: a.gone + b.gone, failed: a.failed + b.failed };
+    return {
+      sent: a.sent + b.sent, gone: a.gone + b.gone, failed: a.failed + b.failed,
+      // Phones that show this reminder themselves, when the send named one (`options.reminder`).
+      ...(b.skipped != null ? { skipped: b.skipped } : {}),
+    };
   }
 
   /**
