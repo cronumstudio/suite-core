@@ -19,6 +19,28 @@ change an interface and a patch never does. Apps pin a version through the submo
   without the parameter, and every other sign-in, is as before. Texts in en, es, fr, de and it
   (`kit.connect.otherAccount`, `kit.connect.signingOut`).
 
+## 0.125.0 — 2026-10-22
+
+- **Reminders the phone schedules are not pushed to it** (`native-push.js`, `push.js`,
+  `host-worker.js`, `host.js`, `devices.js`, `schema.js`). Cronum Work's app schedules a person's
+  coming reminders as local notifications, and the reminders sweep also pushed each one natively:
+  with the app closed the phone rang twice. Now the device says what it scheduled and native
+  delivery skips it. With `push.native` only; an app or a module that names no reminder sends
+  exactly as before.
+  - `PUT /api/devices/reminders` with `Authorization: Bearer <device token>` (failures in the
+    `devices` bucket, as the other device routes) and `{ items: [{ module: string | null, id:
+    string, at: ISO-8601 }] }`, at most 64: `module` like a host's mount, `id` up to 64
+    characters, `at` a real instant. It replaces the device's previous list (empty clears it) and
+    answers `{ ok: true, count }`.
+  - Kept in `device_reminders` (**suite migration 26**), hanging on `device_tokens` with
+    `ON DELETE CASCADE`; cleared when the device is revoked (Settings, the app signing out with
+    `DELETE /api/devices/current`, the admin) and on `DELETE /api/devices/push`. Not exported.
+  - `push.deliver(subs, payload, { reminder: { id, at } })`, and the same option on `send` and
+    `sendTo`: a native target whose device reported that `(module, id, at)` (the instants within
+    60 s) is skipped, and `deliver` adds `skipped` to its answer. In a host the module is filled in
+    from the module's path (`hostedPush`, and new `moduleReminderPush` for a host without the one
+    worker). Web Push is never skipped.
+
 ## 0.124.0 — 2026-10-22
 
 - **Your AI, with one prompt for a host's modules** (`web/agents.js`, `web/settings.js`, `host.js`,

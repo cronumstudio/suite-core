@@ -31,7 +31,7 @@ import { dataImportsSchema } from './portability.js';
 import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
-import { devicePushTokensSchema } from './native-push.js';
+import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
@@ -74,4 +74,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 24, name: 'device-push-tokens', up: devicePushTokensSchema },
   // Whether a subscription stops at its period's end instead of renewing (billing.js `ending`).
   { version: 25, name: 'billing-ending', up: billingEndingSchema },
+  // The reminders a phone's app shows itself, so the server doesn't push them too (native-push.js, push.native).
+  { version: 26, name: 'device-reminders', up: deviceRemindersSchema },
 ]);

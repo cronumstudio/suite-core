@@ -1018,6 +1018,7 @@
   "fields.lang": "Language",
   "fields.app_version": "App version",
   "fields.state": "Request state",
+  "fields.items": "Reminders on the device",
   "kit.shared.title": "Sharing",
   "kit.shared.hint": "What you share and what is shared with you",
   "kit.shared.mine": "Shared by you",

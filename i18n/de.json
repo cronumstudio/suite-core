@@ -1018,6 +1018,7 @@
   "fields.lang": "Sprache",
   "fields.app_version": "App-Version",
   "fields.state": "Anfragestatus",
+  "fields.items": "Erinnerungen auf dem Gerät",
   "kit.shared.title": "Geteilt",
   "kit.shared.hint": "Was du teilst und was mit dir geteilt wird",
   "kit.shared.mine": "Von dir geteilt",

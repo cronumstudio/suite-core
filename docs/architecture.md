@@ -83,7 +83,8 @@ suite-core/
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language;
                                sending to an app's own devices, with no user behind them
-  native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1
+  native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1;
+                               reminders the phone shows itself are not pushed to it
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
@@ -374,6 +375,16 @@ CREATE TABLE device_push_tokens (
   failures    INTEGER NOT NULL DEFAULT 0  -- refusals in a row; three and it goes
 );
 CREATE UNIQUE INDEX ux_device_push_tokens_token ON device_push_tokens (platform, token);
+-- The reminders a phone's app shows itself as local notifications (push.native, migration 26), as
+-- it last said them: a native send of the same reminder skips that phone. Gone with the device.
+CREATE TABLE device_reminders (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER NOT NULL REFERENCES device_tokens(id) ON DELETE CASCADE,
+  module    TEXT,                        -- the module's path in a host; NULL for an app on its own
+  item_id   TEXT NOT NULL,               -- the module's id of the item (a task's), as text
+  at        TEXT NOT NULL                -- the instant it rings, ISO-8601 in UTC
+);
+CREATE INDEX ix_device_reminders_device ON device_reminders (device_id, item_id);
 
 CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX ix_login_attempts ON login_attempts (bucket, at);
@@ -1401,6 +1412,26 @@ kit's), then Notes is built on it whole, then the others as they move to English
     (by its owner, by itself, by the admin) loses its token at once; one gone idle, refused by
     `canConnect` or of a disabled account gets nothing, and its row goes with the device. Bad device
     tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
+  - **Reminders the phone shows itself** (v0.125.0): the app schedules a person's coming reminders
+    as local notifications (they ring offline, and the app closed), so the server must not push the
+    same ones too. `PUT /api/devices/reminders` with the device's token (the same auth and bucket as
+    the routes above) and `{ items: [{ module: '<module path>' | null, id: '<item id>', at:
+    '<ISO-8601 instant>' }] }`, at most 64 (`module` like a host's mount, `id` 1 to 64 characters,
+    `at` a real instant with its offset, such as `2026-10-23T09:00:00.000Z`), answers
+    `{ ok: true, count }` (the same item twice counts once); each list replaces the device's
+    previous one, and `{ items: [] }` clears it. 400 `field_required` / `field_invalid` /
+    `field_too_long` name the field (`items`, `items[3].at`). Kept in `device_reminders` (**suite
+    migration 26**, hanging on `device_tokens` with `ON DELETE CASCADE`), never exported; it goes
+    when the device is revoked (by its owner, by itself signing out, by the admin) and on
+    `DELETE /api/devices/push`. A send names its reminder in its options:
+    `deliver(subs, payload, { reminder: { id, at } })` (and `send`, `sendTo`), `id` a text or a
+    number, `at` an ISO-8601 text, a Date or milliseconds; in a host, `hostedPush` (and a host
+    without the one worker too) sets `reminder.module` to the module's path, and an app on its own
+    may give `module` itself (else null). A native target whose device reported the same `module`
+    and `id` at the same instant (give or take 60 s) is skipped, and `deliver` answers
+    `{ sent, gone, failed, skipped }`; `send` to that one device answers `{ ok: false, skipped:
+    true, outcome: 'scheduled' }`. Web Push is never skipped. Without the option, or with one that
+    can't be read, everything is sent as before and the answer has no `skipped`.
   - **Sending**: `subscriptionsOf(userIds)` also gives the people's phones (rows with
     `native: true`, `platform`, `lang`, `user_id`), and `deliver()` sends each where it goes; given
     Web Push rows only (an app that reads `push_subscriptions` itself, as Tasks does), it also sends
