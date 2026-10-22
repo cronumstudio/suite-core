@@ -42,7 +42,11 @@
  *
  * `standing`: the key, in the app's catalog, of the instruction to paste into
  * an assistant's own instructions. Your AI shows it, folded under the app's
- * name, with a way to copy it; in a host, one fold for each module in use.
+ * name, with a way to copy it; in a host, one fold for each module in use. In
+ * a host that builds one prompt for its modules (`/api/modules`' host
+ * `aiInstruction`, createHost's), Your AI instead has a chip for each agent
+ * with its steps (agents.js) and that prompt for the modules ticked, and each
+ * module's `standingMore` under it.
  * `standingMore`: what goes under it, keys of the catalog (a paragraph each)
  * and pairs of keys (a line of a list: a label in bold, then its text).
  * `site`: the app's website, which About links to in a host.
@@ -67,6 +71,7 @@ import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
+import { agentChips, agentSteps, aiPrompt } from './agents.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
 
@@ -902,6 +907,7 @@ export function openSettings(options) {
       block(null, intro, el('div', { class: 'kit-copy' }, endpoint, el('button', {
         type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(endpoint.textContent, endpoint),
       }))),
+      ...hostAgents(endpoint.textContent, connected),
       appsBlock,
       instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
@@ -923,28 +929,80 @@ export function openSettings(options) {
     const section = block(t('kit.ai.standingTitle'), hint(t('kit.ai.standingIntro')),
       el('ul', { class: 'kit-hint' }, ['claude', 'chatgpt', 'claudeCode'].map((k) => el('li', { text: t(`kit.ai.standingWhere.${k}`) }))),
       folds);
-    // This app's words from its own catalog; another module's from its own (moduleWords).
-    const said = (key) => {
-      const text = key ? t(key) : '';
-      return text === key ? '' : text;
-    };
-    const mine = { name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing), more: notesOf(options.standingMore, said) };
     const paint = () => {
-      const apps = !host ? [mine]
-        : modulesHere().map((m) => {
-          if (m.mount === host.mount) return mine;
-          const key = m.settings?.standing;
-          const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) paint(); }) : null;
-          const say = (k) => (typeof words?.[k] === 'string' ? words[k] : '');
-          return { name: m.name, src: m.icon, text: say(key), more: notesOf(m.settings?.standingMore, say) };
-        });
-      const shown = apps.filter((a) => a.text);
+      // The host's one prompt says it for every module (hostAgents).
+      const shown = hostPrompt() ? [] : saying(paint).filter((a) => a.text);
       section.hidden = !shown.length;
       clear(folds).append(...shown.map((a) => fold(a, shown.length === 1)));
     };
     paint();
     onModules.push(paint);
     return section;
+  }
+
+  /** The path of the host's one prompt for its modules (`aiInstruction`), or null. */
+  function hostPrompt() {
+    return host && typeof hostInfo.aiInstruction === 'string' ? hostInfo.aiInstruction : null;
+  }
+
+  /**
+   * What each app says for an assistant: its instruction and what goes under it, this app's
+   * alone or in a host every module's in use, each in its own words (another module's from its
+   * catalog, asked for once: `then` paints again when it comes).
+   */
+  function saying(then) {
+    // This app's words from its own catalog; another module's from its own (moduleWords).
+    const said = (key) => {
+      const text = key ? t(key) : '';
+      return text === key ? '' : text;
+    };
+    const mine = { mount: host?.mount, name: app.name, src: at(app.icon || '/icons/favicon.svg'), text: said(options.standing), more: notesOf(options.standingMore, said) };
+    if (!host) return [mine];
+    return modulesHere().map((m) => {
+      if (m.mount === host.mount) return mine;
+      const key = m.settings?.standing;
+      const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) then(); }) : null;
+      const say = (k) => (typeof words?.[k] === 'string' ? words[k] : '');
+      return { mount: m.mount, name: m.name, src: m.icon, text: say(key), more: notesOf(m.settings?.standingMore, say) };
+    });
+  }
+
+  /**
+   * In a host with one prompt for its modules: a chip for each agent, whose steps to add the
+   * connector open in a dialog, the last one sending the person to the prompt below; the prompt,
+   * built by the host for the modules ticked (the ones in use at first); and under it what each
+   * module in use says of it (`standingMore`), folded under its name. Hidden in a host without it.
+   */
+  function hostAgents(endpoint, connected) {
+    const open = (agent) => openDialog({
+      title: t('kit.ai.agentTitle', { agent: agent.name }),
+      content: agentSteps(agent.id, { endpoint, app: connected, last: t('kit.agents.lastSection', { agent: agent.name, app: connected }) }),
+    });
+    const agents = block(t('kit.ai.agentsTitle'), hint(t('kit.ai.agentsHint', { app: connected })),
+      agentChips({ onPick: open, label: t('kit.ai.agentsTitle') }));
+    const prompt = el('div');
+    const promptBlock = block(t('kit.ai.promptTitle'), hint(t('kit.ai.promptHint', { app: connected })), prompt);
+    const folds = el('div', { class: 'kit-folds' });
+    const more = block(t('kit.ai.moreTitle'), folds);
+    let drawn = '';
+    const paint = () => {
+      const path = hostPrompt();
+      agents.hidden = !path;
+      promptBlock.hidden = !path;
+      // The modules: the host's, in its order, the ones in use ticked; drawn again only when they change.
+      const list = !path ? [] : inUse.length ? inUse : modulesHere();
+      const key = path ? `${path}|${list.map((m) => `${m.mount}:${m.active ? 1 : 0}`).join(',')}` : '';
+      if (key !== drawn) {
+        drawn = key;
+        clear(prompt).append(path ? aiPrompt({ path, modules: list.map((m) => ({ ...m, name: m.name || app.name })) }) : []);
+      }
+      const shown = path ? saying(paint).filter((a) => a.more.length) : [];
+      more.hidden = !shown.length;
+      clear(folds).append(...shown.map((a) => fold({ ...a, text: '' }, false)));
+    };
+    paint();
+    onModules.push(paint);
+    return [agents, promptBlock, more];
   }
 
   /**
@@ -970,14 +1028,17 @@ export function openSettings(options) {
     return nodes;
   }
 
-  /** One app's instruction, folded under its name, with what it says about it; opening it folds the others. */
+  /**
+   * One app's instruction, folded under its name, with what it says about it (without `text`, only
+   * that); opening it folds the others.
+   */
   function fold({ name, src, text, more = [] }, open) {
-    const instruction = el('pre', { class: 'kit-instruction', text });
+    const instruction = text ? el('pre', { class: 'kit-instruction', text }) : null;
     const node = el('details', { class: 'kit-fold', name: 'kit-standing', open },
       el('summary', {}, src ? el('img', { src, alt: '', width: 22, height: 22 }) : null, el('span', { text: name }),
         icon('chevron-down', { className: 'kit-fold__chevron' })),
       el('div', { class: 'kit-fold__body' }, instruction,
-        row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary')),
+        instruction ? row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary')) : null,
         ...more));
     // `name` makes them one-at-a-time where the browser knows it; here, where it doesn't.
     node.addEventListener('toggle', () => {

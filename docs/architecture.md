@@ -1403,7 +1403,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
     (by its owner, by itself, by the admin) loses its token at once; one gone idle, refused by
     `canConnect` or of a disabled account gets nothing, and its row goes with the device. Bad device
     tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
-  - **Reminders the phone shows itself** (v0.124.0): the app schedules a person's coming reminders
+  - **Reminders the phone shows itself** (v0.125.0): the app schedules a person's coming reminders
     as local notifications (they ring offline, and the app closed), so the server must not push the
     same ones too. `PUT /api/devices/reminders` with the device's token (the same auth and bucket as
     the routes above) and `{ items: [{ module: '<module path>' | null, id: '<item id>', at:

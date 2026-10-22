@@ -382,6 +382,10 @@ function moduleListErrors(modules) {
  * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
  *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
  *   framed by the host's own pages (never by another site's)
+ * @param {string} [options.aiInstruction]  the host's route that builds the prompt for an assistant, for the
+ *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
+ *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
+ *   module's instruction, folded
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
  *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
  *   host's icon without them). The host's /version and /js/app-version.js are then the whole
@@ -394,7 +398,7 @@ function moduleListErrors(modules) {
  */
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
-  worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
+  aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
@@ -429,6 +433,10 @@ export async function createHost({
   // The split view is a page of the host's own: a path of this site, never an address elsewhere.
   if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
     listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
+  }
+  // The prompt is one of the host's own routes, under /api/.
+  if (aiInstruction !== null && !(typeof aiInstruction === 'string' && /^\/api\/[a-z0-9-]+$/.test(aiInstruction))) {
+    listErrors.push(`aiInstruction: "${aiInstruction}" is not a route of the host (such as /api/ai-instruction)`);
   }
   if (worker != null && worker !== false && worker !== true && (typeof worker !== 'object' || Array.isArray(worker))) {
     listErrors.push('worker: true, or { icon, badge } for its notices');
@@ -708,7 +716,7 @@ export async function createHost({
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
     const look = user ? suite.database.get('SELECT look FROM host_looks WHERE user_id = ?', user.id)?.look : null;
     return {
-      host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}) },
+      host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(aiInstruction ? { aiInstruction } : {}) },
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
