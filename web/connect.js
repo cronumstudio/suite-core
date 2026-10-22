@@ -23,6 +23,12 @@
  *   again from the app.
  * - An account the app keeps out (403 `device_not_allowed`) is told so; a
  *   session that ended meanwhile reloads the page, which signs in again.
+ * - "Use another account", beside the account signed in: the browser may still
+ *   hold the session of an earlier connect, and the app has no other way to
+ *   switch. It ends that session (`POST /api/auth/logout`, never the provider's
+ *   logout_url: the page stays here) and opens the same request again with
+ *   `prompt=login`, so the sign-in is asked for again: in place with local
+ *   accounts, at the provider, which is asked not to reuse its own session.
  *
  * After either button the page says it is going back to the app, with a link
  * that does the same, for a browser that didn't follow by itself.
@@ -57,6 +63,23 @@ export function connectRequestOf(search) {
   return request;
 }
 
+/** The page again for the same request, signing in anew: where "Use another account" goes. */
+export function anotherAccountAddress(request) {
+  const query = new URLSearchParams();
+  for (const name of ['code_challenge', 'state', 'redirect_uri', 'name', 'platform']) {
+    if (request[name] != null) query.set(name, request[name]);
+  }
+  query.set('prompt', 'login');
+  return `${CONNECT_PATH}?${query}`;
+}
+
+/** The account as the page names it: the name and the email when there are both. */
+export function accountLabel(user) {
+  const name = user?.display_name || '';
+  const address = user?.email || user?.username || '';
+  return name && address && name !== address ? `${name} (${address})` : address || name;
+}
+
 /** Where Cancel goes: the app's address with `error=access_denied` and its state. */
 export function cancelAddress(request) {
   const query = new URLSearchParams({ error: 'access_denied', state: request.state });
@@ -82,7 +105,7 @@ function layout(app, card) {
 export function showConnect({
   app, user, request, root = document.body,
   send = (body) => api.post('/api/devices/codes', body), go = (href) => window.location.assign(href),
-  reload = () => window.location.reload(),
+  reload = () => window.location.reload(), signOut = () => api.post('/api/auth/logout'),
 }) {
   const card = el('div', { class: 'kit-signin__card' });
   const screen = layout(app, card);
@@ -115,7 +138,7 @@ export function showConnect({
   }
 
   function consent() {
-    const who = user?.email || user?.username || user?.display_name || '';
+    const who = accountLabel(user);
     const status = el('p', { class: 'kit-hint', role: 'status', 'aria-live': 'polite' });
     const allow = el('button', {
       type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', 'data-action': 'allow',
@@ -125,16 +148,40 @@ export function showConnect({
       type: 'button', class: 'kit-btn kit-btn--quiet kit-btn--block', 'data-action': 'cancel',
       text: t('kit.cancel'), onClick: () => leaving(t('kit.connect.cancelled', { app: app.name }), cancelAddress(request)),
     });
+    const other = el('button', {
+      type: 'button', class: 'kit-link', 'data-action': 'other-account',
+      text: t('kit.connect.otherAccount'), onClick: () => switchAccount(),
+    });
+    const buttons = [allow, cancel, other];
+    const enable = (on) => { for (const button of buttons) button.disabled = !on; };
     clear(card).append(
       el('h2', { text: t('kit.connect.title', { app: app.name }) }),
       lead(),
-      who ? el('p', { class: 'kit-hint', text: t('oauth.signedInAs', { user: who }) }) : null,
+      user ? el('p', { class: 'kit-hint kit-connect__account' },
+        who ? `${t('oauth.signedInAs', { user: who })} ` : null, other) : null,
       el('div', { class: 'kit-stack' }, allow, cancel),
       status);
 
+    /** Out of this browser's session, and the same request again, signing in anew. */
+    async function switchAccount() {
+      enable(false);
+      status.textContent = t('kit.connect.signingOut');
+      try {
+        // Its logout_url is left aside: the page must come back here, not to the provider's.
+        await signOut();
+      } catch (err) {
+        // Already out (the session ended meanwhile) is as good as signed out.
+        if (!(err instanceof SessionExpired)) {
+          status.textContent = errorMessage(err);
+          enable(true);
+          return;
+        }
+      }
+      go(anotherAccountAddress(request));
+    }
+
     async function allowed() {
-      allow.disabled = true;
-      cancel.disabled = true;
+      enable(false);
       status.textContent = t('kit.connect.asking');
       try {
         const { redirect_to: back } = await send({
@@ -149,10 +196,9 @@ export function showConnect({
         // A 403 (device_not_allowed) says itself, as any other refusal does; only a refusal that
         // may pass on a second try (the network, too many at once) leaves the buttons on.
         status.textContent = errorMessage(err);
-        if (!(err instanceof ApiError && err.status === 403)) {
-          allow.disabled = false;
-          cancel.disabled = false;
-        }
+        if (!(err instanceof ApiError && err.status === 403)) enable(true);
+        // Kept out as this account, another may still be let in.
+        else other.disabled = false;
       }
       return undefined;
     }

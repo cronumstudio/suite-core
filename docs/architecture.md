@@ -589,6 +589,15 @@ minutes, HttpOnly, SameSite=Lax) while the browser goes to `/auth/login`, and `/
 once the provider's callback lands there with a session (in a host, before `/` goes to the first
 module). Allow asks `POST /api/devices/codes` and goes back to the app with the code; Cancel goes
 back with `error=access_denied`. In the product's name and colours, in the person's language.
+Signed in, the page names the account (its name and email) with **Use another account** (v0.125.0):
+the browser may still hold the session of an earlier connect, and an app that signed out had no
+other way to switch. It ends that session (`POST /api/auth/logout`, its `logout_url` left aside so
+the browser stays on the page) and opens the same request with `&prompt=login`: with local accounts
+the page signs in in place; under a provider's sign-in the server sends the browser to
+`/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
+sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
+`/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
+was; nothing but the connect page asks for it.
 
 **Sessions of the web from a device** (**done**, v0.105.0, with `devices.webSessions`): an app
 whose screens are its web pages in a WebView (Cronum Work) turns its token into the web's own

@@ -23,7 +23,13 @@
  *   request, and clears the cookie. With local accounts the page signs in in
  *   place, so no cookie is needed;
  * - a cookie that was changed, has expired or no longer names an allowed return
- *   address is dropped, and `/` shows as it would without it.
+ *   address is dropped, and `/` shows as it would without it;
+ * - "Use another account" (web/connect.js): the page ends the browser's session
+ *   (`POST /api/auth/logout`, the provider's logout_url left aside) and opens
+ *   itself again with `prompt=login`. Under a provider's sign-in the browser
+ *   then goes to `/auth/login?prompt=login`, which asks the provider to sign in
+ *   again (OIDC `prompt=login`, AuthKit `max_age=0`) instead of taking the
+ *   session it still holds; with local accounts the page signs in in place.
  *
  * The query and the cookie hold the challenge, the state, the return address
  * and the phone's name and platform, never a code or a secret: the code travels
@@ -66,6 +72,8 @@ export const CONNECT_PATH = '/devices/connect';
 export const SESSION_PATH = '/devices/session';
 /** Where a refused `/devices/session` goes, so the app can tell it from a code that failed. */
 export const REFUSED_PATH = '/?device_session=refused';
+/** Where the sign-in starts for "another account": the provider asks again, whatever session it holds. */
+export const FRESH_LOGIN_PATH = '/auth/login?prompt=login';
 /** How long the request waits in the cookie for the sign-in to come back. */
 export const CONNECT_MS = 10 * 60 * 1000;
 const PAGE = fileURLToPath(new URL('./web/connect.html', import.meta.url));
@@ -215,7 +223,9 @@ export function createDevicePages({ suite, clock = () => Date.now() }) {
       if (!request) return send(res, CONNECT_PATH);
       if (external && !sessions.userFrom(req)) {
         cookie.write(res, request);
-        return send(res, '/auth/login');
+        // "Use another account" (web/connect.js): the provider must not sign the same person in again.
+        const fresh = url.searchParams.getAll('prompt').length === 1 && url.searchParams.get('prompt') === 'login';
+        return send(res, fresh ? FRESH_LOGIN_PATH : '/auth/login');
       }
     }
     return page(req, res);

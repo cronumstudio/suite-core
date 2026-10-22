@@ -639,6 +639,8 @@
   "kit.connect.returning": "Listo. Volviendo a {app}…",
   "kit.connect.cancelled": "Cancelado. Volviendo a {app}…",
   "kit.connect.open": "Abrir {app}",
+  "kit.connect.otherAccount": "Usar otra cuenta",
+  "kit.connect.signingOut": "Cerrando sesión…",
   "kit.connect.invalid.title": "Este enlace no puede conectar un dispositivo",
   "kit.connect.invalid.text": "Abre {app} en el dispositivo y vuelve a entrar desde allí.",
   "kit.settings.groups.account": "Cuenta",

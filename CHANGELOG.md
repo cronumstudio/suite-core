@@ -3,6 +3,22 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.125.0 — 2026-10-22
+
+- **Another account from the connect page** (`web/connect.js`, `device-pages.js`, `oidc.js`,
+  `workos.js`, `workos-accounts.js`, `i18n/*.json`). The phone app signs in through the system
+  browser on `/devices/connect`; a browser that still held the web session of an earlier connect
+  went straight to Allow for that account, so after signing out in the app there was no way to
+  switch without clearing the browser. Signed in, the page now names the account (its name and
+  email, `accountLabel`) and offers **Use another account**: it ends the browser's session
+  (`POST /api/auth/logout`, the provider's `logout_url` left aside) and opens the same request
+  again with `prompt=login` (`anotherAccountAddress`). With local accounts the page signs in in
+  place; under WorkOS or OIDC the server sends the browser to `/auth/login?prompt=login`
+  (`FRESH_LOGIN_PATH`), which asks the provider to sign in again instead of reusing its session:
+  OIDC `prompt=login`, AuthKit `max_age=0`. Only the connect page asks for it: `/auth/login`
+  without the parameter, and every other sign-in, is as before. Texts in en, es, fr, de and it
+  (`kit.connect.otherAccount`, `kit.connect.signingOut`).
+
 ## 0.123.0 — 2026-10-22
 
 - **Emails to whoever runs the install when the server fails** (`alerts.js`, `app.js`, `host.js`,
