@@ -65,7 +65,7 @@ import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
-import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
+import { inApp, can, onNative, lastNative, openAppSettings, nativeSignOut } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
@@ -1364,7 +1364,13 @@ export function openSettings(options) {
       if (!done) return;
       // From a frame of the host's split view, the whole window leaves with the account.
       const page = FRAMED ? window.top : window;
-      if (done.logout_url) page.location.href = done.logout_url;
+      // Inside the suite's app on a phone, never the provider's page (another site, which the app
+      // would open outside itself): the app is told first, then this site's sign-in. The app shows
+      // its own sign-in, without the farewell notice.
+      if (inApp()) {
+        nativeSignOut();
+        page.location.reload();
+      } else if (done.logout_url) page.location.href = done.logout_url;
       else page.location.reload();
     }, 'danger-quiet');
 
