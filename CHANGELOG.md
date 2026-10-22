@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.115.0 — 2026-10-22
+
+- **Usage in /admin: what each person uses, and how close they are to their plan's caps**
+  (`usage.js`, `host.js`, `web/admin.js`, `web/kit.css`, `entitlements.js`). In a host, an
+  account's dialog has a Usage fold: per module what they keep (lists, tasks, subtasks, notebooks,
+  notes, projects, entries, files), each count with a cap shown against it with a bar and its
+  percentage, and "Near the limit" from 80 % or "At the limit" in words; the last change in each
+  module, and whether they turned it off; their storage across the modules against `storage.mb`;
+  and their calls from assistants today against `mcp.calls_per_day`, with the last 30 days as bars.
+  The Users list has a Usage column: each account's nearest cap. A standalone app has none of it
+  (the column and the fold go when the routes answer 404).
+  - A module says what someone has with `createModule().usage(userId)`:
+    `{ counts: [{ id, count, feature? }], active_at }`. `id` is one of `USAGE_ITEMS`; ids it doesn't
+    know are left out. A count with a `feature` is set against that limit of the module's own plan.
+    A module without `usage` shows only its storage; one whose `usage` throws is marked `failed`
+    and logged, and the rest still answer.
+  - `GET /api/admin/users/:id/usage` and `GET /api/admin/usage` (`{ peaks: { <id>: { share, id,
+    mount?, name? } | null } }`), the instance admin's only. Read-only and on demand.
+  - **`entitlement_usage` keeps 30 days** (`USAGE_DAYS`) instead of today's alone, and
+    `entitlements.dailyUsage(userId, feature, { days })` reads them, a day without uses at 0. The
+    barrier still reads today's count only.
+
 ## 0.114.1 — 2026-10-21
 
 - **Security fix: a code for `/devices/session` can no longer sign a reader into someone else's

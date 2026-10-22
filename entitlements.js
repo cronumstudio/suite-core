@@ -41,6 +41,11 @@ import { PLAN_CATALOGS } from './plans.js';
 
 const iso = (ms) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000;
+/**
+ * Days of a daily limit's counts kept: the barrier only needs today's, but the admin's Usage
+ * shows a month of them, to tell someone who uses the assistant every day from one who tried it.
+ */
+export const USAGE_DAYS = 30;
 
 /**
  * Plan ids renamed when every app moved them to English (Tasks' "gratis" is "free"). Like a renamed
@@ -72,7 +77,7 @@ export function entitlementsSchema(d) {
   CREATE INDEX IF NOT EXISTS ix_grants_ref ON entitlement_grants (source, external_ref)`);
 }
 
-/** What a daily limit has used, per person and UTC day (`countDaily()`). */
+/** What a daily limit has used, per person and UTC day (`countDaily()`), kept for `USAGE_DAYS`. */
 export function entitlementUsageSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS entitlement_usage (
     user_id INTEGER NOT NULL,
@@ -438,12 +443,28 @@ export function createEntitlements({
       const row = database.get('SELECT used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day = ?', user.id, feature, day);
       const used = Number(row?.used || 0);
       if (used >= value) return { allowed: false, used, ...base, more };
-      // The first use of a day clears the earlier ones: only today's count is ever needed.
-      if (!row) database.run('DELETE FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day < ?', user.id, feature, day);
+      // The first use of a day clears what is older than the month the admin's Usage shows.
+      if (!row) {
+        database.run('DELETE FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day < ?',
+          user.id, feature, iso(clock() - (USAGE_DAYS - 1) * DAY).slice(0, 10));
+      }
       database.run(`INSERT INTO entitlement_usage (user_id, feature, day, used) VALUES (?, ?, ?, 1)
         ON CONFLICT (user_id, feature, day) DO UPDATE SET used = used + 1`, user.id, feature, day);
       return { allowed: true, used: used + 1, ...base, more };
     });
+  }
+
+  /**
+   * What a daily limit used on each of the last `days` UTC days, today the last, for the admin:
+   * `[{ day: '2026-03-02', used }]`, a day without uses at 0. Reads, never spends.
+   */
+  function dailyUsage(userId, feature, { days = USAGE_DAYS } = {}) {
+    if (known(feature).type !== 'limit') throw new Error(`dailyUsage: "${feature}" is not a limit`);
+    const now = clock();
+    const span = Array.from({ length: days }, (_, i) => iso(now - (days - 1 - i) * DAY).slice(0, 10));
+    const used = new Map(database.all('SELECT day, used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day >= ?',
+      userId, feature, span[0]).map((r) => [r.day, Number(r.used)]));
+    return span.map((day) => ({ day, used: used.get(day) || 0 }));
   }
 
   /**
@@ -551,7 +572,7 @@ export function createEntitlements({
   const knows = (key) => key in declared || key in aliasOf;
 
   return {
-    errors, ignored, knows, of, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, countDaily,
+    errors, ignored, knows, of, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, countDaily, dailyUsage,
     grant, revoke, setPlan, seatsOf, grantsOf, describe,
   };
 }

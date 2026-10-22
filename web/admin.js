@@ -6,7 +6,7 @@
  */
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
-import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
+import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, numberFormat } from './i18n.js';
 import { toast, field, openDialog, confirmDialog } from './ui.js';
 import { icon } from './icons.js';
 
@@ -184,7 +184,7 @@ async function renderUsers(main) {
     el('p', { class: 'kit-lead', text: local() ? t('admin.users.leadLocal') : t('admin.users.leadIdp', { provider: state.config.name }) }),
     el('div', { class: 'kit-toolbar' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: newUserDialog })),
-    table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn')],
+    table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'), t('admin.users.usage')],
       users.map((user) => el('tr', { 'data-open': true, tabindex: '0', onClick: () => userDialog(user), onKeydown: (ev) => { if (ev.key === 'Enter') userDialog(user); } },
         el('td', {},
           el('strong', { text: user.display_name }),
@@ -198,9 +198,25 @@ async function renderUsers(main) {
           user.email && !user.email_verified ? el('small', { text: t('admin.users.unconfirmed') }) : null),
         el('td', {}, el('span', { class: `kit-badge${user.role === 'admin' ? ' kit-badge--accent' : ''}`, text: t(`admin.roles.${user.role}`) })),
         el('td', {}, ...planParts(user)),
-        el('td', { text: user.last_login_at ? formatDateTime(user.last_login_at) : t('admin.users.never') }))),
+        el('td', { text: user.last_login_at ? formatDateTime(user.last_login_at) : t('admin.users.never') }),
+        el('td', { class: 'kit-usage-cell', 'data-usage': user.id }, el('span', { class: 'kit-hint', text: '…' })))),
     ),
   );
+  paintPeaks(main).catch(() => {
+    // An app on its own has no Usage (a host's, usage.js): the column goes.
+    for (const cell of [...[...main.querySelectorAll('th')].slice(-1), ...main.querySelectorAll('[data-usage]')]) cell.remove();
+  });
+}
+
+/** Each account's nearest cap, in the list's last column, once they are counted. */
+async function paintPeaks(main) {
+  const { peaks } = await api.get('/api/admin/usage');
+  for (const cell of main.querySelectorAll('[data-usage]')) {
+    const peak = peaks[cell.dataset.usage] ?? null;
+    clear(cell).append(...(peak
+      ? [el('span', { text: percent(peak.share) }), meter(peak.share), el('small', { text: peakWhat(peak) })]
+      : [el('span', { class: 'kit-hint', text: '—' })]));
+  }
 }
 
 function newUserDialog() {
@@ -339,6 +355,11 @@ function userDialog(user) {
         }) : null));
   }
 
+  // What they use, counted when the dialog opens: a host's only (usage.js).
+  const usageNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
+  const usageBox = el('div', { class: 'kit-contents' });
+  const usage = fold({ title: t('admin.usage.title'), now: usageNow }, usageBox);
+
   const grantsNow = el('small', { class: 'kit-fold__now' });
   // Drawn when they arrive, inside the fold's body as if they were its own.
   const grantsBox = el('div', { class: 'kit-contents' });
@@ -385,11 +406,12 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, grants, passwordSection), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, usage, grants, passwordSection), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
+  paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
 }
 
 /**
@@ -491,6 +513,105 @@ async function paintGrants(box, user, now) {
           el('td', {}, el('span', { text: ends(g) }),
             el('small', { class: `kit-badge kit-badge--${stateOf(g) === 'active' ? 'ok' : 'warn'}`, text: t(`admin.grants.${stateOf(g)}`) })),
           el('td', {}, stateOf(g) === 'active' ? revoke(g) : null))))) : null,
+  );
+}
+
+/* ---------------------------------- usage ---------------------------------- */
+
+const MB = 1024 * 1024;
+const percent = (share) => numberFormat({ style: 'percent', maximumFractionDigits: 0 }).format(share);
+const whole = (n) => numberFormat({ maximumFractionDigits: 1 }).format(n);
+/** Bytes in the unit people read them in: kB under a megabyte, MB under a gigabyte, GB above. */
+function sizeText(bytes) {
+  const [unit, size] = bytes >= 1024 * MB ? ['gigabyte', 1024 * MB] : bytes >= MB ? ['megabyte', MB] : ['kilobyte', 1024];
+  return numberFormat({ style: 'unit', unit, maximumFractionDigits: 1 }).format(bytes / size);
+}
+/** Near a cap from 80 %, at it from 100 %: what colours its meter and puts it in words. */
+const levelOf = (share) => (share == null ? null : share >= 1 ? 'reached' : share >= 0.8 ? 'near' : 'ok');
+
+/** How much of a limit is taken, as a bar; past the limit it stays full. */
+function meter(share) {
+  const level = levelOf(share);
+  const value = Math.round(Math.min(1, share) * 100);
+  return el('span', {
+    class: `kit-meter${level === 'ok' ? '' : ` kit-meter--${level}`}`,
+    role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(value), 'aria-label': percent(share),
+  }, el('span', { style: `inline-size: ${value}%` }));
+}
+
+/** What a cap is, in words: a module's count, the storage or the calls of the day. */
+function peakWhat(peak) {
+  if (peak.id === 'storage') return t('admin.usage.storage');
+  if (peak.id === 'mcp') return t('admin.usage.mcp');
+  return t('admin.usage.peakIn', { what: t(`admin.usage.items.${peak.id}`), module: peak.name || peak.mount });
+}
+
+/**
+ * One line of Usage: what it is, how much, of how much, and the bar when there is a limit. Near
+ * or at the limit it says so in words too, not only in colour.
+ */
+function usageRow(label, value, share = null, note = null) {
+  const level = levelOf(share);
+  return el('div', { class: 'kit-usage__row' },
+    el('span', { class: 'kit-usage__label', text: label }),
+    el('span', { class: 'kit-usage__value', text: share == null ? value : `${value} · ${percent(share)}` }),
+    share == null ? null : meter(share),
+    level === 'near' || level === 'reached'
+      ? el('small', { class: `kit-badge kit-badge--${level === 'reached' ? 'danger' : 'warn'}`, text: t(`admin.usage.${level}`) }) : null,
+    note ? el('small', { class: 'kit-usage__note', text: note }) : null);
+}
+
+/** The calls of the last 30 days as bars, today the last; each says its day and count on hover. */
+function dayBars(days) {
+  const top = Math.max(1, ...days.map((d) => d.used));
+  return el('div', { class: 'kit-usage__days', role: 'img', 'aria-label': t('admin.usage.monthChart') },
+    days.map((d) => el('span', {
+      class: d.used ? null : 'kit-usage__day--none',
+      title: t('admin.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), n: whole(d.used) }),
+      style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%`,
+    })));
+}
+
+/**
+ * What an account uses: per module its counts against the plan's caps, then the storage of all
+ * of them and the calls from assistants. `now` is the fold's summary: the cap they are nearest to.
+ */
+async function paintUsage(box, user, now) {
+  const usage = await api.get(`/api/admin/users/${user.id}/usage`);
+  now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
+  if (['near', 'reached'].includes(levelOf(usage.peak?.share ?? null))) now.setAttribute('class', 'kit-fold__now kit-fold__now--warn');
+
+  const groups = usage.modules.map((m) => el('section', { class: 'kit-usage__group' },
+    el('h4', { class: 'kit-usage__title' },
+      el('span', { text: m.name }),
+      m.on ? null : el('small', { class: 'kit-badge', text: t('admin.usage.off') })),
+    m.active_at ? el('small', { class: 'kit-usage__note', text: t('admin.usage.lastChange', { date: formatDateTime(m.active_at) }) }) : null,
+    m.counts.map((c) => usageRow(t(`admin.usage.items.${c.id}`),
+      c.limit == null ? whole(c.count) : t('admin.usage.ofLimit', { count: whole(c.count), limit: whole(c.limit) }), c.share,
+      c.id === 'files' && m.bytes ? t('admin.usage.used', { size: sizeText(m.bytes) }) : null)),
+    m.failed ? el('p', { class: 'kit-hint', text: t('admin.usage.failed') })
+      : m.counts.length ? null : el('p', { class: 'kit-hint', text: m.bytes ? t('admin.usage.used', { size: sizeText(m.bytes) }) : t('admin.usage.nothing') })));
+
+  const storage = usage.storage;
+  const mcp = usage.mcp;
+  const average = mcp?.days.length ? mcp.total / mcp.days.length : 0;
+  clear(box).append(
+    el('p', { class: 'kit-hint', text: t('admin.usage.lead') }),
+    el('div', { class: 'kit-usage' },
+      groups,
+      storage ? el('section', { class: 'kit-usage__group' },
+        el('h4', { class: 'kit-usage__title', text: t('admin.usage.storage') }),
+        usageRow(t('admin.usage.inAll'),
+          storage.limit_mb == null ? t('admin.usage.used', { size: sizeText(storage.bytes) })
+            : t('admin.usage.ofLimit', { count: sizeText(storage.bytes), limit: sizeText(storage.limit_mb * MB) }),
+          storage.share, t('admin.usage.filesCount', { n: storage.files }))) : null,
+      mcp ? el('section', { class: 'kit-usage__group' },
+        el('h4', { class: 'kit-usage__title', text: t('admin.usage.mcp') }),
+        mcp.limit == null ? el('p', { class: 'kit-hint', text: t('admin.usage.notCounted') }) : [
+          usageRow(t('admin.usage.today'), t('admin.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }), mcp.share),
+          el('small', { class: 'kit-usage__note', text: t('admin.usage.month', { n: whole(mcp.total), avg: whole(average) }) }),
+          dayBars(mcp.days),
+        ]) : null),
   );
 }
 
