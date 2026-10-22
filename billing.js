@@ -62,8 +62,10 @@
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
  *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
- *     own?, unknownPrice?, sandbox?, refundReversed? }
- * (`refundReversed`: the store took a refund back, so the period it had paid back counts again.)
+ *     own?, unknownPrice?, sandbox?, refundReversed?, ending? }
+ * (`refundReversed`: the store took a refund back, so the period it had paid back counts again.
+ * `ending`: true when a subscription won't renew, cancelled for its period's end; false when it
+ * renews; left out by a provider that can't tell, kept as unknown.)
  *
  * Several providers in one install (P6): the web's (BILLING_PROVIDER) and the stores' (STORE_BILLING,
  * stores.js) are two instances of this, on the same tables, each under its own provider id. An
@@ -173,6 +175,17 @@ export function billingPendingSchema(d) {
   ensureColumn(d, 'billing_subscriptions', 'refunded_until', 'refunded_until TEXT');
 }
 
+/**
+ * Migration 25: whether a subscription stops at its period's end instead of renewing (the event's
+ * `ending`), for Settings to say "Renews on" or "Ends on". Null where the provider didn't say.
+ */
+export function billingEndingSchema(d) {
+  ensureColumn(d, 'billing_subscriptions', 'ending', 'ending INTEGER');
+}
+
+/** An event's `ending` as the column keeps it: 1, 0, or null when the provider didn't say. */
+const endingOf = (event) => (typeof event.ending === 'boolean' ? Number(event.ending) : null);
+
 /* ------------------------------ signatures ------------------------------ */
 
 /**
@@ -262,6 +275,21 @@ const STOP_ID = /^stop:organization:(\d+):(.+)$/;
 const stopId = (organizationId, ref) => `stop:organization:${organizationId}:${ref}`;
 
 /**
+ * Whether anyone gets a founder's price now, by the install's dates (config.js `billing`): only
+ * with EARLY_ACCESS_UNTIL, and with FOUNDER_OFFER_UNTIL only before it.
+ */
+export function founderPriceOpen(dates, now = Date.now()) {
+  if (!dates?.earlyAccessUntil) return false;
+  return !dates.founderOfferUntil || now < Date.parse(dates.founderOfferUntil);
+}
+
+/** Whether an account made at `joined` was made during the early access (before EARLY_ACCESS_UNTIL). */
+export function joinedEarly(dates, joined) {
+  const at = Date.parse(joined);
+  return Boolean(dates?.earlyAccessUntil) && !Number.isNaN(at) && at < Date.parse(dates.earlyAccessUntil);
+}
+
+/**
  * @param {object} options
  * @param {object} options.database
  * @param {object} options.entitlements   from createEntitlements()
@@ -278,7 +306,14 @@ const stopId = (organizationId, ref) => `stop:organization:${organizationId}:${r
  *   provider reports (productSeatsProblem()); left out, the quantity bought is the group's seats.
  * @param {object} [options.identities]   who people are where they sign in:
  *   { of(userId) → { provider, subject } | null, user(provider, subject) → userId | null }
+ *   `amount` and `founderAmount` (with `currency`, ISO 4217) are what the provider charges, taxes
+ *   included, for the plan section to show: only shown, never charged from here.
  * @param {(user) => boolean|Promise<boolean>} [options.isFounder]   who gets the founder's price
+ * @param {string} [options.opensAt]      until this date nothing is sold (the early access's end,
+ *   when it gives everyone its plan): the checkout answers 409 not_on_sale
+ * @param {string} [options.earlyAccessUntil]   with `founderOfferUntil`: between the two dates a
+ *   founder who doesn't pay yet is told the founder's price waits until the second (founderOffer)
+ * @param {string} [options.founderOfferUntil]
  * @param {number} [options.graceDays]    after the paid period, before a subscription lapses
  * @param {object} [options.audit]
  * @param {boolean} [options.ignoreUnknownProducts]   an event for a product not in `products` is
@@ -298,7 +333,7 @@ export function createBilling({
   database, entitlements, provider = null, products = {}, graceDays = 3, audit = null,
   identities = null, isFounder = () => false, clock = () => Date.now(), log = console.log,
   ignoreUnknownProducts = false, app = null, otherProviders = [], organizationGone = null,
-  organizationWasDeleted = null,
+  organizationWasDeleted = null, opensAt = null, earlyAccessUntil = null, founderOfferUntil = null,
 }) {
   const errors = [];
   if (typeof ignoreUnknownProducts !== 'boolean') errors.push('ignoreUnknownProducts must be true or false');
@@ -323,10 +358,19 @@ export function createBilling({
     }
     const seatsProblem = productSeatsProblem(spec);
     if (seatsProblem) errors.push(`Product "${key}": ${seatsProblem}`);
+    for (const field of ['amount', 'founderAmount']) {
+      if (spec[field] != null && !(typeof spec[field] === 'number' && Number.isFinite(spec[field]) && spec[field] >= 0)) {
+        errors.push(`Product "${key}": ${field} must be a number (3.9 for 3,90 €)`);
+      }
+    }
+    if ((spec.amount != null || spec.founderAmount != null) && !/^[A-Z]{3}$/.test(String(spec.currency ?? ''))) {
+      errors.push(`Product "${key}": an amount needs its currency (EUR)`);
+    }
     catalog[key] = {
       key, plan: spec.plan, kind: spec.kind, days: spec.days ?? null, for: spec.for === 'organization' ? 'organization' : 'user',
       price: spec.price ?? null, founderPrice: spec.founderPrice ?? null, name: spec.name ?? null,
       seats: spec.seats !== false,
+      amount: spec.amount ?? null, founderAmount: spec.founderPrice ? spec.founderAmount ?? null : null, currency: spec.currency ?? null,
     };
   }
   const enabled = Boolean(provider) && !errors.length;
@@ -393,7 +437,7 @@ export function createBilling({
   function sameSubscription(known, event, subject, product) {
     if (!known || known.subject_type !== subject.type || known.subject_id !== subject.id || known.product !== product.key
       || known.status !== event.status || (known.quantity ?? null) !== (event.quantity ?? null)
-      || (known.period_end ?? null) !== (event.periodEnd ?? null)) return false;
+      || (known.period_end ?? null) !== (event.periodEnd ?? null) || (known.ending ?? null) !== endingOf(event)) return false;
     if (event.refundReversed === true && known.refunded_until) return false;
     const current = activeGrant(event.ref);
     if (SUBSCRIPTION_KEEPS.has(event.status)) {
@@ -420,12 +464,13 @@ export function createBilling({
     }
     const now = iso(clock());
     database.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, quantity,
-        period_end, occurred_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        period_end, ending, occurred_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (provider, ref) DO UPDATE SET subject_type = excluded.subject_type, subject_id = excluded.subject_id,
         product = excluded.product, status = excluded.status, quantity = excluded.quantity,
-        period_end = excluded.period_end, occurred_at = excluded.occurred_at, updated_at = excluded.updated_at`,
+        period_end = excluded.period_end, ending = excluded.ending, occurred_at = excluded.occurred_at,
+        updated_at = excluded.updated_at`,
     source, event.ref, subject.type, subject.id, product.key, event.status, event.quantity ?? null,
-    event.periodEnd ?? null, event.occurredAt, now);
+    event.periodEnd ?? null, endingOf(event), event.occurredAt, now);
 
     // A refund the store took back: the period it paid back is paid for again.
     const refundedUntil = event.refundReversed === true ? null : known?.refunded_until;
@@ -566,9 +611,9 @@ export function createBilling({
       const known = database.get('SELECT occurred_at FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, event.ref);
       if (known && known.occurred_at <= event.occurredAt) {
         // A product without seats (`seats: false`, a family's) keeps no quantity, as applyTo does.
-        database.run(`UPDATE billing_subscriptions SET status = ?, quantity = ?, period_end = ?, occurred_at = ?, updated_at = ?
-          WHERE provider = ? AND ref = ?`, String(event.status ?? ''), product?.seats === false ? null : event.quantity ?? null,
-        event.periodEnd ?? null, event.occurredAt, iso(clock()), source, event.ref);
+        database.run(`UPDATE billing_subscriptions SET status = ?, quantity = ?, period_end = ?, ending = ?, occurred_at = ?,
+          updated_at = ? WHERE provider = ? AND ref = ?`, String(event.status ?? ''), product?.seats === false ? null : event.quantity ?? null,
+        event.periodEnd ?? null, endingOf(event), event.occurredAt, iso(clock()), source, event.ref);
       }
       if (!RENEWS.has(event.status)) {
         database.run(`UPDATE billing_events SET outcome = 'ended', received_at = ? WHERE provider = ? AND event_id = ?
@@ -700,6 +745,7 @@ export function createBilling({
     const product = catalog[productKey];
     if (!product) throw badRequest('product_unknown', { product: productKey });
     if (product.for !== subject.type) throw badRequest('product_for', { for: product.for });
+    if (!onSale()) throw new HttpError(409, 'not_on_sale', { opens_at: opensAt });
     // A second subscription would charge twice: plans are changed in the portal. A person's in a
     // store counts too (otherProviders): the store can't be asked to stop it, the person cancels there.
     const providers = [source, ...(subject.type === 'user' && Array.isArray(otherProviders) ? otherProviders : [])];
@@ -734,13 +780,36 @@ export function createBilling({
   }
 
   /** What can be bought, for a pricing page: never the provider's price ids. */
-  const offer = () => Object.values(catalog).map(({ key, plan, kind, days, for: forWhom, name, founderPrice }) => ({
+  const offer = () => Object.values(catalog).map(({
+    key, plan, kind, days, for: forWhom, name, founderPrice, amount, founderAmount, currency,
+  }) => ({
     key, plan, kind, days, for: forWhom, name, founder_price: Boolean(founderPrice),
+    amount, founder_amount: founderAmount, currency,
   }));
 
-  const subscriptionsOf = (subject) => database.all(`SELECT ref, product, status, quantity, period_end, updated_at
+  /** Whether anything is sold now: not before `opensAt`, the early access's end. */
+  const onSale = () => !opensAt || clock() >= Date.parse(opensAt);
+
+  /**
+   * What a founder is told once the early access is over: `{ until }`, the founder's price's
+   * last moment, for whoever still gets it and pays nothing yet (here or in a store); null for
+   * everyone else, before the early access ends, after that moment, and without the two dates.
+   */
+  async function founderOffer(user) {
+    if (!enabled || !user || !earlyAccessUntil || !founderOfferUntil) return null;
+    const now = clock();
+    if (now < Date.parse(earlyAccessUntil) || now >= Date.parse(founderOfferUntil) || !onSale()) return null;
+    const providers = [source, ...(Array.isArray(otherProviders) ? otherProviders : [])];
+    if (database.get(`SELECT 1 FROM billing_subscriptions
+      WHERE provider IN (${providers.map(() => '?').join(', ')}) AND subject_type = 'user' AND subject_id = ?
+      AND status IN ('active', 'trialing', 'past_due')`, ...providers, user.id)) return null;
+    return await founder(user) ? { until: founderOfferUntil } : null;
+  }
+
+  // `ending`: true when it stops at period_end, false when it renews then, null when not known.
+  const subscriptionsOf = (subject) => database.all(`SELECT ref, product, status, quantity, period_end, ending, updated_at
     FROM billing_subscriptions WHERE provider = ? AND subject_type = ? AND subject_id = ? ORDER BY updated_at DESC`,
-  source, subject.type, subject.id);
+  source, subject.type, subject.id).map((row) => ({ ...row, ending: row.ending == null ? null : Boolean(row.ending) }));
 
   const canStop = () => enabled && typeof provider?.cancelSubscription === 'function';
   /** Whether a subscription still charges, as far as this install knows (one it never heard of: yes). */
@@ -1127,7 +1196,7 @@ export function createBilling({
   }
 
   return {
-    enabled, errors, provider: source, offer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
+    enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, forget,
     markOrganizationStop, sendStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
   };
@@ -1188,6 +1257,7 @@ export function billingOverview(user, { instances, entitlements, organizations =
           kind, provider: instance.provider,
           ...(subject.type === 'organization' ? { organization_id: subject.id } : {}),
           product: row.product, plan: planOf[row.product] ?? null, status: row.status, period_end: row.period_end,
+          ending: row.ending,
           ...(manage ? { store: manage.store, sandbox: manage.sandbox } : {}),
           manage: manage ? { via: 'store', store: manage.store, url: manage.url }
             : { via: 'portal', ...(subject.type === 'organization' ? { organization_id: subject.id } : {}) },
@@ -1203,6 +1273,14 @@ export function billingOverview(user, { instances, entitlements, organizations =
   }
   for (const grant of entitlements.grantsOf('user', user.id).filter((one) => active(one) && one.source === 'admin')) {
     sources.push({ kind: 'admin', plan: grant.plan, ends: grant.ends_at });
+  }
+  // What was given on top of the plan, one feature at a time (an extra), with its end: `feature`
+  // as the grant names it, perhaps with an app's prefix (`tasks.lists.max`).
+  const live = (grant) => !grant.revoked_at && grant.starts_at <= now && (!grant.ends_at || grant.ends_at > now);
+  for (const grant of entitlements.grantsOf('user', user.id).filter((one) => !one.plan && one.feature && live(one))) {
+    let value;
+    try { value = JSON.parse(grant.value); } catch { continue; }
+    sources.push({ kind: 'extra', feature: grant.feature, value, ends: grant.ends_at });
   }
   for (const source of sources) if (source.plan) source.plan_name = plans[source.plan] ?? source.plan;
   return { plan: { id: entitled.plan.id, name: entitled.plan.name, ends: entitled.ends }, sources };
@@ -1241,9 +1319,15 @@ export function registerBillingApi(router, { billing, organizations = null, base
     return { subject: { type: 'organization', id }, body };
   }
 
-  // `founder`: whether the person asking gets the founder's price of the products that have one.
+  // `founder`: whether the person asking gets the founder's price of the products that have one;
+  // `founder_until`, until when, once the early access is over. `on_sale`: false until `opens_at`.
   router.get('/api/billing/products', async (ctx) => {
-    sendJson(ctx.res, 200, { provider: billing.provider, products: billing.offer(), founder: await billing.founder(ctx.user) });
+    const founderOffer = await billing.founderOffer?.(ctx.user) ?? null;
+    sendJson(ctx.res, 200, {
+      provider: billing.provider, products: billing.offer(), founder: await billing.founder(ctx.user),
+      founder_until: founderOffer?.until ?? null,
+      on_sale: billing.onSale?.() ?? true, opens_at: billing.opensAt ?? null,
+    });
   });
 
   router.post('/api/billing/checkout', async (ctx) => {

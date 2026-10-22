@@ -25,11 +25,13 @@
  * Your data before they confirm.
  *
  * `plan`: true shows the plan and until when; `{ billing: true }` adds what
- * can be bought, "Upgrade" and "Manage subscription" where the server sells
+ * can be bought, "Upgrade" and "Change or cancel plan" where the server sells
  * (plan.js), and `hideCheckout: true` leaves those out again for a native
  * app's web view; `open()`, the app's own way to buy that a 402 met here
  * offers instead of the plan section (with hideCheckout, the only one);
- * `render(answer)` adds the app's own block.
+ * `render(answer)` adds the app's own block. In a host that sells
+ * (`app.host.billing`) every module's plan section sells too, as if it had
+ * passed `{ billing: true }`: the plan is the host's, the same in all of them.
  *
  * Inside the suite's app on a phone (native.js) the plan is always shown as
  * `hideCheckout`, whatever the module passed: the stores' rules keep the web's
@@ -160,9 +162,10 @@ export function openSettings(options) {
   const host = config.app?.host || null;
   // Deleting one's own account: how many days it waits before it goes (none: the install doesn't offer it).
   const deletionDays = config.deletion_days ?? null;
-  // What the plan section sells (plan.js): only when the app asks for it and the server doesn't say it can't.
+  // What the plan section sells (plan.js): only when the app asks for it, or in a host when the host
+  // sells (the same in every module), and the server doesn't say it can't.
   const planOptions = options.plan && typeof options.plan === 'object' ? options.plan : {};
-  const selling = planOptions.billing === true && modules.billing !== false;
+  const selling = (planOptions.billing === true || host?.billing === true) && modules.billing !== false;
   // Inside the suite's app the web's checkout never shows (the stores' rules), whatever the module passed.
   const inTheApp = inApp();
   const hideCheckout = planOptions.hideCheckout === true || inTheApp;
@@ -1072,7 +1075,9 @@ export function openSettings(options) {
 
   function plan() {
     const box = el('div', { class: 'kit-stack' });
-    const payments = selling ? planPayments({ hideCheckout, fail, refresh: () => load() }) : null;
+    const payments = selling ? planPayments({
+      hideCheckout, fail, refresh: () => load(), appName: host?.name || app.name, benefit: benefitText,
+    }) : null;
     // Inside the suite's app that sells: its store, for whoever has a plan above theirs to go to.
     const storeBlock = store ? block(t('kit.plan.upgradeTitle'), hint(t('kit.plan.storeHint')),
       row(button(t('kit.plan.see'), () => storePurchase(), 'primary'))) : null;
@@ -1087,7 +1092,7 @@ export function openSettings(options) {
       clear(box).append(el('div', { class: 'kit-plan-card' },
         el('span', { class: 'kit-plan-card__label', text: t('kit.plan.current') }),
         el('strong', { class: 'kit-plan-card__name', text: answer.unlimited ? t('kit.plan.unlimited') : name }),
-        until), benefits);
+        until, payments?.status), benefits);
       paintBenefits(benefits, answer);
       if (options.plan?.render) box.append(options.plan.render(answer));
       if (storeBlock) {
@@ -1096,10 +1101,10 @@ export function openSettings(options) {
         usage?.sync();
       }
       if (!payments) return;
-      // Held by a live subscription, the plan's end is its period's (shown there), not the grace after it.
+      // Held by a live subscription, the plan's end is its period's (said under it), not the grace after it.
       if (until) until.hidden = true;
       payments.paint(answer).then((state) => {
-        if (state && until) until.hidden = state.holds;
+        if (state && until) until.hidden = state.holds || state.noted;
         usage?.sync();
       });
     };
@@ -1517,6 +1522,17 @@ export function planBenefits(features = {}, { app = '' } = {}) {
     }
   }
   return [...lines.filter((l) => l.included), ...lines.filter((l) => !l.included)];
+}
+
+/**
+ * An extra given on top of the plan as people read it ("Up to 100 lists"): `feature` as the grant
+ * names it, perhaps with an app's prefix (`tasks.lists.max`). Empty for one the kit can't name.
+ */
+function benefitText(feature, value) {
+  const key = String(feature || '');
+  const known = (name) => BENEFITS.some(([k]) => k === name);
+  const local = known(key) ? key : key.split('.').slice(1).join('.');
+  return known(local) ? planBenefits({ [local]: value })[0]?.text || '' : '';
 }
 
 const numberText = (n) => new Intl.NumberFormat(currentLanguage(), { maximumFractionDigits: 1 }).format(n);

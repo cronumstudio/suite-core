@@ -510,6 +510,8 @@ export async function createHost({
       host: {
         id: config.app.id, name: config.app.name, mount: entry.mount, base: `/${entry.mount}/`,
         push: Boolean(config.modules.push), plans: Boolean(suite.entitlements?.describe?.().several),
+        // Whether the host sells (BILLING_PROVIDER): Settings › Plan offers its products in every module.
+        billing: Boolean(suite.billing?.enabled),
         // The host's one worker: the module's page registers it and retires its own (web/worker.js).
         ...(hostWorker ? { worker: '/sw.js' } : {}),
       },
@@ -521,6 +523,7 @@ export async function createHost({
     const entitlements = createEntitlements({
       database: suite.database, appId: app.id, features: resolved.features, plans: resolved.plans,
       defaultPlan: resolved.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
+      earlyAccess: install.earlyAccess ?? null,
       organizationsOf: (user) => (suite.organizations ? suite.organizations.organizationsOf(user) : []),
       organizationExists: (id) => Boolean(suite.organizations?.get(id)),
       othersDeclare: true,
@@ -581,8 +584,10 @@ export async function createHost({
       // With the host's one worker, a notice opens at the module's path (host-worker.js).
       push: resolved.modules.push && suite.push ? (hostWorker ? hostedPush(suite.push, entry.mount) : suite.push) : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
-      billing: resolved.modules.billing ? suite.billing : null,
-      stores: resolved.modules.billing ? suite.stores ?? null : null,
+      // The host's payments in every module, whether the app sells on its own or not: Settings ›
+      // Plan is the host's, the same in all of them, and a checkout comes back to the module it left.
+      billing: config.modules.billing ? suite.billing : null,
+      stores: config.modules.billing ? suite.stores ?? null : null,
       devices: null,
       // The host's to do, once for everyone.
       ensureAdmin: () => null,
@@ -746,7 +751,13 @@ export async function createHost({
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
     routes: (api) => {
-      api.get('/api/modules', (ctx) => sendJson(ctx.res, 200, modulesOf(ctx.user)));
+      api.get('/api/modules', async (ctx) => {
+        const answer = modulesOf(ctx.user);
+        // A founder, once the early access is over and while their price lasts: the notice every
+        // module's frame shows (shell.js), with the date it ends.
+        const offer = ctx.user && suite.billing?.enabled ? await suite.billing.founderOffer(ctx.user) : null;
+        sendJson(ctx.res, 200, offer ? { ...answer, founder_offer: offer } : answer);
+      });
       registerLinksApi(api, { links });
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });

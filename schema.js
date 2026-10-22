@@ -21,7 +21,7 @@ import { usersSchema, identitiesSchema, accountDeletionSchema } from './accounts
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
-import { billingSchema, billingPendingSchema } from './billing.js';
+import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
 import { paddleEnvironmentsSchema } from './paddle.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
@@ -72,4 +72,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 23, name: 'device-web-sessions', up: deviceWebSessionsSchema },
   // A phone's native push token, one per device, for APNs and FCM (native-push.js, push.native).
   { version: 24, name: 'device-push-tokens', up: devicePushTokensSchema },
+  // Whether a subscription stops at its period's end instead of renewing (billing.js `ending`).
+  { version: 25, name: 'billing-ending', up: billingEndingSchema },
 ]);

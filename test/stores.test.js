@@ -207,7 +207,10 @@ test('renewals, the store\'s grace, a charge that keeps failing, a cancellation 
   held.subscriptions[YEARLY] = subscription({ purchased: s.clock.now, expires: s.clock.now + 365 * DAY });
   assert.deepEqual(await outcomes('RENEWAL'), ['granted']);
   held.subscriptions[YEARLY].unsubscribe_detected_at = iso(s.clock.now);
-  assert.deepEqual(await outcomes('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }), ['unchanged'], 'renewal off: paid until the end, as it was');
+  const before = grantsOf(s.database, s.ada, 'revenuecat')[0].ends_at;
+  assert.deepEqual(await outcomes('CANCELLATION', { cancel_reason: 'UNSUBSCRIBE' }), ['extended'], 'renewal off: read again, now ending');
+  assert.equal(grantsOf(s.database, s.ada, 'revenuecat')[0].ends_at, before, 'paid until the end, as it was');
+  assert.equal(s.stores.subscriptionsOf({ type: 'user', id: s.ada.id })[0].ending, true, 'it ends, it doesn’t renew');
   assert.equal(s.planOf(s.ada), 'pro');
   s.clock.now += 366 * DAY;
   assert.deepEqual(await outcomes('EXPIRATION', { expiration_reason: 'UNSUBSCRIBE' }), ['revoked']);
@@ -548,11 +551,11 @@ test('the overview: what each source holds and how to manage it, a group\'s plan
     sources: [
       {
         kind: 'web', provider: 'paddle', organization_id: fleet.id, product: 'fleet-monthly', plan: 'fleet', plan_name: 'Fleet',
-        status: 'active', period_end: iso(now + 30 * DAY), manage: { via: 'portal', organization_id: fleet.id },
+        status: 'active', period_end: iso(now + 30 * DAY), ending: null, manage: { via: 'portal', organization_id: fleet.id },
       },
       {
         kind: 'store', provider: 'revenuecat', product: 'pro-monthly', plan: 'pro', plan_name: 'Pro', status: 'active',
-        period_end: iso(now + 30 * DAY), store: 'app_store', sandbox: false,
+        period_end: iso(now + 30 * DAY), ending: false, store: 'app_store', sandbox: false,
         manage: { via: 'store', store: 'app_store', url: STORE_MANAGE_URLS.app_store },
       },
       { kind: 'organization', organization_id: fleet.id, name: 'Fleet A', plan: 'fleet', plan_name: 'Fleet', ends: iso(now + 33 * DAY) },
@@ -687,7 +690,7 @@ test('createSuite with STORE_BILLING: the store\'s routes beside the web\'s unch
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM billing_subscriptions').n, 0);
 });
 
-test('without STORE_BILLING nothing changes: no store routes, no overview, the same config answer, nothing kept from an account', async (t) => {
+test('without STORE_BILLING nothing changes: no store routes, the web’s overview alone, the same config answer, nothing kept from an account', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-stores-off-'));
   const suite = createSuite({
     config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { billing: true }, plans: PLANS, features: FEATURES, products: WEB_PRODUCTS },
@@ -700,9 +703,11 @@ test('without STORE_BILLING nothing changes: no store routes, no overview, the s
   const base = `http://127.0.0.1:${listening.address().port}`;
   assert.equal(suite.stores, null);
   for (const [method, pathname] of [['POST', '/api/billing/revenuecat/webhook'], ['GET', '/api/billing/stores/customer'],
-    ['POST', '/api/billing/stores/sync'], ['GET', '/api/billing/overview']]) {
+    ['POST', '/api/billing/stores/sync']]) {
     assert.equal((await fetch(base + pathname, { method })).status, 404, pathname);
   }
+  // What holds the plan, for Settings › Plan: the web's alone, for whoever is signed in.
+  assert.equal((await fetch(`${base}/api/billing/overview`)).status, 401);
   assert.equal('stores' in (await (await fetch(`${base}/api/auth/config`)).json()).app.modules, false);
   const eve = suite.accounts.create({ username: 'eve' });
   suite.billing.apply({
