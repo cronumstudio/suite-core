@@ -1174,6 +1174,27 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-codes code { font-family: var(--kit-font-mono); }
 .kit-instruction { white-space: pre-wrap; margin: 0; padding: 12px 14px; border-radius: var(--look-r-md, 10px); background: var(--kit-hover); font: var(--look-footnote, 13px)/1.5 var(--kit-font-mono); overflow-wrap: anywhere; }
 
+/* The AI agents (agents.js): a chip for each with its mark, its steps, and the prompt for the modules ticked. */
+.kit-agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)); gap: 8px; }
+.kit-agent {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid var(--kit-border);
+  border-radius: var(--look-r-md, 10px); background: var(--kit-panel); color: var(--kit-text); font: inherit; font-weight: 500; text-align: start; cursor: pointer;
+}
+.kit-agent:hover { background: var(--kit-hover); }
+.kit-agent:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: 2px; }
+.kit-agent[aria-pressed="true"] { border-color: var(--kit-accent); box-shadow: inset 0 0 0 1px var(--kit-accent); }
+.kit-agent span { min-width: 0; overflow-wrap: anywhere; }
+.kit-agent-mark { width: 20px; height: 20px; flex: none; fill: currentColor; }
+.kit-agent-steps { display: grid; gap: 10px; min-width: 0; }
+.kit-steps { display: grid; gap: 14px; margin: 0; padding-inline-start: 1.4em; }
+.kit-steps li { display: grid; gap: 8px; min-width: 0; padding-inline-start: 2px; }
+.kit-steps li::marker { font-weight: 600; color: var(--kit-muted); }
+.kit-steps p { margin: 0; }
+.kit-steps a.kit-btn { justify-self: start; }
+.kit-prompt { display: grid; gap: 10px; min-width: 0; }
+.kit-prompt__modules { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.kit-prompt__modules img { border-radius: 5px; flex: none; }
+
 /* -------------------------- the phone's keyboard -------------------------- */
 /*
  * keyboard.js, while the keyboard is up: what is fixed to the full screen takes

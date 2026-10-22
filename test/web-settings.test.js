@@ -108,6 +108,84 @@ test('in a host, Your AI has every module\'s instruction folded under its name w
   }
 });
 
+test('in a host with one prompt, Your AI has a chip for each agent with its steps, the prompt for the modules ticked and what each module adds', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const { AGENTS } = await import('../web/agents.js');
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  const modules = [
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: true, about: true, standing: 'settings.mcp.standingText' } },
+    { mount: 'next', path: '/next/', name: 'Next', icon: '/next/icons/favicon.svg', active: true,
+      settings: { sections: [], data: false, ai: false, about: true, standing: 'settings.standing.text', standingMore: ['settings.standing.close'] } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: false, settings: { sections: [], data: false, ai: false, about: false } },
+  ];
+  globalThis.fetch = async (path) => {
+    asked.push(path);
+    const prompt = path.startsWith('/api/ai-instruction?') ? { text: `PROMPT ${new URL(path, 'https://work.example').searchParams.get('modules')}` } : undefined;
+    const data = prompt || (path === '/api/modules' ? { host: { name: 'Cronum Work', icon: '/icons/favicon.svg', aiInstruction: '/api/ai-instruction' }, modules }
+      : path === '/next/i18n/en.json' ? { 'settings.standing.text': '- Log progress in Next.', 'settings.standing.close': 'Close with close_session.' } : undefined);
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, json: async () => data };
+  };
+  globalThis.window = { location: { origin: 'https://work.example' } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  try {
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg' }, user: { username: 'ada', role: 'user' }, root, start: 'ai',
+      config: { app: { modules: { mcp: true }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: false, plans: false } } },
+      standing: 'kit.settings.title', standingMore: ['kit.settings.title'],
+    });
+    await settle();
+    const page = root.all().find((node) => node.className === 'kit-settings__page');
+    const titles = page.all().filter((node) => node.tagName === 'H3' && !node.closest?.('[hidden]')).map((node) => node.textContent);
+    assert.ok(titles.includes(t('kit.ai.agentsTitle')) && titles.includes(t('kit.ai.promptTitle')));
+    const standing = page.all().find((node) => node.tagName === 'H3' && node.textContent === t('kit.ai.standingTitle'));
+    assert.equal(standing.parentNode.hidden, true, 'each module\'s own instruction gives way to the one prompt');
+
+    // A chip for each agent, with its mark; one opens its steps, the connector's address among them.
+    const chips = page.all().filter((node) => node.className === 'kit-agent');
+    assert.deepEqual(chips.map((chip) => chip.find('span')[0].textContent), AGENTS.map((a) => a.name));
+    assert.ok(chips.every((chip) => chip.find('svg').length === 1));
+    chips.find((chip) => chip.getAttribute('data-agent') === 'claude-code').click();
+    const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG').at(-1);
+    assert.equal(dialog.getAttribute('aria-label'), t('kit.ai.agentTitle', { agent: 'Claude Code' }));
+    const codes = dialog.find('code').map((node) => node.textContent);
+    assert.deepEqual(codes, ['claude mcp add --transport http cronum-work https://work.example/mcp']);
+    assert.equal(dialog.find('li').at(-1).textContent, t('kit.agents.lastSection', { agent: 'Claude Code', app: 'Cronum Work' }), 'the last step sends to the prompt');
+    dialog.close();
+
+    // The prompt: the host's, for the modules in use, ticked; another tick asks for it again.
+    assert.ok(asked.some((path) => path === '/api/ai-instruction?lang=en&modules=tasks,next'), asked.join(' '));
+    const pre = page.all().find((node) => node.tagName === 'PRE' && node.textContent.startsWith('PROMPT'));
+    assert.equal(pre.textContent, 'PROMPT tasks,next');
+    const boxes = page.all().filter((node) => node.tagName === 'INPUT' && node.getAttribute('type') === 'checkbox');
+    assert.deepEqual(boxes.map((box) => box.checked), [true, true, false]);
+    boxes[2].checked = true;
+    boxes[2].dispatch('change');
+    await settle();
+    assert.equal(pre.textContent, 'PROMPT tasks,next,notes');
+    for (const box of boxes) {
+      box.checked = false;
+      box.dispatch('change');
+    }
+    await settle();
+    assert.ok(page.all().some((node) => node.className === 'kit-hint' && node.textContent === t('kit.ai.promptNone') && !node.hidden), 'none ticked, none to copy');
+
+    // Under it, what each module in use says of it, folded under its name, without its own instruction.
+    const folds = page.all().filter((node) => node.className === 'kit-fold');
+    assert.deepEqual(folds.map((node) => node.find('summary')[0].textContent), ['Tasks', 'Next']);
+    assert.deepEqual(folds.map((node) => node.find('pre').length), [0, 0]);
+    assert.equal(folds[1].find('p').at(-1).textContent, 'Close with close_session.');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
 test('what a plan includes, as people read it: what is in first, limits with their number or none', async () => {
   const { planBenefits } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');
