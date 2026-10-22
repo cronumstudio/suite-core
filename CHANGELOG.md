@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.124.0 — 2026-10-23
+## 0.124.0 — 2026-10-22
 
 - **Your AI, with one prompt for a host's modules** (`web/agents.js`, `web/settings.js`, `host.js`,
   `web/kit.css`). `createHost({ aiInstruction: '/api/ai-instruction' })` names the host's route that
