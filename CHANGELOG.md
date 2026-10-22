@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.126.1 — 2026-10-22
+
+- **Signing out and deleting one's account inside the app on a phone stay in the app**
+  (`web/signin.js`, `web/settings.js`). With WorkOS or OpenID Connect, both went to the provider's
+  page (`logout_url`), another site: Cronum Work's app opened it in the phone's browser or raced it
+  with its own sign-in. In the app (`inApp()`) neither goes there any more. `signOut()` ends the
+  session at the server and clears the device's copies as before, sends the bridge's `sign-out`
+  first (as since 0.106.0), and reloads to the site's own sign-in, as it does without a provider.
+  Deleting one's account in Settings, once the server has taken it, now sends `sign-out` too (it
+  sent nothing before) and reloads the site's own page; the app's own sign-in takes the place of
+  the web's farewell notice. In a browser nothing changes, for either. The service worker serves
+  pages network first and never caches `/api`, so the reload asks the server and shows the
+  sign-in, not a signed-in copy.
+
 ## 0.126.0 — 2026-10-22
 
 - **Another account from the connect page** (`web/connect.js`, `device-pages.js`, `oidc.js`,
@@ -84,6 +98,7 @@ change an interface and a patch never does. Apps pin a version through the submo
     route's `pattern`.
 - **`.env` files are never committed** (`.gitignore`): `.env` and `.env.*` are ignored, except
   `.env.example`, before suite-core is published.
+
 ## 0.121.0 — 2026-10-22
 
 - **The front end's version from what its files hold, not their dates** (`app.js`, `host-worker.js`,

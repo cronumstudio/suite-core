@@ -412,3 +412,81 @@ test('notifications in the app: the app’s own, never Web Push', async () => {
   old.settings.close();
   delete globalThis.Notification;
 });
+
+/* ------------------------- leaving: sign-out, a deleted account ------------------------- */
+
+const PROVIDER = 'https://auth.example.com/user_management/sessions/logout?session_id=sess_1';
+
+/**
+ * What happened while `run` ran, in order: each message the app got (`message <type>`) and where
+ * the page went (`go <address>`, or `reload`).
+ */
+async function leaving(app, run) {
+  asApp(app);
+  const real = { location: page.location, bridge: page.ReactNativeWebView };
+  const happened = [];
+  page.ReactNativeWebView = { postMessage: (text) => happened.push(`message ${JSON.parse(text).type}`) };
+  page.location = {
+    ...real.location,
+    reload: () => happened.push('reload'),
+    set href(to) { happened.push(`go ${to}`); },
+    get href() { return real.location.href; },
+  };
+  try {
+    await run();
+  } finally {
+    page.location = real.location;
+    page.ReactNativeWebView = real.bridge;
+  }
+  return happened;
+}
+
+test('signing out in the app: the app told first, then the site’s own sign-in, never the provider’s page', async () => {
+  const { signOut } = await import('../web/signin.js');
+  const signedOut = (app, server) => leaving(app, async () => {
+    routes = server;
+    asked = [];
+    await signOut();
+    assert.deepEqual(asked, ['POST /api/auth/logout'], 'the session ended at the server, everywhere');
+  });
+  const WITH_PROVIDER = { 'POST /api/auth/logout': { data: { ok: true, logout_url: PROVIDER } } };
+  const WITHOUT = { 'POST /api/auth/logout': { data: { ok: true } } };
+
+  assert.deepEqual(await signedOut(['push'], WITH_PROVIDER), ['message sign-out', 'reload'],
+    'in the app: the bridge’s sign-out, then this site’s sign-in; WorkOS’s page never');
+  assert.deepEqual(await signedOut([], WITH_PROVIDER), ['message sign-out', 'reload'], 'an app known by its user agent alone too');
+  assert.deepEqual(await signedOut(['push'], WITHOUT), ['message sign-out', 'reload'], 'without a provider, as before');
+
+  assert.deepEqual(await signedOut(null, WITH_PROVIDER), [`go ${PROVIDER}`], 'in a browser: the provider’s page, as always');
+  assert.deepEqual(await signedOut(null, WITHOUT), ['reload'], 'and without one, the page again');
+});
+
+test('deleting one’s account in the app: the app told first, then the site’s own page, never the provider’s', async () => {
+  const deleted = (app, answer) => leaving(app, async () => {
+    storage.delete('suite.deletion');
+    const view = await settingsPage({}, {
+      config: { app: { id: 'demo', modules: {} }, provider: 'workos', deletion_days: 30 },
+      server: { 'POST /api/me/deletion': { data: { ok: true, delete_after: '2026-11-21T10:00:00.000Z', ...answer } } },
+      start: 'data',
+    });
+    click(view.buttons(t('kit.data.deleteButton'))[0]);
+    const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
+    const word = dialog.find('input')[0]; // the word only: a provider's account has no password here
+    word.value = t('kit.data.confirmWord');
+    word.dispatch('input');
+    click(dialog.all().find((node) => /\bkit-btn--danger\b/.test(node.className)));
+    await settle();
+    assert.deepEqual(asked, ['POST /api/me/deletion'], 'asked of the server, everywhere');
+    assert.equal(storage.get('suite.deletion'), '2026-11-21T10:00:00.000Z', 'the farewell’s date left for a browser’s sign-in');
+    view.settings.close();
+  });
+
+  assert.deepEqual(await deleted(['push'], { logout_url: PROVIDER }), ['message sign-out', 'reload'],
+    'in the app: the bridge’s sign-out, then this site’s page; WorkOS’s page never');
+  assert.deepEqual(await deleted([], { logout_url: PROVIDER }), ['message sign-out', 'reload'], 'an app known by its user agent alone too');
+  assert.deepEqual(await deleted(['push'], {}), ['message sign-out', 'reload'], 'without a provider, the same');
+
+  assert.deepEqual(await deleted(null, { logout_url: PROVIDER }), [`go ${PROVIDER}`], 'in a browser: the provider’s page, as always');
+  assert.deepEqual(await deleted(null, {}), ['reload'], 'and without one, the page again');
+  storage.delete('suite.deletion');
+});

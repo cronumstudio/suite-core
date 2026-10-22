@@ -398,7 +398,7 @@ const stop = onNative('push-state', ({ state }) => paint(state));
 | `reminders` | `{ items: [{ id, module, title, at, url }] }` | `setReminders(items)`, with `reminders`: every reminder of the next days, **the full set, which replaces the one before** (an empty list clears them). `at` ISO 8601 in UTC, `url` a path of this site (one elsewhere is left out), the soonest 64 (iOS keeps no more) |
 | `purchase` | `{ product }` | `nativePurchase(product)`, with `purchase`: a product key (`stores.products`), or null for the app's own choice. `storePurchase()` in plan.js sends it and waits for its answer |
 | `open-external` | `{ url }` | `openExternal(url)`: http, https, mailto, tel or sms, opened outside the app |
-| `sign-out` | — | `nativeSignOut()`: the person signed out here (`signOut()` sends it); the app lets go of its device |
+| `sign-out` | — | `nativeSignOut()`: the person signed out here (`signOut()` sends it, and Settings once the account is deleted, before the page goes anywhere); the app lets go of its device |
 | `haptic` | `{ style }` | `haptic(style)`: `light`, `medium`, `heavy`, `selection`, `success`, `warning`, `error` |
 | `open-app-settings` | — | `openAppSettings()`: Settings › Notifications in the app |
 
@@ -428,7 +428,14 @@ offers no Web Push: with `push` it says the app sends them, whether the phone ha
 opens the app's settings (`open-app-settings`); without it, that they come with an update of the
 app. `subscribePush()` refuses (`Error('in_app')`) before asking anything, `pushSupport()` says
 `'unsupported'`, and the host's one worker carries no subscription over: the app's own
-registration is the phone's one channel, so a notice never comes twice.
+registration is the phone's one channel, so a notice never comes twice. Leaving never goes to the
+provider's page (`logout_url`, WorkOS or OpenID Connect), v0.126.1: another site, which the app
+would open in the phone's browser or race with its own sign-in. `signOut()` ends the session at the
+server and clears the device's copies as anywhere, sends `sign-out`, then reloads to the site's own
+sign-in, as it does without a provider. Deleting one's account in Settings does the same once the
+server has taken it: `sign-out` first, then the site's own page; the app's own sign-in takes the
+place of the web's farewell notice (until when the account can be taken back), which a browser
+still shows. The provider's own session is left to the app.
 
 ### Offline
 

@@ -22,7 +22,7 @@ import { t, formatDateTime } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
-import { nativeSignOut } from './native.js';
+import { inApp, nativeSignOut } from './native.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -345,15 +345,21 @@ export async function clearDeviceCopies({ indexedDB: idb = globalThis.indexedDB,
   return names;
 }
 
-/** Signs out here (and at the provider, which then comes back to the app). */
+/**
+ * Signs out here (and at the provider, which then comes back to the app). Inside the suite's app on
+ * a phone, never at the provider: its page is another site, which the app would open in the phone's
+ * browser or race with its own sign-in. The app is told first (`sign-out`), then the page reloads to
+ * the site's own sign-in, as it does without a provider.
+ */
 export async function signOut({ local = null } = {}) {
   const answer = await api.post('/api/auth/logout').catch(() => null);
   await local?.clearAll?.().catch(() => {});
   await clearDeviceCopies().catch(() => {});
   // Inside the suite's app on a phone, the app lets go of its device too (native.js); nothing elsewhere.
+  // Sent before the page goes anywhere, so the app hears it from this page.
   nativeSignOut();
   // From a frame of the host's split view the whole window signs out, not the frame alone.
   const page = FRAMED ? window.top : window;
-  if (answer?.logout_url) page.location.href = answer.logout_url;
+  if (answer?.logout_url && !inApp()) page.location.href = answer.logout_url;
   else page.location.reload();
 }
