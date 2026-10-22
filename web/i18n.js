@@ -19,7 +19,10 @@
 import { at } from './base.js';
 
 /** The languages of the suite. English first: it is the fallback. */
-export const LANGUAGES = ['en', 'es', 'fr', 'de'];
+export const LANGUAGES = ['en', 'es', 'fr', 'de', 'it'];
+
+/** The languages an app may not speak yet (the server's i18n.js says more). */
+export const OPTIONAL_LANGUAGES = ['it'];
 
 let language = 'en';
 let dictionary = {};
@@ -28,6 +31,11 @@ let english = {};
 /** Dotted keys ("errors.not_found") in a flat catalog or a nested one alike. */
 const lookup = (dict, key) => dict[key] ?? key.split('.').reduce((node, part) => node?.[part], dict);
 
+// The optional languages this app doesn't speak: its server answers 404 for their catalog (an app
+// lists its own in `app.languages`). They are passed over as if the suite didn't have them, so the
+// app reads as it did before the suite had them.
+const unspoken = new Set();
+
 // Each catalog once per page: an app loads the language of last time before it knows who it is,
 // and the person's own once it does, most often the same one, which was a second trip to the
 // server before anything could be drawn. One that failed is asked for again next time.
@@ -35,6 +43,7 @@ const catalogs = new Map();
 function fetchCatalog(lang) {
   if (!catalogs.has(lang)) {
     const loading = fetch(at(`/i18n/${lang}.json`), { credentials: 'same-origin' }).then((res) => {
+      if (res.status === 404 && OPTIONAL_LANGUAGES.includes(lang)) unspoken.add(lang);
       if (!res.ok) throw new Error(`i18n ${lang}: ${res.status}`);
       return res.json();
     });
@@ -61,9 +70,10 @@ export function pickLanguage(preferences, supported = LANGUAGES) {
 
 /** The language to use for a preference: the chosen one, or the first one of the browser we have. */
 export function resolveLanguage(preference = 'auto') {
-  if (LANGUAGES.includes(preference)) return preference;
+  const spoken = LANGUAGES.filter((lang) => !unspoken.has(lang));
+  if (spoken.includes(preference)) return preference;
   const browser = globalThis.navigator;
-  return pickLanguage(browser?.languages?.length ? browser.languages : [browser?.language || 'en']);
+  return pickLanguage(browser?.languages?.length ? browser.languages : [browser?.language || 'en'], spoken);
 }
 
 /** The preference saved in this browser ('auto' when there is none). */
@@ -79,10 +89,15 @@ export function savedLanguage() {
  * than stopping the app. → the language in use.
  */
 export async function loadLanguage(preference = 'auto', { remember = true } = {}) {
-  const lang = resolveLanguage(preference);
+  let lang = resolveLanguage(preference);
   // English once, and again only while it could not be had.
   if (!Object.keys(english).length) english = await fetchCatalog('en').catch(() => ({}));
   dictionary = lang === 'en' ? english : await fetchCatalog(lang).catch(() => english);
+  // A language the app doesn't speak: the one it would have picked without it.
+  while (unspoken.has(lang)) {
+    lang = resolveLanguage(preference);
+    dictionary = lang === 'en' ? english : await fetchCatalog(lang).catch(() => english);
+  }
   language = lang;
   forget();
   if (globalThis.document?.documentElement) document.documentElement.lang = lang;

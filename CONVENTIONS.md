@@ -11,7 +11,7 @@ relax these. The design they serve is in [docs/architecture.md](docs/architectur
   documentation, commit messages, branch names and tags.
 - **No visible text in the code or the HTML.** Everything a person reads comes from the
   translation catalogs through `t('key')` or `data-i18n`; English is the base language, Spanish,
-  French and German are translations. A new key goes into every catalog; the tests fail if one is
+  French, German and Italian are translations. A new key goes into every catalog; the tests fail if one is
   missing. Content people write is never translated.
 - **Renaming depends on who holds the old name.** What clients hold and nobody can update for
   them (an MCP tool or parameter that an assistant remembers, a `localStorage` key in someone's
