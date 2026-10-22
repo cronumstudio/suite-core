@@ -74,6 +74,7 @@ import {
 } from './api.js';
 import {
   HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
+  contentHash,
 } from './http.js';
 import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
@@ -564,6 +565,41 @@ function inCatalogDir(pathname) {
 }
 
 /**
+ * The fingerprint of an app's front end: what its code, styles, pages and catalogs hold (each
+ * file's path and content hash, http.js contentHash), never their dates. An image built from a
+ * fresh checkout dates every file at the build, and with dates every deploy of a host said
+ * "new version" in each of its modules, changed or not. `built` is still the newest date, for
+ * About to tell two builds apart; nothing compares it.
+ *
+ * @param {string|null} dir  the app's public folder
+ * @returns {{ version: string, built: string|null }}
+ */
+export function frontFingerprint(dir) {
+  let newest = 0;
+  const parts = [];
+  const walk = (folder, prefix) => {
+    let entries = [];
+    try { entries = fs.readdirSync(folder, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) walk(full, `${prefix}${entry.name}/`);
+      else if (/.(js|css|html|json|webmanifest)$/.test(entry.name)) {
+        try {
+          const stat = fs.statSync(full);
+          parts.push(`${prefix}${entry.name}:${contentHash(full, stat)}`);
+          if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+        } catch { /* file just moved */ }
+      }
+    }
+  };
+  if (dir) walk(dir, '');
+  return {
+    version: crypto.createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12),
+    built: newest ? new Date(newest).toISOString() : null,
+  };
+}
+
+/**
  * @param {object} options
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
@@ -748,36 +784,14 @@ export function createApp({
   /* ---------------------------- frontend version --------------------------- */
 
   /**
-   * Fingerprint of the frontend: dates and sizes of the files the browser
-   * loads. With the code mounted from the project folder, editing it is enough
-   * to change it, without restarting anything. Cached for a few seconds.
+   * Fingerprint of the frontend (frontFingerprint, above). With the code mounted
+   * from the project folder, editing it is enough to change it, without
+   * restarting anything. Cached for a few seconds.
    */
   let versionCache = { value: null, at: 0 };
   function frontVersion() {
     if (versionCache.value && Date.now() - versionCache.at < 5000) return versionCache.value;
-    let newest = 0;
-    const parts = [];
-    const walk = (dir) => {
-      let entries = [];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (/\.(js|css|html|json|webmanifest)$/.test(entry.name)) {
-          try {
-            const stat = fs.statSync(full);
-            parts.push(`${entry.name}:${stat.size}:${Math.floor(stat.mtimeMs)}`);
-            if (stat.mtimeMs > newest) newest = stat.mtimeMs;
-          } catch { /* file just moved */ }
-        }
-      }
-    };
-    if (publicDir) walk(publicDir);
-    const value = {
-      app: version,
-      version: crypto.createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12),
-      built: newest ? new Date(newest).toISOString() : null,
-    };
+    const value = { app: version, ...frontFingerprint(publicDir) };
     versionCache = { value, at: Date.now() };
     return value;
   }

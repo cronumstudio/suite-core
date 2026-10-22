@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.121.0 — 2026-10-22
+
+- **The front end's version from what its files hold, not their dates** (`app.js`, `host-worker.js`,
+  `http.js`). Every deploy builds from a fresh checkout, so every file got a new date and every
+  deploy of a host was "a new version" in every module and on every device, with the host's one
+  worker downloading the whole app again, changed or not. Now an app's `/version` and
+  `/js/app-version.js` (new `frontFingerprint(dir)`), a host's whole-app fingerprint and its
+  worker's version (`fingerprint`) are made of each file's path and content hash: two deploys
+  with the same front end are the same version. `built` is still the newest date, for About;
+  nothing compares it.
+- **ETags from content** (`http.js` `serveStatic`, new `contentHash(file, stat?)`). A file is
+  `W/"<size>-<hash>"`, so the same file in a new build is still a 304 instead of travelling again.
+  The hash is read once per file and read again only when its size or date change.
+
 ## 0.120.0 — 2026-10-22
 
 - **Italian** (`i18n/it.json`, `i18n.js`, `web/i18n.js`, `web/settings.js`). The suite speaks `it`:
