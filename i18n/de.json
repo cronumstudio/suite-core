@@ -727,7 +727,7 @@
   "kit.plan.status.trialing": "Testphase",
   "kit.plan.status.past_due": "Zahlung ausstehend",
   "kit.plan.periodEnd": "Aktueller Zeitraum bis {date}",
-  "kit.plan.pastDue": "Eine Zahlung ist nicht durchgegangen. Aktualisiere die Zahlungsart über „Abo verwalten“, um deinen Tarif zu behalten.",
+  "kit.plan.pastDue": "Eine Zahlung ist nicht durchgegangen. Aktualisiere die Zahlungsart über „Tarif ändern oder kündigen“, um deinen Tarif zu behalten.",
   "kit.plan.manage": "Abo verwalten",
   "kit.plan.manageHint": "Ändere oder kündige es, aktualisiere die Zahlungsart oder lade deine Rechnungen herunter, auf der Seite des Zahlungsanbieters.",
   "kit.plan.payments": "Zahlungen und Rechnungen",

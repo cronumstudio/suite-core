@@ -727,7 +727,7 @@
   "kit.plan.status.trialing": "Trial",
   "kit.plan.status.past_due": "Payment pending",
   "kit.plan.periodEnd": "Current period until {date}",
-  "kit.plan.pastDue": "A payment didn’t go through. Update the payment method from “Manage subscription” to keep your plan.",
+  "kit.plan.pastDue": "A payment didn’t go through. Update the payment method from “Change or cancel plan” to keep your plan.",
   "kit.plan.manage": "Manage subscription",
   "kit.plan.manageHint": "Change or cancel it, update the payment method or download your invoices, on the payment provider’s page.",
   "kit.plan.payments": "Payments and invoices",

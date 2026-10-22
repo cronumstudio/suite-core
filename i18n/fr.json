@@ -727,7 +727,7 @@
   "kit.plan.status.trialing": "Période d’essai",
   "kit.plan.status.past_due": "Paiement en attente",
   "kit.plan.periodEnd": "Période en cours jusqu’au {date}",
-  "kit.plan.pastDue": "Un paiement n’est pas passé. Mettez à jour le moyen de paiement depuis « Gérer l’abonnement » pour garder votre offre.",
+  "kit.plan.pastDue": "Un paiement n’est pas passé. Mettez à jour le moyen de paiement depuis « Changer ou résilier la formule » pour garder votre offre.",
   "kit.plan.manage": "Gérer l’abonnement",
   "kit.plan.manageHint": "Modifiez-le ou résiliez-le, mettez à jour le moyen de paiement ou téléchargez vos factures, sur la page du prestataire de paiement.",
   "kit.plan.payments": "Paiements et factures",

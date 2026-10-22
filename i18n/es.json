@@ -727,7 +727,7 @@
   "kit.plan.status.trialing": "De prueba",
   "kit.plan.status.past_due": "Pago pendiente",
   "kit.plan.periodEnd": "Periodo actual hasta el {date}",
-  "kit.plan.pastDue": "Un pago no se ha podido cobrar. Actualiza el método de pago desde «Gestionar suscripción» para conservar tu plan.",
+  "kit.plan.pastDue": "Un pago no se ha podido cobrar. Actualiza el método de pago desde «Cambiar o cancelar plan» para conservar tu plan.",
   "kit.plan.manage": "Gestionar suscripción",
   "kit.plan.manageHint": "Cámbiala o cancélala, actualiza el método de pago o descarga tus facturas, en la página del proveedor de pagos.",
   "kit.plan.payments": "Pagos y facturas",

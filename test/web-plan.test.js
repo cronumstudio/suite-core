@@ -495,7 +495,7 @@ test('a native app’s web view (hideCheckout): what is paid for shows, and no w
   });
   assert.match(textOf(view.page), /Payment pending/);
   assert.equal(view.buttons('Upgrade').length, 0);
-  assert.ok(!view.page.all().some((n) => n.textContent === english['kit.plan.pastDue'] && view.visible(n)), 'no "from Manage subscription" without it');
+  assert.ok(!view.page.all().some((n) => n.textContent === english['kit.plan.pastDue'] && view.visible(n)), 'no "from Change or cancel plan" without a way to the provider');
   const shown = view.page.all().filter((n) => !n.children.length && view.visible(n)).map((n) => n.textContent);
   assert.ok(!shown.some((text) => /Founder|provider/.test(text)), 'no founder’s price, no word of the provider');
   click(view.buttons('Change or cancel plan')[0]);
