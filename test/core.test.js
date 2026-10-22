@@ -174,12 +174,12 @@ test('migrations: Focus’s older table is adopted as the app’s', () => {
 
 /* ---------------------------------- http ---------------------------------- */
 
-test('router: params, 405 with Allow, and nothing for unknown paths', () => {
+test('router: params, the pattern, 405 with Allow, and nothing for unknown paths', () => {
   const router = createRouter();
   const one = () => 'one';
   router.get('/api/lists/:id', one);
   router.patch('/api/lists/:id', () => 'patch');
-  assert.deepEqual(router.match('GET', '/api/lists/7'), { handler: one, params: { id: '7' } });
+  assert.deepEqual(router.match('GET', '/api/lists/7'), { handler: one, params: { id: '7' }, pattern: '/api/lists/:id' });
   assert.equal(router.match('HEAD', '/api/lists/7').handler, one, 'HEAD is served as GET');
   assert.deepEqual(router.match('DELETE', '/api/lists/7'), { methodMismatch: true, allow: 'GET, PATCH' });
   assert.equal(router.match('GET', '/api/other'), null);

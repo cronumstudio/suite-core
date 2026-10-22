@@ -115,6 +115,7 @@ names are the same in every app:
 | `EARLY_ACCESS_PLAN` | The plan everyone has until `EARLY_ACCESS_UNTIL` (nothing is sold meanwhile); the default plan from then on |
 | `STORE_BILLING`, `REVENUECAT_WEBHOOK_AUTH`, `REVENUECAT_WEBHOOK_SECRET`, `REVENUECAT_API_KEY`, `REVENUECAT_SANDBOX`, `REVENUECAT_API_BASE` | Purchases in the App Store and Google Play (`revenuecat`), next to the web's; off when empty. `REVENUECAT_API_BASE` only points tests at a stand-in |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
+| `ALERT_EMAIL` | Who is emailed when the server fails (an uncaught exception, an unhandled rejection, 5 or more 5xx within 5 minutes, a scheduled job of the suite that threw), at most once per kind every 30 minutes; needs `MAIL_PROVIDER=smtp`. Off when empty, and never `ADMIN_EMAIL` on its own |
 
 Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`
 (`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one. Plan ids

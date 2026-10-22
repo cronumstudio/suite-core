@@ -17,6 +17,8 @@ export function itemRoutes(api, { suite, table, mount, name }) {
     suite.database.run(`INSERT INTO ${table} (user_id, text) VALUES (?, ?)`, ctx.user.id, String(body.text));
     sendJson(ctx.res, 201, { ok: true });
   });
+  // A route with a bug: what an alert names by its pattern (alerts.test.js).
+  api.get('/api/items/:id/broken', () => { throw new TypeError(`${name} broke`); });
   api.get('/api/where', (ctx) => sendJson(ctx.res, 200, {
     module: name, mount, baseUrl: ctx.baseUrl, install: suite.config.install.baseUrl, host: suite.config.host,
   }));
