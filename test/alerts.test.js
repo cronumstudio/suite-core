@@ -352,7 +352,7 @@ async function startApp(t, env) {
     suite, version: '1.2.3', handleSignals: false, log: (line) => lines.push(line),
     routes: (api) => {
       api.post('/api/notes/:id', () => {
-        throw new Error('note failed for ana@example.com at https://api.example/v1?key=sk_live_51HxAbCdEfGh12345678');
+        throw new Error('note failed for ana@example.com at https://api.example/v1?key=not-a-real-query-value');
       });
     },
   });
@@ -383,7 +383,7 @@ test('an app: its 5xx over HTTP make an email to ALERT_EMAIL, with the route and
   assert.match(mail.text, /^Address: {2}http:\/\/127\.0\.0\.1$/m);
   assert.match(mail.text, /^Error: {4}Error: note failed for <email> at https:\/\/api\.example\/v1\?…$/m);
   assert.match(mail.text, / 500 {2}POST \/api\/notes\/:id {2}Error: note failed/);
-  for (const secret of ['s3cr3t', 'token=', '/notes/42', 'private words', 'cookie-value', 'mcp_bearer', 'ana@example.com', 'sk_live']) {
+  for (const secret of ['s3cr3t', 'token=', '/notes/42', 'private words', 'cookie-value', 'mcp_bearer', 'ana@example.com', 'not-a-real-query-value']) {
     assert.ok(!mail.text.includes(secret), `the email doesn’t carry "${secret}"`);
   }
   assert.ok(lines.includes('[alerts] "errors" alert sent'));
