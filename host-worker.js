@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
+import { contentHash } from './http.js';
 
 /** What the browser loads, for the fingerprint: as app.js counts it for an app. */
 const FRONT = /\.(js|css|html|json|webmanifest)$/;
@@ -51,16 +52,20 @@ function filesOf(dir, test) {
 }
 
 /**
- * The fingerprint of a folder's front-end files, as app.js makes an app's:
- * names, sizes and dates. → { version, built }
+ * The fingerprint of a folder's front-end files, as app.js makes an app's
+ * (frontFingerprint): paths and what each holds, never dates, or every deploy
+ * from a fresh checkout would be a new worker that downloads it all again.
+ * `built` is the newest date, for telling builds apart; nothing compares it.
+ * → { version, built }
  */
 export function fingerprint(dir) {
   let newest = 0;
   const parts = [];
   for (const rel of filesOf(dir, FRONT)) {
     try {
-      const stat = fs.statSync(path.join(dir, rel));
-      parts.push(`${rel}:${stat.size}:${Math.floor(stat.mtimeMs)}`);
+      const file = path.join(dir, rel);
+      const stat = fs.statSync(file);
+      parts.push(`${rel}:${contentHash(file, stat)}`);
       if (stat.mtimeMs > newest) newest = stat.mtimeMs;
     } catch { /* a file just moved */ }
   }

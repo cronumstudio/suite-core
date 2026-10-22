@@ -7,6 +7,7 @@
  * (`field_too_long`, `plan_limit`…): the interface ships in several languages
  * and the browser is the one that says it in each person's, from its catalogs.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -267,6 +268,22 @@ const MIME = {
 /** Code, styles and catalogs are revalidated on every load (cheap 304s); the rest is cached a day. */
 const REVALIDATE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.webmanifest']);
 
+const hashes = new Map();
+
+/**
+ * What a file holds, as a hash (sha1, hex), read again only when its path, size or date
+ * change. Its date alone said nothing: an image built from a fresh checkout dates every file
+ * at the build, so each deploy looked like new code in every module of a host, and every file
+ * travelled again instead of a 304. `stat` saves a second look when the caller has it.
+ */
+export function contentHash(file, stat = fs.statSync(file)) {
+  const known = hashes.get(file);
+  if (known && known.size === stat.size && known.mtime === stat.mtimeMs) return known.hash;
+  const hash = crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex');
+  hashes.set(file, { size: stat.size, mtime: stat.mtimeMs, hash });
+  return hash;
+}
+
 /**
  * Serves `urlPath` from `root`. Returns false when there is no such file (the
  * caller decides: SPA fallback or 404). Never leaves `root`, and never serves
@@ -291,7 +308,13 @@ export function serveStatic(root, urlPath, res) {
     return false;
   }
   const ext = path.extname(file).toLowerCase();
-  const etag = `W/"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+  // From what it holds: the same file in a new build is still a 304.
+  let etag;
+  try {
+    etag = `W/"${stat.size}-${contentHash(file, stat).slice(0, 16)}"`;
+  } catch {
+    return false;   // gone between the look and the read
+  }
   const cacheControl = REVALIDATE.has(ext) ? 'no-cache' : 'public, max-age=86400';
   if (res.req?.headers['if-none-match'] === etag) {
     res.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl });
