@@ -157,6 +157,7 @@ export function workerScript({ name, options }) {
  * paths as before (sw-core.js: a path under the module's is left as it is).
  */
 export function hostedPush(push, mount) {
+  const own = withModuleReminders(mount);
   const base = `/${mount}/`;
   const sitePath = (url) => typeof url === 'string' && url.startsWith('/') && !url.startsWith('//');
   const mark = (payload) => {
@@ -169,9 +170,28 @@ export function hostedPush(push, mount) {
   const each = (payload) => (typeof payload === 'function' ? (sub) => mark(payload(sub)) : mark(payload));
   return {
     ...push,
-    send: (subscription, payload, options) => push.send(subscription, mark(payload), options),
-    deliver: (subscriptions, payload, options) => push.deliver(subscriptions, each(payload), options),
+    send: (subscription, payload, options) => push.send(subscription, mark(payload), own(options)),
+    deliver: (subscriptions, payload, options) => push.deliver(subscriptions, each(payload), own(options)),
     // Through the marked delivery too: spread from `push`, it sent the module's notices unmarked.
-    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), each(payload), options),
+    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), each(payload), own(options)),
+  };
+}
+
+/** A send's options with its `reminder` the module's: a phone says which module's reminder it shows. */
+const withModuleReminders = (mount) => (options) => (options?.reminder && typeof options.reminder === 'object'
+  ? { ...options, reminder: { ...options.reminder, module: mount } } : options);
+
+/**
+ * A module's push in a host without the one worker: its notices as they are,
+ * only the reminder a send names (`options.reminder`) said to be the module's,
+ * as with hostedPush. Without that option, the host's push itself.
+ */
+export function moduleReminderPush(push, mount) {
+  const own = withModuleReminders(mount);
+  return {
+    ...push,
+    send: (subscription, payload, options) => push.send(subscription, payload, own(options)),
+    deliver: (subscriptions, payload, options) => push.deliver(subscriptions, payload, own(options)),
+    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), payload, own(options)),
   };
 }
