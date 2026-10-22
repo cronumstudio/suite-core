@@ -64,7 +64,7 @@ test('Usage: each account’s nearest cap in the list, and in its dialog each mo
   const rows = main.find('tr').slice(1);
   const usageCell = (row) => row.find('td').at(-1);
   assert.match(usageCell(rows[0]).textContent, /^85\s?%/);
-  assert.match(usageCell(rows[0]).textContent, new RegExp(t('admin.usage.peakIn', { what: 'Lists', module: 'Tasks' })));
+  assert.match(usageCell(rows[0]).textContent, new RegExp(t('kit.usage.peakIn', { what: 'Lists', module: 'Tasks' })));
   assert.equal(usageCell(rows[0]).find('span').find((n) => n.getAttribute('role') === 'meter').getAttribute('aria-valuenow'), '85');
   assert.equal(usageCell(rows[1]).textContent, '—', 'no limits, nothing to be near');
 
@@ -74,18 +74,18 @@ test('Usage: each account’s nearest cap in the list, and in its dialog each mo
   const fold = dialog.find('details').find((node) => node.find('summary')[0].textContent.startsWith(t('admin.usage.title')));
   assert.ok(fold, 'the account has its Usage');
   const now = fold.find('small').find((n) => (n.getAttribute('class') || '').includes('kit-fold__now'));
-  assert.match(now.textContent, new RegExp(`^100\\s?% · ${t('admin.usage.mcp').replace(/[()]/g, '\\$&')}$`), 'the cap they are nearest to');
+  assert.match(now.textContent, new RegExp(`^100\\s?% · ${t('kit.usage.mcp').replace(/[()]/g, '\\$&')}$`), 'the cap they are nearest to');
   assert.match(now.getAttribute('class'), /kit-fold__now--warn/);
   const text = fold.textContent;
   assert.match(text, /Lists17 of 20 · 85\s?%/);
-  assert.match(text, new RegExp(t('admin.usage.near')), 'near the limit, in words');
+  assert.match(text, new RegExp(t('kit.usage.near')), 'near the limit, in words');
   assert.match(text, /Tasks340/, 'a count without a limit, alone');
   assert.match(text, /Files7/);
   assert.match(text, new RegExp(t('admin.usage.off')), 'a module they turned off says so');
   assert.match(text, new RegExp(t('admin.usage.failed').replace(/[()]/g, '\\$&')));
   assert.match(text, new RegExp(t('admin.usage.nothing')));
   assert.match(text, /3 MB of 50 MB · 6\s?%/);
-  assert.match(text, new RegExp(t('admin.usage.reached')), 'today’s calls at the limit, in words');
+  assert.match(text, new RegExp(t('kit.usage.reached')), 'today’s calls at the limit, in words');
   assert.match(text, /Last 30 days: 104/);
   const bars = fold.find('div').find((n) => n.getAttribute('class') === 'kit-usage__days');
   assert.equal(bars.childNodes.length, 30);
@@ -100,7 +100,7 @@ test('Usage: each account’s nearest cap in the list, and in its dialog each mo
   for (let turn = 0; turn < 20; turn++) await settle();
   const ben = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
   const benText = ben.find('details').find((node) => node.find('summary')[0].textContent.startsWith(t('admin.usage.title'))).textContent;
-  assert.match(benText, new RegExp(`${t('admin.usage.today')}12${t('admin.usage.noDailyLimit')}`));
+  assert.match(benText, new RegExp(`${t('kit.usage.today')}12${t('admin.usage.noDailyLimit')}`));
   assert.match(benText, /Last 30 days: 104/);
   ben.close();
 });

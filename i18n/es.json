@@ -293,31 +293,7 @@
   "admin.usage.lead": "Lo que guarda en cada módulo y lo cerca que está de los límites de su plan.",
   "admin.usage.loading": "Contando…",
   "admin.usage.peak": "{percent} · {what}",
-  "admin.usage.peakIn": "{what} en {module}",
   "admin.usage.noLimits": "Sin límites",
-  "admin.usage.near": "Cerca del límite",
-  "admin.usage.reached": "En el límite",
-  "admin.usage.items.lists": "Listas",
-  "admin.usage.items.tasks": "Tareas",
-  "admin.usage.items.subtasks": "Subtareas",
-  "admin.usage.items.notebooks": "Cuadernos",
-  "admin.usage.items.notes": "Notas",
-  "admin.usage.items.projects": "Proyectos",
-  "admin.usage.items.entries": "Entradas",
-  "admin.usage.items.files": "Archivos",
-  "admin.usage.ofLimit": "{count} de {limit}",
-  "admin.usage.storage": "Espacio",
-  "admin.usage.inAll": "En total",
-  "admin.usage.filesCount": {
-    "one": "{n} archivo",
-    "other": "{n} archivos"
-  },
-  "admin.usage.used": "{size} usados",
-  "admin.usage.mcp": "Llamadas del asistente (MCP)",
-  "admin.usage.today": "Hoy",
-  "admin.usage.month": "Últimos 30 días: {n}, {avg} al día de media",
-  "admin.usage.monthChart": "Llamadas de cada uno de los últimos 30 días",
-  "admin.usage.dayCalls": "{date}: {n}",
   "admin.usage.noDailyLimit": "Su plan no tiene tope diario.",
   "admin.usage.lastChange": "Último cambio: {date}",
   "admin.usage.off": "Desactivado",
@@ -777,6 +753,77 @@
   "kit.plan.storeHint": "Pagas con la App Store o Google Play, sin salir de la app.",
   "kit.plan.storePending": "La compra está pendiente de aprobación. Tu plan se actualizará en cuanto se apruebe.",
   "kit.plan.storeFailed": "No se ha podido completar la compra. No se ha cobrado nada.",
+  "kit.usage.title": "Tu uso",
+  "kit.usage.lead": "Lo que guardas en cada módulo y lo cerca que está de los límites de tu plan.",
+  "kit.usage.loading": "Contando…",
+  "kit.usage.failed": "Este módulo no ha podido contarlo ahora.",
+  "kit.usage.nothing": "Aquí aún no hay nada.",
+  "kit.usage.noDailyLimit": "Tu plan no tiene tope diario.",
+  "kit.usage.reachedNotice": "Has llegado al límite de tu plan:",
+  "kit.usage.nearNotice": "Te acercas al límite de tu plan:",
+  "kit.usage.counted.lists": {
+    "one": "{n} lista",
+    "other": "{n} listas"
+  },
+  "kit.usage.counted.tasks": {
+    "one": "{n} tarea",
+    "other": "{n} tareas"
+  },
+  "kit.usage.counted.subtasks": {
+    "one": "{n} subtarea",
+    "other": "{n} subtareas"
+  },
+  "kit.usage.counted.notebooks": {
+    "one": "{n} cuaderno",
+    "other": "{n} cuadernos"
+  },
+  "kit.usage.counted.notes": {
+    "one": "{n} nota",
+    "other": "{n} notas"
+  },
+  "kit.usage.counted.projects": {
+    "one": "{n} proyecto",
+    "other": "{n} proyectos"
+  },
+  "kit.usage.counted.entries": {
+    "one": "{n} entrada",
+    "other": "{n} entradas"
+  },
+  "kit.usage.counted.files": {
+    "one": "{n} archivo",
+    "other": "{n} archivos"
+  },
+  "kit.usage.counted.storage": "{size} de espacio",
+  "kit.usage.counted.mcp": {
+    "one": "{n} llamada del asistente hoy",
+    "other": "{n} llamadas del asistente hoy"
+  },
+  "kit.usage.free": "Libre",
+  "kit.usage.storageChart": "Espacio por módulo",
+  "kit.usage.peakIn": "{what} en {module}",
+  "kit.usage.near": "Cerca del límite",
+  "kit.usage.reached": "En el límite",
+  "kit.usage.items.lists": "Listas",
+  "kit.usage.items.tasks": "Tareas",
+  "kit.usage.items.subtasks": "Subtareas",
+  "kit.usage.items.notebooks": "Cuadernos",
+  "kit.usage.items.notes": "Notas",
+  "kit.usage.items.projects": "Proyectos",
+  "kit.usage.items.entries": "Entradas",
+  "kit.usage.items.files": "Archivos",
+  "kit.usage.ofLimit": "{count} de {limit}",
+  "kit.usage.storage": "Espacio",
+  "kit.usage.inAll": "En total",
+  "kit.usage.filesCount": {
+    "one": "{n} archivo",
+    "other": "{n} archivos"
+  },
+  "kit.usage.used": "{size} usados",
+  "kit.usage.mcp": "Llamadas del asistente (MCP)",
+  "kit.usage.today": "Hoy",
+  "kit.usage.month": "Últimos 30 días: {n}, {avg} al día de media",
+  "kit.usage.monthChart": "Llamadas de cada uno de los últimos 30 días",
+  "kit.usage.dayCalls": "{date}: {n}",
   "kit.data.hint": "Descargar, importar o borrar",
   "kit.data.hintDelete": "Borrar tu cuenta",
   "kit.data.confirmWord": "BORRAR",

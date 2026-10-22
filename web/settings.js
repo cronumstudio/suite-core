@@ -62,6 +62,7 @@ import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
+import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 
@@ -1077,6 +1078,7 @@ export function openSettings(options) {
       row(button(t('kit.plan.see'), () => storePurchase(), 'primary'))) : null;
     if (storeBlock) storeBlock.hidden = true;
     const benefits = el('div', {});
+    const usage = host ? yourUsage({ offer: payments?.blocks[1] || null, storeBlock }) : null;
     const paint = (answer) => {
       const name = answer.plan?.name ? t(answer.plan.name) : '—';
       const until = answer.ends
@@ -1091,11 +1093,15 @@ export function openSettings(options) {
       if (storeBlock) {
         const order = (answer.plans || []).map((p) => p.id);
         storeBlock.hidden = Boolean(answer.unlimited) || (order.length > 0 && order.at(-1) === (answer.plan?.id ?? null));
+        usage?.sync();
       }
       if (!payments) return;
       // Held by a live subscription, the plan's end is its period's (shown there), not the grace after it.
       if (until) until.hidden = true;
-      payments.paint(answer).then((state) => { if (state && until) until.hidden = state.holds; });
+      payments.paint(answer).then((state) => {
+        if (state && until) until.hidden = state.holds;
+        usage?.sync();
+      });
     };
     // The newest answer wins: one read before the plan arrived from billingReturn mustn't paint over it.
     let reading = 0;
@@ -1117,7 +1123,42 @@ export function openSettings(options) {
       document.addEventListener(PLAN_EVENT, onPlan);
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
     }
-    return [block(null, box), ...(payments ? payments.blocks : []), ...(storeBlock ? [storeBlock] : [])];
+    return [block(null, box), ...(usage ? [usage.node] : []), ...(payments ? payments.blocks : []), ...(storeBlock ? [storeBlock] : [])];
+  }
+
+  /**
+   * What the person uses, under their plan: in a host, what they keep in each module in use against
+   * the plan's caps, their storage and their calls from assistants (GET /api/me/usage at the host's
+   * root, usage.js), drawn as the admin sees it. Near a cap it says so first, with the way to a
+   * bigger plan when there is one here: the plans on offer below (`offer`) or the app's store
+   * (`storeBlock`), as they show; `sync()` looks again once they have. Where nothing answers (an
+   * app on its own, an older host, offline), the block goes.
+   */
+  function yourUsage({ offer, storeBlock }) {
+    const body = el('div', { class: 'kit-stack' }, hint(t('kit.usage.loading')));
+    const node = block(t('kit.usage.title'), body);
+    const way = button(t('kit.plan.see'), () => {
+      if (storeBlock && !storeBlock.hidden) return storePurchase();
+      offer.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+      offer.querySelector?.('button')?.focus({ preventScroll: true });
+      return undefined;
+    }, 'primary');
+    const sync = () => { way.hidden = !((storeBlock && !storeBlock.hidden) || (offer && !offer.hidden)); };
+    sync();
+    api.root.get('/api/me/usage').then((usage) => {
+      if (closed) return;
+      // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
+      const capped = atLimit(usage);
+      const level = capped[0]?.level;
+      const alert = level
+        ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
+          el('p', { text: t(`kit.usage.${level}Notice`) }),
+          el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
+            class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
+          }))), way) : null;
+      clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
+    }).catch(() => { node.hidden = true; });
+    return { node, sync };
   }
 
   /**

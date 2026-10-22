@@ -293,31 +293,7 @@
   "admin.usage.lead": "What they keep in each module, and how close it is to their plan's limits.",
   "admin.usage.loading": "Counting…",
   "admin.usage.peak": "{percent} · {what}",
-  "admin.usage.peakIn": "{what} in {module}",
   "admin.usage.noLimits": "No limits",
-  "admin.usage.near": "Near the limit",
-  "admin.usage.reached": "At the limit",
-  "admin.usage.items.lists": "Lists",
-  "admin.usage.items.tasks": "Tasks",
-  "admin.usage.items.subtasks": "Subtasks",
-  "admin.usage.items.notebooks": "Notebooks",
-  "admin.usage.items.notes": "Notes",
-  "admin.usage.items.projects": "Projects",
-  "admin.usage.items.entries": "Entries",
-  "admin.usage.items.files": "Files",
-  "admin.usage.ofLimit": "{count} of {limit}",
-  "admin.usage.storage": "Storage",
-  "admin.usage.inAll": "In all",
-  "admin.usage.filesCount": {
-    "one": "{n} file",
-    "other": "{n} files"
-  },
-  "admin.usage.used": "{size} used",
-  "admin.usage.mcp": "Calls from assistants (MCP)",
-  "admin.usage.today": "Today",
-  "admin.usage.month": "Last 30 days: {n}, {avg} a day on average",
-  "admin.usage.monthChart": "Calls on each of the last 30 days",
-  "admin.usage.dayCalls": "{date}: {n}",
   "admin.usage.noDailyLimit": "Their plan has no daily limit.",
   "admin.usage.lastChange": "Last change {date}",
   "admin.usage.off": "Turned off",
@@ -777,6 +753,77 @@
   "kit.plan.storeHint": "You pay through the App Store or Google Play, without leaving the app.",
   "kit.plan.storePending": "The purchase is waiting for approval. Your plan updates as soon as it is approved.",
   "kit.plan.storeFailed": "The purchase couldn’t be completed. Nothing was charged.",
+  "kit.usage.title": "Your usage",
+  "kit.usage.lead": "What you keep in each module and how close it is to your plan’s limits.",
+  "kit.usage.loading": "Counting…",
+  "kit.usage.failed": "This module couldn’t count it just now.",
+  "kit.usage.nothing": "Nothing here yet.",
+  "kit.usage.noDailyLimit": "Your plan has no daily limit.",
+  "kit.usage.reachedNotice": "You’ve reached your plan’s limit:",
+  "kit.usage.nearNotice": "You’re getting close to your plan’s limit:",
+  "kit.usage.counted.lists": {
+    "one": "{n} list",
+    "other": "{n} lists"
+  },
+  "kit.usage.counted.tasks": {
+    "one": "{n} task",
+    "other": "{n} tasks"
+  },
+  "kit.usage.counted.subtasks": {
+    "one": "{n} subtask",
+    "other": "{n} subtasks"
+  },
+  "kit.usage.counted.notebooks": {
+    "one": "{n} notebook",
+    "other": "{n} notebooks"
+  },
+  "kit.usage.counted.notes": {
+    "one": "{n} note",
+    "other": "{n} notes"
+  },
+  "kit.usage.counted.projects": {
+    "one": "{n} project",
+    "other": "{n} projects"
+  },
+  "kit.usage.counted.entries": {
+    "one": "{n} entry",
+    "other": "{n} entries"
+  },
+  "kit.usage.counted.files": {
+    "one": "{n} file",
+    "other": "{n} files"
+  },
+  "kit.usage.counted.storage": "{size} of storage",
+  "kit.usage.counted.mcp": {
+    "one": "{n} assistant call today",
+    "other": "{n} assistant calls today"
+  },
+  "kit.usage.free": "Free",
+  "kit.usage.storageChart": "Storage by module",
+  "kit.usage.peakIn": "{what} in {module}",
+  "kit.usage.near": "Near the limit",
+  "kit.usage.reached": "At the limit",
+  "kit.usage.items.lists": "Lists",
+  "kit.usage.items.tasks": "Tasks",
+  "kit.usage.items.subtasks": "Subtasks",
+  "kit.usage.items.notebooks": "Notebooks",
+  "kit.usage.items.notes": "Notes",
+  "kit.usage.items.projects": "Projects",
+  "kit.usage.items.entries": "Entries",
+  "kit.usage.items.files": "Files",
+  "kit.usage.ofLimit": "{count} of {limit}",
+  "kit.usage.storage": "Storage",
+  "kit.usage.inAll": "In all",
+  "kit.usage.filesCount": {
+    "one": "{n} file",
+    "other": "{n} files"
+  },
+  "kit.usage.used": "{size} used",
+  "kit.usage.mcp": "Calls from assistants (MCP)",
+  "kit.usage.today": "Today",
+  "kit.usage.month": "Last 30 days: {n}, {avg} a day on average",
+  "kit.usage.monthChart": "Calls on each of the last 30 days",
+  "kit.usage.dayCalls": "{date}: {n}",
   "kit.data.hint": "Download, import or delete",
   "kit.data.hintDelete": "Delete your account",
   "kit.data.confirmWord": "DELETE",
