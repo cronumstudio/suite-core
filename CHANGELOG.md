@@ -47,6 +47,12 @@ change an interface and a patch never does. Apps pin a version through the submo
   `store.*`, `storeKeeps`, `openStore.*`, `per.*`, `regularPrice`, `founderNote`, `founderUntil`,
   `kit.founder.notice`, `kit.founder.see`.
 
+## 0.118.0 — 2026-10-22
+
+- **Talk leaves the suite** (`web/tokens.css`, `tools/i18n.mjs`). PapaTalk is no longer a Cronum
+  Studio product: `--cr-product-papatalk` and the `:root[data-app="papatalk"]` accent are gone, and
+  `Talk` is no longer one of `BRAND_WORDS`. An app that used them sets `--app` itself.
+
 ## 0.117.0 — 2026-10-22
 
 - **Your usage in Settings › Plan** (`usage.js`, `host.js`, `web/usage-view.js`,

@@ -407,7 +407,7 @@ const contrast = (a, b) => {
 test('every product’s accent reads: 4.5:1 with its text, light and dark', () => {
   const css = fs.readFileSync(new URL('../web/tokens.css', import.meta.url), 'utf8');
   const products = [...css.matchAll(/:root\[data-app="(\w+)"\]\s*\{([^}]*)\}/g)];
-  assert.equal(products.length, 7, 'Tasks, Projects, Next, Focus, Notes, Tracker and Talk');
+  assert.equal(products.length, 6, 'Tasks, Projects, Next, Focus, Notes and Tracker');
   for (const [, id, body] of products) {
     const token = (name) => new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(body)?.[1];
     assert.equal(token('app').toLowerCase(), new RegExp(`--cr-product-${id}:\\s*(#[0-9A-Fa-f]{6})`).exec(css)[1].toLowerCase(), `${id}: the icon's colour`);
