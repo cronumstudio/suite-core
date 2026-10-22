@@ -238,7 +238,8 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, and `EARLY_ACCESS_UNTIL`,
+`BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, `EARLY_ACCESS_UNTIL`,
+`FOUNDER_OFFER_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (`revenuecat`) with `REVENUECAT_*`, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
@@ -872,9 +873,19 @@ renewal that still says an old id can't reach whoever has it after the move (aud
 **The founder's price.** A product may have a `founderPrice` besides its `price`; the server
 chooses it for whoever `isFounder` says —in `createSuite`, whoever joined before
 `EARLY_ACCESS_UNTIL`: their WorkOS account's date, the same for every app, or else the account's
-here—, never because the browser asks. Without that date nobody pays it. `GET
-/api/billing/products` says `founder: true|false` for the person asking and `founder_price` per
-product, never the price ids.
+here—, never because the browser asks. Without that date nobody pays it, and with
+`FOUNDER_OFFER_UNTIL` nobody does from that date on (`founderPriceOpen`, `joinedEarly`). `GET
+/api/billing/products` says `founder: true|false` for the person asking, `founder_price` per
+product, `founder_until` (the founder's price's last moment, once the early access is over, for a
+founder who doesn't pay yet) and `on_sale`/`opens_at`, never the price ids. A product may also say
+`amount`, `founderAmount` and `currency`, only for Settings to show them.
+
+**The early access.** With `EARLY_ACCESS_PLAN` everyone without a grant has that plan until
+`EARLY_ACCESS_UNTIL` (entitlements.js `earlyAccess`), and the install's default plan from then on,
+with nothing to change by hand; meanwhile nothing is sold (the checkout answers 409 `not_on_sale`).
+Between `EARLY_ACCESS_UNTIL` and `FOUNDER_OFFER_UNTIL` a host's `GET /api/modules` carries
+`founder_offer: { until }` for a founder who doesn't pay yet, and every module's frame shows a
+notice they can close (web/shell.js).
 
 - A subscription that is `active` or `trialing` holds its plan until the end of the paid period
   plus `graceDays` (3), so a failed renewal lapses on its own; a renewal moves that end on the same
@@ -1466,7 +1477,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   says so in the log (`[mail] SMTP ready` or why not); a message that fails later is logged with
   its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
   changes.
-- **Alerts** (**done**, v0.120.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
+- **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
   runs the install hears of the server failing instead of finding it in the log: an uncaught
   exception (the process waits 4 s at most for the email, then exits with 1 as before), an
   unhandled rejection, 5 or more 5xx within 5 minutes (counted by the server that listens, an app's

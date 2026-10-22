@@ -309,6 +309,8 @@ test('a subscription: bought, renewed, cancelled at the end of the period, and e
     scheduled: { action: 'cancel', effective_at: '2028-11-01T10:00:00Z' },
   })), 'extended');
   assert.equal(planOf(ada), 'pro');
+  const ending = () => database.get("SELECT ending FROM billing_subscriptions WHERE ref = 'sub_01ada'").ending;
+  assert.equal(ending(), 1, 'Settings says it ends, not that it renews');
   assert.equal(await deliver(subscriptionEvent('evt_4', { type: 'subscription.canceled', status: 'canceled', occurredAt: '2028-11-01T10:00:01Z' })), 'revoked');
   assert.equal(planOf(ada), 'free');
   // An older update arriving late doesn't bring it back.

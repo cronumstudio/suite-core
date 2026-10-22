@@ -19,7 +19,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The languages of the suite. English first: it is the fallback. */
-export const LANGUAGES = ['en', 'es', 'fr', 'de'];
+export const LANGUAGES = ['en', 'es', 'fr', 'de', 'it'];
+
+/**
+ * The languages an app may not speak yet: newer in the suite than the apps. An app
+ * speaks one once it has its catalog (and lists it in `app.languages`); until then
+ * it is passed over, so the app reads as it did before the suite had it.
+ */
+export const OPTIONAL_LANGUAGES = ['it'];
 
 const isPlural = (value) => value && typeof value === 'object'
   && Object.keys(value).some((k) => k === 'other' || k === 'one' || k.startsWith('='));
@@ -161,7 +168,7 @@ function chosenLanguage(user) {
  *
  * The language used when nothing says which one a person reads (no choice, no
  * browser header as with MCP clients and scripts, no account locale) is English,
- * unless the installation says otherwise with DEFAULT_LANGUAGE (en, es, fr or de).
+ * unless the installation says otherwise with DEFAULT_LANGUAGE (en, es, fr, de or it).
  */
 export function appTexts(dir, { defaultLanguage = process.env.DEFAULT_LANGUAGE, languages = LANGUAGES } = {}) {
   const folder = dir instanceof URL ? fileURLToPath(dir) : String(dir);
@@ -169,8 +176,12 @@ export function appTexts(dir, { defaultLanguage = process.env.DEFAULT_LANGUAGE, 
   const DEFAULT_LANGUAGE = languages.includes(configured) ? configured : 'en';
   const order = [DEFAULT_LANGUAGE, ...languages.filter((lang) => lang !== DEFAULT_LANGUAGE)];
 
-  /** The first supported language among the preferences, in order; the installation's default if none. */
-  const negotiateLanguage = (preferences) => negotiate(preferences, order);
+  /**
+   * The first supported language among the preferences, in order; the installation's default if
+   * none. An optional language the app has no catalog for is one it doesn't speak: passed over.
+   */
+  const speaks = (lang) => !OPTIONAL_LANGUAGES.includes(lang) || hasCatalog(lang);
+  const negotiateLanguage = (preferences) => negotiate(preferences, order.filter(speaks));
 
   // Whether a file exists is tracked apart from its mtime: images built to be reproducible stamp
   // every file with the epoch (mtime 0), and those are catalogs too.
@@ -189,6 +200,10 @@ export function appTexts(dir, { defaultLanguage = process.env.DEFAULT_LANGUAGE, 
     }
     files.set(lang, { exists, mtime, dict });
     return dict;
+  };
+  const hasCatalog = (lang) => {
+    catalog(lang);
+    return files.get(lang).exists;
   };
 
   const translators = new Map();

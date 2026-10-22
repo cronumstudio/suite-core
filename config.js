@@ -390,12 +390,32 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
         };
       }
     } else errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": use stripe, paddle or remote`);
-    // Who joined before this date pays the founder's price of the products that have one.
+    // Who joined before this date pays the founder's price of the products that have one; with
+    // FOUNDER_OFFER_UNTIL, only until that date, and after it the regular price, founders too.
     if (billing && env.EARLY_ACCESS_UNTIL) {
       const until = Date.parse(env.EARLY_ACCESS_UNTIL);
       if (Number.isNaN(until)) errors.push(`EARLY_ACCESS_UNTIL "${env.EARLY_ACCESS_UNTIL}" is not a date (2026-12-01)`);
-      else billing.earlyAccessUntil = new Date(until).toISOString();
+      else {
+        billing.earlyAccessUntil = new Date(until).toISOString();
+        if (env.FOUNDER_OFFER_UNTIL) {
+          const offerUntil = Date.parse(env.FOUNDER_OFFER_UNTIL);
+          if (Number.isNaN(offerUntil)) errors.push(`FOUNDER_OFFER_UNTIL "${env.FOUNDER_OFFER_UNTIL}" is not a date (2027-02-01)`);
+          else if (offerUntil <= until) errors.push(`FOUNDER_OFFER_UNTIL (${env.FOUNDER_OFFER_UNTIL}) must come after EARLY_ACCESS_UNTIL (${env.EARLY_ACCESS_UNTIL})`);
+          else billing.founderOfferUntil = new Date(offerUntil).toISOString();
+        }
+      }
     }
+  }
+  if (env.FOUNDER_OFFER_UNTIL && !billing?.earlyAccessUntil) {
+    warnings.push('FOUNDER_OFFER_UNTIL does nothing without BILLING_PROVIDER and EARLY_ACCESS_UNTIL');
+  }
+  // The plan everyone has while the early access lasts, whatever the default plan is: from
+  // EARLY_ACCESS_UNTIL on, the default plan again, and only then is anything sold.
+  let earlyAccess = null;
+  if (env.EARLY_ACCESS_PLAN) {
+    const until = Date.parse(env.EARLY_ACCESS_UNTIL || '');
+    if (Number.isNaN(until)) errors.push('EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL, the date the early access ends (2026-12-31)');
+    else earlyAccess = { plan: env.EARLY_ACCESS_PLAN, until: new Date(until).toISOString() };
   }
   const products = productsFor(isObject(p.products) ? p.products : {}, billing, errors);
   const billingRules = billingRulesFor(p.billing, billing, errors, warnings);
@@ -428,6 +448,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     cimdAllowPrivateHosts: env.CIMD_ALLOW_PRIVATE_HOSTS === 'true',
     plansJson: env.PLANS,
     defaultPlan: env.DEFAULT_PLAN,
+    earlyAccess,
     billing,
     // Purchases in the App Store and Google Play (STORE_BILLING), next to the web's.
     stores: storeBilling,

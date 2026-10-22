@@ -203,7 +203,11 @@ export function revenuecatProvider({
     // The store's grace period after a failed charge keeps what was paid for, as the store does.
     const end = Math.max(expires, msOf(entry.grace_period_expires_date) ?? expires);
     const extra = reversed ? { refundReversed: true } : {};
-    if (end > now) return { status: String(entry.period_type).toLowerCase() === 'trial' ? 'trialing' : 'active', periodEnd: iso(end), ...extra };
+    // Turned off in the store's settings: it lasts until the period's end and doesn't renew.
+    const ending = msOf(entry.unsubscribe_detected_at) !== null;
+    if (end > now) {
+      return { status: String(entry.period_type).toLowerCase() === 'trial' ? 'trialing' : 'active', periodEnd: iso(end), ending, ...extra };
+    }
     if (entry.auto_resume_date) return { status: 'paused', periodEnd: iso(expires), ...extra };
     const issue = msOf(entry.billing_issues_detected_at);
     const finished = hint?.type === 'ended' && purchased <= (hint.at ?? now);

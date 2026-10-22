@@ -650,7 +650,7 @@ startButton.addEventListener('click', async () => {
 Every text a person reads comes from the catalogs: the kit's are `kit.*` in suite-core's
 `i18n/<lang>.json`, merged with the app's at `/i18n/<lang>.json`. Every app does it the same way:
 
-- **Catalogs**: `public/i18n/<lang>.json`, flat (dotted keys), in the four languages.
+- **Catalogs**: `public/i18n/<lang>.json`, flat (dotted keys), in the app's languages (`app.languages`).
 - **Browser**: `t()` and the rest from `/suite/i18n.js`, nothing of its own. Before signing in the
   app loads `savedLanguage()` (what this browser keeps as `<app>.lang`, `'auto'` by default), and
   then the account's choice; Settings calls `loadLanguage` or `changeLanguage` (`app:language`

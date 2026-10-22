@@ -303,6 +303,8 @@ export function paddleProvider({
         ...productFields(owner, price, object.custom_data),
         status: object.status,
         periodEnd: isoOf(object.current_billing_period?.ends_at),
+        // Cancelled for the period's end (in the portal, or by billing.js): it won't renew.
+        ending: object.scheduled_change?.action === 'cancel',
         quantity: item.quantity ?? null,
       };
     }

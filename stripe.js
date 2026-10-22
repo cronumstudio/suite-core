@@ -215,6 +215,7 @@ export function stripeProvider({
         status: event.type.endsWith('deleted') ? 'canceled' : object.status,
         // Where the paid period ends moved from the subscription to its items in newer API versions.
         periodEnd: iso(object.current_period_end ?? item.current_period_end),
+        ending: object.cancel_at_period_end === true,
         quantity: item.quantity ?? object.quantity ?? null,
       };
     }

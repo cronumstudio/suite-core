@@ -43,7 +43,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import {
-  createBilling, signedProvider, registerBillingApi, combinedBilling, registerBillingOverviewApi,
+  createBilling, signedProvider, registerBillingApi, combinedBilling, registerBillingOverviewApi, founderPriceOpen, joinedEarly,
 } from './billing.js';
 import { stripeProvider } from './stripe.js';
 import { paddleProvider } from './paddle.js';
@@ -75,6 +75,7 @@ import {
 } from './api.js';
 import {
   HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
+  contentHash,
 } from './http.js';
 import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
@@ -185,6 +186,7 @@ export function createSuite({
   const entitlements = createEntitlements({
     database, appId: config.app.id, features: config.features, plans: config.plans,
     defaultPlan: config.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
+    earlyAccess: install.earlyAccess ?? null,
     organizationsOf: (user) => (organizations ? organizations.organizationsOf(user) : []),
     // An organization's own plan (ofOrganization) is only for one that is there and not archived.
     organizationExists: (id) => Boolean(organizations?.get(id)),
@@ -232,19 +234,27 @@ export function createSuite({
   /**
    * The founder's price is for whoever joined during the early access: their
    * account at WorkOS (the same for every app) or, without it, here, made before
-   * EARLY_ACCESS_UNTIL. Without that date nobody pays it.
+   * EARLY_ACCESS_UNTIL. Without that date nobody pays it, and with
+   * FOUNDER_OFFER_UNTIL nobody does from that date on (founderPriceOpen).
    */
   async function isFounder(user) {
-    const until = install.billing?.earlyAccessUntil;
-    if (!until) return false;
-    let joined = user.created_at;
-    const workosId = workosPeople?.workosIdOf(user.id);
-    if (workosId) joined = (await workosClient.account(workosId))?.created_at || joined;
-    const at = Date.parse(joined);
-    return !Number.isNaN(at) && at < Date.parse(until);
+    if (!founderPriceOpen(install.billing)) return false;
+    let joined = joinedAt.get(user.id) ?? user.created_at;
+    const workosId = joinedAt.has(user.id) ? null : workosPeople?.workosIdOf(user.id);
+    if (workosId) {
+      joined = (await workosClient.account(workosId))?.created_at || joined;
+      // When someone joined never changes: WorkOS is asked once a process (every page asks, shell.js).
+      joinedAt.set(user.id, joined);
+    }
+    return joinedEarly(install.billing, joined);
   }
+  const joinedAt = new Map();
   const billing = config.modules.billing ? createBilling({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
+    // While the early access gives everyone its plan (EARLY_ACCESS_PLAN), nothing is sold; and the
+    // founder's price has a last day (FOUNDER_OFFER_UNTIL), which the plan section and its notice say.
+    opensAt: install.earlyAccess?.until ?? null,
+    earlyAccessUntil: install.billing?.earlyAccessUntil ?? null, founderOfferUntil: install.billing?.founderOfferUntil ?? null,
     // Another product's sales (suite.config.js `billing`): off unless the app says.
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
     // With the stores, a person's live store subscription also makes a second one on the web a double charge.
@@ -561,6 +571,41 @@ function inCatalogDir(pathname) {
 }
 
 /**
+ * The fingerprint of an app's front end: what its code, styles, pages and catalogs hold (each
+ * file's path and content hash, http.js contentHash), never their dates. An image built from a
+ * fresh checkout dates every file at the build, and with dates every deploy of a host said
+ * "new version" in each of its modules, changed or not. `built` is still the newest date, for
+ * About to tell two builds apart; nothing compares it.
+ *
+ * @param {string|null} dir  the app's public folder
+ * @returns {{ version: string, built: string|null }}
+ */
+export function frontFingerprint(dir) {
+  let newest = 0;
+  const parts = [];
+  const walk = (folder, prefix) => {
+    let entries = [];
+    try { entries = fs.readdirSync(folder, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) walk(full, `${prefix}${entry.name}/`);
+      else if (/.(js|css|html|json|webmanifest)$/.test(entry.name)) {
+        try {
+          const stat = fs.statSync(full);
+          parts.push(`${prefix}${entry.name}:${contentHash(full, stat)}`);
+          if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+        } catch { /* file just moved */ }
+      }
+    }
+  };
+  if (dir) walk(dir, '');
+  return {
+    version: crypto.createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12),
+    built: newest ? new Date(newest).toISOString() : null,
+  };
+}
+
+/**
  * @param {object} options
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
@@ -662,6 +707,9 @@ export function createApp({
     const principal = (ctx) => ctx.user || (storeDevices ? storeDevices.authenticate(ctx.req) : null);
     registerStoreApi(api, { stores: suite.stores, principal });
     registerBillingOverviewApi(api, { instances: [billing, suite.stores], entitlements, organizations, principal });
+  } else if (billing?.enabled) {
+    // What holds the plan and how to change or cancel it, for Settings › Plan, with the web's alone too.
+    registerBillingOverviewApi(api, { instances: [billing], entitlements, organizations });
   }
   // What a phone may do from a notification: the app's own actions (the body's `module`, when it
   // names one, must be the app's id), or the host's over its modules.
@@ -744,36 +792,14 @@ export function createApp({
   /* ---------------------------- frontend version --------------------------- */
 
   /**
-   * Fingerprint of the frontend: dates and sizes of the files the browser
-   * loads. With the code mounted from the project folder, editing it is enough
-   * to change it, without restarting anything. Cached for a few seconds.
+   * Fingerprint of the frontend (frontFingerprint, above). With the code mounted
+   * from the project folder, editing it is enough to change it, without
+   * restarting anything. Cached for a few seconds.
    */
   let versionCache = { value: null, at: 0 };
   function frontVersion() {
     if (versionCache.value && Date.now() - versionCache.at < 5000) return versionCache.value;
-    let newest = 0;
-    const parts = [];
-    const walk = (dir) => {
-      let entries = [];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (/\.(js|css|html|json|webmanifest)$/.test(entry.name)) {
-          try {
-            const stat = fs.statSync(full);
-            parts.push(`${entry.name}:${stat.size}:${Math.floor(stat.mtimeMs)}`);
-            if (stat.mtimeMs > newest) newest = stat.mtimeMs;
-          } catch { /* file just moved */ }
-        }
-      }
-    };
-    if (publicDir) walk(publicDir);
-    const value = {
-      app: version,
-      version: crypto.createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12),
-      built: newest ? new Date(newest).toISOString() : null,
-    };
+    const value = { app: version, ...frontFingerprint(publicDir) };
     versionCache = { value, at: Date.now() };
     return value;
   }

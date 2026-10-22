@@ -21,9 +21,13 @@ globalThis.document = {
 let browser = { languages: ['en-US'], language: 'en-US' };
 Object.defineProperty(globalThis, 'navigator', { get: () => browser, configurable: true });
 let catalogs = {};
+// The languages the app lists: the server answers 404 for any other; one it lists but cannot hand
+// out (a server down, no network behind the worker) is a 503 here.
+let listed = ['en', 'es', 'fr', 'de', 'it'];
 globalThis.fetch = async (url) => {
   const lang = /\/i18n\/([a-z]+)\.json/.exec(String(url))?.[1];
-  if (!catalogs[lang]) return { ok: false, status: 404, json: async () => ({}) };
+  if (!listed.includes(lang)) return { ok: false, status: 404, json: async () => ({}) };
+  if (!catalogs[lang]) return { ok: false, status: 503, json: async () => ({}) };
   return { ok: true, status: 200, json: async () => catalogs[lang] };
 };
 const events = [];
@@ -47,6 +51,7 @@ const CATALOGS = {
   es: { 'x.hello': 'Hola {name}', 'x.count': { one: '{n} gato', other: '{n} gatos' }, 'x.left': { '=0': 'No queda ninguno', one: 'Queda {n}', other: 'Quedan {n}' }, 'x.size': '{name} ocupa {mb} MB', 'common.close': 'Cerrar', 'common.cancel': 'Cancelar' },
   fr: { 'x.count': { one: '{n} chat', other: '{n} chats' } },
   de: { 'x.size': '{name} hat {mb} MB' },
+  it: { 'x.hello': 'Ciao {name}' },
 };
 
 test('t(): placeholders, numbers written for the language, plural rules, exact forms, and English key by key', async () => {
@@ -79,6 +84,24 @@ test('a language whose catalog cannot be had shows English in that language; wit
   catalogs = { en: CATALOGS.en };
   await offline.loadLanguage('en');
   assert.equal(offline.t('x.hello', { name: 'Ana' }), 'Hello Ana', 'English is tried again once it can be had');
+});
+
+test('a language the app doesn’t list is passed over, as if the suite didn’t have it', async () => {
+  listed = ['en', 'es', 'fr', 'de'];
+  try {
+    const i18n = await kit(CATALOGS);
+    browser = { languages: ['it-IT', 'it', 'es'], language: 'it-IT' };
+    assert.equal(await i18n.loadLanguage('auto'), 'es', 'the browser’s next language the app speaks');
+    assert.equal(document.documentElement.lang, 'es');
+    assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hola Ana');
+    assert.equal(i18n.resolveLanguage('it'), 'es', 'chosen elsewhere, it is not one of this app’s');
+    browser = { languages: ['it'], language: 'it' };
+    assert.equal(await i18n.loadLanguage('it'), 'en');
+    assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hello Ana');
+  } finally {
+    listed = ['en', 'es', 'fr', 'de', 'it'];
+    browser = { languages: ['en-US'], language: 'en-US' };
+  }
 });
 
 test('nested catalogs read as well as flat ones', async () => {
@@ -159,16 +182,16 @@ test('changeLanguage loads it and tells the app, which draws itself again', asyn
 test('dates, lists, collation and "today" are Intl’s in the language, and change with it', async () => {
   const i18n = await kit(CATALOGS);
   const months = [];
-  for (const lang of ['en', 'es', 'fr', 'de']) {
+  for (const lang of ['en', 'es', 'fr', 'de', 'it']) {
     await i18n.loadLanguage(lang);
-    months.push(i18n.dateFormat({ month: 'long' }).format(new Date(2031, 2, 12)));
+    months.push(i18n.dateFormat({ month: 'long' }).format(new Date(2031, 1, 12)));   // February: March is marzo in Spanish and Italian alike
     assert.deepEqual([-3, -1, 0, 1].map((d) => i18n.relativeDay(d)),
       [null, ...[-1, 0, 1].map((d) => new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }).format(d, 'day'))]);
     assert.equal(i18n.listFormat().format(['a', 'b', 'c']), new Intl.ListFormat(lang).format(['a', 'b', 'c']));
     assert.equal(i18n.numberFormat().format(1234.5), new Intl.NumberFormat(lang).format(1234.5));
     assert.equal(i18n.compareText('Árbol', 'arbol'), 0);
   }
-  assert.equal(new Set(months).size, 4, months.join(' '));
+  assert.equal(new Set(months).size, 5, months.join(' '));
   await i18n.loadLanguage('es');
   assert.deepEqual(['Zeta', 'Nube', 'Ñandú', 'Ana', 'Nata'].sort(i18n.compareText), ['Ana', 'Nata', 'Nube', 'Ñandú', 'Zeta']);
   assert.deepEqual([i18n.capitalize('hoy'), i18n.capitalize('ñandú'), i18n.capitalize('')], ['Hoy', 'Ñandú', '']);

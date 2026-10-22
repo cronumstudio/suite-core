@@ -11,7 +11,7 @@ relax these. The design they serve is in [docs/architecture.md](docs/architectur
   documentation, commit messages, branch names and tags.
 - **No visible text in the code or the HTML.** Everything a person reads comes from the
   translation catalogs through `t('key')` or `data-i18n`; English is the base language, Spanish,
-  French and German are translations. A new key goes into every catalog; the tests fail if one is
+  French, German and Italian are translations. A new key goes into every catalog; the tests fail if one is
   missing. Content people write is never translated.
 - **Renaming depends on who holds the old name.** What clients hold and nobody can update for
   them (an MCP tool or parameter that an assistant remembers, a `localStorage` key in someone's
@@ -111,6 +111,8 @@ names are the same in every app:
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push; generated when empty |
 | `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install: a JSON, or the suite's catalog by name (`cronum-work`, or `cronum-focus` for Focus and `cronum-tracker` for Tracker; suite-core `plans.js`) |
 | `BILLING_PROVIDER`, `STRIPE_*`, `PADDLE_*`, `EARLY_ACCESS_UNTIL` | Billing (`stripe`, `paddle`, `remote`); off when empty. Until that date, the founder's price |
+| `FOUNDER_OFFER_UNTIL` | With `EARLY_ACCESS_UNTIL`: from this date nobody gets the founder's price; until it, founders are told so once the early access is over |
+| `EARLY_ACCESS_PLAN` | The plan everyone has until `EARLY_ACCESS_UNTIL` (nothing is sold meanwhile); the default plan from then on |
 | `STORE_BILLING`, `REVENUECAT_WEBHOOK_AUTH`, `REVENUECAT_WEBHOOK_SECRET`, `REVENUECAT_API_KEY`, `REVENUECAT_SANDBOX`, `REVENUECAT_API_BASE` | Purchases in the App Store and Google Play (`revenuecat`), next to the web's; off when empty. `REVENUECAT_API_BASE` only points tests at a stand-in |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 | `ALERT_EMAIL` | Who is emailed when the server fails (an uncaught exception, an unhandled rejection, 5 or more 5xx within 5 minutes, a scheduled job of the suite that threw), at most once per kind every 30 minutes; needs `MAIL_PROVIDER=smtp`. Off when empty, and never `ADMIN_EMAIL` on its own |

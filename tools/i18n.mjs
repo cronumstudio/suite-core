@@ -18,10 +18,10 @@
  * only big round numbers take, may be left to "other"), exact forms like "=0"
  * wherever English has them, and nothing left as "TODO".
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LANGUAGES, SUITE_CATALOGS, flatten, isNested } from '../i18n.js';
+import { LANGUAGES, OPTIONAL_LANGUAGES, SUITE_CATALOGS, flatten, isNested } from '../i18n.js';
 
 const isPlural = (value) => value && typeof value === 'object';
 const markers = (value) => [...new Set(String(value).match(/\{\w+\}/g) ?? [])].sort().join(',');
@@ -404,8 +404,10 @@ export function appChecks(root, { skip = [], allow = [] } = {}) {
   const dir = path.join(root, 'public', 'i18n');
   const publicDir = path.join(root, 'public');
   const serverDir = path.join(root, 'server');
-  const catalogs = catalogsOf(dir);
-  const nested = LANGUAGES.flatMap((lang) => {
+  // An optional language is checked once the app has its catalog.
+  const languages = LANGUAGES.filter((lang) => !OPTIONAL_LANGUAGES.includes(lang) || existsSync(path.join(dir, `${lang}.json`)));
+  const catalogs = catalogsOf(dir, languages);
+  const nested = languages.flatMap((lang) => {
     try {
       return isNested(JSON.parse(readFileSync(path.join(dir, `${lang}.json`), 'utf8'))) ? [`${lang}.json`] : [];
     } catch (err) {

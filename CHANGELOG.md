@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.120.0 — 2026-10-22
+## 0.123.0 — 2026-10-22
 
 - **Emails to whoever runs the install when the server fails** (`alerts.js`, `app.js`, `host.js`,
   `config.js`, `http.js`). With `ALERT_EMAIL` set and `MAIL_PROVIDER=smtp`, an app or a host
@@ -30,6 +30,76 @@ change an interface and a patch never does. Apps pin a version through the submo
     route's `pattern`.
 - **`.env` files are never committed** (`.gitignore`): `.env` and `.env.*` are ignored, except
   `.env.example`, before suite-core is published.
+## 0.121.0 — 2026-10-22
+
+- **The front end's version from what its files hold, not their dates** (`app.js`, `host-worker.js`,
+  `http.js`). Every deploy builds from a fresh checkout, so every file got a new date and every
+  deploy of a host was "a new version" in every module and on every device, with the host's one
+  worker downloading the whole app again, changed or not. Now an app's `/version` and
+  `/js/app-version.js` (new `frontFingerprint(dir)`), a host's whole-app fingerprint and its
+  worker's version (`fingerprint`) are made of each file's path and content hash: two deploys
+  with the same front end are the same version. `built` is still the newest date, for About;
+  nothing compares it.
+- **ETags from content** (`http.js` `serveStatic`, new `contentHash(file, stat?)`). A file is
+  `W/"<size>-<hash>"`, so the same file in a new build is still a 304 instead of travelling again.
+  The hash is read once per file and read again only when its size or date change.
+
+## 0.120.0 — 2026-10-22
+
+- **Italian** (`i18n/it.json`, `i18n.js`, `web/i18n.js`, `web/settings.js`). The suite speaks `it`:
+  every text of its own screens (account, settings, plan, admin, OAuth, devices) in Italian, with the
+  informal "tu", and Settings › Language names it "Italiano". An app speaks it by adding
+  `public/i18n/it.json` and `'it'` to `app.languages`.
+- **A language an app may not speak yet** (`OPTIONAL_LANGUAGES`, today `['it']`, in `i18n.js` and
+  `web/i18n.js`). An app without its catalog reads exactly as before: on the server `appTexts`
+  passes it over when negotiating (`languageFor`, `userLanguage`), in the browser a 404 for its
+  catalog makes `loadLanguage` pick what it would have picked without it, and `tools/i18n.mjs app`
+  (`appChecks`) checks it only once the app has its catalog. The four first languages are still
+  required of every app.
+
+## 0.119.0 — 2026-10-22
+
+- **Settings › Plan, one for a whole host** (`host.js`, `web/settings.js`). In a host every module
+  gets the host's payments (`billing`, `stores`), whether the app sells on its own or not, and
+  `/api/auth/config`'s `app.host.billing` says the host sells: the plan section then offers what
+  the host sells in every module, whatever the module passed to `openSettings` (Tasks' `plan:
+  true`, nothing at all in Notes or Projects). A checkout comes back to the module it left, and
+  every module's frame now thanks the person and reads the plan again (`web/shell.js`
+  `billingReturn`). An app on its own is as before.
+- **The plan section, ordered** (`web/plan.js`, `web/settings.js`, `web/kit.css`). Under the plan's
+  name, when it renews or ends ("Renews on", "Ends on", from the new `ending`), through which store,
+  until when a gift lasts, the group that covers it, or "Included in the early access, until";
+  and the extras given on top, each with its end. Then what it includes and the usage, as before;
+  what can be bought, each with its price (`amount`, the founder's beside the regular one struck
+  through, with "Billed yearly. Your price stays as long as you stay subscribed." and until when);
+  and for whoever pays now, "Change or cancel plan": a dialog with what can be done at the
+  provider's page (switch period, cancel and until when the plan stays, payment method, invoices)
+  and the way there, or for a store's subscription how to cancel it in the App Store or Google Play,
+  with its page. A store's subscription is no longer offered a second one on the web. `planPayments`
+  takes `appName` and `benefit` and returns `status` (the card's lines); new `planStatus`,
+  `periodOf`, `moneyText`, `lastDay`. "Manage subscription" and its block are gone.
+- **Whether a subscription renews** (`billing.js`, `paddle.js`, `stripe.js`, `revenuecat.js`, suite
+  migration 25 `billing-ending`): an event's `ending` (Paddle's `scheduled_change.action =
+  'cancel'`, Stripe's `cancel_at_period_end`, the store's `unsubscribe_detected_at`) is kept in
+  `billing_subscriptions.ending` and answered by `/api/billing/subscriptions` and the overview
+  (true, false, or null when the provider didn't say). Not carried in copies: the next event says it.
+- **`GET /api/billing/overview` with the web's alone** (`app.js`): registered with billing on, not
+  only with `STORE_BILLING`; it also lists `kind: 'extra'`, the features given one at a time.
+- **The early access and its end** (`config.js`, `entitlements.js`, `billing.js`, `app.js`,
+  `host.js`). `FOUNDER_OFFER_UNTIL` (after `EARLY_ACCESS_UNTIL`): from that date nobody gets the
+  founder's price; `/api/billing/products` says `founder_until` for a founder who doesn't pay yet
+  once the early access is over, and a host's `GET /api/modules` `founder_offer: { until }`, which
+  every module's frame shows as a notice that thanks them and says until when, with a way to the
+  plan, closed on the device for that date. `EARLY_ACCESS_PLAN`: everyone without a grant has that
+  plan until `EARLY_ACCESS_UNTIL` and the default plan after, with nothing to change by hand; and
+  nothing is sold until then (`on_sale: false`, `opens_at`; the checkout answers 409
+  `not_on_sale`). Products may say `amount`, `founderAmount` and `currency`, only shown. When
+  someone joined WorkOS is asked once per process.
+- Texts: `errors.not_on_sale`, `kit.plan.renewsOn`, `endsOn`, `via.*`, `given`, `givenForGood`,
+  `coveredBy`, `earlyAccess`, `extrasTitle`, `extraUntil`, `change`, `changeHint`, `changeTitle`,
+  `yourSubscription`, `canTitle`, `can.*`, `alreadyEnding`, `openPortal`, `changeInBrowser`,
+  `store.*`, `storeKeeps`, `openStore.*`, `per.*`, `regularPrice`, `founderNote`, `founderUntil`,
+  `kit.founder.notice`, `kit.founder.see`.
 
 ## 0.118.0 — 2026-10-22
 
