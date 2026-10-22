@@ -114,9 +114,8 @@ export function usageOf(user, { modules, uses = () => true, entitlements = null,
     const limit = limitOf(entitlements, user, 'mcp.calls_per_day');
     const days = entitlements.dailyUsage(user.id, 'mcp.calls_per_day');
     const today = days.at(-1)?.used ?? 0;
-    // Without a limit nothing is counted (countDaily), so there is nothing to show either.
-    mcp = { limit, today: limit == null ? null : today, share: share(today, limit), days: limit == null ? [] : days,
-      total: limit == null ? null : days.reduce((a, d) => a + d.used, 0) };
+    // Counted with a limit or without (countDaily): the share only where there is one.
+    mcp = { limit, today, share: share(today, limit), days, total: days.reduce((a, d) => a + d.used, 0) };
   }
 
   // The cap they are nearest to, for the list: the module's count, the storage or today's calls.

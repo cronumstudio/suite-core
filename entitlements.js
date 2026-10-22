@@ -427,22 +427,23 @@ export function createEntitlements({
    * Spends one of today's uses (UTC) of a daily limit, such as
    * `mcp.calls_per_day`: `{ allowed, used, limit, plan, plan_name, more }`,
    * where `more` is the next plan of the catalog that allows more ({ id, name,
-   * limit }) or null. What is refused is not counted. No limit, nothing counted.
+   * limit }) or null. What is refused is not counted. Without a limit every use
+   * is allowed and still counted: the admin's Usage weighs whether the limits fit
+   * by what everyone does, those without one too.
    */
   function countDaily(user, feature, { organizationId = null } = {}) {
     if (known(feature).type !== 'limit') throw new Error(`countDaily: "${feature}" is not a limit`);
     const entitled = of(user, { organizationId });
     const value = entitled.features[feature];
     const base = { limit: value, plan: entitled.plan.id, plan_name: entitled.plan.name };
-    if (value === null) return { allowed: true, used: null, ...base, more: null };
     const day = iso(clock()).slice(0, 10);
-    const better = planIds.slice(rank(entitled.plan.id) + 1).map((id) => catalog[id])
+    const better = value === null ? null : planIds.slice(rank(entitled.plan.id) + 1).map((id) => catalog[id])
       .find((plan) => plan.features[feature] === null || plan.features[feature] > value);
     const more = better ? { id: better.id, name: better.name, limit: better.features[feature] } : null;
     return database.tx(() => {
       const row = database.get('SELECT used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day = ?', user.id, feature, day);
       const used = Number(row?.used || 0);
-      if (used >= value) return { allowed: false, used, ...base, more };
+      if (value !== null && used >= value) return { allowed: false, used, ...base, more };
       // The first use of a day clears what is older than the month the admin's Usage shows.
       if (!row) {
         database.run('DELETE FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day < ?',

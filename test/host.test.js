@@ -656,8 +656,10 @@ test('the admin sees what each person uses: every module’s counts against its 
   assert.deepEqual(peaks[ana], data.peak);
   const admin = host.suite.database.get("SELECT id FROM users WHERE username = 'admin'").id;
   assert.equal(peaks[admin], null);
+  host.suite.entitlements.countDaily(host.suite.accounts.byId(admin), 'mcp.calls_per_day');
   const unlimited = (await call('GET', `/api/admin/users/${admin}/usage`)).data;
-  assert.deepEqual([unlimited.mcp.limit, unlimited.mcp.today, unlimited.mcp.days], [null, null, []], 'without a limit nothing is counted');
+  assert.deepEqual([unlimited.mcp.limit, unlimited.mcp.today, unlimited.mcp.share, unlimited.mcp.total], [null, 1, null, 1],
+    'without a limit, counted all the same, with no share');
   assert.equal(unlimited.storage.limit_mb, null);
 
   // A module whose usage fails says so; the rest still answer.

@@ -388,7 +388,9 @@ test('countDaily: calls of the day per person, refused ones not counted, back th
     'the next plan with more, skipping one with less');
   assert.equal(e.countDaily(ada, 'mcp.calls_per_day').used, 2, 'a refused call is not counted');
   assert.equal(e.countDaily({ id: 3, role: 'user' }, 'mcp.calls_per_day').allowed, true, 'each person has their own');
-  assert.deepEqual(e.countDaily(root, 'mcp.calls_per_day'), { allowed: true, used: null, limit: null, plan: 'free', plan_name: 'Free', more: null });
+  assert.deepEqual(e.countDaily(root, 'mcp.calls_per_day'), { allowed: true, used: 1, limit: null, plan: 'free', plan_name: 'Free', more: null },
+    'without a limit, allowed and still counted');
+  assert.equal(e.countDaily(root, 'mcp.calls_per_day').used, 2);
 
   now += 2 * 3600 * 1000;   // past midnight UTC
   assert.equal(e.countDaily(ada, 'mcp.calls_per_day').used, 1);

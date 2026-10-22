@@ -318,7 +318,7 @@
   "admin.usage.month": "30 derniers jours : {n}, {avg} par jour en moyenne",
   "admin.usage.monthChart": "Appels de chacun des 30 derniers jours",
   "admin.usage.dayCalls": "{date} : {n}",
-  "admin.usage.notCounted": "Non comptés : son offre n'a pas de limite quotidienne.",
+  "admin.usage.noDailyLimit": "Son offre n'a pas de limite quotidienne.",
   "admin.usage.lastChange": "Dernière modification : {date}",
   "admin.usage.off": "Désactivé",
   "admin.usage.failed": "Ce module n'a pas pu dire ce que la personne a.",

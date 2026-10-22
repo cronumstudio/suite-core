@@ -92,4 +92,15 @@ test('Usage: each account’s nearest cap in the list, and in its dialog each mo
   assert.equal(bars.childNodes.at(-1).getAttribute('style'), 'block-size: 100%', 'the busiest day reaches the top');
   assert.equal(bars.childNodes[0].getAttribute('class'), 'kit-usage__day--none', 'a day without calls is a stub');
   dialog.close();
+
+  // Someone with no daily limit: their calls counted all the same, with no bar of a limit.
+  server['GET /api/admin/users/2/grants'] = { grants: [] };
+  server['GET /api/admin/users/2/usage'] = { ...USAGE, user_id: 2, mcp: { limit: null, today: 12, share: null, days, total: 104 }, peak: null };
+  rows[1].dispatch('click');
+  for (let turn = 0; turn < 20; turn++) await settle();
+  const ben = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
+  const benText = ben.find('details').find((node) => node.find('summary')[0].textContent.startsWith(t('admin.usage.title'))).textContent;
+  assert.match(benText, new RegExp(`${t('admin.usage.today')}12${t('admin.usage.noDailyLimit')}`));
+  assert.match(benText, /Last 30 days: 104/);
+  ben.close();
 });

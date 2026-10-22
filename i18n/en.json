@@ -318,7 +318,7 @@
   "admin.usage.month": "Last 30 days: {n}, {avg} a day on average",
   "admin.usage.monthChart": "Calls on each of the last 30 days",
   "admin.usage.dayCalls": "{date}: {n}",
-  "admin.usage.notCounted": "Not counted: their plan has no daily limit.",
+  "admin.usage.noDailyLimit": "Their plan has no daily limit.",
   "admin.usage.lastChange": "Last change {date}",
   "admin.usage.off": "Turned off",
   "admin.usage.failed": "This module couldn't say what they have.",

@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.116.0 — 2026-10-22
+
+- **Calls from assistants are counted for everyone, with a limit or without**
+  (`entitlements.js`, `usage.js`, `web/admin.js`). `countDaily()` counted only where the plan had a
+  daily limit, so the admin's Usage had nothing for an account without one (the instance admin,
+  a plan with no cap). Now every call is counted and still allowed when there is no limit:
+  `countDaily()` answers `used` as a number in every case (it was `null` without a limit). The
+  Usage fold shows those calls too, today's and the month's, without a bar of a limit ("Their plan
+  has no daily limit"), so the average of everyone can say whether the limits fit. The text
+  `admin.usage.notCounted` is gone; `admin.usage.noDailyLimit` is new.
+
 ## 0.115.0 — 2026-10-22
 
 - **Usage in /admin: what each person uses, and how close they are to their plan's caps**

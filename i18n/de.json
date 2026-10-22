@@ -318,7 +318,7 @@
   "admin.usage.month": "Letzte 30 Tage: {n}, im Schnitt {avg} pro Tag",
   "admin.usage.monthChart": "Aufrufe an jedem der letzten 30 Tage",
   "admin.usage.dayCalls": "{date}: {n}",
-  "admin.usage.notCounted": "Nicht gezählt: Ihr Tarif hat keine Tagesgrenze.",
+  "admin.usage.noDailyLimit": "Ihr Tarif hat keine Tagesgrenze.",
   "admin.usage.lastChange": "Letzte Änderung: {date}",
   "admin.usage.off": "Ausgeschaltet",
   "admin.usage.failed": "Dieses Modul konnte nicht sagen, was die Person hat.",
