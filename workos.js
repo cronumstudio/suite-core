@@ -86,8 +86,12 @@ export function createWorkosClient({
     return { verifier, challenge };
   }
 
-  /** Where to send the browser to sign in (or sign up, with `signUp`). */
-  function signInUrl({ redirectUri, state, challenge, signUp = false }) {
+  /**
+   * Where to send the browser to sign in (or sign up, with `signUp`). With
+   * `fresh`, AuthKit asks again (`max_age=0`) instead of taking the session
+   * it still holds in that browser: the connect page's "another account".
+   */
+  function signInUrl({ redirectUri, state, challenge, signUp = false, fresh = false }) {
     const q = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -98,6 +102,7 @@ export function createWorkosClient({
       code_challenge_method: 'S256',
     });
     if (signUp) q.set('screen_hint', 'sign-up');
+    if (fresh) q.set('max_age', '0');
     return `${API_URL}/user_management/authorize?${q}`;
   }
 

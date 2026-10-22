@@ -73,7 +73,9 @@ import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
 import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
-import { fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush } from './host-worker.js';
+import {
+  fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush, moduleReminderPush,
+} from './host-worker.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -380,6 +382,10 @@ function moduleListErrors(modules) {
  * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
  *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
  *   framed by the host's own pages (never by another site's)
+ * @param {string} [options.aiInstruction]  the host's route that builds the prompt for an assistant, for the
+ *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
+ *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
+ *   module's instruction, folded
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
  *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
  *   host's icon without them). The host's /version and /js/app-version.js are then the whole
@@ -392,7 +398,7 @@ function moduleListErrors(modules) {
  */
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
-  worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
+  aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
@@ -427,6 +433,10 @@ export async function createHost({
   // The split view is a page of the host's own: a path of this site, never an address elsewhere.
   if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
     listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
+  }
+  // The prompt is one of the host's own routes, under /api/.
+  if (aiInstruction !== null && !(typeof aiInstruction === 'string' && /^\/api\/[a-z0-9-]+$/.test(aiInstruction))) {
+    listErrors.push(`aiInstruction: "${aiInstruction}" is not a route of the host (such as /api/ai-instruction)`);
   }
   if (worker != null && worker !== false && worker !== true && (typeof worker !== 'object' || Array.isArray(worker))) {
     listErrors.push('worker: true, or { icon, badge } for its notices');
@@ -582,7 +592,8 @@ export async function createHost({
       texts: ownHooks.texts || createTexts(),
       portabilityFor,
       // With the host's one worker, a notice opens at the module's path (host-worker.js).
-      push: resolved.modules.push && suite.push ? (hostWorker ? hostedPush(suite.push, entry.mount) : suite.push) : null,
+      push: resolved.modules.push && suite.push
+        ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null,
       organizations: resolved.modules.organizations ? suite.organizations : null,
       // The host's payments in every module, whether the app sells on its own or not: Settings ›
       // Plan is the host's, the same in all of them, and a checkout comes back to the module it left.
@@ -705,7 +716,7 @@ export async function createHost({
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
     const look = user ? suite.database.get('SELECT look FROM host_looks WHERE user_id = ?', user.id)?.look : null;
     return {
-      host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}) },
+      host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(aiInstruction ? { aiInstruction } : {}) },
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
@@ -993,7 +1004,10 @@ export async function createHost({
   }
 
   const server = http.createServer((req, res) => {
+    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, while req.url is still the whole path.
+    suite.alerts.watch(req, res);
     handle(req, res).catch((err) => {
+      suite.alerts.noteError(req, err);
       console.error(`[error] ${req.method} ${req.url}`, err);
       if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
       else res.end();
@@ -1006,13 +1020,19 @@ export async function createHost({
 
   const timers = [];
   const stops = [];
-  /** A clean-up that fails is logged and tried again next time: it must not take the host down. */
+  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
+  const failed = (name) => (err) => {
+    log(`${tag} ${name} failed: ${err?.stack || err}`);
+    suite.alerts.jobFailed(name, err);
+  };
+  /** A clean-up that fails must not take the host down. */
   const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { log(`${tag} ${name} failed: ${err?.stack || err}`); }
+    try { fn(); } catch (err) { failed(name)(err); }
   };
 
   /** Creates the first administrator, starts the clean-ups and each module's own jobs, and listens. */
   function listen() {
+    suite.alerts.setVersion(version);
     suite.ensureAdmin();
     const cleanUp = safely('clean-up', () => {
       suite.purge();
@@ -1028,13 +1048,13 @@ export async function createHost({
     }
     if (suite.deletion) {
       // The accounts whose owners asked to delete them, once their days are over: once for every module.
-      const sweepAccounts = () => suite.deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
+      const sweepAccounts = () => suite.deletion.sweep().catch(failed('account deletion'));
       timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
     }
     if (suite.billing?.enabled) {
       // Groups' renewals asked to stop that the provider didn't take yet, once for every module.
-      const sendStops = () => suite.billing.sendStops().catch((err) => log(`${tag} stopping groups' renewals failed: ${err?.stack || err}`));
+      const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));
       timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sendStops, HOUR).unref());
     }
@@ -1055,17 +1075,21 @@ export async function createHost({
       }
     }
     if (handleSignals) {
-      const shutdown = (reason, code = 0) => {
+      // As an app's (app.js): `waitFor` is the crash's alert, which gives itself less than those 5 s.
+      const shutdown = (reason, code = 0, waitFor = null) => {
         log(`${tag} ${reason}, closing…`);
-        close().then(() => process.exit(code), () => process.exit(code));
+        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
         setTimeout(() => process.exit(code), 5000).unref();
       };
       process.once('SIGTERM', () => shutdown('SIGTERM received'));
       process.once('SIGINT', () => shutdown('SIGINT received'));
-      process.on('unhandledRejection', (err) => log(`${tag} unhandled rejection: ${err?.stack || err}`));
+      process.on('unhandledRejection', (err) => {
+        log(`${tag} unhandled rejection: ${err?.stack || err}`);
+        suite.alerts.report('rejection', err);
+      });
       process.once('uncaughtException', (err) => {
         log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1);
+        shutdown('uncaught exception', 1, suite.alerts.crashed(err));
       });
     }
     return new Promise((resolve) => {
@@ -1092,6 +1116,8 @@ export async function createHost({
   function close() {
     for (const timer of timers) clearInterval(timer);
     for (const stopIt of stops) safely('stop', stopIt)();
+    // What the alerts held back since their last email, for the next one after a restart.
+    suite.alerts.flush();
     // Open tabs would keep the server from closing.
     suite.live.close();
     for (const m of joined) m.view.live.close();

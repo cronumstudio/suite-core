@@ -206,12 +206,16 @@ export function createDevices({
   const sessionsLinked = database.columnsOf('sessions').includes('device_id');
   // A device's native push token (migration 24): a database without the table has none.
   const pushLinked = database.columnsOf('device_push_tokens').length > 0;
+  // The reminders a device shows itself (migration 26): a database without the table has none.
+  const remindersLinked = database.columnsOf('device_reminders').length > 0;
   /**
    * Closes the web sessions of devices just revoked, and forgets their native
-   * push tokens so no notice reaches them after: `where` picks them in device_tokens.
+   * push tokens so no notice reaches them after, and the reminders they said
+   * they show: `where` picks them in device_tokens.
    */
   const endSessions = (where, ...params) => {
     if (pushLinked) database.run(`DELETE FROM device_push_tokens WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params);
+    if (remindersLinked) database.run(`DELETE FROM device_reminders WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params);
     return sessionsLinked
       ? database.run(`DELETE FROM sessions WHERE device_id IN (SELECT id FROM device_tokens WHERE ${where})`, ...params).changes
       : 0;

@@ -429,7 +429,7 @@ opens the app's settings (`open-app-settings`); without it, that they come with 
 app. `subscribePush()` refuses (`Error('in_app')`) before asking anything, `pushSupport()` says
 `'unsupported'`, and the host's one worker carries no subscription over: the app's own
 registration is the phone's one channel, so a notice never comes twice. Leaving never goes to the
-provider's page (`logout_url`, WorkOS or OpenID Connect), v0.122.1: another site, which the app
+provider's page (`logout_url`, WorkOS or OpenID Connect), v0.126.1: another site, which the app
 would open in the phone's browser or race with its own sign-in. `signOut()` ends the session at the
 server and clears the device's copies as anywhere, sends `sign-out`, then reloads to the site's own
 sign-in, as it does without a provider. Deleting one's account in Settings does the same once the

@@ -18,9 +18,10 @@ import path from 'node:path';
 import {
   nativePushFromEnv, noticeOf, apnsPayload, apnsHeaders, fcmMessage, createApnsSender, createFcmSender,
   createNativePush, apnsOutcome, fcmOutcome, APNS_MAX_PAYLOAD, FCM_MAX_PAYLOAD, APNS_PRODUCTION, APNS_SANDBOX, GOOGLE_OAUTH,
+  deviceRemindersOf, reminderOf, instantOf, MAX_DEVICE_REMINDERS,
 } from '../native-push.js';
 import { createPush, generateVapidKeys } from '../push.js';
-import { hostedPush } from '../host-worker.js';
+import { hostedPush, moduleReminderPush } from '../host-worker.js';
 import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
@@ -742,4 +743,219 @@ test('over HTTP: credentials that can’t be used start the app anyway, that pla
   assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).data.sending, false);
   assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 1 });
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM device_push_tokens').n, 1, 'kept for when the key is fixed');
+});
+
+/* ------------------------- reminders the phone shows ------------------------ */
+
+const AT = '2026-10-23T09:00:00.000Z';
+const later = (iso, seconds) => new Date(Date.parse(iso) + seconds * 1000).toISOString();
+
+test('what a phone says it shows: checked, one ISO-8601 instant each, at most 64', () => {
+  assert.deepEqual(deviceRemindersOf([]), []);
+  assert.deepEqual(deviceRemindersOf([{ module: 'tasks', id: '12', at: '2026-10-23T11:00+02:00' }, { module: null, id: 'x', at: AT }]), [
+    { module: 'tasks', id: '12', at: Date.parse(AT) }, { module: null, id: 'x', at: Date.parse(AT) },
+  ]);
+  const fails = (items) => {
+    try { deviceRemindersOf(items); } catch (err) { return [err.status, err.code, err.extra.field]; }
+    return null;
+  };
+  assert.deepEqual(fails(undefined), [400, 'field_required', 'items']);
+  assert.deepEqual(fails({}), [400, 'field_invalid', 'items']);
+  assert.deepEqual(fails(Array.from({ length: MAX_DEVICE_REMINDERS + 1 }, (_, i) => ({ id: String(i), at: AT }))), [400, 'field_too_long', 'items']);
+  assert.equal(fails(Array.from({ length: MAX_DEVICE_REMINDERS }, (_, i) => ({ id: String(i), at: AT }))), null);
+  assert.deepEqual(fails(['tasks-1']), [400, 'field_invalid', 'items[0]']);
+  assert.deepEqual(fails([{ module: 'Tasks', id: '1', at: AT }]), [400, 'field_invalid', 'items[0].module']);
+  assert.deepEqual(fails([{ module: '/tasks', id: '1', at: AT }]), [400, 'field_invalid', 'items[0].module']);
+  assert.deepEqual(fails([{ module: 7, id: '1', at: AT }]), [400, 'field_invalid', 'items[0].module']);
+  assert.deepEqual(fails([{ id: '', at: AT }]), [400, 'field_required', 'items[0].id']);
+  assert.deepEqual(fails([{ id: 12, at: AT }]), [400, 'field_invalid', 'items[0].id']);
+  assert.deepEqual(fails([{ id: 'x'.repeat(65), at: AT }]), [400, 'field_too_long', 'items[0].id']);
+  assert.deepEqual(fails([{ id: '1', at: AT }, { id: '2' }]), [400, 'field_required', 'items[1].at']);
+  for (const at of ['2026-10-23', '2026-10-23 09:00:00Z', '2026-02-30T09:00:00Z', '2026-10-23T24:00:00Z', 'tomorrow', 1792569600000]) {
+    assert.deepEqual(fails([{ id: '1', at }]), [400, 'field_invalid', 'items[0].at'], String(at));
+  }
+  assert.equal(instantOf('2026-10-23T09:00:00.123456Z'), Date.parse(AT) + 123);
+  // What a send names: lenient, and nothing skipped when it can't be read.
+  assert.deepEqual(reminderOf({ id: 12, at: new Date(AT) }), { module: null, id: '12', at: Date.parse(AT) });
+  assert.deepEqual(reminderOf({ module: 'tasks', id: '12', at: Date.parse(AT) }), { module: 'tasks', id: '12', at: Date.parse(AT) });
+  for (const bad of [null, 'tasks-12', { id: 12 }, { at: AT }, { id: 12, at: 'soon' }, { id: '', at: AT }]) assert.equal(reminderOf(bad), null);
+});
+
+test('the reminders a phone shows: migration 26, replaced by each list, gone with its token, its revocation and the device', (t) => {
+  const { database, devices, ana, connect } = setup(t);
+  assert.ok(database.get("SELECT 1 AS ok FROM schema_migrations WHERE scope = 'suite' AND version = 26 AND name = 'device-reminders'")
+    ?? database.get("SELECT 1 AS ok FROM sqlite_master WHERE name = 'device_reminders'"));
+  const native = createNativePush({ database, devices, ...fakeSenders() });
+  const rows = (id) => database.all('SELECT module, item_id, at FROM device_reminders WHERE device_id = ? ORDER BY id', id).map((r) => ({ ...r }));
+  const phone = connect(ana);
+  native.register(phone.device.id, { platform: 'ios', token: IOS_TOKEN, environment: 'production' });
+  const items = deviceRemindersOf([
+    { module: 'tasks', id: '1', at: '2026-10-23T11:00:00+02:00' }, { module: 'tasks', id: '1', at: AT }, { module: null, id: '2', at: AT },
+  ]);
+  assert.equal(native.setReminders(phone.device.id, items), 2, 'the same one twice is kept once');
+  assert.deepEqual(rows(phone.device.id), [{ module: 'tasks', item_id: '1', at: AT }, { module: null, item_id: '2', at: AT }]);
+  assert.equal(native.setReminders(phone.device.id, deviceRemindersOf([{ module: 'tasks', id: '3', at: AT }])), 1);
+  assert.deepEqual(rows(phone.device.id), [{ module: 'tasks', item_id: '3', at: AT }], 'each list replaces the one before');
+  assert.equal(native.setReminders(phone.device.id, []), 0);
+  assert.deepEqual(rows(phone.device.id), [], 'an empty list clears it');
+
+  // Its token forgotten (DELETE /api/devices/push): without notices it shows none.
+  native.setReminders(phone.device.id, deviceRemindersOf([{ module: 'tasks', id: '3', at: AT }]));
+  assert.equal(native.unregister(phone.device.id), true);
+  assert.deepEqual(rows(phone.device.id), []);
+  // Revoked, by its owner or by itself (DELETE /api/devices/current), or by the admin.
+  for (const end of [(id) => devices.revoke(ana.id, id), () => devices.revokeAllOf(ana.id)]) {
+    const other = connect(ana);
+    native.setReminders(other.device.id, deviceRemindersOf([{ module: 'tasks', id: '3', at: AT }]));
+    end(other.device.id);
+    assert.deepEqual(rows(other.device.id), []);
+  }
+  // The device forgotten by the purge, or with its account: the rows hang on it (ON DELETE CASCADE).
+  const last = connect(ana);
+  native.setReminders(last.device.id, deviceRemindersOf([{ module: 'tasks', id: '3', at: AT }]));
+  database.run('DELETE FROM device_tokens WHERE id = ?', last.device.id);
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM device_reminders').n, 0);
+});
+
+test('a reminder’s notice skips only the phones that show it themselves, never Web Push', async (t) => {
+  const { database, devices, ana, bea, connect } = setup(t);
+  const fake = fakeSenders();
+  const native = createNativePush({ database, devices, ...fake });
+  const webSent = [];
+  const fetch = async (url) => { webSent.push(String(url)); return new Response(null, { status: 201 }); };
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {}, native });
+  const keys = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey.export({ format: 'jwk' });
+  const p256dh = Buffer.concat([Buffer.from([4]), Buffer.from(keys.x, 'base64url'), Buffer.from(keys.y, 'base64url')]).toString('base64url');
+  push.subscribe(ana.id, { endpoint: 'https://fcm.googleapis.com/fcm/send/ana-desktop', p256dh, auth: crypto.randomBytes(16).toString('base64url') });
+  const phone = connect(ana);
+  const tablet = connect(ana, 'android');
+  native.register(phone.device.id, { platform: 'ios', token: IOS_TOKEN, environment: 'production' });
+  native.register(tablet.device.id, { platform: 'android', token: ANDROID_TOKEN });
+  native.register(connect(bea).device.id, { platform: 'ios', token: 'd'.repeat(64), environment: 'production' });
+  // Only the iPhone scheduled task 7 itself.
+  native.setReminders(phone.device.id, deviceRemindersOf([{ module: 'tasks', id: '7', at: AT }]));
+  const notice = { title: '🔔 Call', tag: 'tasks-reminder-7', module: 'tasks', id: 7 };
+  const reset = () => { fake.sent.length = 0; webSent.length = 0; };
+  const platforms = () => fake.sent.map((s) => s.platform).sort();
+
+  // As Tasks does it: its own rows of push_subscriptions, the reminder named.
+  const rows = database.all('SELECT * FROM push_subscriptions WHERE user_id = ?', ana.id);
+  assert.deepEqual(await push.deliver(rows, notice, { reminder: { module: 'tasks', id: 7, at: AT } }), { sent: 2, gone: 0, failed: 0, skipped: 1 });
+  assert.deepEqual(platforms(), ['android'], 'the tablet, which did not schedule it, still gets it');
+  assert.deepEqual(webSent, ['https://fcm.googleapis.com/fcm/send/ana-desktop'], 'Web Push as always');
+  assert.equal('reminder' in fake.sent[0].options, false, 'the senders never see the option');
+
+  // The same instant within a minute either way; outside it, another reminder.
+  for (const [at, skipped] of [[later(AT, 59), 1], [later(AT, -60), 1], [later(AT, 61), 0], [later(AT, -90), 0]]) {
+    reset();
+    assert.equal((await push.sendTo([ana.id], notice, { reminder: { module: 'tasks', id: '7', at } })).skipped, skipped, at);
+  }
+  // Another id, another module, or none: not what the phone shows.
+  for (const reminder of [{ module: 'tasks', id: '8', at: AT }, { module: 'projects', id: '7', at: AT }, { id: '7', at: AT }]) {
+    reset();
+    const result = await push.sendTo([ana.id], notice, { reminder });
+    assert.deepEqual([result.sent, result.skipped], [3, 0], JSON.stringify(reminder));
+  }
+  // A reminder that can't be read skips nothing, and says nothing of skipping.
+  reset();
+  assert.deepEqual(await push.sendTo([ana.id], notice, { reminder: { id: 7, at: 'soon' } }), { sent: 3, gone: 0, failed: 0 });
+  // Without the option, every phone, and the answer as before.
+  reset();
+  assert.deepEqual(await push.sendTo([ana.id], notice), { sent: 3, gone: 0, failed: 0 });
+  assert.deepEqual(platforms(), ['android', 'ios']);
+  // send() to the phone itself: skipped, nothing sent.
+  reset();
+  const iphone = push.subscriptionsOf([ana.id]).find((s) => s.native && s.platform === 'ios');
+  const one = await push.send(iphone, notice, { reminder: { module: 'tasks', id: '7', at: AT } });
+  assert.deepEqual([one.ok, one.skipped, one.outcome], [false, true, 'scheduled']);
+  assert.equal((await push.send(iphone, notice)).ok, true);
+  assert.equal(fake.sent.length, 1);
+  // Bea's phone reported nothing: hers always arrives.
+  reset();
+  assert.deepEqual(await push.sendTo([bea.id], notice, { reminder: { module: 'tasks', id: '7', at: AT } }), { sent: 1, gone: 0, failed: 0, skipped: 0 });
+  // Without push.native, the option changes nothing.
+  const webOnly = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
+  reset();
+  assert.deepEqual(await webOnly.sendTo([ana.id], notice, { reminder: { module: 'tasks', id: '7', at: AT } }), { sent: 1, gone: 0, failed: 0 });
+});
+
+test('in a host, the reminder a module names is the module’s, with or without the one worker', async (t) => {
+  const { database, devices, ana, connect } = setup(t);
+  const fake = fakeSenders();
+  const native = createNativePush({ database, devices, ...fake });
+  const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch: async () => new Response(null, { status: 201 }), log: () => {}, native });
+  const phone = connect(ana);
+  native.register(phone.device.id, { platform: 'ios', token: IOS_TOKEN, environment: 'production' });
+  native.setReminders(phone.device.id, deviceRemindersOf([{ module: 'tasks', id: '7', at: AT }]));
+  const notice = { title: '🔔 Call', tag: 'reminder-7' };
+  for (const wrap of [hostedPush, moduleReminderPush]) {
+    const tasks = wrap(push, 'tasks');
+    const projects = wrap(push, 'projects');
+    // The module says only its id and time: the host says whose (over whatever the module says).
+    assert.equal((await tasks.deliver(tasks.subscriptionsOf([ana.id]), notice, { reminder: { id: 7, at: AT } })).skipped, 1, wrap.name);
+    assert.equal((await tasks.sendTo([ana.id], notice, { reminder: { id: '7', at: AT, module: 'projects' } })).skipped, 1, wrap.name);
+    assert.equal((await tasks.send(tasks.subscriptionsOf([ana.id])[0], notice, { reminder: { id: '7', at: AT } })).skipped, true, wrap.name);
+    assert.equal((await projects.sendTo([ana.id], notice, { reminder: { id: '7', at: AT } })).skipped, 0, wrap.name);
+    // Without the option, as before.
+    assert.deepEqual(await tasks.sendTo([ana.id], notice), { sent: 1, gone: 0, failed: 0 }, wrap.name);
+  }
+  assert.equal(fake.sent.length, 4);
+  // Without the one worker, the notice itself is left as the module wrote it.
+  const plain = moduleReminderPush(push, 'tasks');
+  fake.sent.length = 0;
+  await plain.sendTo([ana.id], { title: 'T', url: '/?list=4', tag: 'lista-4' });
+  assert.deepEqual([fake.sent[0].notice.data.url, fake.sent[0].notice.tag, fake.sent[0].notice.module], ['/?list=4', 'lista-4', null]);
+  assert.equal(plain.publicKey, push.publicKey);
+});
+
+test('over HTTP: the phone says which reminders it shows, with its device token; signing out or forgetting the token clears them', async (t) => {
+  const { suite, call, web, device } = await startApp(t);
+  const phone = await device();
+  const put = (body, auth = phone.auth) => call('PUT', '/api/devices/reminders', body, auth);
+  const rows = (id) => suite.database.all('SELECT module, item_id, at FROM device_reminders WHERE device_id = ? ORDER BY id', id).map((r) => ({ ...r }));
+
+  assert.equal((await put({ items: [] }, {})).status, 401);
+  assert.equal((await web('PUT', '/api/devices/reminders', { items: [] })).status, 401, 'a session is not a device');
+  assert.deepEqual((await put({})).data, { error: 'field_required', field: 'items' });
+  assert.deepEqual((await put({ items: 'all' })).data, { error: 'field_invalid', field: 'items' });
+  assert.deepEqual((await put({ items: Array.from({ length: 65 }, (_, i) => ({ module: 'tasks', id: String(i), at: AT })) })).data,
+    { error: 'field_too_long', field: 'items', max: 64 });
+  assert.equal((await put({ items: [{ module: 'tasks', id: '1', at: 'tomorrow' }] })).data.field, 'items[0].at');
+  assert.equal((await put({ items: [{ module: 'Tasks!', id: '1', at: AT }] })).data.field, 'items[0].module');
+
+  const ok = await put({ items: [{ module: 'tasks', id: '1', at: AT }, { module: 'tasks', id: '2', at: '2026-10-23T12:30:00+02:00' }, { module: null, id: '9', at: AT }] });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(ok.data, { ok: true, count: 3 });
+  assert.deepEqual(rows(phone.id), [
+    { module: 'tasks', item_id: '1', at: AT }, { module: 'tasks', item_id: '2', at: '2026-10-23T10:30:00.000Z' }, { module: null, item_id: '9', at: AT },
+  ]);
+  assert.deepEqual((await put({ items: [{ module: 'tasks', id: '2', at: AT }] })).data, { ok: true, count: 1 });
+  assert.deepEqual(rows(phone.id), [{ module: 'tasks', item_id: '2', at: AT }], 'replaced');
+  assert.deepEqual((await put({ items: [] })).data, { ok: true, count: 0 });
+  assert.deepEqual(rows(phone.id), [], 'cleared');
+
+  // Its token forgotten: what it said goes too.
+  await put({ items: [{ module: 'tasks', id: '2', at: AT }] });
+  assert.equal((await call('DELETE', '/api/devices/push', undefined, phone.auth)).status, 200);
+  assert.deepEqual(rows(phone.id), []);
+  // Signed out from the app, and revoked from Settings.
+  await put({ items: [{ module: 'tasks', id: '2', at: AT }] });
+  assert.equal((await call('DELETE', '/api/devices/current', undefined, phone.auth)).status, 200);
+  assert.deepEqual(rows(phone.id), []);
+  assert.equal((await put({ items: [] })).status, 401);
+  const tablet = await device('android');
+  await put({ items: [{ module: 'tasks', id: '2', at: AT }] }, tablet.auth);
+  assert.equal((await web('DELETE', `/api/me/devices/${tablet.id}`)).status, 200);
+  assert.deepEqual(rows(tablet.id), []);
+});
+
+test('over HTTP: the reminders route counts bad tokens in the devices’ bucket, and is not there with the option off', async (t) => {
+  const { call } = await startApp(t);
+  const bad = { Authorization: 'Bearer workdev_nope' };
+  for (let i = 0; i < 5; i++) assert.equal((await call('PUT', '/api/devices/reminders', { items: [] }, bad)).status, 401);
+  assert.equal((await call('PUT', '/api/devices/reminders', { items: [] }, bad)).status, 429);
+
+  const off = await startApp(t, { push: null });
+  const phone = await off.device();
+  assert.equal((await off.call('PUT', '/api/devices/reminders', { items: [] }, phone.auth)).status, 404);
 });

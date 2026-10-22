@@ -83,7 +83,8 @@ suite-core/
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language;
                                sending to an app's own devices, with no user behind them
-  native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1
+  native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1;
+                               reminders the phone shows itself are not pushed to it
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
@@ -241,7 +242,7 @@ Environment variables configure the install, never the product (`config.js` read
 `BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, `EARLY_ACCESS_UNTIL`,
 `FOUNDER_OFFER_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (`revenuecat`) with `REVENUECAT_*`, `MAIL_PROVIDER` (`log` |
-`smtp`) with `MAIL_*`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
+`smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
@@ -374,6 +375,16 @@ CREATE TABLE device_push_tokens (
   failures    INTEGER NOT NULL DEFAULT 0  -- refusals in a row; three and it goes
 );
 CREATE UNIQUE INDEX ux_device_push_tokens_token ON device_push_tokens (platform, token);
+-- The reminders a phone's app shows itself as local notifications (push.native, migration 26), as
+-- it last said them: a native send of the same reminder skips that phone. Gone with the device.
+CREATE TABLE device_reminders (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER NOT NULL REFERENCES device_tokens(id) ON DELETE CASCADE,
+  module    TEXT,                        -- the module's path in a host; NULL for an app on its own
+  item_id   TEXT NOT NULL,               -- the module's id of the item (a task's), as text
+  at        TEXT NOT NULL                -- the instant it rings, ISO-8601 in UTC
+);
+CREATE INDEX ix_device_reminders_device ON device_reminders (device_id, item_id);
 
 CREATE TABLE login_attempts (bucket TEXT NOT NULL, at TEXT NOT NULL);
 CREATE INDEX ix_login_attempts ON login_attempts (bucket, at);
@@ -589,6 +600,15 @@ minutes, HttpOnly, SameSite=Lax) while the browser goes to `/auth/login`, and `/
 once the provider's callback lands there with a session (in a host, before `/` goes to the first
 module). Allow asks `POST /api/devices/codes` and goes back to the app with the code; Cancel goes
 back with `error=access_denied`. In the product's name and colours, in the person's language.
+Signed in, the page names the account (its name and email) with **Use another account** (v0.126.0):
+the browser may still hold the session of an earlier connect, and an app that signed out had no
+other way to switch. It ends that session (`POST /api/auth/logout`, its `logout_url` left aside so
+the browser stays on the page) and opens the same request with `&prompt=login`: with local accounts
+the page signs in in place; under a provider's sign-in the server sends the browser to
+`/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
+sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
+`/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
+was; nothing but the connect page asks for it.
 
 **Sessions of the web from a device** (**done**, v0.105.0, with `devices.webSessions`): an app
 whose screens are its web pages in a WebView (Cronum Work) turns its token into the web's own
@@ -1392,6 +1412,26 @@ kit's), then Notes is built on it whole, then the others as they move to English
     (by its owner, by itself, by the admin) loses its token at once; one gone idle, refused by
     `canConnect` or of a disabled account gets nothing, and its row goes with the device. Bad device
     tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
+  - **Reminders the phone shows itself** (v0.125.0): the app schedules a person's coming reminders
+    as local notifications (they ring offline, and the app closed), so the server must not push the
+    same ones too. `PUT /api/devices/reminders` with the device's token (the same auth and bucket as
+    the routes above) and `{ items: [{ module: '<module path>' | null, id: '<item id>', at:
+    '<ISO-8601 instant>' }] }`, at most 64 (`module` like a host's mount, `id` 1 to 64 characters,
+    `at` a real instant with its offset, such as `2026-10-23T09:00:00.000Z`), answers
+    `{ ok: true, count }` (the same item twice counts once); each list replaces the device's
+    previous one, and `{ items: [] }` clears it. 400 `field_required` / `field_invalid` /
+    `field_too_long` name the field (`items`, `items[3].at`). Kept in `device_reminders` (**suite
+    migration 26**, hanging on `device_tokens` with `ON DELETE CASCADE`), never exported; it goes
+    when the device is revoked (by its owner, by itself signing out, by the admin) and on
+    `DELETE /api/devices/push`. A send names its reminder in its options:
+    `deliver(subs, payload, { reminder: { id, at } })` (and `send`, `sendTo`), `id` a text or a
+    number, `at` an ISO-8601 text, a Date or milliseconds; in a host, `hostedPush` (and a host
+    without the one worker too) sets `reminder.module` to the module's path, and an app on its own
+    may give `module` itself (else null). A native target whose device reported the same `module`
+    and `id` at the same instant (give or take 60 s) is skipped, and `deliver` answers
+    `{ sent, gone, failed, skipped }`; `send` to that one device answers `{ ok: false, skipped:
+    true, outcome: 'scheduled' }`. Web Push is never skipped. Without the option, or with one that
+    can't be read, everything is sent as before and the answer has no `skipped`.
   - **Sending**: `subscriptionsOf(userIds)` also gives the people's phones (rows with
     `native: true`, `platform`, `lang`, `user_id`), and `deliver()` sends each where it goes; given
     Web Push rows only (an app that reads `push_subscriptions` itself, as Tasks does), it also sends
@@ -1477,6 +1517,18 @@ kit's), then Notes is built on it whole, then the others as they move to English
   says so in the log (`[mail] SMTP ready` or why not); a message that fails later is logged with
   its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
   changes.
+- **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
+  runs the install hears of the server failing instead of finding it in the log: an uncaught
+  exception (the process waits 4 s at most for the email, then exits with 1 as before), an
+  unhandled rejection, 5 or more 5xx within 5 minutes (counted by the server that listens, an app's
+  or a host's, each request named by its method and its route's pattern, `/tasks/api/lists/:id`),
+  and a scheduled job of the suite that threw. One email per kind every 30 minutes at most: the
+  time of the last is kept in `app_meta` before it goes, so a restart loop sends one, and the next
+  says how many were held back. It carries the app, its version, address, machine, kind, time and
+  the error with a trimmed stack, without emails, long tokens or the queries of URLs; never a
+  request's query, body, headers or cookies. In English, like the log: it is for whoever runs the
+  server. Not `ADMIN_EMAIL` on its own, so an install that moves up gets no mail it never asked
+  for; with `MAIL_PROVIDER=log`, or an address that isn't one, a warning and nothing else.
 - **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
   changes, billing events, copies exported and imported. Who, when, what and from where; never
   titles, notes or passwords.

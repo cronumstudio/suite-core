@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.122.1 — 2026-10-22
+## 0.126.1 — 2026-10-22
 
 - **Signing out and deleting one's account inside the app on a phone stay in the app**
   (`web/signin.js`, `web/settings.js`). With WorkOS or OpenID Connect, both went to the provider's
@@ -16,6 +16,88 @@ change an interface and a patch never does. Apps pin a version through the submo
   the web's farewell notice. In a browser nothing changes, for either. The service worker serves
   pages network first and never caches `/api`, so the reload asks the server and shows the
   sign-in, not a signed-in copy.
+
+## 0.126.0 — 2026-10-22
+
+- **Another account from the connect page** (`web/connect.js`, `device-pages.js`, `oidc.js`,
+  `workos.js`, `workos-accounts.js`, `i18n/*.json`). The phone app signs in through the system
+  browser on `/devices/connect`; a browser that still held the web session of an earlier connect
+  went straight to Allow for that account, so after signing out in the app there was no way to
+  switch without clearing the browser. Signed in, the page now names the account (its name and
+  email, `accountLabel`) and offers **Use another account**: it ends the browser's session
+  (`POST /api/auth/logout`, the provider's `logout_url` left aside) and opens the same request
+  again with `prompt=login` (`anotherAccountAddress`). With local accounts the page signs in in
+  place; under WorkOS or OIDC the server sends the browser to `/auth/login?prompt=login`
+  (`FRESH_LOGIN_PATH`), which asks the provider to sign in again instead of reusing its session:
+  OIDC `prompt=login`, AuthKit `max_age=0`. Only the connect page asks for it: `/auth/login`
+  without the parameter, and every other sign-in, is as before. Texts in en, es, fr, de and it
+  (`kit.connect.otherAccount`, `kit.connect.signingOut`).
+
+## 0.125.0 — 2026-10-22
+
+- **Reminders the phone schedules are not pushed to it** (`native-push.js`, `push.js`,
+  `host-worker.js`, `host.js`, `devices.js`, `schema.js`). Cronum Work's app schedules a person's
+  coming reminders as local notifications, and the reminders sweep also pushed each one natively:
+  with the app closed the phone rang twice. Now the device says what it scheduled and native
+  delivery skips it. With `push.native` only; an app or a module that names no reminder sends
+  exactly as before.
+  - `PUT /api/devices/reminders` with `Authorization: Bearer <device token>` (failures in the
+    `devices` bucket, as the other device routes) and `{ items: [{ module: string | null, id:
+    string, at: ISO-8601 }] }`, at most 64: `module` like a host's mount, `id` up to 64
+    characters, `at` a real instant. It replaces the device's previous list (empty clears it) and
+    answers `{ ok: true, count }`.
+  - Kept in `device_reminders` (**suite migration 26**), hanging on `device_tokens` with
+    `ON DELETE CASCADE`; cleared when the device is revoked (Settings, the app signing out with
+    `DELETE /api/devices/current`, the admin) and on `DELETE /api/devices/push`. Not exported.
+  - `push.deliver(subs, payload, { reminder: { id, at } })`, and the same option on `send` and
+    `sendTo`: a native target whose device reported that `(module, id, at)` (the instants within
+    60 s) is skipped, and `deliver` adds `skipped` to its answer. In a host the module is filled in
+    from the module's path (`hostedPush`, and new `moduleReminderPush` for a host without the one
+    worker). Web Push is never skipped.
+
+## 0.124.0 — 2026-10-22
+
+- **Your AI, with one prompt for a host's modules** (`web/agents.js`, `web/settings.js`, `host.js`,
+  `web/kit.css`). `createHost({ aiInstruction: '/api/ai-instruction' })` names the host's route that
+  builds the prompt for an assistant (`?lang=xx&modules=a,b` → `{ text }`), and `/api/modules` says it
+  in `host.aiInstruction`. Settings › Your AI then has, instead of each module's instruction folded,
+  "Integrate your AI agent": a chip with its mark for Claude, ChatGPT, Gemini, Claude Code, Codex,
+  Gemini CLI, Cursor and VS Code, each opening its steps to add the connector, the last one sending to
+  the prompt; the prompt for the modules ticked (the ones in use at first) with Copy; and under it
+  what each module in use adds (`standingMore`), folded under its name. A host without the option,
+  and an app on its own, read as before.
+- **`web/agents.js`**, for a host's own pages too (Work's first start): `AGENTS`, `agentMark`,
+  `agentGuide`, `agentSteps`, `agentChips` and `aiPrompt`, with their words in every language
+  (`kit.agents.*`, `kit.ai.agents*`, `kit.ai.prompt*`, `kit.ai.moreTitle`). The marks are each maker's
+  own in one colour (@lobehub/icons-static-svg, MIT; @vscode/codicons, CC BY 4.0).
+
+## 0.123.0 — 2026-10-22
+
+- **Emails to whoever runs the install when the server fails** (`alerts.js`, `app.js`, `host.js`,
+  `config.js`, `http.js`). With `ALERT_EMAIL` set and `MAIL_PROVIDER=smtp`, an app or a host
+  emails that address when an exception reaches the top (before the process exits with 1 as
+  before, waiting 4 s at most for the email), when a rejection nobody awaited is logged, when the
+  server answers 5 or more 5xx within 5 minutes, and when a scheduled job of the suite throws (the
+  clean-ups, the account deletion, the groups' renewals, a module's sweep). Off unless set: an
+  install without `ALERT_EMAIL` behaves exactly as before, and `ADMIN_EMAIL` is never used on its
+  own (an install that moves up would start getting mail it never asked for). With
+  `MAIL_PROVIDER=log`, or an `ALERT_EMAIL` that isn't an address, a warning at the start and no
+  alerts: never a reason not to start.
+  - **One email per kind every 30 minutes at most**, across restarts: the time of the last one is
+    saved in `app_meta` (`suite.alerts.<kind>`) before it goes, and none goes when it can't be
+    saved, so a crash loop sends one. What happened meanwhile is counted, and the next email says
+    how many were held back; one the mail server refused is counted too.
+  - **What it says**: the app's name and version, `BASE_URL`, the machine, the kind, the time and
+    the error's name, message and first 15 frames, without emails, long tokens or the queries of
+    URLs. Of a request only its method, status and route pattern (`POST /tasks/api/lists/:id`; a
+    path no route took, its first two words): never its query, body, headers, cookies or who made
+    it. Plain text in English, like the log it comes from.
+  - `createSuite()` returns `alerts` (and a module of a host gets the host's): an app's own timers
+    can call `suite.alerts.jobFailed(name, error)`, which never throws and does nothing with alerts
+    off; `createApp()` and `createHost()` wire the rest. The router's `match()` also returns the
+    route's `pattern`.
+- **`.env` files are never committed** (`.gitignore`): `.env` and `.env.*` are ignored, except
+  `.env.example`, before suite-core is published.
 
 ## 0.121.0 — 2026-10-22
 
