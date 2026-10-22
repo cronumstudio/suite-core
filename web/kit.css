@@ -1186,12 +1186,17 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-agent span { min-width: 0; overflow-wrap: anywhere; }
 .kit-agent-mark { width: 20px; height: 20px; flex: none; fill: currentColor; }
 .kit-agent-steps { display: grid; gap: 10px; min-width: 0; }
-.kit-steps { display: grid; gap: 14px; margin: 0; padding-inline-start: 1.4em; }
-.kit-steps li { display: grid; gap: 8px; min-width: 0; padding-inline-start: 2px; }
-.kit-steps li::marker { font-weight: 600; color: var(--kit-muted); }
+.kit-steps { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; counter-reset: kit-step; }
+.kit-steps li { position: relative; display: grid; gap: 8px; min-width: 0; padding-inline-start: 36px; counter-increment: kit-step; }
+.kit-steps li::before {
+  content: counter(kit-step); position: absolute; inset-inline-start: 0; top: -1px; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--kit-hover); color: var(--kit-text); font: 600 13px/1 var(--kit-font);
+}
 .kit-steps p { margin: 0; }
 .kit-steps a.kit-btn { justify-self: start; }
 .kit-prompt { display: grid; gap: 10px; min-width: 0; }
+/* The prompt is long: in its own scroll, so Copy stays near. */
+.kit-prompt .kit-instruction { max-height: min(22em, 55vh); overflow-y: auto; overscroll-behavior: contain; }
 .kit-prompt__modules { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .kit-prompt__modules img { border-radius: 5px; flex: none; }
 
