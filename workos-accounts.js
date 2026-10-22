@@ -411,6 +411,8 @@ export function createWorkosAccounts({
         state,
         challenge: pkceChallenge,
         signUp: url.searchParams.get('signup') === '1',
+        // Only the device connect page asks for it (device-pages.js), to sign in as someone else.
+        fresh: url.searchParams.get('prompt') === 'login',
       }));
       return true;
     }

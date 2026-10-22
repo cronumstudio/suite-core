@@ -91,6 +91,12 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
   t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${server.address().port}`;
 
+  // The device connect page's "another account" asks the provider to sign in again; nothing else does.
+  const login = async (search) => new URL((await fetch(`${base}/auth/login${search}`, { redirect: 'manual' })).headers.get('location'));
+  assert.equal((await login('?prompt=login')).searchParams.get('prompt'), 'login');
+  assert.equal((await login('')).searchParams.has('prompt'), false);
+  assert.equal((await login('?prompt=none')).searchParams.has('prompt'), false);
+
   const signIn = async (claims, { returnTo = null, override = {}, signing = {}, state = null } = {}) => {
     const out = await fetch(`${base}/auth/login${returnTo ? `?return=${encodeURIComponent(returnTo)}` : ''}`, { redirect: 'manual' });
     const target = new URL(out.headers.get('location'));

@@ -94,14 +94,19 @@ export function createOidcClient({
     return { verifier, challenge: crypto.createHash('sha256').update(verifier).digest('base64url') };
   }
 
-  /** Where to send the browser to sign in. */
-  async function authorizationUrl({ redirectUri, state, challenge, nonce }) {
+  /**
+   * Where to send the browser to sign in. With `fresh`, `prompt=login` (OIDC
+   * Core §3.1.2.1): the provider asks again instead of taking the session it
+   * still holds in that browser, for the connect page's "another account".
+   */
+  async function authorizationUrl({ redirectUri, state, challenge, nonce, fresh = false }) {
     const { authorization_endpoint: endpoint } = await metadata();
     const url = new URL(endpoint);
     for (const [key, value] of Object.entries({
       response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: scopes,
       state, nonce, code_challenge: challenge, code_challenge_method: 'S256',
     })) url.searchParams.set(key, value);
+    if (fresh) url.searchParams.set('prompt', 'login');
     return url.toString();
   }
 
@@ -214,7 +219,9 @@ export function createOidcAccounts({
         const nonce = crypto.randomBytes(16).toString('base64url');
         const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
         addCookie(res, cookieHeader([state, verifier, nonce, back].join('.'), 600));
-        redirect(res, await oidc.authorizationUrl({ redirectUri: REDIRECT, state, challenge, nonce }));
+        // `prompt=login` only from the device connect page (device-pages.js), to sign in as someone else.
+        const fresh = url.searchParams.get('prompt') === 'login';
+        redirect(res, await oidc.authorizationUrl({ redirectUri: REDIRECT, state, challenge, nonce, fresh }));
       } catch (err) {
         log(`[oidc] sign-in could not start: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof OidcUnavailable ? 'unavailable' : 'failed'}`);

@@ -158,6 +158,9 @@ try {
   check('/auth/login goes to AuthKit with PKCE S256',
     ada.target.pathname === '/user_management/authorize' && ada.target.searchParams.get('code_challenge_method') === 'S256'
     && ada.target.searchParams.get('redirect_uri') === `${base}/auth/callback`);
+  check('/auth/login lets AuthKit reuse its session, unless the connect page asks again (max_age=0)',
+    !ada.target.searchParams.has('max_age')
+    && new URL((await fetch(`${base}/auth/login?prompt=login`, { redirect: 'manual' })).headers.get('location')).searchParams.get('max_age') === '0');
   check('The state cookie is HttpOnly and limited to /auth',
     /HttpOnly/.test(ada.out.headers.get('set-cookie')) && /Path=\/auth/.test(ada.out.headers.get('set-cookie')));
   check('The return opens a session through the app, with AuthKit’s session id',

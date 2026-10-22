@@ -22,7 +22,7 @@ import { resolveConfig } from '../config.js';
 import { createSuite, createApp, SuiteConfigError } from '../app.js';
 import { createHost } from '../host.js';
 import {
-  connectRequest, connectPath, createConnectCookie, createDevicePages, localNext, CONNECT_MS, REFUSED_PATH,
+  connectRequest, connectPath, createConnectCookie, createDevicePages, localNext, CONNECT_MS, REFUSED_PATH, FRESH_LOGIN_PATH,
 } from '../device-pages.js';
 import { randomToken, sha256 } from '../crypto.js';
 
@@ -161,6 +161,25 @@ test('under a provider’s sign-in: the request waits in a cookie, and `/` bring
   assert.deepEqual([page.status, page.cookies], [200, []]);
   // A request that is not one: the bare page, which says so.
   assert.equal(exchange(providerPages(), `/devices/connect${query({ ...ask, redirect_uri: 'https://evil.example/' })}`).location, '/devices/connect');
+});
+
+test('another account, under a provider’s sign-in: the sign-in asks again, and comes back to the same request', () => {
+  const ask = ASK();
+  const out = exchange(providerPages(), `/devices/connect${query({ ...ask, prompt: 'login' })}`);
+  assert.deepEqual([out.answered, out.status, out.location], [true, 302, FRESH_LOGIN_PATH]);
+  assert.equal(FRESH_LOGIN_PATH, '/auth/login?prompt=login');
+  // The cookie carries the request alone: back from the provider, the page with it, never asking again.
+  const back = exchange(providerPages({ signedIn: true }), '/', out.cookies[0].split(';')[0]);
+  assert.deepEqual(Object.fromEntries(new URL(back.location, 'http://x').searchParams), { ...ask, platform: 'ios' });
+  // Any other prompt, or one given twice, is the usual sign-in.
+  assert.equal(exchange(providerPages(), `/devices/connect${query({ ...ask, prompt: 'none' })}`).location, '/auth/login');
+  assert.equal(exchange(providerPages(), `/devices/connect${query(ask)}&prompt=login&prompt=login`).location, '/auth/login');
+  // Still signed in (the sign-out didn't happen): the page, as always.
+  const page = exchange(providerPages({ signedIn: true }), `/devices/connect${query({ ...ask, prompt: 'login' })}`);
+  assert.deepEqual([page.status, page.cookies], [200, []]);
+  // A request that is not one: the bare page, prompt or not.
+  assert.equal(exchange(providerPages(), `/devices/connect${query({ ...ask, prompt: 'login', redirect_uri: 'https://evil.example/' })}`).location,
+    '/devices/connect');
 });
 
 test('no options, no pages', () => {
@@ -369,6 +388,14 @@ test('the connect page: the suite’s, with local accounts in place; a request t
   assert.deepEqual([wrong.status, wrong.headers.get('location')], [302, '/devices/connect']);
   assert.equal((await call('HEAD', '/devices/connect')).status, 200);
   assert.equal((await call('POST', '/devices/connect')).status, 405);
+  // Another account with local accounts: signed out, the page again, which signs in in place.
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal((await call('GET', '/api/auth/me')).data.user.username, 'admin');
+  const out = await call('POST', '/api/auth/logout');
+  assert.deepEqual([out.status, out.data], [200, { ok: true }]);
+  assert.equal((await call('GET', '/api/auth/me')).data.user, null);
+  const again = await call('GET', `/devices/connect${query({ ...ask, prompt: 'login' })}`);
+  assert.deepEqual([again.status, again.setCookies], [200, []]);
   // The kit's code for it is served with the rest.
   assert.match((await call('GET', '/suite/connect.js')).data, /export function showConnect/);
 });
