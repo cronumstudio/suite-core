@@ -412,3 +412,41 @@ test('notifications in the app: the app’s own, never Web Push', async () => {
   old.settings.close();
   delete globalThis.Notification;
 });
+
+test('signing out in the app: the app told first, then the site’s own sign-in, never the provider’s page', async () => {
+  const { signOut } = await import('../web/signin.js');
+  const PROVIDER = 'https://auth.example.com/user_management/sessions/logout?session_id=sess_1';
+  const real = { location: page.location, bridge: page.ReactNativeWebView };
+  /** What happened, in order: the messages the app got and where the page went. */
+  const signedOut = async (app, server) => {
+    asApp(app);
+    const happened = [];
+    page.ReactNativeWebView = { postMessage: (text) => happened.push(`message ${JSON.parse(text).type}`) };
+    page.location = {
+      ...real.location,
+      reload: () => happened.push('reload'),
+      set href(to) { happened.push(`go ${to}`); },
+      get href() { return real.location.href; },
+    };
+    routes = server;
+    asked = [];
+    try {
+      await signOut();
+    } finally {
+      page.location = real.location;
+      page.ReactNativeWebView = real.bridge;
+    }
+    assert.deepEqual(asked, ['POST /api/auth/logout'], 'the session ended at the server, everywhere');
+    return happened;
+  };
+  const WITH_PROVIDER = { 'POST /api/auth/logout': { data: { ok: true, logout_url: PROVIDER } } };
+  const WITHOUT = { 'POST /api/auth/logout': { data: { ok: true } } };
+
+  assert.deepEqual(await signedOut(['push'], WITH_PROVIDER), ['message sign-out', 'reload'],
+    'in the app: the bridge’s sign-out, then this site’s sign-in; WorkOS’s page never');
+  assert.deepEqual(await signedOut([], WITH_PROVIDER), ['message sign-out', 'reload'], 'an app known by its user agent alone too');
+  assert.deepEqual(await signedOut(['push'], WITHOUT), ['message sign-out', 'reload'], 'without a provider, as before');
+
+  assert.deepEqual(await signedOut(null, WITH_PROVIDER), [`go ${PROVIDER}`], 'in a browser: the provider’s page, as always');
+  assert.deepEqual(await signedOut(null, WITHOUT), ['reload'], 'and without one, the page again');
+});

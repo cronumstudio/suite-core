@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.121.1 — 2026-10-22
+
+- **Signing out inside the app on a phone stays in the app** (`web/signin.js`). With WorkOS or
+  OpenID Connect, `signOut()` went to the provider's page (`logout_url`), another site: Cronum
+  Work's app opened it in the phone's browser or raced it with its own sign-in. In the app
+  (`inApp()`) it no longer goes there: the session ends at the server and the device's copies are
+  cleared as before, the bridge's `sign-out` goes out first (as since 0.106.0), and the page
+  reloads to the site's own sign-in, as it does without a provider. In a browser nothing changes.
+  The service worker serves pages network first and never caches `/api`, so the reload asks the
+  server and shows the sign-in, not a signed-in copy.
+
 ## 0.120.0 — 2026-10-22
 
 - **Italian** (`i18n/it.json`, `i18n.js`, `web/i18n.js`, `web/settings.js`). The suite speaks `it`:
