@@ -1004,9 +1004,26 @@ test('a host with a split view: the rail offers it, and only its own pages may f
 test('a host without a split view: nobody may frame its modules, and the rail offers none', async (t) => {
   const { call } = await startHost(t);
   assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
+  assert.equal((await call('GET', '/api/modules')).data.host.aiInstruction, undefined, 'nor a prompt of the host’s');
   const module = await call('GET', '/alpha/api/auth/config');
   assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(module.headers.get('x-frame-options'), 'DENY');
+});
+
+test('a host with one prompt for an assistant names its route for Settings, and only a route of its own', async (t) => {
+  const { call } = await startHost(t, { aiInstruction: '/api/ai-instruction' });
+  assert.equal((await call('GET', '/api/modules')).data.host.aiInstruction, '/api/ai-instruction');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  try {
+    for (const aiInstruction of ['https://elsewhere.example/api/x', '/ai-instruction', '/api/../x', 42]) {
+      await assert.rejects(
+        createHost({ config: HOST, modules: modules(), aiInstruction, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }, handleSignals: false, exitOnError: false, log: () => {} }),
+        (err) => err instanceof SuiteConfigError && /aiInstruction: .* is not a route of the host/.test(err.errors.join('\n')),
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a split view that isn’t a page of the host stops the start', async () => {

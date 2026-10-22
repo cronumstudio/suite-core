@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.125.0 — 2026-10-22
+## 0.126.0 — 2026-10-22
 
 - **Another account from the connect page** (`web/connect.js`, `device-pages.js`, `oidc.js`,
   `workos.js`, `workos-accounts.js`, `i18n/*.json`). The phone app signs in through the system
@@ -18,6 +18,22 @@ change an interface and a patch never does. Apps pin a version through the submo
   OIDC `prompt=login`, AuthKit `max_age=0`. Only the connect page asks for it: `/auth/login`
   without the parameter, and every other sign-in, is as before. Texts in en, es, fr, de and it
   (`kit.connect.otherAccount`, `kit.connect.signingOut`).
+
+## 0.124.0 — 2026-10-22
+
+- **Your AI, with one prompt for a host's modules** (`web/agents.js`, `web/settings.js`, `host.js`,
+  `web/kit.css`). `createHost({ aiInstruction: '/api/ai-instruction' })` names the host's route that
+  builds the prompt for an assistant (`?lang=xx&modules=a,b` → `{ text }`), and `/api/modules` says it
+  in `host.aiInstruction`. Settings › Your AI then has, instead of each module's instruction folded,
+  "Integrate your AI agent": a chip with its mark for Claude, ChatGPT, Gemini, Claude Code, Codex,
+  Gemini CLI, Cursor and VS Code, each opening its steps to add the connector, the last one sending to
+  the prompt; the prompt for the modules ticked (the ones in use at first) with Copy; and under it
+  what each module in use adds (`standingMore`), folded under its name. A host without the option,
+  and an app on its own, read as before.
+- **`web/agents.js`**, for a host's own pages too (Work's first start): `AGENTS`, `agentMark`,
+  `agentGuide`, `agentSteps`, `agentChips` and `aiPrompt`, with their words in every language
+  (`kit.agents.*`, `kit.ai.agents*`, `kit.ai.prompt*`, `kit.ai.moreTitle`). The marks are each maker's
+  own in one colour (@lobehub/icons-static-svg, MIT; @vscode/codicons, CC BY 4.0).
 
 ## 0.123.0 — 2026-10-22
 

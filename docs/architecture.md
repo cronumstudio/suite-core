@@ -589,7 +589,7 @@ minutes, HttpOnly, SameSite=Lax) while the browser goes to `/auth/login`, and `/
 once the provider's callback lands there with a session (in a host, before `/` goes to the first
 module). Allow asks `POST /api/devices/codes` and goes back to the app with the code; Cancel goes
 back with `error=access_denied`. In the product's name and colours, in the person's language.
-Signed in, the page names the account (its name and email) with **Use another account** (v0.125.0):
+Signed in, the page names the account (its name and email) with **Use another account** (v0.126.0):
 the browser may still hold the session of an earlier connect, and an app that signed out had no
 other way to switch. It ends that session (`POST /api/auth/logout`, its `logout_url` left aside so
 the browser stays on the page) and opens the same request with `&prompt=login`: with local accounts
