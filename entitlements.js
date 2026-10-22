@@ -111,6 +111,9 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
  * @param {string} [options.plansJson]    PLANS from the environment, overriding `plans`: a JSON,
  *                                        or the name of a catalog of plans.js (`cronum-work`)
  * @param {string} [options.defaultPlanOverride]   DEFAULT_PLAN from the environment
+ * @param {object} [options.earlyAccess]  { plan, until }: the default plan is `plan` until that
+ *                                        date (EARLY_ACCESS_PLAN, EARLY_ACCESS_UNTIL), and the
+ *                                        install's default from then on, with nothing to change
  * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
  * @param {(organizationId) => boolean} [options.organizationExists]   whether a group is there and
@@ -123,7 +126,7 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
  */
 export function createEntitlements({
   database, appId, features = {}, plans = null, defaultPlan = null,
-  plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN,
+  plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN, earlyAccess = null,
   isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [], organizationExists = null,
   clock = () => Date.now(), othersDeclare = false,
 }) {
@@ -225,6 +228,12 @@ export function createEntitlements({
   if (!catalog[fallbackPlan] && !renamedDefault) {
     errors.push(`The default plan "${fallbackPlan}" is not in the catalog (${planIds.join(', ')})`);
   }
+  if (earlyAccess && !catalog[earlyAccess.plan]) {
+    errors.push(`EARLY_ACCESS_PLAN: the plan "${earlyAccess.plan}" is not in the catalog (${planIds.join(', ')})`);
+  }
+  const earlyUntil = earlyAccess && catalog[earlyAccess.plan] ? Date.parse(earlyAccess.until) : null;
+  /** The plan of whoever has no grant now: the early access's while it lasts, then the default. */
+  const defaultNow = () => (earlyUntil !== null && clock() < earlyUntil ? earlyAccess.plan : fallbackPlan);
   /** Catalog order is from least to most: with two plans active, the later one is the one shown. */
   const rank = (planId) => planIds.indexOf(planId);
 
@@ -277,10 +286,11 @@ export function createEntitlements({
    * `ends` is when the shown plan lapses (null: it doesn't).
    */
   function of(user, { organizationId = null } = {}) {
-    if (!user) return { plan: { id: fallbackPlan, name: catalog[fallbackPlan]?.name }, ends: null, features: allDefaults(), unlimited: false };
+    const plan = defaultNow();
+    if (!user) return { plan: { id: plan, name: catalog[plan]?.name }, ends: null, features: allDefaults(), unlimited: false };
     if (isUnlimited(user)) {
       const features = Object.fromEntries(Object.entries(declared).map(([k, s]) => [k, unlimitedValue(s.type)]));
-      return { plan: { id: fallbackPlan, name: catalog[fallbackPlan]?.name }, ends: null, features, unlimited: true };
+      return { plan: { id: plan, name: catalog[plan]?.name }, ends: null, features, unlimited: true };
     }
     return entitledBy(activeGrants(user, organizationId));
   }
@@ -312,8 +322,9 @@ export function createEntitlements({
 
   /** entitledBy(), and the grant that gives the plan shown: null when it is the default one. */
   function shownBy(grants) {
-    const features = { ...(catalog[fallbackPlan]?.features || allDefaults()) };
-    let shown = { plan: catalog[fallbackPlan], ends: null, granted: false, grant: null };
+    const base = defaultNow();
+    const features = { ...(catalog[base]?.features || allDefaults()) };
+    let shown = { plan: catalog[base], ends: null, granted: false, grant: null };
     for (const grant of grants) {
       if (grant.plan) {
         const plan = catalog[localKey(grant.plan)];
@@ -563,7 +574,7 @@ export function createEntitlements({
 
   /** The catalog, for settings and the admin panel. */
   const describe = () => ({
-    defaultPlan: fallbackPlan,
+    defaultPlan: defaultNow(),
     plans: planIds.map((id) => catalog[id]),
     features: declared,
     several: planIds.length > 1,

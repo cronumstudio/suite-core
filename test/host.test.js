@@ -106,7 +106,7 @@ test('a host serves each module at its own path, with one sign-in, one database 
   const where = (await call('GET', '/alpha/api/where')).data;
   assert.equal(where.baseUrl, 'http://127.0.0.1/alpha', 'links a module writes point into it');
   assert.equal(where.install, 'http://127.0.0.1/alpha');
-  assert.deepEqual(where.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false });
+  assert.deepEqual(where.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false, billing: false });
 
   // What each module is, for the host's pages, and which ones this person uses: all until they choose.
   assert.deepEqual((await call('GET', '/api/modules')).data, {
@@ -120,7 +120,7 @@ test('a host serves each module at its own path, with one sign-in, one database 
         settings: { sections: [], data: false, ai: false, about: false }, active: true },
     ],
   });
-  assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false },
+  assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false, billing: false },
     'a module tells the kit it is in a host');
   assert.equal((await call('GET', '/api/auth/config')).data.app.host, undefined, 'the host itself isn’t a module');
   assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.modules.mcp, true,
@@ -1073,4 +1073,48 @@ test('a host without notices doesn\'t answer them at a module\'s path either', a
   const { call } = await startHost(t);
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
   assert.equal((await call('GET', '/alpha/api/push/config')).status, 404);
+});
+
+test('payments are the host\'s in every module: its routes at a module that sells nothing itself, and a founder\'s notice', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-billing-'));
+  const host = await createHost({
+    config: {
+      ...HOST, modules: { live: true, billing: true },
+      plans: { free: { name: 'Free', features: {} }, pro: { name: 'Pro', features: {} } }, defaultPlan: 'free',
+      products: { 'pro-yearly': { plan: 'pro', kind: 'subscription', amount: 35, founderAmount: 19, founderPrice: 'founder', currency: 'EUR' } },
+    },
+    modules: modules(),
+    env: {
+      DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+      BILLING_PROVIDER: 'remote', BILLING_SECRET: 'a-shared-secret-of-the-accounts-service',
+      EARLY_ACCESS_UNTIL: '2026-02-01', FOUNDER_OFFER_UNTIL: '2099-01-01',
+    },
+    version: '9.9.9', handleSignals: false, exitOnError: false, log: () => {},
+  });
+  const server = await host.listen();
+  t.after(async () => { await host.close(); host.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const call = async (method, pathname, body) => {
+    const res = await fetch(base + pathname, {
+      method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('work_sid='));
+    if (set) cookie = set.split(';')[0];
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  // Joined during the early access.
+  host.suite.database.run("UPDATE users SET created_at = '2026-01-10T10:00:00.000Z' WHERE username = 'admin'");
+
+  assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.host.billing, true, 'the host sells: Settings › Plan says so in every module');
+  const products = await call('GET', '/alpha/api/billing/products');
+  assert.equal(products.status, 200, 'at a module that sells nothing on its own');
+  assert.deepEqual(products.data.products.map((p) => [p.key, p.amount, p.founder_amount]), [['pro-yearly', 35, 19]]);
+  assert.equal(products.data.founder, true);
+  assert.equal(products.data.founder_until, '2099-01-01T00:00:00.000Z');
+  assert.equal(products.data.on_sale, true);
+  assert.equal((await call('GET', '/alpha/api/billing/overview')).status, 200);
+  assert.deepEqual((await call('GET', '/api/modules')).data.founder_offer, { until: '2099-01-01T00:00:00.000Z' }, 'the notice every frame shows');
 });

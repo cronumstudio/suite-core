@@ -43,7 +43,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import {
-  createBilling, signedProvider, registerBillingApi, combinedBilling, registerBillingOverviewApi,
+  createBilling, signedProvider, registerBillingApi, combinedBilling, registerBillingOverviewApi, founderPriceOpen, joinedEarly,
 } from './billing.js';
 import { stripeProvider } from './stripe.js';
 import { paddleProvider } from './paddle.js';
@@ -184,6 +184,7 @@ export function createSuite({
   const entitlements = createEntitlements({
     database, appId: config.app.id, features: config.features, plans: config.plans,
     defaultPlan: config.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
+    earlyAccess: install.earlyAccess ?? null,
     organizationsOf: (user) => (organizations ? organizations.organizationsOf(user) : []),
     // An organization's own plan (ofOrganization) is only for one that is there and not archived.
     organizationExists: (id) => Boolean(organizations?.get(id)),
@@ -231,19 +232,27 @@ export function createSuite({
   /**
    * The founder's price is for whoever joined during the early access: their
    * account at WorkOS (the same for every app) or, without it, here, made before
-   * EARLY_ACCESS_UNTIL. Without that date nobody pays it.
+   * EARLY_ACCESS_UNTIL. Without that date nobody pays it, and with
+   * FOUNDER_OFFER_UNTIL nobody does from that date on (founderPriceOpen).
    */
   async function isFounder(user) {
-    const until = install.billing?.earlyAccessUntil;
-    if (!until) return false;
-    let joined = user.created_at;
-    const workosId = workosPeople?.workosIdOf(user.id);
-    if (workosId) joined = (await workosClient.account(workosId))?.created_at || joined;
-    const at = Date.parse(joined);
-    return !Number.isNaN(at) && at < Date.parse(until);
+    if (!founderPriceOpen(install.billing)) return false;
+    let joined = joinedAt.get(user.id) ?? user.created_at;
+    const workosId = joinedAt.has(user.id) ? null : workosPeople?.workosIdOf(user.id);
+    if (workosId) {
+      joined = (await workosClient.account(workosId))?.created_at || joined;
+      // When someone joined never changes: WorkOS is asked once a process (every page asks, shell.js).
+      joinedAt.set(user.id, joined);
+    }
+    return joinedEarly(install.billing, joined);
   }
+  const joinedAt = new Map();
   const billing = config.modules.billing ? createBilling({
     database, entitlements, products: config.products, audit, log, provider: billingProvider, identities, isFounder,
+    // While the early access gives everyone its plan (EARLY_ACCESS_PLAN), nothing is sold; and the
+    // founder's price has a last day (FOUNDER_OFFER_UNTIL), which the plan section and its notice say.
+    opensAt: install.earlyAccess?.until ?? null,
+    earlyAccessUntil: install.billing?.earlyAccessUntil ?? null, founderOfferUntil: install.billing?.founderOfferUntil ?? null,
     // Another product's sales (suite.config.js `billing`): off unless the app says.
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false, app: config.billing?.app ?? null,
     // With the stores, a person's live store subscription also makes a second one on the web a double charge.
@@ -654,6 +663,9 @@ export function createApp({
     const principal = (ctx) => ctx.user || (storeDevices ? storeDevices.authenticate(ctx.req) : null);
     registerStoreApi(api, { stores: suite.stores, principal });
     registerBillingOverviewApi(api, { instances: [billing, suite.stores], entitlements, organizations, principal });
+  } else if (billing?.enabled) {
+    // What holds the plan and how to change or cancel it, for Settings › Plan, with the web's alone too.
+    registerBillingOverviewApi(api, { instances: [billing], entitlements, organizations });
   }
   // What a phone may do from a notification: the app's own actions (the body's `module`, when it
   // names one, must be the app's id), or the host's over its modules.

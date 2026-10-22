@@ -52,7 +52,7 @@ globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
 const { loadLanguage, t } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
 const { openSettings } = await import('../web/settings.js');
-const { productText, offerFor, isLive, offerPlan, isPlanError, billingReturn, PLAN_EVENT } = await import('../web/plan.js');
+const { productText, offerFor, isLive, offerPlan, isPlanError, billingReturn, planStatus, PLAN_EVENT } = await import('../web/plan.js');
 const { ApiError } = await import('../web/api.js');
 
 const PLANS = [{ id: 'free', name: 'Free' }, { id: 'pro', name: 'Pro' }];
@@ -61,8 +61,8 @@ const PRO = { plan: { id: 'pro', name: 'Pro' }, ends: '2027-01-15T00:00:00.000Z'
 const PRODUCTS = {
   provider: 'remote', founder: true,
   products: [
-    { key: 'pro-monthly', plan: 'pro', kind: 'subscription', days: null, for: 'user', name: null, founder_price: false },
-    { key: 'pro-yearly', plan: 'pro', kind: 'subscription', days: null, for: 'user', name: null, founder_price: true },
+    { key: 'pro-monthly', plan: 'pro', kind: 'subscription', days: null, for: 'user', name: null, founder_price: false, amount: 3.9, founder_amount: null, currency: 'EUR' },
+    { key: 'pro-yearly', plan: 'pro', kind: 'subscription', days: null, for: 'user', name: null, founder_price: true, amount: 35, founder_amount: 19, currency: 'EUR' },
     { key: 'team-yearly', plan: 'pro', kind: 'subscription', days: null, for: 'organization', name: null, founder_price: false },
   ],
 };
@@ -91,6 +91,9 @@ async function planPage(plan, { config = BILLING_ON, server = {}, start = 'plan'
   const buttons = (text) => page.all().filter((node) => node.tagName === 'BUTTON' && node.textContent === text && visible(node));
   return { root, page, settings, blocks, buttons, visible };
 }
+
+/** The dialog open now (Change or cancel plan), or null. */
+const openDialogNow = () => document.body.all().filter((n) => n.tagName === 'DIALOG' && n.open && n.parentNode).at(-1) || null;
 
 /* ------------------------------ what is sold ------------------------------ */
 
@@ -145,7 +148,7 @@ test('Settings without the option: the plan and until when, as always, and nothi
   off.settings.close();
   // A server without the payments' routes: only the plan shows.
   const gone = await planPage({ billing: true }, { config: {}, server: { 'GET /api/me/entitlements': { data: FREE } } });
-  assert.deepEqual(asked.sort(), ['GET /api/billing/products', 'GET /api/billing/subscriptions', 'GET /api/me/entitlements']);
+  assert.deepEqual(asked.sort(), ['GET /api/billing/overview', 'GET /api/billing/products', 'GET /api/billing/subscriptions', 'GET /api/me/entitlements']);
   assert.equal(gone.blocks().length, 1);
   gone.settings.close();
 });
@@ -263,7 +266,7 @@ test('Your usage: at a cap with nothing more to buy, no way to it; without limit
 
 /* --------------------------- Upgrade and Manage --------------------------- */
 
-test('Upgrade: the products with their names, the founder’s price marked, and the checkout followed', async () => {
+test('Upgrade: the products with their names and prices, the founder’s first with the regular price struck, and the checkout followed', async () => {
   let sent = null;
   const view = await planPage({ billing: true }, {
     server: {
@@ -275,19 +278,26 @@ test('Upgrade: the products with their names, the founder’s price marked, and 
   });
   const rows = view.page.all().filter((node) => node.className === 'kit-list__row' && view.visible(node));
   assert.deepEqual(rows.map((row) => row.find('strong')[0].textContent), ['Pro', 'Pro']);
-  assert.deepEqual(rows.map((row) => row.find('small')[0].textContent), ['Monthly subscription', 'Yearly subscription']);
-  assert.deepEqual(rows.map((row) => row.all().some((n) => n.textContent === 'Founder’s price' && /kit-badge/.test(n.className))), [false, true]);
+  assert.deepEqual(rows.map((row) => row.find('small')[0].textContent), ['Yearly subscription', 'Monthly subscription'], 'the founder’s price first');
+  assert.deepEqual(rows.map((row) => row.all().some((n) => n.textContent === 'Founder’s price' && /kit-badge/.test(n.className))), [true, false]);
+  const prices = rows.map((row) => row.all().find((n) => n.className === 'kit-plan__price'));
+  assert.deepEqual(prices.map((n) => [n.find('s')[0]?.textContent ?? null, n.find('strong')[0].textContent, n.find('small')[0].textContent]),
+    [['€35', '€19', '/year'], [null, '€3.90', '/month']], 'the founder’s beside the regular one, struck; cents only where there are');
+  assert.equal(prices[0].find('s')[0].getAttribute('aria-label'), 'Regular price €35');
+  assert.equal(textOf(rows[0].all().find((n) => n.className === 'kit-plan__note')), english['kit.plan.founderNote'],
+    'yearly, and kept while subscribed; no last day when the server gives none');
+  assert.equal(rows[1].all().some((n) => n.className === 'kit-plan__note'), false);
   const upgrades = view.buttons('Upgrade');
   assert.equal(upgrades.length, 2);
   assert.match(upgrades[0].className, /kit-btn--primary/, 'one primary button');
   assert.doesNotMatch(upgrades[1].className, /kit-btn--primary/);
-  assert.deepEqual(upgrades.map((b) => b.getAttribute('aria-label')), ['Upgrade: Pro (Monthly subscription)', 'Upgrade: Pro (Yearly subscription)'],
+  assert.deepEqual(upgrades.map((b) => b.getAttribute('aria-label')), ['Upgrade: Pro (Yearly subscription)', 'Upgrade: Pro (Monthly subscription)'],
     'a name of its own for each, starting with what it shows');
-  assert.equal(view.buttons('Manage subscription').length, 0, 'nothing to manage before a payment');
+  assert.equal(view.buttons('Change or cancel plan').length, 0, 'nothing to change before a payment');
 
   followed.length = 0;
-  click(upgrades[1]);
-  assert.equal(upgrades[1].getAttribute('disabled') !== null || upgrades[1].disabled, true, 'not pressed twice');
+  click(upgrades[0]);
+  assert.equal(upgrades[0].getAttribute('disabled') !== null || upgrades[0].disabled, true, 'not pressed twice');
   await settle();
   assert.deepEqual(sent, { product: 'pro-yearly' }, 'only the product: the price is the server’s');
   assert.deepEqual(followed, ['https://pay.example.com/checkout?x=1']);
@@ -295,7 +305,7 @@ test('Upgrade: the products with their names, the founder’s price marked, and 
   view.settings.close();
 });
 
-test('Upgrade answered 409 already_subscribed: why, with Manage at hand, and the section read again', async () => {
+test('Upgrade answered 409 already_subscribed: why, with Change or cancel at hand, and the section read again', async () => {
   let reads = 0;
   const subscriptions = [];
   const view = await planPage({ billing: true }, {
@@ -317,15 +327,19 @@ test('Upgrade answered 409 already_subscribed: why, with Manage at hand, and the
   assert.equal(reads, 2, 'read again');
   await settle();
   assert.equal(view.buttons('Upgrade').length, 0, 'paying already: no second checkout');
-  assert.equal(view.buttons('Manage subscription').length, 1);
+  assert.equal(view.buttons('Change or cancel plan').length, 1);
   followed.length = 0;
   click(lastToast().find('button')[0]);
+  const dialog = openDialogNow();
+  assert.ok(dialog, 'the notice’s button opens Change or cancel');
+  click(dialog.all().find((n) => n.tagName === 'BUTTON' && n.textContent === 'Go to the payment page'));
   await settle();
-  assert.deepEqual(followed, ['https://pay.example.com/portal'], 'the notice’s button opens the portal');
+  assert.deepEqual(followed, ['https://pay.example.com/portal'], 'and from there the portal');
+  dialog.close();
   view.settings.close();
 });
 
-test('a subscription: its state and period, Manage first, a failed payment said; 404 no_customer takes Manage away', async () => {
+test('a subscription: its state and period on the card, a failed payment said, Change or cancel; 404 no_customer said', async () => {
   const view = await planPage({ billing: true }, {
     server: {
       'GET /api/me/entitlements': { data: PRO },
@@ -337,23 +351,27 @@ test('a subscription: its state and period, Manage first, a failed payment said;
       'POST /api/billing/portal': { status: 404, data: { error: 'no_customer' } },
     },
   });
-  const text = textOf(view.page);
-  assert.match(text, /Subscription/);
-  assert.match(text, /Payment pending/);
-  assert.match(text, /Current period until/);
-  assert.ok(!/Active/.test(text), 'what ended is not listed');
+  const card = view.page.all().find((n) => n.className === 'kit-plan-card');
+  const lines = card.all().filter((n) => n.className === 'kit-plan-card__until' && view.visible(n)).map(textOf);
+  assert.deepEqual(lines, ['Payment pending', 'Current period until January 12, 2027'], 'under the plan, not the grace after it');
   assert.ok(view.page.all().some((n) => n.textContent === english['kit.plan.pastDue'] && view.visible(n)), 'what to do about it');
   assert.equal(view.buttons('Upgrade').length, 0);
-  const [manage] = view.buttons('Manage subscription');
-  assert.match(manage.className, /kit-btn--primary/);
-  click(manage);
+  assert.equal(view.buttons('Payments and invoices').length, 0, 'paying now: through Change or cancel');
+  const [change] = view.buttons('Change or cancel plan');
+  click(change);
+  const dialog = openDialogNow();
+  const said = textOf(dialog);
+  assert.match(said, /Your subscription: Pro, Yearly subscription\./);
+  assert.match(said, /Switch between monthly and yearly/);
+  assert.match(said, /Cancel the subscription: you keep Pro until January 12, 2027, and then move to Free\./);
+  click(dialog.all().find((n) => n.tagName === 'BUTTON' && n.textContent === 'Go to the payment page'));
   await settle();
   assert.equal(textOf(lastToast()), english['errors.no_customer']);
-  assert.equal(view.buttons('Manage subscription').length, 0, 'nothing to manage: the button goes');
+  dialog.close();
   view.settings.close();
 });
 
-test('after 404 no_customer, a subscription that appears (paid in another tab) brings Manage back', async () => {
+test('after 404 no_customer, a subscription that appears (paid in another tab) brings Change or cancel', async () => {
   const subscriptions = [];
   const view = await planPage({ billing: true }, {
     server: {
@@ -372,8 +390,8 @@ test('after 404 no_customer, a subscription that appears (paid in another tab) b
   await settle();
   await settle();
   await settle();
-  assert.match(textOf(view.page), /Active/);
-  assert.equal(view.buttons('Manage subscription').length, 1, 'a subscription now: there is a customer');
+  assert.match(textOf(view.page), /Current period until November 12, 2026/);
+  assert.equal(view.buttons('Change or cancel plan').length, 1, 'a subscription now: there is a customer');
   view.settings.close();
 });
 
@@ -426,7 +444,7 @@ test('without a subscription now: past payments and invoices, last and quiet, wh
       'POST /api/billing/portal': { data: { url: 'https://pay.example.com/portal' } },
     },
   });
-  assert.equal(view.buttons('Manage subscription').length, 0);
+  assert.equal(view.buttons('Change or cancel plan').length, 0);
   const [payments] = view.buttons('Payments and invoices');
   assert.doesNotMatch(payments.className, /kit-btn--primary/, 'quiet: Upgrade is the one');
   const shown = view.blocks();
@@ -477,10 +495,14 @@ test('a native app’s web view (hideCheckout): what is paid for shows, and no w
   });
   assert.match(textOf(view.page), /Payment pending/);
   assert.equal(view.buttons('Upgrade').length, 0);
-  assert.equal(view.buttons('Manage subscription').length, 0);
   assert.ok(!view.page.all().some((n) => n.textContent === english['kit.plan.pastDue'] && view.visible(n)), 'no "from Manage subscription" without it');
   const shown = view.page.all().filter((n) => !n.children.length && view.visible(n)).map((n) => n.textContent);
   assert.ok(!shown.some((text) => /Founder|provider/.test(text)), 'no founder’s price, no word of the provider');
+  click(view.buttons('Change or cancel plan')[0]);
+  const dialog = openDialogNow();
+  assert.match(textOf(dialog), /bought on the web: change or cancel it from Demo in a browser/);
+  assert.equal(dialog.all().filter((n) => n.tagName === 'BUTTON' && n.textContent === 'Go to the payment page').length, 0, 'named, not linked');
+  dialog.close();
   view.settings.close();
 });
 
@@ -650,7 +672,7 @@ test('a plan read before the one from the checkout arrives late: the newer stays
   await settle();
   assert.match(textOf(view.page), /Your plan\s*Pro/, 'not painted over by the older answer');
   assert.equal(view.buttons('Upgrade').length, 0);
-  assert.equal(view.buttons('Manage subscription').length, 1);
+  assert.equal(view.buttons('Change or cancel plan').length, 1);
   view.settings.close();
 });
 
@@ -669,9 +691,114 @@ test('an open Settings that sells paints the plan read again after the checkout'
   await settle();
   assert.match(textOf(view.page), /Your plan\s*Pro/);
   assert.equal(view.buttons('Upgrade').length, 0);
-  assert.equal(view.buttons('Manage subscription').length, 1);
+  assert.equal(view.buttons('Change or cancel plan').length, 1);
   view.settings.close();
   assert.equal((listeners[PLAN_EVENT] || []).length, 1, 'closed, it listens no more (the test’s own listener stays)');
+});
+
+/* ------------------------ the early access, the founders ------------------------ */
+
+test('during the early access: nothing sold, and the card says the plan is included until it ends', async () => {
+  const view = await planPage({ billing: true }, {
+    server: {
+      'GET /api/me/entitlements': { data: { ...PRO, ends: null } },
+      'GET /api/billing/products': { data: { ...PRODUCTS, on_sale: false, opens_at: '2026-12-31T00:00:00.000Z' } },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+    },
+  });
+  assert.equal(view.buttons('Upgrade').length, 0, 'no Pro to buy');
+  assert.match(textOf(view.page), /Included in the early access, until December 30, 2026/, 'its last day, not the first after it');
+  view.settings.close();
+  // A free plan then too: still nothing sold.
+  const free = await planPage({ billing: true }, {
+    server: {
+      'GET /api/me/entitlements': { data: FREE },
+      'GET /api/billing/products': { data: { ...PRODUCTS, on_sale: false, opens_at: '2026-12-31T00:00:00.000Z' } },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+    },
+  });
+  assert.equal(free.buttons('Upgrade').length, 0);
+  free.settings.close();
+});
+
+test('after it, a founder sees until when their price lasts; whoever isn’t one, the regular prices', async () => {
+  const server = (offer) => ({
+    'GET /api/me/entitlements': { data: FREE },
+    'GET /api/billing/products': { data: offer },
+    'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+  });
+  const founder = await planPage({ billing: true }, { server: server({ ...PRODUCTS, on_sale: true, founder_until: '2027-02-01T00:00:00.000Z' }) });
+  const note = founder.page.all().find((n) => n.className === 'kit-plan__note');
+  assert.equal(textOf(note), `${english['kit.plan.founderNote']} Available until January 31, 2027.`);
+  founder.settings.close();
+  const regular = await planPage({ billing: true }, { server: server({ ...PRODUCTS, founder: false, on_sale: true }) });
+  const rows = regular.page.all().filter((n) => n.className === 'kit-list__row' && regular.visible(n));
+  assert.deepEqual(rows.map((row) => row.find('small')[0].textContent), ['Monthly subscription', 'Yearly subscription'], 'the catalog’s order');
+  assert.deepEqual(rows.map((row) => textOf(row.all().find((n) => n.className === 'kit-plan__price'))), ['€3.90/month', '€35/year'], 'nothing struck');
+  regular.settings.close();
+});
+
+test('the card: when a subscription renews or ends, a store’s, a gift’s end, and the extras', () => {
+  const PRO_NOW = { ...PRO, plans: PLANS };
+  const web = (fields) => ({ kind: 'web', provider: 'paddle', product: 'pro-yearly', plan: 'pro', status: 'active', period_end: '2027-01-12T00:00:00.000Z', ...fields });
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [web({ ending: false })] }).lines, ['Renews on January 12, 2027']);
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [web({ ending: true })] }).lines, ['Ends on January 12, 2027']);
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [web({ ending: null })] }).lines, ['Current period until January 12, 2027'], 'not known: as before');
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [web({ kind: 'store', store: 'play_store', ending: false })] }).lines,
+    ['Renews on January 12, 2027', 'Paid through Google Play']);
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'admin', plan: 'pro', ends: '2027-03-01T00:00:00.000Z' }] }).lines, ['Given to you until March 1, 2027']);
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'admin', plan: 'pro', ends: null }] }).lines, ['Given to you, with no end date']);
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'organization', plan: 'pro', name: 'Fleet A' }] }).lines, ['Included in Fleet A']);
+  assert.deepEqual(planStatus(FREE, { sources: [] }).lines, [], 'the default plan: nothing to say');
+  const extras = planStatus(FREE, { sources: [{ kind: 'extra', feature: 'tasks.lists.max', value: 100, ends: '2027-03-01T00:00:00.000Z' }] },
+    { benefit: (feature, value) => (feature === 'tasks.lists.max' ? `Up to ${value} lists` : '') });
+  assert.deepEqual(extras.extras, ['Up to 100 lists, until March 1, 2027']);
+});
+
+test('a store’s subscription: how to cancel it there, with its page, since only the store can', async () => {
+  const view = await planPage({ billing: true }, {
+    config: IN_HOST,
+    server: {
+      'GET /api/me/entitlements': { data: PRO },
+      'GET /api/me/usage': { status: 404, data: {} },
+      'GET /api/billing/products': { data: PRODUCTS },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+      'GET /api/billing/overview': { data: { plan: PRO.plan, sources: [{
+        kind: 'store', provider: 'revenuecat', product: 'pro-monthly', plan: 'pro', plan_name: 'Pro', status: 'active',
+        period_end: '2026-11-12T00:00:00.000Z', ending: false, store: 'app_store', sandbox: false,
+        manage: { via: 'store', store: 'app_store', url: 'https://apps.apple.com/account/subscriptions' },
+      }] } },
+    },
+  });
+  await settle();
+  assert.match(textOf(view.page), /Renews on November 12, 2026Paid through the App Store/);
+  assert.equal(view.buttons('Upgrade').length, 0, 'paying in the store: no second payment on the web');
+  const opened = [];
+  globalThis.open = (url, target) => { opened.push([url, target]); };
+  click(view.buttons('Change or cancel plan')[0]);
+  const dialog = openDialogNow();
+  assert.match(textOf(dialog), /Apple only lets you cancel it in its store\. On your iPhone or iPad, open Settings › your name › Subscriptions › Work › Cancel Subscription\./);
+  assert.match(textOf(dialog), /If you cancel, you keep Pro until November 12, 2026\./);
+  click(dialog.all().find((n) => n.tagName === 'BUTTON' && n.textContent === 'Open the App Store'));
+  assert.deepEqual(opened, [['https://apps.apple.com/account/subscriptions', '_blank']]);
+  delete globalThis.open;
+  view.settings.close();
+});
+
+test('in a host, every module sells what the host sells, whatever the module passed', async () => {
+  const view = await planPage(true, {
+    config: { app: { ...IN_HOST.app, host: { ...IN_HOST.app.host, billing: true } } },
+    server: {
+      'GET /api/me/entitlements': { data: FREE },
+      'GET /api/billing/products': { data: { ...PRODUCTS, on_sale: true } },
+      'GET /api/billing/subscriptions': { data: { subscriptions: [] } },
+    },
+  });
+  assert.equal(view.buttons('Upgrade').length, 2, '`plan: true` only, as Tasks passes it: the host’s Pro all the same');
+  view.settings.close();
+  const quiet = await planPage(true, { config: IN_HOST, server: { 'GET /api/me/entitlements': { data: FREE } } });
+  assert.equal(asked.includes('GET /api/billing/products'), false, 'a host that doesn’t sell: the plan alone');
+  quiet.settings.close();
 });
 
 test('the kit caches plan.js for offline use, and it fetches nothing at the site’s root', () => {
@@ -680,4 +807,14 @@ test('the kit caches plan.js for offline use, and it fetches nothing at the site
   const code = fs.readFileSync(new URL('../web/plan.js', import.meta.url), 'utf8');
   assert.doesNotMatch(code, /fetch\(|import\(['`]\//, 'everything through api.js, at the app’s base');
   assert.doesNotMatch(code, /\b(?:Cronum Work|Tasks|Projects|Next|Notes|Tracker|Paddle|Stripe)\b/, 'nothing of one app or provider');
+});
+
+test('every module’s frame in a host: the founder’s notice from the host, closed for its date, and the way back from the checkout', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  assert.match(shell, /paintFounder\(answer\);\s*return paintRail\(answer\);/, 'from the host’s fresh answer, not the one kept');
+  assert.match(shell, /t\('kit\.founder\.notice', \{ app: host\.name \|\| app\.name, date: lastDay\(offer\.until\) \}\)/);
+  assert.match(shell, /onClick: \(\) => onSettings\('plan'\)/, 'its button opens the plan');
+  assert.match(shell, /localStorage\.setItem\(FOUNDER_KEY, offer\.until\)/, 'closed on this device, for that date');
+  assert.match(shell, /if \(ev\.key === FOUNDER_KEY\) hideBanner\('founder-offer'\)/, 'and in the other tabs and frames');
+  assert.match(shell, /if \(mount && !FRAMED\) billingReturn\(\{ open: onSettings \? \(\) => onSettings\('plan'\) : null \}\)/);
 });

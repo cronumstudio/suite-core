@@ -20,7 +20,7 @@ import { createEntitlements } from '../entitlements.js';
 import { createOrganizations } from '../organizations.js';
 import { createAudit } from '../audit.js';
 import {
-  createBilling, registerBillingApi, signedProvider, signPayload, verifySignature,
+  createBilling, registerBillingApi, signedProvider, signPayload, verifySignature, founderPriceOpen, joinedEarly,
 } from '../billing.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, SuiteConfigError } from '../app.js';
@@ -542,4 +542,113 @@ test('createSuite: a family bought through the webhook has no seats, and its own
   suite.organizations.archive(home.id);
   assert.equal(suite.entitlements.ofOrganization(home.id).plan.id, 'free');
   assert.deepEqual(suite.entitlements.ofOrganization(home.id).features, { 'routines.max': 5, live: false });
+});
+
+/* ------------------------- the early access and its end ------------------------ */
+
+const DATES = Object.freeze({ earlyAccessUntil: '2026-12-31T00:00:00.000Z', founderOfferUntil: '2027-02-01T00:00:00.000Z' });
+
+test('the early access: nothing sold until it ends; then a founder hears of their price until its last day', async (t) => {
+  const { database, entitlements, accounts, clock, ada } = setup(t, { now: '2026-12-20T10:00:00Z' });
+  const eve = accounts.create({ username: 'eve' });
+  const seen = [];
+  const provider = {
+    id: 'stub', checkoutUrl: async (args) => { seen.push(args.price); return 'https://pay.example/x'; },
+    portalUrl: async () => 'https://pay.example/portal', parseWebhook: async () => null,
+  };
+  const billing = createBilling({
+    database, entitlements, provider, clock: () => clock.now, log: () => {},
+    products: {
+      'pro-monthly': { plan: 'pro', kind: 'subscription', price: 'p_m', amount: 3.9, currency: 'EUR' },
+      'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'p_y', founderPrice: 'p_f', amount: 35, founderAmount: 19, currency: 'EUR' },
+    },
+    // As app.js decides it from the dates: whoever joined before the end, while the offer lasts.
+    isFounder: (user) => user.id === ada.id && founderPriceOpen(DATES, clock.now),
+    opensAt: '2026-12-31T00:00:00.000Z', ...DATES,
+  });
+  assert.deepEqual(billing.errors, []);
+  assert.deepEqual(billing.offer().map((p) => [p.key, p.amount, p.founder_amount, p.currency]),
+    [['pro-monthly', 3.9, null, 'EUR'], ['pro-yearly', 35, 19, 'EUR']], 'the amounts to show, never the price ids');
+  assert.equal(JSON.stringify(billing.offer()).includes('p_'), false);
+
+  // During the early access: not on sale, and no founder's notice yet.
+  assert.equal(billing.onSale(), false);
+  await assert.rejects(billing.checkoutUrl({ type: 'user', id: ada.id }, 'pro-yearly', { user: ada, returnUrl: 'x' }),
+    (err) => err.status === 409 && err.code === 'not_on_sale');
+  assert.equal(await billing.founderOffer(ada), null);
+
+  // It ends: on sale, the founder's price for the founder, their notice until the offer's end.
+  clock.now = Date.parse('2026-12-31T00:00:00Z');
+  assert.equal(billing.onSale(), true);
+  await billing.checkoutUrl({ type: 'user', id: ada.id }, 'pro-yearly', { user: ada, returnUrl: 'x' });
+  await billing.checkoutUrl({ type: 'user', id: eve.id }, 'pro-yearly', { user: eve, returnUrl: 'x' });
+  assert.deepEqual(seen, ['p_f', 'p_y']);
+  assert.deepEqual(await billing.founderOffer(ada), { until: DATES.founderOfferUntil });
+  assert.equal(await billing.founderOffer(eve), null, 'not a founder');
+
+  // Paying already: nothing to tell them.
+  billing.apply({ id: 'evt_1', type: 'subscription', ref: 'sub_1', subject: { type: 'user', id: ada.id }, customer: 'cus_1',
+    product: 'pro-yearly', status: 'active', periodEnd: '2027-12-31T00:00:00.000Z', occurredAt: new Date(clock.now).toISOString() });
+  assert.equal(await billing.founderOffer(ada), null);
+  billing.apply({ id: 'evt_2', type: 'subscription', ref: 'sub_1', subject: { type: 'user', id: ada.id }, customer: 'cus_1',
+    product: 'pro-yearly', status: 'canceled', occurredAt: new Date(clock.now + 1000).toISOString() });
+  assert.deepEqual(await billing.founderOffer(ada), { until: DATES.founderOfferUntil }, 'cancelled: the offer stands');
+
+  // The offer's last moment passed: the regular price for everyone, and no notice.
+  clock.now = Date.parse(DATES.founderOfferUntil);
+  assert.equal(await billing.founderOffer(ada), null);
+  seen.length = 0;
+  await billing.checkoutUrl({ type: 'user', id: ada.id }, 'pro-yearly', { user: ada, returnUrl: 'x' });
+  assert.deepEqual(seen, ['p_y']);
+});
+
+test('who is a founder, by the dates: joined before the early access ended, and only while the offer lasts', () => {
+  assert.equal(joinedEarly(DATES, '2026-10-22T09:00:00Z'), true);
+  assert.equal(joinedEarly(DATES, '2026-12-31T00:00:00Z'), false, 'its date is the first day after it');
+  assert.equal(joinedEarly(DATES, 'not a date'), false);
+  assert.equal(joinedEarly({}, '2026-10-22T09:00:00Z'), false, 'without the date nobody is');
+  assert.equal(founderPriceOpen(DATES, Date.parse('2027-01-31T23:59:59Z')), true);
+  assert.equal(founderPriceOpen(DATES, Date.parse('2027-02-01T00:00:00Z')), false);
+  assert.equal(founderPriceOpen({ earlyAccessUntil: DATES.earlyAccessUntil }, Date.parse('2030-01-01T00:00:00Z')), true, 'without an end, as before');
+  assert.equal(founderPriceOpen(null), false);
+});
+
+test('amounts are checked, and the dates read from the environment', (t) => {
+  const { database, entitlements } = setup(t);
+  const bad = createBilling({
+    database, entitlements, provider: signedProvider({ secret: SECRET }),
+    products: { a: { plan: 'pro', kind: 'once', amount: '3,90', currency: 'EUR' }, b: { plan: 'pro', kind: 'once', amount: 4 } },
+  });
+  assert.deepEqual(bad.errors, ['Product "a": amount must be a number (3.9 for 3,90 €)', 'Product "b": an amount needs its currency (EUR)']);
+
+  const config = (env) => resolveConfig({
+    app: { id: 'work', name: 'Work', languages: ['en'] }, modules: { billing: true },
+    plans: { free: { name: 'Free', features: {} }, pro: { name: 'Pro', features: {} } }, products: {},
+  }, { DATA_DIR: os.tmpdir(), BILLING_PROVIDER: 'remote', BILLING_SECRET: SECRET, ...env });
+  const fine = config({ EARLY_ACCESS_UNTIL: '2026-12-31', FOUNDER_OFFER_UNTIL: '2027-02-01', EARLY_ACCESS_PLAN: 'pro' });
+  assert.deepEqual(fine.errors, []);
+  assert.equal(fine.install.billing.founderOfferUntil, '2027-02-01T00:00:00.000Z');
+  assert.deepEqual(fine.install.earlyAccess, { plan: 'pro', until: '2026-12-31T00:00:00.000Z' });
+  assert.equal(config({}).install.earlyAccess, null, 'without it, as before');
+  assert.match(config({ EARLY_ACCESS_UNTIL: '2026-12-31', FOUNDER_OFFER_UNTIL: '2026-12-01' }).errors.join(), /must come after EARLY_ACCESS_UNTIL/);
+  assert.match(config({ EARLY_ACCESS_UNTIL: '2026-12-31', FOUNDER_OFFER_UNTIL: 'soon' }).errors.join(), /is not a date/);
+  assert.match(config({ EARLY_ACCESS_PLAN: 'pro' }).errors.join(), /EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL/);
+  assert.match(config({ FOUNDER_OFFER_UNTIL: '2027-02-01' }).warnings.join(), /FOUNDER_OFFER_UNTIL does nothing without/);
+});
+
+test('whether a subscription renews or ends at its period’s end, kept from each event', (t) => {
+  const { billing, clock, ada } = setup(t);
+  const sub = (id, fields) => billing.apply({
+    id, type: 'subscription', ref: 'sub_1', subject: { type: 'user', id: ada.id }, customer: 'cus_ada',
+    product: 'pro-monthly', status: 'active', periodEnd: '2026-06-01T10:00:00.000Z', occurredAt: new Date(clock.now).toISOString(), ...fields,
+  });
+  const ending = () => billing.subscriptionsOf({ type: 'user', id: ada.id })[0].ending;
+  sub('evt_1', {});
+  assert.equal(ending(), null, 'a provider that doesn’t say: not known');
+  clock.now += 1000;
+  sub('evt_2', { ending: false });
+  assert.equal(ending(), false);
+  clock.now += 1000;
+  sub('evt_3', { ending: true });
+  assert.equal(ending(), true, 'cancelled for the period’s end');
 });

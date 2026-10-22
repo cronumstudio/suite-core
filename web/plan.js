@@ -7,19 +7,20 @@
  * /api/billing/portal. Nothing here names a product or an app: what is sold, and its names, come
  * from the server.
  *
- *   openSettings({ …, plan: { billing: true } });                       // products, Upgrade, Manage
+ *   openSettings({ …, plan: { billing: true } });                       // prices, Upgrade, Change or cancel
  *   openSettings({ …, plan: { billing: true, hideCheckout: true } });   // a native app's web view
  *   billingReturn({ onPlan: refresh, open: () => openPlan() });         // once, at the start
  *   catch (err) { if (!offerPlan(err, { open: () => openPlan() })) fail(err); }
  *   storePurchase();                                                     // inside the suite's app: its store
  *
  * The browser only names a product: the price, a founder's included, is the server's to choose,
- * and the provider's page shows it.
+ * and the provider's page charges it. The amounts shown beside each product are the catalog's
+ * (`amount`, `founderAmount`), only to read.
  */
 import { el, clear } from './dom.js';
-import { t, formatDateTime } from './i18n.js';
+import { t, formatDateTime, currentLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
-import { toast } from './ui.js';
+import { toast, openDialog } from './ui.js';
 import { FRAMED } from './base.js';
 import { nativePurchase, onNative } from './native.js';
 
@@ -82,8 +83,6 @@ const hint = (text) => el('p', { class: 'kit-hint', text });
 const button = (text, onClick, kind = '') => el('button', {
   type: 'button', class: `kit-btn kit-btn--small${kind ? ` kit-btn--${kind}` : ''}`, text, onClick,
 });
-const fact = (label, value, detail = '') => el('div', { class: 'kit-fact' },
-  el('span', { text: label }), el('strong', { text: value }), detail ? el('small', { text: detail }) : null);
 
 /** Where the browser keeps the plan from before a checkout, to tell when the new one arrives. */
 const storageKey = () => `${globalThis.document?.documentElement?.dataset?.app || 'app'}.billing`;
@@ -108,34 +107,108 @@ function follow(url) {
   (FRAMED ? globalThis.top : globalThis).location.assign(url);
 }
 
+/** A subscription's period from the suite's product keys (`pro-monthly`, `pro-yearly`), or null. */
+export function periodOf(product) {
+  if (product?.kind !== 'subscription') return null;
+  const key = String(product.key || '');
+  return /-(?:monthly|month)$/.test(key) ? 'monthly' : /-(?:yearly|annual|year)$/.test(key) ? 'yearly' : null;
+}
+
+/** An amount as people read it in their language: "3,90 €", and "35 €" without cents when it has none. */
+export function moneyText(amount, currency) {
+  if (typeof amount !== 'number' || !currency) return '';
+  const whole = Number.isInteger(amount);
+  try {
+    return new Intl.NumberFormat(currentLanguage(), {
+      style: 'currency', currency, minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2,
+    }).format(amount);
+  } catch { return ''; }
+}
+
 /**
- * The blocks Settings' plan section adds when the app sells (`plan.billing`), under the plan and
- * until when: the subscriptions that hold a plan with "Manage subscription" (the provider's
- * portal), what can be bought with "Upgrade" (its checkout), and last, quietly, the way to past
- * payments and invoices for whoever has no subscription now. With `hideCheckout` (a native app's
- * web view, where the stores' rules keep a web payment's links out) only what is paid for shows:
- * no products, no Upgrade, no way to the provider.
- *
- * `paint(answer)` draws them for /api/me/entitlements' answer; `blocks` go in the section. It
- * resolves to `{ holds }`, whether a live subscription holds the plan shown (its "Until" is then
- * the period's end and a few days of grace, which the subscription says better), or to nothing
- * when a later paint took its place.
+ * The last day of something that ends at `iso` (the moment it no longer holds, as the server's
+ * dates are: FOUNDER_OFFER_UNTIL=2027-02-01 is its first day without), in the server's calendar.
  */
-export function planPayments({ hideCheckout = false, fail = (err) => toast(errorMessage(err), { error: true }), refresh = () => {} } = {}) {
-  const facts = el('div', { class: 'kit-facts' });
-  const pastDue = hint(t('kit.plan.pastDue'));
-  const manageArea = el('div', { class: 'kit-stack' }, hint(t('kit.plan.manageHint')),
-    el('div', { class: 'kit-row' }, button(t('kit.plan.manage'), (event) => manage(event.currentTarget), 'primary')));
-  const subscriptionBlock = section(el('h3', { text: t('kit.plan.subscriptionTitle') }), facts, pastDue, manageArea);
+export const lastDay = (iso) => {
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? '' : formatDateTime(new Date(at - 1).toISOString(), { dateStyle: 'long', timeZone: 'UTC' });
+};
+
+const longDate = (iso) => formatDateTime(iso, { dateStyle: 'long' });
+
+/**
+ * What the plan card says under the plan's name, from GET /api/billing/overview: when a live
+ * subscription renews or ends (and through which store), until when a gift lasts, the group that
+ * covers it, or the early access that includes it; and the extras given on top, each with its end.
+ * → { lines: [text], extras: [text] }; nothing for a plan that is simply the default one.
+ */
+export function planStatus(answer, overview, { products = null, benefit = () => '' } = {}) {
+  const lines = [];
+  const extras = [];
+  const sources = Array.isArray(overview?.sources) ? overview.sources : [];
+  const current = answer?.plan?.id ?? null;
+  const paid = sources.filter((s) => (s.kind === 'web' || s.kind === 'store') && LIVE.has(s.status) && !s.organization_id);
+  // The one that holds the plan shown, or else the one paid (a payment that failed may have let it lapse).
+  for (const s of [paid.find((one) => one.plan === current) || paid[0]].filter(Boolean)) {
+    if (s.status !== 'active') lines.push(t(`kit.plan.status.${s.status}`));
+    if (s.period_end) {
+      lines.push(t(s.ending === true ? 'kit.plan.endsOn' : s.ending === false ? 'kit.plan.renewsOn' : 'kit.plan.periodEnd',
+        { date: longDate(s.period_end) }));
+    }
+    if (s.kind === 'store' && s.store) lines.push(t(`kit.plan.via.${s.store}`));
+  }
+  if (!lines.length) {
+    const gift = sources.find((s) => s.kind === 'admin' && s.plan === current);
+    const group = sources.find((s) => s.kind === 'organization' && s.plan === current);
+    if (gift) lines.push(gift.ends ? t('kit.plan.given', { date: longDate(gift.ends) }) : t('kit.plan.givenForGood'));
+    else if (group) lines.push(t('kit.plan.coveredBy', { group: group.name }));
+    else if (products && products.on_sale === false && products.opens_at && !answer?.ends) {
+      lines.push(t('kit.plan.earlyAccess', { date: lastDay(products.opens_at) }));
+    }
+  }
+  for (const s of sources.filter((one) => one.kind === 'extra')) {
+    const what = benefit(s.feature, s.value);
+    if (what) extras.push(s.ends ? t('kit.plan.extraUntil', { what, date: longDate(s.ends) }) : what);
+  }
+  return { lines, extras };
+}
+
+/**
+ * The blocks Settings' plan section adds when the app sells (`plan.billing`, or in a host the
+ * host's payments), under the plan's card: a word when a payment failed, what can be bought with
+ * "Upgrade" (its price, and a founder's struck through beside the regular one), "Change or cancel
+ * plan" for whoever pays now, and last, quietly, the way to past payments and invoices for whoever
+ * has no subscription now. "Change or cancel plan" opens its own dialog: the provider's portal
+ * and what can be done there for a subscription of the web; for one of a store, how to cancel it
+ * there, since Apple and Google let no one else. With `hideCheckout` (a native app's web view,
+ * where the stores' rules keep a web payment's links out) nothing is sold and the web's portal is
+ * named, not linked. Nothing is sold while the server says it isn't on sale (`on_sale: false`,
+ * the early access).
+ *
+ * `paint(answer)` draws them for /api/me/entitlements' answer, and fills `status` (a node for the
+ * card: when the plan renews or ends, a gift's end, the extras). It resolves to `{ holds, noted }`
+ * —whether a live subscription holds the plan shown, and whether `status` says until when, so the
+ * card's own "Until" goes— or to nothing when a later paint took its place.
+ */
+export function planPayments({
+  hideCheckout = false, fail = (err) => toast(errorMessage(err), { error: true }), refresh = () => {},
+  appName = '', benefit = () => '',
+} = {}) {
+  const status = el('div', { class: 'kit-plan-card__status' });
+  const pastDueBlock = section(el('p', { class: 'kit-notice', role: 'status', text: t('kit.plan.pastDue') }));
   const offerList = el('div', { class: 'kit-list kit-plan__offer' });
   const offerBlock = section(el('h3', { text: t('kit.plan.upgradeTitle') }), hint(t('kit.plan.upgradeHint')), offerList);
+  const changeButton = button(t('kit.plan.change'), () => openChange());
+  const changeBlock = section(hint(t('kit.plan.changeHint')), el('div', { class: 'kit-row' }, changeButton));
   const paymentsBlock = section(hint(t('kit.plan.paymentsHint')),
     el('div', { class: 'kit-row' }, button(t('kit.plan.payments'), (event) => manage(event.currentTarget))));
-  const blocks = [subscriptionBlock, offerBlock, paymentsBlock];
+  const blocks = [pastDueBlock, offerBlock, changeBlock, paymentsBlock];
   for (const node of blocks) node.hidden = true;
   let painting = 0;
   // The server said there is no customer yet: no way to the portal while the section is open.
   let nobodyPaid = false;
+  // What "Change or cancel plan" speaks of, from the last paint.
+  let last = { answer: null, paid: [], plans: [], productOf: () => null };
 
   async function manage(target) {
     if (target) target.disabled = true;
@@ -144,16 +217,52 @@ export function planPayments({ hideCheckout = false, fail = (err) => toast(error
       follow(url);
       // Back from the provider's page through the browser's history, the button works again.
       setTimeout(() => { if (target) target.disabled = false; }, 8000);
+      return true;
     } catch (err) {
       if (target) target.disabled = false;
       if (err?.code === 'no_customer') {
-        // Nobody has paid yet: there is nothing to manage, so the button goes.
+        // Nobody has paid yet: there is nothing to manage, so the way goes.
         toast(errorMessage(err));
         nobodyPaid = true;
-        manageArea.hidden = true;
         paymentsBlock.hidden = true;
       } else fail(err);
+      return false;
     }
+  }
+
+  /** The dialog of "Change or cancel plan": for each subscription that is paid now, what to do. */
+  function openChange() {
+    const { answer, paid, plans, productOf } = last;
+    const planName = answer?.plan?.name ? t(answer.plan.name) : '';
+    const free = plans[0]?.name ? t(plans[0].name) : '';
+    const parts = [];
+    const actions = [];
+    for (const s of paid) {
+      const product = productOf(s.product);
+      const text = product ? productText(product, plans) : { name: s.plan_name ? t(s.plan_name) : s.product, detail: '' };
+      const date = s.period_end ? longDate(s.period_end) : '';
+      parts.push(el('p', { text: t('kit.plan.yourSubscription', { product: text.name, detail: text.detail || t('kit.plan.kind.subscription') }) }));
+      if (s.kind === 'store') {
+        parts.push(el('p', { text: t(`kit.plan.store.${s.store}`, { app: appName }) }));
+        if (date) parts.push(hint(t(s.ending ? 'kit.plan.alreadyEnding' : 'kit.plan.storeKeeps', { plan: planName, date })));
+        if (s.manage?.url) {
+          actions.push({ label: t(`kit.plan.openStore.${s.store}`), primary: true, onClick: () => { openOutside(s.manage.url); } });
+        }
+      } else if (hideCheckout) {
+        parts.push(el('p', { text: t('kit.plan.changeInBrowser', { app: appName }) }));
+      } else if (s.ending && date) {
+        parts.push(el('p', { text: t('kit.plan.alreadyEnding', { plan: planName, date }) }));
+        actions.push({ label: t('kit.plan.openPortal'), primary: true, onClick: () => manage(null) });
+      } else {
+        parts.push(el('p', { text: t('kit.plan.canTitle') }), el('ul', { class: 'kit-plan__can' },
+          el('li', { text: t('kit.plan.can.switch') }),
+          date ? el('li', { text: t('kit.plan.can.cancel', { plan: planName, date, free }) }) : null,
+          el('li', { text: t('kit.plan.can.method') }),
+          el('li', { text: t('kit.plan.can.invoices') })));
+        actions.push({ label: t('kit.plan.openPortal'), primary: true, onClick: () => manage(null) });
+      }
+    }
+    openDialog({ title: t('kit.plan.changeTitle'), content: el('div', { class: 'kit-stack' }, ...parts), actions: actions.slice(0, 1) });
   }
 
   async function upgrade(product, answer, target) {
@@ -168,66 +277,98 @@ export function planPayments({ hideCheckout = false, fail = (err) => toast(error
       target.disabled = false;
       if (err?.code === 'already_subscribed') {
         // Paid already (in another tab, or the webhook came first): plans change in the portal.
-        toast(errorMessage(err), { error: true, action: { label: t('kit.plan.manage'), onClick: () => manage(null) } });
+        toast(errorMessage(err), { error: true, action: { label: t('kit.plan.change'), onClick: () => openChange() } });
         refresh();
       } else fail(err);
     }
   }
 
+  /** A product's row: its name, what kind of payment, its price (a founder's beside the regular one struck through). */
+  function offerRow(product, offer, answer, plans, primary) {
+    const text = productText(product, plans);
+    const founder = Boolean(offer.founder && product.founder_price);
+    const per = periodOf(product);
+    const regular = moneyText(product.amount, product.currency);
+    const special = founder ? moneyText(product.founder_amount, product.currency) : '';
+    const go = button(t('kit.plan.upgrade'), (event) => upgrade(product, answer, event.currentTarget), primary ? 'primary' : '');
+    // Every row's button says "Upgrade": its name for a screen reader says to what, starting the same.
+    go.setAttribute('aria-label', t('kit.plan.upgradeTo', { product: text.name, detail: text.detail }));
+    const price = regular || special ? el('span', { class: 'kit-plan__price' },
+      special && regular ? el('s', { text: regular, 'aria-label': t('kit.plan.regularPrice', { price: regular }) }) : null,
+      el('strong', { text: special || regular }),
+      per ? el('small', { text: t(`kit.plan.per.${per}`) }) : null) : null;
+    const note = founder
+      ? [t('kit.plan.founderNote'), offer.founder_until ? t('kit.plan.founderUntil', { date: lastDay(offer.founder_until) }) : ''].filter(Boolean).join(' ')
+      : '';
+    return el('div', { class: 'kit-list__row' },
+      el('span', { class: 'kit-list__text' }, el('strong', { text: text.name }),
+        founder ? el('span', { class: 'kit-badge kit-badge--accent', text: t('kit.plan.founder') }) : null,
+        el('small', { text: text.detail }),
+        note ? el('small', { class: 'kit-plan__note', text: note }) : null),
+      price, go);
+  }
+
   async function paint(answer) {
     const turn = ++painting;
-    const [offer, owned] = await Promise.all([
+    const [offer, owned, overview] = await Promise.all([
       api.get('/api/billing/products').catch(() => null),
       api.get('/api/billing/subscriptions').catch(() => null),
+      api.get('/api/billing/overview').catch(() => null),
     ]);
     if (turn !== painting) return undefined;
     // A server without payments (or out of reach): the plan alone, as without the option.
     if (!offer) {
       for (const node of blocks) node.hidden = true;
-      return { holds: false };
+      clear(status);
+      return { holds: false, noted: false };
     }
     const products = Array.isArray(offer.products) ? offer.products : [];
     const plans = answer?.plans || [];
     const productOf = (key) => products.find((p) => p.key === key) || null;
-    const nameOf = (key) => {
-      const product = productOf(key);
-      return product ? productText(product, plans).name : key;
-    };
     // Unknown when the server didn't answer: then nothing is offered (offerFor), rather than twice.
     const known = Array.isArray(owned?.subscriptions) ? owned.subscriptions : null;
     const subscriptions = known || [];
     const live = subscriptions.filter(isLive);
     // A subscription now means there is a customer, whatever an earlier answer said.
     if (live.length) nobodyPaid = false;
+    // What is paid now for the person, here or in a store: from the overview, or else the web's own.
+    const paid = Array.isArray(overview?.sources)
+      ? overview.sources.filter((s) => (s.kind === 'web' || s.kind === 'store') && LIVE.has(s.status) && !s.organization_id)
+      : live.map((s) => ({ kind: 'web', product: s.product, plan: productOf(s.product)?.plan ?? null, status: s.status, period_end: s.period_end, ending: s.ending ?? null }));
+    last = { answer, paid, plans, productOf };
 
-    clear(facts).append(...live.map((s) => fact(nameOf(s.product), t(`kit.plan.status.${s.status}`),
-      s.period_end ? t('kit.plan.periodEnd', { date: formatDateTime(s.period_end, { dateStyle: 'long' }) }) : '')));
-    subscriptionBlock.hidden = !live.length;
-    pastDue.hidden = hideCheckout || !live.some((s) => s.status === 'past_due');
-    manageArea.hidden = hideCheckout || nobodyPaid;
+    const said = planStatus(answer, overview || { sources: paid }, { products: offer, benefit });
+    clear(status).append(
+      ...said.lines.map((line) => el('p', { class: 'kit-plan-card__until', text: line })),
+      ...(said.extras.length ? [el('div', { class: 'kit-plan-card__extras' },
+        el('span', { class: 'kit-plan-card__label', text: t('kit.plan.extrasTitle') }),
+        el('ul', {}, said.extras.map((line) => el('li', { text: line }))))] : []));
+
+    pastDueBlock.hidden = !paid.some((s) => s.status === 'past_due' && s.kind === 'web') || hideCheckout;
+    changeBlock.hidden = !paid.length;
     // Without one now: past payments and invoices, for a subscription before or a one-off payment.
-    paymentsBlock.hidden = hideCheckout || nobodyPaid || Boolean(live.length)
+    paymentsBlock.hidden = hideCheckout || nobodyPaid || Boolean(paid.length)
       || !(subscriptions.length || products.some((p) => p.kind === 'once'));
 
-    // Someone who pays already changes the plan in the portal: a second checkout would charge twice.
-    const offered = hideCheckout ? [] : offerFor(answer, products, known);
-    clear(offerList).append(...offered.map((product, i) => {
-      const text = productText(product, plans);
-      const go = button(t('kit.plan.upgrade'), (event) => upgrade(product, answer, event.currentTarget), i === 0 ? 'primary' : '');
-      // Every row's button says "Upgrade": its name for a screen reader says to what, starting the same.
-      go.setAttribute('aria-label', t('kit.plan.upgradeTo', { product: text.name, detail: text.detail }));
-      // The founder's price beside the name, so the button keeps its place at the row's end.
-      return el('div', { class: 'kit-list__row' },
-        el('span', { class: 'kit-list__text' }, el('strong', { text: text.name }),
-          offer.founder && product.founder_price ? el('span', { class: 'kit-badge kit-badge--accent', text: t('kit.plan.founder') }) : null,
-          el('small', { text: text.detail })),
-        go);
-    }));
-    offerBlock.hidden = !offered.length;
-    return { holds: live.some((s) => productOf(s.product)?.plan === (answer?.plan?.id ?? null)) };
+    // Someone who pays already, here or in a store, changes the plan there: a second checkout would charge twice.
+    const offered = hideCheckout || offer.on_sale === false || paid.length ? [] : offerFor(answer, products, known);
+    // A founder's price first: it is the one that won't come back.
+    const ordered = offer.founder ? [...offered.filter((p) => p.founder_price), ...offered.filter((p) => !p.founder_price)] : offered;
+    clear(offerList).append(...ordered.map((product, i) => offerRow(product, offer, answer, plans, i === 0)));
+    offerBlock.hidden = !ordered.length;
+    return {
+      holds: live.some((s) => productOf(s.product)?.plan === (answer?.plan?.id ?? null)),
+      noted: said.lines.length > 0,
+    };
   }
 
-  return { blocks, paint };
+  return { blocks, paint, status };
+}
+
+/** A store's page, outside the app and this page: a new tab, or the system's browser in the suite's app. */
+function openOutside(url) {
+  if (!/^https:\/\//i.test(String(url || ''))) return;
+  globalThis.open?.(url, '_blank', 'noopener');
 }
 
 /* ----------------------- inside the suite's app: its store ---------------------- */

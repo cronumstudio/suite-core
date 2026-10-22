@@ -603,3 +603,31 @@ test('plans moved in from the users table of an app (Tasks)', (t) => {
   assert.equal(e.of(ada).ends, '2099-12-31T23:59:59.000Z');
   assert.equal(e.of({ id: 3, role: 'user' }).plan.id, 'plus');
 });
+
+test('the early access: its plan for everyone until its date, the default from then on, with nothing to change', (t) => {
+  const database = setup(t);
+  const clock = { now: Date.parse('2026-12-30T12:00:00Z') };
+  const e = createEntitlements({
+    database, appId: 'tasks', features: FEATURES, plans: PLANS, defaultPlan: 'free', plansJson: null, defaultPlanOverride: null,
+    earlyAccess: { plan: 'pro', until: '2026-12-31T00:00:00.000Z' }, clock: () => clock.now,
+  });
+  assert.deepEqual(e.errors, []);
+  assert.equal(e.of(ada).plan.id, 'pro', 'during the early access');
+  assert.equal(e.of(ada).ends, null, 'the default plan, not a grant with an end');
+  assert.equal(e.of(ada).features['lists.max'], null);
+  assert.deepEqual(e.sourceOf(ada), { kind: 'default' });
+  assert.equal(e.describe().defaultPlan, 'pro');
+  clock.now = Date.parse('2026-12-31T00:00:00Z');
+  assert.equal(e.of(ada).plan.id, 'free', 'from its date on, the default again');
+  assert.equal(e.of(ada).features['lists.max'], 3);
+  assert.equal(e.describe().defaultPlan, 'free');
+  // A grant still counts over it, both before and after.
+  e.setPlan(ada.id, 'plus', { endsAt: '2027-06-01T00:00:00Z' });
+  assert.equal(e.of(ada).plan.id, 'plus');
+
+  const wrong = createEntitlements({
+    database, appId: 'tasks', features: FEATURES, plans: PLANS, plansJson: null, defaultPlanOverride: null,
+    earlyAccess: { plan: 'gold', until: '2026-12-31T00:00:00.000Z' },
+  });
+  assert.match(wrong.errors.join(), /EARLY_ACCESS_PLAN: the plan "gold" is not in the catalog/);
+});

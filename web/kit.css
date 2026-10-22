@@ -1110,6 +1110,14 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-plan__offer .kit-list__text { flex: 1 1 150px; }
 .kit-plan__offer .kit-btn { flex: none; }
 .kit-plan__offer .kit-badge { margin-inline-start: 8px; vertical-align: 1px; }
+/* Its price before the button: a founder's beside the regular one, struck through. */
+.kit-plan__price { flex: none; display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.kit-plan__price strong { font-size: 17px; font-weight: 700; color: var(--kit-text); }
+.kit-plan__price s { color: var(--kit-muted); font-size: 13.5px; }
+.kit-plan__price small { color: var(--kit-muted); font-size: 12.5px; }
+.kit-plan__offer .kit-list__text small.kit-plan__note { margin-top: 4px; color: var(--kit-accent); }
+/* What can be done at the provider's page, in "Change or cancel plan". */
+.kit-plan__can { margin: 0; padding-inline-start: 20px; display: grid; gap: 6px; }
 /* Your AI's instructions: one fold per app, one open at a time (settings.js fold()). */
 .kit-folds { display: grid; gap: 8px; }
 .kit-fold { border: 1px solid var(--kit-border); border-radius: var(--look-r-lg, 12px); background: var(--kit-panel); }
@@ -1137,6 +1145,10 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-plan-card__label { font: 600 11px/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); }
 .kit-plan-card__name { font: 700 28px/1.1 var(--kit-font-display); letter-spacing: -.02em; color: var(--kit-text); }
 .kit-plan-card__until { margin: 0; color: var(--kit-muted); font-size: 13.5px; }
+.kit-plan-card__status { display: grid; gap: 4px; }
+.kit-plan-card__status:empty { display: none; }
+.kit-plan-card__extras { display: grid; gap: 6px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--kit-border); }
+.kit-plan-card__extras ul { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; font-size: 13.5px; }
 /* Over the block's own `h3 { margin: 0 }`. */
 .kit-settings__block .kit-benefits__title { margin: 28px 0 14px; font-size: var(--look-headline, 15px); font-weight: 600; }
 .kit-benefits { list-style: none; margin: 0 0 12px; padding: 0 2px; display: grid; gap: 10px; }

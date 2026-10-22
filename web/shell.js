@@ -39,11 +39,14 @@ import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, applyLook, LOOK_KEY } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 import { nativeReady } from './native.js';
+import { billingReturn, lastDay } from './plan.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
 /** The host's last answer of which modules there are (GET /api/modules), for the rail at once. */
 const RAIL_KEY = 'host.modules';
+/** The founder's notice closed on this device, for the date it named: it comes back for another. */
+const FOUNDER_KEY = 'host.founder-offer';
 /** How many modules the host's split view shows at once: one, two or three side by side, four in a grid. */
 export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 
@@ -609,6 +612,7 @@ export function createShell({
       try { localStorage.setItem(RAIL_KEY, JSON.stringify(answer)); } catch { /* private mode, full */ }
       // The look the person chose, from any device: painted now and kept for the next page.
       if ('look' in answer) applyLook(answer.look);
+      paintFounder(answer);
       return paintRail(answer);
     } catch {
       return null;   // offline: the rail stays as it was
@@ -634,6 +638,8 @@ export function createShell({
     document.addEventListener('kit-modules', () => refreshModules(), { signal });
     // A look chosen in another tab, or in another frame of the split view: this page follows at once.
     window.addEventListener('storage', (ev) => {
+      // Closed in another tab, or another frame of the split view: gone here too.
+      if (ev.key === FOUNDER_KEY) hideBanner('founder-offer');
       if (ev.key !== LOOK_KEY) return;
       if (ev.newValue === 'clean') document.documentElement.setAttribute('data-look', 'clean');
       else document.documentElement.removeAttribute('data-look');
@@ -655,6 +661,31 @@ export function createShell({
     shown.get(id)?.remove();
     shown.delete(id);
   }
+
+  /**
+   * A founder, once the early access is over and while their price lasts (the host's GET
+   * /api/modules, `founder_offer`): thanks, the news, and until when, with a way to the plan. Closed,
+   * it stays closed on this device for that date.
+   */
+  function paintFounder({ founder_offer: offer = null, host = {} } = {}) {
+    let closedFor = null;
+    try { closedFor = localStorage.getItem(FOUNDER_KEY); } catch { /* private mode: shown each time */ }
+    if (!offer?.until || closedFor === offer.until) {
+      hideBanner('founder-offer');
+      return;
+    }
+    if (shown.has('founder-offer')) return;
+    showBanner('founder-offer', {
+      kind: 'info', iconName: 'spark',
+      text: t('kit.founder.notice', { app: host.name || app.name, date: lastDay(offer.until) }),
+      action: onSettings ? { label: t('kit.founder.see'), onClick: () => onSettings('plan') } : null,
+      onClose: () => { try { localStorage.setItem(FOUNDER_KEY, offer.until); } catch { /* private mode */ } },
+    });
+  }
+
+  // Back from the host's checkout (Settings › Plan in a module): thanks, and the plan read again
+  // until it arrives. Only a host's module comes back to its own path with `?billing=`.
+  if (mount && !FRAMED) billingReturn({ open: onSettings ? () => onSettings('plan') : null });
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
