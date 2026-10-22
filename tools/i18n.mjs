@@ -141,7 +141,7 @@ export function unknownKeys(english, dirs) {
  * the products and the protocols. An app adds its own with `allow`.
  */
 export const BRAND_WORDS = [
-  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Focus', 'Notes', 'Tracker', 'Talk',
+  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Focus', 'Notes', 'Tracker',
   'MCP', 'OAuth', 'WorkOS', 'Claude', 'ChatGPT', 'English', 'Español', 'Français', 'Deutsch',
 ];
 

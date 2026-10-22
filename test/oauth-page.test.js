@@ -10,7 +10,7 @@ import { brandedPage, textOn } from '../oauth-page.js';
 
 test('the text on the product’s colour: white unless the colour is too light for it', () => {
   // Every product of the suite today keeps white on its buttons.
-  for (const color of ['#3A4660', '#EF4B2A', '#2F5BFF', '#0F9D6E', '#0A8FB8', '#E0457B']) {
+  for (const color of ['#3A4660', '#EF4B2A', '#2F5BFF', '#0F9D6E', '#0A8FB8']) {
     assert.equal(textOn(color), '#FFFFFF', color);
   }
   assert.equal(textOn('#FFC21A'), '#16130E', 'yolk takes ink');
