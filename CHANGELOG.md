@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.120.0 — 2026-10-22
+
+- **Italian** (`i18n/it.json`, `i18n.js`, `web/i18n.js`, `web/settings.js`). The suite speaks `it`:
+  every text of its own screens (account, settings, plan, admin, OAuth, devices) in Italian, with the
+  informal "tu", and Settings › Language names it "Italiano". An app speaks it by adding
+  `public/i18n/it.json` and `'it'` to `app.languages`.
+- **A language an app may not speak yet** (`OPTIONAL_LANGUAGES`, today `['it']`, in `i18n.js` and
+  `web/i18n.js`). An app without its catalog reads exactly as before: on the server `appTexts`
+  passes it over when negotiating (`languageFor`, `userLanguage`), in the browser a 404 for its
+  catalog makes `loadLanguage` pick what it would have picked without it, and `tools/i18n.mjs app`
+  (`appChecks`) checks it only once the app has its catalog. The four first languages are still
+  required of every app.
+
 ## 0.119.0 — 2026-10-22
 
 - **Settings › Plan, one for a whole host** (`host.js`, `web/settings.js`). In a host every module

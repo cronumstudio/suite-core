@@ -482,7 +482,7 @@ test('the admin signing someone out everywhere, or setting their password, revok
 
 test('the admin’s activity log names every device entry, in every language', () => {
   const actions = ['device.create', 'device.revoke', 'device.token_failed', 'device.web_session', 'device.web_session_failed', 'device.action'];
-  for (const lang of ['en', 'es', 'fr', 'de']) {
+  for (const lang of ['en', 'es', 'fr', 'de', 'it']) {
     const catalog = JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
     for (const action of actions) {
       const key = `admin.actions.${action.replace(/\./g, '_')}`;

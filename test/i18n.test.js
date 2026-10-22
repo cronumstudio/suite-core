@@ -151,6 +151,8 @@ test('appTexts: the app’s catalogs over the suite’s, English key by key, rea
     assert.equal(texts.translator('en')('errors.bad_credentials'), 'Not you?', 'the app’s text wins');
     assert.equal(texts.translator('fr')('notices.due', { title: 'Pain' }), 'Pain is due', 'French has none: English');
     assert.equal(texts.translator('xx'), texts.translator('en'), 'an unknown language is English');
+    assert.equal(texts.negotiateLanguage(['it', 'fr', 'es']), 'fr', 'an optional language without the app’s catalog is passed over');
+    assert.equal(texts.languageFor({ headers: { 'accept-language': 'it-IT,it;q=0.9' } }), 'en');
     assert.equal(texts.translator('es'), es, 'the same translator while nothing changes');
     const seen = texts.fromCatalog('names', 'es', (t) => ({ due: t('notices.due', { title: '' }) }));
     assert.equal(texts.fromCatalog('names', 'es', () => assert.fail('computed again')), seen);
@@ -227,6 +229,9 @@ test('appChecks: an app passes when its catalogs are flat and agree, its keys ex
     assert.equal(passing.length, 5);
     assert.deepEqual(passing.filter((c) => c.problems.length), []);
     assert.ok(appChecks(good)[4].problems.some((p) => p.includes('Plátanos')), 'without skip, the seeds count');
+    fs.writeFileSync(path.join(good, 'public/i18n/it.json'), JSON.stringify({ 'app.hello': 'Ciao' }));
+    assert.match(appChecks(good, { skip: ['seeds.js'] })[1].problems.join(' | '), /it: missing app\.count/, 'an optional language is checked once it has a catalog');
+    fs.writeFileSync(path.join(good, 'public/i18n/it.json'), JSON.stringify({ 'app.hello': 'Ciao', 'app.count': { one: '{n} nota', other: '{n} note' } }));
 
     const failing = appChecks(bad).map((c) => c.problems.join(' | '));
     assert.match(failing[0], /en\.json \| es\.json \| fr\.json: missing/, 'nested, and a language missing');
