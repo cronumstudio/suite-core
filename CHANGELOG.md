@@ -28,6 +28,8 @@ change an interface and a patch never does. Apps pin a version through the submo
     can call `suite.alerts.jobFailed(name, error)`, which never throws and does nothing with alerts
     off; `createApp()` and `createHost()` wire the rest. The router's `match()` also returns the
     route's `pattern`.
+- **`.env` files are never committed** (`.gitignore`): `.env` and `.env.*` are ignored, except
+  `.env.example`, before suite-core is published.
 
 ## 0.118.0 — 2026-10-22
 
