@@ -318,7 +318,7 @@
   "admin.usage.month": "Últimos 30 días: {n}, {avg} al día de media",
   "admin.usage.monthChart": "Llamadas de cada uno de los últimos 30 días",
   "admin.usage.dayCalls": "{date}: {n}",
-  "admin.usage.notCounted": "Sin contar: su plan no tiene tope diario.",
+  "admin.usage.noDailyLimit": "Su plan no tiene tope diario.",
   "admin.usage.lastChange": "Último cambio: {date}",
   "admin.usage.off": "Desactivado",
   "admin.usage.failed": "Este módulo no ha podido decir qué tiene.",

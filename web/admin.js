@@ -607,11 +607,10 @@ async function paintUsage(box, user, now) {
           storage.share, t('admin.usage.filesCount', { n: storage.files }))) : null,
       mcp ? el('section', { class: 'kit-usage__group' },
         el('h4', { class: 'kit-usage__title', text: t('admin.usage.mcp') }),
-        mcp.limit == null ? el('p', { class: 'kit-hint', text: t('admin.usage.notCounted') }) : [
-          usageRow(t('admin.usage.today'), t('admin.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }), mcp.share),
-          el('small', { class: 'kit-usage__note', text: t('admin.usage.month', { n: whole(mcp.total), avg: whole(average) }) }),
-          dayBars(mcp.days),
-        ]) : null),
+        usageRow(t('admin.usage.today'), mcp.limit == null ? whole(mcp.today) : t('admin.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }),
+          mcp.share, mcp.limit == null ? t('admin.usage.noDailyLimit') : null),
+        el('small', { class: 'kit-usage__note', text: t('admin.usage.month', { n: whole(mcp.total), avg: whole(average) }) }),
+        dayBars(mcp.days)) : null),
   );
 }
 
