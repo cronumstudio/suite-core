@@ -53,6 +53,7 @@ import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
+import { createAlerts } from './alerts.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
 import { createTexts } from './i18n.js';
@@ -415,6 +416,11 @@ export function createSuite({
 
   // Mail: an SMTP server, or the server's log until one is set.
   const mailer = createMailer(install.mail, { log });
+  // Emails to whoever runs the install when the server fails (ALERT_EMAIL, alerts.js): without it,
+  // or with the log as the mailer, every call on it does nothing.
+  const alerts = createAlerts({
+    to: install.alerts?.to ?? null, mailer, database, app: config.app, baseUrl: install.baseUrl, log,
+  });
   const accountMail = createAccountMail({
     database, accounts, mailer, texts, baseUrl: install.baseUrl,
     appName: config.app.name, limiter, audit, signup: config.accounts.signup,
@@ -545,7 +551,7 @@ export function createSuite({
   return {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush,
+    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
   };
 }
 
@@ -640,6 +646,8 @@ export function createApp({
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
+  // A suite made before alerts existed has none: the same calls, doing nothing.
+  const alerts = suite.alerts ?? createAlerts();
   const localPasswords = install.authProvider === 'local';
   const serialize = serializeUser || ((user) => (user ? accounts.publicUser(user) : null));
 
@@ -911,6 +919,7 @@ export function createApp({
           sendJson(res, 405, { error: 'method_not_allowed' }, { Allow: match.allow });
           return;
         }
+        alerts.noteRoute(req, match.pattern);
         const ctx = {
           req, res, url,
           params: match.params,
@@ -989,9 +998,11 @@ export function createApp({
         return;
       }
       if (err instanceof HttpError) {
+        if (err.status >= 500) alerts.noteError(req, err);
         sendJson(res, err.status, { error: err.code, ...err.extra }, err.headers);
         return;
       }
+      alerts.noteError(req, err);
       console.error(`[error] ${req.method} ${pathname} (${Date.now() - start}ms)`, err);
       sendJson(res, 500, { error: 'internal' });
     }
@@ -1000,7 +1011,10 @@ export function createApp({
   // handle() catches what a route throws; this is for whatever escapes it, so
   // that one request can never leave a rejection nobody awaits.
   const server = http.createServer((req, res) => {
+    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, before anything rewrites req.url.
+    alerts.watch(req, res);
     handle(req, res).catch((err) => {
+      alerts.noteError(req, err);
       console.error(`[error] ${req.method} ${req.url}`, err);
       if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
       else res.end();
@@ -1011,13 +1025,19 @@ export function createApp({
 
   const timers = [];
 
-  /** A clean-up that fails is logged and tried again next time: it must not take the server down. */
+  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
+  const failed = (name) => (err) => {
+    log(`${tag} ${name} failed: ${err?.stack || err}`);
+    alerts.jobFailed(name, err);
+  };
+  /** A clean-up that fails must not take the server down. */
   const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { log(`${tag} ${name} failed: ${err?.stack || err}`); }
+    try { fn(); } catch (err) { failed(name)(err); }
   };
 
   /** Creates the first administrator if needed, starts the clean-ups and listens. */
   function listen() {
+    alerts.setVersion(version);
     suite.ensureAdmin();
     const cleanUp = safely('clean-up', () => { suite.purge(); portability?.purge(); });
     cleanUp();
@@ -1039,21 +1059,22 @@ export function createApp({
     }
     if (deletion) {
       // The accounts whose owners asked to delete them, once their days are over: every hour.
-      const sweepAccounts = () => deletion.sweep().catch((err) => log(`${tag} account deletion failed: ${err?.stack || err}`));
+      const sweepAccounts = () => deletion.sweep().catch(failed('account deletion'));
       timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
     }
     if (billing?.enabled) {
       // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).
-      const sendStops = () => billing.sendStops().catch((err) => log(`${tag} stopping groups' renewals failed: ${err?.stack || err}`));
+      const sendStops = () => billing.sendStops().catch(failed("stopping groups' renewals"));
       timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sendStops, HOUR).unref());
     }
     if (handleSignals) {
       // close() also ends the live channels, which would otherwise keep the server open until the timeout.
-      const shutdown = (reason, code = 0) => {
+      // `waitFor`: the crash's alert, which gives itself less than those 5 s (alerts.js).
+      const shutdown = (reason, code = 0, waitFor = null) => {
         log(`${tag} ${reason}, closing…`);
-        close().then(() => process.exit(code), () => process.exit(code));
+        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
         setTimeout(() => process.exit(code), 5000).unref();
       };
       process.once('SIGTERM', () => shutdown('SIGTERM received'));
@@ -1061,10 +1082,14 @@ export function createApp({
       // A rejection that nothing awaited belongs to one task (a notice, a timer): it is
       // logged and the rest goes on. An exception that reached the top leaves the process
       // in a state nobody knows: it is logged and the process ends, for Docker to start it again.
-      process.on('unhandledRejection', (err) => log(`${tag} unhandled rejection: ${err?.stack || err}`));
+      // Both are emailed with ALERT_EMAIL.
+      process.on('unhandledRejection', (err) => {
+        log(`${tag} unhandled rejection: ${err?.stack || err}`);
+        alerts.report('rejection', err);
+      });
       process.once('uncaughtException', (err) => {
         log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1);
+        shutdown('uncaught exception', 1, alerts.crashed(err));
       });
     }
     return new Promise((resolve) => {
@@ -1089,6 +1114,8 @@ export function createApp({
 
   function close() {
     for (const timer of timers) clearInterval(timer);
+    // What the alerts held back since their last email, for the next one after a restart.
+    alerts.flush();
     // Open tabs would keep the server from closing.
     live.close();
     suite.nativePush?.close();

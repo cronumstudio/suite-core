@@ -241,7 +241,7 @@ Environment variables configure the install, never the product (`config.js` read
 `BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, `EARLY_ACCESS_UNTIL`,
 `FOUNDER_OFFER_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (`revenuecat`) with `REVENUECAT_*`, `MAIL_PROVIDER` (`log` |
-`smtp`) with `MAIL_*`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
+`smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
@@ -1477,6 +1477,18 @@ kit's), then Notes is built on it whole, then the others as they move to English
   says so in the log (`[mail] SMTP ready` or why not); a message that fails later is logged with
   its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
   changes.
+- **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
+  runs the install hears of the server failing instead of finding it in the log: an uncaught
+  exception (the process waits 4 s at most for the email, then exits with 1 as before), an
+  unhandled rejection, 5 or more 5xx within 5 minutes (counted by the server that listens, an app's
+  or a host's, each request named by its method and its route's pattern, `/tasks/api/lists/:id`),
+  and a scheduled job of the suite that threw. One email per kind every 30 minutes at most: the
+  time of the last is kept in `app_meta` before it goes, so a restart loop sends one, and the next
+  says how many were held back. It carries the app, its version, address, machine, kind, time and
+  the error with a trimmed stack, without emails, long tokens or the queries of URLs; never a
+  request's query, body, headers or cookies. In English, like the log: it is for whoever runs the
+  server. Not `ADMIN_EMAIL` on its own, so an install that moves up gets no mail it never asked
+  for; with `MAIL_PROVIDER=log`, or an address that isn't one, a warning and nothing else.
 - **Audit**: sign-ins and failures, sessions and tokens created or revoked, admin actions, plan
   changes, billing events, copies exported and imported. Who, when, what and from where; never
   titles, notes or passwords.
