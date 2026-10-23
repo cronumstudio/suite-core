@@ -430,6 +430,9 @@ test('reorder: the head picks its window up after 6 px, its column takes another
   assert.equal(desk.getAttribute('data-reordering'), null);
   assert.equal(desk.querySelector('.cw-drop'), null, 'its dashed box gone');
   assert.deepEqual(told.filter(([w]) => w === 'start' || w === 'end'), [['start', 'reorder'], ['end', 'reorder']]);
+  const held = told.filter(([w, , why]) => (w === 'pause' || w === 'resume') && why === 'resizing');
+  assert.deepEqual(held.filter(([w]) => w === 'pause').map(([, m]) => m).sort(), ['next', 'notes', 'tasks'], 'every window in sight held while it lasts');
+  assert.deepEqual(held.filter(([w]) => w === 'resume').map(([, m]) => m).sort(), ['next', 'notes', 'tasks'], 'and let go once it ends');
   assert.equal(head('notes').listenerCount(), 0, 'the gesture’s listeners gone');
   assert.equal(win.listenerCount(), 1, 'only the resize listener stays');
 

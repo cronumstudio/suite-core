@@ -680,9 +680,14 @@ export function createWindows(desk, {
     let ghost = null;
     let animate = true;
     let dir = false;
+    // The windows in sight while it lasts: a window moved into a column of another width would
+    // otherwise draw itself again to that width in the middle of the gesture (a Gantt, a graph).
+    let held = [];
 
     const pick = () => {
       picked = true;
+      held = [...shown];
+      for (const m of held) onPause(m, true, { resizing: true });
       // Measured once: where each column is, which reordering doesn't change (each place keeps its width).
       slots = measureSlots();
       desked = desk.getBoundingClientRect();
@@ -759,6 +764,8 @@ export function createWindows(desk, {
       layout = normalizeLayout(next);
       apply(cancelled ? { keep: was } : {});
       if (first) flip(first);
+      // Resumed once they are in their places: each draws itself once, at its new width.
+      for (const m of held) if (shown.has(m)) onPause(m, false, { resizing: true });
       onGesture(false, 'reorder');
     };
     const key = (e) => {
