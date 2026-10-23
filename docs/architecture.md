@@ -68,6 +68,7 @@ suite-core/
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
   revoke.js             done   revokeEverything: a new password or "sign out everywhere" ends every way in
+  workos-events.js      done   a reset on AuthKit's own page heard from WorkOS's Events API (every minute) → revokeEverything
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
   device-pages.js       done   the connect page and sessions of the web from a device's token (devices.connectPage, webSessions)
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)

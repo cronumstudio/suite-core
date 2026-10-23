@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.147.0 — 2026-10-23
+
+- **A password reset on AuthKit's own page signs the person out of everything here too**
+  (`workos-events.js`, `workos.js`, `app.js`, `host.js`). With WorkOS, "Forgot your password?" on
+  AuthKit's page is how people get back into an account they think someone else got into, and it
+  happens at WorkOS: the app was never told, so every session, API token, phone and AI client here
+  outlived the reset (audit 2026-10-23, verify-a, last row of the revocation matrix). Now whoever
+  owns the accounts (createApp's `listen()` for an app on its own, the host's once for all its
+  modules) asks WorkOS's Events API every minute for `password_reset.succeeded` and, for each one
+  about an account here, calls `revokeEverything(userId, { keep: null, reason: 'workos_password_reset' })`.
+  No webhook, so there is no new address to register in WorkOS's dashboard. Where it got to (the
+  last event's id) is kept in `app_meta` (`suite.workos_password_resets`); the first time it starts
+  from now and acts on nothing older. A WorkOS that fails or refuses is logged once and asked again
+  the next minute; a place WorkOS no longer takes (events are kept 90 days) starts again from now.
+  - `workos.listEvents({ events, after, rangeStart, order, limit })` → `{ data, after }`;
+    `suite.workosResets.poll()`, null without WorkOS or its API key.
+  - A password changed from AuthKit's account page has no event of its own in WorkOS's catalog, so
+    it is not heard; the app's own routes (`/api/me/sign-in/password`) already revoke.
 ## 0.146.0 — 2026-10-23
 
 - **Only the install that owns the identities changes them, and only with the admin's password

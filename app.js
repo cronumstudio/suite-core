@@ -52,6 +52,7 @@ import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
 import { registerWorkosSecurityApi } from './workos-security.js';
+import { watchPasswordResets } from './workos-events.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
 import { createAlerts } from './alerts.js';
@@ -420,6 +421,11 @@ export function createSuite({
   revoker.whenRevoked((id, { keep }) => live.dropUser(id, {
     except: keep?.sessionToken || null, last: { event: 'account', data: { user_id: id } },
   }));
+  // A reset on AuthKit's own page happens at WorkOS: its Events API, asked every minute by
+  // whoever listens (createApp's listen(), or the host's once), says so (workos-events.js).
+  const workosResets = workosClient && workosPeople && install.workos?.apiKey ? watchPasswordResets({
+    workos: workosClient, users: workosPeople, database, revokeEverything, log: (line) => log(`${tag} ${line}`),
+  }) : null;
   // Files people attach, with modules.uploads: stored, served and swept here; the app keeps its table.
   const uploads = config.modules.uploads
     ? createUploads({ dir: path.join(install.dataDir, 'uploads'), log: (line) => log(line) })
@@ -571,7 +577,7 @@ export function createSuite({
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
-    workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked,
+    workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
   };
 }
 
@@ -1107,6 +1113,12 @@ export function createApp({
       const sweepAccounts = () => deletion.sweep().catch(failed('account deletion'));
       timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
+    }
+    if (suite.workosResets) {
+      // Passwords reset on AuthKit's own page: everything that let that person in here, revoked. Every minute.
+      const resets = () => suite.workosResets.poll();
+      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
     }
     if (billing?.enabled) {
       // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).

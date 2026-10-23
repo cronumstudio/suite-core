@@ -370,6 +370,33 @@ export function createWorkosClient({
     throw new Error(`WorkOS did not revoke the authorization (${status})`);
   }
 
+  /* ------------------------------- events -------------------------------- */
+
+  /**
+   * A page of the environment's events (`GET /events`), as WorkOS gives them:
+   * `{ id, event, data, created_at }` each. `after` (an event's id) asks for the
+   * ones newer than it, `rangeStart` (ISO 8601 ending in `Z`) for the ones since
+   * then; WorkOS takes one or the other, not both. Events are kept 90 days.
+   * @returns {{ data: object[], after: string|null }}
+   * @throws {WorkosUnavailable} when WorkOS fails; an Error with `status` when it refuses the question.
+   */
+  async function listEvents({ events, after = null, rangeStart = null, order = 'asc', limit = 100 }) {
+    const q = new URLSearchParams();
+    for (const name of events) q.append('events', name);
+    q.set('order', order);
+    q.set('limit', String(limit));
+    if (after) q.set('after', after);
+    else if (rangeStart) q.set('range_start', rangeStart);
+    const { ok, status, body } = await request(`${API_URL}/events?${q}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (status >= 500 || status === 429) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    if (!ok || !Array.isArray(body?.data)) {
+      throw Object.assign(new Error(`WorkOS did not list the events (${status}${body?.message ? `: ${body.message}` : ''})`), { status });
+    }
+    return { data: body.data, after: body.list_metadata?.after ?? null };
+  }
+
   /* ----------------------------- MCP tokens ----------------------------- */
 
   /** What a JWT says, without checking its signature. Only for what already comes from WorkOS. */
@@ -429,7 +456,7 @@ export function createWorkosClient({
   return {
     authkitDomain: AUTHKIT,
     missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, account, knows,
-    authorizedApplications, revokeApplication, verifyToken, resourceMetadata, authorizationServerMetadata,
+    authorizedApplications, revokeApplication, listEvents, verifyToken, resourceMetadata, authorizationServerMetadata,
     checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor,
   };
 }
