@@ -29,6 +29,7 @@
  */
 import crypto from 'node:crypto';
 import { isoDate, readJson, sendJson, sendText } from './http.js';
+import { ResolveError, resolveErrorText } from './resolve.js';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-06-18', '2025-03-26', '2024-11-05']);
 /**
@@ -283,6 +284,8 @@ export function createMcpServer({
     } catch (error) {
       const text = describeError(error);
       if (text) return textResult(text, true);
+      // The suite's own (resolve.js, dates.js): the message and its options, for the AI to ask.
+      if (error instanceof ResolveError) return textResult(resolveErrorText(error), true);
       if (error?.code && error?.status) return textResult(String(error.code), true);
       log(`[mcp] error in ${tool.name}`, error);
       return textResult(`Internal error running ${tool.name}: ${error.message}`, true);

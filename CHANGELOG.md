@@ -3,6 +3,27 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.150.0 — 2026-10-23
+
+- **One way to turn names and dates as people say them into items, for every module's MCP**
+  (`resolve.js`, `dates.js`, `mcp.js`). Tasks, Projects and Next each had a copy of the same
+  scoring, drifted apart: only Next asked before writing on an unclear match, only Tasks folded
+  "Straße" and "Œufs", and Projects rolled "31/02" into March (audit 2026-10-23, A4, verify-b).
+  Nothing changes for an app until it adopts them.
+  - `resolve.js`: `matchByName(items, ref, { label, getName, strict, create, stopwords })`,
+    `score`, `nameKey` (accents and signs folded, every alphabet and emoji kept), `keywords`,
+    `stopwords(...moduleWords)`, `numberRef` / `byNumber` (a bare number is an id, never part of a
+    name), `isClear`, `optionOf`, `ResolveError` and `resolveErrorText`. `strict` (the tools that
+    write) asks about any tie and any match that isn't clear; `create` answers `null` for a name
+    like nothing there (a new item), with a hint on how to create one anyway.
+  - `dates.js`: `parseNaturalDate(value, { today, field })`, the union of Tasks' and Projects'
+    parsers in Spanish, English, French and German: ISO (a real day within 1900–2200), today and
+    its neighbours, "in N days/weeks/months" (the 31st becomes the month's last day), weekdays long
+    or short ("vie", "next friday") and day-first dates (24/12, 24.12., 24-12-2026). A day that
+    doesn't exist is a `ResolveError`, never the next month. `today` is the person's day.
+  - `mcp.js`: a suite `ResolveError` that the app's `describeError` leaves alone reaches the
+    assistant as its message and up to 25 options, one per line, so the modules can drop that branch.
+
 ## 0.149.0 — 2026-10-23
 
 - **An assistant's call no longer fails only because it leaves out what the tool calls required**

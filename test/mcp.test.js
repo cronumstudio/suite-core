@@ -342,3 +342,26 @@ test('argumentProblems and schemaProblems on their own', () => {
     'bad.p: enum is not a list of values', 'bad.p: pattern doesn\'t compile', 'none: inputSchema is not an object schema',
   ]);
 });
+
+test('a ResolveError the app leaves alone reaches the AI with its options', async () => {
+  const { ResolveError } = await import('../resolve.js');
+  const tool = (name, error) => ({
+    name, title: name, description: name, inputSchema: { type: 'object', properties: {} },
+    handler: () => { throw error; },
+  });
+  const mcp = createMcpServer({
+    serverInfo: { name: 'test', title: 'Test', version: '1.0.0' },
+    tools: [
+      tool('ask', new ResolveError('"shop" is ambiguous.', ['Shop (#1)', 'Shop online (#2)'])),
+      tool('told', new ResolveError('the app says it')),
+    ],
+    authenticate: async () => null,
+    challenge: () => 'Bearer',
+    describeError: (error) => (error.message === 'the app says it' ? 'In the app\'s words.' : null),
+    log: () => {},
+  });
+  const asked = await mcp.callTool({ id: 1 }, 'ask', {});
+  assert.deepEqual([asked.isError, asked.content[0].text],
+    [true, '"shop" is ambiguous.\nOptions:\n- Shop (#1)\n- Shop online (#2)']);
+  assert.equal((await mcp.callTool({ id: 1 }, 'told', {})).content[0].text, 'In the app\'s words.');
+});
