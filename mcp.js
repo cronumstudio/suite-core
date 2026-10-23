@@ -15,11 +15,12 @@
  * the person's calls of the day the same way, after `allows`.
  *
  * Before a tool runs, its arguments are checked against its `inputSchema`
- * (`argumentProblems`): types, ranges, `enum`, `required`, lengths and
- * `format: 'date'`. A call that doesn't fit gets a sentence saying what to
- * correct, and the tool doesn't run. The check reads arguments the way the
- * tools always have (a number in quotes is a number), and lets through
- * properties the schema doesn't name.
+ * (`argumentProblems`): types, ranges, `enum`, lengths and `format: 'date'`.
+ * A call that doesn't fit gets a sentence saying what to correct, and the tool
+ * doesn't run. The check reads arguments the way the tools always have (a
+ * number in quotes is a number), and lets through properties the schema
+ * doesn't name. `required` is left to the tool: some ask for what is missing
+ * or do without it (Next's log_progress saves the step without done_title).
  *
  * What each person sees may depend on them (a host, where everyone uses some
  * modules): `visible(principal, tool)` keeps a tool out of their list, and
@@ -141,9 +142,6 @@ function problemsOf(schema, value, path, out) {
   }
   if (isPlainObject(value)) {
     const properties = isPlainObject(schema.properties) ? schema.properties : {};
-    for (const name of Array.isArray(schema.required) ? schema.required : []) {
-      if (value[name] === undefined) out.push(`${quoted(path ? `${path}.${name}` : name)} is required`);
-    }
     for (const [name, sub] of Object.entries(properties)) {
       if (Object.hasOwn(value, name)) problemsOf(sub, value[name], path ? `${path}.${name}` : name, out);
     }
@@ -163,7 +161,7 @@ function safePattern(source) {
 
 /**
  * The arguments of a call against the tool's `inputSchema`: the sentences of
- * what is wrong (at most five), or an empty list. Types, `enum`, `required`,
+ * what is wrong (at most five), or an empty list. Types, `enum`,
  * `minimum`/`maximum` (and the exclusive ones), `minLength`/`maxLength`,
  * `minItems`/`maxItems`, `pattern`, `anyOf`/`oneOf`, `format: 'date'`
  * (isoDate), nested `properties` and `items`.

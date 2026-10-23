@@ -42,6 +42,16 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `mcp.js`: a suite `ResolveError` that the app's `describeError` leaves alone reaches the
     assistant as its message and up to 25 options, one per line, so the modules can drop that branch.
 
+## 0.149.0 — 2026-10-23
+
+- **An assistant's call no longer fails only because it leaves out what the tool calls required**
+  (`mcp.js` `argumentProblems`). Since 0.143.0 a missing `required` argument stopped the call
+  before the tool ran, but some tools do without it on purpose: Next's `log_progress` saves the
+  step without `done_title` and asks for it next time, and its smoke test (and assistants already
+  using it) were refused. What `required` names is the tool's to ask for again, as before 0.143.0;
+  types, ranges, `enum`, lengths and dates are still checked. `schemaProblems` still says when a
+  `required` names no property.
+
 ## 0.148.0 — 2026-10-23
 
 Dead code out (the audit of 23 October, wave 1). Nothing a person sees changes, except an
