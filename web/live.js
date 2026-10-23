@@ -13,12 +13,18 @@
  * - A closed channel (the session expired, the server restarting) is opened
  *   again with a growing wait, up to a minute.
  *
+ * - In Cronum Work's one-document shell, a module's channel is the shell's:
+ *   one connection for every module of the page (the host's
+ *   `/api/events?all`), each module's notices handed to its own handlers
+ *   (mount.js `workRegistry().live`). The same object comes back.
+ *
  *   const live = connectLive({
  *     onChange: (events) => reload(events), onResync: reloadAll, onAccount: refreshUser,
  *     onState: (state) => shell.setLive(state),
  *   });
  */
 import { at } from './base.js';
+import { workRegistry, ownerOf } from './mount.js';
 
 const GROUP_MS = 300;
 const FIRST_WAIT = 2000;
@@ -34,8 +40,53 @@ const MAX_WAIT = 60000;
  * @param {string} [options.url]
  * @param {Array<string>} [options.events]  other event names the app publishes
  * @param {Function} [options.EventSource] for tests
+ * @param {object} [options.shared]  the shell's channel for every module (`workRegistry().live`), for tests
+ * @param {string} [options.owner]   the module whose notices these are (`ownerOf()`), for tests
  */
-export function connectLive({ onChange = () => {}, onResync = () => {}, onAccount = () => {}, onState = () => {} } = {}, {
+export function connectLive(handlers = {}, options = {}) {
+  const { shared = workRegistry()?.live, owner = ownerOf() } = options;
+  // A module of the shell's page with its own channel: an address of its own was asked for, it keeps it.
+  if (shared && owner && options.url === undefined) return throughShell(shared, owner, handlers, options);
+  return ownChannel(handlers, options);
+}
+
+/**
+ * The module's notices from the shell's one channel: `shared.subscribe(module, handlers)` →
+ * `{ stop() }`, wrapped in what connectLive() gives (`state`, `reconnect()`, `stop()`).
+ */
+function throughShell(shared, owner, { onChange = () => {}, onResync = () => {}, onAccount = () => {}, onState = () => {} }, { events = [] }) {
+  let state = 'closed';
+  let subscription = null;
+  let stopped = false;
+  // Nothing reaches the module once it stopped, whatever the shell still has in flight.
+  const live = (fn) => (...args) => { if (!stopped) fn(...args); };
+  const setState = (next) => {
+    if (next === state) return;
+    state = next;
+    onState(next);
+  };
+  const handlers = {
+    onChange: live(onChange), onResync: live(onResync), onAccount: live(onAccount), onState: live(setState),
+  };
+  const open = () => {
+    subscription?.stop();
+    subscription = shared.subscribe(owner, handlers, { events });
+  };
+  open();
+  return {
+    get state() { return state; },
+    reconnect: () => { stopped = false; open(); },
+    stop: () => {
+      stopped = true;
+      subscription?.stop();
+      subscription = null;
+      setState('closed');
+    },
+  };
+}
+
+/** The module's own channel: its `/api/events`. */
+function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () => {}, onState = () => {} } = {}, {
   url = at('/api/events'), events = [], EventSource: Source = globalThis.EventSource, timers = globalThis,
 } = {}) {
   let source = null;

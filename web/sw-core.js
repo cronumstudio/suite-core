@@ -62,7 +62,7 @@ var SUITE_KIT_FILES = [
   '/suite/fonts/geist-latin.woff2', '/suite/fonts/geist-latin-ext.woff2',
   '/suite/fonts/geist-mono-latin.woff2', '/suite/fonts/space-grotesk-latin.woff2', '/suite/fonts/inter-latin.woff2',
   '/suite/theme.js', '/suite/base.js', '/suite/dom.js', '/suite/i18n.js', '/suite/api.js', '/suite/icons.js', '/suite/ui.js',
-  '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/local.js', '/suite/outbox.js',
+  '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/mount.js', '/suite/local.js', '/suite/outbox.js',
   '/suite/signin.js', '/suite/settings.js', '/suite/plan.js', '/suite/usage-view.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js', '/suite/links.js', '/suite/shared.js', '/suite/people.js',
   '/suite/keyboard.js', '/suite/agents.js',
   '/suite/push.js', '/suite/worker.js', '/suite/native.js',
