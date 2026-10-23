@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.153.0 — 2026-10-23
+
+- **"Today" is the person's, in every module that adopts it** (`time.js`). Tasks reads today in
+  the zone the person's browser reported (`prefs.tz`); Projects, Next and Notes each read it their
+  own way, mostly in the server's zone, so at six in the evening in New York "tomorrow" was already
+  the day after (audit 2026-10-23, A5). `time.js` is Tasks' `today.js` for everyone:
+  - `knownTimeZone(zone)`: the canonical IANA name ("europe/madrid" → "Europe/Madrid"), or null.
+  - `zoneOf(user)`: their `prefs.tz` (text or object), else `SERVER_TIME_ZONE` (`TZ`, as today).
+  - `inZoneOf(user, fn)`: runs a request or a tool call in their zone, through awaits;
+    `currentZone()` reads it.
+  - `todayFor(user?, offsetDays)`, `todayIn(zone, offsetDays)`, `dayIn(zone, instant)`,
+    `addDays(day, n)` (calendar days, no clock change moves them) and `daysSince(instant, zone)`.
+  Nothing changes for an app until it adopts it; createApp and the host don't wrap requests yet
+  (that waits for the app/host lane), so a module wraps its own handlers, as Tasks does.
+
 ## 0.152.0 — 2026-10-23
 
 - **What the MCP tools are written with, once for every module, and a shorter `tools/list`**
