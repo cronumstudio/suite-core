@@ -121,6 +121,7 @@ export function createLegacyDomains({ domains, modules, suite, uses, hostName, b
       legacyTools: spec.legacyTools || {},
       legacyParams: spec.legacyParams || {},
       describeError: spec.describeError || (() => null),
+      checkArgs: spec.checkArgs !== false,
       allows: (principal, tool) => (uses(principal, mount) ? m.view.entitlements.allows(principal, tool)
         : `${name} is turned off for this person: they can turn it on in ${hostName}, Settings › Modules.`),
       visible: (principal) => !principal || uses(principal, mount),
