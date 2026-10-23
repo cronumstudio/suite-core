@@ -1056,6 +1056,12 @@ export async function createHost({
       timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
     }
+    if (suite.workosResets) {
+      // Passwords reset on AuthKit's own page, once for every module (workos-events.js). Every minute.
+      const resets = () => suite.workosResets.poll();
+      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
+    }
     if (suite.billing?.enabled) {
       // Groups' renewals asked to stop that the provider didn't take yet, once for every module.
       const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));
