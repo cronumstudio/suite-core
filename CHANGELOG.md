@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.131.0 — 2026-10-23
+
+- **A link to `/oauth/authorize` no longer sends anyone to another site without a click of theirs**
+  (`oauth.js`, `i18n/*.json`). Anyone can register a client (`POST /oauth/register`, or a CIMD
+  document on their own domain) with their own redirect URI, and then hand out
+  `https://<app>/oauth/authorize?client_id=<theirs>&redirect_uri=<theirs>&response_type=x`: the
+  client and the redirect matched, the request didn't, and the error went back to that address
+  with an immediate 302 — a link on Cronum's domain that lands on a phishing page (audit
+  sc-oauth-mcp-1, RFC 9700 §4.11.2). A wrong `response_type`, a missing or malformed PKCE
+  challenge, or another `resource` now show the "can't connect" page here, with the reason
+  (`oauth.error.request_invalid`), as an unknown client or an unregistered redirect already did.
+  Claude and ChatGPT always send these right, so nothing changes for them. "Cancel" still goes
+  back to the client with `access_denied`: that one is the person's own click. The redirect URI
+  still has to match a registered one exactly (only the port may change on loopback, RFC 8252).
+
 ## 0.127.0 — 2026-10-23
 
 - **Password and sign-in is the account's; where one is signed in is a connection**

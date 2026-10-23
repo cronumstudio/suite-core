@@ -27,6 +27,7 @@
   "oauth.error.client_document_mismatch": "I dati dell’applicazione non corrispondono al suo identificatore.",
   "oauth.error.redirect_not_registered": "L’indirizzo di ritorno non è registrato per questa applicazione.",
   "oauth.error.request_expired": "La richiesta è scaduta. Riprova dall’applicazione.",
+  "oauth.error.request_invalid": "La richiesta dell’applicazione non è valida ({reason}). Riprova dall’applicazione.",
   "oauth.code": "Codice dalla tua app di autenticazione",
   "oauth.codeHint": "Se non hai il telefono, usa uno dei tuoi codici di recupero.",
   "oauth.verifyAndAllow": "Verifica e consenti",
