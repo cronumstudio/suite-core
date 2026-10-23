@@ -1095,3 +1095,224 @@ test('payments are the host\'s in every module: its routes at a module that sell
   assert.equal((await call('GET', '/alpha/api/billing/overview')).status, 200);
   assert.deepEqual((await call('GET', '/api/modules')).data.founder_offer, { until: '2099-01-01T00:00:00.000Z' }, 'the notice every frame shows');
 });
+
+/* ------------------- a page that shows several modules ------------------- */
+
+/** A folder with the files of a page of the host's own (`pages`). */
+function pageFolder(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-page-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, 'js'));
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!DOCTYPE html><title>Desk</title>');
+  fs.writeFileSync(path.join(dir, 'start.html'), '<!DOCTYPE html><title>Start</title>');
+  fs.writeFileSync(path.join(dir, 'js', 'desk.js'), 'export const desk = 1;\n');
+  fs.writeFileSync(path.join(dir, '.secret'), 'no');
+  return dir;
+}
+
+test('a page of the host’s own (pages): its files under its path, before anything else, and a 404 for what it hasn’t', async (t) => {
+  const dir = pageFolder(t);
+  const { call } = await startHost(t, { pages: [{ at: '/w/', dir }] });
+  const page = await call('GET', '/w/?w=alpha:list/1');
+  assert.equal(page.status, 200);
+  assert.match(page.data, /<title>Desk<\/title>/);
+  assert.match(page.headers.get('content-type'), /^text\/html/);
+  assert.ok(page.headers.get('content-security-policy'), 'with the host’s security headers');
+  assert.equal(page.headers.get('x-frame-options'), 'DENY');
+  assert.equal(page.headers.get('cache-control'), 'no-cache', 'revalidated, as the host’s own files');
+  assert.equal((await call('GET', '/w/', undefined, { 'If-None-Match': page.headers.get('etag') })).status, 304);
+  assert.equal((await call('GET', '/w/index.html')).data, page.data);
+  assert.equal((await call('GET', '/w/js/desk.js')).data, 'export const desk = 1;\n');
+  const head = await call('HEAD', '/w/js/desk.js');
+  assert.equal(head.status, 200);
+  assert.equal(head.data, '');
+  for (const missing of ['/w/nothing.js', '/w/list/1', '/w/.secret', '/w/%2e%2e/%2e%2e/package.json']) {
+    assert.equal((await call('GET', missing)).status, 404, `${missing}: never a module’s page nor the host’s`);
+  }
+  const bare = await call('GET', '/w?x=1');
+  assert.equal(bare.status, 308);
+  assert.equal(bare.headers.get('location'), '/w/?x=1');
+  assert.notEqual((await call('POST', '/w/', {})).status, 200, 'only GET and HEAD are the page’s');
+  // Everything else as before.
+  assert.match((await call('GET', '/alpha/')).data, /<title>Alpha<\/title>/);
+  assert.equal((await call('GET', '/')).headers.get('location'), '/alpha/');
+
+  // Another index.
+  const { call: other } = await startHost(t, { pages: [{ at: '/desk/', dir, index: 'start.html' }] });
+  assert.match((await other('GET', '/desk/')).data, /<title>Start<\/title>/);
+});
+
+test('without pages, a host answers their paths as before', async (t) => {
+  pageFolder(t);
+  const { call } = await startHost(t);
+  assert.equal((await call('GET', '/w/')).status, 404);
+  assert.equal((await call('GET', '/w/js/desk.js')).status, 404);
+});
+
+test('pages that can’t be the host’s stop the start, and say why', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  const start = (pages) => createHost({
+    config: HOST, modules: modules(), pages, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' },
+    handleSignals: false, exitOnError: false, log: () => {},
+  });
+  try {
+    const cases = [
+      [[{ at: 'w', dir }], /pages\[0\]\.at: "w" is not a path of the host/],
+      [[{ at: '/w', dir }], /pages\[0\]\.at: "\/w" is not a path of the host/],
+      [[{ at: '/alpha/', dir }], /pages\[0\]\.at: \/alpha\/ is the host's already, or a module's/],
+      [[{ at: '/api/', dir }], /pages\[0\]\.at: \/api\/ is the host's already/],
+      [[{ at: '/w/' }], /pages\[0\]\.dir: the folder of its files is needed/],
+      [[{ at: '/w/', dir, index: '../x.html' }], /pages\[0\]\.index: "\.\.\/x\.html" is not a file of its folder/],
+      [[{ at: '/w/', dir }, { at: '/w/', dir }], /pages\[1\]\.at: \/w\/ twice/],
+      [{ at: '/w/', dir }, /pages: a list/],
+    ];
+    for (const [pages, message] of cases) {
+      await assert.rejects(start(pages), (err) => err instanceof SuiteConfigError && message.test(err.errors.join('\n')), String(message));
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a module’s sheet scoped to its windows (scopedSheets): its own file in @scope, revalidated by the app’s fingerprint', async (t) => {
+  const own = fs.readFileSync(new URL('./fixtures/host/alpha/public/css/app.css', import.meta.url), 'utf8');
+  const { call } = await startHost(t, { scopedSheets: true });
+  const sheet = await call('GET', '/alpha/css/app.css?scope=work');
+  assert.equal(sheet.status, 200);
+  assert.equal(sheet.headers.get('content-type'), 'text/css; charset=utf-8');
+  assert.equal(sheet.headers.get('cache-control'), 'no-cache');
+  assert.ok(sheet.headers.get('content-security-policy'));
+  assert.match(sheet.headers.get('etag'), /^W\/"[0-9a-f]{12}-[0-9a-f]{12}"$/);
+  assert.equal(sheet.data, [
+    '@font-face { font-family: Alpha; src: url(/alpha/fonts/alpha.woff2); }',
+    '@scope ([data-module="alpha"], [data-owner="alpha"]) {',
+    ':scope { --alpha: #EF4B2A; }',
+    ':scope[data-module], :scope[data-module] { margin: 0; }',
+    '.card { background: url(/alpha/icons/card.svg); }',
+    '}',
+    '',
+  ].join('\n'));
+  assert.equal((await call('GET', '/alpha/css/app.css?scope=work', undefined, { 'If-None-Match': sheet.headers.get('etag') })).status, 304);
+  const head = await call('HEAD', '/alpha/css/app.css?scope=work');
+  assert.equal(head.data, '');
+  assert.equal(Number(head.headers.get('content-length')), Buffer.byteLength(sheet.data));
+  assert.equal((await call('GET', '/beta/css/app.css?scope=work')).status, 404, 'beta has no such sheet: as before');
+
+  // The kit's sheets at the module's path, the same way; the file itself, as always.
+  const kit = await call('GET', '/alpha/suite/kit.css?scope=work');
+  assert.equal(kit.status, 200);
+  assert.match(kit.data, /@scope \(\[data-module="alpha"\], \[data-owner="alpha"\]\) \{/);
+  assert.notEqual(kit.headers.get('etag'), sheet.headers.get('etag'), 'one ETag for each sheet');
+  assert.equal((await call('GET', '/alpha/css/app.css')).data, own);
+  assert.equal((await call('GET', '/alpha/css/app.css?scope=other')).data, own);
+  assert.equal((await call('GET', '/alpha/css/nothing.css?scope=work')).status, 404);
+});
+
+test('without scopedSheets, ?scope=work is a query like any other', async (t) => {
+  const own = fs.readFileSync(new URL('./fixtures/host/alpha/public/css/app.css', import.meta.url), 'utf8');
+  const { call } = await startHost(t);
+  const sheet = await call('GET', '/alpha/css/app.css?scope=work');
+  assert.equal(sheet.status, 200);
+  assert.equal(sheet.data, own);
+});
+
+/** The host's session cookie for its first administrator. */
+async function adminCookie(base) {
+  const res = await fetch(`${base}/api/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'root-password' }),
+  });
+  return res.headers.getSetCookie().find((c) => c.startsWith('work_sid=')).split(';')[0];
+}
+
+/** A stream of the host's, read as it comes: `until(pattern)` waits for it (no pattern: its end), `messages()` parses it. */
+async function stream(base, pathname, headers = {}) {
+  const controller = new AbortController();
+  const res = await fetch(base + pathname, { headers, signal: controller.signal });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let ended = false;
+  const until = async (pattern = null) => {
+    while (!(pattern && pattern.test(text)) && !ended) {
+      const { value, done } = await reader.read();
+      if (done) ended = true;
+      else text += decoder.decode(value);
+    }
+  };
+  const messages = () => text.split('\n\n').filter((block) => /^data: /m.test(block)).map((block) => ({
+    id: /^id: (.+)$/m.exec(block)?.[1] ?? null,
+    ...JSON.parse(/^data: (.*)$/m.exec(block)[1]),
+  }));
+  return { res, until, messages, text: () => text, ended: () => ended, stop: () => controller.abort() };
+}
+
+test('one live channel for every module (liveAll): each module’s notices for this person, as { module, event, data }', async (t) => {
+  const { host, call } = await startHost(t, { liveAll: true });
+  const base = `http://127.0.0.1:${host.server.address().port}`;
+  const [alpha, beta] = host.modules;
+  const refused = await call('GET', '/api/events?all');
+  assert.equal(refused.status, 401, 'with the host’s session only');
+  assert.deepEqual(refused.data, { error: 'unauthorized' });
+  const cookie = await adminCookie(base);
+  const me = host.suite.accounts.byUsername('admin');
+
+  const all = await stream(base, '/api/events?all', { Cookie: cookie });
+  t.after(() => all.stop());
+  assert.equal(all.res.status, 200);
+  assert.match(all.res.headers.get('content-type'), /^text\/event-stream/);
+  assert.equal(all.res.headers.get('x-accel-buffering'), 'no');
+  await all.until(/"event":"hello"/);
+  assert.match(all.text(), /^retry: 3000\n\n/);
+  const [hello] = all.messages();
+  assert.deepEqual({ module: hello.module, event: hello.event, data: hello.data }, { module: null, event: 'hello', data: { user_id: me.id } });
+  assert.match(hello.id, /^alpha=[\w-]+\.\d+,beta=[\w-]+\.\d+$/, 'where it is in every module');
+  assert.equal(alpha.suite.live.connected(), 1);
+  assert.equal(beta.suite.live.connected(), 1);
+
+  alpha.suite.live.publish({ audience: [me.id + 1], data: { item: 'someone else’s' } });
+  alpha.suite.live.publish({ audience: [me.id], data: { item: 1 } });
+  beta.suite.live.publish({ event: 'links', data: { ref: 'beta:item:2' } });
+  await all.until(/"module":"beta"/);
+  const told = all.messages().slice(1);
+  assert.deepEqual(told.map(({ module, event, data }) => ({ module, event, data })), [
+    { module: 'alpha', event: 'change', data: { item: 1 } },
+    { module: 'beta', event: 'links', data: { ref: 'beta:item:2' } },
+  ], 'only what reaches this person, each with its module');
+  assert.doesNotMatch(all.text(), /^event: /m, 'unnamed messages: the page reads them all with onmessage');
+  assert.match(told[1].id, /^alpha=[\w-]+\.2,beta=[\w-]+\.1$/);
+
+  // Coming back with its id: what it missed, module by module.
+  all.stop();
+  beta.suite.live.publish({ audience: [me.id], data: { missed: true } });
+  const back = await stream(base, '/api/events?all', { Cookie: cookie, 'Last-Event-ID': told[1].id });
+  t.after(() => back.stop());
+  await back.until(/"event":"hello"/);
+  assert.deepEqual(back.messages().map(({ module, event, data }) => ({ module, event, data })), [
+    { module: 'beta', event: 'change', data: { missed: true } },
+    { module: null, event: 'hello', data: { user_id: me.id } },
+  ]);
+  // An id of another run: everything reloaded, module by module.
+  const lost = await stream(base, '/api/events?all', { Cookie: cookie, 'Last-Event-ID': 'alpha=old.1' });
+  t.after(() => lost.stop());
+  await lost.until(/"event":"hello"/);
+  assert.deepEqual(lost.messages().map(({ module, event }) => [module, event]), [['alpha', 'resync'], ['beta', 'resync'], [null, 'hello']]);
+
+  // Signed out everywhere: a module's last word, and the stream ends, in every module.
+  alpha.suite.live.dropUser(me.id, { last: { event: 'account', data: { user_id: me.id } } });
+  await back.until(/"event":"account"/);
+  await back.until();
+  assert.equal(back.ended(), true, 'the stream ends with its channels');
+  assert.equal(alpha.suite.live.connected(), 0);
+  assert.equal(beta.suite.live.connected(), 0, 'every module lets go of it');
+});
+
+test('without liveAll, /api/events?all is the host’s own channel, as before', async (t) => {
+  const { host, call } = await startHost(t);
+  const base = `http://127.0.0.1:${host.server.address().port}`;
+  assert.equal((await call('GET', '/api/events?all')).status, 401);
+  const own = await stream(base, '/api/events?all', { Cookie: await adminCookie(base) });
+  t.after(() => own.stop());
+  await own.until(/event: hello/);
+  assert.match(own.text(), /event: hello\ndata: \{"user_id":\d+\}/, 'a named hello, the root’s');
+  assert.equal(host.modules[0].suite.live.connected(), 0, 'no module’s');
+});

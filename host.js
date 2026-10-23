@@ -61,12 +61,15 @@ import { createSuite, createApp, SuiteConfigError } from './app.js';
 import { resolveConfig } from './config.js';
 import { migrate } from './migrate.js';
 import { createEntitlements } from './entitlements.js';
-import { createLive } from './live.js';
+import { createLive, subscribeAll } from './live.js';
 import { createUploads } from './uploads.js';
 import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
-import { sendJson, securityHeaders, readJson, badRequest, unauthorized } from './http.js';
+import {
+  sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, serveStatic, staticFile,
+} from './http.js';
+import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
@@ -372,6 +375,19 @@ function moduleListErrors(modules) {
  *   app's (the host's, the kit's and every module's files), the modules' pages retire their own
  *   workers (web/worker.js, told by /api/auth/config's `host.worker`) and show one notice of a
  *   new version, and every module's notice opens at the module's path. Without it, as before.
+ * @param {Array} [options.pages]  pages of the host's own, each from a folder of its own and before
+ *   anything else of the host's: `[{ at: '/w/', dir, index = 'index.html' }]` answers GET and HEAD
+ *   under `at` with the files of `dir` (`at` itself, its `index`), with the security headers and
+ *   caching of the host's own files; a file `dir` hasn't is a 404, never a module's or the host's
+ *   page. Cronum Work's one-document shell, at /w/ (architecture §21.6). Without it, nothing changes
+ * @param {boolean} [options.scopedSheets]  a module's own stylesheet scoped to its windows in a page
+ *   that shows several modules (scope-css.js): `GET /<mount>/…/x.css?scope=work` answers the file
+ *   the host would serve there wrapped in `@scope`, revalidated against the whole app's
+ *   fingerprint. Without it, `?scope=work` is ignored, as any query of a file
+ * @param {boolean} [options.liveAll]  one live channel for every module, for a page that shows
+ *   several: `GET /api/events?all`, with the host's session, streams what each module's own
+ *   `/<mount>/api/events` would tell that person, as `{ module, event, data }` (live.js
+ *   subscribeAll). The modules' channels stay as they are
  * @param {string} [options.version]
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
@@ -379,6 +395,7 @@ function moduleListErrors(modules) {
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
   aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
+  pages = [], scopedSheets = false, liveAll = false,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
@@ -420,6 +437,20 @@ export async function createHost({
   }
   if (worker != null && worker !== false && worker !== true && (typeof worker !== 'object' || Array.isArray(worker))) {
     listErrors.push('worker: true, or { icon, badge } for its notices');
+  }
+  // The host's own pages: each at a path of its own, never a module's nor one the host answers.
+  const pageList = Array.isArray(pages) ? pages : [];
+  if (!Array.isArray(pages)) listErrors.push("pages: a list, [{ at: '/w/', dir }]");
+  for (const [i, page] of pageList.entries()) {
+    const at = page?.at;
+    if (!(typeof at === 'string' && /^\/[a-z0-9-]+\/$/.test(at))) listErrors.push(`pages[${i}].at: "${at}" is not a path of the host (such as /w/)`);
+    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at) {
+      listErrors.push(`pages[${i}].at: ${at} is the host's already, or a module's`);
+    } else if (pageList.findIndex((other) => other?.at === at) !== i) listErrors.push(`pages[${i}].at: ${at} twice`);
+    if (!page?.dir || typeof page.dir !== 'string') listErrors.push(`pages[${i}].dir: the folder of its files is needed`);
+    if (page?.index !== undefined && !(typeof page.index === 'string' && /^[\w.-]+$/.test(page.index))) {
+      listErrors.push(`pages[${i}].index: "${page.index}" is not a file of its folder`);
+    }
   }
   /** The host's one worker (host-worker.js), or null: each module keeps its own, as before. */
   const hostWorker = worker ? (worker === true ? {} : worker) : null;
@@ -922,6 +953,50 @@ export async function createHost({
     return false;
   }
 
+  /* ------------------- a page that shows several modules ------------------- */
+
+  /** A page of the host's own (`pages`) a request is for: one of its files, or a 404. False for anything else. */
+  function answerPage(req, res, url) {
+    if (!['GET', 'HEAD'].includes(req.method)) return false;
+    const page = pageList.find((p) => url.pathname === p.at.slice(0, -1) || url.pathname.startsWith(p.at));
+    if (!page) return false;
+    if (url.pathname === page.at.slice(0, -1)) {
+      redirect(res, 308, `${page.at}${url.search}`);
+      return true;
+    }
+    securityHeaders(res, { https: install.https });
+    const file = url.pathname === page.at ? `/${page.index ?? 'index.html'}` : url.pathname.slice(page.at.length - 1);
+    if (!serveStatic(page.dir, file, res)) sendText(res, 404, 'Not found');
+    return true;
+  }
+
+  /** Each module's sheets scoped (scopedSheets), by address: kept while the whole app's fingerprint is the same. */
+  const scoped = new Map();
+  /**
+   * A module's sheet at `rest` (`/css/app.css`, `/suite/kit.css`), scoped to its windows: the same
+   * file the module would serve there. Null when it has none, and the module answers as always.
+   */
+  function scopedSheet(m, rest) {
+    const kit = rest.startsWith('/suite/');
+    const dir = kit ? KIT_DIR : m.parts.publicDir;
+    const found = dir ? staticFile(dir, kit ? rest.slice('/suite'.length) : rest) : null;
+    if (!found) return null;
+    const address = `/${m.mount}${rest}`;
+    const print = hostVersion().version;
+    const known = scoped.get(address);
+    if (known?.print === print && known.file === found.file) return known;
+    const body = scopeCss(fs.readFileSync(found.file, 'utf8'), m.mount, address);
+    const sheet = {
+      print, file: found.file, body,
+      etag: `W/"${print}-${crypto.createHash('sha1').update(`${SCOPE_FORMAT}:${address}`).digest('hex').slice(0, 12)}"`,
+    };
+    scoped.set(address, sheet);
+    return sheet;
+  }
+
+  /** The modules whose live channel the host's one for all of them (liveAll) carries. */
+  const liveChannels = () => joined.filter((m) => m.config.modules?.live).map((m) => [m.mount, m.view.live]);
+
   /** The module a request is for, with the prefix taken off; anything else is the root's. */
   async function handle(req, res) {
     let url;
@@ -933,6 +1008,19 @@ export async function createHost({
     // An app's old address: its connector as it was, everything else to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
+    // The host's own pages, before anything of the host's or a module's.
+    if (pageList.length && answerPage(req, res, url)) return undefined;
+    // Every module's live channel in one, with the host's session as each module's own takes it.
+    if (liveAll && url.pathname === '/api/events' && url.searchParams.has('all') && req.method === 'GET') {
+      securityHeaders(res, { https: install.https });
+      const user = suite.sessions.userFrom(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return undefined;
+      }
+      subscribeAll(liveChannels(), req, res, user, { sessionToken: suite.sessions.tokenFrom(req) ?? null });
+      return undefined;
+    }
     const mount = url.pathname.split('/')[1];
     const m = byMount.get(mount);
     if (!m) {
@@ -989,6 +1077,26 @@ export async function createHost({
           ETag: manifest.etag,
         });
         res.end(req.method === 'HEAD' ? undefined : manifest.body);
+        return undefined;
+      }
+    }
+    // Its sheet scoped to its windows, for a page that shows several modules (scope-css.js).
+    if (scopedSheets && url.searchParams.get('scope') === 'work' && /\.css$/i.test(rest) && ['GET', 'HEAD'].includes(req.method)) {
+      const sheet = scopedSheet(m, rest);
+      if (sheet) {
+        securityHeaders(res, { https: install.https });
+        if (req.headers['if-none-match'] === sheet.etag) {
+          res.writeHead(304, { ETag: sheet.etag, 'Cache-Control': 'no-cache' });
+          res.end();
+          return undefined;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'text/css; charset=utf-8',
+          'Content-Length': Buffer.byteLength(sheet.body),
+          'Cache-Control': 'no-cache',
+          ETag: sheet.etag,
+        });
+        res.end(req.method === 'HEAD' ? undefined : sheet.body);
         return undefined;
       }
     }

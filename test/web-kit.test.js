@@ -259,6 +259,79 @@ test('live: changes grouped, resync after a cut, reconnection with a growing wai
   assert.deepEqual(states.slice(0, 2), ['connecting', 'open']);
 });
 
+/** The shell's channel for every module (`workRegistry().live`), as a test sees it: who subscribed, and stopped. */
+function fakeShellLive() {
+  const subscriptions = [];
+  return {
+    subscriptions,
+    subscribe(module, handlers, options) {
+      const subscription = { module, handlers, options, stopped: false, stop() { this.stopped = true; } };
+      subscriptions.push(subscription);
+      return subscription;
+    },
+  };
+}
+
+test('live: in the shell’s page a module’s channel is the shell’s, with the same object back', () => {
+  const REGISTRY = Symbol.for('cronum.work');
+  const shared = fakeShellLive();
+  globalThis.document[REGISTRY] = { live: shared };
+  try {
+    const before = FakeSource.last;
+    const states = [];
+    const changes = [];
+    let resyncs = 0;
+    let accounts = 0;
+    const live = connectLive({
+      onChange: (events) => changes.push(events), onResync: () => resyncs++, onAccount: () => accounts++, onState: (s) => states.push(s),
+    }, { EventSource: FakeSource, owner: 'notes', events: ['note'] });
+    assert.equal(FakeSource.last, before, 'no channel of its own');
+    const [first] = shared.subscriptions;
+    assert.equal(first.module, 'notes', 'the module this copy of the kit belongs to');
+    assert.deepEqual(first.options, { events: ['note'] });
+    assert.equal(live.state, 'closed');
+
+    first.handlers.onState('open');
+    first.handlers.onState('open');
+    assert.equal(live.state, 'open');
+    assert.deepEqual(states, ['open'], 'a state said once');
+    first.handlers.onChange([{ event: 'change', id: 'r.1', data: { note: 5 } }]);
+    first.handlers.onResync();
+    first.handlers.onAccount();
+    assert.deepEqual(changes, [[{ event: 'change', id: 'r.1', data: { note: 5 } }]]);
+    assert.equal(resyncs, 1);
+    assert.equal(accounts, 1);
+
+    live.reconnect();
+    assert.equal(first.stopped, true, 'again: the old subscription let go');
+    const second = shared.subscriptions[1];
+    assert.equal(second.module, 'notes');
+
+    live.stop();
+    assert.equal(second.stopped, true);
+    assert.equal(live.state, 'closed');
+    assert.deepEqual(states, ['open', 'closed']);
+    second.handlers.onChange([{ event: 'change' }]);
+    second.handlers.onResync();
+    assert.equal(changes.length, 1, 'nothing reaches a module once it stopped');
+    assert.equal(resyncs, 1);
+
+    // Its own address asked for, or a kit that is no module's (the host's own pages): its own channel.
+    connectLive({}, { EventSource: FakeSource, owner: 'notes', url: '/notes/api/other-events' }).stop();
+    assert.notEqual(FakeSource.last, before);
+    const afterOwn = FakeSource.last;
+    connectLive({}, { EventSource: FakeSource }).stop();
+    assert.notEqual(FakeSource.last, afterOwn, 'at the root (ownerOf() is null), its own as always');
+    assert.equal(shared.subscriptions.length, 2);
+  } finally {
+    delete globalThis.document[REGISTRY];
+  }
+  // Outside the shell's page, the module's own channel, as always.
+  const before = FakeSource.last;
+  connectLive({}, { EventSource: FakeSource, owner: 'notes' }).stop();
+  assert.notEqual(FakeSource.last, before);
+});
+
 /* --------------------------------- updates -------------------------------- */
 
 test('update: a different fingerprint is announced; closing it keeps it quiet for one round', async () => {
@@ -511,7 +584,8 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),\s*others\.length \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
   // and always in a frame of the host's split view, which has no rail.
-  assert.match(shell, /const want = hosted && \(FRAMED \|\| !\(beside\(\) && \(rail \|\| !answered\)\)\);/);
+  // Never in a window of Work's shell, where the modules and Settings are the shell's.
+  assert.match(shell, /const want = hosted && !embedded && \(FRAMED \|\| !\(beside\(\) && \(rail \|\| !answered\)\)\);/);
   assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules');
   // The split view's views on the rail, where the host has one, over Settings.
   assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
@@ -577,6 +651,18 @@ test('every file the service worker caches for the kit exists', () => {
   const files = [.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
   assert.ok(files.length > 15);
   for (const file of files) assert.ok(fs.existsSync(new URL(`../web/${file.replace('/suite/', '')}`, import.meta.url)), file);
+});
+
+test('the service worker caches every kit file a cached one imports, or offline it would not load', () => {
+  const sw = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
+  const files = new Set([.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]));
+  for (const file of files) {
+    if (!file.endsWith('.js')) continue;
+    const code = fs.readFileSync(new URL(`../web/${file.replace('/suite/', '')}`, import.meta.url), 'utf8');
+    for (const [, name] of code.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+'\.\/([\w.-]+\.js)'/gm)) {
+      assert.ok(files.has(`/suite/${name}`), `${file} imports ./${name}, which the worker doesn't keep`);
+    }
+  }
 });
 
 /* ------------------------------ the app's base ----------------------------- */
@@ -796,7 +882,11 @@ async function deployedWorkers(scope, server) {
   const vm = await import('node:vm');
   const store = new Map();   // cache name → Map(path → response)
   const fetched = [];
-  const pathOf = (input) => new URL(typeof input === 'string' ? input : input.url, scope).pathname;
+  // As the Cache API matches by default: the query counts.
+  const pathOf = (input) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, scope);
+    return url.pathname + url.search;
+  };
   class Response {
     constructor(body, init = {}) { this.body = body; this.status = init.status ?? 200; this.ok = this.status < 400; this.url = ''; this.headers = init.headers || {}; }
     clone() { const copy = new Response(this.body, this); copy.url = this.url; return copy; }
@@ -893,6 +983,17 @@ test('a host’s worker serves code from its copy, keeps the kit once, and a rel
   assert.equal(base.url, '', 'a response of its own: the page reads it at /notes/suite/, so its base stays /notes/');
   assert.deepEqual(fetched, [], 'nothing asked of the network');
   assert.equal(await one.get('https://work.example/tasks/api/lists'), null, 'data still always reaches the server');
+
+  // A module's kit sheet scoped to its windows (Work's shell, host.js scopedSheets): its own answer,
+  // never the one copy, which every module's page goes on getting as it was.
+  server['/notes/suite/kit.css?scope=work'] = 'kit scoped to notes';
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css?scope=work')).body, 'kit scoped to notes');
+  assert.deepEqual(fetched, ['/notes/suite/kit.css?scope=work']);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css')).body, '/suite/kit.css v1', 'the one copy stays the kit’s');
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css?scope=work')).body, 'kit scoped to notes', 'and the scoped one is kept apart');
+  assert.deepEqual(fetched, ['/notes/suite/kit.css?scope=work']);
 
   // A release that only changes the kit: a new worker, which brings that file and takes the rest from the old copy.
   server['/suite/kit.css'] = '/suite/kit.css v2';
@@ -1450,6 +1551,79 @@ test('links: the row of a host module’s item, its chips in each state, hidden 
   const solo = linksRow({ base: '/alpha/', fetch });
   await solo.show('alpha:item:1');
   assert.equal(solo.element.hidden, true);
+});
+
+test('links: linking, unlinking and creating linked, at the host’s root, as the server reads them', async () => {
+  const { linkItems, unlink, createLinked } = await import('../web/links.js');
+  const sent = [];
+  let answer = { status: 201, body: { link: { id: 9, together: true } } };
+  const fetch = async (path, init) => {
+    sent.push({ path, method: init.method, credentials: init.credentials, type: init.headers['Content-Type'], body: init.body && JSON.parse(init.body) });
+    return { ok: answer.status < 300, status: answer.status, json: async () => answer.body };
+  };
+  assert.deepEqual(await linkItems('notes:note:6', 'next:step:12', { together: true, fetch }), { link: { id: 9, together: true } });
+  assert.deepEqual(await createLinked('next:step:12', { module: 'notes', type: 'note', data: { title: 'Ship it' }, fetch }),
+    { link: { id: 9, together: true } });
+  answer = { status: 200, body: { ok: true } };
+  assert.deepEqual(await unlink(9, { fetch }), { ok: true });
+  assert.deepEqual(sent, [
+    { path: '/api/links', method: 'POST', credentials: 'same-origin', type: 'application/json', body: { from: 'notes:note:6', to: 'next:step:12', together: true } },
+    { path: '/api/links/new', method: 'POST', credentials: 'same-origin', type: 'application/json',
+      body: { from: 'next:step:12', module: 'notes', type: 'note', data: { title: 'Ship it' }, together: false } },
+    { path: '/api/links/9', method: 'DELETE', credentials: 'same-origin', type: undefined, body: undefined },
+  ]);
+  // The host's errors as the kit's: signed out, refused, no network.
+  answer = { status: 401, body: { error: 'unauthorized' } };
+  await assert.rejects(linkItems('a:b:1', 'c:d:2', { fetch }), SessionExpired);
+  answer = { status: 404, body: { error: 'not_found' } };
+  await assert.rejects(unlink(3, { fetch }), (err) => err instanceof ApiError && err.status === 404 && err.code === 'not_found');
+  await assert.rejects(createLinked('a:b:1', { module: 'c', type: 'd', fetch: async () => { throw new TypeError('down'); } }), Offline);
+});
+
+test('links: in Work’s shell a chip opens in a window of its module, and the page stays; anywhere else as before', async () => {
+  const { linkChip, linksRow, openInWork } = await import('../web/links.js');
+  const WORK = Symbol.for('cronum.work');
+  const chip = () => linkChip({ id: 4, item: { url: '/notes/#/n/55', state: 'open', title: 'Ideas', app: 'Notes' } }, { base: '/tasks/' })
+    .find('a')[0];
+  const press = (anchor, extra = {}) => {
+    const pressed = { prevented: false };
+    anchor.dispatch('click', { button: 0, preventDefault: () => { pressed.prevented = true; }, ...extra });
+    return pressed;
+  };
+  assert.equal(press(chip()).prevented, false, 'no shell: a link, as today');
+
+  const opened = [];
+  document[WORK] = { open: async (url, options) => { opened.push([url, options]); return true; } };
+  try {
+    assert.equal(press(chip()).prevented, true);
+    assert.deepEqual(opened, [['/notes/#/n/55', { from: 'tasks' }]], 'the shell opens it, from the chip’s module');
+    assert.equal(press(chip(), { ctrlKey: true }).prevented, false, 'a key held: the browser’s');
+    assert.equal(press(chip(), { button: 1 }).prevented, false);
+    assert.equal(opened.length, 1);
+    // A gone item has no link to press.
+    assert.equal(linkChip({ id: 5, item: { url: '/notes/#/n/9', state: 'gone', title: 'Old' } }).find('a').length, 0);
+    // The chips of an item's row come from the row's module.
+    const fetch = async (path) => ({ ok: true, status: 200, json: async () => (path === '/api/modules'
+      ? { modules: [{ mount: 'beta', name: 'Beta', active: true, links: { item: { creates: true } } }] }
+      : { links: [{ id: 4, item: { ref: 'beta:item:3', state: 'open', title: 'Review', app: 'Beta', url: '/beta/?item=3' } }] }) });
+    const row = linksRow({ base: '/alpha/', fetch });
+    await row.show('alpha:item:1');
+    assert.equal(press(row.element.find('a')[0]).prevented, true);
+    assert.deepEqual(opened.at(-1), ['/beta/?item=3', { from: 'alpha' }]);
+    row.destroy();
+  } finally {
+    delete document[WORK];
+  }
+
+  // A link the shell can't open goes where it points, as a link would.
+  const went = [];
+  const win = { location: { assign: (url) => went.push(url) } };
+  const ev = { button: 0, currentTarget: { getAttribute: () => '/projects/p/2' }, preventDefault() { this.prevented = true; } };
+  assert.equal(openInWork(ev, { from: 'tasks', registry: { open: async () => false }, win }), true);
+  assert.equal(ev.prevented, true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(went, ['/projects/p/2']);
+  assert.equal(openInWork({ ...ev, prevented: false }, { registry: null, win }), false, 'no shell: not taken');
 });
 
 /* ------------------------------ the keyboard ------------------------------ */

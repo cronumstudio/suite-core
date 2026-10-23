@@ -816,5 +816,5 @@ test('every module’s frame in a host: the founder’s notice from the host, cl
   assert.match(shell, /onClick: \(\) => onSettings\('plan'\)/, 'its button opens the plan');
   assert.match(shell, /localStorage\.setItem\(FOUNDER_KEY, offer\.until\)/, 'closed on this device, for that date');
   assert.match(shell, /if \(ev\.key === FOUNDER_KEY\) hideBanner\('founder-offer'\)/, 'and in the other tabs and frames');
-  assert.match(shell, /if \(mount && !FRAMED\) billingReturn\(\{ open: onSettings \? \(\) => onSettings\('plan'\) : null \}\)/);
+  assert.match(shell, /if \(mount && !FRAMED && !embedded\) billingReturn\(\{ open: onSettings \? \(\) => onSettings\('plan'\) : null \}\)/);
 });

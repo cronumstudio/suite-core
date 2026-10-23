@@ -17,6 +17,7 @@
  * signed in.
  */
 import { at } from './base.js';
+import { workRegistry, ownerOf } from './mount.js';
 
 /** The languages of the suite. English first: it is the fallback. */
 export const LANGUAGES = ['en', 'es', 'fr', 'de', 'it'];
@@ -112,19 +113,48 @@ export async function loadLanguage(preference = 'auto', { remember = true, all =
   if (remember) {
     try { localStorage.setItem(storageKey(), preference); } catch { /* private mode */ }
   }
-  if (globalThis.document?.querySelectorAll) translateDom(document);
+  if (globalThis.document?.querySelectorAll) for (const root of ownRoots()) translateDom(root);
   return lang;
+}
+
+/**
+ * Where this copy's texts are: the whole page, or in Cronum Work's shell only its module's
+ * windows and the pieces it hung on the body; another module's texts come from its own catalog.
+ */
+function ownRoots(doc = globalThis.document) {
+  const owner = ownerOf();
+  if (!owner || !workRegistry(doc)) return [doc];
+  return [...doc.querySelectorAll(`[data-module="${owner}"], [data-owner="${owner}"]`)];
 }
 
 /**
  * A language chosen in Settings: loads it and tells the app (`app:language`
  * on window, with { lang }), which draws itself again. Saving the choice in
  * the account is the caller's job.
+ *
+ * In Cronum Work's shell the language is the page's: a module's choice goes to
+ * the shell too (shareLanguage), which tells every module.
  */
 export async function changeLanguage(preference = 'auto') {
   const lang = await loadLanguage(preference);
   globalThis.dispatchEvent?.(new CustomEvent('app:language', { detail: { lang } }));
+  shareLanguage(lang);
   return lang;
+}
+
+/**
+ * A language chosen in a module, told to Cronum Work's shell (the registry's
+ * `language.set`), which tells every module, and each one then loads it. The
+ * module that chose it, told too, finds the shell already in that language and
+ * tells it nothing again, so the news goes round once. Anywhere else, nothing.
+ * Never for the language a module starts in: that one is the shell's to give.
+ * @returns {boolean} whether the shell was told
+ */
+export function shareLanguage(lang = language) {
+  const shared = workRegistry()?.language;
+  if (!shared || !lang || shared.current?.() === lang) return false;
+  shared.set(lang);
+  return true;
 }
 
 export const currentLanguage = () => language;

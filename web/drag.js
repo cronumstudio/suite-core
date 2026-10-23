@@ -13,6 +13,10 @@
  *   });
  *   navItem(…) with data-drop: a place, anywhere on the page
  *
+ * Places that belong to no list may also be shared by the whole page, whoever carries
+ * what: in Cronum Work's shell, another module's rows, where a note is linked with a step
+ * (`registerDrop`, asked only when none of the drag's own places is under the pointer).
+ *
  * What travels with the pointer says in words what letting go will do, or why
  * it can't be done there: on a sidebar a few pixels separate two notebooks,
  * and reading it is the only way to be sure before letting go.
@@ -52,6 +56,7 @@
  */
 import { el } from './dom.js';
 import { icon } from './icons.js';
+import { markOwned } from './mount.js';
 
 const THRESHOLD = 6;      // pixels the mouse moves before it is a drag and not a click
 const HOLD_MS = 380;      // how long a finger holds still before it picks up
@@ -100,6 +105,61 @@ function scrollerOf(node) {
   for (let at = node; at && at.nodeType === 1; at = at.parentElement) {
     const { overflowY } = getComputedStyle(at);
     if ((overflowY === 'auto' || overflowY === 'scroll') && at.scrollHeight > at.clientHeight) return at;
+  }
+  return null;
+}
+
+/**
+ * Places that belong to no list of their own, shared by every copy of the kit in the page
+ * (Cronum Work's shell mounts each module with the kit from its own address, so each module
+ * has its own drag.js): another module's rows a note can be linked with. The set lives on the
+ * document, not in this file, so a place registered by one copy takes what another carries.
+ */
+const DROPS = Symbol.for('cronum.drops');
+const drops = () => (document[DROPS] ??= new Set());
+
+/**
+ * Shares a place with every drag of the page. A drag that finds none of its own places under
+ * the pointer asks these: `accepts(item, place)` says what letting go there does, as `check`
+ * does ({ ok, text, detail }), or null when it has nothing to do with it, and then the place is
+ * no place for it. `onDrop(item, place, { x, y })` comes only after an ok.
+ *
+ *   const off = registerDrop({
+ *     selector: '.cw-win__body [data-ref]',
+ *     accepts: (row, place) => (sameModule(row, place) ? null : { ok: true, text: linkWith(place.dataset.title) }),
+ *     onDrop: (row, place) => linkItems(row.dataset.ref, place.dataset.ref),
+ *   });
+ *
+ * @param {{ selector: string, accepts: Function, onDrop: Function }} drop
+ * @returns {Function} that takes it away
+ */
+export function registerDrop(drop) {
+  drops().add(drop);
+  return () => { drops().delete(drop); };
+}
+
+/**
+ * The shared place under the pointer that has something to say about `item`: the place, the
+ * drop it belongs to and what it said. Each drop is asked once per place and drag (`asked`).
+ * A drop is code of another copy of the kit, or of the page: one that fails is no place.
+ */
+function sharedAt(under, item, asked) {
+  // Read, never made here: a drag on a page where nothing was shared leaves the document as it was.
+  const shared = document[DROPS];
+  if (!shared?.size || !under?.closest) return null;
+  for (const drop of shared) {
+    let place = null;
+    try { place = under.closest(drop.selector); } catch { place = null; }
+    if (!place || place === item || item.contains(place)) continue;
+    if (!asked.has(drop)) asked.set(drop, new Map());
+    const verdicts = asked.get(drop);
+    if (!verdicts.has(place)) {
+      let verdict = null;
+      try { verdict = drop.accepts(item, place) || null; } catch { verdict = null; }
+      verdicts.set(place, verdict);
+    }
+    const verdict = verdicts.get(place);
+    if (verdict) return { place, drop, verdict };
   }
   return null;
 }
@@ -205,7 +265,7 @@ export function makeDraggable(container, {
       item, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
       touch, holding: touch && !grip, carried: false, active: false, timer: null, place: null, zone: null, verdict: null,
       verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, closing: new Set(), height: 0,
-      spring: null, springTimer: null, scroller: null, scrollTimer: null,
+      spring: null, springTimer: null, scroller: null, scrollTimer: null, shared: null, asked: new Map(),
     };
     if (session.holding) session.timer = setTimeout(() => { if (session && !session.active) start(); }, HOLD_MS);
     window.addEventListener('pointermove', onPointerMove);
@@ -250,7 +310,8 @@ export function makeDraggable(container, {
     s.where.hidden = true;
     s.detail.hidden = true;
     s.height = s.item.offsetHeight;
-    document.body.append(s.ghost);
+    // In Work's shell it carries its module's name, which its module's sheet there reaches (mount.js).
+    document.body.append(markOwned(s.ghost));
     s.item.classList.add('kit-drag-source');
     document.documentElement.setAttribute('data-kit-dragging', '');
     if (s.touch) navigator.vibrate?.(8);
@@ -294,6 +355,14 @@ export function makeDraggable(container, {
     const s = session;
     const hit = under?.closest?.(targets) || null;
     let place = hit && hit !== s.item && !s.item.contains(hit) ? hit : null;
+    // None of its own here: a place shared by the page (registerDrop), whole, without a gap.
+    const shared = place ? null : sharedAt(under, s.item, s.asked);
+    if (shared) {
+      s.shared = shared;
+      aimAt(shared.place, null);
+      return;
+    }
+    s.shared = null;
     // Over the gap opened for it, or over no other place among the rows that made room for it,
     // it still goes there: the rows moved under the pointer to open it, and must not close it.
     if (s.gap?.parentElement && (under?.closest?.('.kit-drop-gap') || (!place && over(s.gap.parentElement)))) return;
@@ -332,7 +401,8 @@ export function makeDraggable(container, {
     s.place = place;
     s.zone = zone;
     let verdict = null;
-    if (place) {
+    if (place && s.shared?.place === place) verdict = s.shared.verdict;
+    else if (place) {
       if (!s.verdicts.has(place)) s.verdicts.set(place, new Map());
       const byZone = s.verdicts.get(place);
       if (!byZone.has(zone)) byZone.set(zone, check(s.item, place, { zone }) || null);
@@ -433,7 +503,7 @@ export function makeDraggable(container, {
 
   function onPointerUp(ev) {
     if (!session || ev.pointerId !== session.pointerId) return;
-    const { active, item, place, zone, verdict, gap, holding, carried } = session;
+    const { active, item, place, zone, verdict, gap, holding, carried, shared } = session;
     // Where it lands, read before the gap goes: the app may keep it there in sight.
     const top = gap?.parentElement ? gap.getBoundingClientRect().top : null;
     end();
@@ -444,7 +514,10 @@ export function makeDraggable(container, {
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
     // Held and let go where it was: a long press, not a move (as on a phone's home screen).
     if (holding && !carried && onHold) { onHold(item); return; }
-    if (place && verdict?.ok) onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
+    if (!place || !verdict?.ok) return;
+    // On a shared place, what letting go does is that place's, not this list's.
+    if (shared?.place === place) shared.drop.onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
+    else onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
   }
 
   function cancel(ev) { if (session && (!ev?.pointerId || ev.pointerId === session.pointerId)) end(); }

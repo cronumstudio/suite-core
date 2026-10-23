@@ -1,0 +1,102 @@
+/*
+ * The windows of Cronum Work's one-document shell (windows.js): a grid of one to four columns,
+ * each a window or two stacked, with 8 px bars between them; on a phone, one window and a bar of
+ * tabs. Linked after kit.css, whose tokens it uses. Windows are placed by their grid column only
+ * (windows.js writes it), so a module's page inside never moves in the document.
+ */
+
+.cw-desk {
+  position: relative; display: grid; grid-template-rows: minmax(0, 1fr);
+  min-width: 0; min-height: 0; padding: 8px; overflow: hidden;
+}
+.cw-desk[data-resizing], .cw-desk[data-reordering] { user-select: none; -webkit-user-select: none; }
+/* A frame under the pointer would swallow its moves. */
+.cw-desk[data-resizing] iframe, .cw-desk[data-reordering] iframe { pointer-events: none; }
+
+.cw-win {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+  border: 1px solid var(--kit-border); border-radius: 12px; background: var(--kit-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.cw-win[hidden] { display: none; }
+.cw-win[data-focus="true"] { border-color: color-mix(in srgb, var(--kit-accent) 45%, var(--kit-border)); }
+.cw-win[data-carried] { position: relative; z-index: 5; box-shadow: var(--kit-shadow-high); cursor: grabbing; }
+
+/*
+ * Two windows in a column share its cell: the top one from its start, the bottom one to its end,
+ * each its share of the height but the bar's (`--cw-share`, the column's `--cw-row-N`).
+ */
+.cw-win[data-stack] { align-self: start; height: calc((100% - 8px) * var(--cw-share, .5)); }
+.cw-win[data-stack="bottom"] { align-self: end; height: calc((100% - 8px) * (1 - var(--cw-share, .5))); }
+
+.cw-win__head {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding-inline: 10px; flex: none;
+  border-block-end: 1px solid var(--kit-border); cursor: grab; user-select: none; -webkit-user-select: none;
+  touch-action: none; font-size: 13px; font-weight: 500;
+}
+.cw-win__head:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -2px; }
+
+/* The module's page, inside its window: what was the viewport is the window's body. */
+.cw-win__body { position: relative; flex: 1; min-height: 0; overflow: hidden; contain: layout paint; }
+.cw-win__frame { display: block; width: 100%; height: 100%; border: 0; }
+
+/* The bars: between two columns, and between the two windows of a column. */
+.cw-bar { position: relative; cursor: col-resize; touch-action: none; }
+.cw-bar[hidden] { display: none; }
+.cw-bar[data-axis="row"] {
+  align-self: start; height: 8px; cursor: row-resize;
+  inset-block-start: calc((100% - 8px) * var(--cw-share, .5));
+}
+.cw-bar::after {
+  content: ''; position: absolute; inset: 30% 3px; border-radius: 2px;
+  background: transparent; transition: background .15s;
+}
+.cw-bar[data-axis="row"]::after { inset: 3px 30%; }
+.cw-bar:hover::after, .cw-bar:focus-visible::after, .cw-desk[data-resizing] .cw-bar::after { background: var(--kit-muted); }
+.cw-bar:focus-visible { outline: none; }
+
+/* Where a carried window would land, when it isn't a column's place (that one is taken live). */
+.cw-drop {
+  position: absolute; left: 0; top: 0; z-index: 4; pointer-events: none; box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--kit-accent) 60%, transparent); border-radius: 12px;
+  background: color-mix(in srgb, var(--kit-accent) 8%, transparent);
+}
+.cw-drop[hidden] { display: none; }
+
+/* ------------------------------------ phones ------------------------------------- */
+
+/* The tabs are only a phone's. */
+.cw-tabs { display: none; }
+
+/*
+ * One window filling the desk and the tabs under it. The desk only pans up and down, so a
+ * sideways swipe is windows.js' (another module) and the page never scrolls sideways.
+ */
+.cw-desk[data-screen="narrow"] {
+  grid-template-rows: minmax(0, 1fr) auto; padding: 0; gap: 0;
+  overflow-x: hidden; max-width: 100vw; touch-action: pan-y;
+}
+html:has(.cw-desk[data-screen="narrow"]), html:has(.cw-desk[data-screen="narrow"]) body { overflow-x: hidden; }
+.cw-desk[data-screen="narrow"] > .cw-win { grid-row: 1; border: 0; border-radius: 0; box-shadow: none; }
+/* Its module is in the tabs: the head would only take room from it. */
+.cw-desk[data-screen="narrow"] .cw-win__head { display: none; }
+.cw-desk[data-screen="narrow"][data-swiping] .cw-win { will-change: transform; }
+
+.cw-desk[data-screen="narrow"] > .cw-tabs {
+  display: flex; grid-row: 2; grid-column: 1 / -1; min-width: 0;
+  border-block-start: 1px solid var(--kit-border); background: var(--kit-side);
+  padding-block-end: var(--kit-safe-bottom);
+}
+.cw-tabs__tab {
+  flex: 1 1 0; min-width: 0; min-height: 52px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; padding: 4px 2px;
+  border: 0; background: transparent; color: var(--kit-muted); font: inherit; font-size: 11px; cursor: pointer;
+}
+.cw-tabs__tab img { width: 22px; height: 22px; }
+.cw-tabs__tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-tabs__tab[aria-current="true"] { color: var(--kit-accent); font-weight: 600; }
+.cw-tabs__tab:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-bar::after { transition: none; }
+}

@@ -1,0 +1,4 @@
+:root { --alpha: #EF4B2A; }
+html, body { margin: 0; }
+.card { background: url(../icons/card.svg); }
+@font-face { font-family: Alpha; src: url(../fonts/alpha.woff2); }

@@ -12,11 +12,19 @@
  *
  * "+ Link" offers every kind of thing another module can create, or only those in `offer`
  * ([{ module, type }]). What the module creates, and where, is that module's to decide.
+ *
+ * What the row does is also there for whoever links without it (Cronum Work's shell, when a
+ * row of one module is dropped on another's):
+ *
+ *   const { link } = await linkItems('notes:note:6', 'next:step:12');
+ *   await unlink(link.id);                                          // its Undo
+ *   await createLinked('next:step:12', { module: 'notes', type: 'note', data: { title } });
  */
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { BASE, FRAMED, OPEN_EVENT, hostModules } from './base.js';
+import { workRegistry } from './mount.js';
 import { ApiError, SessionExpired, Offline, errorMessage } from './api.js';
 import { toast, menu, openDialog, field, switchRow } from './ui.js';
 
@@ -41,6 +49,33 @@ async function hostCall(fetcher, method, path, body) {
   const code = data?.error || 'generic';
   if (res.status === 401) throw new SessionExpired(401, code, data);
   throw new ApiError(res.status, code, data);
+}
+
+const fetcherOf = (given) => given || ((...args) => globalThis.fetch(...args));
+
+/**
+ * Links two things of two modules, each as `module:type:id`; `together`, done and undone
+ * together. The host checks that the person can see both.
+ * @returns {Promise<{ link: object }>} the link, as the host made it
+ */
+export async function linkItems(from, to, { together = false, fetch: given = null } = {}) {
+  const answer = await hostCall(fetcherOf(given), 'POST', '/api/links', { from, to, together: Boolean(together) });
+  return { link: answer?.link ?? null };
+}
+
+/** Takes a link away (its Undo, or "Remove link"). */
+export function unlink(id, { fetch: given = null } = {}) {
+  return hostCall(fetcherOf(given), 'DELETE', `/api/links/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Creates something in another module, linked with `from`: what it is (`module`, `type`) and
+ * what it starts with (`data`, as that module takes it: { title, place }).
+ * @returns {Promise<{ link: object }>} the link, as the host made it, with the new thing's card
+ */
+export async function createLinked(from, { module, type, data = {}, together = false, fetch: given = null } = {}) {
+  const answer = await hostCall(fetcherOf(given), 'POST', '/api/links/new', { from, module, type, data, together: Boolean(together) });
+  return { link: answer?.link ?? null };
 }
 
 /** A kind of thing in words ("Task", "Note"); one the kit has no word for, as it is. */
@@ -83,10 +118,37 @@ export function openBeside(ev, { framed = FRAMED, win = globalThis.window } = {}
 }
 
 /**
+ * A chip's link pressed in Cronum Work's one-document shell: the shell opens it in a window of
+ * its module (the page registry's `open`, mount.js), and the page stays. `from` is the module
+ * the chip is in, for the shell to know where Back goes. A press with a key held is the
+ * browser's; a link the shell can't open is a link as any.
+ *
+ * @returns {boolean} whether the shell took it
+ */
+export function openInWork(ev, { from = null, registry = workRegistry(), win = globalThis.window } = {}) {
+  if (!registry?.open || ev.defaultPrevented || ev.button > 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return false;
+  const url = ev.currentTarget.getAttribute('href');
+  if (!url) return false;
+  ev.preventDefault();
+  openWith(registry, url, { from, win });
+  return true;
+}
+
+/** The shell opens `url` in a window; one it can't open (false, or a failure) is a page, as a link. */
+function openWith(registry, url, { from = null, win = globalThis.window } = {}) {
+  const go = () => win?.location?.assign(url);
+  let opening;
+  try { opening = registry.open(url, { from }); } catch { opening = false; }
+  Promise.resolve(opening).then((opened) => { if (opened === false) go(); }, go);
+}
+
+/**
  * One link as a chip: the other side's card, in its module's colour, opening it there; dashed
  * when it is gone or this person can't open it. `onMenu(button, link)` adds its "…" button.
+ * In Work's shell it opens in a window (openInWork); in a frame of the split view, in the
+ * section of its module (openBeside); anywhere else it is a link.
  */
-export function linkChip(link, { onMenu = null } = {}) {
+export function linkChip(link, { onMenu = null, base = BASE } = {}) {
   const card = link.item || {};
   const state = card.state || 'hidden';
   const { text, note } = chipText(card);
@@ -98,7 +160,10 @@ export function linkChip(link, { onMenu = null } = {}) {
     link.together ? el('span', { class: 'kit-linked__together', title: t('kit.links.together') }, icon('refresh')) : null,
   ];
   const open = card.url && reachable(card)
-    ? el('a', { class: 'kit-linked__open', href: card.url, title: label, 'aria-label': label, onClick: openBeside }, body)
+    ? el('a', {
+      class: 'kit-linked__open', href: card.url, title: label, 'aria-label': label,
+      onClick: (ev) => { if (!openInWork(ev, { from: mountOf(base) })) openBeside(ev); },
+    }, body)
     : el('span', { class: 'kit-linked__open', title: label }, body);
   return el('span', {
     class: 'kit-linked__chip', 'data-state': state, 'data-link': String(link.id ?? ''),
@@ -126,7 +191,7 @@ export function linkChip(link, { onMenu = null } = {}) {
 export function linksRow({
   ref = null, title = '', offer = null, onLoad = null, base = BASE, fetch: given = null,
 } = {}) {
-  const fetcher = given || ((...args) => globalThis.fetch(...args));
+  const fetcher = fetcherOf(given);
   const mount = mountOf(base);
   const call = (method, path, body) => hostCall(fetcher, method, path, body);
   const chips = el('div', { class: 'kit-linked__chips' });
@@ -160,7 +225,7 @@ export function linksRow({
 
   function paint() {
     clear(chips);
-    for (const link of shown) chips.append(linkChip(link, { onMenu: chipMenu }));
+    for (const link of shown) chips.append(linkChip(link, { onMenu: chipMenu, base }));
     element.hidden = false;
   }
 
@@ -206,7 +271,7 @@ export function linksRow({
 
   async function removeLink(link) {
     try {
-      await call('DELETE', `/api/links/${link.id}`);
+      await unlink(link.id, { fetch: fetcher });
     } catch (err) {
       toast(errorMessage(err), { error: true });
       return;
@@ -218,7 +283,7 @@ export function linksRow({
         label: t('kit.links.undo'),
         onClick: async () => {
           try {
-            await call('POST', '/api/links', { from, to: link.item.ref, together: link.together });
+            await linkItems(from, link.item.ref, { together: link.together, fetch: fetcher });
           } catch (err) {
             toast(errorMessage(err), { error: true });
             return;
@@ -232,7 +297,14 @@ export function linksRow({
   function chipMenu(anchor, link) {
     const card = link.item || {};
     const items = [];
-    if (card.url && reachable(card)) items.push({ label: t('kit.links.openIn', { app: card.app }), iconName: 'external', href: card.url });
+    if (card.url && reachable(card)) {
+      // In Work's shell, in a window of that module, as the chip itself opens it; elsewhere a link.
+      const shell = workRegistry();
+      const label = t('kit.links.openIn', { app: card.app });
+      items.push(shell?.open
+        ? { label, iconName: 'external', onClick: () => openWith(shell, card.url, { from: mount }) }
+        : { label, iconName: 'external', href: card.url });
+    }
     if (reachable(card)) {
       items.push({
         label: link.together ? t('kit.links.togetherOff') : t('kit.links.togetherOn'),
@@ -269,7 +341,7 @@ export function linksRow({
             const data = { title: name.value.trim() || current.title };
             if (!placeField.hidden && place.value) data.place = place.value;
             try {
-              await call('POST', '/api/links/new', { from, module: kind.module, type: kind.type, data, together });
+              await createLinked(from, { module: kind.module, type: kind.type, data, together, fetch: fetcher });
             } catch (err) {
               toast(errorMessage(err), { error: true });
               return false;
@@ -314,7 +386,7 @@ export function linksRow({
 
     const pick = async (card) => {
       try {
-        await call('POST', '/api/links', { from, to: card.ref, together });
+        await linkItems(from, card.ref, { together, fetch: fetcher });
       } catch (err) {
         toast(errorMessage(err), { error: true });
         return;

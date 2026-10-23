@@ -2005,3 +2005,84 @@ once for each worker, titled with that module's name. With it:
   reads the same paths.
 
 The app on its own never sees any of it: its /sw.js, scope and manifest stay as they are (§9).
+
+### 21.6 Windows in one page
+
+Cronum Work's one-document shell (behind `WORK_SHELL`, Work's r2/ventanas.md) mounts each module
+in a window of one page instead of a page or a frame each. The kit's `web/windows.js` and
+`windows.css` place those windows; the shell makes them (`windowOf(module)` → a `.cw-win` with its
+`.cw-win__head` and `.cw-win__body`) and mounts, pauses and unmounts the modules it is told to.
+
+- **The layout** is `{ cols: [{ w, wins: [module, module?], h? }], focus }`: one to four columns,
+  one window a column or two stacked (four windows at most, so four make a 2×2), `w` a column's
+  share in fr and `h` the top window's share of a column of two. `normalizeLayout()` reads any
+  kept shape, the prototype's `{ slots }` included. A window never moves in the document: it is
+  placed by its grid column (`--cw-col-N` in the desk's template, 320 px at least, an 8 px bar
+  between two), and a stacked one takes its half of the cell (`--cw-row-N`).
+- **Moving them.** A head picks its window up after 6 px; over another column's head its column
+  takes that place at once and the others slide away (FLIP, 180 ms), over half of a column of one
+  it stacks there, over a window of a full column they swap (a dashed box shows where, and it is
+  done on letting go). The columns are measured once, when it is picked up, and the loop only
+  writes a transform inside requestAnimationFrame. The bars resize in rAF too, pausing the windows
+  they touch (`onPause(module, true, { resizing: true })`); a double click evens them, arrow keys
+  move a focused bar, and Alt with an arrow on a focused head moves its window. Escape cancels.
+- **Phones** (< 768 px): one window at a time, a bar of tabs at the bottom, and a sideways swipe
+  to the mounted module beside it; the desk only pans up and down, so nothing scrolls sideways.
+- **Out of view and evicted.** A window out of view is `hidden`, `inert` and paused
+  (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
+  most four modules stay mounted: beyond that `onEvict(module)` names the least recently used one
+  that doesn't show, for the shell to unmount.
+- **Kept** in this browser as `work.layout`, one layout per screen class (`wide` ≥ 1280 px, `mid`
+  ≥ 768 px, `narrow`): crossing from one to another brings back that class's layout, and the
+  columns that don't fit a narrower desk stack where there is room, the layout kept as chosen
+  until it fits again.
+
+The model and its moves are pure functions exported with it (`applyColumns`, `slotAt`,
+`dropLayout`, `moveByKey`, `lruEvict`, `placement`…) and tested without a browser
+(`test/windows.test.js`). Nothing of it is loaded outside Work's shell.
+
+### 21.7 One page for several modules: what the host serves
+
+Cronum Work's one-document shell opens every module in a window of one page (`mount(root, ctx)`,
+web/mount.js) instead of a page or a frame each. Three options of `createHost` serve what that page
+needs; all are off by default, and a host that doesn't ask for them answers exactly as before
+(§9). Work turns them on with its `WORK_SHELL` flag only.
+
+```js
+const host = await createHost({
+  config: product, modules,
+  pages: [{ at: '/w/', dir: SHELL_DIR }],   // index: 'index.html' by default
+  scopedSheets: true,
+  liveAll: true,
+});
+```
+
+- **`pages`**: a page of the host's own, from a folder of its own, answered before anything else of
+  the host's: GET and HEAD under `at` are files of `dir` (`at` itself is its `index`; `/w` goes to
+  `/w/`), with the security headers and caching of the host's other files (`serveStatic`: ETag from
+  what the file holds, code revalidated). A file the folder doesn't have is a 404, never a module's
+  page nor the host's. `at` is one path segment that is no module's, the split view's or the host's
+  own (`RESERVED`); the start stops otherwise.
+- **`scopedSheets`**: `GET /<mount>/<path>.css?scope=work` answers the file the module would serve
+  there (its public folder, or the kit's at `/<mount>/suite/…`) through `scopeCss()` (scope-css.js):
+  the sheet inside `@scope ([data-module="<mount>"], [data-owner="<mount>"])`, `:root` as `:scope`,
+  `html` and `body` as `:scope[data-module]` (the window only: `html, body { height: 100% }` made a
+  toast's box the whole page), `:root[x] body` as one element, `@media`/`@supports`/`@container`/
+  `@layer` kept inside with their rules rooted the same way, and `@font-face`, `@keyframes`,
+  `@property`, `@import` (asked for scoped too), `@charset`, `@view-transition` and the like before
+  the block, where they mean anything. Relative `url()`s become paths of the site. The result is
+  kept in memory while the whole app's fingerprint (§21.5) is the same, its ETag that fingerprint
+  and the sheet's path (`SCOPE_FORMAT` in it, raised when the output changes), `Cache-Control:
+  no-cache`, 304 when it matches. A file the module hasn't, as before; without the option,
+  `?scope=work` is a query like any other.
+- **`liveAll`**: `GET /api/events?all`, with the host's session (a 401 without one, as each module's
+  channel), streams what every module with `modules.live` would tell that person on its own
+  `/<mount>/api/events`, in one connection: each notice an unnamed message whose data is
+  `{ module, event, data }`. It opens with each module's missed notices or its `resync`, then
+  `{ module: null, event: 'hello', data: { user_id } }`; its id says where it is in every module
+  (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
+  module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
+  channels in each module, and ends with any of them: revoked sessions (`account` said first),
+  the host closing, a reader that stopped reading. The modules' own channels stay as they are.
+  In the browser, `connectLive()` of a module in the shell's page goes through the shell's
+  registry (`workRegistry().live.subscribe(module, handlers)`) and gives back the same object.
