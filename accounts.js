@@ -138,6 +138,12 @@ export function createAccounts({
    * change an account (account-mail, two-factor) say so with `changed(id)`.
    */
   const changes = [];
+  /**
+   * Who hears that a password was set (whenPasswordSet): createSuite revokes
+   * there everything else that lets the person in (revoke.js), which accounts
+   * doesn't know. Inside the same transaction as the new password.
+   */
+  const passwordSet = [];
   const changed = (id) => {
     for (const hook of changes) {
       try { hook(Number(id)); } catch { /* a listener never breaks the change */ }
@@ -442,12 +448,19 @@ export function createAccounts({
     });
   }
 
-  /** Sets a password and closes every other session of the person (all, without `exceptToken`). */
+  /**
+   * Sets a password and closes every other session of the person (all, without
+   * `exceptToken`); whoever hears whenPasswordSet ends the rest (API tokens,
+   * phones, assistants), all in one transaction.
+   */
   function setPassword(id, password, { exceptToken = null } = {}) {
     mustExist(id);
     checkPassword(password);
-    database.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), id);
-    sessions?.closeAllOf(id, { exceptToken });
+    database.tx(() => {
+      database.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), id);
+      sessions?.closeAllOf(id, { exceptToken });
+      for (const hook of passwordSet) hook(Number(id), { exceptToken });
+    });
     changed(id);
   }
 
@@ -531,6 +544,7 @@ export function createAccounts({
     whenRemoved: (hook) => { removed.push(hook); },
     whenLinked: (hook) => { linked.push(hook); },
     whenChanged: (hook) => { changes.push(hook); },
+    whenPasswordSet: (hook) => { passwordSet.push(hook); },
     changed,
   };
 }

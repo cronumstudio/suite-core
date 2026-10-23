@@ -547,6 +547,10 @@ export async function createHost({
     // account that changed is everyone's.
     const live = createLive();
     suite.accounts.whenChanged((id) => live.publish({ audience: [id], event: 'account', data: { user_id: id } }));
+    // Someone revoked (a new password, the admin's sign-out everywhere): their tabs of this module close too.
+    suite.whenRevoked?.((id, { keep }) => live.dropUser(id, {
+      except: keep?.sessionToken || null, last: { event: 'account', data: { user_id: id } },
+    }));
     if (ownHooks.onUserCreated) suite.accounts.whenCreated(ownHooks.onUserCreated);
     if (ownHooks.onUserRemoved) suite.accounts.whenRemoved(ownHooks.onUserRemoved);
     // A member who goes and a group deleted, as createSuite hands them to an app on its own.
