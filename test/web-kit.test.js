@@ -316,6 +316,74 @@ test('update: in a host with one worker, the whole app’s version, and no notic
   assert.deepEqual(notices, [], 'but the split view says it, once');
 });
 
+test('update: a frame of the split view never asks /version by itself, nor on coming back', async () => {
+  const asked = [];
+  let listened = 0;
+  const timers = { ...fakeTimers(), setInterval: () => { throw new Error('no timer in a frame'); } };
+  const frame = watchUpdates({
+    fetch: async (url) => { asked.push(url); return { ok: true, json: async () => ({ version: 'b' }) }; },
+    loadLocal: async () => ({ version: 'a' }),
+    timers, doc: { addEventListener: () => { listened += 1; } }, host: async () => ({ worker: '/sw.js' }), framed: true,
+  });
+  await new Promise((done) => setTimeout(done, 10));
+  assert.deepEqual(asked, [], 'the view asks, once for every frame');
+  assert.equal(listened, 0);
+  assert.equal(frame.loaded().version, 'a', 'its own version is read, for About');
+  assert.equal(await frame.check({ announce: true }), true, 'About’s Check still asks');
+  assert.deepEqual(asked, ['/version']);
+  frame.stop();
+});
+
+test('base: the host’s modules are asked once per page, again when fresh, and again after a failure', async () => {
+  const { hostModules } = await import('../web/base.js');
+  let calls = 0;
+  let fail = true;
+  const fetch = async () => {
+    calls += 1;
+    if (fail) throw new Error('offline');
+    return { ok: true, status: 200, json: async () => ({ modules: [{ mount: 'a' }] }) };
+  };
+  await assert.rejects(hostModules({ fetch, fresh: true }));
+  fail = false;
+  const one = await hostModules({ fetch });
+  const two = await hostModules({ fetch });
+  assert.equal(one, two);
+  assert.equal(calls, 2, 'after the failure, asked again; then the same answer');
+  assert.deepEqual(one, { status: 200, answer: { modules: [{ mount: 'a' }] } });
+  await hostModules({ fetch, fresh: true });
+  assert.equal(calls, 3);
+  const missing = await hostModules({ fetch: async () => ({ ok: false, status: 404 }), fresh: true });
+  assert.deepEqual(missing, { status: 404, answer: null });
+});
+
+test('links: in a frame, a chip of another module opens in the section that shows it (kit:open)', async () => {
+  const { openBeside } = await import('../web/links.js');
+  const { OPEN_EVENT } = await import('../web/base.js');
+  const heard = [];
+  const parent = {
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
+    dispatchEvent(ev) { heard.push(ev); if (ev.detail.mount === 'notes') ev.detail.handled = true; },
+  };
+  const win = { location: { href: 'https://work.example/tasks/list/1', pathname: '/tasks/list/1', origin: 'https://work.example' }, parent };
+  const press = (href, extra = {}) => {
+    const ev = { button: 0, currentTarget: { getAttribute: () => href }, prevented: false, ...extra };
+    ev.preventDefault = () => { ev.prevented = true; };
+    openBeside(ev, { framed: true, win });
+    return ev;
+  };
+  assert.equal(press('/notes/#note=4').prevented, true, 'the view has Notes: it opens there');
+  assert.equal(heard[0].type, OPEN_EVENT);
+  assert.deepEqual({ ...heard[0].detail, source: null }, { url: '/notes/#note=4', mount: 'notes', source: null, handled: true });
+  assert.equal(heard[0].detail.source, win);
+  assert.equal(press('/projects/p/2').prevented, false, 'no section for it: the frame goes there, as before');
+  heard.length = 0;
+  assert.equal(press('/tasks/list/3').prevented, false, 'its own module: a link as any');
+  assert.equal(press('/notes/#note=4', { metaKey: true }).prevented, false, 'a key held: the browser’s');
+  assert.deepEqual(heard, []);
+  const page = { button: 0, currentTarget: { getAttribute: () => '/notes/' }, preventDefault() { throw new Error('not in a page'); } };
+  openBeside(page, { framed: false, win });
+});
+
 test('update: the server\'s version number is kept for About', async () => {
   let server = { app: '1.2.3', version: 'aaa' };
   const watcher = watchUpdates({
@@ -469,8 +537,10 @@ test('from one module to another: the rail of last time at once, and one page fa
   // The host's last answer, kept and drawn before asking again; only one that has this module.
   assert.match(shell, /const RAIL_KEY = 'host\.modules';/);
   assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\)/);
-  assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\);/);
-  assert.match(shell, /res\.status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
+  assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\{ fresh: false \}\);/);
+  assert.match(shell, /status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
+  // Back to the page the rail asks again, but not in a frame of the split view: the view has the rail.
+  assert.match(shell, /if \(!FRAMED\) document\.addEventListener\('visibilitychange'/);
   // A crossfade between pages of the site, the rail standing still; none for less motion.
   assert.match(css, /@view-transition \{ navigation: auto; \}/);
   assert.match(css, /\.kit-rail \{ view-transition-name: kit-rail; \}/);
@@ -527,7 +597,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)? \} from '\.\/base\.js'/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses, and their look.
     assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`]|api\/me\/look['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
