@@ -61,10 +61,11 @@ with its own pre-paint script adds the same line.
 | `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `$`, `$$`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings |
-| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
+| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key; `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
+| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `subscribePush()`; `deviceName()` |
@@ -162,6 +163,19 @@ answers. From one module to another one page fades into the next (`@view-transit
 200 ms, the rail standing still), in browsers that
 have view transitions and not for whoever asks for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
+
+**In a window of Cronum Work's shell** (`createShell({ root, embedded: true })`, the module's
+`mount(root, ctx)`), the page and its rail are Work's, shared by every module: the frame draws no
+rail, no person's button and no switcher, shows no founder's notice, asks the host nothing
+(`refreshModules()` is null), sends no `ready` to the suite's app and adds nothing to the window.
+Its sidebar and its fold stay. A touch at the screen's edge is taken only by the window it lands in,
+and only for what that window does (its drawer, back from a detail): keeping the edges from Safari
+is the shell's. Work opens the module's Settings with `kit:settings` on the window's body (`root`),
+with `{ start }` or not. What the kit hangs on the page's body there (notices, dialogs, menus,
+banners, Settings and sign-in on the body) carries `data-owner="<module>"` and a copy of `<html>`'s
+`data-theme`, `data-look` and `lang` (`markOwned`), so the module's sheet scoped to its windows
+reaches it; a theme chosen in Settings goes to the shell (`registry.theme.set`) instead of the
+app's `applyTheme`, and a language to `registry.language.set`. Anywhere else nothing changes.
 
 **Drawing the frame again.** The frame listens on the document (touches at the screen's edges,
 drags) and, in a host, on the window. An app that builds a new frame without reloading the page (a
@@ -661,7 +675,8 @@ Every text a person reads comes from the catalogs: the kit's are `kit.*` in suit
 - **Browser**: `t()` and the rest from `/suite/i18n.js`, nothing of its own. Before signing in the
   app loads `savedLanguage()` (what this browser keeps as `<app>.lang`, `'auto'` by default), and
   then the account's choice; Settings calls `loadLanguage` or `changeLanguage` (`app:language`
-  tells the app to draw itself again). An app keeps only what is its own domain, like how Next
+  tells the app to draw itself again). In Cronum Work's shell the language chosen goes to the shell
+  too (`shareLanguage`, once: the shell's news back to a module already in it goes no further). An app keeps only what is its own domain, like how Next
   groups its dates (`dates.js`), built on `dateFormat` and the others.
 - **Server**: `server/i18n.js` is `appTexts(new URL('../public/i18n/', import.meta.url))` from
   `i18n.js`: `translator(lang)`, `languageFor(req, user)`, `userLanguage(user)`, `textsFor`,

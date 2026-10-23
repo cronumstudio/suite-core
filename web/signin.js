@@ -23,6 +23,7 @@ import { api, errorMessage } from './api.js';
 import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
 import { inApp, nativeSignOut } from './native.js';
+import { markOwned } from './mount.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -87,7 +88,7 @@ export async function signIn({ app, config = null, root = document.body }) {
       el('div', { class: 'kit-signin__side' },
         el('div', { class: 'kit-signin__body' }, card),
         el('footer', { class: 'kit-signin__sig' }, signature())));
-    root.append(screen);
+    root.append(root === document.body ? markOwned(screen) : screen);
 
     const done = (user) => {
       screen.remove();
