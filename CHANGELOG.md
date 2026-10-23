@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.154.0 — 2026-10-23
+
+- **Cronum Work in one page: what the kit and the host give its one-document shell** (Work's
+  , its r2/ventanas.md). Every module opens in a window of one page with
+   instead of a page or a frame each. Everything here is new and off by default:
+  an app on its own, a host without the new options and today's module pages behave as before.
+  - : the shell's page registry (), the module a copy of the kit
+    belongs to (),  and  for an app on its own page.
+  -  + : the window manager. 1–4 columns with up to two windows each
+    (2×2), reordered by dragging a head (transform in rAF, FLIP, Escape cancels) and resized with
+    bars; under 768 px one window at a time with tabs and swipe; at most four mounted; the layout
+    kept per screen class.
+  -  : drop places shared by every copy of the kit in the page, asked
+    when a drag finds none of its own. : , , , and
+    chips that open in the shell's window () instead of navigating.
+  - : no Work rail, account or host notices inside a window. The kit's
+    toasts, dialogs, menus, banners and drag ghost say whose module they are () in the
+    shell only. A module's Settings share their language and theme with the shell; a language
+    loaded by one module translates only its own windows.
+  -  goes through the shell's one channel when there is one.
+  - :  (static pages such as ),     (: a module's sheet wrapped in , ) and     (, every module's live events in one stream). Architecture §21.6–21.7.
+
 ## 0.153.0 — 2026-10-23
 
 - **"Today" is the person's, in every module that adopts it** (`time.js`). Tasks reads today in
