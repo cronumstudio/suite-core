@@ -432,6 +432,7 @@ export function createWindows(desk, {
   const life = new AbortController();
   const { signal } = life;
   let layout = { cols: [], focus: null };
+  let chosen = layout;            // the layout as chosen and kept: what shows is it, or it squeezed into the columns that fit
   let screen = screenClass(win.innerWidth ?? Infinity);
   let room = Infinity;            // the desk's width, measured outside any gesture
   const nodes = new Map();        // module → its window, as windowOf made it
@@ -493,7 +494,7 @@ export function createWindows(desk, {
   }
 
   /** Puts every window where the layout says: grid placement only, nothing moves in the document. */
-  function apply({ save = true } = {}) {
+  function apply({ save = true, keep = layout } = {}) {
     const place = placement(layout, screen);
     desk.style.gridTemplateColumns = place.columns;
     for (const [name, value] of Object.entries(place.vars)) desk.style.setProperty(name, value);
@@ -516,7 +517,10 @@ export function createWindows(desk, {
     drawBars(place.bars);
     drawTabs();
     evict();
-    if (save) writeLayout(storage, screen, layout);
+    if (save) {
+      chosen = keep;
+      writeLayout(storage, screen, keep);
+    }
     announce();
   }
 
@@ -629,11 +633,11 @@ export function createWindows(desk, {
     }
   }
 
-  /** A new layout, the windows sliding from where they were (outside any gesture's loop). */
-  function relayout(next) {
+  /** A new layout, the windows sliding from where they were (outside any gesture's loop); `keep` is what is kept. */
+  function relayout(next, keep) {
     const first = motion() ? boxes() : null;
     layout = normalizeLayout(next);
-    apply();
+    apply({ keep: keep ?? layout });
     if (first) flip(first);
   }
 
@@ -662,6 +666,7 @@ export function createWindows(desk, {
     const own = new AbortController();
     const on = { signal: own.signal };
     const start = layout;
+    const was = chosen;
     const x0 = ev.clientX;
     const y0 = ev.clientY;
     let x = x0;
@@ -735,6 +740,11 @@ export function createWindows(desk, {
 
     const finish = (cancelled) => {
       own.abort();
+      // Let go before the last move was painted: where it is let go is where it lands.
+      if (frame && picked && !cancelled) {
+        cancelFrame(frame);
+        paint();
+      }
       cancelFrame(frame);
       gesture = null;
       if (!picked) return;
@@ -747,7 +757,7 @@ export function createWindows(desk, {
       node.removeAttribute('data-carried');
       desk.removeAttribute('data-reordering');
       layout = normalizeLayout(next);
-      apply();
+      apply(cancelled ? { keep: was } : {});
       if (first) flip(first);
       onGesture(false, 'reorder');
     };
@@ -815,6 +825,7 @@ export function createWindows(desk, {
     let pos = from;
     let frame = 0;
     let value = null;
+    const was = chosen;
     for (const module of span.modules) onPause(module, true, { resizing: true });
     desk.setAttribute('data-resizing', '');
     onGesture(true, 'resize');
@@ -833,7 +844,7 @@ export function createWindows(desk, {
       gesture = null;
       desk.removeAttribute('data-resizing');
       if (!cancelled && value != null) layout = span.commit(value);
-      apply();
+      apply(cancelled || value == null ? { keep: was } : {});
       for (const module of span.modules) onPause(module, false, { resizing: true });
       onGesture(false, 'resize');
     };
@@ -1002,13 +1013,17 @@ export function createWindows(desk, {
         gesture?.cancel();
         screen = now;
         desk.setAttribute('data-screen', now);
-        const kept = now === 'narrow' ? null : readLayout(storage, now, allowed());
-        layout = arrange(kept ?? layout);
-        apply();
-      } else if (screen !== 'narrow' && layout.cols.length > fitColumns(room)) {
-        // Kept as it was chosen: it comes back when the window is wide again.
-        layout = arrange(layout);
-        apply({ save: false });
+        const want = (now === 'narrow' ? null : readLayout(storage, now, allowed())) ?? chosen;
+        layout = arrange(want);
+        apply({ keep: want });
+      } else if (screen !== 'narrow') {
+        // Squeezed into fewer columns, it is kept as it was chosen, and comes back when there is room again.
+        const next = arrange(chosen);
+        if (JSON.stringify(next.cols) !== JSON.stringify(layout.cols)) {
+          gesture?.cancel();
+          layout = next;
+          apply({ save: false });
+        }
       }
     });
   }, { signal });
@@ -1018,8 +1033,9 @@ export function createWindows(desk, {
   function set(next) {
     gesture?.cancel();
     room = measure();
-    layout = arrange(normalizeLayout(next, allowed()));
-    apply();
+    const want = normalizeLayout(next, allowed());
+    layout = arrange(want);
+    apply({ keep: want });
   }
 
   /** The layout kept for this screen class, or `fallback` when there is none. */
@@ -1031,7 +1047,8 @@ export function createWindows(desk, {
   function columns(n, list = available()) {
     gesture?.cancel();
     room = measure();
-    relayout(arrange(applyColumns(n, list, layout)));
+    const want = applyColumns(n, list, layout);
+    relayout(arrange(want), want);
   }
 
   /**
@@ -1064,7 +1081,8 @@ export function createWindows(desk, {
     layout = { ...layout, focus: module };
     for (const m of shown) nodes.get(m).setAttribute('data-focus', String(m === module));
     drawTabs();
-    writeLayout(storage, screen, layout);
+    chosen = where(chosen, module) ? { ...chosen, focus: module } : layout;
+    writeLayout(storage, screen, chosen);
     announce();
   }
 

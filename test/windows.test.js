@@ -624,6 +624,24 @@ test('screen class: wider, the wide layout kept comes back; narrower, the focuse
   windows.destroy();
 });
 
+test('screen class: a narrower window squeezes the columns, and the layout as chosen comes back when it widens', () => {
+  const { desk, win, data, windows } = setup();
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }, { wins: ['tasks'] }, { wins: ['projects'] }] });
+  win.innerWidth = 1300;
+  desk.clientWidth = 1300;
+  win.dispatch('resize');
+  assert.equal(windows.screen, 'wide');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes'], ['next'], ['tasks', 'projects']], 'three columns fit');
+  windows.focus('next');
+  assert.equal(JSON.parse(data.get(KEY)).wide.cols.length, 4, 'a click keeps the focus, not the squeezed layout');
+  win.innerWidth = 1400;
+  desk.clientWidth = 1400;
+  win.dispatch('resize');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes'], ['next'], ['tasks'], ['projects']], 'four again');
+  assert.equal(windows.layout.focus, 'next');
+  windows.destroy();
+});
+
 test('destroy: every listener off, the bars and tabs gone, the windows left to the shell', () => {
   const { desk, win, made, windows, head, press, lay } = setup({ width: 500 });
   windows.set({ cols: [{ wins: ['notes'] }] });

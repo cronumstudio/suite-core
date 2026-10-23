@@ -2001,7 +2001,8 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   that doesn't show, for the shell to unmount.
 - **Kept** in this browser as `work.layout`, one layout per screen class (`wide` ≥ 1280 px, `mid`
   ≥ 768 px, `narrow`): crossing from one to another brings back that class's layout, and the
-  columns that don't fit a narrower desk stack where there is room.
+  columns that don't fit a narrower desk stack where there is room, the layout kept as chosen
+  until it fits again.
 
 The model and its moves are pure functions exported with it (`applyColumns`, `slotAt`,
 `dropLayout`, `moveByKey`, `lruEvict`, `placement`…) and tested without a browser
