@@ -812,6 +812,8 @@ export function createApp({
     legacyTools: mcp.legacyTools,
     legacyParams: mcp.legacyParams,
     describeError: mcp.describeError,
+    // Arguments checked against each tool's inputSchema; an app may turn it off (`mcp.checkArgs: false`).
+    checkArgs: mcp.checkArgs !== false,
     // A host gives its own: its modules' plans, and the modules each person uses (host.js).
     allows: mcp.allows || entitlements.allows,
     ...(mcp.visible ? { visible: mcp.visible } : {}),

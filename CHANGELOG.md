@@ -3,6 +3,39 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.143.0 — 2026-10-23
+
+- **An assistant's call is checked against the tool's own schema before it runs** (`mcp.js`,
+  `http.js`, `app.js`, `legacy-domains.js`). `callTool` passed the arguments to the tool as they
+  came, so the `enum`, `required`, `minimum`/`maximum` every tool already declares were only
+  advice: a `lag` of 2e8 days or a start on `2026-13-01` reached Projects' store and left the
+  project, and the project list of everyone in it, answering 500 (audit projects-mcp-store-1,
+  mcp-cross-4). Now `argumentProblems(inputSchema, args)` runs after the plan check and before a
+  call of the day is spent: types, `enum`, `required`, `minimum`/`maximum` and the exclusive ones,
+  `minLength`/`maxLength`, `minItems`/`maxItems`, `pattern`, `anyOf`/`oneOf`, nested `properties`
+  and `items`, and `format: 'date'`. A call that doesn't fit gets `isError` and a sentence of what
+  to correct («"lag" must be between -365 and 365»), never the value; the tool doesn't run, and the
+  log notes the tool and the sentence. Old parameter names (`legacyParams`) are checked as the new.
+  - **What it lets through, on purpose**, because the tools have always read it and an assistant
+    sends it: a number in quotes for an integer or a number (`"3"`), `"true"`/`"false"` or 0/1 for
+    a boolean, a number or a boolean for a text, one item where a list goes, `null` for an
+    optional value (the tools read it as "leave it" or "clear it"), and properties the schema
+    doesn't name (`additionalProperties: false` is not enforced: clients send extra ones and the
+    tools ignore them). Nothing is converted: the tool gets the arguments as sent.
+  - **What changes for an assistant**: a value past a declared bound is an error to correct, not
+    taken in silence (Next clamped `hours` above 72 to 72; Notes passed a `limit` of 500, or -1,
+    to SQL as sent), and an `enum` is exact (Tasks stored any `priority`).
+  - **The way back**: an app's `mcp.checkArgs: false` (or `createMcpServer({ checkArgs: false })`)
+    passes the arguments unchecked, as before.
+  - `schemaProblems(tools)`, for an app's tests: a type the check doesn't know, a `required` that
+    names no property, crossed or non-numeric bounds, an empty `enum`, a pattern that doesn't
+    compile — a limit the tool believes it has and doesn't.
+- **`isoDate(value, { minYear = 1900, maxYear = 2200 })`** (`http.js`): a `YYYY-MM-DD` that
+  exists (round trip through `Date.UTC`) and falls in the range, the same text back, or null.
+  `2026-13-01`, `2026-02-31` and the year 2206 are not dates. One check for every module's
+  `dateOrNull`/`parseDate` and the MCP's `format: 'date'` (audit verify-b A, projects-client-2).
+  The modules' schemas (`S.int`, `S.string` in each `mcp-tools.js`) can now declare `minimum`,
+  `maximum` and `format: 'date'` and have them hold.
 ## 0.142.0 — 2026-10-23
 
 - **The catalog a page loads leaves out what no page of the app shows** (`app.js`, `web/i18n.js`,

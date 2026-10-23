@@ -18,13 +18,20 @@
  * and `legacyParams`: a client connected before the rename keeps its cached
  * schema and calls the old names until it reconnects. They are not announced.
  *
+ * Before a tool runs, its arguments are checked against its `inputSchema`
+ * (`argumentProblems`): types, ranges, `enum`, `required`, lengths and
+ * `format: 'date'`. A call that doesn't fit gets a sentence saying what to
+ * correct, and the tool doesn't run. The check reads arguments the way the
+ * tools always have (a number in quotes is a number), and lets through
+ * properties the schema doesn't name.
+ *
  * What each person sees may depend on them (a host, where everyone uses some
  * modules): `visible(principal, tool)` keeps a tool out of their list, and
  * `instructions` may be a function of the principal. Without them every
  * principal gets the same, as always.
  */
 import crypto from 'node:crypto';
-import { readJson, sendJson, sendText } from './http.js';
+import { isoDate, readJson, sendJson, sendText } from './http.js';
 
 export const PROTOCOL_VERSIONS = Object.freeze(['2025-06-18', '2025-03-26', '2024-11-05']);
 /**
@@ -41,6 +48,166 @@ const rpcError = (id, code, message, data) => ({
 const textResult = (text, isError = false) => ({
   ...(isError ? { isError: true } : {}), content: [{ type: 'text', text }],
 });
+
+/* ------------------------- the arguments of a tool ------------------------ */
+
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const INTEGER_TEXT = /^\s*[-+]?\d+\s*$/;
+const KNOWN_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'array', 'object', 'null']);
+const A_TYPE = {
+  string: 'a text', integer: 'a whole number', number: 'a number', boolean: 'true or false',
+  array: 'a list', object: 'an object', null: 'null',
+};
+
+/**
+ * Whether a value is of a JSON Schema type, as the tools have always read
+ * their arguments: a number in quotes for an integer or a number ("3"),
+ * "true"/"false" or 0/1 for a boolean, a number or a boolean for a text
+ * (they `String()` them). What none of them can read (an object for a text,
+ * 2e8 where the schema says at most 365, a month 13) is what gets refused.
+ */
+function fitsType(type, value) {
+  switch (type) {
+    case 'string': return typeof value === 'string' || typeof value === 'boolean' || Number.isFinite(value);
+    case 'integer': return Number.isInteger(value) || (typeof value === 'string' && INTEGER_TEXT.test(value));
+    case 'number': return Number.isFinite(value)
+      || (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)));
+    case 'boolean': return typeof value === 'boolean' || value === 'true' || value === 'false' || value === 0 || value === 1;
+    case 'array': return Array.isArray(value);
+    case 'object': return isPlainObject(value);
+    case 'null': return value === null;
+    default: return true; // a type this check doesn't know: the tool decides, as before
+  }
+}
+
+const quoted = (path) => `"${path}"`;
+
+/**
+ * What is wrong with a value for a schema, as short sentences an assistant
+ * can act on («"lag" must be at most 365»). Never the value itself: it can be
+ * long, or someone's text. `null` passes where a value is optional (the tools
+ * read it as "leave it" or "clear it"), and properties the schema doesn't name
+ * are left alone (`additionalProperties` is not enforced: clients send extra
+ * ones, and the tools ignore them).
+ */
+function problemsOf(schema, value, path, out) {
+  if (!isPlainObject(schema) || value === undefined || value === null || out.length >= 5) return out;
+  const branches = schema.anyOf || schema.oneOf;
+  if (Array.isArray(branches) && branches.length
+    && !branches.some((branch) => problemsOf(branch, value, path, []).length === 0)) {
+    out.push(`${quoted(path)} doesn't have any of the accepted forms`);
+    return out;
+  }
+  const types = [].concat(schema.type ?? []);
+  if (types.length && !types.some((type) => fitsType(type, value))) {
+    // A single item where a list goes: the tools that take lists take one item too.
+    if (types.includes('array') && isPlainObject(schema.items) && problemsOf(schema, [value], path, []).length === 0) return out;
+    const known = types.filter((type) => KNOWN_TYPES.has(type)).map((type) => A_TYPE[type]);
+    out.push(`${quoted(path)} must be ${known.join(' or ')}`);
+    return out;
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+    out.push(`${quoted(path)} must be one of: ${schema.enum.map((option) => JSON.stringify(option)).join(', ')}`);
+    return out;
+  }
+  const numeric = types.some((type) => type === 'integer' || type === 'number') && typeof value !== 'boolean'
+    ? Number(value) : null;
+  if (numeric !== null && Number.isFinite(numeric)) {
+    const { minimum: min, maximum: max, exclusiveMinimum: above, exclusiveMaximum: below } = schema;
+    const low = typeof min === 'number' && numeric < min;
+    const high = typeof max === 'number' && numeric > max;
+    if ((low || high) && typeof min === 'number' && typeof max === 'number') out.push(`${quoted(path)} must be between ${min} and ${max}`);
+    else if (low) out.push(`${quoted(path)} must be at least ${min}`);
+    else if (high) out.push(`${quoted(path)} must be at most ${max}`);
+    else if (typeof above === 'number' && numeric <= above) out.push(`${quoted(path)} must be more than ${above}`);
+    else if (typeof below === 'number' && numeric >= below) out.push(`${quoted(path)} must be less than ${below}`);
+  }
+  if (typeof value === 'string') {
+    const length = () => [...value].length;
+    if (typeof schema.maxLength === 'number' && value.length > schema.maxLength && length() > schema.maxLength) {
+      out.push(`${quoted(path)} must be at most ${schema.maxLength} characters long`);
+    } else if (typeof schema.minLength === 'number' && length() < schema.minLength) {
+      out.push(`${quoted(path)} must be at least ${schema.minLength} characters long`);
+    }
+    if (typeof schema.pattern === 'string' && !safePattern(schema.pattern)?.test(value)) {
+      out.push(`${quoted(path)} doesn't have the expected form`);
+    }
+  }
+  // A date is a text: a number where a date goes isn't one.
+  if (schema.format === 'date' && (!types.length || types.includes('string')) && !isoDate(value)) {
+    out.push(`${quoted(path)} must be a real date as YYYY-MM-DD, between 1900 and 2200`);
+  }
+  if (Array.isArray(value)) {
+    if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) out.push(`${quoted(path)} can have at most ${schema.maxItems} items`);
+    if (typeof schema.minItems === 'number' && value.length < schema.minItems) out.push(`${quoted(path)} must have at least ${schema.minItems} items`);
+    if (isPlainObject(schema.items)) value.forEach((item, i) => problemsOf(schema.items, item, `${path}[${i}]`, out));
+  }
+  if (isPlainObject(value)) {
+    const properties = isPlainObject(schema.properties) ? schema.properties : {};
+    for (const name of Array.isArray(schema.required) ? schema.required : []) {
+      if (value[name] === undefined) out.push(`${quoted(path ? `${path}.${name}` : name)} is required`);
+    }
+    for (const [name, sub] of Object.entries(properties)) {
+      if (Object.hasOwn(value, name)) problemsOf(sub, value[name], path ? `${path}.${name}` : name, out);
+    }
+  }
+  return out.slice(0, 5);
+}
+
+const patterns = new Map();
+function safePattern(source) {
+  if (!patterns.has(source)) {
+    let compiled = null;
+    try { compiled = new RegExp(source, 'u'); } catch { /* a pattern that doesn't compile checks nothing */ }
+    patterns.set(source, compiled);
+  }
+  return patterns.get(source) || { test: () => true };
+}
+
+/**
+ * The arguments of a call against the tool's `inputSchema`: the sentences of
+ * what is wrong (at most five), or an empty list. Types, `enum`, `required`,
+ * `minimum`/`maximum` (and the exclusive ones), `minLength`/`maxLength`,
+ * `minItems`/`maxItems`, `pattern`, `anyOf`/`oneOf`, `format: 'date'`
+ * (isoDate), nested `properties` and `items`.
+ */
+export function argumentProblems(schema, args) {
+  if (!isPlainObject(schema)) return [];
+  if (!isPlainObject(args)) return ['the arguments must be an object'];
+  return problemsOf(schema.type === undefined ? { ...schema, type: 'object' } : schema, args, '', []);
+}
+
+/**
+ * What is wrong with the schemas a set of tools declares, for an app's tests:
+ * a type this check doesn't know, a `required` that names no property, bounds
+ * that aren't numbers or are crossed, an empty `enum`, a pattern that doesn't
+ * compile. Each one is a limit the tool believes it has and doesn't.
+ */
+export function schemaProblems(tools) {
+  const out = [];
+  const visit = (schema, where) => {
+    if (!isPlainObject(schema)) return;
+    for (const type of [].concat(schema.type ?? [])) if (!KNOWN_TYPES.has(type)) out.push(`${where}: unknown type ${JSON.stringify(type)}`);
+    for (const key of ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'minLength', 'maxLength', 'minItems', 'maxItems']) {
+      if (key in schema && typeof schema[key] !== 'number') out.push(`${where}: ${key} is not a number`);
+    }
+    if (schema.minimum > schema.maximum) out.push(`${where}: minimum is above maximum`);
+    if ('enum' in schema && !(Array.isArray(schema.enum) && schema.enum.length)) out.push(`${where}: enum is not a list of values`);
+    if (typeof schema.pattern === 'string') { try { new RegExp(schema.pattern, 'u'); } catch { out.push(`${where}: pattern doesn't compile`); } }
+    const properties = isPlainObject(schema.properties) ? schema.properties : {};
+    for (const name of Array.isArray(schema.required) ? schema.required : []) {
+      if (!(name in properties)) out.push(`${where}: required "${name}" is not a property`);
+    }
+    for (const [name, sub] of Object.entries(properties)) visit(sub, `${where}.${name}`);
+    if (isPlainObject(schema.items)) visit(schema.items, `${where}[]`);
+    for (const branch of [...(schema.anyOf || []), ...(schema.oneOf || [])]) visit(branch, where);
+  };
+  for (const tool of tools) {
+    if (!isPlainObject(tool.inputSchema) || tool.inputSchema.type !== 'object') out.push(`${tool.name}: inputSchema is not an object schema`);
+    else visit(tool.inputSchema, tool.name);
+  }
+  return out;
+}
 
 /**
  * What an assistant reads when the calls of the day are used up
@@ -83,12 +250,13 @@ export function bearerToken(req, url = null) {
  * @param {(error) => string|null} [options.describeError]   the app's errors as text for the assistant
  * @param {object} [options.legacyTools]    old name → current name
  * @param {object} [options.legacyParams]   old parameter → current parameter
+ * @param {boolean} [options.checkArgs]    check each call's arguments against the tool's inputSchema (on by default)
  */
 export function createMcpServer({
   serverInfo, instructions = '', tools = [], prompts = null,
   authenticate, challenge, oauthOffered = false, limiter = null,
   unavailable = () => false, allows = () => true, quota = () => true, describeError = () => null,
-  legacyTools = {}, legacyParams = {}, log = console.error, visible = () => true,
+  legacyTools = {}, legacyParams = {}, log = console.error, visible = () => true, checkArgs = true,
 }) {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
@@ -117,10 +285,18 @@ export function createMcpServer({
     if (!tool) return textResult(`Unknown tool: ${name}`, true);
     const allowed = allows(principal, tool);
     if (allowed !== true) return textResult(String(allowed || 'Your plan does not include this.'), true);
+    const current = withCurrentParams(args);
+    // Before the tool and before a call of the day is spent: a value out of
+    // its range (a lag of 2e8 days, a 13th month) never reaches the store.
+    const problems = checkArgs ? argumentProblems(tool.inputSchema, current) : [];
+    if (problems.length) {
+      log(`[mcp] ${tool.name}: arguments refused (${problems.join('; ')})`);
+      return textResult(`Invalid arguments for ${tool.name}: ${problems.join('; ')}. Correct them and call it again.`, true);
+    }
     const spent = quota(principal, tool);
     if (spent !== true) return textResult(String(spent || 'The calls of today are used up.'), true);
     try {
-      return await tool.handler(principal, withCurrentParams(args));
+      return await tool.handler(principal, current);
     } catch (error) {
       const text = describeError(error);
       if (text) return textResult(text, true);
