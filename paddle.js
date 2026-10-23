@@ -14,7 +14,24 @@
  *
  *   { workos_user_id: 'user_01…', email, product: 'pro-yearly', app?: 'work' }
  *
- * (`app` only when billing.js is given one: which app sold it.)
+ * (`app` only when billing.js is given one: which app sold it.) Since 0.128.0 it also
+ * carries `sig`, made here: an HMAC of who pays, the product, the price, the app
+ * and the customer this server put on the transaction. Paddle.js lets anyone
+ * open a checkout for any price with any custom_data from the browser, so an
+ * event whose `sig` is missing or doesn't match its own price is `unsigned`, and
+ * billing.js grants nothing for a subscription or purchase it has never heard of
+ * on such an event (a founder's price bought by someone who isn't one). A known
+ * subscription keeps going without it: one bought before 0.128.0 has none, and
+ * a plan changed in the portal keeps the first checkout's custom_data on a new
+ * price. A signature that holds but names another customer (or none) is
+ * `customerUnsigned`: who pays is right, but the customer isn't proven theirs,
+ * so billing.js doesn't move a customer link another account has to them.
+ *
+ * The key: `signingSecret` (PADDLE_CHECKOUT_SECRET) when given, else one derived
+ * from the notification destination's secret. Installs that hear each other's
+ * sales as their own (one subscription for several apps, a destination each)
+ * must share PADDLE_CHECKOUT_SECRET; rotating the destination's secret without
+ * it leaves unsigned only checkouts opened before and paid after the change.
  *
  * The WorkOS id, and not the app's own id of the person, because one
  * subscription (Cronum Work) is for every app of the suite and each app has its
@@ -86,6 +103,22 @@ function subjectFrom(value) {
   return match ? { type: match[1], id: Number(match[2]) } : null;
 }
 
+/** The key that signs a checkout's custom_data: its own secret, or one derived from the destination's. */
+export function checkoutSigningKey({ webhookSecret, signingSecret = '' }) {
+  return crypto.createHmac('sha256', String(signingSecret || webhookSecret)).update('cronum paddle custom_data v1').digest();
+}
+
+/**
+ * The `sig` of a checkout's custom_data: who pays (the WorkOS id, or "user:12" where there is
+ * none: both fields, so neither can be added later), the product, the price, the app and the
+ * customer, as this server put them on the transaction.
+ */
+export function signCustomData(key, { workosUserId = null, subject = null, product, price, app = null, customer = null }) {
+  return crypto.createHmac('sha256', key)
+    .update(['v1', workosUserId ?? '', subject ?? '', product ?? '', price ?? '', app ?? '', customer ?? ''].map(String).join('|'))
+    .digest('hex');
+}
+
 const isoOf = (value) => {
   const ms = Date.parse(value ?? '');
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
@@ -101,12 +134,14 @@ const isoOf = (value) => {
  * @param {object} [options.products]      the app's products, to recognise a price changed in the portal
  * @param {boolean} [options.strictPrices] the product only from the products' prices (see above)
  * @param {string[]} [options.paddleProductIds]   the Paddle products this install sells (see above)
+ * @param {string} [options.signingSecret]  the key of the checkouts' `sig` (see above); empty, one
+ *   derived from webhookSecret
  * @param {string} [options.apiBase]       the environment's API, or a stand-in for tests
  * @param {Function} [options.fetch]
  */
 export function paddleProvider({
   apiKey, webhookSecret, environment = 'production', checkoutUrl = '', products = {},
-  strictPrices = false, paddleProductIds = null,
+  strictPrices = false, paddleProductIds = null, signingSecret = '',
   apiBase = PADDLE_API[environment], fetch = globalThis.fetch, clock = () => Date.now(), log = console.log,
 }) {
   if (!apiKey) throw new Error('paddleProvider: an API key is needed');
@@ -119,6 +154,7 @@ export function paddleProvider({
     throw new Error('paddleProvider: paddleProductIds is a list of at least one Paddle product id (pro_…)');
   }
   const ownProducts = paddleProductIds ? new Set(paddleProductIds) : null;
+  const signingKey = checkoutSigningKey({ webhookSecret, signingSecret });
   const base = String(apiBase).replace(/\/+$/, '');
   // A founder's price is the same product as the regular one: both are recognised, and so are
   // the old prices that subscriptions bought before a change of price still renew on.
@@ -202,13 +238,17 @@ export function paddleProvider({
     subject, identity = null, customer = null, product, price, email = null, returnUrl, app = null,
   }) {
     if (!price) throw badRequest('product_unknown', { product });
+    const customerId = customer || (email ? await customerByEmail(email) : null);
+    const who = identity?.provider === 'workos' ? { workos_user_id: identity.subject } : { subject: `${subject.type}:${subject.id}` };
     const customData = {
-      ...(identity?.provider === 'workos' ? { workos_user_id: identity.subject } : { subject: `${subject.type}:${subject.id}` }),
+      ...who,
       ...(email ? { email } : {}),
       product,
       ...(app ? { app } : {}),
+      sig: signCustomData(signingKey, {
+        workosUserId: who.workos_user_id, subject: who.subject, product, price, app, customer: customerId,
+      }),
     };
-    const customerId = customer || (email ? await customerByEmail(email) : null);
     const page = checkoutUrl ? new URL(checkoutUrl) : null;
     if (page) {
       if (returnUrl) page.searchParams.set('return', returnUrl);
@@ -284,6 +324,26 @@ export function paddleProvider({
     };
   }
 
+  /**
+   * Whether an entity's custom_data carries this server's `sig` for its price: `{}` when it does,
+   * for its customer too; `{ customerUnsigned: true }` when it does but was made for another
+   * customer, or none; `{ unsigned: true }` when it is missing or made for anything else.
+   */
+  function signatureOf(customData, price, customer) {
+    const sig = customData?.sig;
+    if (typeof sig !== 'string' || !/^[0-9a-f]{64}$/.test(sig)) return { unsigned: true };
+    const text = (value) => (typeof value === 'string' ? value : null);
+    const fields = {
+      workosUserId: text(customData.workos_user_id), subject: text(customData.subject),
+      product: text(customData.product), price, app: text(customData.app),
+    };
+    const matches = (customerId) => crypto.timingSafeEqual(Buffer.from(sig, 'hex'),
+      Buffer.from(signCustomData(signingKey, { ...fields, customer: customerId }), 'hex'));
+    if (!(fields.workosUserId || fields.subject) || !price) return { unsigned: true };
+    if (customer && matches(customer)) return {};
+    return matches(null) ? { customerUnsigned: true } : { unsigned: true };
+  }
+
   /** One Paddle notification as the suite's event, or null when it says nothing billing.js needs. */
   function translate(notification) {
     const type = notification?.event_type;
@@ -299,6 +359,7 @@ export function paddleProvider({
       return {
         id: notification.event_id, type: 'subscription', occurredAt, customer,
         ...whoOf(object.custom_data),
+        ...signatureOf(object.custom_data, price, customer),
         ref: object.id,
         ...productFields(owner, price, object.custom_data),
         status: object.status,
@@ -318,6 +379,7 @@ export function paddleProvider({
       return {
         id: notification.event_id, type: 'purchase', occurredAt, customer,
         ...whoOf(object.custom_data),
+        ...signatureOf(object.custom_data, price, customer),
         ref: object.id,
         ...productFields(owner, price, object.custom_data),
         quantity: object.items?.[0]?.quantity ?? null,

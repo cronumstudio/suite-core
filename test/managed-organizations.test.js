@@ -21,7 +21,7 @@ import { createOrganizations, organizationKinds, MEMBER_REASONS } from '../organ
 import { createBilling } from '../billing.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp } from '../app.js';
-import { paddleProvider, signPaddlePayload } from '../paddle.js';
+import { paddleProvider, signPaddlePayload, checkoutSigningKey, signCustomData } from '../paddle.js';
 import { stripeProvider } from '../stripe.js';
 
 const DAY = 24 * 3600 * 1000;
@@ -605,7 +605,13 @@ async function familySuite(t, { billing = {}, hooks = {} } = {}) {
         id: sub, status, customer_id: customer,
         items: [{ quantity: 1, price: { id: PRICE, product_id: 'pro_01' } }],
         current_billing_period: { starts_at: new Date().toISOString(), ends_at: new Date(Date.now() + 365 * DAY).toISOString() },
-        custom_data: { subject: `organization:${organizationId}`, product: 'family-yearly' },
+        // As this server's checkout made it: signed for its price and customer.
+        custom_data: {
+          subject: `organization:${organizationId}`, product: 'family-yearly',
+          sig: signCustomData(checkoutSigningKey({ webhookSecret: SECRET }), {
+            subject: `organization:${organizationId}`, product: 'family-yearly', price: PRICE, customer,
+          }),
+        },
       },
     });
     const res = await fetch(`${base}/api/billing/webhook`, {

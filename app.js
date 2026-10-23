@@ -214,7 +214,7 @@ export function createSuite({
       : install.billing.provider === 'paddle' ? paddleProvider({
         apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
         environment: install.billing.environment, apiBase: install.billing.apiBase,
-        checkoutUrl: install.billing.checkoutUrl, products: config.products, log,
+        checkoutUrl: install.billing.checkoutUrl, signingSecret: install.billing.signingSecret, products: config.products, log,
         strictPrices: config.billing?.strictPrices ?? false, paddleProductIds: config.billing?.paddleProductIds ?? null,
       })
         : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
@@ -448,6 +448,7 @@ export function createSuite({
   // Someone deleting their own account: disabled now, gone after the install's days (account-deletion.js).
   const deletion = createAccountDeletion({
     accounts, sign: sessions.sign, days: config.accounts.deletionDays, atProviders: config.accounts.deleteAtProviders,
+    endSubscriptions: config.accounts.endSubscriptions,
     // With the stores, both instances: a store stops nothing for the person, who cancels there.
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
     baseUrl: install.baseUrl, log,

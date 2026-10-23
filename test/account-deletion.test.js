@@ -183,8 +183,8 @@ test('at the providers only where the install says so; one that can’t be reach
   let idpDown = true;
   const idp = { deleteIdentity: async (id) => { calls.push(['identity', id]); if (idpDown) throw new Error('WorkOS does not answer'); } };
   const lines = [];
-  const make = (atProviders) => createAccountDeletion({
-    accounts, sign: (v) => v.length.toString(36), days: 30, atProviders, idp, billing, clock: () => now, log: (l) => lines.push(l),
+  const make = (atProviders, more = {}) => createAccountDeletion({
+    accounts, sign: (v) => v.length.toString(36), days: 30, atProviders, idp, billing, clock: () => now, log: (l) => lines.push(l), ...more,
   });
 
   // Where other apps share the provider's accounts: here only.
@@ -194,6 +194,19 @@ test('at the providers only where the install says so; one that can’t be reach
   now += 31 * DAY;
   assert.equal(await shared.sweep(), 1);
   assert.deepEqual(calls, [], 'neither the subscriptions nor the identity are touched');
+
+  // An install that bills alone, with apps that share its logins (Cronum Work): the subscriptions only.
+  const billsAlone = make(false, { endSubscriptions: true });
+  const fay = accounts.create({ username: 'fay', displayName: 'Fay' });
+  await billsAlone.request(fay);
+  assert.deepEqual(calls, [['stop', fay.id]], 'the subscriptions stop renewing when they ask');
+  idpDown = false;
+  now += 31 * DAY;
+  assert.equal(await billsAlone.sweep(), 1);
+  assert.equal(accounts.byId(fay.id), null);
+  assert.deepEqual(calls.map(([what]) => what), ['stop', 'end'], 'their subscriptions end; the identity stays');
+  calls.length = 0;
+  idpDown = true;
 
   // Where this install is all the person has.
   const whole = make(true);

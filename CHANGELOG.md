@@ -29,6 +29,33 @@ change an interface and a patch never does. Apps pin a version through the submo
     `suite.whenRevoked(hook)`, which a host's modules use for their own channels.
   - Not yet: a reset on AuthKit's own page ("Forgot your password?") is not heard by the app, so it
     still revokes nothing here.
+## 0.128.0 — 2026-10-23
+
+- **Paddle: what a checkout says is signed by the server** (`paddle.js`, `billing.js`, `config.js`,
+  `app.js`). Paddle.js opens a checkout for any price with any `customData` from the browser, so
+  anyone could buy Pro yearly at the founder's price by naming it in the console, and the webhook
+  gave the plan to whoever `custom_data` named. The checkout now writes `custom_data.sig`, an HMAC
+  of who pays (`workos_user_id` or `subject`), the product, the price, the app and the customer the
+  server put on the transaction. An event whose `sig` is missing or doesn't match its own price is
+  `unsigned`, and a subscription or purchase never heard of here on one grants and links nothing:
+  `'unsigned'`, logged and in the audit (`billing.unsigned`). One already known keeps going without
+  it: those bought before this version have no `sig`, and a plan changed in the portal keeps the
+  first checkout's `custom_data` on another price. The key is `PADDLE_CHECKOUT_SECRET` (optional,
+  32 characters or more) or, without it, one derived from `PADDLE_WEBHOOK_SECRET`; installs that
+  grant one subscription together, each with its own notification destination, share
+  `PADDLE_CHECKOUT_SECRET`.
+- **A customer linked to another account stays theirs** (`billing.js`). An event that named someone
+  by their identity took the provider's customer from whoever had it, and Paddle's checkout may
+  match a customer by the email typed in it: a checkout opened by hand with another person's email
+  could take their portal (invoices, payment method, subscriptions). The link moves now only on a
+  signature for that very customer; otherwise it stays, the buyer still gets what they paid for,
+  and the audit says `billing.customer_conflict`. An event of another provider (`unsigned` and
+  `customerUnsigned` unset) is as before.
+- **`accounts.endSubscriptions`** (`config.js`, `account-deletion.js`, `app.js`): someone deleting
+  their account can have their subscriptions stop renewing at the request and end when the account
+  goes without going at the identity provider too, for an install that bills alone while other
+  apps sign in with the same users (Cronum Work). Left out, it follows `deleteAtProviders`, as
+  before.
 
 ## 0.127.0 — 2026-10-23
 
