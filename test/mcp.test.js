@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createMcpServer, dailyLimitText, MAX_BATCH } from '../mcp.js';
+import { createMcpServer, dailyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
 
 class Unavailable extends Error {}
 class NotFound extends Error {}
@@ -225,4 +225,120 @@ test('a token in the address is not read: it would end up in logs', async (t) =>
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
   });
   assert.equal(header.status, 200, 'the header still works');
+});
+
+/* ------------------------- the arguments of a tool ------------------------ */
+
+function schemaServer({ checkArgs, onQuota = () => true } = {}) {
+  const calls = [];
+  const logged = [];
+  const mcp = createMcpServer({
+    serverInfo: { name: 'test', title: 'Test', version: '1.0.0' },
+    tools: [{
+      name: 'add_dependency', title: 'Link', description: 'Links two tasks',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          from: { type: 'string' },
+          lag: { type: 'integer', minimum: -365, maximum: 365 },
+          type: { type: 'string', enum: ['FS', 'SS', 'FF', 'SF'] },
+          start: { type: 'string', format: 'date' },
+          done: { type: 'boolean' },
+          quantity: { type: 'number' },
+          title: { type: 'string', maxLength: 5 },
+          titles: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { title: { type: 'string' }, quantity: { type: 'number', minimum: 0 } },
+              required: ['title'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['from'],
+        additionalProperties: false,
+      },
+      handler: (principal, args) => { calls.push(args); return { content: [{ type: 'text', text: 'linked' }] }; },
+    }],
+    authenticate: async () => null,
+    challenge: () => 'Bearer',
+    quota: onQuota,
+    log: (line) => logged.push(line),
+    ...(checkArgs === undefined ? {} : { checkArgs }),
+  });
+  return { mcp, calls, logged };
+}
+
+test('arguments out of the schema: an error to correct, and the tool never runs', async () => {
+  let spent = 0;
+  const { mcp, calls, logged } = schemaServer({ onQuota: () => { spent++; return true; } });
+  const refused = async (args, pattern) => {
+    const result = await mcp.callTool({ id: 1 }, 'add_dependency', args);
+    assert.equal(result.isError, true, JSON.stringify(args));
+    assert.match(result.content[0].text, pattern);
+  };
+  await refused({ from: 'a', lag: 2e8 }, /^Invalid arguments for add_dependency: "lag" must be between -365 and 365/);
+  await refused({ from: 'a', lag: 2.5 }, /"lag" must be a whole number/);
+  await refused({ from: 'a', lag: 'soon' }, /"lag" must be a whole number/);
+  await refused({ from: 'a', start: '2026-13-01' }, /"start" must be a real date/);
+  await refused({ from: 'a', start: '2026-02-31' }, /"start" must be a real date/);
+  await refused({ from: 'a', start: '2206-10-01' }, /"start" must be a real date/);
+  await refused({ from: 'a', type: 'XX' }, /"type" must be one of: "FS", "SS", "FF", "SF"/);
+  await refused({ lag: 1 }, /"from" is required/);
+  await refused({ from: { evil: true } }, /"from" must be a text/);
+  await refused({ from: 'a', done: 'maybe' }, /"done" must be true or false/);
+  await refused({ from: 'a', title: 'too long' }, /"title" must be at most 5 characters/);
+  await refused({ from: 'a', titles: ['1', '2', '3', '4'] }, /"titles" can have at most 3 items/);
+  await refused({ from: 'a', items: [{ title: 'x' }, { quantity: -1 }] },
+    /"items\[1\]\.title" is required; "items\[1\]\.quantity" must be at least 0/);
+  assert.equal(calls.length, 0, 'the handler was never called');
+  assert.equal(spent, 0, 'refused calls spend no call of the day');
+  assert.ok(logged.length > 0 && logged.every((line) => /^\[mcp\] add_dependency: arguments refused/.test(line)));
+  assert.ok(!logged.some((line) => line.includes('evil')), 'the values are not logged');
+});
+
+test('arguments that fit, and the forms the tools have always read, reach the tool unchanged', async () => {
+  const { mcp, calls } = schemaServer();
+  const ok = async (args) => {
+    const result = await mcp.callTool({ id: 1 }, 'add_dependency', args);
+    assert.equal(result.isError, undefined, `${JSON.stringify(args)}: ${result.content[0].text}`);
+  };
+  await ok({ from: 'a', lag: -365, type: 'SS', start: '2024-02-29', done: true, quantity: 0.5, title: 'short' });
+  await ok({ from: 12, lag: '3', done: 'false', quantity: '2.5' }); // a number for a text, numbers and booleans in quotes
+  await ok({ from: 'a', lag: null, type: null, start: null }); // null: leave it, or clear it
+  await ok({ from: 'a', titles: 'one', extra: 'ignored' }); // one item for a list; an unknown property passes
+  await ok({ from: 'a', items: [{ title: 'ham', quantity: 200, unit: 'g' }] });
+  assert.equal(calls.length, 5);
+  assert.deepEqual(calls[1], { from: 12, lag: '3', done: 'false', quantity: '2.5' }, 'nothing is converted on the way');
+});
+
+test('with checkArgs off, the tool gets whatever was sent, as before', async () => {
+  const { mcp, calls } = schemaServer({ checkArgs: false });
+  const result = await mcp.callTool({ id: 1 }, 'add_dependency', { lag: 2e8 });
+  assert.equal(result.content[0].text, 'linked');
+  assert.deepEqual(calls, [{ lag: 2e8 }]);
+});
+
+test('argumentProblems and schemaProblems on their own', () => {
+  assert.deepEqual(argumentProblems(undefined, { anything: 1 }), [], 'a tool without a schema is not checked');
+  assert.deepEqual(argumentProblems({ type: 'object' }, 'text'), ['the arguments must be an object']);
+  const either = { type: 'object', properties: { when: { anyOf: [{ type: 'string', format: 'date' }, { type: 'integer', minimum: 0 }] } } };
+  assert.deepEqual(argumentProblems(either, { when: '2026-10-23' }), []);
+  assert.deepEqual(argumentProblems(either, { when: 4 }), []);
+  assert.deepEqual(argumentProblems(either, { when: -4 }), ['"when" doesn\'t have any of the accepted forms']);
+  assert.deepEqual(argumentProblems({ type: 'object', properties: { code: { type: 'string', pattern: '^#[0-9a-f]{6}$' } } }, { code: 'red' }),
+    ['"code" doesn\'t have the expected form']);
+  assert.deepEqual(argumentProblems({ type: 'object', properties: { n: { type: 'integer', maximum: 1 } } }, { m: 5, o: 'x' }), [],
+    'properties the schema does not name are not checked');
+
+  assert.deepEqual(schemaProblems([
+    { name: 'good', inputSchema: { type: 'object', properties: { lag: { type: 'integer', minimum: -365, maximum: 365 } }, required: ['lag'] } },
+    { name: 'bad', inputSchema: { type: 'object', properties: { n: { type: 'int', minimum: 5, maximum: 1 }, p: { type: 'string', enum: [], pattern: '(' } }, required: ['m'] } },
+    { name: 'none' },
+  ]), [
+    'bad: required "m" is not a property', 'bad.n: unknown type "int"', 'bad.n: minimum is above maximum',
+    'bad.p: enum is not a list of values', 'bad.p: pattern doesn\'t compile', 'none: inputSchema is not an object schema',
+  ]);
 });

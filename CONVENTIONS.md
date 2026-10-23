@@ -194,7 +194,7 @@ release of them must keep working as it does. These rules hold until then, on to
   and a tab with the old code in its cache keeps calling the old routes. Outside `/api/`, `/mcp`,
   `/auth/`, `/oauth/` and `/.well-known/`, the service worker answers a GET from its cache.
 - **The MCP tools it announces**: `tools/list` keeps today's names and parameters, and the suite
-  answers no other name (there are no aliases since 0.145.0): a renamed tool disappears for whoever
+  answers no other name (there are no aliases since 0.148.0): a renamed tool disappears for whoever
   reconnects and fails for whoever doesn't, and with it people's connectors and their standing
   instructions. The prefix a
   module's tools carry in the host's single `/mcp` is put on by the host when it mounts the

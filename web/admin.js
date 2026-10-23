@@ -120,7 +120,7 @@ async function start() {
   try { prefs = typeof me?.prefs === 'string' ? JSON.parse(me.prefs) : (me?.prefs || {}); } catch { /* none */ }
   const languages = state.config.app?.languages || ['en'];
   // The admin panel follows the account; the choice the app keeps in this browser is the app's to make.
-  await loadLanguage(pickLanguage([me?.locale, prefs.lang, navigator.languages || [], navigator.language], languages), { remember: false })
+  await loadLanguage(pickLanguage([me?.locale, prefs.lang, navigator.languages || [], navigator.language], languages), { remember: false, all: true })
     .catch(() => {});
   applyTheme(me?.theme);
   document.title = `${t('admin.title')} · ${state.config.app?.name || ''}`;
@@ -322,37 +322,68 @@ function userDialog(user) {
   const twoFactorBox = workos() ? el('div', { class: 'kit-contents' }) : null;
   async function paintSignIn() {
     const answer = await api.get(`/api/admin/users/${user.id}/sign-in`);
-    if (answer.password) {
+    // An install that doesn't own the identities (accounts.adminIdentity) only shows them.
+    const manage = answer.manage !== false;
+    /**
+     * The admin's own password (and code) again, as the server asks (`reauth`): the fields, and
+     * what they add to the request. With `session` there is nothing to type: a recent sign-in.
+     */
+    const reauthFields = () => {
+      const own = answer.reauth === 'password' || answer.reauth === 'password_code'
+        ? el('input', { type: 'password', autocomplete: 'current-password' }) : null;
+      const code = answer.reauth === 'password_code'
+        ? el('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6' }) : null;
+      return {
+        nodes: [own ? field(t('admin.users.yourPassword'), own) : null, code ? field(t('admin.users.yourCode'), code) : null],
+        body: () => ({ ...(own ? { admin_password: own.value } : {}), ...(code ? { admin_code: code.value } : {}) }),
+        reset: () => { if (own) own.value = ''; if (code) code.value = ''; },
+      };
+    };
+    /** A recent sign-in is what the server wants: to the sign-in, and back here. */
+    const failed = (err) => {
+      if (err?.code === 'reauth_required') {
+        toast(t('errors.reauth_required'), { error: true });
+        window.location.href = '/auth/login';
+        return;
+      }
+      fail(err);
+    };
+    if (answer.password && manage) {
       const next = el('input', { type: 'password', autocomplete: 'new-password' });
+      const again = reauthFields();
       clear(signInBox).append(fold({ title: t('admin.users.password') },
         el('p', { class: 'kit-hint', text: t('admin.users.passwordLeadWorkos') }),
         el('div', { class: 'kit-row kit-row--end' },
           field(t('fields.password'), next),
+          ...again.nodes,
           el('button', {
             type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
             onClick: async () => {
               try {
-                await api.put(`/api/admin/users/${user.id}/sign-in/password`, { password: next.value });
+                await api.put(`/api/admin/users/${user.id}/sign-in/password`, { password: next.value, ...again.body() });
                 next.value = '';
+                again.reset();
                 toast(t('admin.users.passwordSet'));
-              } catch (err) { fail(err); }
+              } catch (err) { failed(err); }
             },
           }))));
     } else if (answer.method) {
       clear(signInBox).append(el('p', { class: 'kit-hint', text: t('admin.users.signsInWith', { method: methodName(answer.method) }) }));
     }
-    if (!answer.two_factor?.enabled) return;
+    if (!answer.two_factor?.enabled || !manage) return;
+    const again = reauthFields();
     clear(twoFactorBox).append(
       el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLeadWorkos')}` }),
+      again.nodes.some(Boolean) ? el('div', { class: 'kit-row kit-row--end' }, ...again.nodes) : null,
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.twoFactorOff'),
         onClick: async () => {
           if (!(await confirmDialog(t('admin.users.twoFactorOffConfirm', { name: user.display_name })))) return;
           try {
-            await api.delete(`/api/admin/users/${user.id}/sign-in/two-factor`);
+            await api.delete(`/api/admin/users/${user.id}/sign-in/two-factor`, again.body());
             toast(t('admin.users.twoFactorOffDone'));
             clear(twoFactorBox);
-          } catch (err) { fail(err); }
+          } catch (err) { failed(err); }
         },
       }));
   }

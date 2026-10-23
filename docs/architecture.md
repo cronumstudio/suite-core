@@ -67,6 +67,8 @@ suite-core/
   account-deletion.js   done   someone deleting their own account: disabled now, gone after its days
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
+  revoke.js             done   revokeEverything: a new password or "sign out everywhere" ends every way in
+  workos-events.js      done   a reset on AuthKit's own page heard from WorkOS's Events API (every minute) → revokeEverything
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
   device-pages.js       done   the connect page and sessions of the web from a device's token (devices.connectPage, webSessions)
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
@@ -1285,7 +1287,7 @@ the person first. Every app writes them the same way:
 internet, another service).
 
 `feature` makes the transport check the plan before calling the tool. Only the names `tools/list`
-announces answer: there are no aliases for old tool or parameter names (gone in 0.145.0), so a tool
+announces answer: there are no aliases for old tool or parameter names (gone in 0.148.0), so a tool
 is never renamed (CONVENTIONS §9). Tool descriptions and results are in English; the instructions ask the assistant to
 answer in the user's language.
 
@@ -1824,7 +1826,7 @@ The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address).
 `createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
 module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
 whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
-Only those names answer: neither a module's own bare names nor old ones (0.145.0). The instructions are written per person from each used module's `mcp.brief` (or its
+Only those names answer: neither a module's own bare names nor old ones (0.148.0). The instructions are written per person from each used module's `mcp.brief` (or its
 instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
 longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
 from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
@@ -1841,7 +1843,7 @@ LEGACY_DOMAINS=tasks.example.com=tasks,notes.example.com=notes
 
 - **`/mcp` points at the host's**: `/mcp` and `/mcp/*` answer 404 with
   `{ "error": "not_found", "mcp": "<BASE_URL>/mcp" }`, and `/.well-known/oauth-*` a 404: the apps'
-  own connectors are gone (0.145.0; before, they served each module's tools there until
+  own connectors are gone (0.148.0; before, they served each module's tools there until
   `LEGACY_MCP=off`, which is no longer read).
 - **`/sw.js` removes itself**: it empties its caches, unregisters and opens the module in the
   host, so the app installed from the old address stops showing what it kept.
@@ -1949,9 +1951,17 @@ once for each worker, titled with that module's name. With it:
   module's paths as its own worker did (its /api, /version and the rest never cached, its code
   network first, a page of it offline is its index.html), installs file by file, clears the old
   workers' copies, and a notice tapped opens its module (`suiteOpenModule`).
+- **Code from the copy first** (0.140.0). The worker's version is the fingerprint of everything the
+  browser loads (below), so the host passes `codeFirst`: code, styles and catalogs are answered
+  from the copy without asking the network, and what changes comes with the next worker. With
+  `sharedKit` the kit is kept once, at /suite/, and `/<mount>/suite/x` is answered from it as a
+  response of its own (`suiteAsAsked`), so a module's script still reads its base at its path.
+  `hashes` (`shellHashes`) gives each file's hash: a new worker takes from the old copy every
+  file whose hash didn't change and fetches only the rest. Pages, manifests and
+  `js/app-version.js` always travel again.
 - **One version for the whole app**: `/version` and `/js/app-version.js` at the root are the
   host's version (`app`), its name and one fingerprint of the host's, the kit's and every module's
-  files (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
+  files, the suite's texts and any module catalogs outside its public folder (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
   release is a new worker. Each module keeps its own `/<mount>/version`.
 - **The modules' pages** learn of it from `/api/auth/config` (`app.host.worker`) and, with the kit's
   `registerWorker()`, register the host's and retire theirs (a narrower scope would go on serving

@@ -596,17 +596,27 @@ export function registerProfileApi(router, {
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
-  tokens = null, oauth = null, push = null, idp = null, devices = null,
+  tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null,
 }) {
   /**
    * Out everywhere, for a lost phone or a departure: the sessions here and at
    * the identity provider, the API tokens, the assistants' OAuth grants, the
-   * devices that get notices and, with modules.devices, the device tokens of
-   * the person's phones. Closing the sessions alone left the assistants
-   * connected, the notices coming, and the provider's session ready to sign
-   * that browser back in with one click.
+   * devices that get notices, with modules.devices the device tokens of the
+   * person's phones and, with WorkOS, the AI clients authorized in AuthKit.
+   * Closing the sessions alone left the assistants connected, the notices
+   * coming, and the provider's session ready to sign that browser back in with
+   * one click. createApp gives `revokeEverything` (revoke.js), the same that a
+   * new password does; without it, the parts given here.
    */
-  const signOutEverywhere = (id, { exceptToken = null } = {}) => {
+  const signOutEverywhere = (id, { exceptToken = null, ctx = null } = {}) => {
+    if (revokeEverything) {
+      const out = revokeEverything(id, {
+        keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'sign_out_everywhere',
+        actor: ctx?.user ?? undefined, req: ctx?.req ?? null,
+      });
+      // The answer says what it always said.
+      return { closed: out.closed, tokens: out.tokens, ...(devices ? { devices: out.devices } : {}) };
+    }
     const atProvider = sessions?.idpSessionsOf?.(id, { exceptToken }) || [];
     const closed = sessions ? sessions.closeAllOf(id, { exceptToken }) : 0;
     const revoked = tokens?.revokeAllOf(id) ?? 0;
@@ -668,8 +678,9 @@ export function registerAdminApi(router, {
     });
     if (body.password !== undefined) {
       accounts.setPassword(id, body.password, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
-      // Someone else's password set by the admin is someone else out, everywhere.
-      if (id !== ctx.user.id) signOutEverywhere(id);
+      // Someone else's password set by the admin is someone else out, everywhere. With
+      // revokeEverything, setPassword already did that (accounts.whenPasswordSet, createSuite).
+      if (id !== ctx.user.id && !revokeEverything) signOutEverywhere(id);
     }
     record(ctx, 'admin.user.update', 'user', id, {
       fields: Object.keys(body).filter((k) => k !== 'password'), password: body.password !== undefined,
@@ -691,7 +702,7 @@ export function registerAdminApi(router, {
     requireAdmin(ctx);
     const id = idOf(ctx.params.id);
     if (!accounts.byId(id)) throw notFound('user_not_found');
-    const out = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
+    const out = signOutEverywhere(id, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null, ctx });
     // Their open tabs look again at who they are, and find nobody.
     accounts.changed?.(id);
     record(ctx, 'admin.user.signout', 'user', id, out);

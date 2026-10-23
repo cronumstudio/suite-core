@@ -47,6 +47,14 @@
  * when it takes over, and a notice tapped opens the module it came from. Its
  * shell is installed file by file: one missing file mustn't leave every module
  * without its copy.
+ *
+ * A host's worker also says, with `codeFirst`, that its version is the fingerprint of every
+ * file it serves (host-worker.js): then code is the copy first, without asking the network,
+ * since a new release of anything is a new worker with a new copy. With `hashes` (`{ path:
+ * hash }`), that new copy takes from the old one each file whose hash didn't change, and only
+ * the rest travels again. With `sharedKit` (a host and its modules run one suite-core), the
+ * kit is kept once, at /suite/, and `/tasks/suite/x` is answered from it: same bytes, one
+ * copy instead of one per module.
  */
 
 var SUITE_KIT_FILES = [
@@ -65,6 +73,8 @@ var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];
 // copy, nor a page in its place when the network is slow.
 var SUITE_EXACT_NEVER = ['/version', '/health', '/devices/session'];
 var SUITE_WAIT_MS = 4000;
+/** Where a copy notes the hash of each file it holds (`hashes`): a dotfile, never a path the server has. */
+var SUITE_HASHES = '.suite-hashes';
 
 /** The worker's scope as a path: `/` for an app on its own, `/tasks/` for a module of a host. */
 function suiteScopeOf(registration) {
@@ -151,15 +161,57 @@ function suiteWorker(options) {
     }
     return null;
   };
-  modules.forEach(function (base) {
-    shell = shell.concat(options.kit === false ? [] : SUITE_KIT_FILES.map(function (file) { return suiteAt(file, base); }));
-  });
+  // Code from the copy first: only where the version is the fingerprint of everything (a host's).
+  var codeFirst = options.codeFirst === true;
+  var hashes = options.hashes && typeof options.hashes === 'object' ? options.hashes : null;
+  var sharedKit = options.sharedKit === true && modules.length > 0;
+  if (!sharedKit) {
+    modules.forEach(function (base) {
+      shell = shell.concat(options.kit === false ? [] : SUITE_KIT_FILES.map(function (file) { return suiteAt(file, base); }));
+    });
+  }
+  // What a module's page asks at its own path (`/tasks/suite/kit.css`), as the one copy keeps it (`/suite/kit.css`).
+  var kitKey = function (local, base) {
+    return sharedKit && base !== scope && local.indexOf('/suite/') === 0 ? suiteAt(local, scope) : null;
+  };
+  // The caches this worker clears when it takes over: its old copies, and the modules' own workers'.
+  var replaced = function (key) {
+    return key !== version && (suiteOwnsCache(key, scope) || moduleOf(key.split('/').slice(0, 2).join('/') + '/') !== null);
+  };
 
-  var store = function (request, response) {
+  var store = function (request, response, key) {
     if (!response || !response.ok) return response;
     var copy = response.clone();
-    caches.open(version).then(function (cache) { cache.put(request, copy); });
+    caches.open(version).then(function (cache) { cache.put(key || request, copy); });
     return response;
+  };
+
+  /**
+   * The newest old copy of this worker's that noted its hashes, with them: `{ cache, hashes }`,
+   * or null. Its files whose hash is still the same are the new copy's without travelling.
+   */
+  var previous = function () {
+    if (!hashes) return Promise.resolve(null);
+    return caches.keys().then(function (keys) {
+      var old = keys.filter(function (key) { return replaced(key) && suiteOwnsCache(key, scope); }).reverse();
+      var next = function (i) {
+        if (i >= old.length) return null;
+        return caches.open(old[i]).then(function (cache) {
+          return cache.match(suiteAt('/' + SUITE_HASHES, scope)).then(function (found) {
+            return found ? found.json().then(function (noted) { return { cache: cache, hashes: noted || {} }; }) : next(i + 1);
+          });
+        }).catch(function () { return next(i + 1); });
+      };
+      return next(0);
+    }).catch(function () { return null; });
+  };
+
+  /** A file of the shell into the new copy: from the old one when its hash didn't change, else from the server. */
+  var bring = function (cache, old, url) {
+    var load = function () { return cache.add(new Request(url, { cache: 'reload' })); };
+    var same = old && hashes && hashes[url] && old.hashes[url] === hashes[url];
+    if (!same) return load();
+    return old.cache.match(url).then(function (found) { return found ? cache.put(url, found) : load(); });
   };
 
   self.addEventListener('install', function (event) {
@@ -168,7 +220,15 @@ function suiteWorker(options) {
         var load = function (url) { return new Request(url, { cache: 'reload' }); };
         // A host's: file by file, a missing one is left out rather than every module's copy.
         var first = modules.length
-          ? Promise.all(shell.map(function (url) { return cache.add(load(url)).catch(function () {}); }))
+          ? previous().then(function (old) {
+            return Promise.all(shell.map(function (url) { return bring(cache, old, url).catch(function () {}); }));
+          }).then(function () {
+            // What this copy holds, for the next one; written last, so a copy cut short notes nothing.
+            if (!hashes) return undefined;
+            return cache.put(suiteAt('/' + SUITE_HASHES, scope), new Response(JSON.stringify(hashes), {
+              headers: { 'Content-Type': 'application/json' },
+            }));
+          })
           : cache.addAll(shell.map(load));
         return first
           .then(function () {
@@ -186,10 +246,7 @@ function suiteWorker(options) {
     event.waitUntil(caches.keys()
       .then(function (keys) {
         // A host's worker also clears the copies of the modules' own workers, which it replaces.
-        return Promise.all(keys.filter(function (key) {
-          return key !== version && (suiteOwnsCache(key, scope) || moduleOf(key.split('/').slice(0, 2).join('/') + '/') !== null);
-        })
-          .map(function (key) { return caches.delete(key); }));
+        return Promise.all(keys.filter(replaced).map(function (key) { return caches.delete(key); }));
       })
       .then(function () { return self.clients.claim(); }));
   });
@@ -213,6 +270,18 @@ function suiteWorker(options) {
           .then(function (found) { return found || caches.match(suiteAt('/index.html', base)); })
           .then(function (found) { return found || caches.match(base); });
       }, wait));
+      return;
+    }
+
+    if (suiteIsCode(local) && codeFirst) {
+      // The copy is this release's: whatever changes comes with a new worker, never asked here.
+      var key = kitKey(local, base);
+      event.respondWith(caches.open(version)
+        .then(function (cache) { return cache.match(key || request); })
+        .then(function (cached) {
+          if (cached) return key ? suiteAsAsked(cached) : cached;
+          return fetch(request, { cache: 'no-cache' }).then(function (response) { return store(request, response, key); });
+        }));
       return;
     }
 
@@ -279,6 +348,16 @@ function suiteWorker(options) {
 }
 
 /**
+ * A copy kept under another path (the kit's one copy at /suite/) as the answer to what the page
+ * asked (/tasks/suite/base.js): a response of its own, without the copy's address, so the page
+ * reads it at the path it asked. A module's script found at /suite/ would read its base there
+ * (base.js, from import.meta.url) and ask /api instead of /tasks/api.
+ */
+function suiteAsAsked(cached) {
+  return new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: cached.headers });
+}
+
+/**
  * A host's notice tapped: the module it came from. Its page already open gets
  * the notice and the focus (in a frame of the split view, the view gets the
  * focus); otherwise a page of the app open goes there, and without one a new
@@ -311,6 +390,7 @@ function suiteOpenModule(clients, target, data, moduleOf) {
 
 self.suiteWorker = suiteWorker;
 self.suiteOpenModule = suiteOpenModule;
+self.suiteAsAsked = suiteAsAsked;
 self.suiteScopeOf = suiteScopeOf;
 self.suiteLocal = suiteLocal;
 self.suiteAt = suiteAt;

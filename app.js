@@ -52,6 +52,7 @@ import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
 import { registerWorkosSecurityApi } from './workos-security.js';
+import { watchPasswordResets } from './workos-events.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
 import { createAlerts } from './alerts.js';
@@ -63,6 +64,7 @@ import { brandedPage } from './oauth-page.js';
 import { brandedAdmin } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
+import { createRevoker } from './revoke.js';
 import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
 import { createNativePush, registerNativePushApi } from './native-push.js';
@@ -310,6 +312,8 @@ export function createSuite({
     stop(late);
   }
 
+  // The AI clients authorized in AuthKit and disconnected here (idp_connections): the routes' and revoke.js's.
+  const workosAiClients = install.authProvider === 'workos' ? workosConnections(database) : null;
   const workos = install.authProvider === 'workos' ? createWorkosAccounts({
     baseUrl: install.baseUrl,
     appName: config.app.name,
@@ -318,7 +322,7 @@ export function createSuite({
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_auth`,
     users: workosPeople,
-    connections: workosConnections(database),
+    connections: workosAiClients,
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     // Without an MCP, AI clients find no OAuth metadata to follow.
     mcp: config.modules.mcp,
@@ -402,6 +406,25 @@ export function createSuite({
   const push = config.modules.push ? createPush({
     database, vapid: vapidKeys(database, install.push, { log: (line) => log(`${tag} ${line}`) }), log,
     ...(nativePush ? { native: nativePush } : {}),
+  }) : null;
+  // Everything that lets someone in, ended at once (revoke.js): a new password, a reset, the
+  // admin's "sign out everywhere". Every password set, here or by the admin, comes through it.
+  const revoker = createRevoker({
+    database, sessions, tokens, oauth, devices, push, idp, connections: workosAiClients, workosPeople, audit,
+    log: (line) => log(`${tag} ${line}`),
+  });
+  const revokeEverything = revoker.revokeEverything;
+  accounts.whenPasswordSet((id, { exceptToken }) => revokeEverything(id, {
+    keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'password_set',
+  }));
+  // The open tabs of whoever was revoked, but the one kept, are closed: they find no one when they come back.
+  revoker.whenRevoked((id, { keep }) => live.dropUser(id, {
+    except: keep?.sessionToken || null, last: { event: 'account', data: { user_id: id } },
+  }));
+  // A reset on AuthKit's own page happens at WorkOS: its Events API, asked every minute by
+  // whoever listens (createApp's listen(), or the host's once), says so (workos-events.js).
+  const workosResets = workosClient && workosPeople && install.workos?.apiKey ? watchPasswordResets({
+    workos: workosClient, users: workosPeople, database, revokeEverything, log: (line) => log(`${tag} ${line}`),
   }) : null;
   // Files people attach, with modules.uploads: stored, served and swept here; the app keeps its table.
   const uploads = config.modules.uploads
@@ -554,7 +577,7 @@ export function createSuite({
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
-    workosClient, workosPeople,
+    workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
   };
 }
 
@@ -571,6 +594,16 @@ function inCatalogDir(pathname) {
   try { decoded = decodeURIComponent(pathname); } catch { return false; }   // serveStatic refuses it too
   const first = path.posix.normalize(`/${decoded.replace(/\\/g, '/')}`).split('/')[1];
   return first.toLowerCase().split(':')[0].replace(/[. ]+$/, '') === 'i18n';
+}
+
+/**
+ * What of the suite's texts (flattened) an app's pages show: not the admin panel's (`admin.*`, but
+ * the two of usage that Settings shows too), the e-mails' (`mail.*`) or the connect page's
+ * (`oauth.*`). About a fifth of every catalog the browser loads, in every module's frame.
+ */
+const CLIENT_SKIPS = /^(admin|mail|oauth)\./;
+export function clientTexts(flat) {
+  return Object.fromEntries(Object.entries(flat).filter(([key]) => !CLIENT_SKIPS.test(key) || key.startsWith('admin.usage.')));
 }
 
 /**
@@ -655,13 +688,14 @@ export function createApp({
   if (install.authProvider === 'workos') {
     registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
-      appName: config.app.name, twoFactor: install.workos?.twoFactor,
-      revokeAtProvider: (ids) => ids.forEach((id) => idp.revokeSession(id).catch((err) => log(`${tag} a session at WorkOS stays open: ${err.message}`))),
+      appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
+      adminIdentity: config.accounts.adminIdentity === true,
     });
   }
   if (config.modules.admin) {
     registerAdminApi(api, {
-      accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp, devices: suite.devices,
+      accounts, entitlements, organizations, sessions, audit, twoFactor, revokeEverything: suite.revokeEverything,
+      devices: suite.devices,
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
@@ -670,7 +704,7 @@ export function createApp({
     /** The live channel of this tab: notices of what changed for this person (live.js). */
     api.get('/api/events', (ctx) => {
       if (!ctx.user) throw unauthorized();
-      live.subscribe(ctx.req, ctx.res, ctx.user);
+      live.subscribe(ctx.req, ctx.res, ctx.user, { sessionToken: ctx.sessionToken ?? null });
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
@@ -742,6 +776,8 @@ export function createApp({
     tools: mcp.tools,
     prompts: mcp.prompts,
     describeError: mcp.describeError,
+    // Arguments checked against each tool's inputSchema; an app may turn it off (`mcp.checkArgs: false`).
+    checkArgs: mcp.checkArgs !== false,
     // A host gives its own: its modules' plans, and the modules each person uses (host.js).
     allows: mcp.allows || entitlements.allows,
     ...(mcp.visible ? { visible: mcp.visible } : {}),
@@ -778,14 +814,17 @@ export function createApp({
    * The catalog the browser loads for a language: the suite's texts (errors,
    * fields, its screens) with the app's over them, in the app's own shape.
    * Rebuilt when the app's file changes: the public folder is edited live.
+   * Without `all`, the suite's texts no page of the app shows are left out
+   * (CLIENT_SKIPS): the admin panel's and the connect page's ask for them all.
    */
   const catalogDir = i18nDir || (publicDir ? path.join(publicDir, 'i18n') : null);
   const catalogs = new Map();
-  function catalogFor(lang) {
+  function catalogFor(lang, { all = false } = {}) {
+    const key = all ? `${lang}+all` : lang;
     const file = catalogDir ? path.join(catalogDir, `${lang}.json`) : null;
     let mtime = -1;
     try { if (file) mtime = fs.statSync(file).mtimeMs; } catch { /* the app has none for it */ }
-    const cached = catalogs.get(lang);
+    const cached = catalogs.get(key);
     if (cached && cached.mtime === mtime) return cached;
     let own = {};
     if (mtime >= 0) {
@@ -795,9 +834,10 @@ export function createApp({
         console.error(`${tag} ${file} is not valid JSON: ${err.message}`);
       }
     }
-    const body = JSON.stringify(mergeCatalogs(SUITE_CATALOGS[lang] || {}, own));
+    const suite = SUITE_CATALOGS[lang] || {};
+    const body = JSON.stringify(mergeCatalogs(all ? suite : clientTexts(suite), own));
     const entry = { mtime, body, etag: `W/"${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"` };
-    catalogs.set(lang, entry);
+    catalogs.set(key, entry);
     return entry;
   }
 
@@ -939,7 +979,7 @@ export function createApp({
           sendText(res, 404, 'Not found');
           return;
         }
-        const { body, etag } = catalogFor(wanted);
+        const { body, etag } = catalogFor(wanted, { all: url.searchParams.has('all') });
         if (req.headers['if-none-match'] === etag) {
           res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
           res.end();
@@ -1030,6 +1070,12 @@ export function createApp({
       const sweepAccounts = () => deletion.sweep().catch(failed('account deletion'));
       timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
+    }
+    if (suite.workosResets) {
+      // Passwords reset on AuthKit's own page: everything that let that person in here, revoked. Every minute.
+      const resets = () => suite.workosResets.poll();
+      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
+      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
     }
     if (billing?.enabled) {
       // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).

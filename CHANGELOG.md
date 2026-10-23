@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.145.0 — 2026-10-23
+## 0.148.0 — 2026-10-23
 
 Dead code out (the audit of 23 October, wave 1). Nothing a person sees changes, except an
 assistant that still calls a tool by a name `tools/list` no longer announces.
@@ -32,6 +32,161 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   `kit.plan.subscriptionTitle`, `kit.plan.manage`, `kit.plan.manageHint` and `kit.modules.home`
   out of the five catalogs.
 
+## 0.147.0 — 2026-10-23
+
+- **A password reset on AuthKit's own page signs the person out of everything here too**
+  (`workos-events.js`, `workos.js`, `app.js`, `host.js`). With WorkOS, "Forgot your password?" on
+  AuthKit's page is how people get back into an account they think someone else got into, and it
+  happens at WorkOS: the app was never told, so every session, API token, phone and AI client here
+  outlived the reset (audit 2026-10-23, verify-a, last row of the revocation matrix). Now whoever
+  owns the accounts (createApp's `listen()` for an app on its own, the host's once for all its
+  modules) asks WorkOS's Events API every minute for `password_reset.succeeded` and, for each one
+  about an account here, calls `revokeEverything(userId, { keep: null, reason: 'workos_password_reset' })`.
+  No webhook, so there is no new address to register in WorkOS's dashboard. Where it got to (the
+  last event's id) is kept in `app_meta` (`suite.workos_password_resets`); the first time it starts
+  from now and acts on nothing older. A WorkOS that fails or refuses is logged once and asked again
+  the next minute; a place WorkOS no longer takes (events are kept 90 days) starts again from now.
+  - `workos.listEvents({ events, after, rangeStart, order, limit })` → `{ data, after }`;
+    `suite.workosResets.poll()`, null without WorkOS or its API key.
+  - A password changed from AuthKit's account page has no event of its own in WorkOS's catalog, so
+    it is not heard; the app's own routes (`/api/me/sign-in/password`) already revoke.
+## 0.146.0 — 2026-10-23
+
+- **Only the install that owns the identities changes them, and only with the admin's password
+  again** (`workos-security.js`, `config.js`, `app.js`, `web/admin.js`, `web/api.js`, `i18n/*.json`).
+  A WorkOS user is the same in every product that signs in with it, yet any install's admin cookie
+  could take someone's second step off (`DELETE /api/admin/users/:id/sign-in/two-factor`) or give
+  them a password (`PUT /api/admin/users/:id/sign-in/password`), even someone who signs in with
+  Google: a stolen admin session anywhere was everyone's account everywhere.
+  - **`accounts.adminIdentity`** (suite.config.js, default `false`): those two routes exist only
+    where it is `true` (Cronum Work sets it). Elsewhere they answer 404, and
+    `GET /api/admin/users/:id/sign-in` says `manage: false`, so the panel only shows how they sign in.
+  - **The admin again**: `admin_password` (their WorkOS password, with the sign-in brake) and, when
+    they have a second step, `admin_code`. An admin who signs in with Google or a company's sign-in
+    has no password to give: a session opened in the last 10 minutes, else 401 `reauth_required`
+    (the panel sends them to sign in again). The GET says which (`reauth`: `password`,
+    `password_code`, `session`) and the panel asks for those fields.
+  - **No password for whoever signs in elsewhere**: 400 `password_elsewhere`.
+  - After either change, the person is revoked everywhere (`revokeEverything`, 0.129.0).
+  - `api.delete(path, body)` sends a body when given one.
+## 0.144.0 — 2026-10-23
+
+- **A link to `/oauth/authorize` no longer sends anyone to another site without a click of theirs**
+  (`oauth.js`, `i18n/*.json`). Anyone can register a client (`POST /oauth/register`, or a CIMD
+  document on their own domain) with their own redirect URI, and then hand out
+  `https://<app>/oauth/authorize?client_id=<theirs>&redirect_uri=<theirs>&response_type=x`: the
+  client and the redirect matched, the request didn't, and the error went back to that address
+  with an immediate 302 — a link on Cronum's domain that lands on a phishing page (audit
+  sc-oauth-mcp-1, RFC 9700 §4.11.2). A wrong `response_type`, a missing or malformed PKCE
+  challenge, or another `resource` now show the "can't connect" page here, with the reason
+  (`oauth.error.request_invalid`), as an unknown client or an unregistered redirect already did.
+  Claude and ChatGPT always send these right, so nothing changes for them. "Cancel" still goes
+  back to the client with `access_denied`: that one is the person's own click. The redirect URI
+  still has to match a registered one exactly (only the port may change on loopback, RFC 8252).
+## 0.143.0 — 2026-10-23
+
+- **An assistant's call is checked against the tool's own schema before it runs** (`mcp.js`,
+  `http.js`, `app.js`, `legacy-domains.js`). `callTool` passed the arguments to the tool as they
+  came, so the `enum`, `required`, `minimum`/`maximum` every tool already declares were only
+  advice: a `lag` of 2e8 days or a start on `2026-13-01` reached Projects' store and left the
+  project, and the project list of everyone in it, answering 500 (audit projects-mcp-store-1,
+  mcp-cross-4). Now `argumentProblems(inputSchema, args)` runs after the plan check and before a
+  call of the day is spent: types, `enum`, `required`, `minimum`/`maximum` and the exclusive ones,
+  `minLength`/`maxLength`, `minItems`/`maxItems`, `pattern`, `anyOf`/`oneOf`, nested `properties`
+  and `items`, and `format: 'date'`. A call that doesn't fit gets `isError` and a sentence of what
+  to correct («"lag" must be between -365 and 365»), never the value; the tool doesn't run, and the
+  log notes the tool and the sentence. Old parameter names (`legacyParams`) are checked as the new.
+  - **What it lets through, on purpose**, because the tools have always read it and an assistant
+    sends it: a number in quotes for an integer or a number (`"3"`), `"true"`/`"false"` or 0/1 for
+    a boolean, a number or a boolean for a text, one item where a list goes, `null` for an
+    optional value (the tools read it as "leave it" or "clear it"), and properties the schema
+    doesn't name (`additionalProperties: false` is not enforced: clients send extra ones and the
+    tools ignore them). Nothing is converted: the tool gets the arguments as sent.
+  - **What changes for an assistant**: a value past a declared bound is an error to correct, not
+    taken in silence (Next clamped `hours` above 72 to 72; Notes passed a `limit` of 500, or -1,
+    to SQL as sent), and an `enum` is exact (Tasks stored any `priority`).
+  - **The way back**: an app's `mcp.checkArgs: false` (or `createMcpServer({ checkArgs: false })`)
+    passes the arguments unchecked, as before.
+  - `schemaProblems(tools)`, for an app's tests: a type the check doesn't know, a `required` that
+    names no property, crossed or non-numeric bounds, an empty `enum`, a pattern that doesn't
+    compile — a limit the tool believes it has and doesn't.
+- **`isoDate(value, { minYear = 1900, maxYear = 2200 })`** (`http.js`): a `YYYY-MM-DD` that
+  exists (round trip through `Date.UTC`) and falls in the range, the same text back, or null.
+  `2026-13-01`, `2026-02-31` and the year 2206 are not dates. One check for every module's
+  `dateOrNull`/`parseDate` and the MCP's `format: 'date'` (audit verify-b A, projects-client-2).
+  The modules' schemas (`S.int`, `S.string` in each `mcp-tools.js`) can now declare `minimum`,
+  `maximum` and `format: 'date'` and have them hold.
+## 0.142.0 — 2026-10-23
+
+- **The catalog a page loads leaves out what no page of the app shows** (`app.js`, `web/i18n.js`,
+  `web/admin.js`, `web/connect.js`). `/i18n/<lang>.json` carried all of the suite's texts: the
+  admin panel's (`admin.*`, 261 in English), the e-mails' (`mail.*`) and the connect page's
+  (`oauth.*`), about 17 KB of every catalog, in every module and every frame of the split view.
+  They are out now (`clientTexts`), but the two of usage that Settings shows too
+  (`admin.usage.*`). The admin panel and the connect page ask for the whole catalog,
+  `/i18n/<lang>.json?all` (`loadLanguage(…, { all: true })`). The server's own texts (e-mails,
+  pages it writes) never came from it and are as before.
+
+## 0.141.0 — 2026-10-23
+
+- **The split view's frames ask less, and a link opens beside** (`web/update.js`, `web/shell.js`,
+  `web/base.js`, `web/links.js`). With four modules side by side, coming back to the tab asked
+  /version five times and /api/modules four, besides what each module reloads.
+  - `watchUpdates()` in a frame (`framed`) starts no timer and no check on coming back: the view
+    asks, once for every frame. It reads its own version for About, whose Check still asks.
+  - `hostModules()` (base.js): GET /api/modules once per page, shared by the rail and the Linked
+    row (`{ status, answer }`, `fresh` to ask again). The rail asks again on coming back, except
+    in a frame, and when a module is turned on or off (`kit-modules`).
+  - `OPEN_EVENT` (`kit:open`): a Linked chip pressed in a frame (`openBeside`) tells the view
+    `{ url, mount, source, handled }`; the view opens it in the section that already shows that
+    module (Cronum Work's split.js). With none, or a key held, the link is a link as before.
+
+## 0.140.0 — 2026-10-23
+
+- **A host's worker serves code from its copy first, keeps the kit once, and a release brings only
+  what changed** (`web/sw-core.js`, `host-worker.js`, `host.js`). Every page of Cronum Work and
+  every change of module asked the network for each of its ~40 code files before drawing (up to 4 s
+  each with a weak signal), and each release of any module downloaded the whole app again,
+  the kit five times (once per module's path): 3–5 MB per device. The host's worker version is
+  already the fingerprint of everything the browser loads, so the host now passes:
+  - `codeFirst`: code, styles and catalogs come from the copy, never asked; what changes comes
+    with the next worker, which the update notice already waits for (`web/update.js`).
+  - `sharedKit`: the kit is kept once, at /suite/; `/tasks/suite/x` is answered from it as a
+    response of its own (`suiteAsAsked`), so the module's code still reads its base at /tasks/.
+  - `hashes` (`shellHashes`): the hash of each file it keeps; a new worker copies from the old
+    copy every file whose hash is the same and fetches only the rest. Pages, manifests and
+    `js/app-version.js` always travel again.
+  - The fingerprint (`/version`) now counts the suite's texts (`i18n/`, in every catalog the
+    browser loads) and a module's catalogs outside its public folder: code served from the copy
+    must change version whenever any of it changes. It changes once with this release.
+  An app on its own, and a module's own worker, keep code network first, as before.
+
+## 0.129.0 — 2026-10-23
+
+- **A new password ends everything else that lets someone in** (`revoke.js`, `accounts.js`, `api.js`,
+  `workos-security.js`, `workos-accounts.js`, `live.js`, `app.js`, `host.js`). Changing the password
+  from Settings, resetting it by mail, or the admin setting it, used to close the browsers' sessions
+  and little else: an API token, an assistant's OAuth grant, a connected phone (which opens a new web
+  session whenever it wants) or an AI client authorized in AuthKit, left by whoever had the account
+  for a while, kept working after the owner changed the password. Now every path calls one
+  `revokeEverything(userId, { keep, provider, reason })` (`suite.revokeEverything`): the sessions here
+  (all but the one where it was done) and their sessions at the identity provider, the API tokens,
+  the suite's OAuth grants, the device tokens with their web sessions and native push tokens, the
+  browsers' push subscriptions, the AI clients of AuthKit (refused here for every token issued until
+  now, and withdrawn at WorkOS in the background: `idp.revokeAllConnections`), the person's open tabs
+  (`live.dropUser`, told first with an `account` notice) and an `auth.revoke_everything` line in the
+  audit log. Disabling an account still doesn't: it can come back with what it had.
+  - `accounts.whenPasswordSet((id, { exceptToken }) => …)`: who hears a password set, inside its
+    transaction; createSuite hooks revokeEverything there, so `POST /api/me/password`,
+    `POST /api/auth/reset` and the admin's `PATCH /api/admin/users/:id` all go through it.
+  - With WorkOS, `POST /api/me/sign-in/password` (keeps the current session) and
+    `PUT /api/admin/users/:id/sign-in/password` (keeps none, unless it is the admin's own).
+  - The admin's "sign out everywhere" (`DELETE /api/admin/users/:id/sessions`) is the same function,
+    so it now also disconnects the AI clients of AuthKit; its answer is unchanged.
+  - `live.subscribe(req, res, user, { sessionToken })` and `live.dropUser(userId, { except, last })`;
+    `suite.whenRevoked(hook)`, which a host's modules use for their own channels.
+  - Not yet: a reset on AuthKit's own page ("Forgot your password?") is not heard by the app, so it
+    still revokes nothing here.
 ## 0.128.0 — 2026-10-23
 
 - **Paddle: what a checkout says is signed by the server** (`paddle.js`, `billing.js`, `config.js`,

@@ -28,6 +28,8 @@ import { answeredOnce } from './idempotency.js';
 import { WorkosUnavailable } from './workos.js';
 
 const SETUP_MS = 10 * 60 * 1000;
+/** How recent an admin's sign-in must be to change someone's identity without a password to give. */
+const REAUTH_MS = 10 * 60 * 1000;
 const STEP_SECONDS = 30;
 
 /** Methods that are another account's sign-in: its password and second step are there. */
@@ -45,10 +47,13 @@ const fromIdentity = (provider) => String(provider || '').replace(/OAuth$/, '').
  * @param {object} deps.sessions   from createSessions()
  * @param {string} deps.appName    how the authenticator app names the account
  * @param {'on'|'admins'|'off'} [deps.twoFactor]
+ * @param {boolean} [deps.adminIdentity]  whether the admin may set someone's password and take
+ *   their second step off at WorkOS (config.accounts.adminIdentity): only the install that owns the
+ *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist.
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'admins',
-  revokeAtProvider = () => {}, clock = () => Date.now(),
+  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, clock = () => Date.now(),
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -129,6 +134,21 @@ export function registerWorkosSecurityApi(router, {
     return found.length;
   }
 
+  /**
+   * After a new password: everyone else out (revoke.js: the sessions here and at
+   * WorkOS, API tokens, phones, AI clients…), but `keep`'s session. Without
+   * revokeEverything (a caller from before), the sessions alone, as it was.
+   */
+  const outEverywhere = (ctx, user, keep, reason) => {
+    if (revokeEverything) {
+      revokeEverything(user.id, { keep: keep ? { sessionToken: keep } : null, reason, actor: ctx.user, req: ctx.req });
+      return;
+    }
+    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: keep }) || [];
+    sessions.closeAllOf(user.id, { exceptToken: keep });
+    revokeAtProvider(atProvider);
+  };
+
   const ensureHere = async (user) => {
     const id = workosId(user);
     if (ELSEWHERE.includes(await methodOf(user, id))) throw badRequest('password_elsewhere');
@@ -139,7 +159,7 @@ export function registerWorkosSecurityApi(router, {
     sendJson(ctx.res, 200, await describe(requireUser(ctx)));
   }));
 
-  /** A new password, given the current one. Their other sessions end, here and at WorkOS. */
+  /** A new password, given the current one. Everything else that lets them in ends (revoke.js), here and at WorkOS. */
   router.post('/api/me/sign-in/password', route(async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);
@@ -149,9 +169,7 @@ export function registerWorkosSecurityApi(router, {
     await confirmPassword(ctx, user, body.current_password);
     const done = await workos.setPassword(id, next);
     if (done.refused) throw badRequest('password_rejected', { detail: done.refused });
-    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: ctx.sessionToken }) || [];
-    sessions.closeAllOf(user.id, { exceptToken: ctx.sessionToken });
-    revokeAtProvider(atProvider);
+    outEverywhere(ctx, user, ctx.sessionToken, 'password');
     record(ctx, 'auth.password', 'user', user.id, { provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });
   }));
@@ -224,41 +242,89 @@ export function registerWorkosSecurityApi(router, {
     return user;
   };
 
-  /** How someone signs in and whether they have a second step, for their page in the admin panel. */
+  /**
+   * What the admin gives again before changing someone's identity: `password` (theirs at
+   * WorkOS), `password_code` (and a code of their second step), or `session` (they sign in with
+   * Google or a company's sign-in, so there is no password to give: a recent sign-in instead).
+   */
+  async function reauthOf(admin) {
+    const id = users.workosIdOf(admin.id);
+    if (!id || ELSEWHERE.includes(await methodOf(admin, id))) return { kind: 'session', id };
+    return { kind: (await workos.factors(id)).length ? 'password_code' : 'password', id };
+  }
+
+  /**
+   * The admin again: their password and, with a second step, a code; or a session opened in the
+   * last minutes, else `reauth_required` (the panel sends them to sign in again). A stolen
+   * cookie alone isn't enough to change who someone is in every product.
+   */
+  async function confirmAdmin(ctx, body) {
+    const { kind, id } = await reauthOf(ctx.user);
+    if (kind === 'session') {
+      const session = ctx.sessionToken ? sessions.alive(ctx.sessionToken) : null;
+      if (!session || clock() - Date.parse(session.created_at) > REAUTH_MS) throw new HttpError(401, 'reauth_required');
+      return;
+    }
+    await confirmPassword(ctx, ctx.user, body.admin_password);
+    if (kind === 'password_code') await confirmCode(id, body.admin_code);
+  }
+
+  /**
+   * How someone signs in and whether they have a second step, for their page in the admin panel.
+   * With adminIdentity, `reauth`: what the admin gives again to change them (reauthOf); without
+   * it, `manage: false`: this install doesn't change them.
+   */
   router.get('/api/admin/users/:id/sign-in', route(async (ctx) => {
     const user = someone(ctx);
     const id = users.workosIdOf(user.id);
+    const manage = adminIdentity ? { manage: true, reauth: (await reauthOf(ctx.user)).kind } : { manage: false };
     if (!id) {
-      sendJson(ctx.res, 200, { method: null, password: false, two_factor: { enabled: false } });
+      sendJson(ctx.res, 200, { method: null, password: false, two_factor: { enabled: false }, ...manage });
       return;
     }
     const method = await methodOf(user, id);
     sendJson(ctx.res, 200, {
       method, password: !ELSEWHERE.includes(method), two_factor: { enabled: (await workos.factors(id)).length > 0 },
+      ...manage,
     });
   }));
 
-  /** Whoever lost the phone: their second step off. They sign in with the password alone until they set it up again. */
+  // Changing someone's WorkOS identity changes it in every product: only the install that owns
+  // the identities does it, and only with the admin's own password (and code) again.
+  if (!adminIdentity) return;
+
+  /**
+   * Whoever lost the phone: their second step off. They sign in with the password alone until
+   * they set it up again; whatever else let them in ends (revoke.js), in case it wasn't them.
+   */
   router.delete('/api/admin/users/:id/sign-in/two-factor', route(async (ctx) => {
     const user = someone(ctx);
-    const removed = await removeFactors(workosId(user));
+    const body = await readJson(ctx.req);
+    const id = workosId(user);
+    await confirmAdmin(ctx, body);
+    const removed = await removeFactors(id);
     if (!removed) throw conflict('two_factor_off');
+    outEverywhere(ctx, user, user.id === ctx.user.id ? ctx.sessionToken : null, 'admin_two_factor_off');
+    accounts.changed?.(user.id);
     record(ctx, 'admin.user.two_factor_off', 'user', user.id, { provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });
   }));
 
-  /** A password the admin sets for them: they are signed out everywhere. */
+  /**
+   * A password the admin sets for them: they are signed out everywhere. Not for whoever signs in
+   * with Google & co.: it would give them a password they never had.
+   */
   router.put('/api/admin/users/:id/sign-in/password', route(async (ctx) => {
     const user = someone(ctx);
     const body = await readJson(ctx.req);
     const next = String(body.password ?? '');
     if (next.length < 8) throw badRequest('password_rejected');
-    const done = await workos.setPassword(workosId(user), next);
+    const id = await ensureHere(user);
+    await confirmAdmin(ctx, body);
+    const done = await workos.setPassword(id, next);
     if (done.refused) throw badRequest('password_rejected', { detail: done.refused });
     const self = user.id === ctx.user.id;
-    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: self ? ctx.sessionToken : null }) || [];
-    sessions.closeAllOf(user.id, { exceptToken: self ? ctx.sessionToken : null });
-    revokeAtProvider(atProvider);
+    outEverywhere(ctx, user, self ? ctx.sessionToken : null, 'admin_password');
     accounts.changed?.(user.id);
     record(ctx, 'admin.user.update', 'user', user.id, { fields: [], password: true, provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });

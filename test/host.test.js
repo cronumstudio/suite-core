@@ -312,7 +312,7 @@ test('the apps’ old addresses, for a while: their pages to the module, their c
     env: {
       DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
       BASE_URL: 'http://127.0.0.1', LEGACY_DOMAINS: 'alpha.example.test=alpha, Beta-Old.example.test=beta',
-      // Gone (0.145.0): a host still given it starts as before.
+      // Gone (0.148.0): a host still given it starts as before.
       LEGACY_MCP: 'on',
     },
   });
@@ -703,6 +703,15 @@ test('a host with one worker: /sw.js for every module, one version for the whole
     assert.ok(options.shell.includes(kept), `${kept} in its copy`);
   }
   assert.deepEqual(options.push, { title: 'Work', icon: '/icons/icon-192.png', url: '/' });
+  // Its version is the fingerprint of everything: code from the copy first, the kit once, and each
+  // file's hash for the next release to take what didn't change.
+  assert.equal(options.codeFirst, true);
+  assert.equal(options.sharedKit, true);
+  assert.match(options.hashes['/alpha/js/main.js'], /^[0-9a-f]{16}$/);
+  assert.match(options.hashes['/suite/kit.css'], /^[0-9a-f]{16}$/);
+  assert.match(options.hashes['/alpha/i18n/en.json'] ?? options.hashes['/beta/i18n/en.json'] ?? 'none', /^[0-9a-f]{16}$|^none$/);
+  assert.equal(options.hashes['/alpha/'], undefined, 'pages always travel again');
+  assert.equal(options.hashes['/alpha/index.html'], undefined);
 
   const version = (await call('GET', '/version')).data;
   assert.equal(version.app, '9.9.9');

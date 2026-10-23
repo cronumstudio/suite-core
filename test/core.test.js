@@ -18,7 +18,7 @@ import { openDatabase } from '../db.js';
 import { migrate, ensureColumn } from '../migrate.js';
 import {
   HttpError, createRouter, readJson, serveStatic, securityHeaders, checkOrigin, sendError,
-  parseCookies, serializeCookie, str, clientIp,
+  parseCookies, serializeCookie, str, clientIp, isoDate,
 } from '../http.js';
 import { createKeySet } from '../jwt.js';
 
@@ -193,6 +193,23 @@ test('cookies and text fields', () => {
   assert.throws(() => str('x'.repeat(5), { field: 'name', max: 3 }), (e) => e.code === 'field_too_long' && e.extra.max === 3);
   assert.throws(() => str(null, { field: 'name' }), (e) => e.code === 'field_required');
   assert.throws(() => str(5, { field: 'name' }), (e) => e.code === 'field_invalid');
+});
+
+test('isoDate: a date that exists, in a sensible range, or null', () => {
+  assert.equal(isoDate('2026-10-23'), '2026-10-23');
+  assert.equal(isoDate(' 2024-02-29 '), '2024-02-29', 'a leap day, spaces around it');
+  assert.equal(isoDate('2026-13-01'), null, 'month 13');
+  assert.equal(isoDate('2026-02-31'), null, 'February 31st');
+  assert.equal(isoDate('2025-02-29'), null, 'not a leap year');
+  assert.equal(isoDate('2026-00-10'), null);
+  assert.equal(isoDate('2206-10-01'), null, 'year 2206 is out of range');
+  assert.equal(isoDate('1899-12-31'), null);
+  assert.equal(isoDate('2200-12-31'), '2200-12-31');
+  assert.equal(isoDate('2206-10-01', { maxYear: 2300 }), '2206-10-01', 'the range can be widened');
+  assert.equal(isoDate('1960-01-01', { minYear: 1970 }), null);
+  for (const bad of ['2026-1-5', '26-10-23', '2026/10/23', '2026-10-23T10:00:00Z', 'tomorrow', '', 20261023, null, undefined, {}]) {
+    assert.equal(isoDate(bad), null, String(bad));
+  }
 });
 
 test('client address: X-Forwarded-For only as far as the trusted proxies go', () => {

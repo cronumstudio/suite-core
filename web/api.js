@@ -73,7 +73,8 @@ export const api = {
   post: (path, body = {}) => request('POST', path, body),
   put: (path, body = {}) => request('PUT', path, body),
   patch: (path, body = {}) => request('PATCH', path, body),
-  delete: (path) => request('DELETE', path),
+  /** A body only when one is given: most deletes have none. */
+  delete: (path, body) => request('DELETE', path, body),
   /** Sends a File or Blob as the body of a POST. */
   upload: (path, file) => request('POST', path, file, { file: true }),
   /** A write that may be sent again (the outbox): `key` makes the server do it once. */
