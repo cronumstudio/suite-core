@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.127.0 — 2026-10-23
+
+- **Password and sign-in is the account's; where one is signed in is a connection**
+  (`web/settings.js`, `i18n/*.json`). Settings had a Security group with one section that held the
+  password, two-step verification and the open sessions. The group is gone: **Password and sign-in**
+  (`security`, the same id, so `?settings=security` still opens it) is now in Account, after the
+  profile, with the password and two-step verification, or the line saying the provider manages
+  them; **Where you are signed in** is a section of its own (`sessions`) at the end of Connections,
+  next to Your AI and Notifications, with the same list and the same sign-out per device. Connections
+  is always there now, even with no AI connector and no notices. Texts in en, es, fr, de and it: the
+  section's hints say what is in it (`kit.security.hint`, `kit.security.hintProvider`, the new
+  `kit.sessions.hint`), and `kit.settings.groups.security` is gone.
+
 ## 0.126.1 — 2026-10-22
 
 - **Signing out and deleting one's account inside the app on a phone stay in the app**

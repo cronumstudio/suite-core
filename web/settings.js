@@ -203,6 +203,9 @@ export function openSettings(options) {
   const common = () => [
     { group: t('kit.settings.groups.account'), id: 'profile', iconName: 'user', label: t('kit.profile.title'),
       hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() },
+    // The password and two-step verification are the account's, next to who it is.
+    { group: t('kit.settings.groups.account'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
+      hint: () => t(local ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
     host ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
       hint: () => inUse.filter((m) => m.active).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
     { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
@@ -215,13 +218,14 @@ export function openSettings(options) {
     // own says it in Your data, with its data.
     host && deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
       hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
-    { group: t('kit.settings.groups.security'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
-      hint: () => t(local ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
     // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
     modules.mcp !== false ? { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
       hint: () => t('kit.ai.hint'), render: () => ai() } : null,
     options.push || host?.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
       hint: () => t('kit.notifications.hint'), render: () => notifications() } : null,
+    // The devices and browsers signed in to the account, with the other things connected to it.
+    { group: t('kit.settings.groups.connections'), id: 'sessions', iconName: 'device', label: t('kit.security.sessions'),
+      hint: () => t('kit.sessions.hint'), render: () => sessionsBlock() },
   ];
   const own = (group) => sections.map((section) => ({ group, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' }));
   const admin = (group) => (state.user?.role === 'admin'
@@ -632,7 +636,6 @@ export function openSettings(options) {
     } else {
       parts.push(block(null, hint(t('kit.security.provider'))));
     }
-    parts.push(sessionsBlock());
     return parts;
   }
 
@@ -664,7 +667,8 @@ export function openSettings(options) {
           }, 'quiet'))));
     };
     paint();
-    return block(t('kit.security.sessions'), hint(t('kit.security.sessionsHint')), box);
+    // A section of its own, named by its title: the block needs none.
+    return block(null, hint(t('kit.security.sessionsHint')), box);
   }
 
   /**
