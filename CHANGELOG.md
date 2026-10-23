@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.141.0 — 2026-10-23
+
+- **The split view's frames ask less, and a link opens beside** (`web/update.js`, `web/shell.js`,
+  `web/base.js`, `web/links.js`). With four modules side by side, coming back to the tab asked
+  /version five times and /api/modules four, besides what each module reloads.
+  - `watchUpdates()` in a frame (`framed`) starts no timer and no check on coming back: the view
+    asks, once for every frame. It reads its own version for About, whose Check still asks.
+  - `hostModules()` (base.js): GET /api/modules once per page, shared by the rail and the Linked
+    row (`{ status, answer }`, `fresh` to ask again). The rail asks again on coming back, except
+    in a frame, and when a module is turned on or off (`kit-modules`).
+  - `OPEN_EVENT` (`kit:open`): a Linked chip pressed in a frame (`openBeside`) tells the view
+    `{ url, mount, source, handled }`; the view opens it in the section that already shows that
+    module (Cronum Work's split.js). With none, or a key held, the link is a link as before.
+
 ## 0.140.0 — 2026-10-23
 
 - **A host's worker serves code from its copy first, keeps the kit once, and a release brings only
