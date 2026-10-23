@@ -3,10 +3,16 @@
  * undo or a retry), banners for a state that lasts, dialogs (the browser's
  * own <dialog>, which traps focus and closes with Escape; a sheet from the
  * bottom on a phone), menus, labelled fields, switches and the signature.
+ *
+ * In Cronum Work's shell, where every module's kit shares one page, what this
+ * copy hangs on the page's body (a notice, a dialog, a menu, a banner) says
+ * which module it is from (mount.js markOwned), so that module's sheet,
+ * scoped to its windows, reaches it. Anywhere else it is left as it was.
  */
 import { el, $, append } from './dom.js';
 import { t } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
+import { markOwned } from './mount.js';
 
 /* --------------------------------- notices -------------------------------- */
 
@@ -15,6 +21,7 @@ import { icon, cronumRing } from './icons.js';
  * ("Undo", "Retry") that runs and closes it. Returns a function that closes it.
  */
 export function toast(text, { error = false, action = null, duration = null } = {}) {
+  // One box for the page, whichever copy of the kit made it: each notice in it is its own module's.
   let box = $('#kit-toasts');
   if (!box) {
     box = el('div', { id: 'kit-toasts', class: 'kit-toasts', 'aria-live': 'polite' });
@@ -27,7 +34,7 @@ export function toast(text, { error = false, action = null, duration = null } = 
       type: 'button', class: 'kit-toast__action', text: action.label,
       onClick: () => { close(); action.onClick?.(); },
     }) : null);
-  box.append(note);
+  box.append(markOwned(note));
   // An action needs time to be reached; an error, to be read.
   setTimeout(close, duration ?? (action ? 8000 : error ? 7000 : 3500));
   return close;
@@ -49,7 +56,7 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
     onClose ? el('button', {
       type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.close'), onClick: () => { node.remove(); onClose(); },
     }, icon('x')) : null);
-  return node;
+  return markOwned(node);
 }
 
 /**
@@ -191,7 +198,7 @@ export function openDialog({ title, content, actions = [], wide = false, onClose
   // A tap on the backdrop closes it, as on a phone's sheet.
   dialog.addEventListener('click', (ev) => { if (ev.target === dialog) close(); });
   dialog.addEventListener('close', () => { dialog.remove(); onClose?.(); });
-  document.body.append(dialog);
+  document.body.append(markOwned(dialog));
   dialog.showModal();
   return { dialog, close };
 }
@@ -244,7 +251,7 @@ export function menu(anchor, items, { header = null } = {}) {
   });
   const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries);
   // Under a modal dialog the rest of the page is inert: a menu opened from one goes inside it.
-  (anchor.closest?.('dialog[open]') || document.body).append(node);
+  (anchor.closest?.('dialog[open]') || document.body).append(markOwned(node));
   openMenuNode = node;
 
   // Below the anchor when it fits, else above; never off the screen. Measured from where (0, 0)
