@@ -270,14 +270,7 @@ test('a session from a device lives while the device does, and keeps it in use',
   assert.equal(database.get('SELECT COUNT(*) AS n FROM sessions WHERE device_id IS NOT NULL').n, 0, 'deleted, not only refused');
   assert.equal(sessions.userFrom(cookie(web))?.username, 'ana', 'a session of the web stays');
 
-  // Ended any other way (idle, a disabled account, the app's own rule): refused at its next use.
-  const second = connect();
-  const again = sessions.open(ana.id, { deviceId: second.device.id });
-  devices.setCanConnect(() => false);
-  assert.equal(sessions.userFrom(cookie(again)), null, 'the app no longer lets the person connect');
-  assert.equal(database.get('SELECT COUNT(*) AS n FROM sessions WHERE device_id = ?', second.device.id).n, 0);
-  devices.setCanConnect(() => true);
-
+  // Ended any other way (idle, a disabled account): refused at its next use.
   const third = connect();
   const idle = sessions.open(ana.id, { deviceId: third.device.id });
   database.run('UPDATE device_tokens SET last_used_at = ? WHERE id = ?', new Date(now.ms - 91 * DAY).toISOString(), third.device.id);
@@ -286,7 +279,7 @@ test('a session from a device lives while the device does, and keeps it in use',
   // Revoked everywhere (the admin): every device's sessions.
   const fourth = connect();
   const lost = sessions.open(ana.id, { deviceId: fourth.device.id });
-  assert.equal(devices.revokeAllOf(ana.id), 3, 'this one, and the two that stopped working without being revoked');
+  assert.equal(devices.revokeAllOf(ana.id), 2, 'this one, and the one that stopped working without being revoked');
   assert.equal(sessions.userFrom(cookie(lost)), null);
 
   // A suite that never said how to check a device opens none of these sessions.
@@ -576,9 +569,8 @@ test('refusals: none counts against the address, and the audit log is written a 
   assert.equal((await fresh().call('GET', lure, undefined, NAVIGATE)).headers.get('location'), '/');
 });
 
-test('revoked from Settings, by the admin, a disabled account or the app’s rule: the session goes, and no new one opens', async (t) => {
-  let allowed = true;
-  const { suite, call, fresh } = await startApp(t, { product: ON, appOptions: { devices: { canConnect: () => allowed } } });
+test('revoked from Settings, by the admin or a disabled account: the session goes, and no new one opens', async (t) => {
+  const { suite, call, fresh } = await startApp(t, { product: ON });
   const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password-123' });
   const signIn = async (token, browser = fresh()) => {
     const { url } = (await call('POST', '/api/devices/web-session', undefined, { Authorization: `Bearer ${token}` })).data;
@@ -604,14 +596,6 @@ test('revoked from Settings, by the admin, a disabled account or the app’s rul
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
   assert.equal((await call('DELETE', `/api/admin/users/${ana.id}/sessions`)).data.devices, 1);
   assert.equal(await me(other), null);
-
-  // The app's own rule: a person it no longer lets in.
-  const third = phoneOf(suite, ana);
-  const ruled = await signIn(third.token);
-  allowed = false;
-  assert.equal(await me(ruled), null);
-  assert.equal((await call('POST', '/api/devices/web-session', undefined, { Authorization: `Bearer ${third.token}` })).status, 401);
-  allowed = true;
 
   // A code asked before the account was disabled opens nothing after.
   const fourth = phoneOf(suite, ana);

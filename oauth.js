@@ -26,6 +26,7 @@ import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { createTexts } from './i18n.js';
+import { escapeHtml } from './brand.js';
 
 /** Tables the app has to create (they are plain SQLite and idempotent). */
 export const OAUTH_SCHEMA = `
@@ -94,9 +95,6 @@ export const OAUTH_PREFIXES = Object.freeze({ access: 'mcpat_', refresh: 'mcprt_
 
 const randomValue = (prefix) => `${prefix}${crypto.randomBytes(32).toString('base64url')}`;
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('base64url');
-const escapeHtml = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-}[c]));
 const parseUrl = (text) => { try { return new URL(text); } catch { return null; } };
 const sqlTime = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 

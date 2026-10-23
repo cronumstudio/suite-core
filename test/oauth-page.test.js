@@ -6,7 +6,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { brandedPage, textOn } from '../oauth-page.js';
+import { brandedPage } from '../oauth-page.js';
+import { textOn } from '../brand.js';
 
 test('the text on the product’s colour: white unless the colour is too light for it', () => {
   // Every product of the suite today keeps white on its buttons.
