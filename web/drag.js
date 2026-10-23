@@ -104,6 +104,35 @@ function scrollerOf(node) {
   return null;
 }
 
+/**
+ * Places that belong to no list of their own, shared by every copy of the kit in the page
+ * (Cronum Work's shell mounts each module with the kit from its own address): another
+ * module's rows a note can be linked with. A drag that finds none of its own places under the
+ * pointer asks these; `accepts(item, place)` says what letting go there does, as `check`, or
+ * null when it has nothing to do with it.
+ */
+const DROPS = Symbol.for('cronum.drops');
+const drops = () => (document[DROPS] ??= new Set());
+
+/**
+ * @param {{ selector: string, accepts: Function, onDrop: Function }} drop
+ * @returns {Function} that takes it away
+ */
+export function registerDrop(drop) {
+  drops().add(drop);
+  return () => drops().delete(drop);
+}
+
+/** The shared place under the pointer, with the drop it belongs to. */
+function sharedAt(under, item) {
+  if (!under?.closest) return null;
+  for (const drop of drops()) {
+    const place = under.closest(drop.selector);
+    if (place && place !== item && !item.contains(place)) return { place, drop };
+  }
+  return null;
+}
+
 /** What each box waiting for the end of a drag will draw then: the last it was asked. */
 const waiting = new Map();
 
@@ -205,7 +234,7 @@ export function makeDraggable(container, {
       item, pointerId: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY,
       touch, holding: touch && !grip, carried: false, active: false, timer: null, place: null, zone: null, verdict: null,
       verdicts: new Map(), ghost: null, where: null, detail: null, gap: null, closing: new Set(), height: 0,
-      spring: null, springTimer: null, scroller: null, scrollTimer: null,
+      spring: null, springTimer: null, scroller: null, scrollTimer: null, shared: new Map(),
     };
     if (session.holding) session.timer = setTimeout(() => { if (session && !session.active) start(); }, HOLD_MS);
     window.addEventListener('pointermove', onPointerMove);
@@ -294,6 +323,14 @@ export function makeDraggable(container, {
     const s = session;
     const hit = under?.closest?.(targets) || null;
     let place = hit && hit !== s.item && !s.item.contains(hit) ? hit : null;
+    if (!place) {
+      const shared = sharedAt(under, s.item);
+      if (shared) {
+        s.shared.set(shared.place, shared.drop);
+        aimAt(shared.place, null);
+        return;
+      }
+    }
     // Over the gap opened for it, or over no other place among the rows that made room for it,
     // it still goes there: the rows moved under the pointer to open it, and must not close it.
     if (s.gap?.parentElement && (under?.closest?.('.kit-drop-gap') || (!place && over(s.gap.parentElement)))) return;
@@ -335,7 +372,8 @@ export function makeDraggable(container, {
     if (place) {
       if (!s.verdicts.has(place)) s.verdicts.set(place, new Map());
       const byZone = s.verdicts.get(place);
-      if (!byZone.has(zone)) byZone.set(zone, check(s.item, place, { zone }) || null);
+      const shared = s.shared.get(place);
+      if (!byZone.has(zone)) byZone.set(zone, (shared ? shared.accepts(s.item, place) : check(s.item, place, { zone })) || null);
       verdict = byZone.get(zone);
     }
     s.verdict = verdict;
@@ -433,7 +471,7 @@ export function makeDraggable(container, {
 
   function onPointerUp(ev) {
     if (!session || ev.pointerId !== session.pointerId) return;
-    const { active, item, place, zone, verdict, gap, holding, carried } = session;
+    const { active, item, place, zone, verdict, gap, holding, carried, shared } = session;
     // Where it lands, read before the gap goes: the app may keep it there in sight.
     const top = gap?.parentElement ? gap.getBoundingClientRect().top : null;
     end();
@@ -444,7 +482,7 @@ export function makeDraggable(container, {
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
     // Held and let go where it was: a long press, not a move (as on a phone's home screen).
     if (holding && !carried && onHold) { onHold(item); return; }
-    if (place && verdict?.ok) onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
+    if (place && verdict?.ok) (shared.get(place)?.onDrop || onDrop)(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
   }
 
   function cancel(ev) { if (session && (!ev?.pointerId || ev.pointerId === session.pointerId)) end(); }
