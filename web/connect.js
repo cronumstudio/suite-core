@@ -225,7 +225,7 @@ async function start(root) {
     let prefs = {};
     try { prefs = typeof who?.prefs === 'string' ? JSON.parse(who.prefs) : (who?.prefs || {}); } catch { /* none */ }
     return loadLanguage(pickLanguage([who?.locale, prefs.lang, navigator.languages || [], navigator.language], languages),
-      { remember: false }).catch(() => {});
+      { remember: false, all: true }).catch(() => {});
   };
   await language(user);
   // The product's icon, as the server wrote it into the page.
