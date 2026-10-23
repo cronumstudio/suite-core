@@ -8,7 +8,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { frontFingerprint } from '../app.js';
 import { fingerprint, shellHashes } from '../host-worker.js';
 import { contentHash, serveStatic } from '../http.js';
 
@@ -47,13 +46,11 @@ function head(root, url, ifNoneMatch) {
 test('fingerprint: the same files with other dates are the same version; `built` still moves', (t) => {
   const one = publicFolder(t, { when: new Date('2026-01-01T00:00:00Z') });
   const two = publicFolder(t, { when: new Date('2026-06-01T12:34:56Z') });
-  for (const print of [frontFingerprint, fingerprint]) {
-    const a = print(one);
-    const b = print(two);
-    assert.equal(a.version, b.version);
-    assert.notEqual(a.built, b.built);
-    assert.equal(b.built, '2026-06-01T12:34:56.000Z');
-  }
+  const a = fingerprint(one);
+  const b = fingerprint(two);
+  assert.equal(a.version, b.version);
+  assert.notEqual(a.built, b.built);
+  assert.equal(b.built, '2026-06-01T12:34:56.000Z');
 });
 
 test('fingerprint: a file that holds something else is another version, even with the same size and date', (t) => {
@@ -61,21 +58,31 @@ test('fingerprint: a file that holds something else is another version, even wit
   const one = publicFolder(t, { script: 'export const a = 1;\n', when });
   const two = publicFolder(t, { script: 'export const a = 2;\n', when });
   assert.equal(fs.statSync(path.join(one, 'js', 'app.js')).size, fs.statSync(path.join(two, 'js', 'app.js')).size);
-  assert.notEqual(frontFingerprint(one).version, frontFingerprint(two).version);
   assert.notEqual(fingerprint(one).version, fingerprint(two).version);
 });
 
 test('fingerprint: a change in place is seen at once, and a file moved to another folder too', (t) => {
   const dir = publicFolder(t);
-  const before = frontFingerprint(dir).version;
+  const before = fingerprint(dir).version;
   fs.writeFileSync(path.join(dir, 'js', 'app.js'), 'export const a = 3;\n');
-  const edited = frontFingerprint(dir).version;
+  const edited = fingerprint(dir).version;
   assert.notEqual(edited, before);
-  assert.equal(fingerprint(dir).version, fingerprint(dir).version);
 
   fs.mkdirSync(path.join(dir, 'js', 'lib'));
   fs.renameSync(path.join(dir, 'js', 'app.js'), path.join(dir, 'js', 'lib', 'app.js'));
-  assert.notEqual(frontFingerprint(dir).version, edited);
+  assert.notEqual(fingerprint(dir).version, edited);
+});
+
+test('fingerprint: only what the browser loads counts, by its real extension', (t) => {
+  const dir = publicFolder(t);
+  const before = fingerprint(dir).version;
+  // Not a script, a style or a page: names that merely end in those letters.
+  fs.writeFileSync(path.join(dir, 'js', 'notesjs'), 'x');
+  fs.writeFileSync(path.join(dir, 'foocss'), 'x');
+  fs.writeFileSync(path.join(dir, 'logo.png'), 'x');
+  assert.equal(fingerprint(dir).version, before);
+  fs.writeFileSync(path.join(dir, 'js', 'more.js'), 'export {};');
+  assert.notEqual(fingerprint(dir).version, before);
 });
 
 test('contentHash: what the file holds, read again when it changes', (t) => {

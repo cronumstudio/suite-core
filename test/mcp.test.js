@@ -52,6 +52,7 @@ async function start(t, overrides = {}) {
     allows: (principal, tool) => (tool.feature === 'export' && principal.plan !== 'pro'
       ? 'Your plan (Free) does not include exporting.' : true),
     describeError: (error) => (error instanceof NotFound ? error.message : null),
+    // Options suite-core no longer has (an app not yet updated may pass them): ignored.
     legacyTools: { saludar: 'greet' },
     legacyParams: { quien: 'who' },
     log: () => {},
@@ -138,13 +139,12 @@ test('initialize, tools and prompts', async (t) => {
   assert.equal((await rpc('good-token', 'no/such')).error.code, -32601);
 });
 
-test('tool calls: arguments, old names, plans and the app’s errors', async (t) => {
+test('tool calls: arguments, plans and the app’s errors; old names are not aliases', async (t) => {
   const { rpc } = await start(t);
   const text = (r) => r.result.content[0].text;
   assert.equal(text(await rpc('good-token', 'tools/call', { name: 'greet', arguments: { who: 'you' } })), 'Hello you, from ada');
-  assert.equal(text(await rpc('good-token', 'tools/call', { name: 'saludar', arguments: { quien: 'vos' } })),
-    'Hello vos, from ada', 'a client with the old schema keeps working');
-  const refused = await rpc('good-token', 'tools/call', { name: 'export_all' });
+  assert.match(text(await rpc('good-token', 'tools/call', { name: 'saludar', arguments: { quien: 'vos' } })), /Unknown tool: saludar/,
+    'only the names tools/list announces');  const refused = await rpc('good-token', 'tools/call', { name: 'export_all' });
   assert.equal(refused.result.isError, true);
   assert.equal(text(refused), 'Your plan (Free) does not include exporting.');
   assert.equal(text(await rpc('pro-token', 'tools/call', { name: 'export_all' })), 'exported');
@@ -265,7 +265,6 @@ function schemaServer({ checkArgs, onQuota = () => true } = {}) {
     authenticate: async () => null,
     challenge: () => 'Bearer',
     quota: onQuota,
-    legacyParams: { retraso: 'lag' },
     log: (line) => logged.push(line),
     ...(checkArgs === undefined ? {} : { checkArgs }),
   });
@@ -281,7 +280,6 @@ test('arguments out of the schema: an error to correct, and the tool never runs'
     assert.match(result.content[0].text, pattern);
   };
   await refused({ from: 'a', lag: 2e8 }, /^Invalid arguments for add_dependency: "lag" must be between -365 and 365/);
-  await refused({ from: 'a', retraso: 2e8 }, /"lag" must be between/); // an old parameter name is checked as the new one
   await refused({ from: 'a', lag: 2.5 }, /"lag" must be a whole number/);
   await refused({ from: 'a', lag: 'soon' }, /"lag" must be a whole number/);
   await refused({ from: 'a', start: '2026-13-01' }, /"start" must be a real date/);

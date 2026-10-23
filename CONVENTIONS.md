@@ -14,8 +14,9 @@ relax these. The design they serve is in [docs/architecture.md](docs/architectur
   French, German and Italian are translations. A new key goes into every catalog; the tests fail if one is
   missing. Content people write is never translated.
 - **Renaming depends on who holds the old name.** What clients hold and nobody can update for
-  them (an MCP tool or parameter that an assistant remembers, a `localStorage` key in someone's
-  browser) keeps the old name as an alias. What an install holds (an environment variable) does
+  them (a `localStorage` key in someone's browser) keeps the old name as an alias; an MCP tool or
+  parameter that an assistant remembers is not renamed at all (the suite answers only the names
+  `tools/list` announces). What an install holds (an environment variable) does
   not: the old name stops the start and the message names the new one, because an alias would
   keep the install working on the old name forever without anyone noticing.
 - Repositories that are still partly in Spanish move to English file by file; new code and new
@@ -192,9 +193,10 @@ release of them must keep working as it does. These rules hold until then, on to
   answering. The kit's offline queue (`outbox.js`) drops a saved change whose route answers 404,
   and a tab with the old code in its cache keeps calling the old routes. Outside `/api/`, `/mcp`,
   `/auth/`, `/oauth/` and `/.well-known/`, the service worker answers a GET from its cache.
-- **The MCP tools it announces**: `tools/list` keeps today's names and parameters. Aliases
-  (`legacyTools`) answer but are not announced, so a renamed tool disappears for whoever
-  reconnects, and with it people's connectors and their standing instructions. The prefix a
+- **The MCP tools it announces**: `tools/list` keeps today's names and parameters, and the suite
+  answers no other name (there are no aliases since 0.148.0): a renamed tool disappears for whoever
+  reconnects and fails for whoever doesn't, and with it people's connectors and their standing
+  instructions. The prefix a
   module's tools carry in the host's single `/mcp` is put on by the host when it mounts the
   module; the app on its own doesn't change.
 - **The plan features it declares**: with the suite's catalog (`PLANS=cronum-work`, `plans.js`),

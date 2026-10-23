@@ -59,7 +59,6 @@ export function createModule({ mount }) {
       // What a host says of alpha, with its tools named as the host names them.
       brief: (name) => `Alpha keeps items: ${name('add_item')} adds one, ${name('list_items')} lists them.`,
       tools: itemTools({ suite, table: 'alpha_items', name: 'alpha', add: true }),
-      legacyTools: { new_item: 'add_item' },
       describeError: (error) => (error.code === 'item_exploded' ? 'That item cannot be added.' : null),
     },
     start: () => {

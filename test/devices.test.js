@@ -258,28 +258,6 @@ test('revoked, unused for too long, of a disabled account, or past the limit: re
   assert.equal(code(() => connect(ana)), '400 too_many_devices');
 });
 
-test('the app can refuse people: when they connect and on every use', (t) => {
-  const { devices, ana, bea, connect, audit } = setup(t);
-  const phone = connect(bea);
-  devices.setCanConnect((user) => user.username === 'ana');
-  assert.equal(code(() => connect(bea)), '403 device_not_allowed');
-  assert.equal(devices.authenticate(phone.token), null, 'no longer let in');
-  assert.equal(devices.isActive(phone.device.id), false);
-  assert.ok(connect(ana).token);
-
-  // Let in when the code was issued, refused by the time it is exchanged.
-  const pair = pkce();
-  const issued = devices.issueCode(ana, { codeChallenge: pair.challenge, redirectUri: BACK, name: 'Phone' });
-  devices.setCanConnect(() => false);
-  assert.equal(code(() => devices.exchange({ code: issued.code, verifier: pair.verifier, redirectUri: BACK })), '403 device_not_allowed');
-  assert.equal(audit.list({ action: 'device.token_failed' })[0].meta.reason, 'not_allowed');
-
-  // An answer that comes later would always be "yes": refused loudly.
-  devices.setCanConnect(async () => false);
-  assert.throws(() => devices.authenticate(phone.token), /at once, not a promise/);
-  assert.throws(() => devices.setCanConnect('ana'), /must be a function/);
-});
-
 test('an account removed takes its devices and codes with it', (t) => {
   const { database, devices, accounts, ana, bea, connect } = setup(t);
   connect(ana);
@@ -489,14 +467,4 @@ test('the admin’s activity log names every device entry, in every language', (
       assert.ok(catalog[key], `${lang}: ${key}`);
     }
   }
-});
-
-test('createApp({ devices: { canConnect } }) refuses whom the app doesn’t let in; without the module it only says so', async (t) => {
-  const refused = await startApp(t, { product: DEVICES_ON, appOptions: { devices: { canConnect: (user) => user.username !== 'admin' } } });
-  const answer = await refused.web('POST', '/api/devices/codes', { code_challenge: pkce().challenge, redirect_uri: BACK, name: 'Bus' });
-  assert.equal(answer.status, 403);
-  assert.equal(answer.data.error, 'device_not_allowed');
-
-  const off = await startApp(t, { appOptions: { devices: { canConnect: () => true } } });
-  assert.ok(off.lines.includes('[tracker] createApp({ devices }) is given, but modules.devices is off: no phone can connect'));
 });

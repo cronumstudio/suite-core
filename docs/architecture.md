@@ -80,7 +80,7 @@ suite-core/
   paddle.js             done   Paddle Billing as that provider: transactions, customer portal, webhooks
   stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
   revenuecat.js         done   RevenueCat as the store adapter: webhook as a trigger, the customer read from its API
-  mcp.js                done   Streamable HTTP transport, tool registry, prompts, legacy aliases
+  mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
   push.js               done   Web Push (VAPID, RFC 8291), subscriptions per device and language;
@@ -583,9 +583,8 @@ as its API tokens are. No route of the suite takes one, the MCP included (except
 `stores.devices`, the store routes and `/api/billing/overview`; with `devices.webSessions`,
 `/api/devices/web-session`; and `/api/devices/actions`, below): `ctx.user` only ever comes from
 the session cookie. The app accepts a device on the routes it chooses with
-`suite.devices.authenticate(req)` (the account with its `device_id`, or null), checks an open
-connection with `isActive(id)`, and can refuse people with `createApp({ devices: { canConnect } })`
-(Tracker's allowlist), asked when they connect and on every use. Not for a module of a host: a
+`suite.devices.authenticate(req)` (the account with its `device_id`, or null) and checks an open
+connection with `isActive(id)`. Not for a module of a host: a
 host turns it on in its own suite.config.js, and its phone connects to the whole app. Focus
 pairs its kiosks the other way round (a code shown on the signed-in screen and typed or scanned on
 the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header) and keeps
@@ -619,8 +618,7 @@ only) answers `{ url: '/devices/session?code=…', expires_at }`: a code of one 
 as a hash and bound to the device. `GET /devices/session?code=…&next=<path>` opens an ordinary
 session (the same cookie as a sign-in, with its `sessions.idleDays` and `maxDays`), noted as a
 sign-in, and goes to `next` when it is a path of this site, else to `/`. A code that is unknown,
-spent, expired, or whose device no longer works (revoked, idle, a disabled account, `canConnect`
-saying no) opens nothing and goes to `/`; these failures count against the address in the token's
+spent, expired, or whose device no longer works (revoked, idle, a disabled account) opens nothing and goes to `/`; these failures count against the address in the token's
 bucket (`rateLimits.devices`). So that nobody can sign someone else into their own account, three
 requests are refused without spending the code or counting against the address, and go to
 `/?device_session=refused`, which tells the app to clear its WebView's cookies and try once more:
@@ -659,7 +657,7 @@ param. It answers 200 `{ ok: true, ... }` with what the handler answered (a plai
 none, `constructor` and the like included); 400 `field_required`/`field_invalid` for a body
 without `action` or with an `id` or `module` of the wrong kind; and the handler's own `HttpError`s
 as they are (a 404 for an item that isn't the person's, a 400 for a param). A device token that is
-missing, unknown, revoked, idle, of a disabled account or refused by `canConnect` is a 401, and
+missing, unknown, revoked, idle or of a disabled account is a 401, and
 counts against the address in the devices' bucket (`rateLimits.devices`), as the other device
 routes do; a refusal of the module's counts nothing. With an `Idempotency-Key` a retried action
 runs once: the route keys it itself, by the device's account, once it knows it (`keyedByRoute` in
@@ -1270,7 +1268,7 @@ them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` w
 be reached, and the token brake. The app hands in its tools, prompts and instructions:
 
 ```js
-{ name, title, description, inputSchema, annotations?, feature?, legacyNames?, handler(principal, args) }
+{ name, title, description, inputSchema, annotations?, feature?, handler(principal, args) }
 ```
 
 `annotations` are the MCP hints, announced in `tools/list` with the tool's title
@@ -1288,9 +1286,9 @@ the person first. Every app writes them the same way:
 `openWorldHint` is `true` only for a tool that reaches outside the app (fetching from the
 internet, another service).
 
-`feature` makes the transport check the plan before calling the tool. `legacyNames` and legacy
-parameter names keep clients with a cached schema working after a rename (as Next did when it moved
-to English). Tool descriptions and results are in English; the instructions ask the assistant to
+`feature` makes the transport check the plan before calling the tool. Only the names `tools/list`
+announces answer: there are no aliases for old tool or parameter names (gone in 0.148.0), so a tool
+is never renamed (CONVENTIONS §9). Tool descriptions and results are in English; the instructions ask the assistant to
 answer in the user's language.
 
 An app with `modules.mcp: false` (v0.65.0) answers `/mcp` and `/mcp/*` with a JSON 404 and no
@@ -1418,8 +1416,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
     device (`device_push_tokens`, **suite migration 24**, hanging on `device_tokens` with
     `ON DELETE CASCADE`; the same token on another device moves here); `DELETE /api/devices/push`
     forgets it; `POST /api/devices/push/test` sends this device a test notice. A device revoked
-    (by its owner, by itself, by the admin) loses its token at once; one gone idle, refused by
-    `canConnect` or of a disabled account gets nothing, and its row goes with the device. Bad device
+    (by its owner, by itself, by the admin) loses its token at once; one gone idle or of a
+    disabled account gets nothing, and its row goes with the device. Bad device
     tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
   - **Reminders the phone shows itself** (v0.125.0): the app schedules a person's coming reminders
     as local notifications (they ring offline, and the app closed), so the server must not push the
@@ -1828,8 +1826,7 @@ The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address).
 `createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
 module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
 whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
-The names the module had on its own, and those its `legacyTools` lists, are still answered, never
-announced. The instructions are written per person from each used module's `mcp.brief` (or its
+Only those names answer: neither a module's own bare names nor old ones (0.148.0). The instructions are written per person from each used module's `mcp.brief` (or its
 instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
 longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
 from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
@@ -1844,22 +1841,14 @@ apps had (`legacy-domains.js`), with the domains pointed at it:
 LEGACY_DOMAINS=tasks.example.com=tasks,notes.example.com=notes
 ```
 
-- **`/mcp` is the module's connector as it was**: its tools with their own names (no prefix),
-  its old names, its instructions and prompts, its plan rules and the person's modules, with the
-  calls of the day counted with the host's `/mcp`. A connector added to the app works without
-  touching it. With WorkOS a token must be for that address (`https://<domain>/mcp` as its
-  audience, as the app asked), so the domain stays a Resource Indicator in WorkOS while it lasts.
-- **The OAuth metadata** there (`/.well-known/oauth-protected-resource[/mcp]`, and AuthKit's
-  copied) names the old address, and its 401 points at it: a client that connects again finds
-  where to sign in.
+- **`/mcp` points at the host's**: `/mcp` and `/mcp/*` answer 404 with
+  `{ "error": "not_found", "mcp": "<BASE_URL>/mcp" }`, and `/.well-known/oauth-*` a 404: the apps'
+  own connectors are gone (0.148.0; before, they served each module's tools there until
+  `LEGACY_MCP=off`, which is no longer read).
 - **`/sw.js` removes itself**: it empties its caches, unregisters and opens the module in the
   host, so the app installed from the old address stops showing what it kept.
 - **Everything else goes to the module** (302 for a read, 307 for a write: temporary, nothing
   cached for good), the same path under `/<mount>/`.
-
-The connectors can go before the rest: `LEGACY_MCP=off` (`on` when empty; anything else stops
-the start) keeps the redirects and the service worker, and `/mcp` on an old address answers 404
-with the host's (`{ "error": "not_found", "mcp": "<BASE_URL>/mcp" }`), and so does its OAuth metadata.
 
 A bridge meant to come down: emptying the variable and restarting turns it off; then the domains
 can keep a plain redirect or go. Each entry must name a module, never the host's own address or

@@ -14,10 +14,6 @@
  * it can pass on instead of a failure. `quota(principal, tool)` spends one of
  * the person's calls of the day the same way, after `allows`.
  *
- * Tools and parameters that were renamed keep working through `legacyTools`
- * and `legacyParams`: a client connected before the rename keeps its cached
- * schema and calls the old names until it reconnects. They are not announced.
- *
  * Before a tool runs, its arguments are checked against its `inputSchema`
  * (`argumentProblems`): types, ranges, `enum`, `required`, lengths and
  * `format: 'date'`. A call that doesn't fit gets a sentence saying what to
@@ -248,15 +244,13 @@ export function bearerToken(req, url = null) {
  * @param {(principal, tool) => true|string} [options.quota]    a call of the day spent: true, or the sentence why not
  * @param {(principal, tool) => boolean} [options.visible]   whether tools/list shows it to them
  * @param {(error) => string|null} [options.describeError]   the app's errors as text for the assistant
- * @param {object} [options.legacyTools]    old name → current name
- * @param {object} [options.legacyParams]   old parameter → current parameter
  * @param {boolean} [options.checkArgs]    check each call's arguments against the tool's inputSchema (on by default)
  */
 export function createMcpServer({
   serverInfo, instructions = '', tools = [], prompts = null,
   authenticate, challenge, oauthOffered = false, limiter = null,
   unavailable = () => false, allows = () => true, quota = () => true, describeError = () => null,
-  legacyTools = {}, legacyParams = {}, log = console.error, visible = () => true, checkArgs = true,
+  log = console.error, visible = () => true, checkArgs = true,
 }) {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
@@ -270,22 +264,13 @@ export function createMcpServer({
     ...(tool.annotations && { annotations: { title: tool.title, ...tool.annotations } }),
   });
 
-  const withCurrentParams = (args) => {
-    const current = {};
-    for (const [key, value] of Object.entries(args || {})) {
-      const name = legacyParams[key] || key;
-      if (current[name] === undefined) current[name] = value;
-    }
-    return current;
-  };
-
   /** Runs a tool for a principal and returns its result in MCP form. */
   async function callTool(principal, name, args = {}) {
-    const tool = byName.get(legacyTools[name] || name);
+    const tool = byName.get(name);
     if (!tool) return textResult(`Unknown tool: ${name}`, true);
     const allowed = allows(principal, tool);
     if (allowed !== true) return textResult(String(allowed || 'Your plan does not include this.'), true);
-    const current = withCurrentParams(args);
+    const current = { ...args };
     // Before the tool and before a call of the day is spent: a value out of
     // its range (a lag of 2e8 days, a 13th month) never reaches the store.
     const problems = checkArgs ? argumentProblems(tool.inputSchema, current) : [];
