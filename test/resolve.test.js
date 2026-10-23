@@ -128,3 +128,10 @@ test('parseNaturalDate: day-first numbers, never rolled over', () => {
   fails(() => at('soon'), /Can't understand the date "soon"/);
   fails(() => parseNaturalDate('soon', { today, field: 'the due date' }), /the due date "soon"/);
 });
+
+test('create: a tie of unclear matches says how to create one too; a clear tie doesn\'t', () => {
+  const hint = 'Call again with new=true.';
+  const unclear = items('Shop redesign', 'Shop online');
+  fails(() => matchByName(unclear, 'shop logo', { create: hint }), /ambiguous.*new=true/);
+  fails(() => matchByName(items('Cafe', 'Café'), 'cafe', { create: hint }), /ambiguous[^]*#id\.$/);
+});
