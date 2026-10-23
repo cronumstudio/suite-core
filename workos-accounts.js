@@ -411,6 +411,31 @@ export function createWorkosAccounts({
     return { client_id: connection.client_id, client_name: connection.client_name, everywhere: !elsewhere };
   }
 
+  /**
+   * Every AI client the person authorized for this app, withdrawn at WorkOS
+   * (revoke.js, after a new password): the ones already refused here too,
+   * since refusing their tokens here doesn't stop AuthKit from refreshing
+   * them. Like revokeConnection, a client still authorized for another app
+   * stays authorized there. → how many were withdrawn.
+   * @throws {WorkosUnavailable}
+   */
+  async function revokeAllConnections(userId) {
+    const subject = users.workosIdOf?.(userId);
+    if (!subject) return 0;
+    const here = connections?.of(subject) || {};
+    const all = await workos.authorizedApplications(subject);
+    const ours = all.filter((a) => forThisApp(a.resource) || (!a.resource && a.client_id && a.client_id in here));
+    let n = 0;
+    for (const a of ours) {
+      if (a.client_id) connections?.revoke(subject, a.client_id);
+      const sameClient = (b) => (a.application_id ? b.application_id === a.application_id : b.client_id === a.client_id);
+      if (all.some((b) => b.id !== a.id && sameClient(b) && !forThisApp(b.resource))) continue;
+      await workos.revokeApplication(subject, a.application_id || a.client_id);
+      n += 1;
+    }
+    return n;
+  }
+
   /** The MCP's 401 header: where the metadata is, so the client opens AuthKit. */
   const challenge = (hadToken) =>
     `Bearer resource_metadata="${BASE_URL}${METADATA_PATH}/mcp"${hadToken ? ', error="invalid_token"' : ''}`;
@@ -510,7 +535,7 @@ export function createWorkosAccounts({
     // The metadata for another address of the app (legacy-domains.js): this one's is handle()'s.
     resourceMetadata: (resource, name) => workos.resourceMetadata({ resource, name }),
     authorizationServerMetadata: () => workos.authorizationServerMetadata(),
-    ...(users.workosIdOf ? { connectionsOf, revokeConnection, deleteIdentity } : {}),
+    ...(users.workosIdOf ? { connectionsOf, revokeConnection, revokeAllConnections, deleteIdentity } : {}),
     signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,
   };
 }

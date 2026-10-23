@@ -3,6 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.129.0 — 2026-10-23
+
+- **A new password ends everything else that lets someone in** (`revoke.js`, `accounts.js`, `api.js`,
+  `workos-security.js`, `workos-accounts.js`, `live.js`, `app.js`, `host.js`). Changing the password
+  from Settings, resetting it by mail, or the admin setting it, used to close the browsers' sessions
+  and little else: an API token, an assistant's OAuth grant, a connected phone (which opens a new web
+  session whenever it wants) or an AI client authorized in AuthKit, left by whoever had the account
+  for a while, kept working after the owner changed the password. Now every path calls one
+  `revokeEverything(userId, { keep, provider, reason })` (`suite.revokeEverything`): the sessions here
+  (all but the one where it was done) and their sessions at the identity provider, the API tokens,
+  the suite's OAuth grants, the device tokens with their web sessions and native push tokens, the
+  browsers' push subscriptions, the AI clients of AuthKit (refused here for every token issued until
+  now, and withdrawn at WorkOS in the background: `idp.revokeAllConnections`), the person's open tabs
+  (`live.dropUser`, told first with an `account` notice) and an `auth.revoke_everything` line in the
+  audit log. Disabling an account still doesn't: it can come back with what it had.
+  - `accounts.whenPasswordSet((id, { exceptToken }) => …)`: who hears a password set, inside its
+    transaction; createSuite hooks revokeEverything there, so `POST /api/me/password`,
+    `POST /api/auth/reset` and the admin's `PATCH /api/admin/users/:id` all go through it.
+  - With WorkOS, `POST /api/me/sign-in/password` (keeps the current session) and
+    `PUT /api/admin/users/:id/sign-in/password` (keeps none, unless it is the admin's own).
+  - The admin's "sign out everywhere" (`DELETE /api/admin/users/:id/sessions`) is the same function,
+    so it now also disconnects the AI clients of AuthKit; its answer is unchanged.
+  - `live.subscribe(req, res, user, { sessionToken })` and `live.dropUser(userId, { except, last })`;
+    `suite.whenRevoked(hook)`, which a host's modules use for their own channels.
+  - Not yet: a reset on AuthKit's own page ("Forgot your password?") is not heard by the app, so it
+    still revokes nothing here.
 ## 0.128.0 — 2026-10-23
 
 - **Paddle: what a checkout says is signed by the server** (`paddle.js`, `billing.js`, `config.js`,
