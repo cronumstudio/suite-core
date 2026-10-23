@@ -63,6 +63,7 @@ import { brandedPage } from './oauth-page.js';
 import { brandedAdmin } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
+import { createRevoker } from './revoke.js';
 import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
 import { createNativePush, registerNativePushApi } from './native-push.js';
@@ -213,7 +214,7 @@ export function createSuite({
       : install.billing.provider === 'paddle' ? paddleProvider({
         apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
         environment: install.billing.environment, apiBase: install.billing.apiBase,
-        checkoutUrl: install.billing.checkoutUrl, products: config.products, log,
+        checkoutUrl: install.billing.checkoutUrl, signingSecret: install.billing.signingSecret, products: config.products, log,
         strictPrices: config.billing?.strictPrices ?? false, paddleProductIds: config.billing?.paddleProductIds ?? null,
       })
         : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
@@ -310,6 +311,8 @@ export function createSuite({
     stop(late);
   }
 
+  // The AI clients authorized in AuthKit and disconnected here (idp_connections): the routes' and revoke.js's.
+  const workosAiClients = install.authProvider === 'workos' ? workosConnections(database) : null;
   const workos = install.authProvider === 'workos' ? createWorkosAccounts({
     baseUrl: install.baseUrl,
     appName: config.app.name,
@@ -318,7 +321,7 @@ export function createSuite({
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_auth`,
     users: workosPeople,
-    connections: workosConnections(database),
+    connections: workosAiClients,
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     // Without an MCP, AI clients find no OAuth metadata to follow.
     mcp: config.modules.mcp,
@@ -403,6 +406,20 @@ export function createSuite({
     database, vapid: vapidKeys(database, install.push, { log: (line) => log(`${tag} ${line}`) }), log,
     ...(nativePush ? { native: nativePush } : {}),
   }) : null;
+  // Everything that lets someone in, ended at once (revoke.js): a new password, a reset, the
+  // admin's "sign out everywhere". Every password set, here or by the admin, comes through it.
+  const revoker = createRevoker({
+    database, sessions, tokens, oauth, devices, push, idp, connections: workosAiClients, workosPeople, audit,
+    log: (line) => log(`${tag} ${line}`),
+  });
+  const revokeEverything = revoker.revokeEverything;
+  accounts.whenPasswordSet((id, { exceptToken }) => revokeEverything(id, {
+    keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'password_set',
+  }));
+  // The open tabs of whoever was revoked, but the one kept, are closed: they find no one when they come back.
+  revoker.whenRevoked((id, { keep }) => live.dropUser(id, {
+    except: keep?.sessionToken || null, last: { event: 'account', data: { user_id: id } },
+  }));
   // Files people attach, with modules.uploads: stored, served and swept here; the app keeps its table.
   const uploads = config.modules.uploads
     ? createUploads({ dir: path.join(install.dataDir, 'uploads'), log: (line) => log(line) })
@@ -431,6 +448,7 @@ export function createSuite({
   // Someone deleting their own account: disabled now, gone after the install's days (account-deletion.js).
   const deletion = createAccountDeletion({
     accounts, sign: sessions.sign, days: config.accounts.deletionDays, atProviders: config.accounts.deleteAtProviders,
+    endSubscriptions: config.accounts.endSubscriptions,
     // With the stores, both instances: a store stops nothing for the person, who cancels there.
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
     baseUrl: install.baseUrl, log,
@@ -553,7 +571,7 @@ export function createSuite({
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
-    workosClient, workosPeople,
+    workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked,
   };
 }
 
@@ -702,13 +720,13 @@ export function createApp({
   if (suite.workosClient && suite.workosPeople) {
     registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
-      appName: config.app.name, twoFactor: install.workos?.twoFactor,
-      revokeAtProvider: (ids) => ids.forEach((id) => idp.revokeSession(id).catch((err) => log(`${tag} a session at WorkOS stays open: ${err.message}`))),
+      appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
     });
   }
   if (config.modules.admin) {
     registerAdminApi(api, {
-      accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp, devices: suite.devices,
+      accounts, entitlements, organizations, sessions, audit, twoFactor, revokeEverything: suite.revokeEverything,
+      devices: suite.devices,
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
@@ -717,7 +735,7 @@ export function createApp({
     /** The live channel of this tab: notices of what changed for this person (live.js). */
     api.get('/api/events', (ctx) => {
       if (!ctx.user) throw unauthorized();
-      live.subscribe(ctx.req, ctx.res, ctx.user);
+      live.subscribe(ctx.req, ctx.res, ctx.user, { sessionToken: ctx.sessionToken ?? null });
     });
   }
   if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });

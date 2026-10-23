@@ -142,6 +142,24 @@ test('a tab whose socket is gone is dropped; close() ends them all', () => {
   assert.equal(fine.res.ended, true);
 });
 
+test('dropUser closes a person’s tabs but the kept session’s, telling them first', () => {
+  const live = createLive();
+  const kept = tab(1);
+  const other = tab(1);
+  const someoneElse = tab(2);
+  live.subscribe(kept.req, kept.res, kept.user, { sessionToken: 'kept' });
+  live.subscribe(other.req, other.res, other.user, { sessionToken: 'other' });
+  live.subscribe(someoneElse.req, someoneElse.res, someoneElse.user, { sessionToken: 'x' });
+  assert.equal(live.dropUser(1, { except: 'kept', last: { event: 'account', data: { user_id: 1 } } }), 1);
+  assert.equal(other.res.ended, true);
+  assert.deepEqual(eventsOf(other.res).at(-1), { id: null, event: 'account', data: { user_id: 1 } });
+  assert.equal(kept.res.ended, false);
+  assert.equal(someoneElse.res.ended, false);
+  assert.equal(live.dropUser(1), 1, 'without a kept one, all of them');
+  assert.equal(kept.res.ended, true);
+  assert.equal(live.connected(), 1);
+});
+
 async function start(t, modules) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-live-'));
   const suite = createSuite({
@@ -226,8 +244,10 @@ test('over HTTP: an account that changes tells its own tabs (event: account), an
   assert.match(text, new RegExp(`event: account\ndata: \{"user_id":${ada.id}\}`));
   assert.deepEqual(heard, [bob.id, ada.id], 'an update that changes nothing says nothing');
 
-  // A new password and the second step say so too.
-  suite.accounts.setPassword(ada.id, 'a-brand-new-one');
+  // A new password and the second step say so too. The password is set from this tab, whose
+  // session stays: the others' channels close (revoke.js), this one keeps hearing.
+  const sessionToken = decodeURIComponent(cookie.slice('demo_sid='.length));
+  suite.accounts.setPassword(ada.id, 'a-brand-new-one', { exceptToken: sessionToken });
   const { secret } = suite.twoFactor.begin(ada);
   assert.deepEqual(heard, [bob.id, ada.id, ada.id], 'starting the setup changes nothing yet');
   const { totp, base32Decode } = await import('../two-factor.js');
