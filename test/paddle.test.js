@@ -22,7 +22,9 @@ import { createOrganizations } from '../organizations.js';
 import { createBilling } from '../billing.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp } from '../app.js';
-import { paddleProvider, verifyPaddleSignature, signPaddlePayload, providerId } from '../paddle.js';
+import {
+  paddleProvider, verifyPaddleSignature, signPaddlePayload, providerId, checkoutSigningKey, signCustomData,
+} from '../paddle.js';
 
 const DAY = 24 * 3600 * 1000;
 const SECRET = 'pdl_ntfset_01k0000000000000000000000_secretofthedestination';
@@ -53,6 +55,28 @@ const TRACKER_PRODUCTS = {
 /** What each install sets once it keeps the other product's sales out. */
 const WORK_GUARD = { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: [WORK_PRODUCT_ID] };
 const TRACKER_GUARD = { ignoreUnknownProducts: true, app: 'tracker', strictPrices: true, paddleProductIds: [TRACKER_PRODUCT_ID] };
+
+/**
+ * A notification whose custom_data this server's checkout made: signed (`sig`) for its own price and
+ * customer, as paddle.js's checkout() signs it. One that already says `sig` (even null) is left as is.
+ */
+const CHECKOUT_KEY = checkoutSigningKey({ webhookSecret: SECRET });
+function asCheckedOut(notification) {
+  const data = notification?.data;
+  const custom = data?.custom_data;
+  if (!custom || 'sig' in custom || !/^(subscription\.|transaction\.completed$)/.test(notification.event_type)) return notification;
+  const sig = signCustomData(CHECKOUT_KEY, {
+    workosUserId: custom.workos_user_id ?? null, subject: custom.subject ?? null, product: custom.product,
+    price: data.items?.[0]?.price?.id, app: custom.app ?? null, customer: data.customer_id ?? null,
+  });
+  return { ...notification, data: { ...data, custom_data: { ...custom, sig } } };
+}
+
+/** A checkout's custom_data without its `sig`, which must be there. */
+const withoutSig = ({ sig, ...rest }) => {
+  assert.match(String(sig), /^[0-9a-f]{64}$/, 'the server signs what the checkout says');
+  return rest;
+};
 
 /** A stand-in for Paddle's API: records each call and answers as Paddle does. */
 function fakePaddle({ customers = [] } = {}) {
@@ -120,8 +144,10 @@ function app(t, {
     },
     user: (provider, subject) => accounts.byIdentity(provider, subject)?.id ?? null,
   };
+  const audits = [];
   const billing = createBilling({
     database, entitlements, provider, products, identities, clock: () => time.now, log: (line) => logs.push(line),
+    audit: { record: (entry) => audits.push(entry) },
     isFounder: (user) => Boolean(founderUntil) && Date.parse(user.created_at) < Date.parse(founderUntil),
     ...(guard.ignoreUnknownProducts !== undefined ? { ignoreUnknownProducts: guard.ignoreUnknownProducts } : {}),
     ...(guard.app !== undefined ? { app: guard.app } : {}),
@@ -133,15 +159,15 @@ function app(t, {
     username, email: `${username}@example.com`, identity: { provider: 'workos', subject: workosId, email: `${username}@example.com` },
   });
   /** A notification as Paddle delivers it: signed, at the clock's time. */
-  const deliver = async (notification) => {
-    const body = JSON.stringify(notification);
+  const deliver = async (notification, { unsigned = false } = {}) => {
+    const body = JSON.stringify(unsigned ? notification : asCheckedOut(notification));
     const parsed = await provider.parseWebhook({
       headers: { 'paddle-signature': signPaddlePayload(SECRET, body, time.now) }, body,
     });
     return parsed ? billing.apply(parsed) : null;
   };
   const planOf = (user) => entitlements.of(accounts.byId(user.id)).plan.id;
-  return { database, clock: time, accounts, entitlements, billing, provider, paddle, deliver, planOf, signIn, logs };
+  return { database, clock: time, accounts, entitlements, billing, provider, paddle, deliver, planOf, signIn, logs, audits };
 }
 
 /** A subscription.* notification, shaped like Paddle's. `custom`: its whole custom_data instead. */
@@ -222,7 +248,7 @@ test('checkout: a transaction with the WorkOS id in custom_data, the customer fo
   assert.equal(tx.headers['Paddle-Version'], '1');
   assert.deepEqual(tx.body.items, [{ price_id: PRICES.monthly, quantity: 1 }]);
   assert.equal(tx.body.customer_id, 'ctm_known');
-  assert.deepEqual(tx.body.custom_data, { workos_user_id: ADA, email: 'ada@example.com', product: 'pro-monthly' },
+  assert.deepEqual(withoutSig(tx.body.custom_data), { workos_user_id: ADA, email: 'ada@example.com', product: 'pro-monthly' },
     'who pays by their WorkOS id, never by this app\'s own id');
 });
 
@@ -242,7 +268,7 @@ test('checkout: a new customer is made for a verified email; without one Paddle\
   await billing.checkoutUrl({ type: 'user', id: local.id }, 'pro-monthly', { user: local, returnUrl: 'x' });
   assert.equal(paddle.calls.length, 1, 'no email, no customer lookup');
   assert.equal(paddle.calls[0].body.customer_id, undefined);
-  assert.deepEqual(paddle.calls[0].body.custom_data, { subject: `user:${local.id}`, product: 'pro-monthly' });
+  assert.deepEqual(withoutSig(paddle.calls[0].body.custom_data), { subject: `user:${local.id}`, product: 'pro-monthly' });
 });
 
 test('the founder\'s price: chosen on the server for whoever joined in the early access, never named by the browser', async (t) => {
@@ -342,7 +368,7 @@ test('a family\'s Pro without seats: Paddle\'s checkout buys one, and every adul
   await billing.checkoutUrl({ type: 'organization', id: home.id }, 'focus-pro-yearly', { user: ada, returnUrl: 'https://focus.example/?billing=done' });
   const transaction = paddle.calls.find((c) => c.pathname === '/transactions').body;
   assert.deepEqual(transaction.items, [{ price_id: FAMILY_PRICE, quantity: 1 }]);
-  assert.deepEqual(transaction.custom_data, { subject: `organization:${home.id}`, product: 'focus-pro-yearly' });
+  assert.deepEqual(withoutSig(transaction.custom_data), { subject: `organization:${home.id}`, product: 'focus-pro-yearly' });
   // Paddle copies custom_data to the subscription, and every one of its events says quantity 1.
   const family = (id, fields) => subscriptionEvent(id, {
     price: FAMILY_PRICE, sub: 'sub_01family', customer: 'ctm_01family', custom: transaction.custom_data, ...fields,
@@ -513,6 +539,119 @@ test('the identity outranks an older link: a customer linked to someone else her
   assert.equal(tasks.planOf(other), 'free');
   assert.equal(tasks.billing.customerOf({ type: 'user', id: ada.id }), 'ctm_01ada');
   assert.equal(tasks.billing.customerOf({ type: 'user', id: other.id }), null, 'Carl no longer opens Ada\'s portal');
+});
+
+test('a checkout made in the browser: an unsigned subscription never heard of grants nothing, a founder\'s price neither (sc-billing-1)', async (t) => {
+  const clock = { now: Date.parse('2026-10-01T10:00:00Z') };
+  const paddle = fakePaddle();
+  const { billing, deliver, signIn, planOf, audits, logs, provider } = app(t, { paddle, clock, founderUntil: '2026-12-01T00:00:00Z' });
+  const early = signIn(ADA, 'ada');
+  clock.now = Date.parse('2026-12-15T10:00:00Z');
+  const LEO = 'user_01JLATE000000000000000000L';
+  const leo = signIn(LEO, 'leo');
+  const at = { occurredAt: '2026-12-15T10:00:00Z', endsAt: '2027-12-15T10:00:00Z' };
+  const checkout = async (user, product) => {
+    await billing.checkoutUrl({ type: 'user', id: user.id }, product, { user, email: `${user.username}@example.com`, returnUrl: 'x' });
+    return paddle.calls.at(-1).body;
+  };
+
+  // Paddle.Checkout.open({ items: [the founder's price], customData: { workos_user_id, product } }) in the console.
+  const forged = { workos_user_id: LEO, product: 'pro-yearly', sig: null };
+  const plain = subscriptionEvent('evt_f1', { ...at, price: PRICES.founder, sub: 'sub_forged', customer: 'ctm_leo', custom: forged });
+  assert.equal(provider.translate(plain).unsigned, true);
+  assert.equal(await deliver(plain), 'unsigned');
+  assert.equal(planOf(leo), 'free');
+  assert.equal(billing.customerOf({ type: 'user', id: leo.id }), null, 'nothing linked either');
+  assert.ok(logs.some((line) => line.includes('sub_forged') && line.includes('signature')));
+  assert.deepEqual(audits.map((a) => [a.action, a.meta.ref]), [['billing.unsigned', 'sub_forged']]);
+  // Its next events grant nothing either: the subscription was never heard of.
+  assert.equal(await deliver(subscriptionEvent('evt_f2', {
+    ...at, type: 'subscription.updated', price: PRICES.founder, sub: 'sub_forged', customer: 'ctm_leo', custom: forged,
+  })), 'unsigned');
+
+  // Leo's own checkout is signed for the regular price: on the founder's price, unsigned.
+  const regular = await checkout(leo, 'pro-yearly');
+  assert.equal(regular.items[0].price_id, PRICES.yearly);
+  assert.equal(await deliver(subscriptionEvent('evt_f3', {
+    ...at, price: PRICES.founder, sub: 'sub_swapped', customer: regular.customer_id, custom: regular.custom_data,
+  })), 'unsigned');
+  // A founder's signature doesn't hold for someone else: who pays is in it.
+  const adas = await checkout(early, 'pro-yearly');
+  assert.equal(adas.items[0].price_id, PRICES.founder);
+  assert.equal(await deliver(subscriptionEvent('evt_f4', {
+    ...at, price: PRICES.founder, sub: 'sub_borrowed', customer: adas.customer_id, custom: { ...adas.custom_data, workos_user_id: LEO },
+  })), 'unsigned');
+  // Nor with a field added beside the signed ones.
+  assert.equal(provider.translate(subscriptionEvent('evt_f5', {
+    ...at, price: PRICES.founder, sub: 'sub_x', customer: adas.customer_id, custom: { ...adas.custom_data, subject: 'organization:1' },
+  })).unsigned, true);
+  assert.equal(planOf(leo), 'free');
+
+  // As the server made them: granted, the founder's price for the founder.
+  assert.equal(await deliver(subscriptionEvent('evt_f6', {
+    ...at, price: PRICES.yearly, sub: 'sub_leo', customer: regular.customer_id, custom: regular.custom_data,
+  })), 'granted');
+  assert.equal(planOf(leo), 'pro');
+  assert.equal(await deliver(subscriptionEvent('evt_f7', {
+    ...at, price: PRICES.founder, sub: 'sub_ada', customer: adas.customer_id, custom: adas.custom_data,
+  })), 'granted');
+  assert.equal(planOf(early), 'pro');
+});
+
+test('a subscription known here keeps going without the signature: bought before it, or its plan changed in the portal (sc-billing-1)', async (t) => {
+  const { database, deliver, signIn, planOf, provider } = app(t);
+  const ada = signIn(ADA, 'ada');
+  // Bought before 0.128.0: no sig at all, and known here since.
+  database.run(`INSERT INTO billing_subscriptions (provider, ref, subject_type, subject_id, product, status, occurred_at, updated_at)
+    VALUES ('paddle-sandbox', 'sub_old', 'user', ?, 'pro-yearly', 'active', '2026-10-01T10:00:00.000Z', '2026-10-01T10:00:00.000Z')`, ada.id);
+  const old = { workos_user_id: ADA, email: 'ada@example.com', product: 'pro-yearly', sig: null };
+  assert.equal(await deliver(subscriptionEvent('evt_k1', {
+    type: 'subscription.updated', occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z', sub: 'sub_old', custom: old,
+  })), 'granted');
+  assert.equal(planOf(ada), 'pro');
+  // Signed when bought; then moved to the monthly price in the portal, which keeps the first custom_data.
+  assert.equal(await deliver(subscriptionEvent('evt_k2', { occurredAt: '2026-11-02T10:00:00Z', endsAt: '2027-11-02T10:00:00Z', sub: 'sub_new' })), 'granted');
+  const signed = asCheckedOut(subscriptionEvent('evt_k2', { occurredAt: '2026-11-02T10:00:00Z', sub: 'sub_new' })).data.custom_data;
+  const changed = subscriptionEvent('evt_k3', {
+    type: 'subscription.updated', occurredAt: '2026-11-03T10:00:00Z', endsAt: '2026-12-03T10:00:00Z',
+    price: PRICES.monthly, sub: 'sub_new', custom: signed,
+  });
+  assert.equal(provider.translate(changed).unsigned, true, 'the signature was for the yearly price');
+  assert.notEqual(await deliver(changed), 'unsigned');
+  assert.equal(planOf(ada), 'pro');
+});
+
+test('a customer linked to someone else stays theirs unless the server\'s checkout named it (sc-billing-2)', async (t) => {
+  const paddle = fakePaddle();
+  const { billing, deliver, signIn, planOf, audits } = app(t, { paddle });
+  const BOB = 'user_01JBOB0000000000000000000B';
+  const ada = signIn(ADA, 'ada');
+  const bob = signIn(BOB, 'bob');
+  const at = { occurredAt: '2026-11-01T10:00:00Z', endsAt: '2027-11-01T10:00:00Z' };
+  assert.equal(await deliver(subscriptionEvent('evt_c1', { ...at, sub: 'sub_ada', customer: 'ctm_A' })), 'granted');
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), 'ctm_A');
+
+  // Bob opens a checkout by hand with Ada's email, and Paddle hands it Ada's customer. Unsigned: nothing moves.
+  const bobs = { workos_user_id: BOB, product: 'pro-yearly', sig: null };
+  assert.equal(await deliver(subscriptionEvent('evt_c2', { ...at, sub: 'sub_bob1', customer: 'ctm_A', custom: bobs })), 'unsigned');
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), 'ctm_A');
+  assert.equal(billing.customerOf({ type: 'user', id: bob.id }), null);
+
+  // Bob's own checkout, signed, made without a customer (no email here): Bob's plan, Ada's customer stays Ada's.
+  await billing.checkoutUrl({ type: 'user', id: bob.id }, 'pro-yearly', { user: bob, returnUrl: 'x' });
+  const { custom_data: custom, customer_id: none } = paddle.calls.at(-1).body;
+  assert.equal(none, undefined);
+  assert.equal(await deliver(subscriptionEvent('evt_c3', { ...at, sub: 'sub_bob2', customer: 'ctm_A', custom })), 'granted');
+  assert.equal(planOf(bob), 'pro');
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), 'ctm_A');
+  assert.equal(billing.customerOf({ type: 'user', id: bob.id }), null, 'Bob doesn\'t open Ada\'s portal');
+  const conflict = audits.find((a) => a.action === 'billing.customer_conflict');
+  assert.deepEqual(conflict && { target: conflict.targetId, ...conflict.meta },
+    { target: bob.id, provider: 'paddle-sandbox', customer: 'ctm_A', ref: 'sub_bob2', owner: `user:${ada.id}` });
+
+  // Signed for that very customer, as the server's checkout would: the identity still outranks the older link.
+  assert.equal(await deliver(subscriptionEvent('evt_c4', { ...at, workosId: BOB, sub: 'sub_bob3', customer: 'ctm_A' })), 'granted');
+  assert.equal(billing.customerOf({ type: 'user', id: bob.id }), 'ctm_A');
 });
 
 test('an identity that never comes: the event is dropped after a while; a broken one never stops a sign-in', async (t) => {
@@ -705,7 +844,7 @@ test('with strictPrices, a price no longer sold still renews as its product (old
 
   const bob = tasks.signIn('user_01JBOB0000000000000000000B', 'bob');
   await tasks.billing.checkoutUrl({ type: 'user', id: bob.id }, 'pro-yearly', { user: bob, returnUrl: 'x' });
-  assert.deepEqual(paddle.calls.at(-1).body.custom_data, { workos_user_id: 'user_01JBOB0000000000000000000B', product: 'pro-yearly', app: 'work' });
+  assert.deepEqual(withoutSig(paddle.calls.at(-1).body.custom_data), { workos_user_id: 'user_01JBOB0000000000000000000B', product: 'pro-yearly', app: 'work' });
   assert.deepEqual(paddle.calls.at(-1).body.items, [{ price_id: NEW_YEARLY, quantity: 1 }], 'sold at the current price');
 });
 
@@ -806,8 +945,8 @@ test('createSuite reads the guards from suite.config.js billing: its webhook ans
   const server = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {} });
   const listening = await server.listen();
   t.after(async () => { await server.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  const deliver = async (notification) => {
-    const body = JSON.stringify(notification);
+  const deliver = async (notification, { unsigned = false } = {}) => {
+    const body = JSON.stringify(unsigned ? notification : asCheckedOut(notification));
     const res = await fetch(`http://127.0.0.1:${listening.address().port}/api/billing/webhook`, {
       method: 'POST', body, headers: { 'Content-Type': 'application/json', 'Paddle-Signature': signPaddlePayload(SECRET, body) },
     });
@@ -901,6 +1040,16 @@ test('the configuration: BILLING_PROVIDER=paddle, its key, its secret, its envir
   assert.ok(errorsOf({ PADDLE_CHECKOUT_URL: 'http://example.com/pay/' }).some((e) => /PADDLE_CHECKOUT_URL/.test(e)));
   assert.deepEqual(errorsOf({ PADDLE_CHECKOUT_URL: 'http://localhost:8096/' }), [], 'a local page, only in the sandbox');
   assert.ok(errorsOf({ EARLY_ACCESS_UNTIL: 'soon' }).some((e) => /EARLY_ACCESS_UNTIL/.test(e)));
+  assert.ok(errorsOf({ PADDLE_CHECKOUT_SECRET: 'short' }).some((e) => /PADDLE_CHECKOUT_SECRET/.test(e)));
+  assert.equal(resolveConfig(product, env({})).install.billing.signingSecret, '', 'derived from the destination secret');
+  assert.equal(resolveConfig(product, env({ PADDLE_CHECKOUT_SECRET: 'x'.repeat(40) })).install.billing.signingSecret, 'x'.repeat(40));
+  // The accounts: their subscriptions may end without going at the identity provider; left out, as deleteAtProviders.
+  const accountsOf = (accounts) => resolveConfig({ ...product, accounts }, env({}));
+  assert.equal(accountsOf({}).accounts.endSubscriptions, false);
+  assert.equal(accountsOf({ deleteAtProviders: true }).accounts.endSubscriptions, true);
+  assert.deepEqual([accountsOf({ deleteAtProviders: false, endSubscriptions: true }).accounts.endSubscriptions,
+    accountsOf({ deleteAtProviders: false, endSubscriptions: true }).accounts.deleteAtProviders], [true, false]);
+  assert.ok(accountsOf({ endSubscriptions: 'yes' }).errors.some((e) => /accounts.endSubscriptions/.test(e)));
 
   const sandbox = resolveConfig(product, env({ PADDLE_CHECKOUT_URL: 'https://cronumstudio.com/pay/', EARLY_ACCESS_UNTIL: '2026-12-01' }));
   assert.deepEqual(sandbox.errors, []);
