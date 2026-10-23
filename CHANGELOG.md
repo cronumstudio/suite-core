@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.129.0 — 2026-10-23
+## 0.141.0 — 2026-10-23
 
 - **The split view's frames ask less, and a link opens beside** (`web/update.js`, `web/shell.js`,
   `web/base.js`, `web/links.js`). With four modules side by side, coming back to the tab asked
