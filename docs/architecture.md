@@ -2019,11 +2019,13 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   kept shape, the prototype's `{ slots }` included. A window never moves in the document: it is
   placed by its grid column (`--cw-col-N` in the desk's template, 320 px at least, an 8 px bar
   between two), and a stacked one takes its half of the cell (`--cw-row-N`).
-- **Moving them.** A head picks its window up after 6 px; over another column's head its column
-  takes that place at once and the others slide away (FLIP, 180 ms), over half of a column of one
-  it stacks there, over a window of a full column they swap (a dashed box shows where, and it is
-  done on letting go). The columns are measured once, when it is picked up, and the loop only
-  writes a transform inside requestAnimationFrame. The bars resize in rAF too, pausing the windows
+- **Moving them.** A head picks its window up after 6 px and lifts it a little. As a phone's
+  icons, the others make room while it is carried: over another column's head or middle its column
+  takes that place at once, over a window of a full column the two trade places, and the others
+  flow to theirs (FLIP, 260 ms with a slight overshoot). Over the top or bottom part of a column of
+  one it would stack there (a dashed box shows where, and it is done on letting go). Every window
+  in sight is paused while it lasts. The columns are measured once, when it is picked up, and the
+  loop only writes a transform inside requestAnimationFrame. The bars resize in rAF too, pausing the windows
   they touch (`onPause(module, true, { resizing: true })`); a double click evens them, arrow keys
   move a focused bar, and Alt with an arrow on a focused head moves its window. Escape cancels.
 - **Phones** (< 768 px): one window at a time, a bar of tabs at the bottom, and a sideways swipe

@@ -9,10 +9,12 @@
  * - Reorder: a window's head picks it up after 6 px. It follows the pointer with a transform set
  *   only inside requestAnimationFrame, from the last move, with no layout read in the loop: the
  *   columns are measured once, when it is picked up, and where it would land is found by those
- *   boxes. Over another column's head its column takes that place and the others make room (FLIP,
- *   Web Animations, 180 ms); over the top or bottom half of a column with room it would stack
- *   there, and over a window of a full column it would swap with it, both shown by a dashed box
- *   and done on letting go. Escape puts everything back.
+ *   boxes. As a phone's icons do, the others make room while it is carried, not when it is let
+ *   go: over another column's head or middle its column takes that place, and over a window of a
+ *   full column (2×2) the two trade places, the others flowing to theirs (FLIP, Web Animations,
+ *   260 ms with a slight overshoot) while the carried one is lifted a little. Over the top or
+ *   bottom part of a column with room it would stack there, shown by a dashed box and done on
+ *   letting go. Escape puts everything back.
  * - Resize: the 8 px bars between two columns and between two stacked windows move their shares
  *   (`--cw-col-N` in fr, `--cw-row-N` the top window's share of its column) inside rAF, the windows
  *   they touch paused while it lasts (`onPause(module, true, { resizing: true })`). A double click
@@ -45,15 +47,21 @@ const PICK_PX = 6;          // pixels the pointer moves before a head picks its 
 const MIN_PX = 320;         // a column is never narrower
 const MIN_ROW_PX = 160;     // nor a stacked window shorter
 const BAR_PX = 8;           // the bars between columns and between stacked windows
-const HEAD_BAND = 48;       // the strip at a column's top that means "this column's place"
+const HEAD_BAND = 48;       // the strip at a column's top that always means "this column's place"
 const MAX_COLS = 4;
 const MAX_STACK = 2;
 /** Windows in a layout at most: four columns, or two columns of two. */
 export const MAX_WINDOWS = 4;
 /** Modules kept mounted at most, shown or not. */
 export const MAX_MOUNTED = 4;
+const STACK_EDGE = 0.22;    // of a column of one, the top and bottom parts that mean "stack it here"
 const FLIP_MS = 180;
 const EASE = 'cubic-bezier(.32, .72, 0, 1)';   // the kit's --kit-slide
+// While a window is carried, the others make room as a phone's icons do: a little longer, with a
+// slight overshoot; and the carried one is lifted a little.
+const REFLOW_MS = 260;
+const SPRING = 'cubic-bezier(.2, 1.12, .4, 1)';
+const LIFT = 1.015;
 const KEY_STEP = 0.05;      // of the two shares a bar divides, per arrow key
 
 // A phone's swipe between modules.
@@ -241,10 +249,11 @@ export function placement(layout, screen = 'wide') {
 /**
  * Where the pointer is, by the columns' boxes measured when the window was picked up (`slots`:
  * `[{ left, right, top, bottom }]` a column, in the layout's order): `{ col, zone }`, the zone
- * being the column's `head` strip (its place), the `top` or `bottom` half of a column of one, or
- * a `win` of a column of two with its `row`. Between two columns, the nearer one.
+ * being the column's place (`head`: its head strip and its middle, so a window carried over
+ * another takes its place, as a phone's icons do), the `top` or `bottom` part of a column of one
+ * (stacking there), or a `win` of a column of two with its `row`. Between two columns, the nearer.
  */
-export function slotAt(slots, layout, x, y, { band = HEAD_BAND } = {}) {
+export function slotAt(slots, layout, x, y, { band = HEAD_BAND, edge = STACK_EDGE } = {}) {
   if (!slots?.length) return null;
   let col = slots.findIndex((s) => x >= s.left && x < s.right);
   if (col < 0) {
@@ -258,7 +267,10 @@ export function slotAt(slots, layout, x, y, { band = HEAD_BAND } = {}) {
     const split = s.top + (s.bottom - s.top - BAR_PX) * rowShare(column.h) + BAR_PX / 2;
     return { col, zone: 'win', row: y < split ? 0 : 1 };
   }
-  return { col, zone: y < (s.top + s.bottom) / 2 ? 'top' : 'bottom' };
+  const part = (s.bottom - s.top) * edge;
+  if (y < s.top + band + part) return { col, zone: 'top' };
+  if (y >= s.bottom - part) return { col, zone: 'bottom' };
+  return { col, zone: 'head' };
 }
 
 /**
@@ -615,8 +627,9 @@ export function createWindows(desk, {
   }
 
   /** From the boxes they had to where they are: each window slides (and grows) into place. */
-  function flip(first) {
+  function flip(first, { skip = null, duration = FLIP_MS, easing = EASE } = {}) {
     for (const module of shown) {
+      if (module === skip) continue;
       const from = first.get(module);
       const node = nodes.get(module);
       if (!from || !node.animate) continue;
@@ -629,7 +642,7 @@ export function createWindows(desk, {
       node.animate([
         { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, transformOrigin: '0 0' },
         { transform: 'none', transformOrigin: '0 0' },
-      ], { duration: FLIP_MS, easing: EASE });
+      ], { duration, easing });
     }
   }
 
@@ -675,7 +688,7 @@ export function createWindows(desk, {
     let frame = 0;
     let slots = null;
     let desked = null;
-    let home = 0;
+    let home = null;
     let hit = null;
     let ghost = null;
     let animate = true;
@@ -691,7 +704,7 @@ export function createWindows(desk, {
       // Measured once: where each column is, which reordering doesn't change (each place keeps its width).
       slots = measureSlots();
       desked = desk.getBoundingClientRect();
-      home = slots[where(layout, module).col].left;
+      home = placeOf(module);
       animate = motion();
       dir = rtl();
       ghost = el('div', { class: 'cw-drop', 'aria-hidden': 'true', hidden: true });
@@ -702,28 +715,53 @@ export function createWindows(desk, {
       onGesture(true, 'reorder');
     };
 
-    /** The others slide to their new places: FLIP from the slots measured, with no reading. */
-    const moveTo = (to) => {
-      const before = new Map(layout.cols.flatMap((col, i) => col.wins.map((m) => [m, slots[i].left])));
-      layout = moveColumn(layout, where(layout, module).col, to);
+    /** Where a window's place starts in the layout as it is now, by the slots measured: no reading. */
+    const placeOf = (m) => {
+      const at = where(layout, m);
+      const s = slots[at.col];
+      const col = layout.cols[at.col];
+      const top = col.wins.length < MAX_STACK || at.row === 0
+        ? s.top
+        : s.top + (s.bottom - s.top - BAR_PX) * rowShare(col.h) + BAR_PX;
+      return { left: s.left, top };
+    };
+
+    /**
+     * The layout changes while the window is carried, and the others flow to their new places
+     * (FLIP from the places they had, with no reading), as a phone's icons make room.
+     */
+    const liveTo = (next) => {
+      const before = new Map([...shown].map((m) => [m, placeOf(m)]));
+      layout = next;
       apply({ save: false });
       if (!animate) return;
-      layout.cols.forEach((col, i) => {
-        for (const m of col.wins) {
-          const delta = before.get(m) - slots[i].left;
-          if (m !== module && delta) nodes.get(m).animate?.([{ transform: `translateX(${delta}px)` }, { transform: 'none' }], { duration: FLIP_MS, easing: EASE });
-        }
-      });
+      for (const m of shown) {
+        if (m === module) continue;
+        const was = before.get(m);
+        const now = placeOf(m);
+        const dx = was.left - now.left;
+        const dy = was.top - now.top;
+        if (dx || dy) nodes.get(m).animate?.([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: REFLOW_MS, easing: SPRING });
+      }
     };
 
     const paint = () => {
       frame = 0;
       hit = slotAt(slots, layout, x, y);
       const at = where(layout, module);
-      if (hit?.zone === 'head' && hit.col !== at.col && layout.cols[at.col].wins.length === 1) moveTo(hit.col);
-      // Its own place moved under it with its column: the transform takes that back.
-      const dx = x - x0 + (home - slots[where(layout, module).col].left);
-      node.style.transform = `translate(${dx}px, ${y - y0}px)`;
+      const target = layout.cols[hit?.col];
+      if (hit?.zone === 'head' && hit.col !== at.col && layout.cols[at.col].wins.length === 1) {
+        // Over another column's place: its column takes that place now.
+        liveTo(moveColumn(layout, at.col, hit.col));
+      } else if (hit?.zone === 'win' && target.wins[hit.row] && target.wins[hit.row] !== module) {
+        // Over a window of a column of two (2×2): the two trade places now.
+        liveTo(swapWindows(layout, module, target.wins[hit.row]));
+      }
+      // Its own place moved under it: the transform takes that back, and it is lifted a little.
+      const now = placeOf(module);
+      const dx = x - x0 + (home.left - now.left);
+      const dy = y - y0 + (home.top - now.top);
+      node.style.transform = `translate(${dx}px, ${dy}px) scale(${animate ? LIFT : 1})`;
       const box = dropRect(slots, layout, module, hit, { maxCols: fitColumns(room), rtl: dir });
       ghost.hidden = !box;
       if (box) {
@@ -763,7 +801,8 @@ export function createWindows(desk, {
       desk.removeAttribute('data-reordering');
       layout = normalizeLayout(next);
       apply(cancelled ? { keep: was } : {});
-      if (first) flip(first);
+      // It settles into its place the way the others made room for it.
+      if (first) flip(first, { duration: REFLOW_MS, easing: SPRING });
       // Resumed once they are in their places: each draws itself once, at its new width.
       for (const m of held) if (shown.has(m)) onPause(m, false, { resizing: true });
       onGesture(false, 'reorder');
