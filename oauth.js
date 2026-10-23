@@ -430,7 +430,15 @@ export function createOAuthServer({
     return { client, redirect };
   }
 
-  /** What, with a trusted redirect URI, is answered there as an OAuth error. */
+  /**
+   * What is wrong with the rest of the request, as [OAuth error, description].
+   * It is shown on screen, not sent to the redirect URI: anyone can register a
+   * client with their own redirect (or publish a CIMD document), and a link to
+   * /oauth/authorize with a wrong response_type would otherwise bounce the
+   * person, with no click of theirs, from this domain to that one (RFC 9700
+   * §4.11.2, "authorization server as open redirector"). Claude and ChatGPT
+   * always send these right; only "Cancel", a person's own click, goes back.
+   */
   function checkRequest(p) {
     if (p.get('response_type') !== 'code') return ['unsupported_response_type', 'Only response_type=code'];
     if (!p.get('code_challenge') || p.get('code_challenge_method') !== 'S256') {
@@ -495,7 +503,7 @@ export function createOAuthServer({
     res.end(page({ lang, title, body, theme }));
   }
 
-  function errorScreen(req, res, code) {
+  function errorScreen(req, res, code, vars = {}) {
     const user = users.fromRequest(req);
     const { lang, t } = texts(req, user);
     screen(res, 400, {
@@ -503,7 +511,7 @@ export function createOAuthServer({
       theme: themeOf(user),
       title: t('oauth.cannotConnect'),
       body: `<h1>${htmlText(t, 'oauth.cannotConnect')}</h1>
-<p class="oauth__text">${htmlText(t, `oauth.error.${code}`)}</p>
+<p class="oauth__text">${htmlText(t, `oauth.error.${code}`, vars)}</p>
 <p class="oauth__text">${htmlText(t, 'oauth.goBack')}</p>`,
     });
   }
@@ -571,7 +579,7 @@ ${!user && !challenge && externalSignIn
     const { client, redirect } = checked;
     const bad = checkRequest(p);
     if (bad) {
-      redirectBack(res, redirect, { error: bad[0], error_description: bad[1], state: p.get('state') });
+      errorScreen(req, res, 'request_invalid', { reason: escapeHtml(`${bad[0]}: ${bad[1]}`) });
       return;
     }
 

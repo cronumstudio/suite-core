@@ -316,6 +316,74 @@ test('update: in a host with one worker, the whole app’s version, and no notic
   assert.deepEqual(notices, [], 'but the split view says it, once');
 });
 
+test('update: a frame of the split view never asks /version by itself, nor on coming back', async () => {
+  const asked = [];
+  let listened = 0;
+  const timers = { ...fakeTimers(), setInterval: () => { throw new Error('no timer in a frame'); } };
+  const frame = watchUpdates({
+    fetch: async (url) => { asked.push(url); return { ok: true, json: async () => ({ version: 'b' }) }; },
+    loadLocal: async () => ({ version: 'a' }),
+    timers, doc: { addEventListener: () => { listened += 1; } }, host: async () => ({ worker: '/sw.js' }), framed: true,
+  });
+  await new Promise((done) => setTimeout(done, 10));
+  assert.deepEqual(asked, [], 'the view asks, once for every frame');
+  assert.equal(listened, 0);
+  assert.equal(frame.loaded().version, 'a', 'its own version is read, for About');
+  assert.equal(await frame.check({ announce: true }), true, 'About’s Check still asks');
+  assert.deepEqual(asked, ['/version']);
+  frame.stop();
+});
+
+test('base: the host’s modules are asked once per page, again when fresh, and again after a failure', async () => {
+  const { hostModules } = await import('../web/base.js');
+  let calls = 0;
+  let fail = true;
+  const fetch = async () => {
+    calls += 1;
+    if (fail) throw new Error('offline');
+    return { ok: true, status: 200, json: async () => ({ modules: [{ mount: 'a' }] }) };
+  };
+  await assert.rejects(hostModules({ fetch, fresh: true }));
+  fail = false;
+  const one = await hostModules({ fetch });
+  const two = await hostModules({ fetch });
+  assert.equal(one, two);
+  assert.equal(calls, 2, 'after the failure, asked again; then the same answer');
+  assert.deepEqual(one, { status: 200, answer: { modules: [{ mount: 'a' }] } });
+  await hostModules({ fetch, fresh: true });
+  assert.equal(calls, 3);
+  const missing = await hostModules({ fetch: async () => ({ ok: false, status: 404 }), fresh: true });
+  assert.deepEqual(missing, { status: 404, answer: null });
+});
+
+test('links: in a frame, a chip of another module opens in the section that shows it (kit:open)', async () => {
+  const { openBeside } = await import('../web/links.js');
+  const { OPEN_EVENT } = await import('../web/base.js');
+  const heard = [];
+  const parent = {
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
+    dispatchEvent(ev) { heard.push(ev); if (ev.detail.mount === 'notes') ev.detail.handled = true; },
+  };
+  const win = { location: { href: 'https://work.example/tasks/list/1', pathname: '/tasks/list/1', origin: 'https://work.example' }, parent };
+  const press = (href, extra = {}) => {
+    const ev = { button: 0, currentTarget: { getAttribute: () => href }, prevented: false, ...extra };
+    ev.preventDefault = () => { ev.prevented = true; };
+    openBeside(ev, { framed: true, win });
+    return ev;
+  };
+  assert.equal(press('/notes/#note=4').prevented, true, 'the view has Notes: it opens there');
+  assert.equal(heard[0].type, OPEN_EVENT);
+  assert.deepEqual({ ...heard[0].detail, source: null }, { url: '/notes/#note=4', mount: 'notes', source: null, handled: true });
+  assert.equal(heard[0].detail.source, win);
+  assert.equal(press('/projects/p/2').prevented, false, 'no section for it: the frame goes there, as before');
+  heard.length = 0;
+  assert.equal(press('/tasks/list/3').prevented, false, 'its own module: a link as any');
+  assert.equal(press('/notes/#note=4', { metaKey: true }).prevented, false, 'a key held: the browser’s');
+  assert.deepEqual(heard, []);
+  const page = { button: 0, currentTarget: { getAttribute: () => '/notes/' }, preventDefault() { throw new Error('not in a page'); } };
+  openBeside(page, { framed: false, win });
+});
+
 test('update: the server\'s version number is kept for About', async () => {
   let server = { app: '1.2.3', version: 'aaa' };
   const watcher = watchUpdates({
@@ -469,8 +537,10 @@ test('from one module to another: the rail of last time at once, and one page fa
   // The host's last answer, kept and drawn before asking again; only one that has this module.
   assert.match(shell, /const RAIL_KEY = 'host\.modules';/);
   assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\)/);
-  assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\);/);
-  assert.match(shell, /res\.status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
+  assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\{ fresh: false \}\);/);
+  assert.match(shell, /status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
+  // Back to the page the rail asks again, but not in a frame of the split view: the view has the rail.
+  assert.match(shell, /if \(!FRAMED\) document\.addEventListener\('visibilitychange'/);
   // A crossfade between pages of the site, the rail standing still; none for less motion.
   assert.match(css, /@view-transition \{ navigation: auto; \}/);
   assert.match(css, /\.kit-rail \{ view-transition-name: kit-rail; \}/);
@@ -527,7 +597,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)? \} from '\.\/base\.js'/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses, and their look.
     assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`]|api\/me\/look['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
@@ -716,6 +786,142 @@ test('a host’s one worker serves every module’s paths as the module did, and
   host.self.clients.matchAll = async () => [];
   await host.fire('notificationclick', { notification: { close() {}, data: {} } });
   assert.deepEqual(host.opened, ['/'], 'without a page open, a new window');
+});
+
+/**
+ * sw-core.js in a sandbox with caches that keep what is put in them, and a server whose files
+ * (`server`, `{ path: text }`) can change between two releases. → { worker(), fetched, store }
+ */
+async function deployedWorkers(scope, server) {
+  const vm = await import('node:vm');
+  const store = new Map();   // cache name → Map(path → response)
+  const fetched = [];
+  const pathOf = (input) => new URL(typeof input === 'string' ? input : input.url, scope).pathname;
+  class Response {
+    constructor(body, init = {}) { this.body = body; this.status = init.status ?? 200; this.ok = this.status < 400; this.url = ''; this.headers = init.headers || {}; }
+    clone() { const copy = new Response(this.body, this); copy.url = this.url; return copy; }
+    async json() { return JSON.parse(this.body); }
+    static error() { return { error: true }; }
+  }
+  const context = vm.createContext({
+    URL, Promise, setTimeout, clearTimeout, Response,
+    Request: class { constructor(url, init) { this.url = url; this.init = init; } },
+    fetch: async (input) => {
+      const pathname = pathOf(input);
+      fetched.push(pathname);
+      if (!(pathname in server)) return new Response('', { status: 404 });
+      const response = new Response(server[pathname]);
+      response.url = new URL(pathname, scope).href;
+      return response;
+    },
+  });
+  context.caches = {
+    keys: async () => [...store.keys()],
+    delete: async (name) => store.delete(name),
+    open: async (name) => {
+      if (!store.has(name)) store.set(name, new Map());
+      const files = store.get(name);
+      const cache = {
+        match: async (input) => files.get(pathOf(input))?.clone(),
+        put: async (input, response) => { files.set(pathOf(input), response.clone()); },
+        add: async (input) => {
+          const response = await context.fetch(input);
+          if (!response.ok) throw new Error('missing');
+          files.set(pathOf(input), response);
+        },
+        addAll: async (inputs) => { for (const input of inputs) await cache.add(input); },
+      };
+      return cache;
+    },
+    match: async (input) => {
+      for (const files of store.values()) { const hit = files.get(pathOf(input)); if (hit) return hit.clone(); }
+      return undefined;
+    },
+  };
+  /** A release of the worker: sw-core.js run afresh with these options, installed and active. */
+  const worker = async (options) => {
+    const listeners = {};
+    context.self = {
+      registration: { scope },
+      location: { origin: new URL(scope).origin },
+      addEventListener: (type, fn) => { listeners[type] = fn; },
+      skipWaiting: () => Promise.resolve(),
+      clients: { claim: () => Promise.resolve(), matchAll: async () => [] },
+    };
+    vm.runInContext(fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8'), context);
+    context.self.suiteWorker(options);
+    for (const type of ['install', 'activate']) {
+      let waited = null;
+      listeners[type]({ waitUntil: (p) => { waited = p; } });
+      await waited;
+    }
+    /** What a page gets for a GET of `url`: the worker's answer, or null when it leaves it to the browser. */
+    const get = async (url) => {
+      let answer = null;
+      listeners.fetch({ request: { method: 'GET', url, mode: 'cors' }, respondWith: (p) => { answer = p; }, waitUntil: () => {} });
+      return answer;
+    };
+    return { get };
+  };
+  return { worker, fetched, store };
+}
+
+test('a host’s worker serves code from its copy, keeps the kit once, and a release brings only what changed', async () => {
+  const server = {
+    '/': 'home', '/js/home.js': 'home v1', '/tasks/': 'tasks page', '/tasks/js/main.js': 'tasks v1',
+    '/notes/': 'notes page', '/notes/js/main.js': 'notes v1',
+  };
+  for (const file of ['/suite/kit.css', '/suite/base.js', '/suite/dom.js']) server[file] = `${file} v1`;
+  const { worker, fetched, store } = await deployedWorkers('https://work.example/', server);
+  const release = (version, hashes) => worker({
+    version, modules: ['/tasks/', '/notes/'], codeFirst: true, sharedKit: true, hashes,
+    shell: ['/', '/js/home.js', '/tasks/', '/tasks/js/main.js', '/notes/', '/notes/js/main.js'],
+  });
+  const first = {
+    '/js/home.js': 'h1', '/tasks/js/main.js': 't1', '/notes/js/main.js': 'n1',
+    '/suite/kit.css': 'k1', '/suite/base.js': 'b1', '/suite/dom.js': 'd1',
+  };
+  const one = await release('work-a', first);
+  assert.ok(fetched.includes('/suite/kit.css'));
+  assert.equal(fetched.filter((p) => /^\/(tasks|notes)\/suite\//.test(p)).length, 0, 'the kit once, at /suite/');
+
+  // Code: the copy, without a word to the server; a module's kit from the one copy, at the path it asked.
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/tasks/js/main.js')).body, 'tasks v1');
+  const base = await one.get('https://work.example/notes/suite/base.js');
+  assert.equal(base.body, '/suite/base.js v1');
+  assert.equal(base.url, '', 'a response of its own: the page reads it at /notes/suite/, so its base stays /notes/');
+  assert.deepEqual(fetched, [], 'nothing asked of the network');
+  assert.equal(await one.get('https://work.example/tasks/api/lists'), null, 'data still always reaches the server');
+
+  // A release that only changes the kit: a new worker, which brings that file and takes the rest from the old copy.
+  server['/suite/kit.css'] = '/suite/kit.css v2';
+  fetched.length = 0;
+  const two = await release('work-b', { ...first, '/suite/kit.css': 'k2' });
+  assert.deepEqual(fetched.filter((p) => first[p]), ['/suite/kit.css'], 'of what has a hash, only the file that changed travels');
+  assert.deepEqual([...store.keys()], ['work-b'], 'the old copy goes once the new one has what it needs');
+  fetched.length = 0;
+  assert.equal((await two.get('https://work.example/tasks/suite/kit.css')).body, '/suite/kit.css v2', 'the new kit, in every module');
+  assert.equal((await two.get('https://work.example/notes/js/main.js')).body, 'notes v1');
+  assert.deepEqual(fetched, []);
+
+  // A file the copy lacks: from the network once, and kept.
+  server['/tasks/js/late.js'] = 'late';
+  assert.equal((await two.get('https://work.example/tasks/js/late.js')).body, 'late');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  fetched.length = 0;
+  assert.equal((await two.get('https://work.example/tasks/js/late.js')).body, 'late');
+  assert.deepEqual(fetched, []);
+});
+
+test('an app on its own keeps code network first', async () => {
+  const server = { '/': 'page', '/js/main.js': 'v1' };
+  const { worker, fetched } = await deployedWorkers('https://tasks.example/', server);
+  const alone = await worker({ version: 'tasks-v1', shell: ['/', '/js/main.js'], kit: false });
+  server['/js/main.js'] = 'v2';
+  fetched.length = 0;
+  assert.equal((await alone.get('https://tasks.example/js/main.js')).body, 'v2');
+  assert.deepEqual(fetched, ['/js/main.js']);
 });
 
 /* ------------------------------ texts in code ----------------------------- */

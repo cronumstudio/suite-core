@@ -242,6 +242,16 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   const again = await fetch(`${base}/i18n/en.json`, { headers: { 'If-None-Match': catalog.headers.get('etag') } });
   assert.equal(again.status, 304);
   assert.equal((await call('GET', '/i18n/es.json')).data['errors.not_found'], 'No encontrado.', 'no file of its own: the suite’s');
+  // What no page of the app shows stays out: the admin panel's, the e-mails', the connect page's;
+  // the admin panel and the connect page ask for them all (`?all`).
+  const spanish = (await call('GET', '/i18n/es.json')).data;
+  assert.equal(spanish['admin.title'], undefined);
+  assert.equal(Object.keys(spanish).some((key) => /^(mail|oauth)\./.test(key)), false);
+  assert.equal(typeof spanish['admin.usage.off'], 'string', 'what Settings shows of usage stays');
+  const whole = await call('GET', '/i18n/es.json?all');
+  assert.equal(typeof whole.data['admin.title'], 'string');
+  assert.ok(Object.keys(whole.data).some((key) => key.startsWith('oauth.')));
+  assert.notEqual(whole.headers.get('etag'), (await call('GET', '/i18n/es.json')).headers.get('etag'));
   assert.equal((await call('GET', '/i18n/fr.json')).status, 404, 'not a language of this app');
   // Nothing else under /i18n/ reaches the static files: a case-insensitive disk (Windows, macOS)
   // would answer these with the app's raw en.json, without the suite's texts.

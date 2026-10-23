@@ -27,6 +27,7 @@
   "oauth.error.client_document_mismatch": "Les informations de l’application ne correspondent pas à son identifiant.",
   "oauth.error.redirect_not_registered": "L’adresse de retour n’est pas enregistrée pour cette application.",
   "oauth.error.request_expired": "La demande a expiré. Réessayez depuis l’application.",
+  "oauth.error.request_invalid": "La demande de l’application n’est pas valide ({reason}). Réessayez depuis l’application.",
   "oauth.code": "Code de votre application d’authentification",
   "oauth.codeHint": "Si vous n’avez pas votre téléphone, utilisez l’un de vos codes de secours.",
   "oauth.verifyAndAllow": "Vérifier et autoriser",

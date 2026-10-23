@@ -139,6 +139,48 @@ export function hostShell(publicDir, extra = []) {
   return [...new Set([...paths, ...extra])];
 }
 
+/**
+ * What each file of the worker's copy holds, as a hash (`{ '/tasks/js/main.js': '…' }`): the next
+ * copy takes from this one every file whose hash is the same, and only the rest travels again
+ * (sw-core.js `hashes`). `places` say where a path's files are, `[{ base: '/tasks/', dir, i18nDir }]`
+ * with the host's at `/`; the kit's are at /suite/. A catalog (`/tasks/i18n/es.json`) is served
+ * merged with the suite's texts, so its hash is the app's file and `catalogs`, the fingerprint of the
+ * suite's. The kit's files are all there, as the worker adds them to its copy by itself. Pages and manifests are left out, as is anything without a file (`js/app-version.js`):
+ * the server writes into them, and they always travel again.
+ */
+export function shellHashes(urls, { kitDir, places = [], catalogs = '' }) {
+  const sorted = [...places].sort((a, b) => b.base.length - a.base.length);
+  const hashOf = (file) => {
+    try {
+      const stat = fs.statSync(file);
+      return stat.isFile() ? contentHash(file, stat).slice(0, 16) : null;
+    } catch {
+      return null;
+    }
+  };
+  const found = {};
+  const kit = kitDir ? filesOf(kitDir, KEPT).map((rel) => `/suite/${rel}`) : [];
+  for (const url of [...urls, ...kit]) {
+    const pathname = String(url).split('?')[0];
+    if (pathname.endsWith('/') || /\.(html|webmanifest)$/.test(pathname) || pathname.endsWith('/js/app-version.js')) continue;
+    if (pathname.startsWith('/suite/')) {
+      const hash = kitDir ? hashOf(path.join(kitDir, pathname.slice('/suite/'.length))) : null;
+      if (hash) found[url] = hash;
+      continue;
+    }
+    const place = sorted.find((p) => pathname.startsWith(p.base));
+    if (!place) continue;
+    const rest = pathname.slice(place.base.length);
+    let hash = null;
+    if (/^i18n\/[a-z]{2}\.json$/.test(rest)) {
+      const own = place.i18nDir ? hashOf(path.join(place.i18nDir, rest.slice('i18n/'.length))) : null;
+      hash = crypto.createHash('sha1').update(`${catalogs}:${own || 'none'}`).digest('hex').slice(0, 16);
+    } else if (place.dir) hash = hashOf(path.join(place.dir, rest));
+    if (hash) found[url] = hash;
+  }
+  return found;
+}
+
 /** The worker's script: sw-core.js from the host's kit, and what it keeps. */
 export function workerScript({ name, options }) {
   return `/* ${name}'s service worker, written by its host (suite-core host.js \`worker\`, host-worker.js):\n`

@@ -458,3 +458,22 @@ export function int(value, { field, min = Number.MIN_SAFE_INTEGER, max = Number.
   if (!Number.isInteger(n) || n < min || n > max) throw badRequest('field_invalid', { field, min, max });
   return n;
 }
+
+/**
+ * A calendar date as `YYYY-MM-DD` that exists and falls in a sensible range:
+ * the same text back, or null. `2026-13-01`, `2026-02-31` and the year 2206
+ * are not dates a task or a plan can carry, and code that turns them into a
+ * `Date` (to add days, to draw a timeline) throws or freezes on them. One
+ * check for every module's REST and MCP (`dateOrNull`, `parseDate`…), and for
+ * the MCP's `format: 'date'` (mcp.js).
+ */
+export function isoDate(value, { minYear = 1900, maxYear = 2200 } = {}) {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const [y, m, d] = match.slice(1).map(Number);
+  if (y < minYear || y > maxYear) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return match[0];
+}
