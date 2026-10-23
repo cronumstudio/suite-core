@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { frontFingerprint } from '../app.js';
-import { fingerprint } from '../host-worker.js';
+import { fingerprint, shellHashes } from '../host-worker.js';
 import { contentHash, serveStatic } from '../http.js';
 
 /** A public folder with a page, a script and a catalog, every file dated `when`. */
@@ -103,4 +103,28 @@ test('serveStatic: the same file in a new build keeps its ETag and is a 304; ano
   const changed = head(two, '/js/app.js', etag);
   assert.equal(changed.status, 200);
   assert.notEqual(changed.headers.ETag, etag);
+});
+
+test('a release that changes only the kit changes its fingerprint and that file’s hash, nothing else (shellHashes)', (t) => {
+  const kitDir = publicFolder(t);
+  const tasks = publicFolder(t, { script: 'export const tasks = 1;\n' });
+  const shell = ['/tasks/', '/tasks/index.html', '/tasks/js/app.js', '/tasks/js/app-version.js', '/tasks/i18n/en.json', '/tasks/i18n/de.json'];
+  const places = [{ base: '/tasks/', dir: tasks, i18nDir: path.join(tasks, 'i18n') }];
+  const before = shellHashes(shell, { kitDir, places, catalogs: 'texts-1' });
+  const kitBefore = fingerprint(kitDir).version;
+  assert.equal(before['/tasks/'], undefined, 'pages always travel again');
+  assert.equal(before['/tasks/index.html'], undefined);
+  assert.equal(before['/tasks/js/app-version.js'], undefined, 'written by the server');
+  assert.match(before['/tasks/js/app.js'], /^[0-9a-f]{16}$/);
+  assert.match(before['/suite/js/app.js'], /^[0-9a-f]{16}$/, 'every file of the kit, at /suite/');
+  assert.match(before['/tasks/i18n/de.json'], /^[0-9a-f]{16}$/, 'a catalog the app has no file for still carries the suite’s texts');
+
+  fs.writeFileSync(path.join(kitDir, 'js', 'app.js'), 'export const a = 2;\n');
+  const after = shellHashes(shell, { kitDir, places, catalogs: 'texts-1' });
+  assert.notEqual(fingerprint(kitDir).version, kitBefore, 'a new version: a new worker');
+  assert.deepEqual(Object.keys(after).filter((url) => after[url] !== before[url]), ['/suite/js/app.js']);
+
+  const texts = shellHashes(shell, { kitDir, places, catalogs: 'texts-2' });
+  assert.deepEqual(Object.keys(texts).filter((url) => texts[url] !== after[url]).sort(), ['/tasks/i18n/de.json', '/tasks/i18n/en.json'],
+    'the suite’s texts change every catalog');
 });

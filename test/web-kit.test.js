@@ -718,6 +718,142 @@ test('a host’s one worker serves every module’s paths as the module did, and
   assert.deepEqual(host.opened, ['/'], 'without a page open, a new window');
 });
 
+/**
+ * sw-core.js in a sandbox with caches that keep what is put in them, and a server whose files
+ * (`server`, `{ path: text }`) can change between two releases. → { worker(), fetched, store }
+ */
+async function deployedWorkers(scope, server) {
+  const vm = await import('node:vm');
+  const store = new Map();   // cache name → Map(path → response)
+  const fetched = [];
+  const pathOf = (input) => new URL(typeof input === 'string' ? input : input.url, scope).pathname;
+  class Response {
+    constructor(body, init = {}) { this.body = body; this.status = init.status ?? 200; this.ok = this.status < 400; this.url = ''; this.headers = init.headers || {}; }
+    clone() { const copy = new Response(this.body, this); copy.url = this.url; return copy; }
+    async json() { return JSON.parse(this.body); }
+    static error() { return { error: true }; }
+  }
+  const context = vm.createContext({
+    URL, Promise, setTimeout, clearTimeout, Response,
+    Request: class { constructor(url, init) { this.url = url; this.init = init; } },
+    fetch: async (input) => {
+      const pathname = pathOf(input);
+      fetched.push(pathname);
+      if (!(pathname in server)) return new Response('', { status: 404 });
+      const response = new Response(server[pathname]);
+      response.url = new URL(pathname, scope).href;
+      return response;
+    },
+  });
+  context.caches = {
+    keys: async () => [...store.keys()],
+    delete: async (name) => store.delete(name),
+    open: async (name) => {
+      if (!store.has(name)) store.set(name, new Map());
+      const files = store.get(name);
+      const cache = {
+        match: async (input) => files.get(pathOf(input))?.clone(),
+        put: async (input, response) => { files.set(pathOf(input), response.clone()); },
+        add: async (input) => {
+          const response = await context.fetch(input);
+          if (!response.ok) throw new Error('missing');
+          files.set(pathOf(input), response);
+        },
+        addAll: async (inputs) => { for (const input of inputs) await cache.add(input); },
+      };
+      return cache;
+    },
+    match: async (input) => {
+      for (const files of store.values()) { const hit = files.get(pathOf(input)); if (hit) return hit.clone(); }
+      return undefined;
+    },
+  };
+  /** A release of the worker: sw-core.js run afresh with these options, installed and active. */
+  const worker = async (options) => {
+    const listeners = {};
+    context.self = {
+      registration: { scope },
+      location: { origin: new URL(scope).origin },
+      addEventListener: (type, fn) => { listeners[type] = fn; },
+      skipWaiting: () => Promise.resolve(),
+      clients: { claim: () => Promise.resolve(), matchAll: async () => [] },
+    };
+    vm.runInContext(fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8'), context);
+    context.self.suiteWorker(options);
+    for (const type of ['install', 'activate']) {
+      let waited = null;
+      listeners[type]({ waitUntil: (p) => { waited = p; } });
+      await waited;
+    }
+    /** What a page gets for a GET of `url`: the worker's answer, or null when it leaves it to the browser. */
+    const get = async (url) => {
+      let answer = null;
+      listeners.fetch({ request: { method: 'GET', url, mode: 'cors' }, respondWith: (p) => { answer = p; }, waitUntil: () => {} });
+      return answer;
+    };
+    return { get };
+  };
+  return { worker, fetched, store };
+}
+
+test('a host’s worker serves code from its copy, keeps the kit once, and a release brings only what changed', async () => {
+  const server = {
+    '/': 'home', '/js/home.js': 'home v1', '/tasks/': 'tasks page', '/tasks/js/main.js': 'tasks v1',
+    '/notes/': 'notes page', '/notes/js/main.js': 'notes v1',
+  };
+  for (const file of ['/suite/kit.css', '/suite/base.js', '/suite/dom.js']) server[file] = `${file} v1`;
+  const { worker, fetched, store } = await deployedWorkers('https://work.example/', server);
+  const release = (version, hashes) => worker({
+    version, modules: ['/tasks/', '/notes/'], codeFirst: true, sharedKit: true, hashes,
+    shell: ['/', '/js/home.js', '/tasks/', '/tasks/js/main.js', '/notes/', '/notes/js/main.js'],
+  });
+  const first = {
+    '/js/home.js': 'h1', '/tasks/js/main.js': 't1', '/notes/js/main.js': 'n1',
+    '/suite/kit.css': 'k1', '/suite/base.js': 'b1', '/suite/dom.js': 'd1',
+  };
+  const one = await release('work-a', first);
+  assert.ok(fetched.includes('/suite/kit.css'));
+  assert.equal(fetched.filter((p) => /^\/(tasks|notes)\/suite\//.test(p)).length, 0, 'the kit once, at /suite/');
+
+  // Code: the copy, without a word to the server; a module's kit from the one copy, at the path it asked.
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/tasks/js/main.js')).body, 'tasks v1');
+  const base = await one.get('https://work.example/notes/suite/base.js');
+  assert.equal(base.body, '/suite/base.js v1');
+  assert.equal(base.url, '', 'a response of its own: the page reads it at /notes/suite/, so its base stays /notes/');
+  assert.deepEqual(fetched, [], 'nothing asked of the network');
+  assert.equal(await one.get('https://work.example/tasks/api/lists'), null, 'data still always reaches the server');
+
+  // A release that only changes the kit: a new worker, which brings that file and takes the rest from the old copy.
+  server['/suite/kit.css'] = '/suite/kit.css v2';
+  fetched.length = 0;
+  const two = await release('work-b', { ...first, '/suite/kit.css': 'k2' });
+  assert.deepEqual(fetched.filter((p) => first[p]), ['/suite/kit.css'], 'of what has a hash, only the file that changed travels');
+  assert.deepEqual([...store.keys()], ['work-b'], 'the old copy goes once the new one has what it needs');
+  fetched.length = 0;
+  assert.equal((await two.get('https://work.example/tasks/suite/kit.css')).body, '/suite/kit.css v2', 'the new kit, in every module');
+  assert.equal((await two.get('https://work.example/notes/js/main.js')).body, 'notes v1');
+  assert.deepEqual(fetched, []);
+
+  // A file the copy lacks: from the network once, and kept.
+  server['/tasks/js/late.js'] = 'late';
+  assert.equal((await two.get('https://work.example/tasks/js/late.js')).body, 'late');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  fetched.length = 0;
+  assert.equal((await two.get('https://work.example/tasks/js/late.js')).body, 'late');
+  assert.deepEqual(fetched, []);
+});
+
+test('an app on its own keeps code network first', async () => {
+  const server = { '/': 'page', '/js/main.js': 'v1' };
+  const { worker, fetched } = await deployedWorkers('https://tasks.example/', server);
+  const alone = await worker({ version: 'tasks-v1', shell: ['/', '/js/main.js'], kit: false });
+  server['/js/main.js'] = 'v2';
+  fetched.length = 0;
+  assert.equal((await alone.get('https://tasks.example/js/main.js')).body, 'v2');
+  assert.deepEqual(fetched, ['/js/main.js']);
+});
+
 /* ------------------------------ texts in code ----------------------------- */
 
 test('the kit writes no text for people in its code, and every key it uses exists', async () => {

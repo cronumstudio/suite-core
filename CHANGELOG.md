@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.140.0 — 2026-10-23
+
+- **A host's worker serves code from its copy first, keeps the kit once, and a release brings only
+  what changed** (`web/sw-core.js`, `host-worker.js`, `host.js`). Every page of Cronum Work and
+  every change of module asked the network for each of its ~40 code files before drawing (up to 4 s
+  each with a weak signal), and each release of any module downloaded the whole app again,
+  the kit five times (once per module's path): 3–5 MB per device. The host's worker version is
+  already the fingerprint of everything the browser loads, so the host now passes:
+  - `codeFirst`: code, styles and catalogs come from the copy, never asked; what changes comes
+    with the next worker, which the update notice already waits for (`web/update.js`).
+  - `sharedKit`: the kit is kept once, at /suite/; `/tasks/suite/x` is answered from it as a
+    response of its own (`suiteAsAsked`), so the module's code still reads its base at /tasks/.
+  - `hashes` (`shellHashes`): the hash of each file it keeps; a new worker copies from the old
+    copy every file whose hash is the same and fetches only the rest. Pages, manifests and
+    `js/app-version.js` always travel again.
+  - The fingerprint (`/version`) now counts the suite's texts (`i18n/`, in every catalog the
+    browser loads) and a module's catalogs outside its public folder: code served from the copy
+    must change version whenever any of it changes. It changes once with this release.
+  An app on its own, and a module's own worker, keep code network first, as before.
+
 ## 0.129.0 — 2026-10-23
 
 - **A new password ends everything else that lets someone in** (`revoke.js`, `accounts.js`, `api.js`,
