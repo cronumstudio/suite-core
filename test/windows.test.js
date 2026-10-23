@@ -479,7 +479,7 @@ test('reorder: as a phone’s icons, the other window makes room while it is car
   const room = animations.find((a) => a.node === made.get('next'));
   assert.ok(room, 'the other slides into the place it left');
   assert.match(room.options.easing, /^cubic-bezier\(/);
-  assert.match(made.get('notes').style.transform, /scale\(1\.015\)$/, 'lifted a little');
+  assert.match(made.get('notes').style.transform, /^translate\([^)]*\)$/, 'it follows the pointer, at its own size');
   head('notes').dispatch('pointerup', {});
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes'], ['tasks']], 'let go: it stays');
 

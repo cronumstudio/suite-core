@@ -2019,7 +2019,7 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   kept shape, the prototype's `{ slots }` included. A window never moves in the document: it is
   placed by its grid column (`--cw-col-N` in the desk's template, 320 px at least, an 8 px bar
   between two), and a stacked one takes its half of the cell (`--cw-row-N`).
-- **Moving them.** A head picks its window up after 6 px and lifts it a little. As a phone's
+- **Moving them.** A head picks its window up after 6 px (its shadow lifts it). As a phone's
   icons, the others make room while it is carried: over another column's head or middle its column
   takes that place at once, over a window of a full column the two trade places, and the others
   flow to theirs (FLIP, 260 ms with a slight overshoot). Over the top or bottom part of a column of

@@ -12,9 +12,8 @@
  *   boxes. As a phone's icons do, the others make room while it is carried, not when it is let
  *   go: over another column's head or middle its column takes that place, and over a window of a
  *   full column (2×2) the two trade places, the others flowing to theirs (FLIP, Web Animations,
- *   260 ms with a slight overshoot) while the carried one is lifted a little. Over the top or
- *   bottom part of a column with room it would stack there, shown by a dashed box and done on
- *   letting go. Escape puts everything back.
+ *   260 ms with a slight overshoot). Over the top or bottom part of a column with room it would
+ *   stack there, shown by a dashed box and done on letting go. Escape puts everything back.
  * - Resize: the 8 px bars between two columns and between two stacked windows move their shares
  *   (`--cw-col-N` in fr, `--cw-row-N` the top window's share of its column) inside rAF, the windows
  *   they touch paused while it lasts (`onPause(module, true, { resizing: true })`). A double click
@@ -58,10 +57,10 @@ const STACK_EDGE = 0.22;    // of a column of one, the top and bottom parts that
 const FLIP_MS = 180;
 const EASE = 'cubic-bezier(.32, .72, 0, 1)';   // the kit's --kit-slide
 // While a window is carried, the others make room as a phone's icons do: a little longer, with a
-// slight overshoot; and the carried one is lifted a little.
+// slight overshoot. (The carried one isn't scaled up: a whole window drawn again at another size
+// cost a long frame each time; its shadow lifts it, windows.css.)
 const REFLOW_MS = 260;
 const SPRING = 'cubic-bezier(.2, 1.12, .4, 1)';
-const LIFT = 1.015;
 const KEY_STEP = 0.05;      // of the two shares a bar divides, per arrow key
 
 // A phone's swipe between modules.
@@ -757,11 +756,11 @@ export function createWindows(desk, {
         // Over a window of a column of two (2×2): the two trade places now.
         liveTo(swapWindows(layout, module, target.wins[hit.row]));
       }
-      // Its own place moved under it: the transform takes that back, and it is lifted a little.
+      // Its own place moved under it: the transform takes that back.
       const now = placeOf(module);
       const dx = x - x0 + (home.left - now.left);
       const dy = y - y0 + (home.top - now.top);
-      node.style.transform = `translate(${dx}px, ${dy}px) scale(${animate ? LIFT : 1})`;
+      node.style.transform = `translate(${dx}px, ${dy}px)`;
       const box = dropRect(slots, layout, module, hit, { maxCols: fitColumns(room), rtl: dir });
       ghost.hidden = !box;
       if (box) {
