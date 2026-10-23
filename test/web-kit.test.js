@@ -1108,6 +1108,53 @@ test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with n
   for (const area of [fresh, owned, applied]) assert.doesNotMatch(area.textContent, /null/);
 });
 
+test('with WorkOS and Google, Password and sign-in says plainly there is no password here, and where it is', async () => {
+  const { t } = await import('../web/i18n.js');
+  const page = await settingsAt('security', { provider: 'workos', app: { modules: { mcp: false } } }, {
+    'GET /api/me/sign-in': { method: 'google', password: false, two_factor: { available: false } },
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const text = page.root.all().find((node) => node.className === 'kit-settings__page').textContent;
+    assert.ok(text.includes(t('kit.security.elsewhere.title', { provider: 'Google' })));
+    assert.ok(text.includes(t('kit.security.elsewhere.body', { provider: 'Google' })));
+    const link = page.root.find('a').find((node) => node.textContent === t('kit.security.elsewhere.open', { provider: 'Google' }));
+    assert.equal(link.getAttribute('href'), 'https://myaccount.google.com/security');
+    assert.ok(!page.root.find('input').length, 'no password to type, nor a second step to set up');
+  } finally { page.done(); }
+});
+
+test('with WorkOS and a password: changing it, and a second step with no recovery codes', async () => {
+  const { t } = await import('../web/i18n.js');
+  const secret = 'JBSWY3DPEHPK3PXP';
+  const asked = [];
+  const answers = {
+    'GET /api/me/sign-in': { method: 'password', password: true, two_factor: { available: true, enabled: false } },
+    'POST /api/me/sign-in/password': { ok: true },
+    'POST /api/me/sign-in/two-factor/setup': { secret, uri: `otpauth://totp/Demo%3Aada?secret=${secret}&issuer=Demo` },
+    'POST /api/me/sign-in/two-factor/enable': { enabled: true },
+  };
+  const page = await settingsAt('security', { provider: 'workos', app: { modules: { mcp: false } } }, new Proxy(answers, {
+    get: (target, key) => { asked.push(key); return target[key]; },
+  }));
+  try {
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    await page.press(t('kit.security.changePassword'));
+    assert.ok(asked.includes('POST /api/me/sign-in/password'));
+    assert.ok(!asked.includes('POST /api/me/password'), 'not the local accounts\' route');
+    await page.press(t('kit.twoFactor.setUp'));
+    await page.press(t('kit.twoFactor.continue'));
+    const text = () => page.root.all().find((node) => node.className === 'kit-settings__page').textContent;
+    assert.ok(text().includes(t('kit.twoFactor.noCodesHint', { app: 'Demo' })), 'said before it is on: no recovery codes');
+    answers['GET /api/me/sign-in'] = { method: 'password', password: true, two_factor: { available: true, enabled: true } };
+    await page.press(t('kit.twoFactor.turnOn'));
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(text().includes(t('kit.twoFactor.onNoCodes', { app: 'Demo' })));
+    assert.ok(!page.root.find('button').some((node) => node.textContent === t('kit.twoFactor.newCodes')), 'no recovery codes to renew');
+    assert.ok(!page.root.find('ul').some((node) => node.className === 'kit-codes'));
+  } finally { page.done(); }
+});
+
 test('setting up two-factor without a QR (an address too long for one) shows the key alone, with no "null" in its place', async () => {
   const { t } = await import('../web/i18n.js');
   const secret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';

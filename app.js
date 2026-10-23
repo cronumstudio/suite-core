@@ -51,6 +51,7 @@ import { revenuecatProvider } from './revenuecat.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
+import { registerWorkosSecurityApi } from './workos-security.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
 import { createAlerts } from './alerts.js';
@@ -552,6 +553,7 @@ export function createSuite({
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
+    workosClient, workosPeople,
   };
 }
 
@@ -686,6 +688,14 @@ export function createApp({
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion,
     localPasswords, alsoAt: profile.alsoAt || {},
   });
+  // With WorkOS, the password and the second step from Settings too (a suite from before has no client).
+  if (suite.workosClient && suite.workosPeople) {
+    registerWorkosSecurityApi(api, {
+      workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
+      appName: config.app.name, twoFactor: install.workos?.twoFactor,
+      revokeAtProvider: (ids) => ids.forEach((id) => idp.revokeSession(id).catch((err) => log(`${tag} a session at WorkOS stays open: ${err.message}`))),
+    });
+  }
   if (config.modules.admin) {
     registerAdminApi(api, {
       accounts, entitlements, organizations, sessions, audit, twoFactor, tokens, oauth, push, idp, devices: suite.devices,

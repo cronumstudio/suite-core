@@ -26,6 +26,7 @@ const TABS = [
 /* --------------------------------- helpers --------------------------------- */
 
 const local = () => state.config?.provider === 'local';
+const workos = () => state.config?.provider === 'workos';
 const planName = (id) => {
   const plan = state.catalog?.plans.find((p) => p.id === id);
   return plan ? t(plan.name) : id;
@@ -315,6 +316,47 @@ function userDialog(user) {
         },
       }))) : null;
 
+  // With WorkOS the same, at WorkOS, once it is known how they sign in (workos-security.js):
+  // a password for whoever signs in with one, and their second step off for whoever lost the phone.
+  const signInBox = workos() ? el('div', { class: 'kit-contents' }) : null;
+  const twoFactorBox = workos() ? el('div', { class: 'kit-contents' }) : null;
+  async function paintSignIn() {
+    const answer = await api.get(`/api/admin/users/${user.id}/sign-in`);
+    if (answer.password) {
+      const next = el('input', { type: 'password', autocomplete: 'new-password' });
+      clear(signInBox).append(fold({ title: t('admin.users.password') },
+        el('p', { class: 'kit-hint', text: t('admin.users.passwordLeadWorkos') }),
+        el('div', { class: 'kit-row kit-row--end' },
+          field(t('fields.password'), next),
+          el('button', {
+            type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
+            onClick: async () => {
+              try {
+                await api.put(`/api/admin/users/${user.id}/sign-in/password`, { password: next.value });
+                next.value = '';
+                toast(t('admin.users.passwordSet'));
+              } catch (err) { fail(err); }
+            },
+          }))));
+    } else if (answer.method) {
+      clear(signInBox).append(el('p', { class: 'kit-hint', text: t('admin.users.signsInWith', { method: methodName(answer.method) }) }));
+    }
+    if (!answer.two_factor?.enabled) return;
+    clear(twoFactorBox).append(
+      el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLeadWorkos')}` }),
+      el('button', {
+        type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.twoFactorOff'),
+        onClick: async () => {
+          if (!(await confirmDialog(t('admin.users.twoFactorOffConfirm', { name: user.display_name })))) return;
+          try {
+            await api.delete(`/api/admin/users/${user.id}/sign-in/two-factor`);
+            toast(t('admin.users.twoFactorOffDone'));
+            clear(twoFactorBox);
+          } catch (err) { fail(err); }
+        },
+      }));
+  }
+
   // The plan: the admin's, over whatever else they have.
   let planSection = null;
   if (state.catalog) {
@@ -368,6 +410,7 @@ function userDialog(user) {
 
   // Everywhere they are signed in, their second step, and the account itself: at the end, apart.
   const endSection = el('div', { class: 'kit-dialog__end' },
+    twoFactorBox,
     local() && user.two_factor ? el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLead')}` }) : null,
     el('div', { class: 'kit-row' },
       local() && user.two_factor ? el('button', {
@@ -407,12 +450,19 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, usage, grants, passwordSection), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, usage, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
+  if (signInBox) paintSignIn().catch(fail);
+}
+
+/** How someone signs in, as people say it: "Google", "a password"… */
+function methodName(method) {
+  const names = { google: 'Google', apple: 'Apple', microsoft: 'Microsoft', github: 'GitHub' };
+  return names[method] || t(`admin.users.method.${method}`);
 }
 
 /**
