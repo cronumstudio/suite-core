@@ -869,7 +869,11 @@ async function deployedWorkers(scope, server) {
   const vm = await import('node:vm');
   const store = new Map();   // cache name → Map(path → response)
   const fetched = [];
-  const pathOf = (input) => new URL(typeof input === 'string' ? input : input.url, scope).pathname;
+  // As the Cache API matches by default: the query counts.
+  const pathOf = (input) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, scope);
+    return url.pathname + url.search;
+  };
   class Response {
     constructor(body, init = {}) { this.body = body; this.status = init.status ?? 200; this.ok = this.status < 400; this.url = ''; this.headers = init.headers || {}; }
     clone() { const copy = new Response(this.body, this); copy.url = this.url; return copy; }
@@ -966,6 +970,17 @@ test('a host’s worker serves code from its copy, keeps the kit once, and a rel
   assert.equal(base.url, '', 'a response of its own: the page reads it at /notes/suite/, so its base stays /notes/');
   assert.deepEqual(fetched, [], 'nothing asked of the network');
   assert.equal(await one.get('https://work.example/tasks/api/lists'), null, 'data still always reaches the server');
+
+  // A module's kit sheet scoped to its windows (Work's shell, host.js scopedSheets): its own answer,
+  // never the one copy, which every module's page goes on getting as it was.
+  server['/notes/suite/kit.css?scope=work'] = 'kit scoped to notes';
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css?scope=work')).body, 'kit scoped to notes');
+  assert.deepEqual(fetched, ['/notes/suite/kit.css?scope=work']);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css')).body, '/suite/kit.css v1', 'the one copy stays the kit’s');
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css?scope=work')).body, 'kit scoped to notes', 'and the scoped one is kept apart');
+  assert.deepEqual(fetched, ['/notes/suite/kit.css?scope=work']);
 
   // A release that only changes the kit: a new worker, which brings that file and takes the rest from the old copy.
   server['/suite/kit.css'] = '/suite/kit.css v2';

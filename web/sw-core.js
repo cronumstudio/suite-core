@@ -275,7 +275,9 @@ function suiteWorker(options) {
 
     if (suiteIsCode(local) && codeFirst) {
       // The copy is this release's: whatever changes comes with a new worker, never asked here.
-      var key = kitKey(local, base);
+      // A module's kit sheet scoped to its windows (`/notes/suite/kit.css?scope=work`, host.js
+      // scopedSheets) is that module's own answer, never the one copy at /suite/.
+      var key = /[?&]scope=/.test(url.search) ? null : kitKey(local, base);
       event.respondWith(caches.open(version)
         .then(function (cache) { return cache.match(key || request); })
         .then(function (cached) {
