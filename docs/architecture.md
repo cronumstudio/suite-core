@@ -1950,9 +1950,17 @@ once for each worker, titled with that module's name. With it:
   module's paths as its own worker did (its /api, /version and the rest never cached, its code
   network first, a page of it offline is its index.html), installs file by file, clears the old
   workers' copies, and a notice tapped opens its module (`suiteOpenModule`).
+- **Code from the copy first** (0.128.0). The worker's version is the fingerprint of everything the
+  browser loads (below), so the host passes `codeFirst`: code, styles and catalogs are answered
+  from the copy without asking the network, and what changes comes with the next worker. With
+  `sharedKit` the kit is kept once, at /suite/, and `/<mount>/suite/x` is answered from it as a
+  response of its own (`suiteAsAsked`), so a module's script still reads its base at its path.
+  `hashes` (`shellHashes`) gives each file's hash: a new worker takes from the old copy every
+  file whose hash didn't change and fetches only the rest. Pages, manifests and
+  `js/app-version.js` always travel again.
 - **One version for the whole app**: `/version` and `/js/app-version.js` at the root are the
   host's version (`app`), its name and one fingerprint of the host's, the kit's and every module's
-  files (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
+  files, the suite's texts and any module catalogs outside its public folder (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
   release is a new worker. Each module keeps its own `/<mount>/version`.
 - **The modules' pages** learn of it from `/api/auth/config` (`app.host.worker`) and, with the kit's
   `registerWorker()`, register the host's and retire theirs (a narrower scope would go on serving
