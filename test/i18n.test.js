@@ -253,3 +253,27 @@ test('appChecks: an app passes when its catalogs are flat and agree, its keys ex
     fs.rmSync(bad, { recursive: true, force: true });
   }
 });
+
+test('the catalog a page loads leaves out the admin panel’s, the e-mails’ and the connect page’s texts', async () => {
+  const { clientTexts } = await import('../app.js');
+  const { SUITE_CATALOGS } = await import('../i18n.js');
+  const english = SUITE_CATALOGS.en;
+  const kept = clientTexts(english);
+  assert.equal(kept['admin.title'], undefined);
+  assert.equal(Object.keys(kept).some((key) => key.startsWith('mail.') || key.startsWith('oauth.')), false);
+  assert.equal(kept['admin.usage.off'], english['admin.usage.off'], 'what Settings shows of usage stays');
+  assert.equal(kept['kit.settings.title'] ?? kept['errors.not_found'], english['kit.settings.title'] ?? english['errors.not_found']);
+  // Every text the kit's pages use, but the admin panel's and the connect page's, is still there.
+  const { unknownKeys } = await import('../tools/i18n.mjs');
+  const web = fileURLToPath(new URL('../web/', import.meta.url));
+  const pages = fs.readdirSync(web).filter((f) => f.endsWith('.js') && !['admin.js', 'connect.js'].includes(f));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-client-texts-'));
+  try {
+    for (const file of pages) fs.copyFileSync(path.join(web, file), path.join(dir, file));
+    assert.deepEqual(unknownKeys(kept, [dir]), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const bytes = (catalog) => Buffer.byteLength(JSON.stringify(catalog));
+  assert.ok(bytes(kept) < bytes(english) * 0.8, `${bytes(kept)} of ${bytes(english)} bytes`);
+});

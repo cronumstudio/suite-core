@@ -137,6 +137,7 @@ function workosRoutes(suite) {
   const router = createRouter();
   registerWorkosSecurityApi(router, {
     workos, users, accounts: suite.accounts, sessions: suite.sessions, appName: 'Demo', revokeEverything: revoker.revokeEverything,
+    adminIdentity: true,
   });
   async function call(method, pathname, { as, token, body }) {
     const found = router.match(method, pathname);
@@ -212,10 +213,11 @@ const PATHS = [
   {
     name: 'the admin setting the password at WorkOS (PUT /api/admin/users/:id/sign-in/password)',
     workos: true,
-    run: async ({ routes, armed, suite }) => {
+    run: async ({ routes, armed, suite, admin }) => {
       const root = suite.accounts.byUsername('admin');
+      // The admin has no WorkOS account here: their sign-in a moment ago is the re-authentication.
       const out = await routes.call('PUT', `/api/admin/users/${armed.ada.id}/sign-in/password`, {
-        as: root.id, token: 'the-admins-own', body: { password: 'a-brand-new-one' },
+        as: root.id, token: admin.token(), body: { password: 'a-brand-new-one' },
       });
       assert.equal(out.status, 200);
       return { kept: null };

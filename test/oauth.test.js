@@ -149,6 +149,31 @@ try {
   check('Values in texts are escaped and put in bold', html.includes('<strong>Client</strong>'));
   check('Its CSP allows going back to the client only',
     /form-action 'self' https:\/\/client\.example/.test(screen.headers.get('content-security-policy') || ''));
+  // sc-oauth-mcp-1: anyone can register a client whose redirect is theirs. A link to /oauth/authorize
+  // with a request that can't go on must not bounce the person there with no click of theirs.
+  const evil = await (await fetch(`${base}/oauth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_name: 'Evil', redirect_uris: ['https://evil.example/'], token_endpoint_auth_method: 'none' }),
+  })).json();
+  const lure = { ...params, client_id: evil.client_id, redirect_uri: 'https://evil.example/' };
+  for (const [what, query] of [
+    ['a wrong response_type', { ...lure, response_type: 'x' }],
+    ['no PKCE', { ...lure, code_challenge: null, code_challenge_method: null }],
+    ['another resource', { ...lure, resource: 'https://elsewhere.example/mcp' }],
+  ]) {
+    const answer = await fetch(`${base}/oauth/authorize?${form(query)}`, { redirect: 'manual' });
+    const page = await answer.text();
+    check(`With ${what}, a page here says so instead of going to the client's address`,
+      answer.status === 400 && !answer.headers.get('location') && page.includes('[oauth.error.request_invalid]')
+      && !page.includes('evil.example'), `${answer.status} ${answer.headers.get('location')}`);
+  }
+  const posted = await post('/oauth/authorize', { ...lure, response_type: 'x', decision: 'cancel' });
+  check('Nor when the bad request is posted', posted.status === 400 && !posted.headers.get('location'));
+  const cancelled = await post('/oauth/authorize', { ...params, decision: 'cancel' });
+  const cancelledTo = new URL(cancelled.headers.get('location') || 'about:blank');
+  check('"Cancel", a person’s own click, still goes back with access_denied and the state',
+    cancelled.status === 302 && cancelledTo.origin === 'https://client.example'
+    && cancelledTo.searchParams.get('error') === 'access_denied' && cancelledTo.searchParams.get('state') === 's1');
   const wrong = await post('/oauth/authorize', { ...params, username: 'ada', password: 'nope', decision: 'allow' });
   check('A wrong password stays on screen', wrong.status === 200 && (await wrong.text()).includes('[oauth.badCredentials]'));
   const ok = await post('/oauth/authorize', { ...params, username: 'ada', password: 'secret123', decision: 'allow' });

@@ -36,7 +36,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at, BASE, FRAMED, SETTINGS_EVENT, applyLook, LOOK_KEY } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
@@ -595,20 +595,18 @@ export function createShell({
   }
 
   /** Asks the host again: someone may have turned a module on or off in another tab. */
-  async function refreshModules() {
+  async function refreshModules({ fresh = true } = {}) {
     if (!mount) return null;
     try {
-      const res = await fetch('/api/modules', { credentials: 'same-origin' });
-      if (res.status === 404) {   // no host there: an app on its own under a path
+      const { status, answer } = await hostModules({ fresh });
+      if (status === 404) {   // no host there: an app on its own under a path
         try { localStorage.removeItem(RAIL_KEY); } catch { /* private mode */ }
         applyLook(null);
         dropRail();
         return asModule(false);
       }
       // A frame destroyed while the host was asked has no rail to paint, nor a module to remember.
-      if (destroyed || !res.ok) return null;
-      const answer = await res.json();
-      if (destroyed) return null;
+      if (destroyed || !answer) return null;
       try { localStorage.setItem(RAIL_KEY, JSON.stringify(answer)); } catch { /* private mode, full */ }
       // The look the person chose, from any device: painted now and kept for the next page.
       if ('look' in answer) applyLook(answer.look);
@@ -631,10 +629,11 @@ export function createShell({
     let last = null;
     try { last = JSON.parse(localStorage.getItem(RAIL_KEY) || 'null'); } catch { /* none, or not JSON */ }
     if (Array.isArray(last?.modules) && last.modules.some((m) => m?.mount === mount)) paintRail(last);
-    refreshModules();
+    refreshModules({ fresh: false });
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
     window.addEventListener('resize', syncSwitcher, { signal });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
+    // Back to the page, the host is asked again; in a frame of the split view the view has the rail, not the frame.
+    if (!FRAMED) document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
     document.addEventListener('kit-modules', () => refreshModules(), { signal });
     // A look chosen in another tab, or in another frame of the split view: this page follows at once.
     window.addEventListener('storage', (ev) => {

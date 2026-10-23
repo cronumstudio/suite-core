@@ -145,6 +145,14 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // subscriptions end: only where this install is all the person has there (Cronum Work), never
     // where other apps sign in with the same provider's accounts or share a subscription.
     deleteAtProviders: ac.deleteAtProviders ?? false,
+    // Whether the admin here may set someone's password and take their second step off at the
+    // identity provider (WorkOS, workos-security.js): only the install that owns the identities
+    // (Cronum Work), since a WorkOS user is the same in every product that signs in with it.
+    adminIdentity: ac.adminIdentity ?? false,
+    // Only the subscriptions: they stop renewing at the request and end when the account goes, while
+    // the person stays at the identity provider (an install that bills alone, with apps that share
+    // its logins). Left out, as deleteAtProviders.
+    endSubscriptions: ac.endSubscriptions ?? ac.deleteAtProviders ?? false,
   };
   if (!['admin', 'invite', 'open'].includes(accounts.signup)) {
     errors.push(`${env.SIGNUP ? 'SIGNUP' : 'accounts.signup'} "${accounts.signup}": use admin, invite or open`);
@@ -152,6 +160,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (!wholeNumber(accounts.minPasswordLength, 6, 128)) errors.push('accounts.minPasswordLength: a whole number from 6 to 128');
   if (!wholeNumber(accounts.deletionDays, 0, 365)) errors.push('accounts.deletionDays: a whole number of days from 0 to 365');
   if (typeof accounts.deleteAtProviders !== 'boolean') errors.push('accounts.deleteAtProviders: true or false');
+  if (typeof accounts.adminIdentity !== 'boolean') errors.push('accounts.adminIdentity: true or false');
+  if (typeof accounts.endSubscriptions !== 'boolean') errors.push('accounts.endSubscriptions: true or false');
   if (!accounts.roles.includes('admin')) errors.push('accounts.roles must include "admin"');
 
   const se = isObject(p.sessions) ? p.sessions : {};
@@ -382,11 +392,16 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
       else if (env.PADDLE_CHECKOUT_URL && !/^https:\/\/[^/\s]+\/\S*$/.test(env.PADDLE_CHECKOUT_URL)
         && !(environment === 'sandbox' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/\S*$/.test(env.PADDLE_CHECKOUT_URL))) {
         errors.push(`PADDLE_CHECKOUT_URL "${env.PADDLE_CHECKOUT_URL}" must be an https address (the page with Paddle.js)`);
+      } else if (env.PADDLE_CHECKOUT_SECRET && String(env.PADDLE_CHECKOUT_SECRET).length < 32) {
+        errors.push('PADDLE_CHECKOUT_SECRET must be at least 32 characters (it signs what each checkout says, paddle.js)');
       } else {
         billing = {
           provider: 'paddle', apiKey: env.PADDLE_API_KEY, webhookSecret: env.PADDLE_WEBHOOK_SECRET, environment,
           apiBase: String(env.PADDLE_API_BASE || PADDLE_API[environment]).replace(/\/+$/, ''),
           checkoutUrl: env.PADDLE_CHECKOUT_URL || '',
+          // The key of each checkout's signature; empty, one derived from PADDLE_WEBHOOK_SECRET. Installs
+          // that grant one subscription together, a notification destination each, share it.
+          signingSecret: env.PADDLE_CHECKOUT_SECRET || '',
         };
       }
     } else errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": use stripe, paddle or remote`);
