@@ -576,16 +576,20 @@ export function openSettings(options) {
       try {
         const { user } = await api.patch('/api/me', { prefs: { lang: select.value } });
         setUser(user);
-        await options.setLanguage?.(select.value);
-        // The apps load it themselves (loadLanguage): in Work's shell every module speaks it, not this one alone.
-        shareLanguage(currentLanguage());
+        // The apps load it themselves (loadLanguage): in Work's shell every module speaks it, not this one
+        // alone. An app that loads nothing here has nothing new to tell the shell.
+        if (options.setLanguage) {
+          await options.setLanguage(select.value);
+          shareLanguage(currentLanguage());
+        }
         // Everything here is written again in the new language.
         close();
         openSettings({ ...options, user, start: 'appearance' });
       } catch (err) { fail(err); }
     });
     const theme = segmented(['system', 'light', 'dark'].map((value) => ({ value, label: t(`kit.appearance.theme.${value}`) })),
-      state.user?.theme || 'system', async (value) => {
+      // In Work's shell the theme shown is the page's, which the shell keeps (`suite.theme`), not this module's account's.
+      workRegistry()?.theme?.current?.() || state.user?.theme || 'system', async (value) => {
         // In Cronum Work's shell the theme is the page's, one for every module (`suite.theme`): the
         // shell paints it and tells the windows. A module painting <html> with its own key would win
         // over the others until the next one did.

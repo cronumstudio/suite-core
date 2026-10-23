@@ -231,7 +231,7 @@ async function appearance({ applyTheme, setLanguage = null }) {
   const { openSettings } = await notes('settings.js');
   answers['PATCH /notes/api/me'] = { user: { username: 'ada', theme: 'dark', prefs: { lang: 'es' } } };
   const settings = openSettings({
-    app: { id: 'notes', name: 'Notes' }, user: { username: 'ada', role: 'user' },
+    app: { id: 'notes', name: 'Notes' }, user: { username: 'ada', role: 'user', theme: 'dark' },
     config: { app: { languages: ['en', 'es'] } }, start: 'appearance', applyTheme, setLanguage,
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -267,6 +267,8 @@ test('a theme chosen in a module\'s Settings is the shell\'s to paint in Work, t
   await inWork(async (told) => {
     const settings = await appearance({ applyTheme: (theme) => painted.push(theme) });
     assert.equal(settings.overlay.getAttribute('data-owner'), 'notes', 'Settings on the body are the module\'s');
+    const pressed = settings.overlay.all().find((node) => node.getAttribute('aria-pressed') === 'true');
+    assert.equal(pressed?.getAttribute('data-value'), 'system', 'the page\'s theme shown, not the account\'s (dark)');
     await settings.pick('dark');
     assert.deepEqual(told.theme, ['dark'], 'one theme for every module, painted by the shell');
     assert.deepEqual(painted, ['light'], 'not written on <html> with the module\'s own key');
@@ -301,6 +303,11 @@ test('a language chosen in a module goes to the shell once; one the shell gives 
       // The language a module starts in is the shell's to give: loading one tells nobody.
       await i18n.loadLanguage('en');
       assert.deepEqual(told.language, ['es']);
+      // Settings of an app that loads no language there (no setLanguage) push none of their own (en) on the shell.
+      const quiet = await appearance({ applyTheme: () => {} });
+      await quiet.choose('fr');
+      assert.deepEqual(told.language, ['es']);
+      quiet.close();
     }, { lang: 'fr' });
   } finally {
     delete globalThis.dispatchEvent;
