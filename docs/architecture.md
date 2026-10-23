@@ -963,8 +963,15 @@ key) and, optionally, `PADDLE_CHECKOUT_URL`, the page with Paddle.js that pays a
 (without it, the account's default payment link); all checked on start. A product's prices may be
 given per environment, `price: { sandbox: 'pri_…', production: 'pri_…' }`, since each has its
 own ids; the one of `PADDLE_ENV` is used. The checkout is a transaction made through the API, with
-`custom_data: { workos_user_id, email, product }` (`subject` instead without WorkOS) and the
-person's customer, found or made by their verified email; Paddle answers its payment link,
+`custom_data: { workos_user_id, email, product, sig }` (`subject` instead without WorkOS) and the
+person's customer, found or made by their verified email. `sig` (v0.128.0) is an HMAC of who pays,
+the product, the price, the app and that customer, keyed by `PADDLE_CHECKOUT_SECRET` or, without
+it, by a key derived from `PADDLE_WEBHOOK_SECRET`: Paddle.js opens a checkout for any price with any
+custom_data from the browser, so an event whose `sig` is missing or doesn't match its price is
+`unsigned`, and a subscription or purchase never heard of on one grants nothing (`'unsigned'`,
+`billing.unsigned` in the audit); a known one keeps going (bought before, or its plan changed in the
+portal), and a customer linked to another account moves only on a signature for that very customer
+(else `billing.customer_conflict`); Paddle answers its payment link,
 `PADDLE_CHECKOUT_URL?return=…&_ptxn=txn_…` (`&env=sandbox` in the sandbox). The portal is a
 customer portal session. Paddle copies the transaction's `custom_data` to the subscription, so
 `subscription.created/updated/canceled/paused/resumed/activated` say who; a
@@ -1627,6 +1634,9 @@ kit's), then Notes is built on it whole, then the others as they move to English
   they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when the
   account goes, and the WorkOS user is deleted first (an account whose identity can't be deleted
   waits for the next sweep); never where other apps share those accounts or that subscription.
+  `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
+  an install that bills alone while other apps sign in with the same users; left out, as
+  `deleteAtProviders`.
   `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's `onDeletionRequested`,
   `onDeletionCancelled`) tell others of the request and of its taking back, awaited after it; a
   hook that fails is logged; a host's modules get them too. With `billing.stopOnOrganizationDeleted`,

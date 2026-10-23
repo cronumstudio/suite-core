@@ -62,10 +62,13 @@
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
  *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
- *     own?, unknownPrice?, sandbox?, refundReversed?, ending? }
+ *     own?, unknownPrice?, sandbox?, refundReversed?, ending?, unsigned?, customerUnsigned? }
  * (`refundReversed`: the store took a refund back, so the period it had paid back counts again.
  * `ending`: true when a subscription won't renew, cancelled for its period's end; false when it
- * renews; left out by a provider that can't tell, kept as unknown.)
+ * renews; left out by a provider that can't tell, kept as unknown. `unsigned`: the provider
+ * can't vouch that its checkout said who pays (Paddle's `sig`): a subscription or purchase never
+ * heard of is then `'unsigned'`, nothing granted; `customerUnsigned`: who pays is vouched for,
+ * the customer isn't. Either way a customer linked to another account stays theirs.)
  *
  * Several providers in one install (P6): the web's (BILLING_PROVIDER) and the stores' (STORE_BILLING,
  * stores.js) are two instances of this, on the same tables, each under its own provider id. An
@@ -395,12 +398,26 @@ export function createBilling({
   /**
    * Links a provider's customer to an account. `takeOver`: the event said who
    * by their identity, which outranks a link made before (one a copy of the
-   * install or an older checkout may have got wrong).
+   * install or an older checkout may have got wrong). Only when the event can't
+   * have been made in a browser: a provider that signs what its checkout says
+   * (Paddle) marks one it can't vouch for `unsigned`, or `customerUnsigned` when
+   * the customer isn't the one its checkout named. Then a customer linked to
+   * someone else stays theirs, and the audit says so (`billing.customer_conflict`):
+   * anyone can open a checkout with another person's email, and the provider may
+   * hand it that person's customer, with its invoices and payment method.
    */
-  function linkCustomer(subject, customer, { takeOver = false } = {}) {
+  function linkCustomer(subject, customer, { takeOver = false, event = null } = {}) {
     if (!customer) return;
     const owner = subjectOfCustomer(customer);
     if (owner && owner.type === subject.type && owner.id === subject.id) return;
+    const vouched = event?.unsigned !== true && event?.customerUnsigned !== true;
+    if (owner && takeOver && !vouched && !isGone(owner)) {
+      log(`[billing] ${source} event ${event?.id}: customer ${customer} is another account's, and the event can't prove it is this one's: the link stays`);
+      record('billing.customer_conflict', subject, {
+        provider: source, customer, ref: event?.ref ?? null, owner: `${owner.type}:${owner.id}`,
+      });
+      return;
+    }
     // A link to a group deleted here names nobody: the customer is whoever's it pays for now.
     if (owner && !takeOver && !isGone(owner)) return;
     if (owner) database.run('DELETE FROM billing_customers WHERE provider = ? AND customer_id = ?', source, customer);
@@ -537,7 +554,7 @@ export function createBilling({
     // Before the customer is linked: another product's customer is nobody's here. This also
     // covers what was waiting since before the option was on (claim).
     if (isForeign(event)) return 'foreign';
-    linkCustomer(subject, event.customer, { takeOver: byIdentity });
+    linkCustomer(subject, event.customer, { takeOver: byIdentity, event });
     const product = catalog[event.product];
     // A product without seats (`seats: false`, a family's): the quantity a provider reports is how
     // many of the price were bought —Paddle's and Stripe's checkouts buy one—, never how many
@@ -641,10 +658,23 @@ export function createBilling({
   }
 
   /**
+   * Whether a subscription or purchase is known here: its row, its grant, or an event of it waiting
+   * for its person. An event of one without the provider's signature (`unsigned`) counts only then:
+   * one bought before the provider signed, or whose plan changed in the portal on another price.
+   */
+  const knownRef = (ref) => Boolean(
+    database.get('SELECT 1 FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, ref)
+    || database.get('SELECT 1 FROM entitlement_grants WHERE source = ? AND external_ref = ?', source, ref)
+    || database.get('SELECT 1 FROM billing_pending WHERE provider = ? AND ref = ?', source, ref),
+  );
+
+  /**
    * Applies one event, once. Returns what it did: granted, extended, changed,
    * revoked, refunded, kept, stale, pending, duplicate, ignored, nothing,
-   * foreign (another product's, with the options at the top of this file) or
-   * gone (for a group deleted here, with `organizationGone`).
+   * foreign (another product's, with the options at the top of this file),
+   * gone (for a group deleted here, with `organizationGone`) or unsigned (a
+   * subscription or purchase never heard of, on an event its provider marks
+   * `unsigned`).
    * `reading`: the event is what the store holds now (stores.js), not a
    * delivery; one that changes nothing is 'unchanged', and it and a stale one
    * leave no row and no audit.
@@ -667,6 +697,11 @@ export function createBilling({
         // Before whoIs(): nothing of the person is looked up, linked or kept for them.
         outcome = 'foreign';
         log(`[billing] ${source} event ${event.id}: another product's, ignored`);
+      } else if (normalized.unsigned === true && !knownRef(normalized.ref)) {
+        // What a browser may have made (Paddle.js opens a checkout for any price with any
+        // custom_data): a subscription or purchase never heard of grants nothing, links nothing.
+        outcome = 'unsigned';
+        log(`[billing] ${source} event ${event.id}: ${normalized.type} ${normalized.ref} without this server's signature, never heard of: nothing granted`);
       } else {
         const who = whoIs(normalized);
         if (who.waits) {
