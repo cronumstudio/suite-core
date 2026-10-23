@@ -3,6 +3,47 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.127.0 — 2026-10-23
+
+- **Password and sign-in is the account's; where one is signed in is a connection**
+  (`web/settings.js`, `i18n/*.json`). Settings had a Security group with one section that held the
+  password, two-step verification and the open sessions. The group is gone: **Password and sign-in**
+  (`security`, the same id, so `?settings=security` still opens it) is now in Account, after the
+  profile; **Where you are signed in** is a section of its own (`sessions`) at the end of
+  Connections, next to Your AI and Notifications, with the same list and the same sign-out per
+  device. Connections is always there now, even with no AI connector and no notices.
+  `kit.settings.groups.security` is gone; the hints say what each section holds
+  (`kit.security.hint`, `kit.security.hintProvider`, the new `kit.sessions.hint`).
+- **With WorkOS, the password and two-step verification from Settings** (`workos-security.js`,
+  `workos.js`, `workos-accounts.js`, `accounts.js`, `schema.js`, `app.js`, `web/settings.js`,
+  `web/admin.js`, `i18n/*.json`). Before, Settings only said they were managed where one signs in.
+  - **How someone signs in decides what they see.** The callback notes WorkOS's
+    `authentication_method` on the identity (migration 27, `user_identities.method`:
+    `password`, `google`, `apple`, `microsoft`, `github`, `sso`, `email_code`; `signInMethod()`).
+    For someone who hasn't signed in since, the accounts WorkOS links to them say it
+    (`GET /user_management/users/:id/identities`). With Google, Apple, Microsoft or GitHub the
+    section says plainly that there is no password here, that both are changed at that account,
+    and links to its security page; with a company's sign-in (SSO) or a code by email, a line that
+    says so. No second step is offered to them.
+  - **A new password** (`POST /api/me/sign-in/password`), given the current one: it is checked
+    with WorkOS's password grant, with the sign-in brake, and the session that check opens is
+    closed at once; an answer that only wants a second step counts as right. WorkOS sets it
+    (`PUT /user_management/users/:id`) and says when it is too weak (`password_rejected`). The other
+    sessions end, here and at WorkOS.
+  - **Two-step verification, optional** (`/api/me/sign-in/two-factor/setup|enable|disable`): the
+    password, a QR code, a first code. The secret is made and that code checked here, and only then
+    is it given to WorkOS as a TOTP factor (`totp_secret`), so no factor is ever left there half
+    set up for AuthKit to ask for. AuthKit then asks for the code after the password, on the web and
+    when an AI client is connected. Off with the password and a code. WorkOS has no recovery codes:
+    the texts say so, and that whoever loses the phone writes to support.
+  - **The admin** (`GET /api/admin/users/:id/sign-in`, `DELETE …/sign-in/two-factor`,
+    `PUT …/sign-in/password`): an account's page says how they sign in, sets a password for whoever
+    signs in with one (they are signed out everywhere) and takes the second step off for whoever
+    lost the phone.
+  - **`WORKOS_TWO_FACTOR`**: who is offered the second step, `admins` by default while it is
+    tried out with AuthKit, then `on`; `off` offers it to no one. Changing the password is for
+    everyone. WorkOS not answering is a 503 `provider_unavailable`.
+
 ## 0.126.1 — 2026-10-22
 
 - **Signing out and deleting one's account inside the app on a phone stay in the app**

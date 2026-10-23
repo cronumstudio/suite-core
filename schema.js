@@ -17,7 +17,7 @@
 import { sessionsSchema } from './sessions.js';
 import { rateLimitSchema } from './rate-limit.js';
 import { entitlementsSchema, entitlementUsageSchema } from './entitlements.js';
-import { usersSchema, identitiesSchema, accountDeletionSchema } from './accounts.js';
+import { usersSchema, identitiesSchema, identityMethodSchema, accountDeletionSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
@@ -76,4 +76,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 25, name: 'billing-ending', up: billingEndingSchema },
   // The reminders a phone's app shows itself, so the server doesn't push them too (native-push.js, push.native).
   { version: 26, name: 'device-reminders', up: deviceRemindersSchema },
+  // How someone last signed in through WorkOS, for what Settings offers them (workos-security.js).
+  { version: 27, name: 'identity-sign-in-method', up: identityMethodSchema },
 ]);

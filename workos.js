@@ -40,6 +40,8 @@ export function workosConfigFromEnv(env = process.env) {
     clientId: env.WORKOS_CLIENT_ID || '',
     authkitDomain: env.WORKOS_AUTHKIT_DOMAIN || '',
     mcpAudience: env.WORKOS_MCP_AUDIENCE || '',
+    // Who is offered two-step verification in Settings (workos-security.js): on | admins | off.
+    twoFactor: ['on', 'admins', 'off'].includes(env.WORKOS_TWO_FACTOR) ? env.WORKOS_TWO_FACTOR : 'admins',
   };
 }
 
@@ -128,7 +130,11 @@ export function createWorkosClient({
       if (status >= 500) throw new WorkosUnavailable(`WorkOS answered ${status}`);
       throw new Error(body?.error_description || body?.message || `WorkOS rejected the code (${status})`);
     }
-    return { account: body.user, sessionId: claims(body.access_token)?.sid || null };
+    return {
+      account: body.user, sessionId: claims(body.access_token)?.sid || null,
+      // How they signed in this time: Password, GoogleOAuth, AppleOAuth, MagicAuth, SSO…
+      method: body.authentication_method || null,
+    };
   }
 
   /** Closes the AuthKit session; WorkOS then goes to the address set in its dashboard. */
@@ -186,6 +192,131 @@ export function createWorkosClient({
     if (ok) return true;
     if (status === 404) return false;
     throw new WorkosUnavailable(`WorkOS answered ${status}`);
+  }
+
+  /* ------------------------ password and second step --------------------- */
+
+  const bearer = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  /** An answer that is WorkOS's trouble, not the request's. */
+  const unavailable = (status) => status >= 500 || status === 429;
+
+  /**
+   * Whether `password` is that person's password at WorkOS. It is asked the way
+   * a sign-in is (the password grant), and the session that opens is closed at
+   * once. An answer that only wants one more step (the code of a second step,
+   * a verified email, an organization) means the password was right.
+   * @throws {WorkosUnavailable}
+   */
+  async function checkPassword({ email, password, ip = null, userAgent = null }) {
+    if (!email || !password) return false;
+    const { ok, status, body } = await request(`${API_URL}/user_management/authenticate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'password', client_id: clientId, client_secret: apiKey, email, password,
+        ...(ip ? { ip_address: ip } : {}), ...(userAgent ? { user_agent: userAgent } : {}),
+      }),
+    });
+    if (ok) {
+      const sid = claims(body?.access_token)?.sid;
+      if (sid) await revokeSession(sid).catch(() => {});
+      return true;
+    }
+    if (unavailable(status)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    const code = body?.code || body?.error;
+    return ['mfa_challenge', 'mfa_enrollment', 'email_verification_required', 'organization_selection_required'].includes(code);
+  }
+
+  /**
+   * A new password for a WorkOS user. WorkOS checks how strong it is: a
+   * refusal comes back as `{ refused: message }`.
+   * @throws {WorkosUnavailable}
+   */
+  async function setPassword(id, password) {
+    const { ok, status, body } = await request(`${API_URL}/user_management/users/${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: bearer, body: JSON.stringify({ password }),
+    });
+    if (ok) return { ok: true };
+    if (unavailable(status)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    return { refused: body?.message || body?.errors?.[0]?.message || `WorkOS answered ${status}` };
+  }
+
+  /**
+   * The accounts elsewhere a user signs in with through WorkOS: `GoogleOAuth`,
+   * `AppleOAuth`, `MicrosoftOAuth`, `GitHubOAuth`… A password is not one.
+   * @throws {WorkosUnavailable}
+   */
+  async function identities(id) {
+    const { ok, status, body } = await request(
+      `${API_URL}/user_management/users/${encodeURIComponent(id)}/identities`, { headers: bearer });
+    if (status === 404) return [];
+    if (!ok || !Array.isArray(body)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    return body.map((i) => i.provider).filter(Boolean);
+  }
+
+  /**
+   * The authenticator apps (TOTP factors) a user has: with one, AuthKit asks
+   * for its code after the password.
+   * @throws {WorkosUnavailable}
+   */
+  async function factors(id) {
+    const { ok, status, body } = await request(
+      `${API_URL}/user_management/users/${encodeURIComponent(id)}/auth_factors?limit=100`, { headers: bearer });
+    if (status === 404) return [];
+    if (!ok || !Array.isArray(body?.data)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    return body.data.filter((f) => f.type === 'totp').map((f) => ({ id: f.id, created_at: f.created_at || null }));
+  }
+
+  /**
+   * Adds an authenticator app with a secret already checked here (its first
+   * code typed and right), so that no factor is left at WorkOS half set up.
+   * Its challenge is answered with the current code: the factor is in use.
+   * @throws {WorkosUnavailable}
+   */
+  async function enrollTotp(id, { secret, issuer, user, code }) {
+    const { ok, status, body } = await request(
+      `${API_URL}/user_management/users/${encodeURIComponent(id)}/auth_factors`, {
+        method: 'POST', headers: bearer,
+        body: JSON.stringify({ type: 'totp', totp_secret: secret, totp_issuer: issuer, totp_user: user }),
+      });
+    const factorId = body?.authentication_factor?.id;
+    if (!ok || !factorId) {
+      if (unavailable(status)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+      throw new Error(`WorkOS did not add the factor (${status})`);
+    }
+    const challengeId = body.authentication_challenge?.id;
+    if (challengeId && code) await verifyChallenge(challengeId, code).catch(() => false);
+    return { id: factorId };
+  }
+
+  /** Whether `code` is the current one of a factor: a challenge, answered. */
+  async function checkCode(factorId, code) {
+    const { ok, status, body } = await request(
+      `${API_URL}/auth/factors/${encodeURIComponent(factorId)}/challenge`, { method: 'POST', headers: bearer, body: '{}' });
+    if (!ok || !body?.id) {
+      if (unavailable(status)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+      return false;
+    }
+    return verifyChallenge(body.id, code);
+  }
+
+  async function verifyChallenge(challengeId, code) {
+    const { ok, status, body } = await request(
+      `${API_URL}/auth/challenges/${encodeURIComponent(challengeId)}/verify`, {
+        method: 'POST', headers: bearer, body: JSON.stringify({ code: String(code ?? '') }),
+      });
+    if (unavailable(status)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    return ok && body?.valid === true;
+  }
+
+  /** Takes an authenticator app off; gone already (404) is done too. */
+  async function deleteFactor(factorId) {
+    const { ok, status } = await request(`${API_URL}/auth/factors/${encodeURIComponent(factorId)}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (ok || status === 404) return;
+    if (unavailable(status)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    throw new Error(`WorkOS did not delete the factor (${status})`);
   }
 
   /* ------------------------ authorized applications ---------------------- */
@@ -299,5 +430,6 @@ export function createWorkosClient({
     authkitDomain: AUTHKIT,
     missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, account, knows,
     authorizedApplications, revokeApplication, verifyToken, resourceMetadata, authorizationServerMetadata,
+    checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor,
   };
 }

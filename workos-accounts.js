@@ -60,6 +60,21 @@ function safeEqual(a, b) {
  * @param {object} accounts   from createAccounts()
  * @param {object} [options.database]   to read the old column, when there is one
  */
+/**
+ * How WorkOS says someone signed in (`authentication_method`), as the suite
+ * names it: password, passkey, email_code, sso, google, apple, microsoft,
+ * github. An administrator acting as them (Impersonation) is not how they sign
+ * in: null, and what was noted before stays.
+ */
+export function signInMethod(value) {
+  const known = {
+    Password: 'password', Passkey: 'passkey', MagicAuth: 'email_code', SSO: 'sso',
+    GoogleOAuth: 'google', AppleOAuth: 'apple', MicrosoftOAuth: 'microsoft', GitHubOAuth: 'github',
+  };
+  if (!value || value === 'Impersonation') return null;
+  return known[value] || String(value).replace(/OAuth$/, '').toLowerCase().slice(0, 40) || null;
+}
+
 export function workosUsers(accounts, { database = null } = {}) {
   const PROVIDER = 'workos';
   const legacy = Boolean(database?.columnsOf('users').includes('workos_user_id'));
@@ -101,7 +116,9 @@ export function workosUsers(accounts, { database = null } = {}) {
     usernameTaken: (name) => Boolean(accounts.byUsername(name)),
     create: ({ username, displayName, role, email, workosId }) =>
       accounts.create({ username, displayName, role, identity: { provider: PROVIDER, subject: workosId, email } }),
-    signedIn: (user, account) => accounts.usedIdentity(PROVIDER, account.id),
+    signedIn: (user, account, method = null) => accounts.usedIdentity(PROVIDER, account.id, { method: signInMethod(method) }),
+    /** How they last signed in through WorkOS (signInMethod), or null when it isn't known yet. */
+    methodOf: (userId) => accounts.identitiesOf(userId).find((i) => i.provider === PROVIDER)?.method ?? null,
   };
 }
 
@@ -430,7 +447,7 @@ export function createWorkosAccounts({
         return true;
       }
       try {
-        const { account, sessionId } = await workos.exchangeCode({ code, verifier });
+        const { account, sessionId, method } = await workos.exchangeCode({ code, verifier });
         const user = await localUser(account);
         // Its owner asked to delete it: no session, the offer to take it back.
         if (user.disabled_at && user.delete_after && pendingDeletion) {
@@ -443,7 +460,7 @@ export function createWorkosAccounts({
           redirect(res, '/?auth_error=disabled');
           return true;
         }
-        users.signedIn?.(user, account);
+        users.signedIn?.(user, account, method);
         sessions.open(res, user.id, { workosSessionId: sessionId, req });
         redirect(res, '/');
       } catch (err) {

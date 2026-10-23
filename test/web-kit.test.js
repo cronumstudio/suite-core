@@ -896,9 +896,9 @@ test('Settings offers the AI connector only where there is one; a server that sa
     const off = listed({ provider: 'workos', app: { id: 'demo', modules: { organizations: false, billing: false, data: false, mcp: false } } });
     assert.ok(off.labels.length + off.groups.length >= 4, 'the rest is there');
     assert.ok(!off.labels.includes(ai), 'no AI section without an MCP');
-    assert.ok(!off.groups.includes(connections), 'nor its heading, with nothing else under it');
+    assert.ok(off.groups.includes(connections), 'Connections stays, for where one is signed in');
+    assert.equal(listed({ app: { modules: { mcp: false } } }, 'sessions').page.children.length, 1);
     assert.equal(listed({ app: { modules: { mcp: false } } }, 'ai').page.children.length, 0, 'asked for by name, nothing opens');
-    // Alone in its group (no notices here), Your AI is the group's heading, which opens it.
     assert.ok(listed({ app: { modules: { mcp: true } } }).groups.includes(connections), 'with an MCP, as always');
     assert.equal(listed({ app: { modules: { mcp: true } } }, 'ai').page.children.length, 1);
     assert.ok(listed({ app: { modules: { organizations: false, billing: false, data: false } } }).groups.includes(connections),
@@ -949,9 +949,12 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     const groups = texts('kit-settings__group');
     const labels = texts('kit-settings__label');
     assert.deepEqual(groups, [
-      t('kit.settings.groups.account'), t('kit.settings.groups.security'), t('kit.settings.groups.connections'),
+      t('kit.settings.groups.account'), t('kit.settings.groups.connections'),
       'Tasks', 'Notes', 'Cronum Work',
     ], 'the account\'s, each module in use in the host\'s order, the host\'s last; Next is off');
+    // Password and sign-in is the account's, after the profile; where one is signed in, the last of Connections.
+    assert.equal(labels[labels.indexOf(t('kit.profile.title')) + 1], t('kit.security.title'));
+    assert.equal(labels[labels.indexOf(t('kit.notifications.title')) + 1], t('kit.security.sessions'));
     // Notices and the plan are the host's to say, the same in every module, whatever this one passed;
     // the plan is the account's.
     assert.ok(labels.includes(t('kit.notifications.title')));
@@ -990,7 +993,7 @@ test('the list folds by group: one open at a time, the section\'s own when it op
     const root = document.createElement('div');
     const settings = openSettings({
       app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, root,
-      config: { app: { modules: { mcp: true, data: true } } },
+      config: { app: { modules: { mcp: false, data: true } } },
       sections: [{ id: 'mine', label: 'Mine', render: () => [] }],
     });
     const headings = () => root.all().filter((node) => node.className === 'kit-settings__group');
@@ -1015,12 +1018,13 @@ test('the list folds by group: one open at a time, the section\'s own when it op
     // A section opened by name unfolds its group.
     settings.show('appearance');
     assert.equal(heading(account).getAttribute('aria-expanded'), 'true');
-    // Security has one section: its heading opens it, with no fold.
-    const security = heading(t('kit.settings.groups.security'));
-    assert.equal(security.getAttribute('aria-expanded'), null);
-    press(security);
-    assert.equal(root.all().find((node) => node.className === 'kit-settings__page').textContent.startsWith(t('kit.security.title')), true);
-    assert.equal(heading(t('kit.settings.groups.security')).getAttribute('aria-current'), 'page');
+    // Connections with no AI connector and no notices has one section, where one is signed in: its
+    // heading opens it, with no fold.
+    const connections = heading(t('kit.settings.groups.connections'));
+    assert.equal(connections.getAttribute('aria-expanded'), null);
+    press(connections);
+    assert.equal(root.all().find((node) => node.className === 'kit-settings__page').textContent.startsWith(t('kit.security.sessions')), true);
+    assert.equal(heading(t('kit.settings.groups.connections')).getAttribute('aria-current'), 'page');
   } finally {
     delete document.addEventListener;
     delete document.removeEventListener;
@@ -1102,6 +1106,53 @@ test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with n
   assert.deepEqual(shape(applied), ['P', 'P', 'DIV']);
   assert.equal(applied.find('button').find((node) => node.textContent === t('kit.data.apply')).disabled, true);
   for (const area of [fresh, owned, applied]) assert.doesNotMatch(area.textContent, /null/);
+});
+
+test('with WorkOS and Google, Password and sign-in says plainly there is no password here, and where it is', async () => {
+  const { t } = await import('../web/i18n.js');
+  const page = await settingsAt('security', { provider: 'workos', app: { modules: { mcp: false } } }, {
+    'GET /api/me/sign-in': { method: 'google', password: false, two_factor: { available: false } },
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const text = page.root.all().find((node) => node.className === 'kit-settings__page').textContent;
+    assert.ok(text.includes(t('kit.security.elsewhere.title', { provider: 'Google' })));
+    assert.ok(text.includes(t('kit.security.elsewhere.body', { provider: 'Google' })));
+    const link = page.root.find('a').find((node) => node.textContent === t('kit.security.elsewhere.open', { provider: 'Google' }));
+    assert.equal(link.getAttribute('href'), 'https://myaccount.google.com/security');
+    assert.ok(!page.root.find('input').length, 'no password to type, nor a second step to set up');
+  } finally { page.done(); }
+});
+
+test('with WorkOS and a password: changing it, and a second step with no recovery codes', async () => {
+  const { t } = await import('../web/i18n.js');
+  const secret = 'JBSWY3DPEHPK3PXP';
+  const asked = [];
+  const answers = {
+    'GET /api/me/sign-in': { method: 'password', password: true, two_factor: { available: true, enabled: false } },
+    'POST /api/me/sign-in/password': { ok: true },
+    'POST /api/me/sign-in/two-factor/setup': { secret, uri: `otpauth://totp/Demo%3Aada?secret=${secret}&issuer=Demo` },
+    'POST /api/me/sign-in/two-factor/enable': { enabled: true },
+  };
+  const page = await settingsAt('security', { provider: 'workos', app: { modules: { mcp: false } } }, new Proxy(answers, {
+    get: (target, key) => { asked.push(key); return target[key]; },
+  }));
+  try {
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    await page.press(t('kit.security.changePassword'));
+    assert.ok(asked.includes('POST /api/me/sign-in/password'));
+    assert.ok(!asked.includes('POST /api/me/password'), 'not the local accounts\' route');
+    await page.press(t('kit.twoFactor.setUp'));
+    await page.press(t('kit.twoFactor.continue'));
+    const text = () => page.root.all().find((node) => node.className === 'kit-settings__page').textContent;
+    assert.ok(text().includes(t('kit.twoFactor.noCodesHint', { app: 'Demo' })), 'said before it is on: no recovery codes');
+    answers['GET /api/me/sign-in'] = { method: 'password', password: true, two_factor: { available: true, enabled: true } };
+    await page.press(t('kit.twoFactor.turnOn'));
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(text().includes(t('kit.twoFactor.onNoCodes', { app: 'Demo' })));
+    assert.ok(!page.root.find('button').some((node) => node.textContent === t('kit.twoFactor.newCodes')), 'no recovery codes to renew');
+    assert.ok(!page.root.find('ul').some((node) => node.className === 'kit-codes'));
+  } finally { page.done(); }
 });
 
 test('setting up two-factor without a QR (an address too long for one) shows the key alone, with no "null" in its place', async () => {

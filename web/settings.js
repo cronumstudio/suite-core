@@ -161,7 +161,8 @@ export function openSettings(options) {
     state.user = user;
     options.onUser?.(user);
   };
-  const local = (state.user?.auth_provider || config.provider || 'local') === 'local';
+  const provider = state.user?.auth_provider || config.provider || 'local';
+  const local = provider === 'local';
   const modules = config.app?.modules || {};
   // A module of a host (Cronum Work): the person chooses which modules they use.
   const host = config.app?.host || null;
@@ -203,6 +204,9 @@ export function openSettings(options) {
   const common = () => [
     { group: t('kit.settings.groups.account'), id: 'profile', iconName: 'user', label: t('kit.profile.title'),
       hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() },
+    // The password and two-step verification are the account's, next to who it is.
+    { group: t('kit.settings.groups.account'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
+      hint: () => t(local || provider === 'workos' ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
     host ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
       hint: () => inUse.filter((m) => m.active).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
     { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
@@ -215,13 +219,14 @@ export function openSettings(options) {
     // own says it in Your data, with its data.
     host && deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
       hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
-    { group: t('kit.settings.groups.security'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
-      hint: () => t(local ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
     // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
     modules.mcp !== false ? { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
       hint: () => t('kit.ai.hint'), render: () => ai() } : null,
     options.push || host?.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
       hint: () => t('kit.notifications.hint'), render: () => notifications() } : null,
+    // The devices and browsers signed in to the account, with the other things connected to it.
+    { group: t('kit.settings.groups.connections'), id: 'sessions', iconName: 'device', label: t('kit.security.sessions'),
+      hint: () => t('kit.sessions.hint'), render: () => sessionsBlock() },
   ];
   const own = (group) => sections.map((section) => ({ group, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' }));
   const admin = (group) => (state.user?.role === 'admin'
@@ -629,11 +634,62 @@ export function openSettings(options) {
           } catch (err) { fail(err); }
         }))));
       if (config.two_factor) parts.push(twoFactor());
+    } else if (provider === 'workos') {
+      parts.push(workosSecurity());
     } else {
       parts.push(block(null, hint(t('kit.security.provider'))));
     }
-    parts.push(sessionsBlock());
     return parts;
+  }
+
+  /**
+   * With WorkOS, what fits how the person signs in (workos-security.js): with
+   * a password, changing it and the second step; with Google, Apple… a plain
+   * word that there is no password here, and where it is.
+   */
+  function workosSecurity() {
+    const box = el('div', { class: 'kit-contents' });
+    const appName = hostInfo.name || host?.name || app.name;
+    (async () => {
+      let answer;
+      try { answer = await api.get('/api/me/sign-in'); } catch (err) { fail(err); return; }
+      if (!answer.password) {
+        clear(box).append(elsewhereBlock(answer.method));
+        return;
+      }
+      const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
+      const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: '8' });
+      append(clear(box), block(t('kit.security.password'),
+        field(t('kit.security.currentPassword'), current),
+        field(t('kit.security.newPassword'), next, t('kit.security.workosPasswordHint')),
+        row(button(t('kit.security.changePassword'), async () => {
+          try {
+            await api.post('/api/me/sign-in/password', { current_password: current.value, password: next.value });
+            current.value = '';
+            next.value = '';
+            toast(t('kit.security.passwordChanged'));
+          } catch (err) { fail(err); }
+        }))),
+      answer.two_factor?.available ? twoFactor({ base: '/api/me/sign-in/two-factor', recovery: false, appName }) : null);
+    })();
+    return box;
+  }
+
+  /** Signing in with another account: its password and second step are there, and this says where. */
+  function elsewhereBlock(method) {
+    const where = {
+      google: ['Google', 'https://myaccount.google.com/security'],
+      apple: ['Apple', 'https://account.apple.com/account/manage'],
+      microsoft: ['Microsoft', 'https://account.microsoft.com/security'],
+      github: ['GitHub', 'https://github.com/settings/security'],
+    }[method];
+    if (where) {
+      const [name, href] = where;
+      return block(t('kit.security.elsewhere.title', { provider: name }),
+        hint(t('kit.security.elsewhere.body', { provider: name })),
+        el('a', { class: 'kit-link', href, target: '_blank', rel: 'noopener', text: t('kit.security.elsewhere.open', { provider: name }) }));
+    }
+    return block(null, hint(t(method === 'sso' ? 'kit.security.sso' : method === 'email_code' ? 'kit.security.emailCode' : 'kit.security.provider')));
   }
 
   /**
@@ -664,7 +720,8 @@ export function openSettings(options) {
           }, 'quiet'))));
     };
     paint();
-    return block(t('kit.security.sessions'), hint(t('kit.security.sessionsHint')), box);
+    // A section of its own, named by its title: the block needs none.
+    return block(null, hint(t('kit.security.sessionsHint')), box);
   }
 
   /**
@@ -672,8 +729,12 @@ export function openSettings(options) {
    * password again, the QR code (or the key typed by hand), a first code, and
    * ten recovery codes shown only then. Turning it off, or new recovery
    * codes, asks for the password and a code.
+   *
+   * With WorkOS (`recovery: false`) the same steps at its own routes, with
+   * no recovery codes: WorkOS has none, and whoever loses the phone is helped
+   * by an administrator, which the texts say.
    */
-  function twoFactor() {
+  function twoFactor({ base = '/api/me/two-factor', recovery = true, appName = app.name } = {}) {
     const body = el('div', { class: 'kit-stack' });
     const cancel = () => el('button', { type: 'button', class: 'kit-link', text: t('kit.cancel'), onClick: paint });
     const code = (id) => input({ id, autocomplete: 'one-time-code', autocapitalize: 'none', spellcheck: 'false', maxlength: '12' });
@@ -682,9 +743,16 @@ export function openSettings(options) {
 
     async function paint() {
       let status;
-      try { status = await api.get('/api/me/two-factor'); } catch (err) { fail(err); return; }
+      try {
+        status = recovery ? await api.get(base) : (await api.get('/api/me/sign-in')).two_factor;
+      } catch (err) { fail(err); return; }
       if (!status.enabled) {
         clear(body).append(hint(t('kit.twoFactor.off')), row(button(t('kit.twoFactor.setUp'), askPassword, 'primary')));
+        return;
+      }
+      if (!recovery) {
+        clear(body).append(hint(t('kit.twoFactor.onNoCodes', { app: appName })),
+          row(button(t('kit.twoFactor.turnOff'), () => confirmWith('off'), 'danger-quiet')));
         return;
       }
       clear(body).append(
@@ -696,7 +764,7 @@ export function openSettings(options) {
       const pass = password('kit-2fa-password');
       clear(body).append(hint(t('kit.twoFactor.passwordFirst')), field(t('kit.security.currentPassword'), pass),
         row(button(t('kit.twoFactor.continue'), async () => {
-          try { await showSecret(await api.post('/api/me/two-factor/setup', { password: pass.value })); } catch (err) { fail(err); }
+          try { await showSecret(await api.post(`${base}/setup`, { password: pass.value })); } catch (err) { fail(err); }
         }, 'primary'), cancel()));
       pass.focus();
     }
@@ -717,10 +785,16 @@ export function openSettings(options) {
         // On the phone itself, the app opens with everything filled in.
         el('a', { class: 'kit-link', href: uri, text: t('kit.twoFactor.openApp') }),
         field(t('kit.twoFactor.firstCode'), first),
+        recovery ? null : hint(t('kit.twoFactor.noCodesHint', { app: appName })),
         row(button(t('kit.twoFactor.turnOn'), async () => {
           try {
-            const done = await api.post('/api/me/two-factor/enable', { code: first.value.trim() });
+            const done = await api.post(`${base}/enable`, { code: first.value.trim() });
             setOn(true);
+            if (!recovery) {
+              toast(t('kit.twoFactor.onNow'));
+              paint();
+              return;
+            }
             showRecovery(done.recovery_codes, t('kit.twoFactor.onNow'));
           } catch (err) { fail(err); }
         }, 'primary'), cancel()));
@@ -741,17 +815,17 @@ export function openSettings(options) {
       const off = what === 'off';
       const pass = password('kit-2fa-confirm-password');
       const second = code('kit-2fa-confirm-code');
-      clear(body).append(hint(t(off ? 'kit.twoFactor.offAsk' : 'kit.twoFactor.newCodesAsk')),
-        field(t('kit.security.currentPassword'), pass), field(t('kit.twoFactor.codeOrRecovery'), second),
+      clear(body).append(hint(t(!recovery ? 'kit.twoFactor.offAskNoCodes' : off ? 'kit.twoFactor.offAsk' : 'kit.twoFactor.newCodesAsk')),
+        field(t('kit.security.currentPassword'), pass), field(t(recovery ? 'kit.twoFactor.codeOrRecovery' : 'kit.twoFactor.code'), second),
         row(button(t(off ? 'kit.twoFactor.turnOff' : 'kit.twoFactor.newCodes'), async () => {
           try {
             if (off) {
-              await api.post('/api/me/two-factor/disable', { password: pass.value, code: second.value.trim() });
+              await api.post(`${base}/disable`, { password: pass.value, code: second.value.trim() });
               setOn(false);
               toast(t('kit.twoFactor.offNow'));
               paint();
             } else {
-              const done = await api.post('/api/me/two-factor/recovery-codes', { password: pass.value, code: second.value.trim() });
+              const done = await api.post(`${base}/recovery-codes`, { password: pass.value, code: second.value.trim() });
               showRecovery(done.recovery_codes, t('kit.twoFactor.newCodesDone'));
             }
           } catch (err) { fail(err); }

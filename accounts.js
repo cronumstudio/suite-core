@@ -72,6 +72,11 @@ export function accountDeletionSchema(d) {
  * provider in `users`. The WorkOS links the apps kept in `users.workos_user_id`
  * are copied over; the column stays, unused.
  */
+/** How someone last signed in through a provider: password, google, apple… (workos-accounts.js). */
+export function identityMethodSchema(d) {
+  ensureColumn(d, 'user_identities', 'method', 'method TEXT');
+}
+
 export function identitiesSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS user_identities (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -262,13 +267,24 @@ export function createAccounts({
   const unlinkIdentity = (userId, provider) => database.run(
     'DELETE FROM user_identities WHERE user_id = ? AND provider = ?', userId, provider).changes > 0;
 
-  const identitiesOf = (userId) => database.all(`SELECT provider, subject, email, created_at, last_used_at
+  // How someone last signed in through a provider (migration 27): a database from before has no column.
+  let methods = false;
+  const hasMethod = () => (methods ||= database.columnsOf('user_identities').includes('method'));
+
+  const identitiesOf = (userId) => database.all(`SELECT provider, subject, email, created_at, last_used_at${hasMethod() ? ', method' : ''}
     FROM user_identities WHERE user_id = ? ORDER BY provider`, userId);
 
-  /** Notes a sign-in through a provider, on the identity and the account. */
-  function usedIdentity(provider, subject) {
+  /**
+   * Notes a sign-in through a provider, on the identity and the account, and
+   * how it was (`method`: password, google, apple…) when the provider says.
+   */
+  function usedIdentity(provider, subject, { method = null } = {}) {
     const now = iso(clock());
-    database.run('UPDATE user_identities SET last_used_at = ? WHERE provider = ? AND subject = ?', now, provider, String(subject));
+    if (method && hasMethod()) {
+      database.run('UPDATE user_identities SET last_used_at = ?, method = ? WHERE provider = ? AND subject = ?', now, method, provider, String(subject));
+    } else {
+      database.run('UPDATE user_identities SET last_used_at = ? WHERE provider = ? AND subject = ?', now, provider, String(subject));
+    }
     database.run(`UPDATE users SET last_login_at = ? WHERE id =
       (SELECT user_id FROM user_identities WHERE provider = ? AND subject = ?)`, now, provider, String(subject));
   }

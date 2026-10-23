@@ -105,6 +105,7 @@ names are the same in every app:
 | `ADMIN_EMAIL` | With WorkOS: the verified address that administers |
 | `AUTH_PROVIDER` | `local` (default), `workos`, `oidc` |
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_AUTHKIT_DOMAIN`, `WORKOS_MCP_AUDIENCE` | WorkOS AuthKit |
+| `WORKOS_TWO_FACTOR` | With WorkOS, who Settings offers two-step verification: `admins` (default, while it is tried out), `on`, `off` |
 | `MCP_OAUTH` | `off` leaves only manual MCP tokens |
 | `HOT_RELOAD` | Restart when `server/` changes (development and the NAS setup) |
 | `PUID`, `PGID` | Owner of the data folder when the container cannot write to it |
