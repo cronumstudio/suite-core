@@ -27,6 +27,7 @@
   "oauth.error.client_document_mismatch": "Die Angaben der Anwendung passen nicht zu ihrer Kennung.",
   "oauth.error.redirect_not_registered": "Die Rücksprungadresse ist für diese Anwendung nicht registriert.",
   "oauth.error.request_expired": "Die Anfrage ist abgelaufen. Versuche es erneut aus der Anwendung.",
+  "oauth.error.request_invalid": "Die Anfrage der Anwendung ist ungültig ({reason}). Versuche es erneut aus der Anwendung.",
   "oauth.code": "Code aus deiner Authenticator-App",
   "oauth.codeHint": "Wenn du dein Handy nicht hast, nimm einen deiner Wiederherstellungscodes.",
   "oauth.verifyAndAllow": "Bestätigen und erlauben",

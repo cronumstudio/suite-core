@@ -27,6 +27,7 @@
   "oauth.error.client_document_mismatch": "The application’s details don’t match its identifier.",
   "oauth.error.redirect_not_registered": "The return address is not registered for this application.",
   "oauth.error.request_expired": "The request has expired. Try again from the application.",
+  "oauth.error.request_invalid": "The application’s request is not valid ({reason}). Try again from the application.",
   "oauth.code": "Code from your authenticator app",
   "oauth.codeHint": "If you don’t have your phone, use one of your recovery codes.",
   "oauth.verifyAndAllow": "Verify and allow",
