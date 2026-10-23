@@ -83,9 +83,9 @@ test('parseNaturalDate: ISO, strict and in range', () => {
   assert.equal(parseNaturalDate('2026-12-24T10:00:00Z', { today }), '2026-12-24');
   assert.equal(parseNaturalDate('', { today }), null);
   assert.equal(parseNaturalDate(null, { today }), null);
-  fails(() => parseNaturalDate('2026-02-31', { today }), /not a real date/);
-  fails(() => parseNaturalDate('2026-13-01', { today }), /not a real date/);
-  fails(() => parseNaturalDate('2206-01-01', { today }), /not a real date/);
+  fails(() => parseNaturalDate('2026-02-31', { today }), /Can.t understand the date "[^"]*": that day doesn.t exist/);
+  fails(() => parseNaturalDate('2026-13-01', { today }), /Can.t understand the date "[^"]*": that day doesn.t exist/);
+  fails(() => parseNaturalDate('2206-01-01', { today }), /Can.t understand the date "[^"]*": that day doesn.t exist/);
   fails(() => parseNaturalDate('2026-01-011', { today }), /Can't understand/);
 });
 
@@ -123,8 +123,8 @@ test('parseNaturalDate: day-first numbers, never rolled over', () => {
   assert.equal(at('23/10'), today, 'today counts');
   assert.equal(at('22/10'), '2027-10-22', 'gone this year → next year');
   assert.equal(at('29/02'), '2028-02-29');
-  fails(() => at('31/02/2027'), /not a real date/);
-  fails(() => at('13.45'), /not a real date/);
+  fails(() => at('31/02/2027'), /Can.t understand the date "[^"]*": that day doesn.t exist/);
+  fails(() => at('13.45'), /Can.t understand the date "[^"]*": that day doesn.t exist/);
   fails(() => at('soon'), /Can't understand the date "soon"/);
   fails(() => parseNaturalDate('soon', { today, field: 'the due date' }), /the due date "soon"/);
 });

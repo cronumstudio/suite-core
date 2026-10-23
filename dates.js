@@ -94,7 +94,7 @@ export function parseNaturalDate(value, { today = localToday(), field = 'the dat
   if (value == null || value === '') return null;
   const raw = String(value).trim();
   if (!raw) return null;
-  const notReal = () => new ResolveError(`"${raw}" is not a real date (${field}; years 1900-2200). `
+  const notReal = () => new ResolveError(`Can't understand ${field} "${raw}": that day doesn't exist (years 1900-2200). `
     + 'Use YYYY-MM-DD or a day-first date (24/12/2026).');
 
   const iso = raw.match(ISO_START);
