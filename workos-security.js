@@ -48,7 +48,7 @@ const fromIdentity = (provider) => String(provider || '').replace(/OAuth$/, '').
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'admins',
-  revokeAtProvider = () => {}, clock = () => Date.now(),
+  revokeAtProvider = () => {}, revokeEverything = null, clock = () => Date.now(),
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -129,6 +129,21 @@ export function registerWorkosSecurityApi(router, {
     return found.length;
   }
 
+  /**
+   * After a new password: everyone else out (revoke.js: the sessions here and at
+   * WorkOS, API tokens, phones, AI clients…), but `keep`'s session. Without
+   * revokeEverything (a caller from before), the sessions alone, as it was.
+   */
+  const outEverywhere = (ctx, user, keep, reason) => {
+    if (revokeEverything) {
+      revokeEverything(user.id, { keep: keep ? { sessionToken: keep } : null, reason, actor: ctx.user, req: ctx.req });
+      return;
+    }
+    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: keep }) || [];
+    sessions.closeAllOf(user.id, { exceptToken: keep });
+    revokeAtProvider(atProvider);
+  };
+
   const ensureHere = async (user) => {
     const id = workosId(user);
     if (ELSEWHERE.includes(await methodOf(user, id))) throw badRequest('password_elsewhere');
@@ -139,7 +154,7 @@ export function registerWorkosSecurityApi(router, {
     sendJson(ctx.res, 200, await describe(requireUser(ctx)));
   }));
 
-  /** A new password, given the current one. Their other sessions end, here and at WorkOS. */
+  /** A new password, given the current one. Everything else that lets them in ends (revoke.js), here and at WorkOS. */
   router.post('/api/me/sign-in/password', route(async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);
@@ -149,9 +164,7 @@ export function registerWorkosSecurityApi(router, {
     await confirmPassword(ctx, user, body.current_password);
     const done = await workos.setPassword(id, next);
     if (done.refused) throw badRequest('password_rejected', { detail: done.refused });
-    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: ctx.sessionToken }) || [];
-    sessions.closeAllOf(user.id, { exceptToken: ctx.sessionToken });
-    revokeAtProvider(atProvider);
+    outEverywhere(ctx, user, ctx.sessionToken, 'password');
     record(ctx, 'auth.password', 'user', user.id, { provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });
   }));
@@ -256,9 +269,7 @@ export function registerWorkosSecurityApi(router, {
     const done = await workos.setPassword(workosId(user), next);
     if (done.refused) throw badRequest('password_rejected', { detail: done.refused });
     const self = user.id === ctx.user.id;
-    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: self ? ctx.sessionToken : null }) || [];
-    sessions.closeAllOf(user.id, { exceptToken: self ? ctx.sessionToken : null });
-    revokeAtProvider(atProvider);
+    outEverywhere(ctx, user, self ? ctx.sessionToken : null, 'admin_password');
     accounts.changed?.(user.id);
     record(ctx, 'admin.user.update', 'user', user.id, { fields: [], password: true, provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });
