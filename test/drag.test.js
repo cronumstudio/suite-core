@@ -6,6 +6,10 @@
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { registerHooks } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { installFakeDom, FakeElement } from './fake-dom.js';
 
 /* ------------------------------ a page to drag on ------------------------------ */
@@ -767,4 +771,191 @@ test('boxes waiting for the same drag each draw once', () => {
   pointer(p.first, 'pointerup', 400, 150);
   assert.deepEqual(draws.sort(), ['list', 'sidebar again']);
   p.drag.destroy();
+});
+
+/* ------------------------ places shared by the whole page ------------------------ */
+
+// In Cronum Work's shell each module loads the kit from its own address, so the page has a copy
+// of drag.js per module. Here two, as the shell's page has them: at /notes/suite/ and
+// /next/suite/ of a made-up site, read from web/, each with its own dom.js, mount.js and BASE.
+const SITE = 'https://work.test/';
+const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier.startsWith(SITE)) return { url: specifier, shortCircuit: true };
+    if (context.parentURL?.startsWith(SITE)) return { url: new URL(specifier, context.parentURL).href, shortCircuit: true };
+    return next(specifier, context);
+  },
+  load(url, context, next) {
+    if (!url.startsWith(SITE)) return next(url, context);
+    const file = new URL(url).pathname.replace(/^\/[a-z-]+\/suite\//, '');
+    return { format: 'module', source: fs.readFileSync(path.join(WEB, file), 'utf8'), shortCircuit: true };
+  },
+});
+const notesKit = await import(`${SITE}notes/suite/drag.js`);
+const nextKit = await import(`${SITE}next/suite/drag.js`);
+const WORK = Symbol.for('cronum.work');
+
+/** Two windows: Notes' list (its own drag, with a notebook of its own) and Next's steps. */
+function twoWindows() {
+  document.body.childNodes = [];
+  document.documentElement.attributes.clear();
+  delete document[WORK];
+  const box = (node, top, left) => { node.box = { top, bottom: top + 40, left, right: left + 300 }; return node; };
+  const list = el('div', {});
+  list.box = { top: 0, bottom: 800, left: 0, right: 300 };
+  const note = box(el('div', { 'data-ref': 'notes:note:6', 'data-title': 'Shopping' }, el('span', { text: 'Shopping' })), 100, 0);
+  const sibling = box(el('div', { 'data-ref': 'notes:note:7', 'data-title': 'Ideas' }), 200, 0);
+  const notebook = box(el('div', { 'data-drop': '', 'data-ref': 'notes:notebook:2' }), 300, 0);
+  list.append(note, sibling, notebook);
+  const steps = el('div', {});
+  const step = box(el('div', { 'data-ref': 'next:step:12', 'data-title': 'Ship it' }, el('span', { text: 'Ship it' })), 100, 500);
+  const other = box(el('div', { 'data-ref': 'next:step:13', 'data-title': 'Test it' }), 200, 500);
+  steps.append(step, other);
+  document.body.append(list, steps);
+  const all = [note, sibling, notebook, step, other];
+  document.elementFromPoint = (x, y) => {
+    const hit = all.find((node) => node.parentElement && y >= node.box.top && y < node.box.bottom && x >= node.box.left && x < node.box.right);
+    return hit?.firstChild?.nodeType === 1 ? hit.firstChild : hit || null;
+  };
+  const own = [];
+  const drag = notesKit.makeDraggable(list, {
+    items: '[data-ref]',
+    label: (row) => row.getAttribute('data-title'),
+    check: () => ({ ok: true, text: 'into the notebook' }),
+    onDrop: (row, place) => own.push([row.getAttribute('data-ref'), place.getAttribute('data-ref')]),
+  });
+  return { list, note, sibling, notebook, step, other, own, drag };
+}
+
+/** What Work's shell registers: another module's row links, its own module's has nothing to say. */
+function linkDrop(asked, linked) {
+  const moduleOf = (node) => node.getAttribute('data-ref').split(':')[0];
+  return {
+    selector: '[data-ref]',
+    accepts(item, place) {
+      asked.push(place.getAttribute('data-ref'));
+      if (moduleOf(item) === moduleOf(place)) return null;
+      if (place.getAttribute('data-ref') === 'next:step:13') return { ok: false, text: 'already linked' };
+      return { ok: true, text: `link with ${place.getAttribute('data-title')}` };
+    },
+    onDrop: (item, place, info) => linked.push([item.getAttribute('data-ref'), place.getAttribute('data-ref'), info.zone]),
+  };
+}
+
+test('a place shared by one copy of the kit takes what another copy carries, and says so on the way', () => {
+  assert.notEqual(notesKit.makeDraggable, nextKit.makeDraggable, 'two copies, as in the shell');
+  const p = twoWindows();
+  const asked = [];
+  const linked = [];
+  const off = nextKit.registerDrop(linkDrop(asked, linked));
+  pointer(p.note.firstChild, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 600, 120);
+  assert.match(ghost().textContent, /link with Ship it/, 'the ghost says what letting go does');
+  assert.equal(p.step.getAttribute('data-drop-state'), 'ok');
+  pointer(p.note, 'pointermove', 600, 210);
+  assert.equal(p.step.getAttribute('data-drop-state'), null);
+  assert.equal(p.other.getAttribute('data-drop-state'), 'no');
+  assert.match(ghost().textContent, /already linked/);
+  assert.ok(ghost().className.includes('kit-drag-ghost--no'));
+  // A row of its own module: the shared place has nothing to say, and it is no place.
+  pointer(p.note, 'pointermove', 100, 210);
+  assert.equal(p.sibling.getAttribute('data-drop-state'), null);
+  assert.doesNotMatch(ghost().textContent, /link with|already/);
+  pointer(p.note, 'pointermove', 600, 120);
+  pointer(p.note, 'pointermove', 600, 125);
+  assert.deepEqual(asked, ['next:step:12', 'next:step:13', 'notes:note:7'], 'each place asked once per drag');
+  pointer(p.note, 'pointerup', 600, 125);
+  assert.deepEqual(linked, [['notes:note:6', 'next:step:12', null]], 'what letting go does is the shared place’s');
+  assert.deepEqual(p.own, [], 'not the list’s');
+  assert.equal(ghost(), undefined);
+  assert.equal(p.step.getAttribute('data-drop-state'), null);
+
+  // Taken away, the place is nothing again.
+  off();
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 600, 120);
+  assert.equal(p.step.getAttribute('data-drop-state'), null);
+  pointer(p.note, 'pointerup', 600, 120);
+  assert.equal(linked.length, 1);
+  assert.equal(document[Symbol.for('cronum.drops')].size, 0);
+  p.drag.destroy();
+});
+
+test('a place of its own wins over a shared one, and a shared drop that fails is no place', () => {
+  const p = twoWindows();
+  const asked = [];
+  const linked = [];
+  const offs = [
+    nextKit.registerDrop({ selector: '[data-ref]', accepts() { throw new Error('broken'); }, onDrop: () => linked.push('broken') }),
+    notesKit.registerDrop(linkDrop(asked, linked)),
+  ];
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 100, 310);
+  assert.match(ghost().textContent, /into the notebook/, 'its own notebook: its own check');
+  pointer(p.note, 'pointerup', 100, 310);
+  assert.deepEqual(p.own, [['notes:note:6', 'notes:notebook:2']]);
+  assert.deepEqual(asked, [], 'the shared places were not asked');
+  // Over Next's step: the broken drop is passed over, the next one says what it does.
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 600, 120);
+  pointer(p.note, 'pointerup', 600, 120);
+  assert.deepEqual(linked, [['notes:note:6', 'next:step:12', null]]);
+  offs.forEach((off) => off());
+  // A drop whose selector can't be read is no place either, and the drag goes on.
+  const offBad = nextKit.registerDrop({ get selector() { throw new SyntaxError('bad selector'); }, accepts: () => ({ ok: true, text: 'x' }), onDrop: () => linked.push('bad') });
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 600, 120);
+  assert.equal(p.step.getAttribute('data-drop-state'), null);
+  pointer(p.note, 'pointermove', 100, 310);
+  assert.match(ghost().textContent, /into the notebook/);
+  pointer(p.note, 'pointerup', 100, 310);
+  assert.equal(linked.length, 1);
+  offBad();
+  p.drag.destroy();
+});
+
+test('a drag on a page where nothing is shared leaves the document as it was', () => {
+  const DROPS = Symbol.for('cronum.drops');
+  const saved = document[DROPS];
+  delete document[DROPS];
+  try {
+    const q = page();
+    pointer(q.first, 'pointerdown', 400, 110);
+    pointer(q.first, 'pointermove', 380, 130);
+    pointer(q.first, 'pointerup', 380, 130);
+    q.drag.destroy();
+    assert.equal(Object.getOwnPropertySymbols(document).includes(DROPS), false);
+  } finally {
+    if (saved) document[DROPS] = saved;
+  }
+});
+
+test('in Work’s shell the ghost carries its module’s name and the page’s theme; anywhere else, nothing', () => {
+  const p = twoWindows();
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 100, 160);
+  assert.equal(ghost().getAttribute('data-owner'), null, 'no shell: as it always was');
+  pointer(p.note, 'pointerup', 100, 160);
+
+  document[WORK] = { open: async () => true };
+  document.documentElement.setAttribute('data-theme', 'dark');
+  document.documentElement.setAttribute('lang', 'es');
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 100, 160);
+  assert.equal(ghost().getAttribute('data-owner'), 'notes');
+  assert.equal(ghost().getAttribute('data-theme'), 'dark');
+  assert.equal(ghost().getAttribute('lang'), 'es');
+  pointer(p.note, 'pointerup', 100, 160);
+  p.drag.destroy();
+
+  // The kit of an app on its own (at the root) has no module to name, in the shell's page too.
+  const q = page();
+  document[WORK] = { open: async () => true };
+  pointer(q.first, 'pointerdown', 400, 110);
+  pointer(q.first, 'pointermove', 380, 130);
+  assert.equal(ghost().getAttribute('data-owner'), null);
+  pointer(q.first, 'pointerup', 380, 130);
+  q.drag.destroy();
+  delete document[WORK];
 });
