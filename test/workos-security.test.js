@@ -66,7 +66,7 @@ function fakeWorkos() {
   };
 }
 
-function start({ twoFactor = 'on' } = {}) {
+function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now() } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-workos-security-'));
   const database = openDatabase({ dataDir: dir, name: 'test' });
   migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
@@ -75,9 +75,17 @@ function start({ twoFactor = 'on' } = {}) {
   const users = workosUsers(accounts, { database });
   const workos = fakeWorkos();
   const revoked = [];
+  // With adminIdentity, revoke.js as createApp gives it: who was revoked, keeping what, and why.
+  const revokedAll = [];
+  const revokeEverything = (id, { keep = null, reason = null } = {}) => {
+    revokedAll.push({ id, keep: keep?.sessionToken ?? null, reason });
+    sessions.closeAllOf(id, { exceptToken: keep?.sessionToken ?? null });
+    return {};
+  };
   const router = createRouter();
   registerWorkosSecurityApi(router, {
     workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeAtProvider: (ids) => revoked.push(...ids),
+    ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), clock,
   });
 
   /** Someone who signs in with WorkOS: their account here and at WorkOS, with a session. */
@@ -93,7 +101,7 @@ function start({ twoFactor = 'on' } = {}) {
   /** A request to one of the routes, as the router hands it over. */
   async function call(method, pathname, { as, body = null } = {}) {
     const found = router.match(method, pathname);
-    assert.ok(found?.handler, `${method} ${pathname} is a route`);
+    if (!found?.handler) return { status: 404, body: { error: 'not_found' } };
     const raw = body == null ? [] : [Buffer.from(JSON.stringify(body))];
     const req = Object.assign(Readable.from(raw), {
       headers: body == null ? {} : { 'content-type': 'application/json' }, socket: { remoteAddress: '127.0.0.1' },
@@ -112,7 +120,7 @@ function start({ twoFactor = 'on' } = {}) {
     return answer;
   }
 
-  return { database, sessions, accounts, users, workos, revoked, call, person };
+  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person };
 }
 
 /* ------------------------------ how they sign in ------------------------------ */
@@ -238,28 +246,89 @@ test('while it is tried out, only administrators are offered the second step', a
 /* ---------------------------------- the admin ---------------------------------- */
 
 test('the admin: how someone signs in, their second step off when they lost the phone, a new password', async () => {
-  const { person, call, workos, sessions, revoked } = start();
+  const { person, call, workos, sessions, revokedAll } = start({ adminIdentity: true });
   const admin = person({ username: 'root', role: 'admin', password: 'correct horse', method: 'Password' });
   const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
   const gus = person({ username: 'gus', method: 'GoogleOAuth' });
   workos.people.get(ada.workosId).factors.push({ id: 'auth_factor_lost', secret: 'JBSWY3DPEHPK3PXP' });
+  const again = { admin_password: 'correct horse' };
 
   assert.equal((await call('GET', `/api/admin/users/${ada.user.id}/sign-in`, { as: ada })).status, 403, 'only for admins');
   assert.deepEqual((await call('GET', `/api/admin/users/${ada.user.id}/sign-in`, { as: admin })).body,
-    { method: 'password', password: true, two_factor: { enabled: true } });
+    { method: 'password', password: true, two_factor: { enabled: true }, manage: true, reauth: 'password' });
   assert.deepEqual((await call('GET', `/api/admin/users/${gus.user.id}/sign-in`, { as: admin })).body,
-    { method: 'google', password: false, two_factor: { enabled: false } });
+    { method: 'google', password: false, two_factor: { enabled: false }, manage: true, reauth: 'password' });
 
-  assert.equal((await call('DELETE', `/api/admin/users/${ada.user.id}/sign-in/two-factor`, { as: admin })).status, 200);
+  // The admin's cookie alone is not enough: their password again.
+  const bare = await call('DELETE', `/api/admin/users/${ada.user.id}/sign-in/two-factor`, { as: admin });
+  assert.deepEqual([bare.status, bare.body.error], [403, 'wrong_password']);
+  assert.equal(workos.people.get(ada.workosId).factors.length, 1, 'nothing changed');
+  assert.equal((await call('DELETE', `/api/admin/users/${ada.user.id}/sign-in/two-factor`, { as: admin, body: again })).status, 200);
   assert.equal(workos.people.get(ada.workosId).factors.length, 0);
-  const twice = await call('DELETE', `/api/admin/users/${ada.user.id}/sign-in/two-factor`, { as: admin });
+  assert.deepEqual(revokedAll.at(-1), { id: ada.user.id, keep: null, reason: 'admin_two_factor_off' }, 'whatever let them in ends');
+  const twice = await call('DELETE', `/api/admin/users/${ada.user.id}/sign-in/two-factor`, { as: admin, body: again });
   assert.deepEqual([twice.status, twice.body.error], [409, 'two_factor_off']);
 
-  assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`, { as: admin, body: { password: 'a brand new one' } })).status, 200);
+  const ada2 = sessions.open(ada.user.id, { idpSessionId: 'session_ada_2' });
+  const wrong = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
+    { as: admin, body: { password: 'a brand new one', admin_password: 'not it' } });
+  assert.deepEqual([wrong.status, wrong.body.error], [403, 'wrong_password']);
+  assert.equal(workos.people.get(ada.workosId).password, 'correct horse', 'WorkOS was not asked to change it');
+  assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
+    { as: admin, body: { password: 'a brand new one', ...again } })).status, 200);
   assert.equal(workos.people.get(ada.workosId).password, 'a brand new one');
-  assert.equal(sessions.userFrom({ headers: { cookie: `sid=${ada.token}` } }), null, 'they are signed out');
-  assert.ok(revoked.includes('session_ada'));
+  assert.equal(sessions.userFrom({ headers: { cookie: `sid=${ada2}` } }), null, 'they are signed out');
+  assert.deepEqual(revokedAll.at(-1), { id: ada.user.id, keep: null, reason: 'admin_password' });
+
+  // Whoever signs in with Google gets no password from the admin: it would be one they never had.
+  const google = await call('PUT', `/api/admin/users/${gus.user.id}/sign-in/password`,
+    { as: admin, body: { password: 'a brand new one', ...again } });
+  assert.deepEqual([google.status, google.body.error], [400, 'password_elsewhere']);
+  assert.equal(workos.people.get(gus.workosId).password, null);
   assert.equal((await call('GET', '/api/admin/users/999/sign-in', { as: admin })).status, 404);
+});
+
+test('the admin with a second step gives a code too; one who signs in with Google, a recent sign-in', async () => {
+  const later = { ms: 0 };
+  const { person, call, workos, revokedAll } = start({ adminIdentity: true, clock: () => Date.now() + later.ms });
+  const root = person({ username: 'root', role: 'admin', password: 'correct horse', method: 'Password' });
+  const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
+  const secret = 'JBSWY3DPEHPK3PXP';
+  workos.people.get(root.workosId).factors.push({ id: 'auth_factor_root', secret });
+  assert.equal((await call('GET', `/api/admin/users/${ada.user.id}/sign-in`, { as: root })).body.reauth, 'password_code');
+  const noCode = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
+    { as: root, body: { password: 'a brand new one', admin_password: 'correct horse' } });
+  assert.deepEqual([noCode.status, noCode.body.error], [400, 'code_invalid']);
+  assert.equal(workos.people.get(ada.workosId).password, 'correct horse');
+  const code = totp(base32Decode(secret), now());
+  assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
+    { as: root, body: { password: 'a brand new one', admin_password: 'correct horse', admin_code: code } })).status, 200);
+
+  // An admin who signs in with Google: a session opened in the last minutes, else sign in again.
+  const gia = person({ username: 'gia', role: 'admin', method: 'GoogleOAuth' });
+  assert.equal((await call('GET', `/api/admin/users/${ada.user.id}/sign-in`, { as: gia })).body.reauth, 'session');
+  assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
+    { as: gia, body: { password: 'another new one' } })).status, 200, 'just signed in');
+  later.ms = 11 * 60 * 1000;
+  const stale = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`, { as: gia, body: { password: 'a third new one' } });
+  assert.deepEqual([stale.status, stale.body.error], [401, 'reauth_required']);
+  assert.equal(workos.people.get(ada.workosId).password, 'another new one');
+  assert.equal(revokedAll.length, 2);
+});
+
+test('an install that does not own the identities: the admin sees how they sign in, and changes nothing', async () => {
+  const { person, call, workos } = start();
+  const admin = person({ username: 'root', role: 'admin', password: 'correct horse', method: 'Password' });
+  const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
+  workos.people.get(ada.workosId).factors.push({ id: 'auth_factor_lost', secret: 'JBSWY3DPEHPK3PXP' });
+  assert.deepEqual((await call('GET', `/api/admin/users/${ada.user.id}/sign-in`, { as: admin })).body,
+    { method: 'password', password: true, two_factor: { enabled: true }, manage: false });
+  const again = { admin_password: 'correct horse' };
+  assert.equal((await call('DELETE', `/api/admin/users/${ada.user.id}/sign-in/two-factor`, { as: admin, body: again })).status, 404);
+  assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
+    { as: admin, body: { password: 'a brand new one', ...again } })).status, 404);
+  assert.equal(workos.people.get(ada.workosId).factors.length, 1);
+  assert.equal(workos.people.get(ada.workosId).password, 'correct horse');
 });
 
 /* --------------------------------- the client --------------------------------- */
