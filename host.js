@@ -74,7 +74,7 @@ import { createPageHints } from './page-hints.js';
 import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
-  fingerprint, combine, moduleShell, hostShell, workerScript, hostedPush, moduleReminderPush,
+  fingerprint, combine, moduleShell, hostShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
 } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
@@ -547,6 +547,10 @@ export async function createHost({
     // account that changed is everyone's.
     const live = createLive();
     suite.accounts.whenChanged((id) => live.publish({ audience: [id], event: 'account', data: { user_id: id } }));
+    // Someone revoked (a new password, the admin's sign-out everywhere): their tabs of this module close too.
+    suite.whenRevoked?.((id, { keep }) => live.dropUser(id, {
+      except: keep?.sessionToken || null, last: { event: 'account', data: { user_id: id } },
+    }));
     if (ownHooks.onUserCreated) suite.accounts.whenCreated(ownHooks.onUserCreated);
     if (ownHooks.onUserRemoved) suite.accounts.whenRemoved(ownHooks.onUserRemoved);
     // A member who goes and a group deleted, as createSuite hands them to an app on its own.
@@ -845,6 +849,10 @@ export async function createHost({
   /* ---------------------------- the host's worker ---------------------------- */
 
   const KIT_DIR = path.join(path.dirname(fileURLToPath(HERE)), 'web');
+  // The suite's texts, which every catalog the browser loads carries (app.js catalogFor).
+  const KIT_TEXTS = path.join(path.dirname(fileURLToPath(HERE)), 'i18n');
+  /** Where a module's catalogs are: its own folder, by default public/i18n (app.js). */
+  const catalogsOf = (m) => m.parts.i18nDir ?? (m.parts.publicDir ? path.join(m.parts.publicDir, 'i18n') : null);
   let printCache = { value: null, at: 0 };
   /**
    * What the whole app is now: the host's version and one fingerprint of the host's files, the
@@ -854,8 +862,12 @@ export async function createHost({
     if (printCache.value && Date.now() - printCache.at < 5000) return printCache.value;
     const prints = [['host', fingerprint(publicDir)], ['kit', fingerprint(KIT_DIR)],
       ...joined.map((m) => [m.mount, fingerprint(m.parts.publicDir)])];
+    // What else the browser loads changes the version too: the suite's texts, in every catalog, and a
+    // module's catalogs kept outside its public folder. The worker serves code from its copy first.
+    const more = [['kit-texts', fingerprint(KIT_TEXTS)],
+      ...joined.filter((m) => m.parts.i18nDir).map((m) => [`${m.mount}-texts`, fingerprint(m.parts.i18nDir)])];
     const value = {
-      app: version, name: config.app.name, ...combine(prints),
+      app: version, name: config.app.name, ...combine([...prints, ...more]),
       modules: Object.fromEntries(joined.map((m, i) => [m.mount, { app: m.parts.version ?? '0.0.0', version: prints[i + 2][1].version }])),
     };
     printCache = { value, at: Date.now() };
@@ -870,12 +882,24 @@ export async function createHost({
     const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
     const icon = hostWorker.icon || config.app.icon || null;
     const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
+    const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell)])];
+    // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
+    const optional = [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])];
     const options = {
       version: `${config.app.id}-${now.version}`,
       modules: joined.map((m) => `/${m.mount}/`),
-      shell: [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell)])],
-      // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
-      optional: [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])],
+      // The version is the fingerprint of everything: code from the copy first, the kit kept once (a
+      // host and its modules run one suite-core), and a new copy takes what didn't change from the old.
+      codeFirst: true,
+      sharedKit: true,
+      hashes: shellHashes([...shell, ...optional], {
+        kitDir: KIT_DIR,
+        places: [{ base: '/', dir: publicDir, i18nDir: publicDir ? path.join(publicDir, 'i18n') : null },
+          ...joined.map((m) => ({ base: `/${m.mount}/`, dir: m.parts.publicDir, i18nDir: catalogsOf(m) }))],
+        catalogs: fingerprint(KIT_TEXTS).version,
+      }),
+      shell,
+      optional,
       push: {
         title: config.app.name, icon, ...(hostWorker.badge ? { badge: hostWorker.badge } : {}), url: '/',
         ...(Object.keys(icons).length ? { icons } : {}),

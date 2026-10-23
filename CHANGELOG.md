@@ -17,6 +17,80 @@ change an interface and a patch never does. Apps pin a version through the submo
     `{ url, mount, source, handled }`; the view opens it in the section that already shows that
     module (Cronum Work's split.js). With none, or a key held, the link is a link as before.
 
+## 0.140.0 — 2026-10-23
+
+- **A host's worker serves code from its copy first, keeps the kit once, and a release brings only
+  what changed** (`web/sw-core.js`, `host-worker.js`, `host.js`). Every page of Cronum Work and
+  every change of module asked the network for each of its ~40 code files before drawing (up to 4 s
+  each with a weak signal), and each release of any module downloaded the whole app again,
+  the kit five times (once per module's path): 3–5 MB per device. The host's worker version is
+  already the fingerprint of everything the browser loads, so the host now passes:
+  - `codeFirst`: code, styles and catalogs come from the copy, never asked; what changes comes
+    with the next worker, which the update notice already waits for (`web/update.js`).
+  - `sharedKit`: the kit is kept once, at /suite/; `/tasks/suite/x` is answered from it as a
+    response of its own (`suiteAsAsked`), so the module's code still reads its base at /tasks/.
+  - `hashes` (`shellHashes`): the hash of each file it keeps; a new worker copies from the old
+    copy every file whose hash is the same and fetches only the rest. Pages, manifests and
+    `js/app-version.js` always travel again.
+  - The fingerprint (`/version`) now counts the suite's texts (`i18n/`, in every catalog the
+    browser loads) and a module's catalogs outside its public folder: code served from the copy
+    must change version whenever any of it changes. It changes once with this release.
+  An app on its own, and a module's own worker, keep code network first, as before.
+
+## 0.129.0 — 2026-10-23
+
+- **A new password ends everything else that lets someone in** (`revoke.js`, `accounts.js`, `api.js`,
+  `workos-security.js`, `workos-accounts.js`, `live.js`, `app.js`, `host.js`). Changing the password
+  from Settings, resetting it by mail, or the admin setting it, used to close the browsers' sessions
+  and little else: an API token, an assistant's OAuth grant, a connected phone (which opens a new web
+  session whenever it wants) or an AI client authorized in AuthKit, left by whoever had the account
+  for a while, kept working after the owner changed the password. Now every path calls one
+  `revokeEverything(userId, { keep, provider, reason })` (`suite.revokeEverything`): the sessions here
+  (all but the one where it was done) and their sessions at the identity provider, the API tokens,
+  the suite's OAuth grants, the device tokens with their web sessions and native push tokens, the
+  browsers' push subscriptions, the AI clients of AuthKit (refused here for every token issued until
+  now, and withdrawn at WorkOS in the background: `idp.revokeAllConnections`), the person's open tabs
+  (`live.dropUser`, told first with an `account` notice) and an `auth.revoke_everything` line in the
+  audit log. Disabling an account still doesn't: it can come back with what it had.
+  - `accounts.whenPasswordSet((id, { exceptToken }) => …)`: who hears a password set, inside its
+    transaction; createSuite hooks revokeEverything there, so `POST /api/me/password`,
+    `POST /api/auth/reset` and the admin's `PATCH /api/admin/users/:id` all go through it.
+  - With WorkOS, `POST /api/me/sign-in/password` (keeps the current session) and
+    `PUT /api/admin/users/:id/sign-in/password` (keeps none, unless it is the admin's own).
+  - The admin's "sign out everywhere" (`DELETE /api/admin/users/:id/sessions`) is the same function,
+    so it now also disconnects the AI clients of AuthKit; its answer is unchanged.
+  - `live.subscribe(req, res, user, { sessionToken })` and `live.dropUser(userId, { except, last })`;
+    `suite.whenRevoked(hook)`, which a host's modules use for their own channels.
+  - Not yet: a reset on AuthKit's own page ("Forgot your password?") is not heard by the app, so it
+    still revokes nothing here.
+## 0.128.0 — 2026-10-23
+
+- **Paddle: what a checkout says is signed by the server** (`paddle.js`, `billing.js`, `config.js`,
+  `app.js`). Paddle.js opens a checkout for any price with any `customData` from the browser, so
+  anyone could buy Pro yearly at the founder's price by naming it in the console, and the webhook
+  gave the plan to whoever `custom_data` named. The checkout now writes `custom_data.sig`, an HMAC
+  of who pays (`workos_user_id` or `subject`), the product, the price, the app and the customer the
+  server put on the transaction. An event whose `sig` is missing or doesn't match its own price is
+  `unsigned`, and a subscription or purchase never heard of here on one grants and links nothing:
+  `'unsigned'`, logged and in the audit (`billing.unsigned`). One already known keeps going without
+  it: those bought before this version have no `sig`, and a plan changed in the portal keeps the
+  first checkout's `custom_data` on another price. The key is `PADDLE_CHECKOUT_SECRET` (optional,
+  32 characters or more) or, without it, one derived from `PADDLE_WEBHOOK_SECRET`; installs that
+  grant one subscription together, each with its own notification destination, share
+  `PADDLE_CHECKOUT_SECRET`.
+- **A customer linked to another account stays theirs** (`billing.js`). An event that named someone
+  by their identity took the provider's customer from whoever had it, and Paddle's checkout may
+  match a customer by the email typed in it: a checkout opened by hand with another person's email
+  could take their portal (invoices, payment method, subscriptions). The link moves now only on a
+  signature for that very customer; otherwise it stays, the buyer still gets what they paid for,
+  and the audit says `billing.customer_conflict`. An event of another provider (`unsigned` and
+  `customerUnsigned` unset) is as before.
+- **`accounts.endSubscriptions`** (`config.js`, `account-deletion.js`, `app.js`): someone deleting
+  their account can have their subscriptions stop renewing at the request and end when the account
+  goes without going at the identity provider too, for an install that bills alone while other
+  apps sign in with the same users (Cronum Work). Left out, it follows `deleteAtProviders`, as
+  before.
+
 ## 0.127.0 — 2026-10-23
 
 - **Password and sign-in is the account's; where one is signed in is a connection**

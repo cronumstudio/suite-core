@@ -78,8 +78,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
   /**
    * Opens the channel of a signed-in person and keeps it open while the tab
    * is. Exempt from the socket's timeout: it lives open on purpose.
+   * `sessionToken`, the session it was opened with, lets dropUser() keep the
+   * tab where the person just changed their password.
    */
-  function subscribe(req, res, user) {
+  function subscribe(req, res, user, { sessionToken = null } = {}) {
     res.setTimeout?.(0);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -106,7 +108,7 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     }
     res.write(`event: hello\ndata: ${JSON.stringify({ user_id: user.id })}\n\n`);
 
-    const client = { res, userId: Number(user.id) };
+    const client = { res, userId: Number(user.id), sessionToken };
     // Opening channels without end held a socket, a timer and a buffer each.
     const theirs = [...clients].filter((other) => other.userId === client.userId);
     for (const old of theirs.slice(0, Math.max(0, theirs.length - PER_USER + 1))) drop(old);
@@ -122,5 +124,26 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     for (const client of [...clients]) drop(client);
   }
 
-  return { publish, subscribe, close, connected: () => clients.size };
+  /**
+   * Closes a person's channels, all but the one opened with the session
+   * `except` (revoke.js): a tab of a session that was just closed stopped
+   * being theirs, and the browser coming back with it finds no one. `last`
+   * ({ event, data }) is said to each before it closes: the account's notice,
+   * so the page looks again at who is signed in, and finds no one.
+   */
+  function dropUser(userId, { except = null, last = null } = {}) {
+    let n = 0;
+    for (const client of [...clients]) {
+      if (client.userId !== Number(userId) || (except && client.sessionToken === except)) continue;
+      if (last) send(client, `event: ${last.event || 'change'}
+data: ${JSON.stringify(last.data ?? {})}
+
+`);
+      drop(client);
+      n += 1;
+    }
+    return n;
+  }
+
+  return { publish, subscribe, dropUser, close, connected: () => clients.size };
 }
