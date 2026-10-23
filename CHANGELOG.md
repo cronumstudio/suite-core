@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.155.0 — 2026-10-24
+
+- **Windows make room while one is carried, as a phone's icons do** (`windows.js`). Until now
+  another window only moved aside live when the pointer crossed the 48 px strip of its head; over
+  its body nothing happened until letting go, and two windows of a 2×2 swapped only then. Now the
+  middle of a column is its place too, a window of a full column trades places with the carried
+  one at once, and the others flow to their new places with a slightly longer, springier slide
+  (260 ms, a little overshoot), the carried one settling the same way when let go. Stacking keeps
+  the top and bottom parts of a column (a dashed box, done on letting go). Still computed from the
+  places measured at pick-up, with no layout read in the loop.
+
 ## 0.154.0 — 2026-10-23
 
 - **Cronum Work in one page: what the kit and the host give its one-document shell** (Work's

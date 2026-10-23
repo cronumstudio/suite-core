@@ -144,6 +144,7 @@ test('slotAt: a column’s head strip, the halves of a column of one, the window
   const layout = normalizeLayout({ cols: [{ wins: ['a'] }, { wins: ['b', 'c'], h: 0.25 }, { wins: ['d'] }] });
   assert.deepEqual(slotAt(SLOTS, layout, 100, 60), { col: 0, zone: 'head' });
   assert.deepEqual(slotAt(SLOTS, layout, 100, 200), { col: 0, zone: 'top' });
+  assert.deepEqual(slotAt(SLOTS, layout, 100, 450), { col: 0, zone: 'head' }, 'its middle is its place too');
   assert.deepEqual(slotAt(SLOTS, layout, 100, 700), { col: 0, zone: 'bottom' });
   assert.deepEqual(slotAt(SLOTS, layout, 500, 200), { col: 1, zone: 'win', row: 0 }, 'above the split at a quarter');
   assert.deepEqual(slotAt(SLOTS, layout, 500, 300), { col: 1, zone: 'win', row: 1 });
@@ -463,6 +464,38 @@ test('reorder: let go over half a column, it stacks there; over a window of a fu
   head('next').dispatch('pointermove', { clientX: 1000, clientY: 200 });
   head('next').dispatch('pointerup', {});
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['tasks'], ['next', 'notes']], 'swapped with the top one');
+  windows.destroy();
+});
+
+test('reorder: as a phone’s icons, the other window makes room while it is carried, not when let go', () => {
+  const { made, windows, lay, head, press } = setup();
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }, { wins: ['tasks'] }] });
+  lay();
+  animations.length = 0;
+  press(head('notes'), 100, 60);
+  // Over the middle of the next column's body, far below its head.
+  head('notes').dispatch('pointermove', { clientX: 600, clientY: 450 });
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes'], ['tasks']], 'taken at once');
+  const room = animations.find((a) => a.node === made.get('next'));
+  assert.ok(room, 'the other slides into the place it left');
+  assert.match(room.options.easing, /^cubic-bezier\(/);
+  assert.match(made.get('notes').style.transform, /^translate\([^)]*\)$/, 'it follows the pointer, at its own size');
+  head('notes').dispatch('pointerup', {});
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes'], ['tasks']], 'let go: it stays');
+
+  // Two columns of two: over the other window, they trade places at once, the other sliding up.
+  windows.set({ cols: [{ wins: ['notes', 'next'] }, { wins: ['tasks', 'projects'] }] });
+  lay();
+  animations.length = 0;
+  press(head('next'), 100, 500);
+  head('next').dispatch('pointermove', { clientX: 120, clientY: 150 });
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next', 'notes'], ['tasks', 'projects']], 'swapped while carried');
+  const up = animations.find((a) => a.node === made.get('notes'));
+  assert.ok(up && /translate\(0px, -?\d/.test(up.frames[0].transform), 'the other slides up or down into its place');
+  head('next').dispatch('pointermove', { clientX: 120, clientY: 160 });
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next', 'notes'], ['tasks', 'projects']], 'over its own place now: no flapping');
+  head('next').dispatch('pointerup', {});
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next', 'notes'], ['tasks', 'projects']]);
   windows.destroy();
 });
 
