@@ -25,6 +25,13 @@
  * each module is a frame (base.js FRAMED), drawn without the rail: the page says
  * which module each frame shows, and the app's name keeps Settings at hand.
  *
+ * In a window of Cronum Work's one-document shell (`embedded`, mount.js), the
+ * page is Work's and every module shares it: the rail, the person, the host's
+ * notices and the history of the installed app are the shell's, drawn once, so
+ * the frame draws none of them and asks the host nothing. Its sidebar, and its
+ * fold, are the module's own and stay. Settings come when Work asks the window
+ * (`kit:settings` on `root`), as the split view asks a frame.
+ *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
@@ -61,10 +68,12 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {Function} [options.onFold]        (folded) the sidebar folded or came back: the views' width changed
  * @param {Array}  [options.accountItems]    the app's own entries of the account menu
  * @param {Node}   [options.root]
+ * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  */
 export function createShell({
   panes = 'split', app, create = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
+  embedded = false,
 }) {
   // Every listener the frame adds goes with destroy(), through this one signal (all but the
   // click swallowed after a drag of the drawer, see `swallowing`). An app that draws its frame
@@ -103,7 +112,8 @@ export function createShell({
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,
     nav,
-    foot);
+    // In Work's shell the person is the shell's: no button for them in each window.
+    embedded ? null : foot);
   const scrim = el('div', { class: 'kit-scrim', onClick: () => closeDrawer() });
 
   const title = el('span', { class: 'kit-bar__title' });
@@ -219,6 +229,16 @@ export function createShell({
       else onSettings();
     }, { signal });
   }
+  // In Work's shell one window object is every module's: the shell asks the one it means on the
+  // body of its window (ctx.root), naming the section or not, as the split view asks a frame.
+  if (embedded && onSettings) {
+    root.addEventListener(SETTINGS_EVENT, (ev) => {
+      closeDrawer();
+      const start = ev?.detail?.start;
+      if (typeof start === 'string' && start) onSettings(start);
+      else onSettings();
+    }, { signal });
+  }
   // On a phone the sidebar is a closed drawer, and a note or a task picked up from the list
   // (drag.js) would have nowhere to go. When its only places are in the drawer, the drawer opens
   // as the drag starts. When it may also go somewhere in the list (in order, another category:
@@ -312,8 +332,10 @@ export function createShell({
     const atStart = rtl ? x > innerWidth - EDGE : x < EDGE;
     const atEnd = rtl ? x < EDGE : x > innerWidth - EDGE;
     const action = atStart ? startAction(target) : null;
-    // Without the Navigation API (older Safari) the history is assumed to have somewhere to go.
-    const leaves = (atStart && window.navigation?.canGoBack !== false) || (atEnd && window.navigation?.canGoForward !== false);
+    // Without the Navigation API (older Safari) the history is assumed to have somewhere to go. In
+    // Work's shell the page's edges are the shell's to keep from Safari: a window takes a touch only
+    // for what it does itself, or every window mounted would pass the same tap on.
+    const leaves = !embedded && ((atStart && window.navigation?.canGoBack !== false) || (atEnd && window.navigation?.canGoForward !== false));
     const taken = Boolean(action) || leaves;
     if (taken) ev.preventDefault();
     // The drawer to drag, on a phone (beside the views, folded, the edge unfolds the sidebar): out
@@ -485,7 +507,7 @@ export function createShell({
    */
   const installed = () => navigator.standalone === true
     || Boolean(globalThis.matchMedia?.('(display-mode: standalone)')?.matches);
-  document.addEventListener('click', (ev) => {
+  if (!embedded) document.addEventListener('click', (ev) => {
     if (FRAMED || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
     const link = ev.target instanceof Element ? ev.target.closest('a[href]') : null;
     if (!link || link.target === '_blank' || !installed()) return;
@@ -502,7 +524,7 @@ export function createShell({
    */
   function syncSwitcher() {
     // In a frame of the host's split view there is no rail: the view says which module is in it.
-    const want = hosted && (FRAMED || !(beside() && (rail || !answered)));
+    const want = hosted && !embedded && (FRAMED || !(beside() && (rail || !answered)));
     if (want && !switcher) {
       switcher = el('button', {
         type: 'button', class: 'kit-side__app', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
@@ -596,7 +618,7 @@ export function createShell({
 
   /** Asks the host again: someone may have turned a module on or off in another tab. */
   async function refreshModules({ fresh = true } = {}) {
-    if (!mount) return null;
+    if (!mount || embedded) return null;
     try {
       const { status, answer } = await hostModules({ fresh });
       if (status === 404) {   // no host there: an app on its own under a path
@@ -619,7 +641,10 @@ export function createShell({
       if (!destroyed) syncSwitcher();
     }
   }
-  if (mount) {
+  // In Work's shell a module of a host, and nothing more: the rail, the look, the founder's notice and
+  // the modules turned on or off are the shell's, asked and drawn once for the page.
+  if (embedded) asModule(true);
+  else if (mount) {
     // Under a module's path it is a host's, almost surely: as one from the start, so the
     // person's button doesn't show and go once the host answers.
     asModule(true);
@@ -684,7 +709,7 @@ export function createShell({
 
   // Back from the host's checkout (Settings › Plan in a module): thanks, and the plan read again
   // until it arrives. Only a host's module comes back to its own path with `?billing=`.
-  if (mount && !FRAMED) billingReturn({ open: onSettings ? () => onSettings('plan') : null });
+  if (mount && !FRAMED && !embedded) billingReturn({ open: onSettings ? () => onSettings('plan') : null });
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
@@ -745,8 +770,9 @@ export function createShell({
     return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
   }
 
-  // Inside the suite's app on a phone, the page is drawn and listens: the app's bridge (native.js), once a page.
-  nativeReady();
+  // Inside the suite's app on a phone, the page is drawn and listens: the app's bridge (native.js), once a
+  // page, which in Work's shell is the shell's to say.
+  if (!embedded) nativeReady();
 
   return {
     element, nav, list, detail, actions, banners, head: viewHead,
