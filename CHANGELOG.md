@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.152.0 — 2026-10-23
+
+- **What the MCP tools are written with, once for every module, and a shorter `tools/list`**
+  (`mcp-kit.js`). Each module carried the same skeleton (`text`, `S`, the four annotation sets, a
+  describeError with the same "Options:" block) and the copies had drifted (audit 2026-10-23,
+  mcp-cross-3). And `tools/list`, ≈17 500 tokens for Cronum Work in every conversation, repeats
+  long parameter descriptions word for word across tools (mcp-cross-1).
+  - `text(s)`; `S.string/bool/int/number/list`; `READS`, `ADDS`, `SETS`, `DESTRUCTIVE`.
+  - `tool({ kind: 'read'|'add'|'set'|'destroy', params, required, openWorld, ...rest })`: the
+    annotations from `kind`, a closed `inputSchema` from `params` and `required`.
+  - `describeErrorWith({ errorSentence })`: a `ResolveError` (the suite's, or a module's own copy
+    until it adopts the suite's) as its message and up to 25 options; an `HttpError` as
+    `errors.<code>` in English, with the plan's feature when a plan leaves it out; null otherwise.
+  - `trimRepeats(tools, { minLength: 80 })`: a long parameter description repeated in a later tool
+    becomes its first sentence there. Tool names, parameters, types and limits don't change (§9).
+  - `toolsListSize(tools)`: the characters `tools/list` spends on them, for a budget test.
+  Nothing changes for an app until it adopts it.
+
 ## 0.150.0 — 2026-10-23
 
 - **One way to turn names and dates as people say them into items, for every module's MCP**

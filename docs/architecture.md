@@ -89,6 +89,7 @@ suite-core/
                                reminders the phone shows itself are not pushed to it
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
+  mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
@@ -1287,6 +1288,16 @@ the person first. Every app writes them the same way:
 
 `openWorldHint` is `true` only for a tool that reaches outside the app (fetching from the
 internet, another service).
+
+`mcp-kit.js` (v0.152.0) has them as `READS`, `ADDS`, `SETS` and `DESTRUCTIVE`, and
+`tool({ name, title, description, kind, params, required, handler, … })` writes a tool from what
+makes it differ: `kind` (`read`, `add`, `set`, `destroy`) gives the annotations, `params` and
+`required` a closed `inputSchema`. With it come `text(s)`, the `S` schema helpers and
+`describeErrorWith(i18n)`, the usual `describeError`: a `ResolveError` as its message and options,
+an `HttpError` as `errors.<code>` in English. `tools/list` is paid for in every conversation, so
+`trimRepeats(tools)` says each long parameter description in full in the first tool that has it
+and as its first sentence after (names, parameters and limits unchanged), and `toolsListSize(tools)`
+measures what a module's tools cost, for a budget test.
 
 `feature` makes the transport check the plan before calling the tool. Only the names `tools/list`
 announces answer: there are no aliases for old tool or parameter names (gone in 0.148.0), so a tool
