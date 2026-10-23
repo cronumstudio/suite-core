@@ -36,6 +36,17 @@ change an interface and a patch never does. Apps pin a version through the submo
   `dateOrNull`/`parseDate` and the MCP's `format: 'date'` (audit verify-b A, projects-client-2).
   The modules' schemas (`S.int`, `S.string` in each `mcp-tools.js`) can now declare `minimum`,
   `maximum` and `format: 'date'` and have them hold.
+## 0.142.0 — 2026-10-23
+
+- **The catalog a page loads leaves out what no page of the app shows** (`app.js`, `web/i18n.js`,
+  `web/admin.js`, `web/connect.js`). `/i18n/<lang>.json` carried all of the suite's texts: the
+  admin panel's (`admin.*`, 261 in English), the e-mails' (`mail.*`) and the connect page's
+  (`oauth.*`), about 17 KB of every catalog, in every module and every frame of the split view.
+  They are out now (`clientTexts`), but the two of usage that Settings shows too
+  (`admin.usage.*`). The admin panel and the connect page ask for the whole catalog,
+  `/i18n/<lang>.json?all` (`loadLanguage(…, { all: true })`). The server's own texts (e-mails,
+  pages it writes) never came from it and are as before.
+
 ## 0.141.0 — 2026-10-23
 
 - **The split view's frames ask less, and a link opens beside** (`web/update.js`, `web/shell.js`,

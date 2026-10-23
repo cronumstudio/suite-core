@@ -591,6 +591,16 @@ function inCatalogDir(pathname) {
 }
 
 /**
+ * What of the suite's texts (flattened) an app's pages show: not the admin panel's (`admin.*`, but
+ * the two of usage that Settings shows too), the e-mails' (`mail.*`) or the connect page's
+ * (`oauth.*`). About a fifth of every catalog the browser loads, in every module's frame.
+ */
+const CLIENT_SKIPS = /^(admin|mail|oauth)\./;
+export function clientTexts(flat) {
+  return Object.fromEntries(Object.entries(flat).filter(([key]) => !CLIENT_SKIPS.test(key) || key.startsWith('admin.usage.')));
+}
+
+/**
  * The fingerprint of an app's front end: what its code, styles, pages and catalogs hold (each
  * file's path and content hash, http.js contentHash), never their dates. An image built from a
  * fresh checkout dates every file at the build, and with dates every deploy of a host said
@@ -840,14 +850,17 @@ export function createApp({
    * The catalog the browser loads for a language: the suite's texts (errors,
    * fields, its screens) with the app's over them, in the app's own shape.
    * Rebuilt when the app's file changes: the public folder is edited live.
+   * Without `all`, the suite's texts no page of the app shows are left out
+   * (CLIENT_SKIPS): the admin panel's and the connect page's ask for them all.
    */
   const catalogDir = i18nDir || (publicDir ? path.join(publicDir, 'i18n') : null);
   const catalogs = new Map();
-  function catalogFor(lang) {
+  function catalogFor(lang, { all = false } = {}) {
+    const key = all ? `${lang}+all` : lang;
     const file = catalogDir ? path.join(catalogDir, `${lang}.json`) : null;
     let mtime = -1;
     try { if (file) mtime = fs.statSync(file).mtimeMs; } catch { /* the app has none for it */ }
-    const cached = catalogs.get(lang);
+    const cached = catalogs.get(key);
     if (cached && cached.mtime === mtime) return cached;
     let own = {};
     if (mtime >= 0) {
@@ -857,9 +870,10 @@ export function createApp({
         console.error(`${tag} ${file} is not valid JSON: ${err.message}`);
       }
     }
-    const body = JSON.stringify(mergeCatalogs(SUITE_CATALOGS[lang] || {}, own));
+    const suite = SUITE_CATALOGS[lang] || {};
+    const body = JSON.stringify(mergeCatalogs(all ? suite : clientTexts(suite), own));
     const entry = { mtime, body, etag: `W/"${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"` };
-    catalogs.set(lang, entry);
+    catalogs.set(key, entry);
     return entry;
   }
 
@@ -1001,7 +1015,7 @@ export function createApp({
           sendText(res, 404, 'Not found');
           return;
         }
-        const { body, etag } = catalogFor(wanted);
+        const { body, etag } = catalogFor(wanted, { all: url.searchParams.has('all') });
         if (req.headers['if-none-match'] === etag) {
           res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
           res.end();
