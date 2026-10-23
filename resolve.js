@@ -202,7 +202,7 @@ export function matchByName(items, ref, {
   const best = scored[0];
   const tied = scored.filter((s) => s.points === best.points);
   if (tied.length > 1 && (strict || create || best.points < 95)) {
-    throw new ResolveError(`"${raw}" is ambiguous: several match (${label}). Say which one, by its name or its #id.`,
+    throw new ResolveError(`"${raw}" is ambiguous: several match (${label}). Say which one, by its name or its #id.${isClear(best) ? '' : hint}`,
       options(tied.map((s) => s.item)));
   }
   if ((strict || create) && !isClear(best)) {
