@@ -721,6 +721,7 @@ export function createApp({
     registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
+      adminIdentity: config.accounts.adminIdentity === true,
     });
   }
   if (config.modules.admin) {

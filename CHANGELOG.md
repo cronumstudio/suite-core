@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.146.0 — 2026-10-23
+
+- **Only the install that owns the identities changes them, and only with the admin's password
+  again** (`workos-security.js`, `config.js`, `app.js`, `web/admin.js`, `web/api.js`, `i18n/*.json`).
+  A WorkOS user is the same in every product that signs in with it, yet any install's admin cookie
+  could take someone's second step off (`DELETE /api/admin/users/:id/sign-in/two-factor`) or give
+  them a password (`PUT /api/admin/users/:id/sign-in/password`), even someone who signs in with
+  Google: a stolen admin session anywhere was everyone's account everywhere.
+  - **`accounts.adminIdentity`** (suite.config.js, default `false`): those two routes exist only
+    where it is `true` (Cronum Work sets it). Elsewhere they answer 404, and
+    `GET /api/admin/users/:id/sign-in` says `manage: false`, so the panel only shows how they sign in.
+  - **The admin again**: `admin_password` (their WorkOS password, with the sign-in brake) and, when
+    they have a second step, `admin_code`. An admin who signs in with Google or a company's sign-in
+    has no password to give: a session opened in the last 10 minutes, else 401 `reauth_required`
+    (the panel sends them to sign in again). The GET says which (`reauth`: `password`,
+    `password_code`, `session`) and the panel asks for those fields.
+  - **No password for whoever signs in elsewhere**: 400 `password_elsewhere`.
+  - After either change, the person is revoked everywhere (`revokeEverything`, 0.129.0).
+  - `api.delete(path, body)` sends a body when given one.
 ## 0.144.0 — 2026-10-23
 
 - **A link to `/oauth/authorize` no longer sends anyone to another site without a click of theirs**
