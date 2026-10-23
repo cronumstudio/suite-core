@@ -286,28 +286,36 @@ export function contentHash(file, stat = fs.statSync(file)) {
 }
 
 /**
+ * The file `urlPath` names in `root`, as serveStatic would serve it: `{ file, stat }`, or null
+ * when there is none. Never outside `root`, and never a dotfile.
+ */
+export function staticFile(root, urlPath) {
+  let relative;
+  try { relative = decodeURIComponent(String(urlPath).split('?')[0]); } catch { return null; }
+  if (relative.endsWith('/')) relative += 'index.html';
+  if (relative.includes('\0') || relative.split(/[\\/]/).some((part) => part.startsWith('.') && part !== '')) {
+    return null;
+  }
+  const base = path.resolve(root);
+  const file = path.resolve(base, `.${path.posix.normalize(`/${relative}`)}`);
+  if (file !== base && !file.startsWith(base + path.sep)) return null;
+  try {
+    const stat = fs.statSync(file);
+    return stat.isFile() ? { file, stat } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Serves `urlPath` from `root`. Returns false when there is no such file (the
  * caller decides: SPA fallback or 404). Never leaves `root`, and never serves
  * dotfiles.
  */
 export function serveStatic(root, urlPath, res) {
-  let relative;
-  try { relative = decodeURIComponent(String(urlPath).split('?')[0]); } catch { return false; }
-  if (relative.endsWith('/')) relative += 'index.html';
-  if (relative.includes('\0') || relative.split(/[\\/]/).some((part) => part.startsWith('.') && part !== '')) {
-    return false;
-  }
-  const base = path.resolve(root);
-  const file = path.resolve(base, `.${path.posix.normalize(`/${relative}`)}`);
-  if (file !== base && !file.startsWith(base + path.sep)) return false;
-
-  let stat;
-  try {
-    stat = fs.statSync(file);
-    if (!stat.isFile()) return false;
-  } catch {
-    return false;
-  }
+  const found = staticFile(root, urlPath);
+  if (!found) return false;
+  const { file, stat } = found;
   const ext = path.extname(file).toLowerCase();
   // From what it holds: the same file in a new build is still a 304.
   let etag;

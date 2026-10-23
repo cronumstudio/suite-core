@@ -259,6 +259,79 @@ test('live: changes grouped, resync after a cut, reconnection with a growing wai
   assert.deepEqual(states.slice(0, 2), ['connecting', 'open']);
 });
 
+/** The shell's channel for every module (`workRegistry().live`), as a test sees it: who subscribed, and stopped. */
+function fakeShellLive() {
+  const subscriptions = [];
+  return {
+    subscriptions,
+    subscribe(module, handlers, options) {
+      const subscription = { module, handlers, options, stopped: false, stop() { this.stopped = true; } };
+      subscriptions.push(subscription);
+      return subscription;
+    },
+  };
+}
+
+test('live: in the shell’s page a module’s channel is the shell’s, with the same object back', () => {
+  const REGISTRY = Symbol.for('cronum.work');
+  const shared = fakeShellLive();
+  globalThis.document[REGISTRY] = { live: shared };
+  try {
+    const before = FakeSource.last;
+    const states = [];
+    const changes = [];
+    let resyncs = 0;
+    let accounts = 0;
+    const live = connectLive({
+      onChange: (events) => changes.push(events), onResync: () => resyncs++, onAccount: () => accounts++, onState: (s) => states.push(s),
+    }, { EventSource: FakeSource, owner: 'notes', events: ['note'] });
+    assert.equal(FakeSource.last, before, 'no channel of its own');
+    const [first] = shared.subscriptions;
+    assert.equal(first.module, 'notes', 'the module this copy of the kit belongs to');
+    assert.deepEqual(first.options, { events: ['note'] });
+    assert.equal(live.state, 'closed');
+
+    first.handlers.onState('open');
+    first.handlers.onState('open');
+    assert.equal(live.state, 'open');
+    assert.deepEqual(states, ['open'], 'a state said once');
+    first.handlers.onChange([{ event: 'change', id: 'r.1', data: { note: 5 } }]);
+    first.handlers.onResync();
+    first.handlers.onAccount();
+    assert.deepEqual(changes, [[{ event: 'change', id: 'r.1', data: { note: 5 } }]]);
+    assert.equal(resyncs, 1);
+    assert.equal(accounts, 1);
+
+    live.reconnect();
+    assert.equal(first.stopped, true, 'again: the old subscription let go');
+    const second = shared.subscriptions[1];
+    assert.equal(second.module, 'notes');
+
+    live.stop();
+    assert.equal(second.stopped, true);
+    assert.equal(live.state, 'closed');
+    assert.deepEqual(states, ['open', 'closed']);
+    second.handlers.onChange([{ event: 'change' }]);
+    second.handlers.onResync();
+    assert.equal(changes.length, 1, 'nothing reaches a module once it stopped');
+    assert.equal(resyncs, 1);
+
+    // Its own address asked for, or a kit that is no module's (the host's own pages): its own channel.
+    connectLive({}, { EventSource: FakeSource, owner: 'notes', url: '/notes/api/other-events' }).stop();
+    assert.notEqual(FakeSource.last, before);
+    const afterOwn = FakeSource.last;
+    connectLive({}, { EventSource: FakeSource }).stop();
+    assert.notEqual(FakeSource.last, afterOwn, 'at the root (ownerOf() is null), its own as always');
+    assert.equal(shared.subscriptions.length, 2);
+  } finally {
+    delete globalThis.document[REGISTRY];
+  }
+  // Outside the shell's page, the module's own channel, as always.
+  const before = FakeSource.last;
+  connectLive({}, { EventSource: FakeSource, owner: 'notes' }).stop();
+  assert.notEqual(FakeSource.last, before);
+});
+
 /* --------------------------------- updates -------------------------------- */
 
 test('update: a different fingerprint is announced; closing it keeps it quiet for one round', async () => {
@@ -809,7 +882,11 @@ async function deployedWorkers(scope, server) {
   const vm = await import('node:vm');
   const store = new Map();   // cache name → Map(path → response)
   const fetched = [];
-  const pathOf = (input) => new URL(typeof input === 'string' ? input : input.url, scope).pathname;
+  // As the Cache API matches by default: the query counts.
+  const pathOf = (input) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, scope);
+    return url.pathname + url.search;
+  };
   class Response {
     constructor(body, init = {}) { this.body = body; this.status = init.status ?? 200; this.ok = this.status < 400; this.url = ''; this.headers = init.headers || {}; }
     clone() { const copy = new Response(this.body, this); copy.url = this.url; return copy; }
@@ -906,6 +983,17 @@ test('a host’s worker serves code from its copy, keeps the kit once, and a rel
   assert.equal(base.url, '', 'a response of its own: the page reads it at /notes/suite/, so its base stays /notes/');
   assert.deepEqual(fetched, [], 'nothing asked of the network');
   assert.equal(await one.get('https://work.example/tasks/api/lists'), null, 'data still always reaches the server');
+
+  // A module's kit sheet scoped to its windows (Work's shell, host.js scopedSheets): its own answer,
+  // never the one copy, which every module's page goes on getting as it was.
+  server['/notes/suite/kit.css?scope=work'] = 'kit scoped to notes';
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css?scope=work')).body, 'kit scoped to notes');
+  assert.deepEqual(fetched, ['/notes/suite/kit.css?scope=work']);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css')).body, '/suite/kit.css v1', 'the one copy stays the kit’s');
+  assert.equal((await one.get('https://work.example/notes/suite/kit.css?scope=work')).body, 'kit scoped to notes', 'and the scoped one is kept apart');
+  assert.deepEqual(fetched, ['/notes/suite/kit.css?scope=work']);
 
   // A release that only changes the kit: a new worker, which brings that file and takes the rest from the old copy.
   server['/suite/kit.css'] = '/suite/kit.css v2';
