@@ -286,13 +286,12 @@ test('arguments out of the schema: an error to correct, and the tool never runs'
   await refused({ from: 'a', start: '2026-02-31' }, /"start" must be a real date/);
   await refused({ from: 'a', start: '2206-10-01' }, /"start" must be a real date/);
   await refused({ from: 'a', type: 'XX' }, /"type" must be one of: "FS", "SS", "FF", "SF"/);
-  await refused({ lag: 1 }, /"from" is required/);
   await refused({ from: { evil: true } }, /"from" must be a text/);
   await refused({ from: 'a', done: 'maybe' }, /"done" must be true or false/);
   await refused({ from: 'a', title: 'too long' }, /"title" must be at most 5 characters/);
   await refused({ from: 'a', titles: ['1', '2', '3', '4'] }, /"titles" can have at most 3 items/);
   await refused({ from: 'a', items: [{ title: 'x' }, { quantity: -1 }] },
-    /"items\[1\]\.title" is required; "items\[1\]\.quantity" must be at least 0/);
+    /^Invalid arguments for add_dependency: "items\[1\]\.quantity" must be at least 0\. /);
   assert.equal(calls.length, 0, 'the handler was never called');
   assert.equal(spent, 0, 'refused calls spend no call of the day');
   assert.ok(logged.length > 0 && logged.every((line) => /^\[mcp\] add_dependency: arguments refused/.test(line)));
@@ -310,7 +309,8 @@ test('arguments that fit, and the forms the tools have always read, reach the to
   await ok({ from: 'a', lag: null, type: null, start: null }); // null: leave it, or clear it
   await ok({ from: 'a', titles: 'one', extra: 'ignored' }); // one item for a list; an unknown property passes
   await ok({ from: 'a', items: [{ title: 'ham', quantity: 200, unit: 'g' }] });
-  assert.equal(calls.length, 5);
+  await ok({ lag: 1, items: [{ quantity: 1 }] }); // what `required` names is the tool's to ask for
+  assert.equal(calls.length, 6);
   assert.deepEqual(calls[1], { from: 12, lag: '3', done: 'false', quantity: '2.5' }, 'nothing is converted on the way');
 });
 
@@ -341,4 +341,27 @@ test('argumentProblems and schemaProblems on their own', () => {
     'bad: required "m" is not a property', 'bad.n: unknown type "int"', 'bad.n: minimum is above maximum',
     'bad.p: enum is not a list of values', 'bad.p: pattern doesn\'t compile', 'none: inputSchema is not an object schema',
   ]);
+});
+
+test('a ResolveError the app leaves alone reaches the AI with its options', async () => {
+  const { ResolveError } = await import('../resolve.js');
+  const tool = (name, error) => ({
+    name, title: name, description: name, inputSchema: { type: 'object', properties: {} },
+    handler: () => { throw error; },
+  });
+  const mcp = createMcpServer({
+    serverInfo: { name: 'test', title: 'Test', version: '1.0.0' },
+    tools: [
+      tool('ask', new ResolveError('"shop" is ambiguous.', ['Shop (#1)', 'Shop online (#2)'])),
+      tool('told', new ResolveError('the app says it')),
+    ],
+    authenticate: async () => null,
+    challenge: () => 'Bearer',
+    describeError: (error) => (error.message === 'the app says it' ? 'In the app\'s words.' : null),
+    log: () => {},
+  });
+  const asked = await mcp.callTool({ id: 1 }, 'ask', {});
+  assert.deepEqual([asked.isError, asked.content[0].text],
+    [true, '"shop" is ambiguous.\nOptions:\n- Shop (#1)\n- Shop online (#2)']);
+  assert.equal((await mcp.callTool({ id: 1 }, 'told', {})).content[0].text, 'In the app\'s words.');
 });

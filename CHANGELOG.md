@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.151.0 — 2026-10-23
+## 0.153.0 — 2026-10-23
 
 - **"Today" is the person's, in every module that adopts it** (`time.js`). Tasks reads today in
   the zone the person's browser reported (`prefs.tz`); Projects, Next and Notes each read it their
@@ -17,6 +17,55 @@ change an interface and a patch never does. Apps pin a version through the submo
     `addDays(day, n)` (calendar days, no clock change moves them) and `daysSince(instant, zone)`.
   Nothing changes for an app until it adopts it; createApp and the host don't wrap requests yet
   (that waits for the app/host lane), so a module wraps its own handlers, as Tasks does.
+
+## 0.152.0 — 2026-10-23
+
+- **What the MCP tools are written with, once for every module, and a shorter `tools/list`**
+  (`mcp-kit.js`). Each module carried the same skeleton (`text`, `S`, the four annotation sets, a
+  describeError with the same "Options:" block) and the copies had drifted (audit 2026-10-23,
+  mcp-cross-3). And `tools/list`, ≈17 500 tokens for Cronum Work in every conversation, repeats
+  long parameter descriptions word for word across tools (mcp-cross-1).
+  - `text(s)`; `S.string/bool/int/number/list`; `READS`, `ADDS`, `SETS`, `DESTRUCTIVE`.
+  - `tool({ kind: 'read'|'add'|'set'|'destroy', params, required, openWorld, ...rest })`: the
+    annotations from `kind`, a closed `inputSchema` from `params` and `required`.
+  - `describeErrorWith({ errorSentence })`: a `ResolveError` (the suite's, or a module's own copy
+    until it adopts the suite's) as its message and up to 25 options; an `HttpError` as
+    `errors.<code>` in English, with the plan's feature when a plan leaves it out; null otherwise.
+  - `trimRepeats(tools, { minLength: 80 })`: a long parameter description repeated in a later tool
+    becomes its first sentence there. Tool names, parameters, types and limits don't change (§9).
+  - `toolsListSize(tools)`: the characters `tools/list` spends on them, for a budget test.
+  Nothing changes for an app until it adopts it.
+
+## 0.150.0 — 2026-10-23
+
+- **One way to turn names and dates as people say them into items, for every module's MCP**
+  (`resolve.js`, `dates.js`, `mcp.js`). Tasks, Projects and Next each had a copy of the same
+  scoring, drifted apart: only Next asked before writing on an unclear match, only Tasks folded
+  "Straße" and "Œufs", and Projects rolled "31/02" into March (audit 2026-10-23, A4, verify-b).
+  Nothing changes for an app until it adopts them.
+  - `resolve.js`: `matchByName(items, ref, { label, getName, strict, create, stopwords })`,
+    `score`, `nameKey` (accents and signs folded, every alphabet and emoji kept), `keywords`,
+    `stopwords(...moduleWords)`, `numberRef` / `byNumber` (a bare number is an id, never part of a
+    name), `isClear`, `optionOf`, `ResolveError` and `resolveErrorText`. `strict` (the tools that
+    write) asks about any tie and any match that isn't clear; `create` answers `null` for a name
+    like nothing there (a new item), with a hint on how to create one anyway.
+  - `dates.js`: `parseNaturalDate(value, { today, field })`, the union of Tasks' and Projects'
+    parsers in Spanish, English, French and German: ISO (a real day within 1900–2200), today and
+    its neighbours, "in N days/weeks/months" (the 31st becomes the month's last day), weekdays long
+    or short ("vie", "next friday") and day-first dates (24/12, 24.12., 24-12-2026). A day that
+    doesn't exist is a `ResolveError`, never the next month. `today` is the person's day.
+  - `mcp.js`: a suite `ResolveError` that the app's `describeError` leaves alone reaches the
+    assistant as its message and up to 25 options, one per line, so the modules can drop that branch.
+
+## 0.149.0 — 2026-10-23
+
+- **An assistant's call no longer fails only because it leaves out what the tool calls required**
+  (`mcp.js` `argumentProblems`). Since 0.143.0 a missing `required` argument stopped the call
+  before the tool ran, but some tools do without it on purpose: Next's `log_progress` saves the
+  step without `done_title` and asks for it next time, and its smoke test (and assistants already
+  using it) were refused. What `required` names is the tool's to ask for again, as before 0.143.0;
+  types, ranges, `enum`, lengths and dates are still checked. `schemaProblems` still says when a
+  `required` names no property.
 
 ## 0.148.0 — 2026-10-23
 

@@ -90,6 +90,9 @@ suite-core/
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
+  mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
+  resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
+  dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
@@ -1287,6 +1290,16 @@ the person first. Every app writes them the same way:
 `openWorldHint` is `true` only for a tool that reaches outside the app (fetching from the
 internet, another service).
 
+`mcp-kit.js` (v0.152.0) has them as `READS`, `ADDS`, `SETS` and `DESTRUCTIVE`, and
+`tool({ name, title, description, kind, params, required, handler, … })` writes a tool from what
+makes it differ: `kind` (`read`, `add`, `set`, `destroy`) gives the annotations, `params` and
+`required` a closed `inputSchema`. With it come `text(s)`, the `S` schema helpers and
+`describeErrorWith(i18n)`, the usual `describeError`: a `ResolveError` as its message and options,
+an `HttpError` as `errors.<code>` in English. `tools/list` is paid for in every conversation, so
+`trimRepeats(tools)` says each long parameter description in full in the first tool that has it
+and as its first sentence after (names, parameters and limits unchanged), and `toolsListSize(tools)`
+measures what a module's tools cost, for a budget test.
+
 `feature` makes the transport check the plan before calling the tool. Only the names `tools/list`
 announces answer: there are no aliases for old tool or parameter names (gone in 0.148.0), so a tool
 is never renamed (CONVENTIONS §9). Tool descriptions and results are in English; the instructions ask the assistant to
@@ -1309,6 +1322,25 @@ bring things to link), and none of them does when it doesn't.
 
 A tool that attaches a file takes it by link or hands back a one-time upload link
 (`mcp-files.js`, v0.89.0; see §16, Files from an assistant): an MCP call carries no file.
+
+**Names and dates as people say them** (v0.150.0). People tell an assistant "the shop" and "next
+friday", not `#7` and `2026-10-30`. `resolve.js` turns a name into an item with one scoring for
+every module: `matchByName(items, ref, { label, getName, strict, create, stopwords })`. A bare
+number (`#12`, `12`, `id 12`) is an id and never part of a name; a name scores exact → same words
+→ prefix → contains → word overlap, folded the same way in every alphabet (`nameKey`: "Café" is
+"cafe", "Straße" is "strasse", "Магазин" and "🎂" stay). When it can't tell, it throws a
+`ResolveError` with the options, and `mcp.js` tells the assistant the message and the options
+(unless the app's `describeError` says it first) so it asks the person. The tools that write pass
+`strict: true`: only a clear match counts and any tie is asked about, because writing on the wrong
+item changes something nobody touched. `create` (Next's `log_progress`) answers `null` for a name
+like nothing there, a new item. Each module adds its own nouns to the filler words with
+`stopwords('list', 'lista', …)`.
+
+`dates.js`'s `parseNaturalDate(value, { today, field })` understands YYYY-MM-DD (a real day,
+1900–2200), today/tomorrow/yesterday, "in 3 days/2 weeks/1 month", weekdays long or short with or
+without "next", and day-first dates (24/12, 24.12., 24-12-2026), in Spanish, English, French and
+German at once. A day that doesn't exist (31/02, 2026-13-01) is a `ResolveError`, never the next
+month. `today` is the person's day (YYYY-MM-DD); without it, the server's.
 
 ## 14. Translations
 
