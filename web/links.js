@@ -130,11 +130,16 @@ export function openInWork(ev, { from = null, registry = workRegistry(), win = g
   const url = ev.currentTarget.getAttribute('href');
   if (!url) return false;
   ev.preventDefault();
+  openWith(registry, url, { from, win });
+  return true;
+}
+
+/** The shell opens `url` in a window; one it can't open (false, or a failure) is a page, as a link. */
+function openWith(registry, url, { from = null, win = globalThis.window } = {}) {
   const go = () => win?.location?.assign(url);
   let opening;
   try { opening = registry.open(url, { from }); } catch { opening = false; }
   Promise.resolve(opening).then((opened) => { if (opened === false) go(); }, go);
-  return true;
 }
 
 /**
@@ -297,7 +302,7 @@ export function linksRow({
       const shell = workRegistry();
       const label = t('kit.links.openIn', { app: card.app });
       items.push(shell?.open
-        ? { label, iconName: 'external', onClick: () => { shell.open(card.url, { from: mount })?.catch?.(() => {}); } }
+        ? { label, iconName: 'external', onClick: () => openWith(shell, card.url, { from: mount }) }
         : { label, iconName: 'external', href: card.url });
     }
     if (reachable(card)) {

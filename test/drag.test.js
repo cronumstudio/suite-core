@@ -902,7 +902,33 @@ test('a place of its own wins over a shared one, and a shared drop that fails is
   pointer(p.note, 'pointerup', 600, 120);
   assert.deepEqual(linked, [['notes:note:6', 'next:step:12', null]]);
   offs.forEach((off) => off());
+  // A drop whose selector can't be read is no place either, and the drag goes on.
+  const offBad = nextKit.registerDrop({ get selector() { throw new SyntaxError('bad selector'); }, accepts: () => ({ ok: true, text: 'x' }), onDrop: () => linked.push('bad') });
+  pointer(p.note, 'pointerdown', 100, 110);
+  pointer(p.note, 'pointermove', 600, 120);
+  assert.equal(p.step.getAttribute('data-drop-state'), null);
+  pointer(p.note, 'pointermove', 100, 310);
+  assert.match(ghost().textContent, /into the notebook/);
+  pointer(p.note, 'pointerup', 100, 310);
+  assert.equal(linked.length, 1);
+  offBad();
   p.drag.destroy();
+});
+
+test('a drag on a page where nothing is shared leaves the document as it was', () => {
+  const DROPS = Symbol.for('cronum.drops');
+  const saved = document[DROPS];
+  delete document[DROPS];
+  try {
+    const q = page();
+    pointer(q.first, 'pointerdown', 400, 110);
+    pointer(q.first, 'pointermove', 380, 130);
+    pointer(q.first, 'pointerup', 380, 130);
+    q.drag.destroy();
+    assert.equal(Object.getOwnPropertySymbols(document).includes(DROPS), false);
+  } finally {
+    if (saved) document[DROPS] = saved;
+  }
 });
 
 test('in Work’s shell the ghost carries its module’s name and the page’s theme; anywhere else, nothing', () => {

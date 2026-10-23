@@ -579,6 +579,18 @@ test('every file the service worker caches for the kit exists', () => {
   for (const file of files) assert.ok(fs.existsSync(new URL(`../web/${file.replace('/suite/', '')}`, import.meta.url)), file);
 });
 
+test('the service worker caches every kit file a cached one imports, or offline it would not load', () => {
+  const sw = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
+  const files = new Set([.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]));
+  for (const file of files) {
+    if (!file.endsWith('.js')) continue;
+    const code = fs.readFileSync(new URL(`../web/${file.replace('/suite/', '')}`, import.meta.url), 'utf8');
+    for (const [, name] of code.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+'\.\/([\w.-]+\.js)'/gm)) {
+      assert.ok(files.has(`/suite/${name}`), `${file} imports ./${name}, which the worker doesn't keep`);
+    }
+  }
+});
+
 /* ------------------------------ the app's base ----------------------------- */
 
 test('the kit finds its base by itself: / on its own, the module’s path in a host', async () => {

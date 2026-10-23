@@ -144,9 +144,12 @@ export function registerDrop(drop) {
  * A drop is code of another copy of the kit, or of the page: one that fails is no place.
  */
 function sharedAt(under, item, asked) {
-  if (!under?.closest) return null;
-  for (const drop of drops()) {
-    const place = under.closest(drop.selector);
+  // Read, never made here: a drag on a page where nothing was shared leaves the document as it was.
+  const shared = document[DROPS];
+  if (!shared?.size || !under?.closest) return null;
+  for (const drop of shared) {
+    let place = null;
+    try { place = under.closest(drop.selector); } catch { place = null; }
     if (!place || place === item || item.contains(place)) continue;
     if (!asked.has(drop)) asked.set(drop, new Map());
     const verdicts = asked.get(drop);
