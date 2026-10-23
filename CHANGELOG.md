@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.128.0 — 2026-10-23
+## 0.140.0 — 2026-10-23
 
 - **A host's worker serves code from its copy first, keeps the kit once, and a release brings only
   what changed** (`web/sw-core.js`, `host-worker.js`, `host.js`). Every page of Cronum Work and

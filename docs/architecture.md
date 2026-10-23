@@ -1950,7 +1950,7 @@ once for each worker, titled with that module's name. With it:
   module's paths as its own worker did (its /api, /version and the rest never cached, its code
   network first, a page of it offline is its index.html), installs file by file, clears the old
   workers' copies, and a notice tapped opens its module (`suiteOpenModule`).
-- **Code from the copy first** (0.128.0). The worker's version is the fingerprint of everything the
+- **Code from the copy first** (0.140.0). The worker's version is the fingerprint of everything the
   browser loads (below), so the host passes `codeFirst`: code, styles and catalogs are answered
   from the copy without asking the network, and what changes comes with the next worker. With
   `sharedKit` the kit is kept once, at /suite/, and `/<mount>/suite/x` is answered from it as a
