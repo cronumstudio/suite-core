@@ -268,9 +268,8 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   assert.equal(await text('alpha_add_item', { text: 'From the AI' }), 'Added.');
   assert.equal(await text('alpha_list_items'), '["From the AI"]');
   assert.equal(await text('beta_list_items'), '[]', 'the same tool in another module, on its own table');
-  assert.equal(await text('add_item', { text: 'Old name' }), 'Added.', 'a name only one module has still answers');
-  assert.equal(await text('new_item', { text: 'Older name' }), 'Added.', 'and so do its old names');
-  assert.match(await text('list_items'), /Unknown tool/, 'a name two modules have needs the module');
+  assert.match(await text('add_item', { text: 'Bare name' }), /Unknown tool/, 'only the names tools/list announces, with the module’s');
+  assert.match(await text('list_items'), /Unknown tool/);
   assert.equal(await text('alpha_add_item', { text: 'boom' }), 'That item cannot be added.', 'errors read as the module says');
   assert.deepEqual((await mcp('prompts/list')).result.prompts.map((p) => p.name), ['beta_setup']);
   assert.ok((await mcp('prompts/get', { name: 'beta_setup' })).result.messages.length);
@@ -308,16 +307,16 @@ function asDomain(server, domain, method, pathname, body, headers = {}) {
   });
 }
 
-test('the apps’ old addresses, for a while: each one’s connector as it was, its pages to the module', async (t) => {
+test('the apps’ old addresses, for a while: their pages to the module, their connectors point at the host’s', async (t) => {
   const { host, call, lines } = await startHost(t, {
     env: {
       DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
       BASE_URL: 'http://127.0.0.1', LEGACY_DOMAINS: 'alpha.example.test=alpha, Beta-Old.example.test=beta',
+      // Gone (0.148.0): a host still given it starts as before.
+      LEGACY_MCP: 'on',
     },
   });
   assert.ok(lines.some((line) => line.includes("also answering the apps' old addresses: alpha.example.test → /alpha/, beta-old.example.test → /beta/")));
-  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
-  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
   const old = (...args) => asDomain(host.server, ...args);
 
   // Pages go to the module, with their path and query; a write keeps its method.
@@ -338,67 +337,20 @@ test('the apps’ old addresses, for a while: each one’s connector as it was, 
   assert.ok(res.text.includes('registration.unregister()'));
   assert.ok(res.text.includes('client.navigate("http://127.0.0.1/alpha/")'));
 
-  // The connector as the app had it: its tools without the module's name, its old names, its instructions.
-  let id = 0;
-  const mcp = async (domain, method, params = {}, auth = `Bearer ${token}`) => {
-    id += 1;
-    return (await old(domain, 'POST', '/mcp', { jsonrpc: '2.0', id, method, params }, auth ? { Authorization: auth } : {})).data;
-  };
-  const init = (await mcp('alpha.example.test', 'initialize', { protocolVersion: '2025-06-18' })).result;
-  assert.equal(init.serverInfo.name, 'alpha');
-  assert.equal(init.serverInfo.title, 'Alpha');
-  assert.match(init.instructions, /^Alpha keeps items\./);
-  const oldTools = (await mcp('alpha.example.test', 'tools/list')).result.tools;
-  assert.deepEqual(oldTools.map((tool) => tool.name), ['list_items', 'add_item']);
-  assert.deepEqual(oldTools[0].annotations, { title: 'List items', readOnlyHint: true, openWorldHint: false }, 'with their hints');
-  const text = async (domain, name, args = {}) => (await mcp(domain, 'tools/call', { name, arguments: args })).result.content[0].text;
-  assert.equal(await text('alpha.example.test', 'add_item', { text: 'Through the old address' }), 'Added.');
-  assert.equal(await text('alpha.example.test', 'new_item', { text: 'With an old name' }), 'Added.');
-  assert.match(await text('alpha.example.test', 'alpha_list_items'), /Unknown tool/, 'only the module’s own names');
-  assert.deepEqual((await mcp('beta-old.example.test', 'tools/list')).result.tools.map((tool) => tool.name), ['list_items']);
-  assert.deepEqual((await mcp('beta-old.example.test', 'prompts/list')).result.prompts.map((p) => p.name), ['setup']);
-  // The same data as the host's own /mcp.
-  const viaHost = (await call('POST', '/mcp', { jsonrpc: '2.0', id: 999, method: 'tools/call', params: { name: 'alpha_list_items', arguments: {} } },
-    { Authorization: `Bearer ${token}` })).data.result.content[0].text;
-  assert.equal(viaHost, '["Through the old address","With an old name"]');
-
-  // Turned off for this person: the old connector says how to bring it back.
-  await call('PUT', '/api/me/modules', { active: ['beta'] });
-  assert.deepEqual((await mcp('alpha.example.test', 'tools/list')).result.tools, []);
-  assert.match(await text('alpha.example.test', 'list_items'), /Alpha is turned off for this person: they can turn it on in Work, Settings › Modules\./);
-  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
-
-  // Without a token: a 401 (local accounts here, so no OAuth metadata to point at).
-  res = await old('alpha.example.test', 'POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' });
-  assert.equal(res.status, 401);
-  assert.match(res.headers['www-authenticate'], /^Bearer realm="alpha"/);
-  assert.equal((await old('alpha.example.test', 'GET', '/.well-known/oauth-protected-resource')).status, 404);
-
-  // The host's own address is as before.
-  assert.equal((await call('GET', '/alpha/mcp')).status, 404);
-  assert.equal((await call('GET', '/health')).status, 200);
-});
-
-test('LEGACY_MCP=off: the old addresses keep their redirects and worker, and their connectors point at the host’s', async (t) => {
-  const { host } = await startHost(t, {
-    env: {
-      DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-')), PORT: '0', ADMIN_PASSWORD: 'root-password',
-      BASE_URL: 'http://127.0.0.1', LEGACY_DOMAINS: 'alpha.example.test=alpha', LEGACY_MCP: 'off',
-    },
-  });
-  const old = (...args) => asDomain(host.server, ...args);
+  // No connector of its own: /mcp names the host's, and no OAuth metadata names the old address.
   for (const pathname of ['/mcp', '/mcp/sse']) {
-    const res = await old('alpha.example.test', 'POST', pathname, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    res = await old('alpha.example.test', 'POST', pathname, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
     assert.equal(res.status, 404, pathname);
     assert.deepEqual(res.data, { error: 'not_found', mcp: 'http://127.0.0.1/mcp' }, 'it names the host’s connector');
     assert.equal(res.headers['www-authenticate'], undefined, 'with no challenge');
   }
-  assert.equal((await old('alpha.example.test', 'GET', '/.well-known/oauth-protected-resource/mcp')).status, 404);
-  assert.equal((await old('alpha.example.test', 'GET', '/.well-known/oauth-authorization-server')).status, 404);
-  const page = await old('alpha.example.test', 'GET', '/lists/3');
-  assert.equal(page.status, 302, 'the pages still go to the module');
-  assert.equal(page.headers.location, 'http://127.0.0.1/alpha/lists/3');
-  assert.ok((await old('alpha.example.test', 'GET', '/sw.js')).text.includes('registration.unregister()'), 'and the worker still removes itself');
+  for (const pathname of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']) {
+    assert.equal((await old('alpha.example.test', 'GET', pathname)).status, 404, pathname);
+  }
+
+  // The host's own address is as before.
+  assert.equal((await call('GET', '/alpha/mcp')).status, 404);
+  assert.equal((await call('GET', '/health')).status, 200);
 });
 
 test('LEGACY_DOMAINS that can’t be right stop the start, and say why', async () => {
@@ -422,7 +374,6 @@ test('LEGACY_DOMAINS that can’t be right stop the start, and say why', async (
   assert.match(await reasons('alpha.example.test:8080=alpha'), /entry 1 is not a domain name/);
   assert.match(await reasons('work.example.test=alpha'), /the host's own address/);
   assert.match(await reasons('a.example.test=alpha,A.example.test=beta'), /a\.example\.test is given twice/);
-  assert.match(await reasons('alpha.example.test=alpha', { LEGACY_MCP: 'of' }), /LEGACY_MCP "of": use on or off/);
 });
 
 test('a host with its MCP off: neither it nor its modules offer an AI connector', async (t) => {

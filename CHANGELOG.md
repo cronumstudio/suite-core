@@ -42,6 +42,35 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `mcp.js`: a suite `ResolveError` that the app's `describeError` leaves alone reaches the
     assistant as its message and up to 25 options, one per line, so the modules can drop that branch.
 
+## 0.148.0 — 2026-10-23
+
+Dead code out (the audit of 23 October, wave 1). Nothing a person sees changes, except an
+assistant that still calls a tool by a name `tools/list` no longer announces.
+
+- **No more MCP aliases** (`mcp.js`, `host.js`, `app.js`). `createMcpServer` no longer takes
+  `legacyTools` or `legacyParams`, and the host's `/mcp` no longer answers a module's tools by their
+  bare names (`add_task` for `tasks_add_task`) nor by the old names a module listed: only the names
+  `tools/list` announces (`<mount>_<tool>`, `<hostId>_<tool>`) answer, with the parameters it
+  announces. Those names and parameters are unchanged. An app that still passes the options is not
+  refused: they are ignored. Every client connected to the host has reconnected since the move.
+- **The apps' old addresses have no connectors** (`legacy-domains.js`, `host.js`). Their `/mcp`
+  answers 404 with the host's (`{ error: 'not_found', mcp }`) and `/.well-known/oauth-*` a 404, as
+  they did with `LEGACY_MCP=off`, which production had set; the variable is no longer read. The
+  redirects and the service worker that removes itself stay.
+- **`createApp({ devices: { canConnect } })` is gone** (`devices.js`, `app.js`), with
+  `devices.setCanConnect`: no app passed it, so everyone could connect a phone, as now. The
+  `403 device_not_allowed` it answered is no longer sent.
+- **One fingerprint of the front end** (`app.js`, `host-worker.js`): an app's `/js/app-version.js`
+  and `/version` use host-worker.js `fingerprint`, as the host does; `frontFingerprint` is gone.
+  Its pattern took any name ending in `js`, `css`… (`notesjs`); now only real extensions count.
+- **Smaller pieces**: `outcomeOf` in billing.js (never called); oauth.js's own `escapeHtml` (it
+  imports brand.js's); `textOn` no longer re-exported by oauth-page.js (brand.js has it);
+  `createApp` takes `suite.alerts` and the WorkOS clients as they are, without the defences for
+  suites older than they; `.kit-display`, `.kit-num`, `.kit-footer` and `.kit-section` out of
+  kit.css (`.kit-visually-hidden` stays); `kit.offline.pending`, `kit.settings.groups.plan`,
+  `kit.plan.subscriptionTitle`, `kit.plan.manage`, `kit.plan.manageHint` and `kit.modules.home`
+  out of the five catalogs.
+
 ## 0.147.0 — 2026-10-23
 
 - **A password reset on AuthKit's own page signs the person out of everything here too**

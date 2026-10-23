@@ -9,10 +9,7 @@
  * product's colour goes in a style attribute, which that CSP allows.
  */
 
-import { escapeHtml, appStyle, SIGNATURE, textOn } from './brand.js';
-
-// Still exported from here: apps and tests imported it before brand.js existed.
-export { textOn };
+import { escapeHtml, appStyle, SIGNATURE } from './brand.js';
 
 /**
  * @param {object} app   config.app: { id, name, color, icon }

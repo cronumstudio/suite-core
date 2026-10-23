@@ -29,8 +29,7 @@
  *   `/api/billing/overview` (stores.js), and with `devices.webSessions`
  *   `/api/devices/web-session`, which only gives a code: `ctx.user` only ever
  *   comes from the session cookie. An app accepts a device on the routes it chooses with
- *   `authenticate(req)`, and the app can refuse people (`canConnect`, through
- *   `createApp({ devices })`) when they connect and on every use.
+ *   `authenticate(req)`.
  *
  * With `devices.webSessions` (an app whose screens are its web pages in a
  * WebView, Cronum Work's), the device turns its token into a session of the
@@ -50,7 +49,7 @@
 import { randomToken, sha256, safeEqual } from './crypto.js';
 import { ensureColumn } from './migrate.js';
 import {
-  HttpError, badRequest, forbidden, notFound, unauthorized, readJson, sendJson, str,
+  HttpError, badRequest, notFound, unauthorized, readJson, sendJson, str,
 } from './http.js';
 import { answeredOnce, keyedByRoute } from './idempotency.js';
 
@@ -193,14 +192,6 @@ export function createDevices({
   if (!/^[a-z]{2,10}_$/.test(String(prefix))) throw new Error('createDevices needs a prefix such as "appdev_"');
   const allowedRedirects = new Set(redirectUris);
   const idleMs = idleDays * DAY;
-  /** Whether the app lets this person connect devices (createApp's `devices.canConnect`); everyone by default. */
-  let canConnect = () => true;
-  const allowed = (user) => {
-    const answer = canConnect(user);
-    // A promise is always truthy: an async check would let everyone in without a word.
-    if (answer && typeof answer.then === 'function') throw new Error('devices.canConnect must answer true or false at once, not a promise');
-    return Boolean(answer);
-  };
 
   // The sessions a device opened on the web (migration 23): a database without the column has none.
   const sessionsLinked = database.columnsOf('sessions').includes('device_id');
@@ -255,7 +246,6 @@ export function createDevices({
     codeChallenge, codeChallengeMethod = 'S256', redirectUri, name, platform = null, state = null,
   } = {}) {
     if (!user || user.disabled_at) throw unauthorized();
-    if (!allowed(user)) throw forbidden('device_not_allowed');
     if (codeChallengeMethod !== 'S256') throw badRequest('field_invalid', { field: 'code_challenge_method', options: ['S256'] });
     // A SHA-256 in base64url without padding is always 43 characters.
     const challenge = str(codeChallenge, { field: 'code_challenge', max: 200, min: 1 });
@@ -311,7 +301,6 @@ export function createDevices({
       if (!proves(proof, row)) return { failed: 'verifier', row };
       const user = database.get('SELECT * FROM users WHERE id = ?', row.user_id);
       if (!user || user.disabled_at) return { failed: 'account', row };
-      if (!allowed(user)) return { refused: true, row };
       if (activeCount(user.id) >= maxPerUser) return { full: true, row };
       const token = `${prefix}${randomToken(32)}`;
       const { lastInsertRowid } = database.run(`INSERT INTO device_tokens
@@ -330,10 +319,6 @@ export function createDevices({
         audit?.record({ action: 'device.revoke', actor, req, targetType: 'device', targetId: outcome.revoked, meta: { by: 'code_reused' } });
       }
       throw badRequest('device_code_invalid');
-    }
-    if (outcome.refused) {
-      audit?.record({ action: 'device.token_failed', actor, req, meta: { reason: 'not_allowed' } });
-      throw forbidden('device_not_allowed');
     }
     if (outcome.full) throw badRequest('too_many_devices', { max: maxPerUser });
     audit?.record({
@@ -369,7 +354,6 @@ export function createDevices({
     if (endOf({ created_at: row.device_created_at, last_used_at: row.device_used_at }) <= now) return null;
     const user = { ...row };
     for (const key of ['device_created_at', 'device_used_at', 'device_revoked_at']) delete user[key];
-    if (!allowed(user)) return null;
     if (!row.device_used_at || now - Date.parse(row.device_used_at) > MINUTE) {
       database.run('UPDATE device_tokens SET last_used_at = ? WHERE id = ?', iso(now), row.device_id);
     }
@@ -381,7 +365,7 @@ export function createDevices({
     const row = database.get(`SELECT d.created_at, d.last_used_at, d.revoked_at, u.disabled_at, u.id AS user_id
       FROM device_tokens d JOIN users u ON u.id = d.user_id WHERE d.id = ?`, id);
     if (!row || row.revoked_at || row.disabled_at || endOf(row) <= clock()) return null;
-    return allowed(database.get('SELECT * FROM users WHERE id = ?', row.user_id)) ? row : null;
+    return row;
   }
 
   /** Whether a device still works: for a connection the app keeps open (a socket's heartbeat). */
@@ -492,11 +476,6 @@ export function createDevices({
   return {
     prefix, idleDays, maxPerUser, issueCode, exchange, authenticate, isActive, list, revoke, revokeAllOf, purge,
     issueWebCode, takeWebCode, sessionAlive,
-    /** createApp's `devices.canConnect(user)`: whether the app lets that person connect devices. */
-    setCanConnect(fn) {
-      if (typeof fn !== 'function') throw new Error('devices.canConnect must be a function (user) => boolean');
-      canConnect = fn;
-    },
   };
 }
 

@@ -634,7 +634,7 @@ test('createSuite with STORE_BILLING: the store\'s routes beside the web\'s unch
     },
     log: () => {}, exitOnError: false,
   });
-  const server = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {}, devices: { canConnect: () => true } });
+  const server = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {} });
   const listening = await server.listen();
   t.after(async () => {
     await server.close();
