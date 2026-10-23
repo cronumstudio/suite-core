@@ -16,7 +16,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { BASE } from './base.js';
+import { BASE, FRAMED, OPEN_EVENT, hostModules } from './base.js';
 import { ApiError, SessionExpired, Offline, errorMessage } from './api.js';
 import { toast, menu, openDialog, field, switchRow } from './ui.js';
 
@@ -64,6 +64,25 @@ export function chipText(card = {}) {
 }
 
 /**
+ * A chip's link pressed in a frame of the host's split view: another module's item opens in the
+ * section that already shows that module (OPEN_EVENT), not in place of this one. A press with a
+ * key held, or with no section for it, is a link as any.
+ */
+export function openBeside(ev, { framed = FRAMED, win = globalThis.window } = {}) {
+  if (!framed || ev.defaultPrevented || ev.button > 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+  let url;
+  try { url = new URL(ev.currentTarget.getAttribute('href'), win.location.href); } catch { return; }
+  const first = (pathname) => /^\/([a-z][a-z0-9-]{1,30})\//.exec(pathname)?.[1] || null;
+  const mount = first(url.pathname);
+  if (!mount || url.origin !== win.location.origin || mount === first(win.location.pathname)) return;
+  const detail = { url: url.pathname + url.search + url.hash, mount, source: win, handled: false };
+  try {
+    win.parent.dispatchEvent(new win.parent.CustomEvent(OPEN_EVENT, { detail }));
+  } catch { return; }   // the view went
+  if (detail.handled) ev.preventDefault();
+}
+
+/**
  * One link as a chip: the other side's card, in its module's colour, opening it there; dashed
  * when it is gone or this person can't open it. `onMenu(button, link)` adds its "…" button.
  */
@@ -79,7 +98,7 @@ export function linkChip(link, { onMenu = null } = {}) {
     link.together ? el('span', { class: 'kit-linked__together', title: t('kit.links.together') }, icon('refresh')) : null,
   ];
   const open = card.url && reachable(card)
-    ? el('a', { class: 'kit-linked__open', href: card.url, title: label, 'aria-label': label }, body)
+    ? el('a', { class: 'kit-linked__open', href: card.url, title: label, 'aria-label': label, onClick: openBeside }, body)
     : el('span', { class: 'kit-linked__open', title: label }, body);
   return el('span', {
     class: 'kit-linked__chip', 'data-state': state, 'data-link': String(link.id ?? ''),
@@ -105,8 +124,9 @@ export function linkChip(link, { onMenu = null } = {}) {
  * @param {Function} [options.fetch]  for tests
  */
 export function linksRow({
-  ref = null, title = '', offer = null, onLoad = null, base = BASE, fetch: fetcher = (...args) => globalThis.fetch(...args),
+  ref = null, title = '', offer = null, onLoad = null, base = BASE, fetch: given = null,
 } = {}) {
+  const fetcher = given || ((...args) => globalThis.fetch(...args));
   const mount = mountOf(base);
   const call = (method, path, body) => hostCall(fetcher, method, path, body);
   const chips = el('div', { class: 'kit-linked__chips' });
@@ -127,9 +147,12 @@ export function linksRow({
     .flatMap((m) => Object.entries(m.links || {}).map(([type, kind]) => ({ module: m.mount, type, name: m.name, creates: Boolean(kind.creates) })));
   const offered = () => kinds().filter((k) => k.creates && (!offer || offer.some((o) => o.module === k.module && o.type === k.type)));
 
-  async function loadModules() {
+  /** The modules of this person; `shared`: the page's one answer (base.js hostModules), as the rail's. */
+  async function loadModules({ shared = false } = {}) {
     try {
-      modules = (await call('GET', '/api/modules')).modules || [];
+      const found = shared && !given ? (await hostModules()).answer : await call('GET', '/api/modules');
+      if (!found) throw new Error('no answer');
+      modules = found.modules || [];
     } catch {
       modules ??= [];
     }
@@ -149,7 +172,7 @@ export function linksRow({
       element.hidden = true;
       return;
     }
-    if (!modules) await loadModules();
+    if (!modules) await loadModules({ shared: true });
     if (ask !== asking) return;
     if (!kinds().length) {
       element.hidden = true;

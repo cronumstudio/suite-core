@@ -40,9 +40,11 @@ const unspoken = new Set();
 // and the person's own once it does, most often the same one, which was a second trip to the
 // server before anything could be drawn. One that failed is asked for again next time.
 const catalogs = new Map();
+// `?all`: the whole catalog, for the pages that show the suite's admin and connect texts.
+let variant = '';
 function fetchCatalog(lang) {
   if (!catalogs.has(lang)) {
-    const loading = fetch(at(`/i18n/${lang}.json`), { credentials: 'same-origin' }).then((res) => {
+    const loading = fetch(at(`/i18n/${lang}.json${variant}`), { credentials: 'same-origin' }).then((res) => {
       if (res.status === 404 && OPTIONAL_LANGUAGES.includes(lang)) unspoken.add(lang);
       if (!res.ok) throw new Error(`i18n ${lang}: ${res.status}`);
       return res.json();
@@ -88,7 +90,13 @@ export function savedLanguage() {
  * service worker's cache; if even that fails the keys show themselves rather
  * than stopping the app. → the language in use.
  */
-export async function loadLanguage(preference = 'auto', { remember = true } = {}) {
+export async function loadLanguage(preference = 'auto', { remember = true, all = false } = {}) {
+  // The admin panel and the connect page: the texts every other page goes without (app.js clientTexts).
+  if (all && !variant) {
+    variant = '?all';
+    catalogs.clear();
+    english = {};
+  }
   let lang = resolveLanguage(preference);
   // English once, and again only while it could not be had.
   if (!Object.keys(english).length) english = await fetchCatalog('en').catch(() => ({}));

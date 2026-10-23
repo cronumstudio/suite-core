@@ -67,6 +67,7 @@ suite-core/
   account-deletion.js   done   someone deleting their own account: disabled now, gone after its days
   sessions.js           done   browser sessions: sliding, rotated, revocable
   tokens.js             done   API tokens (manual MCP tokens) with scopes and expiry
+  revoke.js             done   revokeEverything: a new password or "sign out everywhere" ends every way in
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
   device-pages.js       done   the connect page and sessions of the web from a device's token (devices.connectPage, webSessions)
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
@@ -965,8 +966,15 @@ key) and, optionally, `PADDLE_CHECKOUT_URL`, the page with Paddle.js that pays a
 (without it, the account's default payment link); all checked on start. A product's prices may be
 given per environment, `price: { sandbox: 'pri_…', production: 'pri_…' }`, since each has its
 own ids; the one of `PADDLE_ENV` is used. The checkout is a transaction made through the API, with
-`custom_data: { workos_user_id, email, product }` (`subject` instead without WorkOS) and the
-person's customer, found or made by their verified email; Paddle answers its payment link,
+`custom_data: { workos_user_id, email, product, sig }` (`subject` instead without WorkOS) and the
+person's customer, found or made by their verified email. `sig` (v0.128.0) is an HMAC of who pays,
+the product, the price, the app and that customer, keyed by `PADDLE_CHECKOUT_SECRET` or, without
+it, by a key derived from `PADDLE_WEBHOOK_SECRET`: Paddle.js opens a checkout for any price with any
+custom_data from the browser, so an event whose `sig` is missing or doesn't match its price is
+`unsigned`, and a subscription or purchase never heard of on one grants nothing (`'unsigned'`,
+`billing.unsigned` in the audit); a known one keeps going (bought before, or its plan changed in the
+portal), and a customer linked to another account moves only on a signature for that very customer
+(else `billing.customer_conflict`); Paddle answers its payment link,
 `PADDLE_CHECKOUT_URL?return=…&_ptxn=txn_…` (`&env=sandbox` in the sandbox). The portal is a
 customer portal session. Paddle copies the transaction's `custom_data` to the subscription, so
 `subscription.created/updated/canceled/paused/resumed/activated` say who; a
@@ -1629,6 +1637,9 @@ kit's), then Notes is built on it whole, then the others as they move to English
   they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when the
   account goes, and the WorkOS user is deleted first (an account whose identity can't be deleted
   waits for the next sweep); never where other apps share those accounts or that subscription.
+  `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
+  an install that bills alone while other apps sign in with the same users; left out, as
+  `deleteAtProviders`.
   `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's `onDeletionRequested`,
   `onDeletionCancelled`) tell others of the request and of its taking back, awaited after it; a
   hook that fails is logged; a host's modules get them too. With `billing.stopOnOrganizationDeleted`,
@@ -1950,9 +1961,17 @@ once for each worker, titled with that module's name. With it:
   module's paths as its own worker did (its /api, /version and the rest never cached, its code
   network first, a page of it offline is its index.html), installs file by file, clears the old
   workers' copies, and a notice tapped opens its module (`suiteOpenModule`).
+- **Code from the copy first** (0.140.0). The worker's version is the fingerprint of everything the
+  browser loads (below), so the host passes `codeFirst`: code, styles and catalogs are answered
+  from the copy without asking the network, and what changes comes with the next worker. With
+  `sharedKit` the kit is kept once, at /suite/, and `/<mount>/suite/x` is answered from it as a
+  response of its own (`suiteAsAsked`), so a module's script still reads its base at its path.
+  `hashes` (`shellHashes`) gives each file's hash: a new worker takes from the old copy every
+  file whose hash didn't change and fetches only the rest. Pages, manifests and
+  `js/app-version.js` always travel again.
 - **One version for the whole app**: `/version` and `/js/app-version.js` at the root are the
   host's version (`app`), its name and one fingerprint of the host's, the kit's and every module's
-  files (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
+  files, the suite's texts and any module catalogs outside its public folder (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a
   release is a new worker. Each module keeps its own `/<mount>/version`.
 - **The modules' pages** learn of it from `/api/auth/config` (`app.host.worker`) and, with the kit's
   `registerWorker()`, register the host's and retire theirs (a narrower scope would go on serving

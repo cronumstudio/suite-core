@@ -102,11 +102,14 @@ export function watchUpdates({
     return isNew;
   }
 
-  const timer = timers.setInterval(() => { check().catch(() => {}); }, every);
+  // In a frame of the host's split view the view asks, once for every frame: here only when Settings
+  // ask (About's Check), and this tab's own version is read for them.
+  const timer = framed ? null : timers.setInterval(() => { check().catch(() => {}); }, every);
   // Coming back to the app is the natural moment to look.
   const onVisible = () => { if (doc?.visibilityState === 'visible') check().catch(() => {}); };
-  doc?.addEventListener?.('visibilitychange', onVisible);
-  check().catch(() => {});
+  if (!framed) doc?.addEventListener?.('visibilitychange', onVisible);
+  if (framed) local().catch(() => {});
+  else check().catch(() => {});
 
   return {
     check,
@@ -114,7 +117,7 @@ export function watchUpdates({
     latest: () => latest,
     dismiss: () => { quietUntil = now() + every; },
     stop: () => {
-      timers.clearInterval(timer);
+      if (timer !== null) timers.clearInterval(timer);
       doc?.removeEventListener?.('visibilitychange', onVisible);
     },
   };

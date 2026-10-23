@@ -60,6 +60,29 @@ export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';
  * frame that asked, and says `handled = true`; otherwise the whole window goes there.
  */
 export const SETTINGS_GOTO_EVENT = 'kit:settings-goto';
+/**
+ * A link in a frame to another module's item (the Linked row, links.js), on its parent's window:
+ * `{ url, mount, source, handled }`. The view opens it in the section that already shows that
+ * module and says `handled = true`; otherwise the frame goes there itself, as any link.
+ */
+export const OPEN_EVENT = 'kit:open';
+
+let modulesAsked = null;
+/**
+ * The host's answer of which modules there are (GET /api/modules at the root), asked once per page
+ * by whoever needs it first (the rail, the Linked row): `{ status, answer }`, `answer` null unless
+ * the host said yes. `fresh` asks again (back to the page, a module turned on or off).
+ */
+export function hostModules({ fresh = false, fetch: get = (...args) => globalThis.fetch(...args) } = {}) {
+  if (fresh || !modulesAsked) {
+    const asking = get('/api/modules', { credentials: 'same-origin' })
+      .then(async (res) => ({ status: res.status, answer: res.ok ? await res.json() : null }));
+    // Offline: the next one asks again.
+    asking.catch(() => { if (modulesAsked === asking) modulesAsked = null; });
+    modulesAsked = asking;
+  }
+  return modulesAsked;
+}
 
 /** The looks a host offers each person (host.js `LOOKS`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);

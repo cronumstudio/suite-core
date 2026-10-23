@@ -53,16 +53,18 @@ export function readDeletionTicket(sign, token, clock = Date.now) {
  * @param {number} [options.days]       how long an account waits, disabled, before it goes
  * @param {boolean} [options.atProviders]  whether the person also goes at the identity provider
  *   and their subscriptions end (config.accounts.deleteAtProviders)
+ * @param {boolean} [options.endSubscriptions]  whether their subscriptions end, without going at the
+ *   identity provider (config.accounts.endSubscriptions); left out, as atProviders
  * @param {object} [options.idp]        the identity provider: deleteIdentity(userId), when it can
  * @param {object} [options.billing]    from createBilling(): stopRenewals, keepRenewals, endSubscriptions
  * @param {object} [options.mailer], options.texts, options.appName, options.baseUrl   the message
  * @param {object} [options.audit]
  */
 export function createAccountDeletion({
-  accounts, sign, days = 30, atProviders = false, idp = null, billing = null, audit = null,
+  accounts, sign, days = 30, atProviders = false, endSubscriptions = atProviders, idp = null, billing = null, audit = null,
   mailer = null, texts = null, appName = '', baseUrl = '', clock = () => Date.now(), log = console.log,
 }) {
-  const subscriptions = atProviders && billing?.enabled ? billing : null;
+  const subscriptions = endSubscriptions && billing?.enabled ? billing : null;
   const requestedHooks = [];
   const cancelledHooks = [];
 
