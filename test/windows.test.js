@@ -32,7 +32,19 @@ Object.defineProperties(FakeElement.prototype, {
     },
   },
   setPointerCapture: { configurable: true, value() {} },
-  animate: { configurable: true, value(frames, options) { animations.push({ node: this, frames, options }); } },
+  animate: {
+    configurable: true,
+    value(frames, options) {
+      const entry = { node: this, frames, options, calls: [] };
+      animations.push(entry);
+      return {
+        playState: 'running',
+        pause() { this.playState = 'paused'; entry.calls.push('pause'); },
+        play() { this.playState = 'running'; entry.calls.push('play'); },
+        cancel() { this.playState = 'idle'; entry.calls.push('cancel'); },
+      };
+    },
+  },
 });
 
 const {
@@ -479,6 +491,8 @@ test('reorder: as a phone’s icons, the other window makes room while it is car
   const room = animations.find((a) => a.node === made.get('next'));
   assert.ok(room, 'the other slides into the place it left');
   assert.match(room.options.easing, /^cubic-bezier\(/);
+  assert.ok(room.options.duration >= 400, 'at a phone’s pace, not a jump');
+  assert.deepEqual(room.calls, ['pause', 'play'], 'held through the frame that lays it out, then let go');
   assert.match(made.get('notes').style.transform, /^translate\([^)]*\)$/, 'it follows the pointer, at its own size');
   head('notes').dispatch('pointerup', {});
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes'], ['tasks']], 'let go: it stays');

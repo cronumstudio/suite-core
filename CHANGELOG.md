@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.156.0 — 2026-10-24
+
+- **Windows make room more slowly, and without a jump at the start** (`windows.js`). The slide of
+  the others while a window is carried, and of the carried one settling when let go, lasts 420 ms
+  instead of 260, on an even curve (it starts and ends softly, a little overshoot) instead of one
+  that did most of the way at once: about a phone's pace when its icons move. Each slide is held
+  at its start through the frame that lays the windows out in their new places, which can be long
+  (a module's list at a new width), and let go in the next: started at once, a good part of it went
+  by unseen and it looked like a jump. A window still sliding when the next change comes goes on
+  from where it is seen.
+
 ## 0.155.0 — 2026-10-24
 
 - **Windows make room while one is carried, as a phone's icons do** (`windows.js`). Until now
