@@ -76,8 +76,8 @@ import {
 } from './api.js';
 import {
   HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
-  contentHash,
 } from './http.js';
+import { fingerprint } from './host-worker.js';
 import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
 
@@ -573,46 +573,11 @@ function inCatalogDir(pathname) {
 }
 
 /**
- * The fingerprint of an app's front end: what its code, styles, pages and catalogs hold (each
- * file's path and content hash, http.js contentHash), never their dates. An image built from a
- * fresh checkout dates every file at the build, and with dates every deploy of a host said
- * "new version" in each of its modules, changed or not. `built` is still the newest date, for
- * About to tell two builds apart; nothing compares it.
- *
- * @param {string|null} dir  the app's public folder
- * @returns {{ version: string, built: string|null }}
- */
-export function frontFingerprint(dir) {
-  let newest = 0;
-  const parts = [];
-  const walk = (folder, prefix) => {
-    let entries = [];
-    try { entries = fs.readdirSync(folder, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      const full = path.join(folder, entry.name);
-      if (entry.isDirectory()) walk(full, `${prefix}${entry.name}/`);
-      else if (/.(js|css|html|json|webmanifest)$/.test(entry.name)) {
-        try {
-          const stat = fs.statSync(full);
-          parts.push(`${prefix}${entry.name}:${contentHash(full, stat)}`);
-          if (stat.mtimeMs > newest) newest = stat.mtimeMs;
-        } catch { /* file just moved */ }
-      }
-    }
-  };
-  if (dir) walk(dir, '');
-  return {
-    version: crypto.createHash('sha1').update(parts.join('|')).digest('hex').slice(0, 12),
-    built: newest ? new Date(newest).toISOString() : null,
-  };
-}
-
-/**
  * @param {object} options
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
  * @param {object|Function} [options.routes]  the app's router, or (router) => { … } to fill one
- * @param {object} [options.mcp]          { instructions, tools, prompts, legacyTools, legacyParams, describeError }
+ * @param {object} [options.mcp]          { instructions, tools, prompts, describeError }
  * @param {Function} [options.serializeUser]  the account as the browser sees it (never its hash)
  * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
@@ -620,8 +585,6 @@ export function frontFingerprint(dir) {
  * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
- * @param {object} [options.devices]      with modules.devices: `{ canConnect(user) → boolean }`, whom
- *   the app lets connect a phone (an allowlist), asked when one connects and on every use
  * @param {object|Function} [options.deviceActions]  with modules.devices: what the phone does from a
  *   notification without opening the app, at `POST /api/devices/actions` with its token:
  *   `{ [action]: async ({ user, id, params, suite }) => result }`, or `(action) => handler | null`
@@ -639,7 +602,7 @@ export function frontFingerprint(dir) {
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
-  sweep = null, offersMcp = null, devices: deviceRules = null, frames = 'none',
+  sweep = null, offersMcp = null, frames = 'none',
   deviceActions = null, resolveDeviceAction = null,
 }) {
   const {
@@ -648,8 +611,7 @@ export function createApp({
   } = suite;
   const { install } = config;
   const tag = `[${config.app.id}]`;
-  // A suite made before alerts existed has none: the same calls, doing nothing.
-  const alerts = suite.alerts ?? createAlerts();
+  const { alerts } = suite;
   const localPasswords = install.authProvider === 'local';
   const serialize = serializeUser || ((user) => (user ? accounts.publicUser(user) : null));
 
@@ -688,8 +650,8 @@ export function createApp({
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion,
     localPasswords, alsoAt: profile.alsoAt || {},
   });
-  // With WorkOS, the password and the second step from Settings too (a suite from before has no client).
-  if (suite.workosClient && suite.workosPeople) {
+  // With WorkOS, the password and the second step from Settings too.
+  if (install.authProvider === 'workos') {
     registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor,
@@ -731,7 +693,6 @@ export function createApp({
     return handler ? { handler, suite, module: config.app.id } : null;
   });
   if (suite.devices) {
-    if (deviceRules?.canConnect) suite.devices.setCanConnect(deviceRules.canConnect);
     registerDevicesApi(api, {
       devices: suite.devices, limiter, audit, webSessions: Boolean(config.devices?.webSessions),
       idempotency: suite.idempotency ?? null, actions: actionsOf,
@@ -742,8 +703,6 @@ export function createApp({
     if (suite.nativePush && push) {
       registerNativePushApi(api, { devices: suite.devices, nativePush: suite.nativePush, limiter, texts, appName: config.app.name });
     }
-  } else if (deviceRules) {
-    log(`${tag} createApp({ devices }) is given, but modules.devices is off: no phone can connect`);
   }
   // The file of a one-time upload link (mcp-files.js): the link is the credential, never the session.
   if (suite.uploadLinks) registerUploadLinksApi(api, { uploadLinks: suite.uploadLinks, limiter });
@@ -781,8 +740,6 @@ export function createApp({
     instructions: mcp.instructions,
     tools: mcp.tools,
     prompts: mcp.prompts,
-    legacyTools: mcp.legacyTools,
-    legacyParams: mcp.legacyParams,
     describeError: mcp.describeError,
     // A host gives its own: its modules' plans, and the modules each person uses (host.js).
     allows: mcp.allows || entitlements.allows,
@@ -802,14 +759,14 @@ export function createApp({
   /* ---------------------------- frontend version --------------------------- */
 
   /**
-   * Fingerprint of the frontend (frontFingerprint, above). With the code mounted
+   * Fingerprint of the frontend (host-worker.js fingerprint). With the code mounted
    * from the project folder, editing it is enough to change it, without
    * restarting anything. Cached for a few seconds.
    */
   let versionCache = { value: null, at: 0 };
   function frontVersion() {
     if (versionCache.value && Date.now() - versionCache.at < 5000) return versionCache.value;
-    const value = { app: version, ...frontFingerprint(publicDir) };
+    const value = { app: version, ...fingerprint(publicDir) };
     versionCache = { value, at: Date.now() };
     return value;
   }

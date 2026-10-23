@@ -46,8 +46,8 @@
  * /auth/callback), the OAuth paths, /health and /version.
  *
  * For a while after the move, the host can also answer the addresses the apps
- * had on their own (LEGACY_DOMAINS, legacy-domains.js): each one's connector
- * as it was, and its pages sent to the module here.
+ * had on their own (LEGACY_DOMAINS, legacy-domains.js): their pages sent to
+ * the module here.
  *
  * The app on its own keeps calling createSuite() and createApp() as before:
  * nothing of this runs unless a host is loading it.
@@ -258,10 +258,7 @@ export function hostInstructions({ modules, hostName, hostId = null, max = MCP_T
  * One MCP for every module of a host, at the host's /mcp: each module's tools
  * with its path before their name (`tasks_add_task`), checked against that
  * module's plan features, and only those of the modules each person uses in
- * their list. A module's tool also answers to its own name when no other
- * module has one like it, and to its old names: an assistant used to the app
- * on its own still reaches it (not announced). Prompts the same way. Null
- * when no module brings tools.
+ * their list. Prompts the same way. Null when no module brings tools.
  */
 export function hostMcp({ modules, uses = () => true, hostName = 'The app', hostId = 'host', log = () => {}, links = null }) {
   const entries = [];
@@ -271,23 +268,6 @@ export function hostMcp({ modules, uses = () => true, hostName = 'The app', host
   // The host's own tools link things between modules: there when two modules have things to link.
   const linkable = links ? modules.filter((m) => m.parts?.cards) : [];
   if (!entries.length && linkable.length < 2) return null;
-  const names = new Set(entries.map((e) => e.name));
-  const count = new Map();
-  for (const { tool } of entries) count.set(tool.name, (count.get(tool.name) || 0) + 1);
-  const legacyTools = {};
-  for (const { tool, name } of entries) {
-    if (count.get(tool.name) === 1 && !names.has(tool.name)) legacyTools[tool.name] = name;
-  }
-  for (const m of modules) {
-    for (const [old, current] of Object.entries(m.parts?.mcp?.legacyTools || {})) {
-      const target = `${m.mount}_${current}`;
-      if (!names.has(target)) continue;
-      legacyTools[`${m.mount}_${old}`] = target;
-      const elsewhere = modules.some((other) => other !== m && (other.parts?.mcp?.tools || []).some((t) => t.name === old || other.parts?.mcp?.legacyTools?.[old]));
-      if (!elsewhere && !names.has(old) && !count.has(old)) legacyTools[old] = target;
-    }
-  }
-  const legacyParams = Object.assign({}, ...modules.map((m) => m.parts?.mcp?.legacyParams || {}));
   const byMount = new Map(modules.map((m) => [m.mount, m]));
 
   const tools = entries.map(({ m, tool, name }) => ({
@@ -336,7 +316,7 @@ export function hostMcp({ modules, uses = () => true, hostName = 'The app', host
     modules: modules.filter((m) => m.parts?.mcp && (!principal || uses(principal, m.mount))), hostName, log,
     hostId: linkable.length >= 2 && (!principal || linking(principal)) ? hostId : null,
   });
-  return { instructions, tools, prompts, legacyTools, legacyParams, allows, visible };
+  return { instructions, tools, prompts, allows, visible };
 }
 
 /**
@@ -744,12 +724,10 @@ export async function createHost({
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
   // The apps' old addresses, while the bridge is up: empty, nothing of it runs.
-  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl, mcp: env.LEGACY_MCP });
+  const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl });
   if (legacy.errors.length) stop(legacy.errors);
-  const legacyDomains = legacy.domains.size ? createLegacyDomains({
-    domains: legacy.domains, modules: joined, suite, uses, hostName: config.app.name, baseUrl: install.baseUrl,
-    https: install.https, version, mcp: config.modules.mcp && legacy.mcp, log,
-  }) : null;
+  const legacyDomains = legacy.domains.size
+    ? createLegacyDomains({ domains: legacy.domains, baseUrl: install.baseUrl, https: install.https }) : null;
 
   // What a phone does from a module's notification, at the root's POST /api/devices/actions: the
   // module named by its path, acting with its own suite (its live channel, its plans).

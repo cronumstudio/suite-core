@@ -52,8 +52,8 @@ function filesOf(dir, test) {
 }
 
 /**
- * The fingerprint of a folder's front-end files, as app.js makes an app's
- * (frontFingerprint): paths and what each holds, never dates, or every deploy
+ * The fingerprint of a folder's front-end files, an app's too (app.js
+ * frontVersion): paths and what each holds, never dates, or every deploy
  * from a fresh checkout would be a new worker that downloads it all again.
  * `built` is the newest date, for telling builds apart; nothing compares it.
  * → { version, built }

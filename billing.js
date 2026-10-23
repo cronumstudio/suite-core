@@ -911,8 +911,6 @@ export function createBilling({
 
   /* --------------------------- a group's renewals ------------------------- */
 
-  const outcomeOf = (eventId) => database.get(`SELECT outcome FROM billing_events WHERE provider = ? AND event_id = ?
-    AND type = 'stop'`, source, eventId)?.outcome ?? null;
   /** A stop moved from one state to another, only when it is still in the first. → whether it moved */
   const moveStop = (eventId, from, to) => database.run(`UPDATE billing_events SET outcome = ?, received_at = ?
     WHERE provider = ? AND event_id = ? AND type = 'stop' AND outcome = ?`, to, iso(clock()), source, eventId, from).changes > 0;
