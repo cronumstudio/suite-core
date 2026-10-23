@@ -62,7 +62,7 @@
  * of the section open, or none on a phone until one is chosen.
  */
 import { el, clear, append } from './dom.js';
-import { t, formatDateTime, currentLanguage, listFormat } from './i18n.js';
+import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
@@ -72,6 +72,7 @@ import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings, nativeSignOut } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
+import { markOwned, workRegistry } from './mount.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
 
@@ -355,7 +356,8 @@ export function openSettings(options) {
   const scroller = el('div', { class: 'kit-settings-page__body' }, frame);
   const overlay = el('div', { class: 'kit-settings-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('kit.settings.title') },
     el('header', { class: 'kit-settings-page__bar' }, backButton, title), scroller);
-  root.append(overlay);
+  // On the page's body, in Work's shell, it says whose it is, so the module's sheet reaches it (mount.js).
+  root.append(root === document.body ? markOwned(overlay) : overlay);
   // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
   const shown = (open) => {
     if (!FRAMED) return;
@@ -575,6 +577,8 @@ export function openSettings(options) {
         const { user } = await api.patch('/api/me', { prefs: { lang: select.value } });
         setUser(user);
         await options.setLanguage?.(select.value);
+        // The apps load it themselves (loadLanguage): in Work's shell every module speaks it, not this one alone.
+        shareLanguage(currentLanguage());
         // Everything here is written again in the new language.
         close();
         openSettings({ ...options, user, start: 'appearance' });
@@ -582,7 +586,12 @@ export function openSettings(options) {
     });
     const theme = segmented(['system', 'light', 'dark'].map((value) => ({ value, label: t(`kit.appearance.theme.${value}`) })),
       state.user?.theme || 'system', async (value) => {
-        options.applyTheme?.(value);
+        // In Cronum Work's shell the theme is the page's, one for every module (`suite.theme`): the
+        // shell paints it and tells the windows. A module painting <html> with its own key would win
+        // over the others until the next one did.
+        const shared = workRegistry()?.theme;
+        if (shared) shared.set(value);
+        else options.applyTheme?.(value);
         try {
           const { user } = await api.patch('/api/me', { theme: value });
           setUser(user);
