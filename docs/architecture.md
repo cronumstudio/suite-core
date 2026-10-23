@@ -89,6 +89,7 @@ suite-core/
                                reminders the phone shows itself are not pushed to it
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
+  time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
   mail.js               done   outgoing mail: SMTP without dependencies, or the log
