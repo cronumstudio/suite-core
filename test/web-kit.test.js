@@ -1452,6 +1452,79 @@ test('links: the row of a host module’s item, its chips in each state, hidden 
   assert.equal(solo.element.hidden, true);
 });
 
+test('links: linking, unlinking and creating linked, at the host’s root, as the server reads them', async () => {
+  const { linkItems, unlink, createLinked } = await import('../web/links.js');
+  const sent = [];
+  let answer = { status: 201, body: { link: { id: 9, together: true } } };
+  const fetch = async (path, init) => {
+    sent.push({ path, method: init.method, credentials: init.credentials, type: init.headers['Content-Type'], body: init.body && JSON.parse(init.body) });
+    return { ok: answer.status < 300, status: answer.status, json: async () => answer.body };
+  };
+  assert.deepEqual(await linkItems('notes:note:6', 'next:step:12', { together: true, fetch }), { link: { id: 9, together: true } });
+  assert.deepEqual(await createLinked('next:step:12', { module: 'notes', type: 'note', data: { title: 'Ship it' }, fetch }),
+    { link: { id: 9, together: true } });
+  answer = { status: 200, body: { ok: true } };
+  assert.deepEqual(await unlink(9, { fetch }), { ok: true });
+  assert.deepEqual(sent, [
+    { path: '/api/links', method: 'POST', credentials: 'same-origin', type: 'application/json', body: { from: 'notes:note:6', to: 'next:step:12', together: true } },
+    { path: '/api/links/new', method: 'POST', credentials: 'same-origin', type: 'application/json',
+      body: { from: 'next:step:12', module: 'notes', type: 'note', data: { title: 'Ship it' }, together: false } },
+    { path: '/api/links/9', method: 'DELETE', credentials: 'same-origin', type: undefined, body: undefined },
+  ]);
+  // The host's errors as the kit's: signed out, refused, no network.
+  answer = { status: 401, body: { error: 'unauthorized' } };
+  await assert.rejects(linkItems('a:b:1', 'c:d:2', { fetch }), SessionExpired);
+  answer = { status: 404, body: { error: 'not_found' } };
+  await assert.rejects(unlink(3, { fetch }), (err) => err instanceof ApiError && err.status === 404 && err.code === 'not_found');
+  await assert.rejects(createLinked('a:b:1', { module: 'c', type: 'd', fetch: async () => { throw new TypeError('down'); } }), Offline);
+});
+
+test('links: in Work’s shell a chip opens in a window of its module, and the page stays; anywhere else as before', async () => {
+  const { linkChip, linksRow, openInWork } = await import('../web/links.js');
+  const WORK = Symbol.for('cronum.work');
+  const chip = () => linkChip({ id: 4, item: { url: '/notes/#/n/55', state: 'open', title: 'Ideas', app: 'Notes' } }, { base: '/tasks/' })
+    .find('a')[0];
+  const press = (anchor, extra = {}) => {
+    const pressed = { prevented: false };
+    anchor.dispatch('click', { button: 0, preventDefault: () => { pressed.prevented = true; }, ...extra });
+    return pressed;
+  };
+  assert.equal(press(chip()).prevented, false, 'no shell: a link, as today');
+
+  const opened = [];
+  document[WORK] = { open: async (url, options) => { opened.push([url, options]); return true; } };
+  try {
+    assert.equal(press(chip()).prevented, true);
+    assert.deepEqual(opened, [['/notes/#/n/55', { from: 'tasks' }]], 'the shell opens it, from the chip’s module');
+    assert.equal(press(chip(), { ctrlKey: true }).prevented, false, 'a key held: the browser’s');
+    assert.equal(press(chip(), { button: 1 }).prevented, false);
+    assert.equal(opened.length, 1);
+    // A gone item has no link to press.
+    assert.equal(linkChip({ id: 5, item: { url: '/notes/#/n/9', state: 'gone', title: 'Old' } }).find('a').length, 0);
+    // The chips of an item's row come from the row's module.
+    const fetch = async (path) => ({ ok: true, status: 200, json: async () => (path === '/api/modules'
+      ? { modules: [{ mount: 'beta', name: 'Beta', active: true, links: { item: { creates: true } } }] }
+      : { links: [{ id: 4, item: { ref: 'beta:item:3', state: 'open', title: 'Review', app: 'Beta', url: '/beta/?item=3' } }] }) });
+    const row = linksRow({ base: '/alpha/', fetch });
+    await row.show('alpha:item:1');
+    assert.equal(press(row.element.find('a')[0]).prevented, true);
+    assert.deepEqual(opened.at(-1), ['/beta/?item=3', { from: 'alpha' }]);
+    row.destroy();
+  } finally {
+    delete document[WORK];
+  }
+
+  // A link the shell can't open goes where it points, as a link would.
+  const went = [];
+  const win = { location: { assign: (url) => went.push(url) } };
+  const ev = { button: 0, currentTarget: { getAttribute: () => '/projects/p/2' }, preventDefault() { this.prevented = true; } };
+  assert.equal(openInWork(ev, { from: 'tasks', registry: { open: async () => false }, win }), true);
+  assert.equal(ev.prevented, true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(went, ['/projects/p/2']);
+  assert.equal(openInWork({ ...ev, prevented: false }, { registry: null, win }), false, 'no shell: not taken');
+});
+
 /* ------------------------------ the keyboard ------------------------------ */
 
 test('keyboard: what brings it up, when it is up, and what a tap is', async () => {
