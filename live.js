@@ -19,10 +19,26 @@
  * it by itself) and gets what it missed while it was away, from a short
  * memory; when that is not possible —too much was missed, or the server
  * restarted— it gets `event: resync` and reloads everything it shows.
+ *
+ * A host's page that shows several modules at once (Cronum Work's
+ * one-document shell) opens one channel for all of them instead of one each:
+ * subscribeAll(), the host's `GET /api/events?all` (host.js `liveAll`).
  */
 import { randomToken } from './crypto.js';
 
 const HEARTBEAT_MS = 25000;
+/** Channels per person: tabs and devices, with room to spare. More, and the oldest goes. */
+const PER_USER = 10;
+/** What may wait unread for one channel before it is closed (its browser reconnects and resyncs). */
+const BACKLOG = 64 * 1024;
+
+const STREAM_HEAD = Object.freeze({
+  'Content-Type': 'text/event-stream; charset=utf-8',
+  'Cache-Control': 'no-cache, no-transform',
+  Connection: 'keep-alive',
+  // Without this the reverse proxy buffers the response and nothing arrives.
+  'X-Accel-Buffering': 'no',
+});
 
 /**
  * @param {object} [options]
@@ -40,21 +56,27 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
   const frame = (n, event, body) => `id: ${boot}.${n}\nevent: ${event}\ndata: ${body}\n\n`;
   const reaches = (entry, userId) => !entry.audience || entry.audience.has(userId);
 
-  /** Channels per person: tabs and devices, with room to spare. More, and the oldest goes. */
-  const PER_USER = 10;
-  /** What may wait unread for one channel before it is closed (its browser reconnects and resyncs). */
-  const BACKLOG = 64 * 1024;
-
   function drop(client) {
     if (!clients.delete(client)) return;
     clearInterval(client.timer);
-    try { client.res.end(); } catch { /* already closed */ }
+    try {
+      if (client.end) client.end();
+      else client.res.end();
+    } catch { /* already closed */ }
   }
   function send(client, text) {
     try {
       // A channel that stops reading piled every notice up in memory, without end.
       if (!client.res.write(text) && client.res.writableLength > BACKLOG) drop(client);
     } catch { drop(client); }
+  }
+  /** A notice to one channel: written to its tab, or handed to whoever reads it for another (relay). */
+  function tell(client, { n = null, event, body }) {
+    if (client.deliver) {
+      try { client.deliver({ id: n ? `${boot}.${n}` : null, event, body }); } catch { drop(client); }
+    } else {
+      send(client, n ? frame(n, event, body) : `event: ${event}\ndata: ${body}\n\n`);
+    }
   }
 
   /**
@@ -71,8 +93,29 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     recent.push(entry);
     if (recent.length > remember) recent.shift();
     for (const client of clients) {
-      if (reaches(entry, client.userId)) send(client, frame(entry.n, entry.event, entry.body));
+      if (reaches(entry, client.userId)) tell(client, entry);
     }
+  }
+
+  /**
+   * What someone missed since the id `seen` (`<boot>.<n>`): the notices for them still
+   * remembered, oldest first; null when that can't be told (too much missed, another run of the
+   * server, nonsense), and they must reload everything.
+   */
+  function missedSince(seen, userId) {
+    const [seenBoot, seenN] = String(seen).split('.');
+    const n = Number(seenN);
+    const oldest = recent.length ? recent[0].n : last + 1;
+    if (seenBoot !== boot || !Number.isInteger(n) || n > last || n < oldest - 1) return null;
+    return recent.filter((entry) => entry.n > n && reaches(entry, Number(userId)));
+  }
+
+  /** A new channel of someone's: their oldest goes if they have too many already. */
+  function admit(client) {
+    // Opening channels without end held a socket, a timer and a buffer each.
+    const theirs = [...clients].filter((other) => other.userId === client.userId);
+    for (const old of theirs.slice(0, Math.max(0, theirs.length - PER_USER + 1))) drop(old);
+    clients.add(client);
   }
 
   /**
@@ -83,40 +126,47 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
    */
   function subscribe(req, res, user, { sessionToken = null } = {}) {
     res.setTimeout?.(0);
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      // Without this the reverse proxy buffers the response and nothing arrives.
-      'X-Accel-Buffering': 'no',
-    });
+    res.writeHead(200, STREAM_HEAD);
     res.write('retry: 3000\n\n');
 
     // Coming back: what was missed, if it is still here; if not, reload everything.
     const seen = String(req.headers['last-event-id'] || '');
     if (seen) {
-      const [seenBoot, seenN] = seen.split('.');
-      const n = Number(seenN);
-      const oldest = recent.length ? recent[0].n : last + 1;
-      if (seenBoot !== boot || !Number.isInteger(n) || n > last || n < oldest - 1) {
-        res.write('event: resync\ndata: {}\n\n');
-      } else {
-        for (const entry of recent) {
-          if (entry.n > n && reaches(entry, user.id)) res.write(frame(entry.n, entry.event, entry.body));
-        }
-      }
+      const missed = missedSince(seen, user.id);
+      if (!missed) res.write('event: resync\ndata: {}\n\n');
+      else for (const entry of missed) res.write(frame(entry.n, entry.event, entry.body));
     }
     res.write(`event: hello\ndata: ${JSON.stringify({ user_id: user.id })}\n\n`);
 
     const client = { res, userId: Number(user.id), sessionToken };
-    // Opening channels without end held a socket, a timer and a buffer each.
-    const theirs = [...clients].filter((other) => other.userId === client.userId);
-    for (const old of theirs.slice(0, Math.max(0, theirs.length - PER_USER + 1))) drop(old);
+    admit(client);
     client.timer = setInterval(() => send(client, ': ping\n\n'), heartbeatMs);
     client.timer.unref?.();
-    clients.add(client);
     req.on('close', () => drop(client));
     req.on('error', () => drop(client));
+  }
+
+  /**
+   * This channel read for another one (subscribeAll): the same notices a tab of `user` would get,
+   * handed to `deliver({ id, event, body })` (`body` the data's JSON; no id for a last word before
+   * closing) instead of written. It counts as one of their channels, and dropUser() and close()
+   * end it as they end a tab: `end()` is then called. `since` is the last id it saw here.
+   * @returns {{ at: string, missed: Array|null, stop: Function }} where this channel is now, what
+   *   was missed since `since` (null: reload everything; [] without `since`), and how to let go
+   */
+  function relay(user, { since = '', sessionToken = null, deliver, end = () => {} }) {
+    const missed = since ? missedSince(since, user.id) : [];
+    const client = { userId: Number(user.id), sessionToken, deliver, end };
+    admit(client);
+    return {
+      at: `${boot}.${last}`,
+      missed: missed && missed.map((entry) => ({ id: `${boot}.${entry.n}`, event: entry.event, body: entry.body })),
+      stop: () => {
+        // Let go by its reader: nothing to tell it back.
+        client.end = () => {};
+        drop(client);
+      },
+    };
   }
 
   /** Closes every channel (an orderly shutdown doesn't wait for open tabs). */
@@ -131,19 +181,88 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
    * ({ event, data }) is said to each before it closes: the account's notice,
    * so the page looks again at who is signed in, and finds no one.
    */
-  function dropUser(userId, { except = null, last = null } = {}) {
+  function dropUser(userId, { except = null, last: word = null } = {}) {
     let n = 0;
     for (const client of [...clients]) {
       if (client.userId !== Number(userId) || (except && client.sessionToken === except)) continue;
-      if (last) send(client, `event: ${last.event || 'change'}
-data: ${JSON.stringify(last.data ?? {})}
-
-`);
+      if (word) tell(client, { event: word.event || 'change', body: JSON.stringify(word.data ?? {}) });
       drop(client);
       n += 1;
     }
     return n;
   }
 
-  return { publish, subscribe, dropUser, close, connected: () => clients.size };
+  return { publish, subscribe, relay, dropUser, close, connected: () => clients.size };
+}
+
+/**
+ * One channel for every module of a host's page (`GET /api/events?all`): what each module's own
+ * channel would tell this person, in one stream, each notice as a message whose data is
+ * `{ module, event, data }`. The same rules as a module's channel, module by module: only what
+ * reaches them, what a tab coming back missed (or `resync` for that module), `account`, and its
+ * end when their sessions are revoked.
+ *
+ * Every message is unnamed (`message`, the EventSource's `onmessage`): the page can't know every
+ * module's names. It opens with each module's `resync` or missed notices, then
+ * `{ module: null, event: 'hello', data: { user_id } }`. Its id is where it is in every module
+ * (`notes=<boot>.<n>,next=<boot>.<n>`), which the browser sends back on its own when it comes back.
+ *
+ * @param {Array<[string, object]>} channels  [[mount, createLive()], …]
+ * @param {object} [options]
+ * @param {string} [options.sessionToken]  the session it is opened with, as subscribe()'s
+ * @param {number} [options.heartbeatMs]
+ */
+export function subscribeAll(channels, req, res, user, { sessionToken = null, heartbeatMs = HEARTBEAT_MS } = {}) {
+  res.setTimeout?.(0);
+  res.writeHead(200, STREAM_HEAD);
+  res.write('retry: 3000\n\n');
+
+  /** Where it is in each module: what its id says. */
+  const at = new Map();
+  const idOf = () => [...at].map(([mount, id]) => `${mount}=${id}`).join(',');
+  const message = (mount, event, body, id = null) => `${id ? `id: ${id}\n` : ''}data: {"module":${JSON.stringify(mount)},"event":${JSON.stringify(event)},"data":${body}}\n\n`;
+
+  let open = true;
+  let timer = null;
+  const relays = [];
+  function finish() {
+    if (!open) return;
+    open = false;
+    clearInterval(timer);
+    for (const each of relays) each.stop();
+    try { res.end(); } catch { /* already closed */ }
+  }
+  function write(text) {
+    if (!open) return;
+    try {
+      // A stream that stops reading piled every module's notices up in memory.
+      if (!res.write(text) && res.writableLength > BACKLOG) finish();
+    } catch { finish(); }
+  }
+
+  // Coming back: the id it had, module by module. A module it has no place in may have said anything.
+  const seen = String(req.headers['last-event-id'] || '');
+  const before = new Map(seen.split(',').map((part) => part.split('=')).filter(([mount, id]) => mount && id));
+  const opening = [];
+  for (const [mount, live] of channels) {
+    const since = seen ? before.get(mount) || 'none.0' : '';
+    const each = live.relay(user, {
+      since, sessionToken, end: finish,
+      deliver: ({ id, event, body }) => {
+        if (id) at.set(mount, id);
+        write(message(mount, event, body, id && idOf()));
+      },
+    });
+    relays.push(each);
+    at.set(mount, each.at);
+    if (!each.missed) opening.push(message(mount, 'resync', '{}'));
+    else for (const missed of each.missed) opening.push(message(mount, missed.event, missed.body));
+  }
+  for (const text of opening) write(text);
+  write(message(null, 'hello', JSON.stringify({ user_id: user.id }), idOf()));
+
+  timer = setInterval(() => write(': ping\n\n'), heartbeatMs);
+  timer.unref?.();
+  req.on('close', finish);
+  req.on('error', finish);
 }
