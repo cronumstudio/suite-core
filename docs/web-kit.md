@@ -88,6 +88,31 @@ with its own pre-paint script adds the same line.
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
 | `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`. Nothing outside the app |
 
+### Components in the sheet alone
+
+Some of the kit's components are CSS with no script: an app writes the classes on its own markup.
+
+| Class | What it is |
+| --- | --- |
+| `kit-btn` (`--primary`, `--quiet`, `--danger`, `--danger-quiet`, `--small`, `--block`), `kit-icon-btn` (`--small`, 34 px in a row), `kit-link` | Buttons |
+| `kit-field` (`> label`, or `> .kit-field__label` for a group), `kit-input`, `kit-hint`, `kit-error`, `kit-check` | Fields, as `field()` makes them |
+| `kit-chip` (`--tint` with `--kit-chip`, `--large`; a `button` with `aria-pressed`) | Something said of an item, or a filter to press |
+| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`) | A colour to choose |
+| `kit-round-check` (`--done` or `aria-pressed`; `--kit-tick-lift` for another size) | A task's round check |
+| `kit-group-title` | The heading of a group in a list |
+| `kit-avatar` (`--tiny` 20, `--small` 26, `--large` 34 px) | A person, as `avatar()` makes it |
+| `kit-segmented` | One choice among a few, as `segmented()` makes it |
+| `kit-blank` (`--page`), `kit-empty` | Nothing here yet, as `blank()` makes it; a view's whole page |
+
+Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
+has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
+`--kit-panel`, `--kit-hover`, `--kit-text`, `--kit-muted`, `--kit-faint`, `--kit-border`,
+`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-shadow`,
+`--kit-radius` (10 px), `--kit-radius-small` (8 px), `--kit-radius-large`. An app keeps names of
+its own only for its domain (a list's colour, a project's state). Layouts change at the brand's
+widths, `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px): `@media` and `@container` read no
+variable, so a rule writes the number.
+
 ## Starting an app
 
 ```js
