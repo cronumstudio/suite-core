@@ -1158,6 +1158,26 @@ test('a page of the host’s own can be its root: / opens it, but for the home a
   assert.match((await plain('GET', '/?modules')).data, /<title>Desk<\/title>/, 'root: true takes every /');
 });
 
+test('a page of the host’s own is in the one worker’s copy and in /version: changing only it is a new release', async (t) => {
+  const dir = pageFolder(t);
+  const { call } = await startHost(t, { pages: [{ at: '/w/', dir }], worker: true });
+  const optionsOf = (body) => {
+    let given = null;
+    new Function('importScripts', 'suiteWorker', body)(() => {}, (o) => { given = o; });
+    return given;
+  };
+  const options = optionsOf((await call('GET', '/sw.js')).data);
+  for (const kept of ['/w/', '/w/index.html', '/w/js/desk.js']) assert.ok(options.shell.includes(kept), `${kept} in its copy`);
+  assert.match(options.hashes['/w/js/desk.js'], /^[0-9a-f]{16}$/, 'kept from one copy to the next while it doesn’t change');
+  assert.equal(options.hashes['/w/'], undefined, 'its page always travels again');
+  const before = (await call('GET', '/version')).data.version;
+  fs.writeFileSync(path.join(dir, 'js', 'desk.js'), 'export const desk = 2;\n');
+  await new Promise((resolve) => setTimeout(resolve, 5100));   // the fingerprint is kept for 5 s
+  const after = (await call('GET', '/version')).data.version;
+  assert.notEqual(after, before, 'a change in the page alone is a new version, and a new worker');
+  assert.equal(optionsOf((await call('GET', '/sw.js')).data).version.endsWith(after), true);
+});
+
 test('without pages, a host answers their paths as before', async (t) => {
   pageFolder(t);
   const { call } = await startHost(t);

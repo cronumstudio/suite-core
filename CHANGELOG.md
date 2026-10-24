@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.159.0 — 2026-10-24
+
+- **A release that changes only a page of the host's own is a new version** (`pages`). Until now
+  a page's files (Cronum Work's shell at `/w/`) counted neither in `/version` nor in the one
+  worker's copy: a release that changed only them showed no notice of a new version, and the
+  worker served the old copy on the first load. Now each page's files count in the fingerprint and
+  the worker keeps them at their paths, with their hashes, so the next copy takes what didn't change.
+
 ## 0.158.0 — 2026-10-24
 
 - **A page of the host's own can be the app's start** (`createHost` `pages[].root`). With

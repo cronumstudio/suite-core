@@ -2067,7 +2067,9 @@ const host = await createHost({
   page nor the host's. `at` is one path segment that is no module's, the split view's or the host's
   own (`RESERVED`); the start stops otherwise. One page may be the app's start (`root: true`): `/`
   answers its index too, but for an address with a query name it lists (`root: { except: ['modules'] }`,
-  Work's `/?modules`), which opens the host's own home as before.
+  Work's `/?modules`), which opens the host's own home as before. A page's files count in the
+  whole app's fingerprint (`/version`) and, with the one worker, are kept in its copy at their
+  paths with their hashes: a release that changes only a page is a new worker and a notice.
 - **`scopedSheets`**: `GET /<mount>/<path>.css?scope=work` answers the file the module would serve
   there (its public folder, or the kit's at `/<mount>/suite/…`) through `scopeCss()` (scope-css.js):
   the sheet inside `@scope ([data-module="<mount>"], [data-owner="<mount>"])`, `:root` as `:scope`,
