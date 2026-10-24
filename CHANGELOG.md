@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.174.0 — 2026-10-25
+
+- **A form dialog for every module** (`ui.js` `formDialog`), from Next's: `onSubmit(form)` runs for
+  a submit action, Enter in a field or Ctrl/Cmd+Enter in a long text; what it throws shows inside
+  the dialog, which stays open to be corrected; `header`, `subtitle`, `tools`, `bar`, `extra` and
+  `setActions` for a footer that changes. Returns `{ dialog, form, close, setActions, showError }`.
+- **One action at a time in every kit dialog**: while an action (or a send) waits, every button of
+  the footer is disabled, not only the one pressed: a double click no longer creates two things,
+  and Save and Delete side by side can't both run.
+- **Escape is the top dialog's alone, and a menu's before its dialog's**: the menu keeps its
+  Escape from the dialog under it, and a cancel that reaches a dialog that isn't the kit's top one
+  (or one with a menu open) doesn't close it. A press that begins inside a dialog and ends on the
+  backdrop (selecting a field's text) no longer closes it; a tap on the backdrop still does.
+- **What the modules need to drop their own dialogs and menus**, all optional: `openDialog`
+  takes `width` (a variable, so a phone's sheet keeps the whole width), `className`, `parent` (the
+  module's own place, its window in Cronum Work) and `body`/`footer` nodes of the module's own;
+  `confirmDialog` takes `detail`, `cancel`, `width` and `parent`; `menu` takes `at` (a pointer's
+  place), `parent`, a null anchor with `at`, and items with a `glyph` (an emoji) in place of an
+  icon. With today's options every dialog and menu behaves as before.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now

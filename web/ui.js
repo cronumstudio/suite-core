@@ -1,15 +1,16 @@
 /**
  * What every screen of the suite needs: notices that come and go (with an
- * undo or a retry), banners for a state that lasts, dialogs (the browser's
- * own <dialog>, which traps focus and closes with Escape; a sheet from the
- * bottom on a phone), menus, labelled fields, switches and the signature.
+ * undo or a retry), banners for a state that lasts, dialogs and form dialogs
+ * (the browser's own <dialog>, which traps focus and closes with Escape; a
+ * sheet from the bottom on a phone), menus, labelled fields, switches and the signature.
  *
  * In Cronum Work's shell, where every module's kit shares one page, what this
  * copy hangs on the page's body (a notice, a dialog, a menu, a banner) says
  * which module it is from (mount.js markOwned), so that module's sheet,
  * scoped to its windows, reaches it. Anywhere else it is left as it was.
  */
-import { el, $, append } from './dom.js';
+import { el, $, append, clear } from './dom.js';
+import { errorMessage } from './api.js';
 import { t } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
@@ -161,57 +162,219 @@ export async function copyText(text, fallback = null) {
 
 /* --------------------------------- dialogs -------------------------------- */
 
+/** The kit's dialogs open now, the last one on top: Escape is the top one's alone. */
+const openDialogs = [];
+
+/** An action's button: primary, danger or quiet. */
+function actionButton(action, onClick) {
+  return el('button', {
+    type: action.submit ? 'submit' : 'button',
+    class: `kit-btn${action.primary ? ' kit-btn--primary' : ''}${action.danger ? ' kit-btn--danger' : ''}${!action.primary && !action.danger ? ' kit-btn--quiet' : ''}`,
+    onClick,
+  }, action.iconName ? icon(action.iconName) : null, action.label);
+}
+
+/** Adds classes to a node a module built itself (a body, a foot), keeping its own. */
+function addClass(node, name) {
+  const current = node.getAttribute('class') || '';
+  if (!current.split(/\s+/).includes(name)) node.setAttribute('class', `${current} ${name}`.trim());
+  return node;
+}
+
 /**
- * A dialog with a title, its content and a row of actions. An action's
- * `onClick` may return false to keep the dialog open (a failed save). Without
- * actions there is no footer: the × in the header closes it. On a phone it
- * rises from the bottom as a sheet (kit.css).
+ * The frame every kit dialog shares: the native <dialog> (focus trapped, the rest of the page
+ * inert), a header with the title (or `header`, a node of its own), `tools` before the ×, `bar`
+ * under the header and out of the scroll; the caller adds the rest and `show()`s it. On a phone it rises
+ * from the bottom as a sheet (kit.css). A tap on the backdrop closes it; Escape closes only the
+ * top one, and only once a menu open inside it is closed. `busy()` runs one action at a time:
+ * while it waits every button in the footer is disabled, so a double click can't do it twice.
  */
-export function openDialog({ title, content, actions = [], wide = false, onClose = null }) {
+function frame({
+  title = '', subtitle = '', header = null, tools = null, bar = null, wide = false, width = null,
+  className = '', parent = null, onClose = null,
+}) {
   // A menu left open would sit beside the dialog: a dialog comes from a choice, so the menu is done.
   closeMenu();
-  const dialog = el('dialog', { class: `kit-dialog${wide ? ' kit-dialog--wide' : ''}`, 'aria-label': title });
+  const dialog = el('dialog', {
+    class: `kit-dialog${wide ? ' kit-dialog--wide' : ''}${className ? ` ${className}` : ''}`,
+    'aria-label': title || null,
+    // A width of its own (`420px`): a variable, so a phone's sheet still takes the whole width.
+    style: width ? `--kit-dialog-width: ${width}` : null,
+  });
   const close = () => { if (dialog.open) dialog.close(); };
-  const buttons = (actions || []).map((action) => el('button', {
-    type: 'button',
-    class: `kit-btn${action.primary ? ' kit-btn--primary' : ''}${action.danger ? ' kit-btn--danger' : ''}${!action.primary && !action.danger ? ' kit-btn--quiet' : ''}`,
-    text: action.label,
-    onClick: async (ev) => {
-      const button = ev.currentTarget;
-      button.disabled = true;
-      try {
-        if ((await action.onClick?.()) !== false) close();
-      } finally {
-        button.disabled = false;
-      }
-    },
-  }));
-  // The kit's append and not the dialog's own: that one writes a missing footer as the text "null".
+  const heading = header || (subtitle
+    ? el('div', { class: 'kit-dialog__titles' }, el('h2', { text: title }), el('p', { class: 'kit-dialog__subtitle', text: subtitle }))
+    : el('h2', { text: title }));
   append(dialog,
     el('div', { class: 'kit-dialog__grab', 'aria-hidden': 'true' }),
     el('header', { class: 'kit-dialog__header' },
-      el('h2', { text: title }),
+      heading,
+      tools ? el('div', { class: 'kit-dialog__tools' }, tools) : null,
       el('button', { type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.close'), onClick: close }, icon('x'))),
-    el('div', { class: 'kit-dialog__body' }, content),
-    buttons.length ? el('footer', { class: 'kit-dialog__footer' }, buttons) : null,
-  );
-  // A tap on the backdrop closes it, as on a phone's sheet.
-  dialog.addEventListener('click', (ev) => { if (ev.target === dialog) close(); });
-  dialog.addEventListener('close', () => { dialog.remove(); onClose?.(); });
-  document.body.append(markOwned(dialog));
-  dialog.showModal();
+    bar);
+
+  let footer = null;
+  let running = null;
+  /** Runs `job` unless another is running; while it waits the footer's buttons are disabled. */
+  const busy = async (job) => {
+    if (running) return undefined;
+    const buttons = footer ? [...footer.querySelectorAll('button')] : [];
+    const before = buttons.map((b) => b.disabled);
+    for (const b of buttons) b.disabled = true;
+    running = (async () => job())();
+    try {
+      return await running;
+    } finally {
+      running = null;
+      buttons.forEach((b, i) => { b.disabled = before[i]; });
+    }
+  };
+
+  // A tap on the backdrop closes it, as on a phone's sheet; not a press that began inside and was
+  // let go outside (selecting a field's text), which the browser also calls a click on the dialog.
+  let pressedInside = false;
+  dialog.addEventListener('pointerdown', (ev) => { pressedInside = ev.target !== dialog; });
+  dialog.addEventListener('click', (ev) => {
+    if (ev.target === dialog && !pressedInside) close();
+    pressedInside = false;
+  });
+  // Escape: the browser asks the top modal dialog; a menu open in it goes first, and a dialog
+  // that isn't the kit's top one (a key that reached it anyway) stays.
+  dialog.addEventListener('cancel', (ev) => {
+    if (openMenuNode && dialog.contains(openMenuNode)) {
+      ev.preventDefault();
+      closeMenu();
+    } else if (openDialogs.at(-1) !== dialog) {
+      ev.preventDefault();
+    }
+  });
+  dialog.addEventListener('close', () => {
+    const at = openDialogs.indexOf(dialog);
+    if (at >= 0) openDialogs.splice(at, 1);
+    dialog.remove();
+    onClose?.();
+  });
+  const show = () => {
+    // In `parent` when the module keeps its dialogs in its own place (its window in Cronum Work);
+    // shown modal it still goes over everything.
+    (parent || document.body).append(markOwned(dialog));
+    openDialogs.push(dialog);
+    dialog.showModal();
+  };
+  return { dialog, close, busy, show, setFooter: (node) => { footer = node; } };
+}
+
+/**
+ * A dialog with a title, its content and a row of actions. An action's
+ * `onClick` may return false to keep the dialog open (a failed save); while it
+ * waits, every action is disabled. Without actions there is no footer: the ×
+ * in the header closes it. On a phone it rises from the bottom as a sheet
+ * (kit.css).
+ *
+ * Optional: `width` ('420px', within the screen), `className`, `parent` (where
+ * it hangs; the page's body by default), and for a screen that draws its own
+ * parts, `body` and `footer` (nodes used as they are, with the kit's classes
+ * added) in place of `content` and `actions`.
+ */
+export function openDialog({
+  title, content = null, actions = [], wide = false, width = null, className = '', parent = null,
+  body = null, footer = null, onClose = null,
+}) {
+  const parts = frame({ title, wide, width, className, parent, onClose });
+  const { dialog, close, busy } = parts;
+  const buttons = (actions || []).map((action) => actionButton(action, () => busy(async () => {
+    if ((await action.onClick?.()) !== false) close();
+  })));
+  const foot = footer ? addClass(footer, 'kit-dialog__footer')
+    : buttons.length ? el('footer', { class: 'kit-dialog__footer' }, buttons) : null;
+  parts.setFooter(foot);
+  // The kit's append and not the dialog's own: that one writes a missing footer as the text "null".
+  append(dialog, body ? addClass(body, 'kit-dialog__body') : el('div', { class: 'kit-dialog__body' }, content), foot);
+  parts.show();
   return { dialog, close };
 }
 
-/** Asks before something that can't be undone. Resolves true or false. */
-export function confirmDialog(text, { title = t('kit.areYouSure'), confirm = t('kit.confirm'), danger = true } = {}) {
+/**
+ * A dialog that is a form: what Next's dialogs were, for every module.
+ *
+ * `onSubmit(form)` runs for a `submit: true` action, Enter in a field or
+ * Ctrl/Cmd+Enter (inside a long text, where Enter is a new line); what it throws
+ * is shown inside the dialog (`errorText(err)`, the kit's errorMessage by
+ * default), which stays open to be corrected, and returning false keeps it open
+ * too. One send at a time: while it waits every button of the footer is
+ * disabled. An action with `onClick` runs the same way; one with neither just
+ * closes (Cancel).
+ *
+ * `header` replaces the title and `subtitle`; `tools` go before the ×; `bar`
+ * sits under the header and out of the scroll (tabs); `extra` between the body
+ * and the footer. The footer can change while it is open (`setActions`); with no
+ * actions it isn't shown. Returns { dialog, form, close, setActions, showError }.
+ */
+export function formDialog({
+  title = '', subtitle = '', header = null, tools = null, bar = null, extra = null,
+  content = null, actions = [], onSubmit = null, errorText = errorMessage,
+  wide = false, width = null, className = '', parent = null, onClose = null,
+}) {
+  const parts = frame({ title, subtitle, header, tools, bar, wide, width, className: `kit-dialog--form${className ? ` ${className}` : ''}`, parent, onClose });
+  const { dialog, close, busy } = parts;
+  const error = el('p', { class: 'kit-dialog__error', role: 'alert', hidden: true });
+  const footer = el('footer', { class: 'kit-dialog__footer' });
+  const form = el('form', { class: 'kit-dialog__form', method: 'dialog', novalidate: true },
+    el('div', { class: 'kit-dialog__body' }, content, error),
+    extra ? el('div', { class: 'kit-dialog__extra' }, extra) : null,
+    footer);
+  parts.setFooter(footer);
+
+  const showError = (err) => {
+    const text = err == null ? '' : typeof err === 'string' ? err : errorText(err);
+    error.textContent = text;
+    error.toggleAttribute('hidden', !text);
+  };
+  /** Runs `job`; what it throws is shown, and anything but false closes the dialog. */
+  const run = (job) => busy(async () => {
+    showError(null);
+    try {
+      if ((await job()) !== false) close();
+    } catch (err) {
+      showError(err);
+    }
+  });
+  const submit = () => (onSubmit ? run(() => onSubmit(form)) : undefined);
+
+  const setActions = (list = []) => {
+    showError(null);
+    clear(footer);
+    append(footer, (list || []).map((action) => actionButton(action, action.submit ? null
+      : () => (action.onClick ? run(action.onClick) : close()))));
+    footer.toggleAttribute('hidden', !footer.children.length);
+  };
+  setActions(actions);
+  form.addEventListener('submit', (ev) => { ev.preventDefault(); submit(); });
+  form.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submit(); }
+  });
+  append(dialog, form);
+  parts.show();
+  return { dialog, form, close, setActions, showError, submit };
+}
+
+/**
+ * Asks before something that can't be undone. Resolves true or false.
+ * `detail` is a second, quieter line; `width` and `parent` as openDialog's.
+ */
+export function confirmDialog(text, {
+  title = t('kit.areYouSure'), confirm = t('kit.confirm'), cancel = t('kit.cancel'), danger = true,
+  detail = null, width = null, parent = null,
+} = {}) {
   return new Promise((resolve) => {
     let answer = false;
     openDialog({
       title,
-      content: el('p', { text }),
+      width,
+      parent,
+      content: [el('p', { text }), detail ? el('p', { class: 'kit-hint', text: detail }) : null],
       actions: [
-        { label: t('kit.cancel') },
+        { label: cancel },
         { label: confirm, primary: !danger, danger, onClick: () => { answer = true; } },
       ],
       onClose: () => resolve(answer),
@@ -224,13 +387,16 @@ export function confirmDialog(text, { title = t('kit.areYouSure'), confirm = t('
 let openMenuNode = null;
 
 /**
- * A menu under (or above) `anchor`: items are { label, iconName, image,
+ * A menu under (or above) `anchor`: items are { label, iconName, image, glyph,
  * onClick, href, external, danger, current }, or 'separator' (`image`, a
- * picture's address in place of an icon: a module's own; `current`, the one
- * in use now, with a tick); `header` is a node on top (what the menu is
- * about). Arrows move, Escape and a click outside close it.
+ * picture's address in place of an icon: a module's own; `glyph`, a character
+ * in its place, an emoji; `current`, the one in use now, with a tick); `header`
+ * is a node on top (what the menu is about). `at` ({ x, y }, a pointer's place)
+ * puts it there instead of under the anchor; `parent` is where it hangs (the
+ * page's body by default; inside a modal dialog, always that dialog). Arrows
+ * move, Escape and a click outside close it.
  */
-export function menu(anchor, items, { header = null } = {}) {
+export function menu(anchor, items, { header = null, at = null, parent = null } = {}) {
   closeMenu();
   const entries = items.map((item) => {
     if (item === 'separator') return el('div', { class: 'kit-menu__sep', role: 'separator' });
@@ -239,7 +405,8 @@ export function menu(anchor, items, { header = null } = {}) {
       ...(item.current ? { 'aria-current': 'true' } : {}),
     };
     const picture = item.image ? el('img', { class: 'kit-menu__image', src: item.image, alt: '', width: 20, height: 20 })
-      : item.iconName ? icon(item.iconName) : null;
+      : item.iconName ? icon(item.iconName)
+        : item.glyph ? el('span', { class: 'kit-menu__glyph', 'aria-hidden': 'true', text: item.glyph }) : null;
     const children = [picture, el('span', { text: item.label }),
       item.external ? el('span', { class: 'kit-menu__end' }, icon('external'))
         : item.current ? el('span', { class: 'kit-menu__end' }, icon('check')) : null];
@@ -251,7 +418,7 @@ export function menu(anchor, items, { header = null } = {}) {
   });
   const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries);
   // Under a modal dialog the rest of the page is inert: a menu opened from one goes inside it.
-  (anchor.closest?.('dialog[open]') || document.body).append(markOwned(node));
+  (anchor?.closest?.('dialog[open]') || parent || document.body).append(markOwned(node));
   openMenuNode = node;
 
   // Below the anchor when it fits, else above; never off the screen. Measured from where (0, 0)
@@ -259,31 +426,40 @@ export function menu(anchor, items, { header = null } = {}) {
   node.style.left = '0px';
   node.style.top = '0px';
   const origin = node.getBoundingClientRect();
-  const box = anchor.getBoundingClientRect();
+  // A pointer's place is a box of no size; a keyboard's click (at 0, 0) goes by the anchor.
+  const point = at && (at.x || at.y) ? at : null;
+  const box = point ? { left: point.x, top: point.y, bottom: point.y }
+    : anchor?.getBoundingClientRect?.() || { left: 8, top: 8, bottom: 8 };
   const width = Math.min(Math.max(node.offsetWidth, 220), window.innerWidth - 16);
   node.style.width = `${width}px`;
   node.style.left = `${Math.min(Math.max(8, box.left), window.innerWidth - width - 8) - origin.left}px`;
+  const gap = point ? 0 : 6;
   if (box.bottom + node.offsetHeight + 8 > window.innerHeight && box.top > node.offsetHeight + 8) {
-    node.style.top = `${box.top - node.offsetHeight - 6 - origin.top}px`;
+    node.style.top = `${box.top - node.offsetHeight - gap - origin.top}px`;
   } else {
-    node.style.top = `${Math.min(box.bottom + 6, window.innerHeight - node.offsetHeight - 8) - origin.top}px`;
+    node.style.top = `${Math.max(8, Math.min(box.bottom + gap, window.innerHeight - node.offsetHeight - 8)) - origin.top}px`;
   }
-  anchor.setAttribute('aria-expanded', 'true');
+  anchor?.setAttribute?.('aria-expanded', 'true');
 
   const focusable = () => [...node.querySelectorAll('[role="menuitem"]')];
   focusable()[0]?.focus();
   const onKey = (ev) => {
     const list = focusable();
-    const at = list.indexOf(document.activeElement);
-    if (ev.key === 'Escape') { closeMenu(); anchor.focus(); } else if (ev.key === 'ArrowDown') {
+    const index = list.indexOf(document.activeElement);
+    if (ev.key === 'Escape') {
+      // The menu's Escape, not the dialog's under it too.
+      ev.preventDefault?.();
+      closeMenu();
+      anchor?.focus?.();
+    } else if (ev.key === 'ArrowDown') {
       ev.preventDefault();
-      list[(at + 1) % list.length]?.focus();
+      list[(index + 1) % list.length]?.focus();
     } else if (ev.key === 'ArrowUp') {
       ev.preventDefault();
-      list[(at - 1 + list.length) % list.length]?.focus();
+      list[(index - 1 + list.length) % list.length]?.focus();
     }
   };
-  const onOutside = (ev) => { if (!node.contains(ev.target) && !anchor.contains(ev.target)) closeMenu(); };
+  const onOutside = (ev) => { if (!node.contains(ev.target) && !anchor?.contains?.(ev.target)) closeMenu(); };
   document.addEventListener('keydown', onKey);
   // On the next turn: the click that opened it must not close it. Not if it was closed by then
   // (a frame destroyed at once): cleanUp has already run, and the listener would stay forever.
@@ -291,7 +467,7 @@ export function menu(anchor, items, { header = null } = {}) {
   node.cleanUp = () => {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('pointerdown', onOutside);
-    anchor.setAttribute('aria-expanded', 'false');
+    anchor?.setAttribute?.('aria-expanded', 'false');
   };
   return node;
 }
