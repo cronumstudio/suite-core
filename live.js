@@ -19,6 +19,11 @@
  * it by itself) and gets what it missed while it was away, from a short
  * memory; when that is not possible —too much was missed, or the server
  * restarted— it gets `event: resync` and reloads everything it shows.
+ * `hello` carries an id too (where the server is now), so a tab that saw no
+ * notice still comes back with one; a page that opens a new channel after
+ * closing one sends that id as `?last=`, which EventSource can't send then.
+ * When either came, `hello` says `replayed: true`: what was missed has been
+ * said (or `resync`), so the page needn't reload everything on its own.
  *
  * A host's page that shows several modules at once (Cronum Work's
  * one-document shell) opens one channel for all of them instead of one each:
@@ -130,13 +135,14 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     res.write('retry: 3000\n\n');
 
     // Coming back: what was missed, if it is still here; if not, reload everything.
-    const seen = String(req.headers['last-event-id'] || '');
+    const seen = lastSeenOf(req);
     if (seen) {
       const missed = missedSince(seen, user.id);
       if (!missed) res.write('event: resync\ndata: {}\n\n');
       else for (const entry of missed) res.write(frame(entry.n, entry.event, entry.body));
     }
-    res.write(`event: hello\ndata: ${JSON.stringify({ user_id: user.id })}\n\n`);
+    // With an id: where this run is now, so a tab that saw no notice still comes back with one.
+    res.write(frame(last, 'hello', JSON.stringify(seen ? { user_id: user.id, replayed: true } : { user_id: user.id })));
 
     const client = { res, userId: Number(user.id), sessionToken };
     admit(client);
@@ -196,6 +202,21 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
 }
 
 /**
+ * The last id a tab saw: the `Last-Event-ID` EventSource sends when it retries by itself, or
+ * `?last=` when the page opened a new channel after closing one (EventSource can't send the
+ * header then). '' when neither: a tab opening for the first time.
+ */
+function lastSeenOf(req) {
+  const header = req.headers?.['last-event-id'];
+  if (header) return String(header);
+  try {
+    return new URL(String(req.url || ''), 'http://host.invalid').searchParams.get('last') || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * One channel for every module of a host's page (`GET /api/events?all`): what each module's own
  * channel would tell this person, in one stream, each notice as a message whose data is
  * `{ module, event, data }`. The same rules as a module's channel, module by module: only what
@@ -204,8 +225,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
  *
  * Every message is unnamed (`message`, the EventSource's `onmessage`): the page can't know every
  * module's names. It opens with each module's `resync` or missed notices, then
- * `{ module: null, event: 'hello', data: { user_id } }`. Its id is where it is in every module
- * (`notes=<boot>.<n>,next=<boot>.<n>`), which the browser sends back on its own when it comes back.
+ * `{ module: null, event: 'hello', data: { user_id } }`, with `replayed: true` when it came back with
+ * an id, as a module's channel. Its id is where it is in every module
+ * (`notes=<boot>.<n>,next=<boot>.<n>`), which the browser sends back on its own when it comes back,
+ * or the page as `&last=` on a new channel.
  *
  * @param {Array<[string, object]>} channels  [[mount, createLive()], …]
  * @param {object} [options]
@@ -241,7 +264,7 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
   }
 
   // Coming back: the id it had, module by module. A module it has no place in may have said anything.
-  const seen = String(req.headers['last-event-id'] || '');
+  const seen = lastSeenOf(req);
   const before = new Map(seen.split(',').map((part) => part.split('=')).filter(([mount, id]) => mount && id));
   const opening = [];
   for (const [mount, live] of channels) {
@@ -259,7 +282,7 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
     else for (const missed of each.missed) opening.push(message(mount, missed.event, missed.body));
   }
   for (const text of opening) write(text);
-  write(message(null, 'hello', JSON.stringify({ user_id: user.id }), idOf()));
+  write(message(null, 'hello', JSON.stringify(seen ? { user_id: user.id, replayed: true } : { user_id: user.id }), idOf()));
 
   timer = setInterval(() => write(': ping\n\n'), heartbeatMs);
   timer.unref?.();

@@ -61,7 +61,9 @@ test('a tab opens with the stream headers, retry and hello', () => {
   assert.match(t.res.head['Content-Type'], /^text\/event-stream/);
   assert.equal(t.res.head['X-Accel-Buffering'], 'no', 'or the reverse proxy holds everything');
   assert.match(t.res.text, /^retry: 3000\n\n/);
-  assert.deepEqual(eventsOf(t.res), [{ id: null, event: 'hello', data: { user_id: 7 } }]);
+  const [hello] = eventsOf(t.res);
+  assert.deepEqual([eventsOf(t.res).length, hello.event, hello.data], [1, 'hello', { user_id: 7 }]);
+  assert.match(hello.id, /^[\w-]+\.0$/, 'with where the server is, so even a tab that saw no notice comes back with an id');
   assert.equal(live.connected(), 1);
   t.req.emit('close');
   assert.equal(live.connected(), 0);
@@ -102,8 +104,8 @@ test('a tab that comes back gets what it missed, or resync when that is not poss
   live.publish({ audience: [2], data: { n: 3 } });   // someone else's
   const back = tab(1, { 'last-event-id': lastSeen });
   live.subscribe(back.req, back.res, back.user);
-  assert.deepEqual(eventsOf(back.res).map((e) => [e.event, e.data]), [['change', { n: 2 }], ['hello', { user_id: 1 }]],
-    'what was missed first, then hello; never someone else’s');
+  assert.deepEqual(eventsOf(back.res).map((e) => [e.event, e.data]), [['change', { n: 2 }], ['hello', { user_id: 1, replayed: true }]],
+    'what was missed first, then hello saying so; never someone else’s');
 
   // Up to date: nothing to replay and no resync.
   const current = tab(1, { 'last-event-id': eventsOf(back.res)[0].id.replace(/\.\d+$/, '.3') });
@@ -124,6 +126,40 @@ test('a tab that comes back gets what it missed, or resync when that is not poss
     assert.deepEqual(eventsOf(t.res).map((e) => e.event), ['resync', 'hello'], id);
   }
   assert.notEqual(createLive().publish, live.publish);
+  live.close();
+});
+
+test('a channel opened again sends its last id as ?last=, and hello says what was missed was said', () => {
+  const live = createLive();
+  const first = tab(1);
+  live.subscribe(first.req, first.res, first.user);
+  const idle = eventsOf(first.res).at(-1).id;   // hello's: no notice yet, and still somewhere to come back from
+  first.req.emit('close');
+
+  // EventSource coming back by itself with hello's id: nothing missed, nothing to reload.
+  const back = tab(1, { 'last-event-id': idle });
+  live.subscribe(back.req, back.res, back.user);
+  assert.deepEqual(eventsOf(back.res).map((e) => [e.event, e.data]), [['hello', { user_id: 1, replayed: true }]]);
+  back.req.emit('close');
+
+  // A new EventSource can't send the header: the page puts the id in the address.
+  live.publish({ audience: [1], data: { n: 1 } });
+  live.publish({ audience: [2], data: { n: 2 } });
+  const reopened = tab(1);
+  reopened.req.url = `/api/events?last=${encodeURIComponent(idle)}`;
+  live.subscribe(reopened.req, reopened.res, reopened.user);
+  assert.deepEqual(eventsOf(reopened.res).map((e) => [e.event, e.data]), [['change', { n: 1 }], ['hello', { user_id: 1, replayed: true }]]);
+  assert.match(eventsOf(reopened.res).at(-1).id, /\.2$/, 'hello is where the server is, someone else’s notice included');
+
+  // The header wins over the address; an address with nonsense is a resync, as the header.
+  const both = tab(1, { 'last-event-id': eventsOf(reopened.res).at(-1).id });
+  both.req.url = `/api/events?last=${encodeURIComponent(idle)}`;
+  live.subscribe(both.req, both.res, both.user);
+  assert.deepEqual(eventsOf(both.res).map((e) => e.event), ['hello']);
+  const nonsense = tab(1);
+  nonsense.req.url = '/api/events?last=garbage';
+  live.subscribe(nonsense.req, nonsense.res, nonsense.user);
+  assert.deepEqual(eventsOf(nonsense.res).map((e) => [e.event, e.data]), [['resync', {}], ['hello', { user_id: 1, replayed: true }]]);
   live.close();
 });
 
@@ -212,7 +248,7 @@ test('one channel for every module coming back: what it missed in each, or resyn
   for (let n = 1; n <= 3; n += 1) next.publish({ audience: [1], data: { n } });
   const back = tab(1, { 'last-event-id': seen });
   subscribeAll([['notes', notes], ['next', next]], back.req, back.res, back.user);
-  assert.deepEqual(said(back.res), [['notes', 'change', { n: 2 }], ['next', 'resync', {}], [null, 'hello', { user_id: 1 }]],
+  assert.deepEqual(said(back.res), [['notes', 'change', { n: 2 }], ['next', 'resync', {}], [null, 'hello', { user_id: 1, replayed: true }]],
     'notes still remembers; next forgot too much');
   assert.match(messagesOf(back.res).at(-1).id, /^notes=[\w-]+\.2,next=[\w-]+\.3$/);
 
@@ -223,6 +259,22 @@ test('one channel for every module coming back: what it missed in each, or resyn
   const nonsense = tab(1, { 'last-event-id': 'garbage' });
   subscribeAll([['notes', notes], ['next', next]], nonsense.req, nonsense.res, nonsense.user);
   assert.deepEqual(said(nonsense.res).map(([module, event]) => [module, event]), [['notes', 'resync'], ['next', 'resync'], [null, 'hello']]);
+  notes.close();
+  next.close();
+});
+
+test('one channel for every module opened again: its id as &last=, and hello says it was replayed', () => {
+  const notes = createLive();
+  const next = createLive();
+  const first = tab(1);
+  subscribeAll([['notes', notes], ['next', next]], first.req, first.res, first.user);
+  const seen = messagesOf(first.res).at(-1).id;
+  first.req.emit('close');
+  notes.publish({ audience: [1], data: { n: 1 } });
+  const back = tab(1);
+  back.req.url = `/api/events?all&last=${encodeURIComponent(seen)}`;
+  subscribeAll([['notes', notes], ['next', next]], back.req, back.res, back.user);
+  assert.deepEqual(said(back.res), [['notes', 'change', { n: 1 }], [null, 'hello', { user_id: 1, replayed: true }]]);
   notes.close();
   next.close();
 });

@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.170.0 — 2026-10-25
+
+- **Changes waiting without a signal are no longer read all over again for each one**
+  (`outbox.js`, `local.js`). To count what waited and to take the next change to send, the outbox
+  read the whole queue with its bodies (whole notes, in Notes): queueing n changes and sending them
+  when the signal came back were each quadratic, and an afternoon offline locked the page just as
+  the network returned. Counting now reads keys only, the next change is one record, and a
+  provisional id is swapped in one pass in one transaction. 200 changes queued: 20,100 records read
+  to add them, now none; 20,100 to send them, now 200. `openLocal()` and `memoryLocal()` gain
+  `count`, `first` and `rewrite`; the outbox still works on a store without them.
+- **Back from a cut, a page gets what it missed instead of reloading everything** (`live.js`,
+  `web/live.js`). The server already replayed what a tab missed (`Last-Event-ID`), but the page
+  reloaded everything it showed on every `hello` after a cut anyway, and did both. Now `hello` says
+  `replayed: true` when the tab came back with an id (what was missed came before it, or `resync`),
+  and the page then reloads nothing more; `hello` carries an id itself, so a tab that saw no notice
+  comes back with one too, and a channel the page opens again after closing one sends it as
+  `?last=`. Without `replayed` (a server before this one), for someone else, too much missed, or
+  `reconnect()`, everything is reloaded as before. Cronum Work's one channel for every module
+  (`/api/events?all`) says `replayed` and takes `&last=` the same way.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now

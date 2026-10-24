@@ -1327,8 +1327,8 @@ test('one live channel for every module (liveAll): each module’s notices for t
   await back.until(/"event":"hello"/);
   assert.deepEqual(back.messages().map(({ module, event, data }) => ({ module, event, data })), [
     { module: 'beta', event: 'change', data: { missed: true } },
-    { module: null, event: 'hello', data: { user_id: me.id } },
-  ]);
+    { module: null, event: 'hello', data: { user_id: me.id, replayed: true } },
+  ], 'and hello says so: the page needn’t reload everything');
   // An id of another run: everything reloaded, module by module.
   const lost = await stream(base, '/api/events?all', { Cookie: cookie, 'Last-Event-ID': 'alpha=old.1' });
   t.after(() => lost.stop());
