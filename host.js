@@ -20,6 +20,11 @@
  *     return { publicDir, routes: api, serializeUser, version, portable, start: () => stopTimers };
  *   }
  *
+ * A module may also say what its preferences are (`prefs`, prefs.js): its
+ * `/<mount>/api/me` is then the suite's, keeping the module's keys of the one
+ * `users.prefs` and leaving the others', and the host's own `/api/me` has
+ * every module's.
+ *
  * A module may also say what someone has in it (`usage`: its counts, and the
  * plan caps they meet, usage.js), for the admin's Usage of an account and each
  * person's own in Settings › Plan.
@@ -74,6 +79,7 @@ import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
+import { combinePrefs } from './prefs.js';
 import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
@@ -679,6 +685,8 @@ export async function createHost({
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
+      // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
+      prefs: parts.prefs ?? null,
       i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
       // In the split view each module is a frame of the host's page.
       frames: split ? 'self' : 'none',
@@ -782,6 +790,9 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // The host's own /api/me (its pages, Settings at its root) with every module's preferences:
+    // each keeps its keys and none drops another's. Without any, none, as before.
+    prefs: combinePrefs(joined.map((m) => m.parts.prefs)),
     routes: (api) => {
       api.get('/api/modules', async (ctx) => {
         const answer = modulesOf(ctx.user);

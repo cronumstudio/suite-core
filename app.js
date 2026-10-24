@@ -74,8 +74,9 @@ import { createPortability, registerPortabilityApi } from './portability.js';
 import { createMcpServer, dailyLimitText } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
-  identityCheck,
+  identityCheck, registerMeApi,
 } from './api.js';
+import { definePrefs, userSerializer } from './prefs.js';
 import {
   HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
 } from './http.js';
@@ -613,6 +614,10 @@ export function clientTexts(flat) {
  * @param {object|Function} [options.routes]  the app's router, or (router) => { … } to fill one
  * @param {object} [options.mcp]          { instructions, tools, prompts, describeError }
  * @param {Function} [options.serializeUser]  the account as the browser sees it (never its hash)
+ * @param {object} [options.prefs]        the app's preferences (prefs.js: `{ defaults, normalize, merge,
+ *   view, store }`): with them the suite serves `GET`/`PATCH /api/me` (api.js registerMeApi), and
+ *   without a `serializeUser` the account is `userSerializer`'s (public fields, `auth_provider`,
+ *   `prefs`). Without them the app's own `/api/me` answers, as before
  * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
  * @param {string} [options.watchRoot]    the folder hot reload watches (the server's, by default)
@@ -634,7 +639,7 @@ export function clientTexts(flat) {
  *   the same site, a host's module in its split view (host.js `split`)
  */
 export function createApp({
-  suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
+  suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none',
   deviceActions = null, resolveDeviceAction = null,
@@ -647,7 +652,8 @@ export function createApp({
   const tag = `[${config.app.id}]`;
   const { alerts } = suite;
   const localPasswords = install.authProvider === 'local';
-  const serialize = serializeUser || ((user) => (user ? accounts.publicUser(user) : null));
+  const serialize = serializeUser
+    || (prefs ? userSerializer(suite, { prefs }) : (user) => (user ? accounts.publicUser(user) : null));
 
   /* --------------------------- the suite's routes --------------------------- */
 
@@ -678,6 +684,13 @@ export function createApp({
   if (install.authProvider === 'local') {
     registerAccountMailApi(api, {
       accountMail, sessions, accounts, serializeUser: serialize, admin: config.modules.admin, twoFactor,
+    });
+  }
+  // The account and its preferences, the same in every module that says what its preferences are.
+  if (prefs) {
+    registerMeApi(api, {
+      accounts, serializeUser: serialize, prefs: definePrefs(prefs, { languages: config.app.languages }),
+      localEmail: localPasswords, accountMail: localPasswords ? accountMail : null,
     });
   }
   registerProfileApi(api, {

@@ -584,6 +584,67 @@ export function registerProfileApi(router, {
 }
 
 /**
+ * The account as its owner sees it and changes it from Settings › Profile:
+ * `GET /api/me` and `PATCH /api/me` with `display_name`, `email`, `theme`,
+ * `avatar_color` (where the table has one) and `prefs` (prefs.js: the
+ * module's own keys and the shared ones; each change only what it brings).
+ * Everything is checked before anything is written, and it is written in one
+ * go through `accounts.update`, so the person's other tabs hear of it
+ * (whenChanged). The password has its own route (`POST /api/me/password`,
+ * which knows whether passwords are kept here, asks for the current one with
+ * the sign-in brake and leaves a mark in the audit): sent here it is refused
+ * with `use_me_password`, before anything is written.
+ *
+ * Registered by createApp only for an app that gives `prefs`: an app without
+ * them keeps its own routes, as before.
+ *
+ * @param {object} deps
+ * @param {object} deps.accounts         from createAccounts()
+ * @param {Function} deps.serializeUser  (user, { req }) → what the browser sees
+ * @param {object} deps.prefs            definePrefs() of the app's hook
+ * @param {boolean} [deps.localEmail]    whether the email is kept here (not the provider's)
+ * @param {object} [deps.accountMail]    to send the link that confirms a new email
+ */
+export function registerMeApi(router, { accounts, serializeUser, prefs, localEmail = true, accountMail = null }) {
+  const requireUser = (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    return ctx.user;
+  };
+
+  router.get('/api/me', (ctx) => {
+    sendJson(ctx.res, 200, { user: serializeUser(requireUser(ctx), { req: ctx.req }) });
+  });
+
+  router.patch('/api/me', async (ctx) => {
+    const user = requireUser(ctx);
+    const body = await readJson(ctx.req);
+    if (body.password !== undefined || body.current_password !== undefined) throw badRequest('use_me_password');
+
+    const fields = {};
+    if (body.display_name !== undefined) fields.displayName = str(body.display_name, { field: 'display_name', max: 80, min: 1 });
+    if (body.theme != null) fields.theme = body.theme;
+    if (body.avatar_color != null) fields.avatarColor = body.avatar_color;
+    if (body.prefs && typeof body.prefs === 'object') fields.prefs = prefs.next(user.prefs, body.prefs, { user, req: ctx.req });
+    if (body.email !== undefined) {
+      // With WorkOS or OIDC the address is the provider's.
+      if (!localEmail) throw badRequest('email_managed_elsewhere');
+      fields.email = body.email || null;
+    }
+    const updated = Object.keys(fields).length ? accounts.update(user.id, fields) : accounts.byId(user.id);
+
+    // A new address gets a link to confirm it. If the link can't go now, the
+    // email is saved all the same and the answer says why (`verification`), so
+    // it can be asked for again.
+    let verification = null;
+    if (accountMail && updated.email && updated.email !== (user.email ?? null)) {
+      verification = await accountMail.sendVerification(updated, { req: ctx.req })
+        .then(() => 'sent', (err) => err.code || 'failed');
+    }
+    sendJson(ctx.res, 200, { user: serializeUser(updated, { req: ctx.req }), ...(verification ? { verification } : {}) });
+  });
+}
+
+/**
  * @param {object} router
  * @param {object} deps
  * @param {object} deps.accounts        from createAccounts()

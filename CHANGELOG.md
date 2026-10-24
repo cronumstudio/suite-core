@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.178.0 — 2026-10-25
+
+- **`PATCH /api/me` and the account as the browser sees it, once for every module** (`createApp({ prefs })`,
+  prefs.js, api.js `registerMeApi`; audit 2026-10-23 A7). Tasks, Projects, Next and Notes each had
+  their own copy of the profile route, of reading `users.prefs` and of what the browser sees of an
+  account, and they had drifted (Next and Notes never sent `has_password`, which Settings reads;
+  Projects let a session set a password on an identity provider's account). A module now says only
+  what its preferences are, `prefs: { defaults, normalize, merge, view, store }`, and the suite
+  serves `GET` and `PATCH /api/me`: `display_name`, `email` (with its link), `theme`,
+  `avatar_color` (where the table has one) and `prefs`, all checked before anything is written and
+  written once through `accounts.update`, so the person's other tabs hear of it. A password sent
+  there is refused with `use_me_password` (it has its own route). Prefs stay flat as they were:
+  each module keeps its keys of the one row and never drops another's, and the shared ones
+  (`lang`, `lang_seen`, `tz`, the zone canonical by time.js) are the suite's. `userSerializer(suite,
+  { prefs, fields })` is the account a module shows: `publicUser` (`has_password` always),
+  `auth_provider`, its own fields and `prefs`. In a host each module's `/<mount>/api/me` keeps its
+  own, and the host's `/api/me` has them all (`combinePrefs`). `accounts.update` takes `theme`,
+  `prefs` and `avatarColor` too. An app without `prefs` keeps its own routes, as before.
+- **The browser's time zone, told once** (`web/time-zone.js` `reportTimeZone(user, { send })`): what
+  Tasks and Notes each did on their own, for every module, so the day an assistant reads is the
+  person's in all of them (A5).
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now
