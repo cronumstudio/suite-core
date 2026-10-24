@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.177.0 — 2026-10-25
+
+- **A check for an app's texts that the kit already says** (`tools/i18n.mjs`, `kitDuplicates`): an
+  app's key whose texts, in every language, are those of a word of the kit (`kit.cancel`,
+  `kit.save`, `fields.name`…) is named with the key to use instead, and so is a key that repeats a
+  suite key with the suite's own texts, which overrides nothing. Keys of deeper kit groups
+  (`kit.links.undo`) don't count, since the same word there belongs to another feature, nor do an
+  app's overrides or its own keys in `errors.*`/`fields.*`. An app's tests opt in with
+  `appChecks(root, { kitWords: true })`; on the command line, `app --kit-words` or `kit-words <dir>`.
+  Without the option `appChecks` returns the same five checks as before.
+
 ## 0.160.0 — 2026-10-25
 
 - **A module in a window of Work's shell fits the iPhone** (Martin's screenshots of Work installed):
