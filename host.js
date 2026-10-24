@@ -77,7 +77,7 @@ import { createPageHints } from './page-hints.js';
 import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
-  fingerprint, combine, moduleShell, hostShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
+  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
 } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
@@ -882,7 +882,9 @@ export async function createHost({
     // What else the browser loads changes the version too: the suite's texts, in every catalog, and a
     // module's catalogs kept outside its public folder. The worker serves code from its copy first.
     const more = [['kit-texts', fingerprint(KIT_TEXTS)],
-      ...joined.filter((m) => m.parts.i18nDir).map((m) => [`${m.mount}-texts`, fingerprint(m.parts.i18nDir)])];
+      ...joined.filter((m) => m.parts.i18nDir).map((m) => [`${m.mount}-texts`, fingerprint(m.parts.i18nDir)]),
+      // The host's own pages (`pages`): a release that changes only them is a new version too.
+      ...pageList.map((page) => [`page${page.at}`, fingerprint(page.dir)])];
     const value = {
       app: version, name: config.app.name, ...combine([...prints, ...more]),
       modules: Object.fromEntries(joined.map((m, i) => [m.mount, { app: m.parts.version ?? '0.0.0', version: prints[i + 2][1].version }])),
@@ -899,7 +901,9 @@ export async function createHost({
     const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
     const icon = hostWorker.icon || config.app.icon || null;
     const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
-    const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell)])];
+    const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
+      // The host's own pages' files, at their paths: the new worker brings them with its version.
+      ...pageList.flatMap((page) => pageShell(page))])];
     // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
     const optional = [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])];
     const options = {
@@ -912,7 +916,8 @@ export async function createHost({
       hashes: shellHashes([...shell, ...optional], {
         kitDir: KIT_DIR,
         places: [{ base: '/', dir: publicDir, i18nDir: publicDir ? path.join(publicDir, 'i18n') : null },
-          ...joined.map((m) => ({ base: `/${m.mount}/`, dir: m.parts.publicDir, i18nDir: catalogsOf(m) }))],
+          ...joined.map((m) => ({ base: `/${m.mount}/`, dir: m.parts.publicDir, i18nDir: catalogsOf(m) })),
+          ...pageList.map((page) => ({ base: page.at, dir: page.dir }))],
         catalogs: fingerprint(KIT_TEXTS).version,
       }),
       shell,

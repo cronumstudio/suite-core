@@ -140,6 +140,20 @@ export function hostShell(publicDir, extra = []) {
 }
 
 /**
+ * A page of the host's own (host.js `pages`, `{ at: '/w/', dir }`): its files at its path, its
+ * index also as the path itself, for the worker's copy. Kept like the host's own pages, so a
+ * release that changes only them is still a new worker that brings them.
+ */
+export function pageShell({ at, dir, index = 'index.html' }) {
+  const paths = [];
+  for (const rel of filesOf(dir, KEPT)) {
+    if (rel === index) paths.push(at);
+    paths.push(`${at}${rel}`);
+  }
+  return paths;
+}
+
+/**
  * What each file of the worker's copy holds, as a hash (`{ '/tasks/js/main.js': '…' }`): the next
  * copy takes from this one every file whose hash is the same, and only the rest travels again
  * (sw-core.js `hashes`). `places` say where a path's files are, `[{ base: '/tasks/', dir, i18nDir }]`
