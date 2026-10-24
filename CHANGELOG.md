@@ -22,6 +22,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   `?last=`. Without `replayed` (a server before this one), for someone else, too much missed, or
   `reconnect()`, everything is reloaded as before. Cronum Work's one channel for every module
   (`/api/events?all`) says `replayed` and takes `&last=` the same way.
+
 ## 0.160.0 — 2026-10-25
 
 - **A module in a window of Work's shell fits the iPhone** (Martin's screenshots of Work installed):
