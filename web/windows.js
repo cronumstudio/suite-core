@@ -12,7 +12,7 @@
  *   boxes. As a phone's icons do, the others make room while it is carried, not when it is let
  *   go: over another column's head or middle its column takes that place, and over a window of a
  *   full column (2×2) the two trade places, the others flowing to theirs (FLIP, Web Animations,
- *   260 ms with a slight overshoot). Over the top or bottom part of a column with room it would
+ *   420 ms with a slight overshoot). Over the top or bottom part of a column with room it would
  *   stack there, shown by a dashed box and done on letting go. Escape puts everything back.
  * - Resize: the 8 px bars between two columns and between two stacked windows move their shares
  *   (`--cw-col-N` in fr, `--cw-row-N` the top window's share of its column) inside rAF, the windows
@@ -59,8 +59,8 @@ const EASE = 'cubic-bezier(.32, .72, 0, 1)';   // the kit's --kit-slide
 // While a window is carried, the others make room as a phone's icons do: a little longer, with a
 // slight overshoot. (The carried one isn't scaled up: a whole window drawn again at another size
 // cost a long frame each time; its shadow lifts it, windows.css.)
-const REFLOW_MS = 260;
-const SPRING = 'cubic-bezier(.2, 1.12, .4, 1)';
+const REFLOW_MS = 420;
+const SPRING = 'cubic-bezier(.4, .05, .2, 1.06)';
 const KEY_STEP = 0.05;      // of the two shares a bar divides, per arrow key
 
 // A phone's swipe between modules.
@@ -626,7 +626,8 @@ export function createWindows(desk, {
   }
 
   /** From the boxes they had to where they are: each window slides (and grows) into place. */
-  function flip(first, { skip = null, duration = FLIP_MS, easing = EASE } = {}) {
+  function flip(first, { skip = null, duration = FLIP_MS, easing = EASE, hold = false } = {}) {
+    const slides = [];
     for (const module of shown) {
       if (module === skip) continue;
       const from = first.get(module);
@@ -638,11 +639,38 @@ export function createWindows(desk, {
       const sx = to.width ? from.width / to.width : 1;
       const sy = to.height ? from.height / to.height : 1;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) continue;
-      node.animate([
+      slides.push(node.animate([
         { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, transformOrigin: '0 0' },
         { transform: 'none', transformOrigin: '0 0' },
-      ], { duration, easing });
+      ], { duration, easing }));
     }
+    if (hold) holdThroughLayout(slides);
+  }
+
+  /**
+   * Slides held where they start through the frame that lays the windows out in their new places,
+   * which can be long (a module's whole list at a new width), and let go in the next: started at
+   * once, one would be seen only after a good part of it had gone by, as a jump.
+   */
+  function holdThroughLayout(slides) {
+    for (const slide of slides) slide?.pause?.();
+    raf(() => { for (const slide of slides) if (slide?.playState === 'paused') slide.play(); });
+  }
+
+  /**
+   * Where a window still sliding is seen, off its place (`[x, y]`), its slide stopped there so the
+   * next one starts from it; `[0, 0]` for one at rest. Read once per change, never per frame.
+   */
+  function sliding(node) {
+    const running = node?.getAnimations?.() || [];
+    if (!running.length) return [0, 0];
+    let offset = [0, 0];
+    try {
+      const matrix = new DOMMatrixReadOnly(win.getComputedStyle(node).transform);
+      offset = [matrix.e, matrix.f];
+    } catch { /* no matrix: it starts from its place */ }
+    for (const animation of running) animation.cancel();
+    return offset;
   }
 
   /** A new layout, the windows sliding from where they were (outside any gesture's loop); `keep` is what is kept. */
@@ -731,17 +759,22 @@ export function createWindows(desk, {
      */
     const liveTo = (next) => {
       const before = new Map([...shown].map((m) => [m, placeOf(m)]));
+      // A window still sliding from the last change goes on from where it is seen, not from its place.
+      const drift = new Map([...shown].filter((m) => m !== module).map((m) => [m, sliding(nodes.get(m))]));
       layout = next;
       apply({ save: false });
       if (!animate) return;
+      const slides = [];
       for (const m of shown) {
         if (m === module) continue;
         const was = before.get(m);
         const now = placeOf(m);
-        const dx = was.left - now.left;
-        const dy = was.top - now.top;
-        if (dx || dy) nodes.get(m).animate?.([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: REFLOW_MS, easing: SPRING });
+        const [ox, oy] = drift.get(m) || [0, 0];
+        const dx = was.left - now.left + ox;
+        const dy = was.top - now.top + oy;
+        if (dx || dy) slides.push(nodes.get(m).animate?.([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: REFLOW_MS, easing: SPRING }));
       }
+      holdThroughLayout(slides);
     };
 
     const paint = () => {
@@ -801,7 +834,7 @@ export function createWindows(desk, {
       layout = normalizeLayout(next);
       apply(cancelled ? { keep: was } : {});
       // It settles into its place the way the others made room for it.
-      if (first) flip(first, { duration: REFLOW_MS, easing: SPRING });
+      if (first) flip(first, { duration: REFLOW_MS, easing: SPRING, hold: true });
       // Resumed once they are in their places: each draws itself once, at its new width.
       for (const m of held) if (shown.has(m)) onPause(m, false, { resizing: true });
       onGesture(false, 'reorder');

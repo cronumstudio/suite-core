@@ -10,6 +10,8 @@
   min-width: 0; min-height: 0; padding: 8px; overflow: hidden;
 }
 .cw-desk[data-resizing], .cw-desk[data-reordering] { user-select: none; -webkit-user-select: none; }
+/* Safari draws a field's text blank under -webkit-user-select: none (a list's name in Tasks is one). */
+.cw-desk[data-resizing] :is(input, textarea), .cw-desk[data-reordering] :is(input, textarea) { user-select: text; -webkit-user-select: text; }
 /* A frame under the pointer would swallow its moves. */
 .cw-desk[data-resizing] iframe, .cw-desk[data-reordering] iframe { pointer-events: none; }
 

@@ -2022,7 +2022,7 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
 - **Moving them.** A head picks its window up after 6 px (its shadow lifts it). As a phone's
   icons, the others make room while it is carried: over another column's head or middle its column
   takes that place at once, over a window of a full column the two trade places, and the others
-  flow to theirs (FLIP, 260 ms with a slight overshoot). Over the top or bottom part of a column of
+  flow to theirs (FLIP, 420 ms with a slight overshoot). Over the top or bottom part of a column of
   one it would stack there (a dashed box shows where, and it is done on letting go). Every window
   in sight is paused while it lasts. The columns are measured once, when it is picked up, and the
   loop only writes a transform inside requestAnimationFrame. The bars resize in rAF too, pausing the windows
