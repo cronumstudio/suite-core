@@ -379,7 +379,9 @@ function moduleListErrors(modules) {
  *   anything else of the host's: `[{ at: '/w/', dir, index = 'index.html' }]` answers GET and HEAD
  *   under `at` with the files of `dir` (`at` itself, its `index`), with the security headers and
  *   caching of the host's own files; a file `dir` hasn't is a 404, never a module's or the host's
- *   page. Cronum Work's one-document shell, at /w/ (architecture §21.6). Without it, nothing changes
+ *   page. Cronum Work's one-document shell, at /w/ (architecture §21.6). `root: true` (one page at
+ *   most) answers `/` with its index too, the app's start; `root: { except: ['modules'] }` leaves
+ *   `/` to the host's own home when the address has one of those query names. Without it, nothing changes
  * @param {boolean} [options.scopedSheets]  a module's own stylesheet scoped to its windows in a page
  *   that shows several modules (scope-css.js): `GET /<mount>/…/x.css?scope=work` answers the file
  *   the host would serve there wrapped in `@scope`, revalidated against the whole app's
@@ -451,7 +453,13 @@ export async function createHost({
     if (page?.index !== undefined && !(typeof page.index === 'string' && /^[\w.-]+$/.test(page.index))) {
       listErrors.push(`pages[${i}].index: "${page.index}" is not a file of its folder`);
     }
+    const root = page?.root;
+    if (root !== undefined && root !== false && root !== true
+      && !(root && typeof root === 'object' && (root.except === undefined || (Array.isArray(root.except) && root.except.every((name) => typeof name === 'string'))))) {
+      listErrors.push(`pages[${i}].root: true, or { except: ['name', …] }`);
+    }
   }
+  if (pageList.filter((page) => page?.root).length > 1) listErrors.push('pages: only one can be the root');
   /** The host's one worker (host-worker.js), or null: each module keeps its own, as before. */
   const hostWorker = worker ? (worker === true ? {} : worker) : null;
   if (listErrors.length) stop(listErrors);
@@ -958,6 +966,15 @@ export async function createHost({
   /** A page of the host's own (`pages`) a request is for: one of its files, or a 404. False for anything else. */
   function answerPage(req, res, url) {
     if (!['GET', 'HEAD'].includes(req.method)) return false;
+    // The page that is the root answers `/` with its index, but for an address that asks for the
+    // host's own home (`root.except`: `/?modules`), which answers as before.
+    const home = url.pathname === '/' && pageList.find((p) => p.root
+      && !(p.root.except || []).some((name) => url.searchParams.has(name)));
+    if (home) {
+      securityHeaders(res, { https: install.https });
+      if (!serveStatic(home.dir, `/${home.index ?? 'index.html'}`, res)) sendText(res, 404, 'Not found');
+      return true;
+    }
     const page = pageList.find((p) => url.pathname === p.at.slice(0, -1) || url.pathname.startsWith(p.at));
     if (!page) return false;
     if (url.pathname === page.at.slice(0, -1)) {

@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.158.0 — 2026-10-24
+
+- **A page of the host's own can be the app's start** (`createHost` `pages[].root`). With
+  `root: true`, `/` answers that page's index (one page at most); with
+  `root: { except: ['modules'] }`, an address with one of those query names (`/?modules`) still
+  opens the host's own home. Cronum Work opens its one-document shell at `/` this way, so the
+  installed app starts on its windows. Without the option, `/` answers as before.
+
 ## 0.157.0 — 2026-10-24
 
 - **Windows give way as magnets** (`windows.js`). Until now the window a carried one came over
