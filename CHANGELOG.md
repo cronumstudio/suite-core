@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.165.0 — 2026-10-25
+
+- **A copy's values must be of their column's type** (`portability`). Until now `{"$blob": …}`
+  came in as a blob into any column, and anything that wasn't text skipped the column's limit, its
+  pattern and the 100,000 characters: someone's own copy could bring a list's name or a note of
+  megabytes, or a number where the app reads a colour or a date, and share it. Now an import is
+  refused (`import_invalid_data`) when a value doesn't fit its column: text in TEXT, a number in
+  INTEGER and REAL, a blob only in BLOB (none of the apps has one; a blob column's copy still comes
+  back byte for byte). A pattern takes text only, so a number without the shape is left out like
+  any other value without it. Copies the apps made come in as before.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now
