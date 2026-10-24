@@ -43,7 +43,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at, BASE, FRAMED, SETTINGS_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
@@ -104,7 +104,9 @@ export function createShell({
   const nav = el('nav', { class: 'kit-side__nav', 'aria-label': app.name, tabindex: '-1' });
   const headIcon = appIcon(30);
   const headName = el('span', { class: 'kit-appname', text: app.name });
-  const head = el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
+  // In Work's shell the window's head or the phone's tab already names the module, and the shell
+  // shows the one live dot: the sidebar keeps only its button that folds it.
+  const head = embedded ? el('div', { class: 'kit-side__head' }, fold) : el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
   const foot = el('div', { class: 'kit-side__foot' }, account);
   const side = el('aside', { class: 'kit-side' },
     head,
@@ -160,7 +162,7 @@ export function createShell({
   const shell = el('div', { class: 'kit-shell' },
     side, scrim, bar, banners, list, detail, fab, tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back'));
   // `data-layout` stays for the apps' own CSS, which names it.
-  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list' }, shell);
+  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}) }, shell);
   root.append(element);
 
   /* --------------------------------- folding -------------------------------- */
@@ -229,6 +231,9 @@ export function createShell({
       else onSettings();
     }, { signal });
   }
+  // On a phone Work's shell has the one ☰, beside its brand: it asks the module in sight for its
+  // drawer on the body of its window (ctx.root).
+  if (embedded) root.addEventListener(DRAWER_EVENT, () => toggleDrawer(), { signal });
   // In Work's shell one window object is every module's: the shell asks the one it means on the
   // body of its window (ctx.root), naming the section or not, as the split view asks a frame.
   if (embedded && onSettings) {
@@ -248,7 +253,9 @@ export function createShell({
   // (a tablet, a computer) the ☰ isn't shown and nothing of this happens; folded away there, it
   // comes over the views as on a phone for the drag, and stays folded.
   let drawerForDrag = false;
-  const asDrawer = () => getComputedStyle(menuButton).display !== 'none';
+  // In Work's shell on a phone its ☰ is the shell's and the window's is hidden: by the width then,
+  // as kit.css decides it (`@container kit-app`).
+  const asDrawer = () => (embedded ? !beside() : getComputedStyle(menuButton).display !== 'none');
   const drawerIsClosed = () => !element.hasAttribute('data-drawer') && asDrawer();
   const openForDrag = () => {
     element.setAttribute('data-drawer', '');
@@ -309,7 +316,8 @@ export function createShell({
   const startAction = (target) => {
     if (!element.contains(target) || element.hasAttribute('data-drawer')) return null;
     if (showing('.kit-bar__back')) return () => (onBack || showList)();
-    if (showing('.kit-bar__menu')) return () => openDrawer();
+    // In Work's shell on a phone the ☰ is the shell's, not in the window: the edge still opens it.
+    if (showing('.kit-bar__menu') || (embedded && asDrawer())) return () => openDrawer();
     return null;
   };
   const scrollerOf = (node) => {
