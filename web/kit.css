@@ -912,6 +912,21 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-people__chip[aria-pressed="true"] { background: var(--kit-accent-soft); border-color: var(--kit-accent); color: var(--kit-accent); }
 .kit-people__chip[aria-pressed="true"]::before { content: "✓ "; }
 
+/* ---------------------------------- share ---------------------------------- */
+/* Who has something, and inviting (share.js shareDialog): Notes' dialog, now every app's. */
+.kit-share__invite { display: grid; gap: 10px; }
+.kit-share__invite[hidden] { display: none; }
+.kit-share__row { justify-content: space-between; }
+.kit-share__heading { margin: 4px 0 0; font: 600 var(--look-caption2, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); }
+/* On a phone, what someone may do and the button to take it back go under their name. */
+.kit-share__people .kit-list__row { flex-wrap: wrap; gap: 8px 10px; }
+.kit-share__people .kit-list__text { flex: 1 1 150px; }
+.kit-share__pending { color: var(--kit-warn) !important; }
+.kit-share__permission { width: auto; margin-inline-start: auto; min-height: 34px; padding-block: 4px; font-size: var(--look-subhead, 13.5px); }
+/* A touch screen's field text is never under 16px: below that the iPhone zooms the page in. */
+@media (pointer: coarse) { .kit-share__permission { font-size: var(--look-body, 16px); } }
+:root[data-look="clean"] .kit-share__heading { font-size: var(--look-footnote, 11px); letter-spacing: .02em; }
+
 /* ---------------------------------- links ---------------------------------- */
 /* The "Linked" row of an item (links.js): one chip per link, a dot in the other module's colour. */
 .kit-linked { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
