@@ -14,6 +14,21 @@ change an interface and a patch never does. Apps pin a version through the submo
   back byte for byte). A pattern takes text only, so a number without the shape is left out like
   any other value without it. Copies the apps made come in as before.
 
+## 0.160.0 — 2026-10-25
+
+- **A module in a window of Work's shell fits the iPhone** (Martin's screenshots of Work installed):
+  a window is never at the screen's top or bottom, but each module kept the room of the notch and
+  of the home bar too, so a band was left above and below. Inside a window the kit's
+  `--kit-safe-top`/`--kit-safe-bottom` are 0 (`windows.css`), and a module's own
+  `env(safe-area-inset-…)` reaches it as `var(--cw-inset-…, env(…))`, 0 there too (`scope-css.js`,
+  `SCOPE_FORMAT` 2). What a module hangs on the page's body keeps the screen's own.
+- **The sidebar of a module in a window doesn't name it again** (`createShell({ embedded })`): no
+  icon, name or live dot at its head (the window's head or the phone's tab names the module, and
+  the shell has the one live dot); the button that folds it stays where it sits beside the views.
+- **On a phone Work's shell has the module's ☰**: `kit:drawer` (`DRAWER_EVENT`, base.js) on the
+  window's body opens or closes that module's drawer, and the swipe from the edge still opens it
+  when the module's own ☰ is hidden.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now
