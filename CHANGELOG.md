@@ -3,6 +3,22 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.157.0 — 2026-10-24
+
+- **Windows give way as magnets** (`windows.js`). Until now the window a carried one came over
+  sat still until the pointer crossed into it, then crossed the whole screen at once, mostly under
+  the carried one: Martin saw no slide. Now it gives way as it is covered: pushed toward the place
+  it would take, up to 40 % of the way, back again if the carried one backs off; past 55 % the two
+  trade places and it slides on to its new place from where it was pushed (a window that just
+  traded places isn't pushed back, it only trades back past 70 %). Let go short of that, they go
+  back. Stacking keeps the top and bottom parts of a column.
+- **No slide skips its start any more.** Starting a slide made the browser draw the windows again,
+  a frame of 100–200 ms on a slow machine, and the slide's clock ran through it: a good part was
+  never seen. Slides while a window is carried and when it is let go now run on the shell's own
+  clock, which moves on by one frame's worth at most per frame.
+- While a window is carried, every window in sight is on a layer of its own (`will-change`), so
+  pushing them costs no drawing.
+
 ## 0.156.0 — 2026-10-24
 
 - **Windows make room more slowly, and without a jump at the start** (`windows.js`). The slide of
