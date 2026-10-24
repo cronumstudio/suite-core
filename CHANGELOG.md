@@ -13,6 +13,9 @@ change an interface and a patch never does. Apps pin a version through the submo
   (a module's list at a new width), and let go in the next: started at once, a good part of it went
   by unseen and it looked like a jump. A window still sliding when the next change comes goes on
   from where it is seen.
+- **A field's text stays in sight while a window is moved or resized** (`windows.css`): the desk
+  stops text selection meanwhile (`-webkit-user-select: none`), and under it Safari drew fields
+  blank, such as the list's name at the top of Tasks. Fields keep their own selection now.
 
 ## 0.155.0 — 2026-10-24
 
