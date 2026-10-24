@@ -172,7 +172,10 @@ export function createSuite({
     trustProxy: install.trustProxy,
   });
   // Notices for the open tabs (GET /api/events, with modules.live): the app publishes what changed.
-  const live = createLive();
+  // A tab's channel lasts while the session it was opened with does: signing out closes it at once.
+  const live = createLive({ stillIn: (userId, token) => sessions.stillOpen(token) === userId });
+  sessions.whenClosed((userId) => live.recheck(userId));
+  accounts.whenRemoved((userId) => live.dropUser(userId, { last: { event: 'account', data: { user_id: userId } } }));
   // A write sent again with the same Idempotency-Key answers what the first did (the outbox's retries).
   const idempotency = createIdempotency({ database });
   // A code from an app after the password; with a provider, the second step is the provider's.

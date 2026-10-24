@@ -1261,7 +1261,11 @@ gets what it missed, and one that missed more, or comes from another run of the 
 often opened in another tab or on the phone, a new password, the second step turned on or off,
 what the admin changed or signing them out everywhere— so the page reloads what it shows of the
 account (`/api/auth/me`). `accounts.whenChanged(hook)` hears those changes, and a module that
-changes an account says so with `accounts.changed(id)`. Events may carry the new state (Focus's run contract) or
+changes an account says so with `accounts.changed(id)`. A channel lasts while the session it was
+opened with does (v0.164.0): signing out, a session closed from the list, out everywhere, the
+account disabled or deleted close it at once (`sessions.whenClosed` → `live.recheck`), with
+`account` as its last word, and every heartbeat asks again (`sessions.stillOpen`, which doesn't
+slide the session). Events may carry the new state (Focus's run contract) or
 just say what changed (Tasks' lists): the app chooses.
 
 ## 13. MCP

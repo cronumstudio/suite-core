@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.164.0 — 2026-10-25
+
+- **A tab's live channel ends with the session it was opened with** (`live.js` `stillIn`,
+  `recheck`; `sessions.stillOpen`, `sessions.whenClosed`). Until now `/api/events` (and the host's
+  `/api/events?all`) checked the session only when it opened and then stayed open for good: after
+  signing out, a session closed from the list, the account disabled or deleted, a tab opened with
+  that cookie (a stolen one, say) kept hearing the account's activity. Now a session closed here
+  closes its channels at once, with the `account` notice first, as "out everywhere" already did;
+  signing out closes only that browser's. Every heartbeat asks again for each channel, which also
+  ends the ones whose session expired or whose device went; asking doesn't use the session, so an
+  open tab doesn't keep it alive. A deleted account's channels close as it goes.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now
