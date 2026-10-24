@@ -74,7 +74,7 @@ import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
-import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
+import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
   fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
@@ -554,6 +554,7 @@ export async function createHost({
       defaultPlan: resolved.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
       earlyAccess: install.earlyAccess ?? null,
       organizationsOf: (user) => (suite.organizations ? suite.organizations.organizationsOf(user) : []),
+      organizationsOfMany: (ids) => (suite.organizations ? suite.organizations.organizationsOfMany(ids) : new Map()),
       organizationExists: (id) => Boolean(suite.organizations?.get(id)),
       othersDeclare: true,
     });
@@ -794,7 +795,9 @@ export async function createHost({
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
       registerOwnUsageApi(api, { usageFor });
-      if (config.modules.admin) registerUsageApi(api, { accounts: suite.accounts, usageFor });
+      // Everyone's nearest cap for the admin's list, asked in batches: a fixed number of queries per module where it can.
+      const peaksFor = (users) => peaksOf(users, { modules: joined, entitlements: suite.entitlements, log });
+      if (config.modules.admin) registerUsageApi(api, { accounts: suite.accounts, usageFor, peaksFor });
       api.put('/api/me/modules', async (ctx) => {
         if (!ctx.user) throw unauthorized();
         const body = await readJson(ctx.req);

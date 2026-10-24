@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.171.0 — 2026-10-25
+
+- **The links of something are read together, not one by one** (`links.js`). A module's cards may
+  have `readMany(user, ids, opts?)` → `Map<id, card | 'gone' | null>`, the same answer as `read`
+  for each id, in a fixed number of queries. The links of something, `changed()` (the titles kept)
+  and `prune()` ask it once for each kind of thing; an id it leaves out, every id when it throws,
+  and modules without it are read one by one, as before. Whether someone uses a module is asked
+  once per module in a request, not once per link. A search shows the cards the module's `search`
+  found as they come, without reading each again, and a kept title is written only when it changed.
+  The cards shown are the same.
+- **Admin › Users counts every account's usage in batches** (`usage.js`). `/api/admin/usage`
+  answered after computing every account at once, in one turn of the process, with each plan
+  asked again for each count. Now it counts 100 accounts at a time and lets the process answer
+  others in between; each plan for a whole batch in a fixed number of queries
+  (`entitlements.ofMany()`, with `organizations.organizationsOfMany()`), and today's calls in one
+  (`entitlements.usedToday()`), without the month the dialog shows. A module may also answer a
+  whole batch with `usageAll(userIds)` and `storageAll(userIds)` (a Map by user); without them it
+  is asked one by one. The answer is the same.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now

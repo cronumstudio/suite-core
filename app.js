@@ -191,6 +191,7 @@ export function createSuite({
     defaultPlan: config.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
     earlyAccess: install.earlyAccess ?? null,
     organizationsOf: (user) => (organizations ? organizations.organizationsOf(user) : []),
+    organizationsOfMany: (ids) => (organizations ? organizations.organizationsOfMany(ids) : new Map()),
     // An organization's own plan (ofOrganization) is only for one that is there and not archived.
     organizationExists: (id) => Boolean(organizations?.get(id)),
     othersDeclare,
