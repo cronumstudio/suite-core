@@ -2019,12 +2019,13 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   kept shape, the prototype's `{ slots }` included. A window never moves in the document: it is
   placed by its grid column (`--cw-col-N` in the desk's template, 320 px at least, an 8 px bar
   between two), and a stacked one takes its half of the cell (`--cw-row-N`).
-- **Moving them.** A head picks its window up after 6 px (its shadow lifts it). As a phone's
-  icons, the others make room while it is carried: over another column's head or middle its column
-  takes that place at once, over a window of a full column the two trade places, and the others
-  flow to theirs (FLIP, 420 ms with a slight overshoot). Over the top or bottom part of a column of
-  one it would stack there (a dashed box shows where, and it is done on letting go). Every window
-  in sight is paused while it lasts. The columns are measured once, when it is picked up, and the
+- **Moving them.** A head picks its window up after 6 px (its shadow lifts it). As magnets, the
+  window it comes over gives way while it is carried: pushed toward the place it would take, up to
+  40 % of the way, as much as it is covered; past 55 % the two trade places and the others flow on
+  from where they were pushed (FLIP, 420 ms with a slight overshoot, paced by the shell's own clock
+  so a long frame never skips part of a slide). Let go short of that, they go back. Over the top or
+  bottom part of a column of one it would stack there (a dashed box shows where, and it is done on
+  letting go). Every window in sight is paused, and on a layer of its own, while it lasts. The columns are measured once, when it is picked up, and the
   loop only writes a transform inside requestAnimationFrame. The bars resize in rAF too, pausing the windows
   they touch (`onPause(module, true, { resizing: true })`); a double click evens them, arrow keys
   move a focused bar, and Alt with an arrow on a focused head moves its window. Escape cancels.

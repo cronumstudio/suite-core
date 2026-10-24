@@ -9,11 +9,13 @@
  * - Reorder: a window's head picks it up after 6 px. It follows the pointer with a transform set
  *   only inside requestAnimationFrame, from the last move, with no layout read in the loop: the
  *   columns are measured once, when it is picked up, and where it would land is found by those
- *   boxes. As a phone's icons do, the others make room while it is carried, not when it is let
- *   go: over another column's head or middle its column takes that place, and over a window of a
- *   full column (2×2) the two trade places, the others flowing to theirs (FLIP, Web Animations,
- *   420 ms with a slight overshoot). Over the top or bottom part of a column with room it would
- *   stack there, shown by a dashed box and done on letting go. Escape puts everything back.
+ *   boxes. As magnets, the window it comes over gives way while it is carried: pushed toward the
+ *   place it would take, up to 40 % of the way, as much as it is covered; past 55 % the two trade
+ *   places (a column takes another's place, two windows of a 2×2 swap) and the others flow on to
+ *   theirs from where they were pushed (FLIP, 420 ms with a slight overshoot, on our own clock so a
+ *   long frame doesn't skip part of it). Let go short of that, they go back. Over the top or bottom
+ *   part of a column with room it would stack there, shown by a dashed box and done on letting go.
+ *   Escape puts everything back.
  * - Resize: the 8 px bars between two columns and between two stacked windows move their shares
  *   (`--cw-col-N` in fr, `--cw-row-N` the top window's share of its column) inside rAF, the windows
  *   they touch paused while it lasts (`onPause(module, true, { resizing: true })`). A double click
@@ -60,6 +62,13 @@ const EASE = 'cubic-bezier(.32, .72, 0, 1)';   // the kit's --kit-slide
 // slight overshoot. (The carried one isn't scaled up: a whole window drawn again at another size
 // cost a long frame each time; its shadow lifts it, windows.css.)
 const REFLOW_MS = 420;
+const FRAME_MS = 1000 / 60;
+const MAX_STEP_MS = 25;     // a paced slide moves on by a frame's worth at most, however long the frame
+// As magnets, the window a carried one comes over gives way: up to this part of its way while it
+// is covered, and the two trade places once it is covered this much (more to trade back at once).
+const PUSH = 0.4;
+const COMMIT = 0.55;
+const COMMIT_BACK = 0.7;
 const SPRING = 'cubic-bezier(.4, .05, .2, 1.06)';
 const KEY_STEP = 0.05;      // of the two shares a bar divides, per arrow key
 
@@ -626,8 +635,7 @@ export function createWindows(desk, {
   }
 
   /** From the boxes they had to where they are: each window slides (and grows) into place. */
-  function flip(first, { skip = null, duration = FLIP_MS, easing = EASE, hold = false } = {}) {
-    const slides = [];
+  function flip(first, { skip = null, duration = FLIP_MS, easing = EASE, paced = false } = {}) {
     for (const module of shown) {
       if (module === skip) continue;
       const from = first.get(module);
@@ -639,22 +647,35 @@ export function createWindows(desk, {
       const sx = to.width ? from.width / to.width : 1;
       const sy = to.height ? from.height / to.height : 1;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) continue;
-      slides.push(node.animate([
-        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, transformOrigin: '0 0' },
-        { transform: 'none', transformOrigin: '0 0' },
-      ], { duration, easing }));
+      slide(node, `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, { duration, easing, paced });
     }
-    if (hold) holdThroughLayout(slides);
   }
 
   /**
-   * Slides held where they start through the frame that lays the windows out in their new places,
-   * which can be long (a module's whole list at a new width), and let go in the next: started at
-   * once, one would be seen only after a good part of it had gone by, as a jump.
+   * A window slides from `from` (a transform off its place) to its place. `paced`: its clock is
+   * ours, moved on every frame by the time since the last one but never by more than a frame's
+   * worth. Handing a slide to the browser's own clock, the frame that lays the windows out in
+   * their new places and draws them again (100–200 ms on a slow machine) ran on the clock, and a
+   * good part of the slide was never seen: it looked like a jump.
    */
-  function holdThroughLayout(slides) {
-    for (const slide of slides) slide?.pause?.();
-    raf(() => { for (const slide of slides) if (slide?.playState === 'paused') slide.play(); });
+  function slide(node, from, { duration = REFLOW_MS, easing = SPRING, paced = false } = {}) {
+    const frames = [{ transform: from, transformOrigin: '0 0' }, { transform: 'none', transformOrigin: '0 0' }];
+    const animation = node.animate?.(frames, { duration, easing, fill: paced ? 'both' : 'none' });
+    if (!paced || !animation) return;
+    animation.pause();
+    animation.currentTime = 0;
+    let time = 0;
+    let last = null;
+    const step = (now) => {
+      if (animation.playState === 'idle') return;   // stopped by a newer change (sliding)
+      const at = now ?? (last ?? 0) + FRAME_MS;
+      time += last == null ? 0 : Math.min(at - last, MAX_STEP_MS);
+      last = at;
+      if (time >= duration) { animation.cancel(); return; }   // in its place: nothing left to hold
+      animation.currentTime = time;
+      raf(step);
+    };
+    raf(step);
   }
 
   /**
@@ -663,7 +684,13 @@ export function createWindows(desk, {
    */
   function sliding(node) {
     const running = node?.getAnimations?.() || [];
-    if (!running.length) return [0, 0];
+    if (!running.length) {
+      // Pushed aside by a carried window coming over it (an inline translate): it goes on from there.
+      const pushed = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(node?.style?.transform || '');
+      if (!pushed) return [0, 0];
+      node.style.transform = '';
+      return [Number(pushed[1]), Number(pushed[2])];
+    }
     let offset = [0, 0];
     try {
       const matrix = new DOMMatrixReadOnly(win.getComputedStyle(node).transform);
@@ -728,6 +755,8 @@ export function createWindows(desk, {
       picked = true;
       held = [...shown];
       for (const m of held) onPause(m, true, { resizing: true });
+      // Each window on its own layer while it lasts: the ones pushed aside move every frame.
+      for (const m of held) nodes.get(m).style.willChange = 'transform';
       // Measured once: where each column is, which reordering doesn't change (each place keeps its width).
       slots = measureSlots();
       desked = desk.getBoundingClientRect();
@@ -753,6 +782,79 @@ export function createWindows(desk, {
       return { left: s.left, top };
     };
 
+    /** A window's place in `lay` as a box, by the slots measured: where it is, and its size. */
+    const boxOf = (m, lay = layout) => {
+      const at = where(lay, m);
+      const s = slots[at.col];
+      const col = lay.cols[at.col];
+      const full = s.bottom - s.top;
+      if (col.wins.length < MAX_STACK) return { left: s.left, top: s.top, width: s.right - s.left, height: full };
+      const upper = (full - BAR_PX) * rowShare(col.h);
+      return at.row === 0
+        ? { left: s.left, top: s.top, width: s.right - s.left, height: upper }
+        : { left: s.left, top: s.top + upper + BAR_PX, width: s.right - s.left, height: full - upper - BAR_PX };
+    };
+
+    /**
+     * The window the carried one is coming over, as magnets: the one it covers the most, among
+     * those it could trade places with now (columns of one each, or a window of a column of two),
+     * how much of it it covers (0–1), and the layout once they trade.
+     */
+    const coming = (seen) => {
+      const at = where(layout, module);
+      let best = null;
+      for (const m of shown) {
+        if (m === module) continue;
+        const other = where(layout, m);
+        const col = layout.cols[other.col];
+        const b = boxOf(m);
+        let next = null;
+        if (col.wins.length >= MAX_STACK) {
+          // Of a column of two, the one at the pointer's height (it may still be in its own column).
+          const upper = boxOf(col.wins[0]);
+          const row = y < upper.top + upper.height + BAR_PX / 2 ? 0 : 1;
+          if (other.row !== row) continue;
+          next = swapWindows(layout, module, m);
+        } else if (layout.cols[at.col].wins.length === 1 && other.col !== at.col) {
+          next = moveColumn(layout, at.col, other.col);
+        }
+        if (!next) continue;
+        const w = Math.min(seen.left + seen.width, b.left + b.width) - Math.max(seen.left, b.left);
+        const h = Math.min(seen.top + seen.height, b.top + b.height) - Math.max(seen.top, b.top);
+        // A column of one is the whole height: only how far across it counts.
+        const across = w > 0 ? w / b.width : 0;
+        const down = h > 0 ? Math.min(1, h / b.height) : 0;
+        const covered = col.wins.length >= MAX_STACK ? across * down : across;
+        if (covered > (best?.covered ?? 0)) best = { module: m, covered, next };
+      }
+      return best;
+    };
+
+    /** The windows pushed aside, and by how much: each a part of its way to its place in `next`. */
+    const pushed = new Set();
+    const push = (target) => {
+      const moved = new Set();
+      if (target && animate) {
+        const p = Math.min(1, target.covered / COMMIT);
+        const share = PUSH * p * p * (3 - 2 * p);   // eased: it gives way softly, then more
+        for (const m of shown) {
+          if (m === module) continue;
+          const node = nodes.get(m);
+          if (node.getAnimations?.().length) continue;   // still sliding from the last change
+          const from = boxOf(m);
+          const to = boxOf(m, target.next);
+          const dx = (to.left - from.left) * share;
+          const dy = (to.top - from.top) * share;
+          if (!dx && !dy) continue;
+          node.style.transform = `translate(${dx}px, ${dy}px)`;
+          moved.add(m);
+        }
+      }
+      for (const m of pushed) if (!moved.has(m) && nodes.get(m)) nodes.get(m).style.transform = '';
+      pushed.clear();
+      for (const m of moved) pushed.add(m);
+    };
+
     /**
      * The layout changes while the window is carried, and the others flow to their new places
      * (FLIP from the places they had, with no reading), as a phone's icons make room.
@@ -764,7 +866,6 @@ export function createWindows(desk, {
       layout = next;
       apply({ save: false });
       if (!animate) return;
-      const slides = [];
       for (const m of shown) {
         if (m === module) continue;
         const was = before.get(m);
@@ -772,29 +873,38 @@ export function createWindows(desk, {
         const [ox, oy] = drift.get(m) || [0, 0];
         const dx = was.left - now.left + ox;
         const dy = was.top - now.top + oy;
-        if (dx || dy) slides.push(nodes.get(m).animate?.([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: REFLOW_MS, easing: SPRING }));
+        if (dx || dy) slide(nodes.get(m), `translate(${dx}px, ${dy}px)`, { paced: true });
       }
-      holdThroughLayout(slides);
     };
 
+    let traded = null;   // the window it last traded places with: trading back asks for more
     const paint = () => {
       frame = 0;
       hit = slotAt(slots, layout, x, y);
-      const at = where(layout, module);
-      const target = layout.cols[hit?.col];
-      if (hit?.zone === 'head' && hit.col !== at.col && layout.cols[at.col].wins.length === 1) {
-        // Over another column's place: its column takes that place now.
-        liveTo(moveColumn(layout, at.col, hit.col));
-      } else if (hit?.zone === 'win' && target.wins[hit.row] && target.wins[hit.row] !== module) {
-        // Over a window of a column of two (2×2): the two trade places now.
-        liveTo(swapWindows(layout, module, target.wins[hit.row]));
+      // Over the top or bottom part of a column of one it would stack there: nothing gives way.
+      const stacking = hit?.zone === 'top' || hit?.zone === 'bottom';
+      const seenAt = (lay) => {
+        const own = boxOf(module, lay);
+        return { ...own, left: own.left + x - x0 + (home.left - placeOf(module).left), top: own.top + y - y0 + (home.top - placeOf(module).top) };
+      };
+      let target = stacking ? null : coming(seenAt(layout));
+      // The one it just traded places with is behind it: it isn't pushed, it only trades back.
+      if (target?.module === traded && target.covered < COMMIT_BACK) target = null;
+      // Like magnets: the window it comes over gives way as it covers it, and past half they trade
+      // places, the other sliding on from where it was pushed to (FLIP, liveTo).
+      if (target && target.covered >= (target.module === traded ? COMMIT_BACK : COMMIT)) {
+        traded = target.module;
+        liveTo(target.next);
+        pushed.clear();
+        target = null;
       }
+      push(target);
       // Its own place moved under it: the transform takes that back.
       const now = placeOf(module);
       const dx = x - x0 + (home.left - now.left);
       const dy = y - y0 + (home.top - now.top);
       node.style.transform = `translate(${dx}px, ${dy}px)`;
-      const box = dropRect(slots, layout, module, hit, { maxCols: fitColumns(room), rtl: dir });
+      const box = target ? null : dropRect(slots, layout, module, hit, { maxCols: fitColumns(room), rtl: dir });
       ghost.hidden = !box;
       if (box) {
         ghost.style.transform = `translate(${box.left - desked.left}px, ${box.top - desked.top}px)`;
@@ -824,17 +934,25 @@ export function createWindows(desk, {
       gesture = null;
       if (!picked) return;
       ghost.remove();
-      const next = cancelled ? start : (hit && dropLayout(layout, module, hit, { maxCols: fitColumns(room) })) || layout;
+      // Let go over the window it just traded places with (the pointer is still over its old
+      // place), what the magnets did stays; over another, it goes there as before.
+      const col = layout.cols[hit?.col];
+      const under = hit?.zone === 'win' ? col?.wins[hit.row] : hit?.zone === 'head' && col?.wins.length === 1 ? col.wins[0] : null;
+      const kept = under && (under === traded || under === module);
+      const next = cancelled ? start : (hit && !kept && dropLayout(layout, module, hit, { maxCols: fitColumns(room) })) || layout;
       // Read before anything changes: the carried window where it was let go, the others where they are.
       const first = animate ? boxes() : null;
       node.style.transform = '';
-      node.style.willChange = '';
+      for (const m of held) if (nodes.get(m)) nodes.get(m).style.willChange = '';
+      // Those pushed aside go to their places from where they are seen (in `first`).
+      for (const m of pushed) if (nodes.get(m)) nodes.get(m).style.transform = '';
+      pushed.clear();
       node.removeAttribute('data-carried');
       desk.removeAttribute('data-reordering');
       layout = normalizeLayout(next);
       apply(cancelled ? { keep: was } : {});
       // It settles into its place the way the others made room for it.
-      if (first) flip(first, { duration: REFLOW_MS, easing: SPRING, hold: true });
+      if (first) flip(first, { duration: REFLOW_MS, easing: SPRING, paced: true });
       // Resumed once they are in their places: each draws itself once, at its new width.
       for (const m of held) if (shown.has(m)) onPause(m, false, { resizing: true });
       onGesture(false, 'reorder');

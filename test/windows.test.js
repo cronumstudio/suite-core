@@ -39,6 +39,7 @@ Object.defineProperties(FakeElement.prototype, {
       animations.push(entry);
       return {
         playState: 'running',
+        currentTime: 0,
         pause() { this.playState = 'paused'; entry.calls.push('pause'); },
         play() { this.playState = 'running'; entry.calls.push('play'); },
         cancel() { this.playState = 'idle'; entry.calls.push('cancel'); },
@@ -492,7 +493,7 @@ test('reorder: as a phone’s icons, the other window makes room while it is car
   assert.ok(room, 'the other slides into the place it left');
   assert.match(room.options.easing, /^cubic-bezier\(/);
   assert.ok(room.options.duration >= 400, 'at a phone’s pace, not a jump');
-  assert.deepEqual(room.calls, ['pause', 'play'], 'held through the frame that lays it out, then let go');
+  assert.deepEqual(room.calls, ['pause', 'cancel'], 'paced by our own clock frame by frame, then let go in its place');
   assert.match(made.get('notes').style.transform, /^translate\([^)]*\)$/, 'it follows the pointer, at its own size');
   head('notes').dispatch('pointerup', {});
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes'], ['tasks']], 'let go: it stays');
@@ -510,6 +511,41 @@ test('reorder: as a phone’s icons, the other window makes room while it is car
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next', 'notes'], ['tasks', 'projects']], 'over its own place now: no flapping');
   head('next').dispatch('pointerup', {});
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next', 'notes'], ['tasks', 'projects']]);
+  windows.destroy();
+});
+
+test('reorder: as magnets, the window it comes over gives way as it is covered, and they trade past half', () => {
+  const { made, windows, lay, head, press } = setup();
+  // Two columns of 688 px: notes from x = 8, next from x = 704.
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
+  lay();
+  const shift = () => Number(/translate\((-?[\d.]+)px/.exec(made.get('next').style.transform)?.[1] ?? 0);
+  press(head('notes'), 100, 60);
+  head('notes').dispatch('pointermove', { clientX: 300, clientY: 70 });   // covers 28 % of it
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes'], ['next']], 'not yet traded');
+  const some = shift();
+  assert.ok(some < -50 && some > -300, `pushed toward notes' place, part of the way (${some})`);
+  head('notes').dispatch('pointermove', { clientX: 150, clientY: 70 });   // backs off: 6 %
+  assert.ok(shift() > some, 'and comes back as it is uncovered');
+  animations.length = 0;
+  head('notes').dispatch('pointermove', { clientX: 550, clientY: 70 });   // 64 %: past half
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes']], 'traded');
+  assert.equal(made.get('next').style.transform, '', 'its push handed to its slide');
+  const slide = animations.find((a) => a.node === made.get('next'));
+  assert.ok(slide, 'it slides on to notes’ old place');
+  head('notes').dispatch('pointerup', {});
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes']]);
+
+  // Let go before half: it goes back to its place.
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
+  lay();
+  press(head('notes'), 100, 60);
+  head('notes').dispatch('pointermove', { clientX: 300, clientY: 70 });
+  assert.ok(shift() < 0);
+  head('notes').dispatch('pointerup', {});
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes'], ['next']], 'nothing traded');
+  assert.equal(made.get('next').style.transform, '', 'back in its place');
+  assert.equal(made.get('next').style.willChange, '', 'its layer let go');
   windows.destroy();
 });
 
