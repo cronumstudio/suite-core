@@ -216,7 +216,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
       const card = found[i];
       if (!card || card === 'gone' || !card.title) return;
       const title = String(card.title).slice(0, TITLE_MAX);
-      database.run(`UPDATE host_links SET ${side.column} = ? WHERE id = ? AND ${side.column} IS NOT ?`, title, side.row, title);
+      if (side.title !== title) database.run(`UPDATE host_links SET ${side.column} = ? WHERE id = ?`, title, side.row);
     });
   }
 

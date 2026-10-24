@@ -165,9 +165,11 @@ test('the host’s own reads (titles, what is gone) go through readMany too, and
   assert.equal(database.get("SELECT COUNT(*) AS n FROM host_links WHERE a_title = 'Plan B'").n, 50);
   const writes = { changed: 0 };
   const before = database.get('SELECT total_changes() AS n').n;
+  reset();
   links.changed('alpha:item:1');
   writes.changed = database.get('SELECT total_changes() AS n').n - before;
   assert.equal(writes.changed, 0, 'nothing changed: nothing written');
+  assert.ok(counts.queries <= 3, `its links, one read of each side, no writes (${counts.queries})`);
 
   // Erased: the gone sides forget their titles; a link with both gone goes.
   database.run('DELETE FROM beta_items WHERE id IN (1, 2)');
