@@ -40,6 +40,12 @@
 
 /* The module's page, inside its window: what was the viewport is the window's body. */
 .cw-win__body { position: relative; flex: 1; min-height: 0; overflow: hidden; contain: layout paint; }
+/*
+ * A window is never at the screen's top or bottom: the shell's bar and a phone's tabs are, and keep
+ * the room of the iPhone's notch and home bar. The module inside adds none of its own (the kit's
+ * --kit-safe-*, and the module's env() through --cw-inset-*, scope-css.js).
+ */
+.cw-win__body { --kit-safe-top: 0px; --kit-safe-bottom: 0px; --cw-inset-top: 0px; --cw-inset-bottom: 0px; }
 .cw-win__frame { display: block; width: 100%; height: 100%; border: 0; }
 
 /* The bars: between two columns, and between the two windows of a column. */

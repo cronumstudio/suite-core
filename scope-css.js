@@ -25,7 +25,7 @@
  */
 
 /** What changes what this returns for the same sheet: part of the host's ETag for it. */
-export const SCOPE_FORMAT = 1;
+export const SCOPE_FORMAT = 2;
 
 /** At-rules of the whole page: never inside @scope, where they would mean nothing. */
 const OUTSIDE = /^@(?:-webkit-|-moz-)?(?:charset|import|namespace|font-face|keyframes|property|counter-style|font-feature-values|font-palette-values|page|view-transition)\b/i;
@@ -300,5 +300,16 @@ export function scopeCss(css, module, sheetPath) {
   const { inside, outside } = place(withoutComments(String(css ?? '')), String(sheetPath || `/${module}/`));
   const before = outside.map((rule, i) => [RANK(rule), i, rule]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , rule]) => rule);
   const scope = `[data-module="${module}"], [data-owner="${module}"]`;
-  return `${before.length ? `${before.join('\n')}\n` : ''}@scope (${scope}) {\n${inside.join('\n')}\n}\n`;
+  return `${before.length ? `${before.join('\n')}\n` : ''}@scope (${scope}) {\n${insets(inside.join('\n'))}\n}\n`;
+}
+
+/**
+ * The screen's edges (`env(safe-area-inset-top)`, the iPhone's notch and home bar) as the window
+ * says them: `var(--cw-inset-top, env(…))`. A window in Work's shell is never at the screen's top
+ * or bottom (the shell's bar and tabs are, and keep their room), so windows.css says 0 there; what
+ * a module hangs on the page's body keeps the screen's own.
+ */
+function insets(css) {
+  return css.replace(/env\(\s*safe-area-inset-(top|bottom|left|right)\s*(,[^()]*)?\)/g,
+    (_, side, fallback = '') => `var(--cw-inset-${side}, env(safe-area-inset-${side}${fallback}))`);
 }

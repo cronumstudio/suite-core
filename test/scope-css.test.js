@@ -170,6 +170,17 @@ test('url()s are paths of the site: data:, another site’s, the site’s own an
   ].join('\n'), 'a data: URL’s braces and semicolons are its own');
 });
 
+test('the screen’s edges are the window’s: env(safe-area-inset-…) through a variable windows.css sets', () => {
+  const out = inside(scoped([
+    ':root { --safe-top: env(safe-area-inset-top, 0px); }',
+    '.bar { padding: calc(8px + env( safe-area-inset-bottom )) 12px; margin-left: env(safe-area-inset-left, 0); }',
+  ].join('\n')));
+  assert.equal(out, [
+    ':scope { --safe-top: var(--cw-inset-top, env(safe-area-inset-top, 0px)); }',
+    '.bar { padding: calc(8px + var(--cw-inset-bottom, env(safe-area-inset-bottom))) 12px; margin-left: var(--cw-inset-left, env(safe-area-inset-left, 0)); }',
+  ].join('\n'));
+});
+
 test('comments go, strings keep what looks like CSS, nesting is rooted, and a broken sheet still closes', () => {
   const out = scoped([
     '/* :root { --gone: 1 } */ .a { content: "/* not a comment */ { ; }"; }',
