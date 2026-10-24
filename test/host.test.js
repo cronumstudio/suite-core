@@ -1142,6 +1142,22 @@ test('a page of the host’s own (pages): its files under its path, before anyth
   assert.match((await other('GET', '/desk/')).data, /<title>Start<\/title>/);
 });
 
+test('a page of the host’s own can be its root: / opens it, but for the home asked by name', async (t) => {
+  const dir = pageFolder(t);
+  const { call } = await startHost(t, { pages: [{ at: '/w/', dir, root: { except: ['modules'] } }] });
+  const start = await call('GET', '/');
+  assert.equal(start.status, 200, 'the app opens on the page, not on its first module');
+  assert.match(start.data, /<title>Desk<\/title>/);
+  assert.ok(start.headers.get('content-security-policy'));
+  assert.match((await call('GET', '/?w=alpha:list/1')).data, /<title>Desk<\/title>/, 'with the windows in its address');
+  assert.equal((await call('GET', '/?modules')).headers.get('location'), '/alpha/?modules', 'the home asked by name answers as before');
+  assert.match((await call('GET', '/w/')).data, /<title>Desk<\/title>/, 'and the page is still at its own path');
+  assert.match((await call('GET', '/alpha/')).data, /<title>Alpha<\/title>/);
+
+  const { call: plain } = await startHost(t, { pages: [{ at: '/w/', dir, root: true }] });
+  assert.match((await plain('GET', '/?modules')).data, /<title>Desk<\/title>/, 'root: true takes every /');
+});
+
 test('without pages, a host answers their paths as before', async (t) => {
   pageFolder(t);
   const { call } = await startHost(t);
@@ -1165,6 +1181,8 @@ test('pages that can’t be the host’s stop the start, and say why', async () 
       [[{ at: '/w/', dir, index: '../x.html' }], /pages\[0\]\.index: "\.\.\/x\.html" is not a file of its folder/],
       [[{ at: '/w/', dir }, { at: '/w/', dir }], /pages\[1\]\.at: \/w\/ twice/],
       [{ at: '/w/', dir }, /pages: a list/],
+      [[{ at: '/w/', dir, root: 'yes' }], /pages\[0\]\.root: true, or \{ except/],
+      [[{ at: '/w/', dir, root: true }, { at: '/v/', dir, root: true }], /pages: only one can be the root/],
     ];
     for (const [pages, message] of cases) {
       await assert.rejects(start(pages), (err) => err instanceof SuiteConfigError && message.test(err.errors.join('\n')), String(message));

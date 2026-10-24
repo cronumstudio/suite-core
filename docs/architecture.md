@@ -2065,7 +2065,9 @@ const host = await createHost({
   `/w/`), with the security headers and caching of the host's other files (`serveStatic`: ETag from
   what the file holds, code revalidated). A file the folder doesn't have is a 404, never a module's
   page nor the host's. `at` is one path segment that is no module's, the split view's or the host's
-  own (`RESERVED`); the start stops otherwise.
+  own (`RESERVED`); the start stops otherwise. One page may be the app's start (`root: true`): `/`
+  answers its index too, but for an address with a query name it lists (`root: { except: ['modules'] }`,
+  Work's `/?modules`), which opens the host's own home as before.
 - **`scopedSheets`**: `GET /<mount>/<path>.css?scope=work` answers the file the module would serve
   there (its public folder, or the kit's at `/<mount>/suite/…`) through `scopeCss()` (scope-css.js):
   the sheet inside `@scope ([data-module="<mount>"], [data-owner="<mount>"])`, `:root` as `:scope`,
