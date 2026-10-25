@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.163.0 — 2026-10-25
+## 0.161.0 — 2026-10-25
 
 - **Deleting one's account leaves nothing of it on the device** (`settings.js`, `signin.js`
   `leave()`). Settings' «Delete account» signed the browser out and went to the sign-in, but every
