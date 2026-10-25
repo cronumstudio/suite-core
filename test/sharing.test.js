@@ -86,6 +86,7 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
         },
       }),
       list: kind('lists', 'list_shares', 'list_id', {
+        offering: (userId, thing) => { if (thing.name === 'Inbox') throw new HttpError(400, 'inbox_not_shared'); },
         invitedBy: null, stamp: false, strictRemove: false,
         path: '/api/lists/:id', routes: { segment: 'share', list: false, patch: false },
         answer: ({ target, thing }) => (target.email ? { invited: true } : { id: thing.id, shared: true }),
@@ -248,6 +249,8 @@ test('a kind without invited_by and with created_at by default; its own answers'
   assert.equal(row.accepted, 0, 'born waiting, though the column says 1');
   assert.match(row.created_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, 'the column\'s own date');
   assert.deepEqual(sharing.share('list', 1, 30, { user_id: 2, permission: 'view' }), { id: 30, shared: true });
+  db.run("UPDATE lists SET name = 'Inbox' WHERE id = 30");
+  assert.equal(codeOf(() => sharing.share('list', 1, 30, { email: 'nobody@example.com' })), '400 inbox_not_shared', 'before anyone is looked for');
 });
 
 test('who has it, and one\'s people of every kind', () => {

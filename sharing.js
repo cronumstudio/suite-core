@@ -51,6 +51,7 @@ export const PERMISSIONS = ['view', 'edit'];
  *                         (defaults 'invited_by', 'created_at'); stamp: false leaves
  *                         created_at to the column's default;
  *   own(userId, id) → thing        the thing, for its owner only (throws 404/403 otherwise);
+ *   offering(userId, thing)        throws when this thing can't be offered at all;
  *   read(userId, id) → { thing, role, ownerId }   who sees who has it (GET …/shares);
  *   leaving(userId, id, targetId) → { thing, ownerId }   may this person end that one's access;
  *   pending(userId, id) → thing    the thing of an invitation to take up (throws 404);
@@ -275,6 +276,8 @@ export function createSharing({
   function share(kind, userId, id, body = {}, ctx = null) {
     const spec = specOf(kind);
     const thing = spec.own(userId, id);
+    // What can't be offered at all (Notes' Inbox) says so before anyone is looked for or counted.
+    spec.offering?.(userId, thing);
     const who = target(userId, body);
     const permission = permissionOf(body.permission);
     const answer = spec.answer || defaultAnswer;
