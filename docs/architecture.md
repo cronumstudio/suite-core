@@ -1798,7 +1798,7 @@ await host.listen();
   others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), today's
   calls in one (`usedToday()`), and a module that has `usageAll(userIds)` / `storageAll(userIds)`
   (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
-  they leave out, it is asked one by one (v0.171.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
+  they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
   web's session only, never an assistant's token.
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
@@ -1931,7 +1931,7 @@ The links of something, `changed()` and `prune()` read the other sides together:
 for each kind of thing whose module has it (the same answer as `read` for each id, keyed by the
 ids as strings), `read` for any id it leaves out, for every id when it throws, and for modules
 without it. A search's cards are shown as the module's `search` gives them, none read again
-(v0.171.0).
+(v0.166.0).
 
 - **Each pair once**, in a fixed order, whichever way it was linked. `GET /api/links?ref=` lists
   the links of something with the other side's card, as its module draws it and only to whoever
