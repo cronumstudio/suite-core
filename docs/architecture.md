@@ -1794,7 +1794,11 @@ await host.listen();
   must be what the module's barrier counts. The host adds the storage and the calls from
   assistants of the last 30 days (`entitlements.dailyUsage()`), and answers
   `GET /api/admin/users/:id/usage` and, for the list, `GET /api/admin/usage` (each account's
-  nearest cap). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
+  nearest cap). The list counts every account in batches of 100, letting the process answer
+  others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), today's
+  calls in one (`usedToday()`), and a module that has `usageAll(userIds)` / `storageAll(userIds)`
+  (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
+  they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
   web's session only, never an assistant's token.
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
@@ -1905,8 +1909,12 @@ the module that owns each thing decides about it. A module says what can be link
 // server/module.js
 cards: {
   task: {
-    read: (user, id) => card | 'gone' | null,      // null: it exists and this person can't see it
-    search: (user, text) => [card…],                // what this person may link
+    read: (user, id, opts?) => card | 'gone' | null,  // null: it exists and this person can't see it;
+                                                    // (null, id, { system: true }): the host itself
+    readMany: (user, ids, opts?) => Map<id, card | 'gone' | null>,
+                                                    // optional: read() of many at once, in a fixed
+                                                    // number of queries (IN (…) by batches of ≤ 500)
+    search: (user, text) => [card…],                // what this person may link, as read() shows it
     create: (user, { title, place }) => id,         // optional: "Add to Tasks", by the module's rules
     places: (user) => [{ id, name }],               // optional: where create() may put it
     complete: (user, id, done) => {},               // optional: what "done together" does here
@@ -1918,6 +1926,12 @@ cards: {
 A card is `{ id, title, state: 'open' | 'done' | 'cancelled', due?, where?, url? }`, its url
 relative to the module (`?list=27&task=389`). A thing is named by a ref, `module:type:id`
 (`tasks:task:389`): the module's path, its kind, and its id, never the number people see.
+
+The links of something, `changed()` and `prune()` read the other sides together: one `readMany`
+for each kind of thing whose module has it (the same answer as `read` for each id, keyed by the
+ids as strings), `read` for any id it leaves out, for every id when it throws, and for modules
+without it. A search's cards are shown as the module's `search` gives them, none read again
+(v0.166.0).
 
 - **Each pair once**, in a fixed order, whichever way it was linked. `GET /api/links?ref=` lists
   the links of something with the other side's card, as its module draws it and only to whoever

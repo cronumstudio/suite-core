@@ -388,6 +388,24 @@ export function createOrganizations({
   /** For entitlements: the ids of a person's groups. */
   const organizationsOf = (user) => (user?.id ? ofUser(user.id).map((o) => o.id) : []);
 
+  /**
+   * organizationsOf() of many people at once, for a sweep such as the admin's list of accounts:
+   * Map userId → the ids of their groups, in one query for each 500 of them.
+   */
+  function organizationsOfMany(userIds) {
+    const groups = new Map(userIds.map((id) => [id, []]));
+    const ids = [...groups.keys()];
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500);
+      for (const row of database.all(`SELECT m.user_id, o.id FROM memberships m
+        JOIN organizations o ON o.id = m.organization_id
+        WHERE m.user_id IN (${batch.map(() => '?').join(', ')}) AND o.archived_at IS NULL ORDER BY o.name`, ...batch)) {
+        groups.get(row.user_id)?.push(row.id);
+      }
+    }
+    return groups;
+  }
+
   function update(organizationId, { name, settings, branding } = {}) {
     mustExist(organizationId);
     if (name !== undefined) {
@@ -514,7 +532,7 @@ export function createOrganizations({
 
   return {
     create, get, list, update, archive, remove, roleOf, requireRole, addMember, setRole, removeMember,
-    invite, accept, revokeInvitation, invitationsOf, invitationKind, membersOf, ofUser, organizationsOf, forgetUser,
+    invite, accept, revokeInvitation, invitationsOf, invitationKind, membersOf, ofUser, organizationsOf, organizationsOfMany, forgetUser,
     seatsTaken, takesSeat, purge, isManaged, rulesFor, deletableOf, leaving, wasDeleted, handOver, heirOf, checkLimit,
     /** Every role, the app's own included: what a copy's memberships may bring (portability.js). */
     roles: [...roles],
