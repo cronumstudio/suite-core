@@ -22,6 +22,37 @@ change an interface and a patch never does. Apps pin a version through the submo
   whole batch with `usageAll(userIds)` and `storageAll(userIds)` (a Map by user); without them it
   is asked one by one. The answer is the same.
 
+## 0.161.0 — 2026-10-25
+
+- **Deleting one's account leaves nothing of it on the device** (`settings.js`, `signin.js`
+  `leave()`). Settings' «Delete account» signed the browser out and went to the sign-in, but every
+  module's copy (`<app>-local`) stayed: offline, Notes drew the deleted account's notes for
+  whoever opened it next. It now leaves the way signing out does, through one routine: the copies
+  cleared, the suite's app told, the whole window to the provider's page or this site's sign-in.
+- **Signing out takes this browser's notices along** (`POST /api/auth/logout`, `push_endpoints`).
+  The browser's Web Push subscription stayed tied to the account that signed out: on a shared
+  computer, whoever used it next kept getting that person's notices. `signOut()` now sends where
+  this browser's notices come to (every worker of the site), and the server forgets those rows of
+  that person, also in a module that sends none (the table is the install's). The browser's
+  subscription itself stays (a device's own notices may share it); the person's other devices keep
+  theirs. A request without the field signs out as before. Deleting the account already dropped
+  every browser's rows at once.
+
+## 0.160.0 — 2026-10-25
+
+- **A module in a window of Work's shell fits the iPhone** (Martin's screenshots of Work installed):
+  a window is never at the screen's top or bottom, but each module kept the room of the notch and
+  of the home bar too, so a band was left above and below. Inside a window the kit's
+  `--kit-safe-top`/`--kit-safe-bottom` are 0 (`windows.css`), and a module's own
+  `env(safe-area-inset-…)` reaches it as `var(--cw-inset-…, env(…))`, 0 there too (`scope-css.js`,
+  `SCOPE_FORMAT` 2). What a module hangs on the page's body keeps the screen's own.
+- **The sidebar of a module in a window doesn't name it again** (`createShell({ embedded })`): no
+  icon, name or live dot at its head (the window's head or the phone's tab names the module, and
+  the shell has the one live dot); the button that folds it stays where it sits beside the views.
+- **On a phone Work's shell has the module's ☰**: `kit:drawer` (`DRAWER_EVENT`, base.js) on the
+  window's body opens or closes that module's drawer, and the swipe from the edge still opens it
+  when the module's own ☰ is hidden.
+
 ## 0.159.0 — 2026-10-24
 
 - **A release that changes only a page of the host's own is a new version** (`pages`). Until now

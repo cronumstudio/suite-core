@@ -663,6 +663,7 @@ export function createApp({
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
+    database: suite.database,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: {
