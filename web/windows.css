@@ -93,7 +93,8 @@ html:has(.cw-desk[data-screen="narrow"]), html:has(.cw-desk[data-screen="narrow"
 .cw-desk[data-screen="narrow"] > .cw-tabs {
   display: flex; grid-row: 2; grid-column: 1 / -1; min-width: 0;
   border-block-start: 1px solid var(--kit-border); background: var(--kit-side);
-  padding-block-end: var(--kit-safe-bottom);
+  /* Half the home bar's room: with all of it the icons and names sat high in the bar (iPhone). */
+  padding-block-end: calc(var(--kit-safe-bottom) / 2);
 }
 .cw-tabs__tab {
   flex: 1 1 0; min-width: 0; min-height: 52px; display: flex; flex-direction: column;

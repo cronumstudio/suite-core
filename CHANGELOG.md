@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.167.0 — 2026-10-25
+
+- **A phone's tabs sit lower in their bar** (`windows.css`, Martin on the iPhone: the icons looked
+  off centre, high in the bar). The bar kept all the home bar's room under them; it keeps half now.
+
 ## 0.166.0 — 2026-10-25
 
 - **The links of something are read together, not one by one** (`links.js`). A module's cards may
