@@ -347,13 +347,31 @@ export async function clearDeviceCopies({ indexedDB: idb = globalThis.indexedDB,
 }
 
 /**
- * Signs out here (and at the provider, which then comes back to the app). Inside the suite's app on
- * a phone, never at the provider: its page is another site, which the app would open in the phone's
- * browser or race with its own sign-in. The app is told first (`sign-out`), then the page reloads to
- * the site's own sign-in, as it does without a provider.
+ * Where this browser's notices come to: the subscription of each of the site's workers (the host's,
+ * and a module's not yet retired, worker.js), for the server to forget with the session. The
+ * subscription itself stays: a device's own notices may share it (push.js). Inside the suite's app
+ * there is no Web Push. Never waits more than `wait` ms.
  */
-export async function signOut({ local = null } = {}) {
-  const answer = await api.post('/api/auth/logout').catch(() => null);
+export async function pushEndpoints({ serviceWorker = globalThis.navigator?.serviceWorker, wait = 1500 } = {}) {
+  if (!serviceWorker?.getRegistrations || inApp()) return [];
+  const read = async () => {
+    const registrations = await serviceWorker.getRegistrations();
+    const subscriptions = await Promise.all(registrations.map((r) => r.pushManager?.getSubscription().catch(() => null)));
+    return [...new Set(subscriptions.map((s) => s?.endpoint).filter((e) => typeof e === 'string' && e))];
+  };
+  let timer;
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve([]), wait); });
+  try { return await Promise.race([read(), late]); } catch { return []; } finally { clearTimeout(timer); }
+}
+
+/**
+ * Leaving this device, signed out or with the account deleted (Settings): what every app of the site
+ * keeps here gone (`local`, the module's, and every `<app>-local`), the suite's app told, then the
+ * provider's sign-out (`answer.logout_url`) or this site's sign-in again. Inside the suite's app on a
+ * phone, never the provider's page: it is another site, which the app would open in the phone's
+ * browser or race with its own sign-in.
+ */
+export async function leave({ answer = null, local = null } = {}) {
   await local?.clearAll?.().catch(() => {});
   await clearDeviceCopies().catch(() => {});
   // Inside the suite's app on a phone, the app lets go of its device too (native.js); nothing elsewhere.
@@ -363,4 +381,14 @@ export async function signOut({ local = null } = {}) {
   const page = FRAMED ? window.top : window;
   if (answer?.logout_url && !inApp()) page.location.href = answer.logout_url;
   else page.location.reload();
+}
+
+/**
+ * Signs out here (and at the provider, which then comes back to the app), with this browser's
+ * notices: the server forgets where they come to, so whoever uses it next doesn't get them.
+ */
+export async function signOut({ local = null } = {}) {
+  const endpoints = await pushEndpoints();
+  const answer = await api.post('/api/auth/logout', endpoints.length ? { push_endpoints: endpoints } : {}).catch(() => null);
+  await leave({ answer, local });
 }

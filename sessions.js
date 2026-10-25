@@ -111,6 +111,13 @@ export function createSessions({
   const tokenFrom = (req) => parseCookies(req)[cookieName] || null;
   /** Whether a device a session came from still works: nobody's until the suite says (`checkDevices`). */
   let deviceAlive = () => false;
+  /** Who hears that sessions of someone's were closed (`whenClosed`): the live channels opened with them. */
+  const closedHooks = [];
+  function closedFor(userId) {
+    for (const hook of closedHooks) {
+      try { hook(Number(userId)); } catch { /* a listener's trouble doesn't undo the closing */ }
+    }
+  }
 
   function setCookie(res, token) {
     appendHeader(res, 'Set-Cookie', serializeCookie(cookieName, token, {
@@ -172,6 +179,21 @@ export function createSessions({
     return row;
   }
 
+  /**
+   * Whose a token's session still is, without using it (its end doesn't move): the user id, or
+   * null when it was closed, ended, or its account is disabled or its device gone. What an open
+   * live channel asks now and then, so that a tab left open doesn't keep its session alive.
+   */
+  function stillOpen(token) {
+    if (!token || typeof token !== 'string' || token.length > 200) return null;
+    const now = iso(clock());
+    const row = database.get(`SELECT s.* FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = ? AND s.expires_at > ? AND s.absolute_expires_at > ?${withoutDisabled}`,
+    hashOf(token), now, now);
+    if (!row || (row.device_id != null && !deviceAlive(row.device_id))) return null;
+    return Number(row.user_id);
+  }
+
   /** The user of the request's session, or null. */
   function userFrom(req) {
     const token = tokenFrom(req);
@@ -183,8 +205,9 @@ export function createSessions({
   /** Closes the session of a token; returns the identity provider's session it came from, if any. */
   function close(token) {
     if (!token) return null;
-    const row = database.get('SELECT idp_session_id FROM sessions WHERE token_hash = ?', hashOf(token));
+    const row = database.get('SELECT user_id, idp_session_id FROM sessions WHERE token_hash = ?', hashOf(token));
     database.run('DELETE FROM sessions WHERE token_hash = ?', hashOf(token));
+    if (row) closedFor(row.user_id);
     return row?.idp_session_id || null;
   }
 
@@ -194,11 +217,11 @@ export function createSessions({
    * out the browser where it was just typed.
    */
   function closeAllOf(userId, { exceptToken = null } = {}) {
-    if (exceptToken) {
-      return database.run('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?',
-        userId, hashOf(exceptToken)).changes;
-    }
-    return database.run('DELETE FROM sessions WHERE user_id = ?', userId).changes;
+    const closed = exceptToken
+      ? database.run('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?', userId, hashOf(exceptToken)).changes
+      : database.run('DELETE FROM sessions WHERE user_id = ?', userId).changes;
+    if (closed) closedFor(userId);
+    return closed;
   }
 
   /**
@@ -228,8 +251,10 @@ export function createSessions({
   /** Closes one session of a person by its public key. */
   function revoke(userId, key) {
     if (typeof key !== 'string' || key.length !== 16) return false;
-    return database.run("DELETE FROM sessions WHERE user_id = ? AND substr(token_hash, 1, 16) = ?",
+    const closed = database.run("DELETE FROM sessions WHERE user_id = ? AND substr(token_hash, 1, 16) = ?",
       userId, key).changes > 0;
+    if (closed) closedFor(userId);
+    return closed;
   }
 
   /** Deletes the sessions that have ended. */
@@ -240,8 +265,13 @@ export function createSessions({
   const sign = (value) => hmac(secret, `sign|${value}`);
 
   return {
-    cookieName, open, alive, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign,
+    cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign,
     setCookie, clearCookie,
+    /**
+     * Hears `(userId)` whenever sessions of that person are closed here: signing out, one closed
+     * from the list, all of them (a new password, out everywhere, the account disabled).
+     */
+    whenClosed(hook) { closedHooks.push(hook); },
     /** createSuite's, with modules.devices: `(deviceId) → boolean`, asked on every use of a session from a device. */
     checkDevices(fn) {
       if (typeof fn !== 'function') throw new Error('sessions.checkDevices needs a function (deviceId) => boolean');
