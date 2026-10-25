@@ -3,6 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.168.0 — 2026-10-25
+
+- **A phone's tabs have room above their icons** (`windows.css`, Martin on the iPhone): 12px between
+  the bar's top line and the icons (it was about 6), 2px under the names before the home bar's half.
+
 ## 0.167.0 — 2026-10-25
 
 - **A phone's tabs sit lower in their bar** (`windows.css`, Martin on the iPhone: the icons looked
