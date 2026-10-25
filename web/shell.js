@@ -133,9 +133,10 @@ export function createShell({
       }
     }, { signal });
   }
+  const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null;
+  // In Work's shell, with a search, the button that folds shares its line instead of one of its own.
   const side = el('aside', { class: 'kit-side' },
-    head,
-    searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null,
+    embedded && searchBox ? el('div', { class: 'kit-side__top' }, searchBox, fold) : [head, searchBox],
     create ? el('div', { class: 'kit-side__create' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,

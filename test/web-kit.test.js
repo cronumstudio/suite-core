@@ -2184,6 +2184,29 @@ test('the module’s search is the sidebar’s first line: each change said, Esc
   }
 });
 
+test('in Work’s shell the button that folds shares the search’s line; on its own the app keeps its head', async () => {
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const search = { label: 'Search notes', onInput: () => {} };
+    const inWork = createShell({ ...frameOptions(), search, embedded: true });
+    const top = inWork.element.querySelector('.kit-side__top');
+    assert.ok(top, 'one line for both');
+    assert.deepEqual([...top.children].map((node) => node.getAttribute('class')), ['kit-side__search', 'kit-icon-btn kit-side__fold'], 'the search, then the button');
+    assert.equal(inWork.element.querySelector('.kit-side__head'), null, 'no line of its own');
+    inWork.destroy();
+    const noSearch = createShell({ ...frameOptions(), embedded: true });
+    assert.equal(noSearch.element.querySelector('.kit-side__fold').parentNode.getAttribute('class'), 'kit-side__head', 'without a search, its line as before');
+    noSearch.destroy();
+    const alone = createShell({ ...frameOptions(), search });
+    assert.equal(alone.element.querySelector('.kit-side__top'), null);
+    assert.equal(alone.element.querySelector('.kit-side__fold').parentNode.getAttribute('class'), 'kit-side__head', 'beside the app’s name');
+    alone.destroy();
+  } finally {
+    restore();
+  }
+});
+
 test('on a phone the floating button creates, and the sidebar’s own only beside the views', () => {
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   assert.match(css, /\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: none; \}/);
