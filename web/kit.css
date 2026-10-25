@@ -674,6 +674,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-side__head .kit-appname { flex: 1; }
 /* Folding is for where the sidebar sits beside the views; in the drawer it would mean nothing. */
 .kit-side__fold { display: none; width: 32px; height: 32px; margin-inline-end: -6px; }
+/* In Work's shell the head holds only that button: none in the drawer, at the end beside the views. */
+.kit-app[data-embedded] .kit-side__head { display: none; justify-content: flex-end; padding: 8px 12px 4px; }
 .kit-side__create { padding: 4px 12px 10px; }
 .kit-side__nav { flex: 1; overflow-y: auto; padding: 0 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px; }
 .kit-side__foot { border-top: 1px solid var(--kit-border); padding: 8px 8px calc(8px + var(--kit-safe-bottom)); }
@@ -727,6 +729,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   }
   .kit-app[data-layout="side"] .kit-scrim, .kit-app[data-layout="side"] .kit-bar__menu { display: none; }
   .kit-side__fold { display: inline-grid; }
+  .kit-app[data-embedded][data-layout="side"] .kit-side__head { display: flex; }
   /* With the sidebar in view, its own button creates; the floating one is for phones. */
   .kit-app .kit-fab { display: none; }
 }
