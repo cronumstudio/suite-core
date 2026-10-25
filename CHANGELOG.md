@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.170.0 — 2026-10-25
+## 0.165.0 — 2026-10-25
 
 - **Changes waiting without a signal are no longer read all over again for each one**
   (`outbox.js`, `local.js`). To count what waited and to take the next change to send, the outbox

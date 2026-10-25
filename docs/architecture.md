@@ -1259,7 +1259,7 @@ gets what it missed, and one that missed more, or comes from another run of the 
 `event: resync` and reloads what it shows. `hello` carries an id too, so a tab that saw no notice
 still comes back with one, and a page opening a new channel after closing one sends it as
 `?last=` (EventSource can't send the header then); when either came, `hello` says
-`replayed: true` and the page reloads nothing more (v0.170.0: before, it reloaded everything on
+`replayed: true` and the page reloads nothing more (v0.165.0: before, it reloaded everything on
 every `hello` after a cut, on top of the replay). The suite publishes one event of its own (v0.22.0):
 `account`, to the person's tabs when their account changes —an email confirmed from the mail,
 often opened in another tab or on the phone, a new password, the second step turned on or off,
