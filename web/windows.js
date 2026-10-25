@@ -23,8 +23,8 @@
  * - Keyboard: a window's head takes the focus, and Alt with an arrow moves its window to the
  *   next column or the other half of its column.
  * - Maximize: a button at the end of each head (or a double click on it) gives its window the whole
- *   desk, over the others, which fade out; it slides and grows there as the windows do when they
- *   trade places (420 ms, paced), and the same button, now «Restore», takes it back to its place
+ *   desk, over the others, which fade out; it slides and grows there with the spring of the windows
+ *   trading places, in 280 ms (paced), and the same button, now «Restore», takes it back to its place
  *   and size. The layout under it doesn't change, nor is it kept: any change of the windows (one
  *   shown, moved, another focused, a phone's screen) restores it first.
  * - Phones (< 768 px): one window at a time filling the desk, a bar of tabs at the bottom
@@ -68,6 +68,7 @@ const EASE = 'cubic-bezier(.32, .72, 0, 1)';   // the kit's --kit-slide
 // slight overshoot. (The carried one isn't scaled up: a whole window drawn again at another size
 // cost a long frame each time; its shadow lifts it, windows.css.)
 const REFLOW_MS = 420;
+const MAX_MS = 280;          // maximize and restore: a click's answer, quicker than a carried window's
 const FRAME_MS = 1000 / 60;
 const MAX_STEP_MS = 25;     // a paced slide moves on by a frame's worth at most, however long the frame
 // As magnets, the window a carried one comes over gives way: up to this part of its way while it
@@ -566,11 +567,11 @@ export function createWindows(desk, {
     // Going back it is still over the others until it is in its place.
     node.style.zIndex = '6';
     onPause(moving, true, { resizing: true });
-    flip(first, { duration: REFLOW_MS, easing: SPRING, paced: true });
+    flip(first, { duration: MAX_MS, easing: SPRING, paced: true });
     win.setTimeout?.(() => {
       node.style.zIndex = '';
       onPause(moving, false, { resizing: true });
-    }, REFLOW_MS);
+    }, MAX_MS);
   }
 
   /** Puts every window where the layout says: grid placement only, nothing moves in the document. */

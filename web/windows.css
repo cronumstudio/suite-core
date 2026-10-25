@@ -52,11 +52,11 @@
  * Maximized: the window over the whole desk, the others fading out under it (and back in as it
  * returns). Its place in the layout is kept: only the grid area changes.
  */
-.cw-desk > .cw-win { transition: opacity .3s ease, visibility 0s; }
+.cw-desk > .cw-win { transition: opacity .25s ease, visibility 0s; }
 .cw-desk > .cw-win[data-max] {
   grid-column: 1 / -1 !important; grid-row: 1 / -1 !important; align-self: stretch; height: auto; z-index: 3;
 }
-.cw-desk[data-maxed] > .cw-win:not([data-max]) { opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; }
+.cw-desk[data-maxed] > .cw-win:not([data-max]) { opacity: 0; visibility: hidden; transition: opacity .25s ease, visibility 0s linear .25s; }
 .cw-desk[data-maxed] > .cw-bar { visibility: hidden; }
 
 /* The module's page, inside its window: what was the viewport is the window's body. */
