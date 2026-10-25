@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.165.0 — 2026-10-25
+## 0.163.0 — 2026-10-25
 
 - **A copy's values must be of their column's type** (`portability`). Until now `{"$blob": …}`
   came in as a blob into any column, and anything that wasn't text skipped the column's limit, its
@@ -13,6 +13,34 @@ change an interface and a patch never does. Apps pin a version through the submo
   INTEGER and REAL, a blob only in BLOB (none of the apps has one; a blob column's copy still comes
   back byte for byte). A pattern takes text only, so a number without the shape is left out like
   any other value without it. Copies the apps made come in as before.
+
+## 0.162.0 — 2026-10-25
+
+- **A tab's live channel ends with the session it was opened with** (`live.js` `stillIn`,
+  `recheck`; `sessions.stillOpen`, `sessions.whenClosed`). Until now `/api/events` (and the host's
+  `/api/events?all`) checked the session only when it opened and then stayed open for good: after
+  signing out, a session closed from the list, the account disabled or deleted, a tab opened with
+  that cookie (a stolen one, say) kept hearing the account's activity. Now a session closed here
+  closes its channels at once, with the `account` notice first, as "out everywhere" already did;
+  signing out closes only that browser's. Every heartbeat asks again for each channel, which also
+  ends the ones whose session expired or whose device went; asking doesn't use the session, so an
+  open tab doesn't keep it alive. A deleted account's channels close as it goes.
+
+## 0.161.0 — 2026-10-25
+
+- **Deleting one's account leaves nothing of it on the device** (`settings.js`, `signin.js`
+  `leave()`). Settings' «Delete account» signed the browser out and went to the sign-in, but every
+  module's copy (`<app>-local`) stayed: offline, Notes drew the deleted account's notes for
+  whoever opened it next. It now leaves the way signing out does, through one routine: the copies
+  cleared, the suite's app told, the whole window to the provider's page or this site's sign-in.
+- **Signing out takes this browser's notices along** (`POST /api/auth/logout`, `push_endpoints`).
+  The browser's Web Push subscription stayed tied to the account that signed out: on a shared
+  computer, whoever used it next kept getting that person's notices. `signOut()` now sends where
+  this browser's notices come to (every worker of the site), and the server forgets those rows of
+  that person, also in a module that sends none (the table is the install's). The browser's
+  subscription itself stays (a device's own notices may share it); the person's other devices keep
+  theirs. A request without the field signs out as before. Deleting the account already dropped
+  every browser's rows at once.
 
 ## 0.160.0 — 2026-10-25
 

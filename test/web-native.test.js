@@ -490,3 +490,80 @@ test('deleting one’s account in the app: the app told first, then the site’s
   assert.deepEqual(await deleted(null, {}), ['reload'], 'and without one, the page again');
   storage.delete('suite.deletion');
 });
+
+test('signing out in a browser takes its notices along: the server forgets where they come to, the browser keeps its subscription', async () => {
+  const { signOut } = await import('../web/signin.js');
+  let unsubscribed = 0;
+  const subscription = (endpoint) => ({ endpoint, unsubscribe: async () => { unsubscribed++; return true; } });
+  page.navigator.serviceWorker = {
+    // The host's worker, a module's not yet retired with the same subscription, one without, one that fails.
+    getRegistrations: async () => [
+      { pushManager: { getSubscription: async () => subscription('https://fcm.googleapis.com/fcm/send/root') } },
+      { pushManager: { getSubscription: async () => subscription('https://fcm.googleapis.com/fcm/send/root') } },
+      { pushManager: { getSubscription: async () => subscription('https://updates.push.services.mozilla.com/wpush/v2/old') } },
+      { pushManager: { getSubscription: async () => null } },
+      { pushManager: { getSubscription: async () => { throw new Error('gone'); } } },
+      {},
+    ],
+  };
+  const sent = [];
+  const signedOut = (app) => leaving(app, async () => {
+    routes = { 'POST /api/auth/logout': (body) => { sent.push(body); return { data: { ok: true } }; } };
+    await signOut();
+  });
+  try {
+    assert.deepEqual(await signedOut(null), ['reload']);
+    assert.deepEqual(sent.pop(), { push_endpoints: [
+      'https://fcm.googleapis.com/fcm/send/root', 'https://updates.push.services.mozilla.com/wpush/v2/old',
+    ] }, 'each address once, from every worker of the site');
+    assert.equal(unsubscribed, 0, 'the browser’s subscription stays: a device’s own notices may share it');
+
+    assert.deepEqual(await signedOut(['push']), ['message sign-out', 'reload']);
+    assert.deepEqual(sent.pop(), {}, 'in the app there is no Web Push to forget');
+
+    page.navigator.serviceWorker = { getRegistrations: () => new Promise(() => {}) };
+    const { pushEndpoints } = await import('../web/signin.js');
+    asApp(null);
+    const started = Date.now();
+    assert.deepEqual(await pushEndpoints({ wait: 50 }), [], 'a worker that never answers is not waited for');
+    assert.ok(Date.now() - started < 1000);
+  } finally {
+    delete page.navigator.serviceWorker;
+  }
+});
+
+test('deleting one’s account clears every app’s copy on this device, as signing out does', async () => {
+  const deleted = [];
+  globalThis.indexedDB = {
+    databases: async () => [{ name: 'notes-local' }, { name: 'tasks-local' }, { name: 'other-db' }],
+    deleteDatabase(name) {
+      const req = {};
+      deleted.push(name);
+      setTimeout(() => req.onsuccess?.(), 1);
+      return req;
+    },
+  };
+  try {
+    const happened = await leaving(null, async () => {
+      const view = await settingsPage({}, {
+        config: { app: { id: 'demo', modules: {} }, provider: 'workos', deletion_days: 30 },
+        server: { 'POST /api/me/deletion': { data: { ok: true, delete_after: '2026-11-21T10:00:00.000Z' } } },
+        start: 'data',
+      });
+      click(view.buttons(t('kit.data.deleteButton'))[0]);
+      const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
+      const word = dialog.find('input')[0];
+      word.value = t('kit.data.confirmWord');
+      word.dispatch('input');
+      click(dialog.all().find((node) => /\bkit-btn--danger\b/.test(node.className)));
+      await settle();
+      await new Promise((done) => setTimeout(done, 20));
+      view.settings.close();
+    });
+    assert.deepEqual(deleted, ['notes-local', 'tasks-local'], 'the deleted account’s notes, tasks… are not left for an offline page');
+    assert.deepEqual(happened, ['reload'], 'and then the page again, as before');
+  } finally {
+    delete globalThis.indexedDB;
+    storage.delete('suite.deletion');
+  }
+});

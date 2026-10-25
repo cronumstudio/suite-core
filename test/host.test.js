@@ -1344,6 +1344,29 @@ test('one live channel for every module (liveAll): each module’s notices for t
   assert.equal(beta.suite.live.connected(), 0, 'every module lets go of it');
 });
 
+test('one live channel for every module ends when its session does: signing out closes it', async (t) => {
+  const { host } = await startHost(t, { liveAll: true });
+  const base = `http://127.0.0.1:${host.server.address().port}`;
+  const [alpha, beta] = host.modules;
+  const cookie = await adminCookie(base);
+  const other = await adminCookie(base);
+  const all = await stream(base, '/api/events?all', { Cookie: cookie });
+  const stays = await stream(base, '/api/events?all', { Cookie: other });
+  t.after(() => { all.stop(); stays.stop(); });
+  await all.until(/"event":"hello"/);
+  await stays.until(/"event":"hello"/);
+  assert.equal(alpha.suite.live.connected(), 2);
+
+  const logout = await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { Cookie: cookie, Origin: base } });
+  assert.equal(logout.status, 200);
+  await all.until(/"event":"account"/);
+  await all.until();
+  assert.equal(all.ended(), true, 'the signed-out browser’s stream ends');
+  assert.equal(alpha.suite.live.connected(), 1);
+  assert.equal(beta.suite.live.connected(), 1, 'the other browser’s stays, in every module');
+  assert.equal(stays.ended(), false);
+});
+
 test('without liveAll, /api/events?all is the host’s own channel, as before', async (t) => {
   const { host, call } = await startHost(t);
   const base = `http://127.0.0.1:${host.server.address().port}`;
