@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.170.1 — 2026-10-26
+
+- **Maximize and restore take 280 ms** (`windows.js` `MAX_MS`, Martin: «un poco lento»): they took
+  the 420 ms of windows trading places while one is carried, which for a click felt slow. Same
+  spring and pacing; the other windows fade in 0.25 s (was 0.3 s). Reordering is unchanged.
+
 ## 0.170.0 — 2026-10-25
 
 - **A window maximizes over the whole desk, and comes back to its place** (`windows.js`, Martin):
