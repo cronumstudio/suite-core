@@ -66,6 +66,8 @@ export const SETTINGS_GOTO_EVENT = 'kit:settings-goto';
  * module and says `handled = true`; otherwise the frame goes there itself, as any link.
  */
 export const OPEN_EVENT = 'kit:open';
+/** Cronum Work's shell asks a module in a window for its drawer (on a phone the ☰ is the shell's), on the window's body. */
+export const DRAWER_EVENT = 'kit:drawer';
 
 let modulesAsked = null;
 /**
