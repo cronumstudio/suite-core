@@ -29,6 +29,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   `empty`, `avatar` and `detail` for an app whose people are the whole household. Its styles are in
   kit.css (`.kit-share*`), and the worker keeps the file.
 - Nothing changes for an app that doesn't call them.
+
 ## 0.161.0 — 2026-10-25
 
 - **Deleting one's account leaves nothing of it on the device** (`settings.js`, `signin.js`
