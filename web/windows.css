@@ -38,6 +38,27 @@
 }
 .cw-win__head:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -2px; }
 
+/* Maximize and restore, at the end of the head. */
+.cw-win__max {
+  display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; margin-inline: auto -4px; padding: 0;
+  border: 0; border-radius: 6px; background: none; color: var(--kit-muted); cursor: pointer;
+}
+.cw-win__max[hidden] { display: none; }
+.cw-win__max:hover { background: var(--kit-hover); color: var(--kit-text); }
+.cw-win__max:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -2px; }
+.cw-win__max .kit-icon { width: 15px; height: 15px; }
+
+/*
+ * Maximized: the window over the whole desk, the others fading out under it (and back in as it
+ * returns). Its place in the layout is kept: only the grid area changes.
+ */
+.cw-desk > .cw-win { transition: opacity .3s ease, visibility 0s; }
+.cw-desk > .cw-win[data-max] {
+  grid-column: 1 / -1 !important; grid-row: 1 / -1 !important; align-self: stretch; height: auto; z-index: 3;
+}
+.cw-desk[data-maxed] > .cw-win:not([data-max]) { opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; }
+.cw-desk[data-maxed] > .cw-bar { visibility: hidden; }
+
 /* The module's page, inside its window: what was the viewport is the window's body. */
 .cw-win__body { position: relative; flex: 1; min-height: 0; overflow: hidden; contain: layout paint; }
 /*
@@ -112,5 +133,5 @@ html:has(.cw-desk[data-screen="narrow"]), html:has(.cw-desk[data-screen="narrow"
 .cw-tabs__tab:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cw-bar::after, .cw-tabs__tab img { transition: none; }
+  .cw-bar::after, .cw-tabs__tab img, .cw-desk > .cw-win { transition: none; }
 }
