@@ -373,15 +373,15 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
  * tells the four apart with any colour vision (light and dark each checked), the room left grey,
  * 2px of ground between parts. Another module, the muted ink.
  */
-.kit-usage [data-module] { --kit-part: var(--kit-muted); }
-.kit-usage [data-module="tasks"] { --kit-part: #EF4B2A; }
-.kit-usage [data-module="projects"] { --kit-part: #A12A83; }
-.kit-usage [data-module="next"] { --kit-part: #2BA8D2; }
-.kit-usage [data-module="notes"] { --kit-part: #7C3AED; }
-:root[data-theme="dark"] .kit-usage [data-module="tasks"] { --kit-part: #E8603F; }
-:root[data-theme="dark"] .kit-usage [data-module="projects"] { --kit-part: #AD3D92; }
-:root[data-theme="dark"] .kit-usage [data-module="next"] { --kit-part: #2A9FC6; }
-:root[data-theme="dark"] .kit-usage [data-module="notes"] { --kit-part: #9C7CF0; }
+.kit-usage [data-part] { --kit-part: var(--kit-muted); }
+.kit-usage [data-part="tasks"] { --kit-part: #EF4B2A; }
+.kit-usage [data-part="projects"] { --kit-part: #A12A83; }
+.kit-usage [data-part="next"] { --kit-part: #2BA8D2; }
+.kit-usage [data-part="notes"] { --kit-part: #7C3AED; }
+:root[data-theme="dark"] .kit-usage [data-part="tasks"] { --kit-part: #E8603F; }
+:root[data-theme="dark"] .kit-usage [data-part="projects"] { --kit-part: #AD3D92; }
+:root[data-theme="dark"] .kit-usage [data-part="next"] { --kit-part: #2A9FC6; }
+:root[data-theme="dark"] .kit-usage [data-part="notes"] { --kit-part: #9C7CF0; }
 .kit-storage { display: flex; gap: 2px; block-size: 12px; border-radius: 4px; background: var(--kit-border); overflow: hidden; }
 .kit-storage__part { flex-grow: 0; flex-shrink: 0; min-inline-size: 3px; background: var(--kit-part); }
 .kit-storage__legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: var(--look-footnote, 12.5px); }

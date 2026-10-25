@@ -61,7 +61,9 @@ test('a tab opens with the stream headers, retry and hello', () => {
   assert.match(t.res.head['Content-Type'], /^text\/event-stream/);
   assert.equal(t.res.head['X-Accel-Buffering'], 'no', 'or the reverse proxy holds everything');
   assert.match(t.res.text, /^retry: 3000\n\n/);
-  assert.deepEqual(eventsOf(t.res), [{ id: null, event: 'hello', data: { user_id: 7 } }]);
+  const [hello] = eventsOf(t.res);
+  assert.deepEqual([eventsOf(t.res).length, hello.event, hello.data], [1, 'hello', { user_id: 7 }]);
+  assert.match(hello.id, /^[\w-]+\.0$/, 'with where the server is, so even a tab that saw no notice comes back with an id');
   assert.equal(live.connected(), 1);
   t.req.emit('close');
   assert.equal(live.connected(), 0);
@@ -102,8 +104,8 @@ test('a tab that comes back gets what it missed, or resync when that is not poss
   live.publish({ audience: [2], data: { n: 3 } });   // someone else's
   const back = tab(1, { 'last-event-id': lastSeen });
   live.subscribe(back.req, back.res, back.user);
-  assert.deepEqual(eventsOf(back.res).map((e) => [e.event, e.data]), [['change', { n: 2 }], ['hello', { user_id: 1 }]],
-    'what was missed first, then hello; never someone else’s');
+  assert.deepEqual(eventsOf(back.res).map((e) => [e.event, e.data]), [['change', { n: 2 }], ['hello', { user_id: 1, replayed: true }]],
+    'what was missed first, then hello saying so; never someone else’s');
 
   // Up to date: nothing to replay and no resync.
   const current = tab(1, { 'last-event-id': eventsOf(back.res)[0].id.replace(/\.\d+$/, '.3') });
@@ -124,6 +126,40 @@ test('a tab that comes back gets what it missed, or resync when that is not poss
     assert.deepEqual(eventsOf(t.res).map((e) => e.event), ['resync', 'hello'], id);
   }
   assert.notEqual(createLive().publish, live.publish);
+  live.close();
+});
+
+test('a channel opened again sends its last id as ?last=, and hello says what was missed was said', () => {
+  const live = createLive();
+  const first = tab(1);
+  live.subscribe(first.req, first.res, first.user);
+  const idle = eventsOf(first.res).at(-1).id;   // hello's: no notice yet, and still somewhere to come back from
+  first.req.emit('close');
+
+  // EventSource coming back by itself with hello's id: nothing missed, nothing to reload.
+  const back = tab(1, { 'last-event-id': idle });
+  live.subscribe(back.req, back.res, back.user);
+  assert.deepEqual(eventsOf(back.res).map((e) => [e.event, e.data]), [['hello', { user_id: 1, replayed: true }]]);
+  back.req.emit('close');
+
+  // A new EventSource can't send the header: the page puts the id in the address.
+  live.publish({ audience: [1], data: { n: 1 } });
+  live.publish({ audience: [2], data: { n: 2 } });
+  const reopened = tab(1);
+  reopened.req.url = `/api/events?last=${encodeURIComponent(idle)}`;
+  live.subscribe(reopened.req, reopened.res, reopened.user);
+  assert.deepEqual(eventsOf(reopened.res).map((e) => [e.event, e.data]), [['change', { n: 1 }], ['hello', { user_id: 1, replayed: true }]]);
+  assert.match(eventsOf(reopened.res).at(-1).id, /\.2$/, 'hello is where the server is, someone else’s notice included');
+
+  // The header wins over the address; an address with nonsense is a resync, as the header.
+  const both = tab(1, { 'last-event-id': eventsOf(reopened.res).at(-1).id });
+  both.req.url = `/api/events?last=${encodeURIComponent(idle)}`;
+  live.subscribe(both.req, both.res, both.user);
+  assert.deepEqual(eventsOf(both.res).map((e) => e.event), ['hello']);
+  const nonsense = tab(1);
+  nonsense.req.url = '/api/events?last=garbage';
+  live.subscribe(nonsense.req, nonsense.res, nonsense.user);
+  assert.deepEqual(eventsOf(nonsense.res).map((e) => [e.event, e.data]), [['resync', {}], ['hello', { user_id: 1, replayed: true }]]);
   live.close();
 });
 
@@ -158,6 +194,102 @@ test('dropUser closes a person’s tabs but the kept session’s, telling them f
   assert.equal(live.dropUser(1), 1, 'without a kept one, all of them');
   assert.equal(kept.res.ended, true);
   assert.equal(live.connected(), 1);
+});
+
+test('a channel ends with its session: asked at every heartbeat, and at once by recheck()', async () => {
+  const open = new Set(['ada-laptop', 'ada-phone', 'bob']);
+  const live = createLive({ heartbeatMs: 20, stillIn: (userId, token) => open.has(token) });
+  const laptop = tab(1);
+  const phone = tab(1);
+  const bob = tab(2);
+  const sessionless = tab(1);
+  live.subscribe(laptop.req, laptop.res, laptop.user, { sessionToken: 'ada-laptop' });
+  live.subscribe(phone.req, phone.res, phone.user, { sessionToken: 'ada-phone' });
+  live.subscribe(bob.req, bob.res, bob.user, { sessionToken: 'bob' });
+  live.subscribe(sessionless.req, sessionless.res, sessionless.user);
+
+  // Signed out on the laptop: recheck(ada) closes that tab alone, with the account's notice.
+  open.delete('ada-laptop');
+  assert.equal(live.recheck(1), 1);
+  assert.equal(laptop.res.ended, true);
+  assert.deepEqual(eventsOf(laptop.res).at(-1), { id: null, event: 'account', data: { user_id: 1 } });
+  assert.equal(phone.res.ended, false);
+  live.publish({ audience: [1], data: { list_id: 4 } });
+  assert.equal(eventsOf(laptop.res).filter((e) => e.event === 'change').length, 0, 'nothing more reaches it');
+
+  // A session that ends without anyone saying so (it expired, a device gone): the heartbeat finds it.
+  open.delete('bob');
+  await new Promise((resolve) => { setTimeout(resolve, 80); });
+  assert.equal(bob.res.ended, true);
+  assert.equal(phone.res.ended, false);
+  assert.equal(sessionless.res.ended, false, 'a channel opened without a session isn’t asked');
+  live.close();
+});
+
+test('a channel ends with its session in the one channel for every module too', () => {
+  const open = new Set(['kept', 'gone']);
+  const stillIn = (userId, token) => open.has(token);
+  const notes = createLive({ stillIn });
+  const next = createLive({ stillIn });
+  const kept = tab(3);
+  const gone = tab(3);
+  subscribeAll([['notes', notes], ['next', next]], kept.req, kept.res, kept.user, { sessionToken: 'kept' });
+  subscribeAll([['notes', notes], ['next', next]], gone.req, gone.res, gone.user, { sessionToken: 'gone' });
+  open.delete('gone');
+  assert.equal(next.recheck(3), 1);
+  assert.equal(gone.res.ended, true, 'one module that finds it gone ends the stream');
+  assert.match(gone.res.text, /"module":"next","event":"account","data":\{"user_id":3\}/);
+  assert.equal(notes.connected(), 1, 'every module lets go of it');
+  assert.equal(kept.res.ended, false);
+  notes.close();
+  next.close();
+});
+
+test('signing out, a session closed from the list, out everywhere and a deleted account end their tabs', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-live-'));
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { live: true }, accounts: { minPasswordLength: 8 } },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', SECURE_COOKIES: 'false', ADMIN_PASSWORD: 'root-password' },
+    log: () => {}, exitOnError: false,
+  });
+  t.after(() => { suite.live.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const ada = suite.accounts.create({ username: 'ada', password: 'ada-password' });
+  const bob = suite.accounts.create({ username: 'bob', password: 'bob-password' });
+  const browser = (user) => {
+    const sessionToken = suite.sessions.open(user.id);
+    const t = tab(user.id);
+    suite.live.subscribe(t.req, t.res, t.user, { sessionToken });
+    return { ...t, sessionToken };
+  };
+  const ended = (...tabs) => tabs.map((each) => each.res.ended);
+
+  // Signing out (POST /api/auth/logout closes its session): that browser's tab, no other.
+  const laptop = browser(ada);
+  const phone = browser(ada);
+  const tablet = browser(ada);
+  const bobs = browser(bob);
+  suite.sessions.close(laptop.sessionToken);
+  assert.deepEqual(ended(laptop, phone, tablet, bobs), [true, false, false, false]);
+  assert.deepEqual(eventsOf(laptop.res).at(-1), { id: null, event: 'account', data: { user_id: ada.id } });
+
+  // One session closed from the list (DELETE /api/me/sessions/:key).
+  const key = suite.sessions.list(ada.id, tablet.sessionToken).find((s) => !s.current).key;
+  assert.equal(suite.sessions.revoke(ada.id, key), true);
+  assert.deepEqual(ended(phone, tablet), [true, false]);
+
+  // Out everywhere but here (a new password, revoke.js): every other tab of hers.
+  const desktop = browser(ada);
+  suite.revokeEverything(ada.id, { keep: { sessionToken: tablet.sessionToken }, reason: 'test' });
+  assert.deepEqual(ended(tablet, desktop, bobs), [false, true, false]);
+
+  // Her account disabled (asked to be deleted): all of them.
+  suite.accounts.update(ada.id, { disabled: true });
+  assert.deepEqual(ended(tablet, bobs), [true, false]);
+
+  // An account deleted for good.
+  suite.accounts.remove(bob.id);
+  assert.equal(bobs.res.ended, true);
+  assert.equal(suite.live.connected(), 0);
 });
 
 /** What one channel for every module told a tab, in order: { id, module, event, data }. */
@@ -212,7 +344,7 @@ test('one channel for every module coming back: what it missed in each, or resyn
   for (let n = 1; n <= 3; n += 1) next.publish({ audience: [1], data: { n } });
   const back = tab(1, { 'last-event-id': seen });
   subscribeAll([['notes', notes], ['next', next]], back.req, back.res, back.user);
-  assert.deepEqual(said(back.res), [['notes', 'change', { n: 2 }], ['next', 'resync', {}], [null, 'hello', { user_id: 1 }]],
+  assert.deepEqual(said(back.res), [['notes', 'change', { n: 2 }], ['next', 'resync', {}], [null, 'hello', { user_id: 1, replayed: true }]],
     'notes still remembers; next forgot too much');
   assert.match(messagesOf(back.res).at(-1).id, /^notes=[\w-]+\.2,next=[\w-]+\.3$/);
 
@@ -223,6 +355,22 @@ test('one channel for every module coming back: what it missed in each, or resyn
   const nonsense = tab(1, { 'last-event-id': 'garbage' });
   subscribeAll([['notes', notes], ['next', next]], nonsense.req, nonsense.res, nonsense.user);
   assert.deepEqual(said(nonsense.res).map(([module, event]) => [module, event]), [['notes', 'resync'], ['next', 'resync'], [null, 'hello']]);
+  notes.close();
+  next.close();
+});
+
+test('one channel for every module opened again: its id as &last=, and hello says it was replayed', () => {
+  const notes = createLive();
+  const next = createLive();
+  const first = tab(1);
+  subscribeAll([['notes', notes], ['next', next]], first.req, first.res, first.user);
+  const seen = messagesOf(first.res).at(-1).id;
+  first.req.emit('close');
+  notes.publish({ audience: [1], data: { n: 1 } });
+  const back = tab(1);
+  back.req.url = `/api/events?all&last=${encodeURIComponent(seen)}`;
+  subscribeAll([['notes', notes], ['next', next]], back.req, back.res, back.user);
+  assert.deepEqual(said(back.res), [['notes', 'change', { n: 1 }], [null, 'hello', { user_id: 1, replayed: true }]]);
   notes.close();
   next.close();
 });

@@ -1256,12 +1256,20 @@ connected; the app works out who can see what changed, as Tasks does with a list
 `event` is `change` unless it says otherwise. Every event carries an id, `<run>.<n>`; the last 256
 are remembered, so a tab that reconnects with `Last-Event-ID` (EventSource sends it by itself)
 gets what it missed, and one that missed more, or comes from another run of the server, gets
-`event: resync` and reloads what it shows. The suite publishes one event of its own (v0.22.0):
+`event: resync` and reloads what it shows. `hello` carries an id too, so a tab that saw no notice
+still comes back with one, and a page opening a new channel after closing one sends it as
+`?last=` (EventSource can't send the header then); when either came, `hello` says
+`replayed: true` and the page reloads nothing more (v0.165.0: before, it reloaded everything on
+every `hello` after a cut, on top of the replay). The suite publishes one event of its own (v0.22.0):
 `account`, to the person's tabs when their account changes —an email confirmed from the mail,
 often opened in another tab or on the phone, a new password, the second step turned on or off,
 what the admin changed or signing them out everywhere— so the page reloads what it shows of the
 account (`/api/auth/me`). `accounts.whenChanged(hook)` hears those changes, and a module that
-changes an account says so with `accounts.changed(id)`. Events may carry the new state (Focus's run contract) or
+changes an account says so with `accounts.changed(id)`. A channel lasts while the session it was
+opened with does (v0.162.0): signing out, a session closed from the list, out everywhere, the
+account disabled or deleted close it at once (`sessions.whenClosed` → `live.recheck`), with
+`account` as its last word, and every heartbeat asks again (`sessions.stillOpen`, which doesn't
+slide the session). Events may carry the new state (Focus's run contract) or
 just say what changed (Tasks' lists): the app chooses.
 
 ## 13. MCP
@@ -2100,7 +2108,8 @@ const host = await createHost({
   channel), streams what every module with `modules.live` would tell that person on its own
   `/<mount>/api/events`, in one connection: each notice an unnamed message whose data is
   `{ module, event, data }`. It opens with each module's missed notices or its `resync`, then
-  `{ module: null, event: 'hello', data: { user_id } }`; its id says where it is in every module
+  `{ module: null, event: 'hello', data: { user_id } }` (with `replayed: true` when it came back
+  with an id, by the header or `&last=`); its id says where it is in every module
   (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
   module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
   channels in each module, and ends with any of them: revoked sessions (`account` said first),
