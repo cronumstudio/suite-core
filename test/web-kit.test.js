@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { installFakeDom } from './fake-dom.js';
 
 installFakeDom();
@@ -16,6 +17,7 @@ const { createOutbox, tempId, isTempId } = await import('../web/outbox.js');
 const { memoryLocal } = await import('../web/local.js');
 const { api, setPatience, Offline, SessionExpired, ApiError } = await import('../web/api.js');
 const { connectLive } = await import('../web/live.js');
+const { createLive } = await import('../live.js');
 const { watchUpdates, applyUpdate } = await import('../web/update.js');
 
 /* ---------------------------------- api ----------------------------------- */
@@ -162,6 +164,88 @@ test('one flush at a time, and another tab holding the lock leaves this one alon
   assert.equal(calls, 1);
 });
 
+/** A memoryLocal() that counts what is read from it: records whose value came back, and calls. */
+function countedLocal() {
+  const local = memoryLocal();
+  const seen = { calls: 0, read: 0 };
+  const counted = { seen };
+  for (const [name, fn] of Object.entries(local)) {
+    counted[name] = async (...args) => {
+      seen.calls += 1;
+      if (name === 'rewrite') {
+        const change = args[1];
+        args[1] = (value, key) => { seen.read += 1; return change(value, key); };
+      }
+      const out = await fn(...args);
+      if (name === 'entries') seen.read += out.length;
+      if ((name === 'first' || name === 'get') && out !== undefined) seen.read += 1;
+      return out;
+    };
+  }
+  return counted;
+}
+
+test('the outbox reads no queued change to add or count one, and each once to send them (it read the whole queue each time)', async () => {
+  const local = countedLocal();
+  const counts = [];
+  let id = 100;
+  const outbox = createOutbox({ local, locks: null, onCount: (n) => counts.push(n) });
+  const N = 200;
+  let current = '1';
+  for (let i = 0; i < N; i++) {
+    if (i % 4 === 0) {
+      current = tempId();
+      await outbox.add({ method: 'POST', path: '/api/notes', body: { text: 'x'.repeat(500) }, tempId: current });
+    } else {
+      await outbox.add({ method: 'PATCH', path: `/api/notes/${current}`, body: { text: 'y'.repeat(500), note: current } });
+    }
+  }
+  assert.equal(local.seen.read, 0, 'adding 200 read none of them (it read 20,100 before)');
+  assert.deepEqual(counts.slice(0, 3), [1, 2, 3]);
+  assert.equal(counts.at(-1), N);
+
+  const sends = [];
+  const before = local.seen.read;
+  const sender = createOutbox({ local, locks: null, send: async (op) => { sends.push(op); return op.method === 'POST' ? { id: id++ } : {}; } });
+  const report = await sender.flush();
+  assert.deepEqual([report.sent, report.dropped.length, report.left], [N, 0, 0]);
+  assert.ok(sends.every((op) => !isTempId(op.path.split('/').pop()) && !isTempId(op.body?.note)), 'every provisional id swapped');
+  assert.deepEqual(sends.map((op) => op.method).slice(0, 5), ['POST', 'PATCH', 'PATCH', 'PATCH', 'POST'], 'in order');
+  // One record per change sent, plus one pass over what is left after each of the 50 creations.
+  const read = local.seen.read - before;
+  assert.ok(read <= N + 50 * N / 2 + 50, `${read} records read to send ${N} (it read 25,150 before)`);
+});
+
+test('memoryLocal: count, first and rewrite, as openLocal’s', async () => {
+  const local = memoryLocal();
+  assert.equal(await local.count('outbox'), 0);
+  assert.equal(await local.first('outbox'), undefined);
+  await local.put('outbox', 'b', { n: 2 });
+  await local.put('outbox', 'a', { n: 1 });
+  await local.put('outbox', 'c', { n: 3 });
+  assert.equal(await local.count('outbox'), 3);
+  assert.deepEqual(await local.first('outbox'), ['a', { n: 1 }], 'by key, not by when it was put');
+  const visited = [];
+  const changed = await local.rewrite('outbox', (value, key) => { visited.push(key); return value.n % 2 ? { n: value.n * 10 } : undefined; });
+  assert.equal(changed, 2);
+  assert.deepEqual(visited, ['a', 'b', 'c']);
+  assert.deepEqual(await local.entries('outbox'), [['a', { n: 10 }], ['b', { n: 2 }], ['c', { n: 30 }]]);
+});
+
+test('the outbox still works on a store without count, first and rewrite (an app’s own)', async () => {
+  const full = memoryLocal();
+  const plain = { get: full.get, put: full.put, delete: full.delete, entries: full.entries, clear: full.clear };
+  let id = 7;
+  const draft = tempId();
+  const sent = [];
+  const outbox = createOutbox({ local: plain, locks: null, send: async (op) => { sent.push(op.path); return op.method === 'POST' ? { id: id++ } : {}; } });
+  await outbox.add({ method: 'POST', path: '/api/notes', body: {}, tempId: draft });
+  await outbox.add({ method: 'PATCH', path: `/api/notes/${draft}`, body: {} });
+  assert.equal(await outbox.count(), 2);
+  const report = await outbox.flush();
+  assert.deepEqual([report.sent, report.left, sent], [2, 0, ['/api/notes', '/api/notes/7']]);
+});
+
 /* ---------------------------------- live ---------------------------------- */
 
 class FakeSource {
@@ -257,6 +341,120 @@ test('live: changes grouped, resync after a cut, reconnection with a growing wai
   assert.equal(FakeSource.last.closed, true);
   assert.equal(live.state, 'closed');
   assert.deepEqual(states.slice(0, 2), ['connecting', 'open']);
+});
+
+/**
+ * A browser's EventSource on the server's real channel (live.js createLive): what the server
+ * writes is parsed and handed to the listeners. `cut()` + `resume()`: EventSource coming back by
+ * itself, with Last-Event-ID; `fail()`: closed for good, so the page opens a new one.
+ */
+function bridgedSource(channel, userId) {
+  return class BridgedSource {
+    static last = null;
+    constructor(url) {
+      Object.assign(this, { url, listeners: {}, lastEventId: '', readyState: 0 });
+      BridgedSource.last = this;
+      queueMicrotask(() => this.connect({}));
+    }
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+    emit(type, message = {}) { for (const fn of this.listeners[type] || []) fn(message); }
+    close() { this.readyState = 2; this.req?.emit('close'); }
+    connect(headers) {
+      if (this.readyState === 2) return;
+      this.req = Object.assign(new EventEmitter(), { headers, url: this.url });
+      let buffer = '';
+      const res = {
+        writeHead() {}, setTimeout() {}, end() {},
+        write: (chunk) => {
+          buffer += chunk;
+          for (let i; (i = buffer.indexOf('\n\n')) >= 0;) {
+            const block = buffer.slice(0, i);
+            buffer = buffer.slice(i + 2);
+            const data = /^data: (.*)$/m.exec(block)?.[1];
+            if (data === undefined) continue;
+            const id = /^id: (.*)$/m.exec(block)?.[1];
+            if (id !== undefined) this.lastEventId = id;
+            this.emit(/^event: (.*)$/m.exec(block)?.[1] || 'message', { data, lastEventId: this.lastEventId });
+          }
+          return true;
+        },
+      };
+      this.readyState = 1;
+      channel.subscribe(this.req, res, { id: userId });
+    }
+    cut() { this.req.emit('close'); this.readyState = 0; this.emit('error'); }
+    resume() { this.connect(this.lastEventId ? { 'last-event-id': this.lastEventId } : {}); }
+    fail() { this.req.emit('close'); this.readyState = 2; this.emit('error'); }
+  };
+}
+
+test('live: back within what the server remembers, the page gets what it missed and reloads nothing (it reloaded everything each time)', async () => {
+  const channel = createLive({ remember: 256 });
+  const Source = bridgedSource(channel, 1);
+  const timers = fakeTimers();
+  const seen = { reloads: 0, notices: [] };
+  const live = connectLive({
+    onResync: () => { seen.reloads += 1; },
+    onChange: (events) => seen.notices.push(events.map((e) => e.data.n)),
+  }, { url: '/api/events', EventSource: Source, timers });
+  const settle = async () => { await new Promise((r) => setTimeout(r, 0)); timers.advance(300); };
+  await settle();
+  assert.equal(live.state, 'open');
+
+  channel.publish({ audience: [1], data: { n: 0 } });
+  await settle();
+  // The network goes; three notices while away; EventSource comes back by itself.
+  Source.last.cut();
+  for (let n = 1; n <= 3; n++) channel.publish({ audience: [1], data: { n } });
+  Source.last.resume();
+  await settle();
+  assert.deepEqual([seen.reloads, seen.notices], [0, [[0], [1, 2, 3]]], 'what was missed, once, and no reload');
+
+  // A cut with nothing missed: nothing at all.
+  Source.last.cut();
+  Source.last.resume();
+  await settle();
+  assert.equal(seen.reloads, 0);
+
+  // Closed for good (a 401): the new channel says in its address where it was.
+  const closed = Source.last;
+  closed.fail();
+  channel.publish({ audience: [1], data: { n: 4 } });
+  timers.advance(2000);
+  await settle();
+  assert.notEqual(Source.last, closed);
+  assert.match(Source.last.url, /^\/api\/events\?last=[\w-]+\.\d+$/);
+  assert.deepEqual([seen.reloads, seen.notices.at(-1)], [0, [4]]);
+
+  // Too much missed: the server says resync, and the page reloads once (it was twice: resync, then hello).
+  Source.last.cut();
+  for (let n = 0; n < 300; n++) channel.publish({ audience: [1], data: { n } });
+  Source.last.resume();
+  await settle();
+  assert.equal(seen.reloads, 1);
+
+  // Opened again by hand (Retry, signing in again): from scratch, everything reloaded.
+  live.reconnect();
+  await settle();
+  assert.equal(Source.last.url, '/api/events');
+  assert.equal(seen.reloads, 2);
+  live.stop();
+  channel.close();
+});
+
+test('live: a hello after a cut without `replayed` (a server that does not replay), or for someone else, reloads', () => {
+  const timers = fakeTimers();
+  let resyncs = 0;
+  const live = connectLive({ onResync: () => resyncs++ }, { EventSource: FakeSource, timers });
+  const source = FakeSource.last;
+  source.emit('hello', { data: '{"user_id":1}' });
+  source.emit('hello', { data: '{"user_id":1}' });
+  assert.equal(resyncs, 1, 'an older server: as before');
+  source.emit('hello', { data: '{"user_id":1,"replayed":true}' });
+  assert.equal(resyncs, 1);
+  source.emit('hello', { data: '{"user_id":2,"replayed":true}' });
+  assert.equal(resyncs, 2, 'someone else signed in meanwhile');
+  live.stop();
 });
 
 /** The shell's channel for every module (`workRegistry().live`), as a test sees it: who subscribed, and stopped. */

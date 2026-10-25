@@ -469,6 +469,9 @@ changes are pointed at the real id (`idOf(answer)`, by default `answer.id`). It 
 signal, with the session ended or the server failing, and waits; a 409 goes to `onConflict` (Notes
 saves a conflict copy), anything else that can't be fixed by retrying to `onDropped`. One tab sends
 at a time (a Web Lock). `signOut({ local })` wipes it all: one person's notes don't stay for the next.
+Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
+a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
+queued offline cost no read to add and one record each to send.
 
 ### Drag and drop
 
