@@ -644,7 +644,7 @@ test('phones: one window, a tab per module, switching by tab or by swipe, the ed
   const tabs = desk.querySelector('.cw-tabs');
   assert.ok(tabs);
   assert.equal(tabs.getAttribute('aria-label'), 'kit.windows.tabs');
-  assert.deepEqual(tabs.children.map((b) => b.getAttribute('data-module')), ['next', 'notes', 'tasks', 'projects', 'work']);
+  assert.deepEqual(tabs.children.map((b) => b.getAttribute('data-tab')), ['next', 'notes', 'tasks', 'projects', 'work']);
   assert.deepEqual(tabs.children.map((b) => b.textContent), ['NEXT', 'NOTES', 'TASKS', 'PROJECTS', 'WORK']);
   assert.equal(tabs.children[1].getAttribute('aria-current'), 'true');
 
