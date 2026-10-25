@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.164.0 — 2026-10-25
+
+- **A phone's tabs in Work's shell keep their own look** (`windows.js`, Martin on the iPhone: a tab
+  pressed stayed marked, in the window's type, and Notes' kept a grey ground). Each tab carried
+  `data-module`, which is what a module's scoped sheet takes as its window (`@scope
+  ([data-module="notes"])`), so the sheet's page rules (`html, body`) styled the tab once the
+  module had opened. The tabs now say their module with `data-tab`, and the storage bar of
+  Settings › Usage its parts with `data-part` (`usage-view.js`, `kit.css`), for the same reason.
+
 ## 0.163.0 — 2026-10-25
 
 - **A copy's values must be of their column's type** (`portability`). Until now `{"$blob": …}`
