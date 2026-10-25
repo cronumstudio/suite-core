@@ -582,6 +582,16 @@ export function createSuite({
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
+    /**
+     * What the app keeps of someone against storage.mb, said where it is counted (its files'
+     * module, at import): from then on `suite.storage` checks it (storage.js), in its scripts and
+     * command line too, which run without createApp. → `suite.storage`. Said once; createApp's
+     * `storage` says it the same way. Until something says it there is no `suite.storage`, as before.
+     */
+    countStorage(used) {
+      if (!made.storage) made.storage = createStorage({ entitlements, used });
+      return made.storage;
+    },
   };
   return made;
 }
@@ -656,7 +666,9 @@ export function createApp({
   // What the app keeps of someone against storage.mb (`createModule().storage`): on its own, its
   // files are the whole of it, and `suite.storage` checks them (storage.js). A host's module already
   // has the host's, which adds up every module's; nor is it made without the app saying.
-  if (typeof storage === 'function' && !suite.storage) suite.storage = createStorage({ entitlements, used: storage });
+  if (typeof storage === 'function' && !suite.storage) {
+    suite.storage = suite.countStorage ? suite.countStorage(storage) : createStorage({ entitlements, used: storage });
+  }
 
   /* --------------------------- the suite's routes --------------------------- */
 

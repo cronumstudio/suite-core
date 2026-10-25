@@ -1526,8 +1526,11 @@ kit's), then Notes is built on it whole, then the others as they move to English
     { payer })` answers 402 `plan_limit` with `{ feature: 'storage.mb', limit: '<n> MB', current:
     '<n> MB', plan, plan_name }` when `adding` bytes more would take the payer past `storage.mb`, and
     nothing within it or without a limit; `of(user)` → `{ used, limit }`. What is counted: on its
-    own, the app's files, what its `createModule().storage(userId)` says it keeps (createApp makes
-    `suite.storage` from it); as a module of a host, the person's across every module (below).
+    own, the app's files, as the app says where it counts them, at import
+    (`suite.countStorage(storageOf)` → `suite.storage`, so its scripts and command line, which run
+    without createApp, have it too; createApp's `storage`, the same `createModule().storage`, says it
+    otherwise); as a module of a host, the person's across every module (below), and
+    `countStorage` changes nothing there. Until an app says it, there is no `suite.storage`.
   - **Who pays for a file** is, for now, each app's rule as it was, passed as `payer`: in Notes the
     notebook's owner, whoever sent it (a file in someone's notebook takes their room); in Tasks and
     Projects whoever uploads it (`payer` left out: the user). Unifying on "the owner of what holds

@@ -645,6 +645,8 @@ export async function createHost({
        * createApp's, from its own files alone.
        */
       storage: createStorage({ entitlements, used: (userId) => storageUsed(userId) }),
+      // A module's own count goes to the host by `createModule().storage`: here it changes nothing.
+      countStorage: () => entry.view.storage,
     };
     joined.push(entry);
     return entry.view;

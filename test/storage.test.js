@@ -114,7 +114,7 @@ test('storeChecked: the cap and the storage before a byte is read and again with
     'a payer with nothing to check against is a mistake in the app, said, not a free pass');
 });
 
-test('an app on its own: suite.storage counts what createApp is told it keeps; /api/auth/config says the most a file weighs', async (t) => {
+test('an app on its own: suite.storage counts what the app says it keeps; /api/auth/config says the most a file weighs', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-storage-'));
   const suite = createSuite({
     config: {
@@ -133,11 +133,24 @@ test('an app on its own: suite.storage counts what createApp is told it keeps; /
   });
   assert.equal(suite.storage, undefined, 'nothing until the app says what it keeps');
   const ana = suite.accounts.create({ username: 'ana' });
-  app = createApp({ suite, storage: (id) => (id === ana.id ? MB - 10 : 0), handleSignals: false, log: () => {} });
+  // Said where the app counts its files, at import: its scripts have it without createApp.
+  const counted = suite.countStorage((id) => (id === ana.id ? MB - 10 : 0));
+  assert.equal(suite.storage, counted);
+  assert.equal(suite.countStorage(() => 0), counted, 'said once');
+  app = createApp({ suite, storage: () => 0, handleSignals: false, log: () => {} });
+  assert.equal(suite.storage, counted, 'createApp keeps what was said');
   assert.throws(() => suite.storage.check(ana, 11), refusal(402, 'plan_limit', { limit: '1 MB', current: '1 MB', plan: 'free' }));
   suite.storage.check(ana, 10);
   await assert.rejects(suite.uploads.storeChecked(body(JPEG), { folder: String(ana.id), name: 'x.jpg', user: ana }), refusal(402, 'plan_limit'),
     'its uploads check against it');
+  const bare = createSuite({
+    config: { app: { id: 'bare', name: 'Bare', languages: ['en'] }, modules: { uploads: true } },
+    env: { DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-storage-')), PORT: '0', BASE_URL: 'http://127.0.0.1' },
+    log: () => {}, exitOnError: false,
+  });
+  createApp({ suite: bare, storage: () => 5, handleSignals: false, log: () => {} });
+  assert.equal(bare.storage.used(1), 5, 'createApp alone says it too');
+  bare.database.close();
 
   const server = await app.listen();
   const config = await (await fetch(`http://127.0.0.1:${server.address().port}/api/auth/config`)).json();
