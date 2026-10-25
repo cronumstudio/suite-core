@@ -199,7 +199,7 @@ test('Your usage, in a host: under the plan, the modules in use against their ca
 
   // The storage as a phone shows it: a part for each module that keeps something, and the room left.
   const parts = usage.all().filter((n) => n.getAttribute('class') === 'kit-storage__part');
-  assert.deepEqual(parts.map((n) => [n.getAttribute('data-module'), n.getAttribute('title')]), [['tasks', 'Tasks: 2 kB']]);
+  assert.deepEqual(parts.map((n) => [n.getAttribute('data-part'), n.getAttribute('title')]), [['tasks', 'Tasks: 2 kB']]);
   const legend = usage.all().find((n) => n.getAttribute('class') === 'kit-storage__legend');
   assert.deepEqual(legend.find('li').map(textOf), ['Tasks2 kB', `${t('kit.usage.free')}50 MB`], 'each part named with its size, not by colour alone');
 

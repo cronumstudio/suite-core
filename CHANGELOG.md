@@ -22,6 +22,37 @@ change an interface and a patch never does. Apps pin a version through the submo
   `?last=`. Without `replayed` (a server before this one), for someone else, too much missed, or
   `reconnect()`, everything is reloaded as before. Cronum Work's one channel for every module
   (`/api/events?all`) says `replayed` and takes `&last=` the same way.
+## 0.164.0 — 2026-10-25
+
+- **A phone's tabs in Work's shell keep their own look** (`windows.js`, Martin on the iPhone: a tab
+  pressed stayed marked, in the window's type, and Notes' kept a grey ground). Each tab carried
+  `data-module`, which is what a module's scoped sheet takes as its window (`@scope
+  ([data-module="notes"])`), so the sheet's page rules (`html, body`) styled the tab once the
+  module had opened. The tabs now say their module with `data-tab`, and the storage bar of
+  Settings › Usage its parts with `data-part` (`usage-view.js`, `kit.css`), for the same reason.
+
+## 0.163.0 — 2026-10-25
+
+- **A copy's values must be of their column's type** (`portability`). Until now `{"$blob": …}`
+  came in as a blob into any column, and anything that wasn't text skipped the column's limit, its
+  pattern and the 100,000 characters: someone's own copy could bring a list's name or a note of
+  megabytes, or a number where the app reads a colour or a date, and share it. Now an import is
+  refused (`import_invalid_data`) when a value doesn't fit its column: text in TEXT, a number in
+  INTEGER and REAL, a blob only in BLOB (none of the apps has one; a blob column's copy still comes
+  back byte for byte). A pattern takes text only, so a number without the shape is left out like
+  any other value without it. Copies the apps made come in as before.
+
+## 0.162.0 — 2026-10-25
+
+- **A tab's live channel ends with the session it was opened with** (`live.js` `stillIn`,
+  `recheck`; `sessions.stillOpen`, `sessions.whenClosed`). Until now `/api/events` (and the host's
+  `/api/events?all`) checked the session only when it opened and then stayed open for good: after
+  signing out, a session closed from the list, the account disabled or deleted, a tab opened with
+  that cookie (a stolen one, say) kept hearing the account's activity. Now a session closed here
+  closes its channels at once, with the `account` notice first, as "out everywhere" already did;
+  signing out closes only that browser's. Every heartbeat asks again for each channel, which also
+  ends the ones whose session expired or whose device went; asking doesn't use the session, so an
+  open tab doesn't keep it alive. A deleted account's channels close as it goes.
 
 ## 0.161.0 — 2026-10-25
 

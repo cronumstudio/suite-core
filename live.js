@@ -25,6 +25,13 @@
  * When either came, `hello` says `replayed: true`: what was missed has been
  * said (or `resync`), so the page needn't reload everything on its own.
  *
+ * A channel is opened with a session, and it ends with it: signing out, a
+ * session closed from the list, out everywhere, the account disabled or
+ * deleted. Whoever creates the channel says how to tell (`stillIn`); every
+ * heartbeat asks again for each channel, and `recheck(userId)` asks at once
+ * when that person's sessions close (sessions.whenClosed). Until then a tab
+ * opened with a stolen cookie kept hearing the account's activity for good.
+ *
  * A host's page that shows several modules at once (Cronum Work's
  * one-document shell) opens one channel for all of them instead of one each:
  * subscribeAll(), the host's `GET /api/events?all` (host.js `liveAll`).
@@ -49,14 +56,19 @@ const STREAM_HEAD = Object.freeze({
  * @param {object} [options]
  * @param {number} [options.remember]   how many recent events a reconnecting tab can get back
  * @param {number} [options.heartbeatMs]
+ * @param {(userId: number, sessionToken: string) => boolean} [options.stillIn]  whether the person
+ *   is still signed in with the session a channel was opened with; one opened without a session
+ *   isn't asked. Without it, a channel lasts while its tab does.
  */
-export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) {
+export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS, stillIn = null } = {}) {
   /** This run of the server: an id from another one can't be replayed. */
   const boot = randomToken(6);
   const clients = new Set();
   /** The last events, oldest first: { n, event, body, audience: Set | null }. */
   const recent = [];
   let last = 0;
+  /** Asks every channel's session again, once a heartbeat, while there are channels (`stillIn`). */
+  let sweeper = null;
 
   const frame = (n, event, body) => `id: ${boot}.${n}\nevent: ${event}\ndata: ${body}\n\n`;
   const reaches = (entry, userId) => !entry.audience || entry.audience.has(userId);
@@ -64,6 +76,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
   function drop(client) {
     if (!clients.delete(client)) return;
     clearInterval(client.timer);
+    if (!clients.size && sweeper) {
+      clearInterval(sweeper);
+      sweeper = null;
+    }
     try {
       if (client.end) client.end();
       else client.res.end();
@@ -121,6 +137,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     const theirs = [...clients].filter((other) => other.userId === client.userId);
     for (const old of theirs.slice(0, Math.max(0, theirs.length - PER_USER + 1))) drop(old);
     clients.add(client);
+    if (stillIn && !sweeper) {
+      sweeper = setInterval(() => recheck(), heartbeatMs);
+      sweeper.unref?.();
+    }
   }
 
   /**
@@ -198,7 +218,28 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     return n;
   }
 
-  return { publish, subscribe, relay, dropUser, close, connected: () => clients.size };
+  /**
+   * Closes the channels (a person's, or everyone's without `userId`) whose session is no longer
+   * theirs (`stillIn`), telling each the account's notice first, as dropUser() does: the page
+   * looks again at who is signed in. What a session closed here calls at once; the heartbeat
+   * asks for every channel anyway (a session that ended, a device gone).
+   */
+  function recheck(userId = null) {
+    if (!stillIn) return 0;
+    let n = 0;
+    for (const client of [...clients]) {
+      if (!client.sessionToken || (userId != null && client.userId !== Number(userId))) continue;
+      let still = true;
+      try { still = stillIn(client.userId, client.sessionToken); } catch { /* asked again on the next heartbeat */ }
+      if (still) continue;
+      tell(client, { event: 'account', body: JSON.stringify({ user_id: client.userId }) });
+      drop(client);
+      n += 1;
+    }
+    return n;
+  }
+
+  return { publish, subscribe, relay, dropUser, recheck, close, connected: () => clients.size };
 }
 
 /**

@@ -618,13 +618,15 @@ export function createWindows(desk, {
     if (list.join() !== tabsKey) {
       tabsKey = list.join();
       clear(tabs);
+      // Each tab knows its module by `data-tab`: on `data-module` the module's own sheet applied
+      // to it as to its window, and it took that window's type and background.
       for (const module of list) {
         const icon = iconOf(module);
-        tabs.append(el('button', { type: 'button', class: 'cw-tabs__tab', 'data-module': module },
+        tabs.append(el('button', { type: 'button', class: 'cw-tabs__tab', 'data-tab': module },
           icon ? el('img', { src: icon, alt: '' }) : null, el('span', { text: nameOf(module) })));
       }
     }
-    for (const tab of tabs.children) tab.setAttribute('aria-current', String(tab.getAttribute('data-module') === layout.focus));
+    for (const tab of tabs.children) tab.setAttribute('aria-current', String(tab.getAttribute('data-tab') === layout.focus));
   }
 
   /* ----------------------------------- moving ----------------------------------- */
@@ -1175,7 +1177,7 @@ export function createWindows(desk, {
   }, { signal });
   desk.addEventListener('click', (ev) => {
     const tab = ev.target?.closest?.('.cw-tabs__tab');
-    if (tab && tabs?.contains(tab)) show(tab.getAttribute('data-module'));
+    if (tab && tabs?.contains(tab)) show(tab.getAttribute('data-tab'));
   }, { signal });
   desk.addEventListener('keydown', (ev) => {
     if (gesture || ev.defaultPrevented) return;
