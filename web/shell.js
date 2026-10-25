@@ -35,6 +35,7 @@
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
+ *     search: { label: searchLabel, onInput: (text) => findNotes(text) },
  *     onSettings: openSettings, onSignOut: signOut,
  *   });
  *   shell.nav.append(navItem({ label: allLabel, iconName: 'notes', count: 24, current: true }));
@@ -61,7 +62,11 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers
- * @param {object} [options.create]          { label, onClick }: the button that creates
+ * @param {object} [options.create]          { label, onClick }: the button that creates (the
+ *   sidebar's, beside the views; on a phone the floating one)
+ * @param {object} [options.search]          { label, placeholder?, onInput(text), onSubmit?(text) }: the
+ *   module's search, at the top of its sidebar; Escape empties it, Enter in the drawer closes it
+ *   so the results show. `shell.search` is its field.
  * @param {Function} [options.onSettings]
  * @param {Function} [options.onSignOut]
  * @param {Function} [options.onBack]        the detail's back button (default: showList)
@@ -71,7 +76,7 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  */
 export function createShell({
-  panes = 'split', app, create = null, onSettings = null, onSignOut = null,
+  panes = 'split', app, create = null, search = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
   embedded = false,
 }) {
@@ -108,8 +113,29 @@ export function createShell({
   // shows the one live dot: the sidebar keeps only its button that folds it.
   const head = embedded ? el('div', { class: 'kit-side__head' }, fold) : el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
   const foot = el('div', { class: 'kit-side__foot' }, account);
+  // The module's search, the same in every module: the sidebar's first line.
+  const searchField = search ? el('input', {
+    type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || search.label,
+    'aria-label': search.label, enterkeyhint: 'search', autocomplete: 'off',
+  }) : null;
+  if (searchField) {
+    searchField.addEventListener('input', () => search.onInput?.(searchField.value), { signal });
+    searchField.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && searchField.value) {
+        ev.stopPropagation();
+        searchField.value = '';
+        search.onInput?.('');
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        search.onSubmit?.(searchField.value);
+        // In the drawer the results are behind it.
+        if (element.hasAttribute('data-drawer')) closeDrawer();
+      }
+    }, { signal });
+  }
   const side = el('aside', { class: 'kit-side' },
     head,
+    searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null,
     create ? el('div', { class: 'kit-side__create' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,
@@ -783,7 +809,7 @@ export function createShell({
   if (!embedded) nativeReady();
 
   return {
-    element, nav, list, detail, actions, banners, head: viewHead,
+    element, nav, list, detail, actions, banners, head: viewHead, search: searchField,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
     get folded() { return folded(); },

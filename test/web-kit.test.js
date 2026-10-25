@@ -2157,3 +2157,35 @@ test('signing out clears every app’s copy on this device, without waiting on a
   const signin = fs.readFileSync(new URL('../web/signin.js', import.meta.url), 'utf8');
   assert.match(signin, /await local\?\.clearAll\?\.\(\)\.catch\(\(\) => \{\}\);\s*await clearDeviceCopies\(\)\.catch\(\(\) => \{\}\);/);
 });
+
+test('the module’s search is the sidebar’s first line: each change said, Escape empties it, Enter closes the drawer', async () => {
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const said = [];
+    const submitted = [];
+    const shell = createShell({ ...frameOptions(), search: { label: 'Search notes', onInput: (text) => said.push(text), onSubmit: (text) => submitted.push(text) } });
+    const side = shell.element.querySelector('.kit-side');
+    assert.equal(side.querySelector('.kit-side__search').querySelector('.kit-side__search-input'), shell.search, 'in the sidebar, as `shell.search`');
+    assert.equal(shell.search.getAttribute('aria-label'), 'Search notes');
+    shell.search.value = 'plan';
+    shell.search.dispatch('input');
+    shell.openDrawer();
+    shell.search.dispatch('keydown', { key: 'Enter', preventDefault: () => {} });
+    assert.deepEqual(submitted, ['plan']);
+    assert.equal(shell.element.hasAttribute('data-drawer'), false, 'the results are behind the drawer');
+    shell.search.dispatch('keydown', { key: 'Escape', stopPropagation: () => {} });
+    assert.equal(shell.search.value, '');
+    assert.deepEqual(said, ['plan', '']);
+    assert.equal(createShell(frameOptions()).search, null, 'none without one');
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('on a phone the floating button creates, and the sidebar’s own only beside the views', () => {
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(css, /\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: none; \}/);
+  assert.match(css, /@container kit-app \(min-width: 640px\) \{[^}]*\}[\s\S]*?\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: block; \}/);
+});
