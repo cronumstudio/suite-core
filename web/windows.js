@@ -22,6 +22,11 @@
  *   shares them out evenly; arrow keys move a focused bar. A column is 320 px at least.
  * - Keyboard: a window's head takes the focus, and Alt with an arrow moves its window to the
  *   next column or the other half of its column.
+ * - Maximize: a button at the end of each head (or a double click on it) gives its window the whole
+ *   desk, over the others, which fade out; it slides and grows there as the windows do when they
+ *   trade places (420 ms, paced), and the same button, now «Restore», takes it back to its place
+ *   and size. The layout under it doesn't change, nor is it kept: any change of the windows (one
+ *   shown, moved, another focused, a phone's screen) restores it first.
  * - Phones (< 768 px): one window at a time filling the desk, a bar of tabs at the bottom
  *   (`.cw-tabs`, one per module) and a sideways swipe to the module beside it among the mounted
  *   ones; the desk only pans vertically (kit: windows.css), so the page never scrolls sideways.
@@ -40,6 +45,7 @@
  */
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
+import { icon } from './icons.js';
 
 /** Where the layouts are kept, by screen class (Cronum Work's own key: CONVENTIONS §9). */
 export const KEY = 'work.layout';
@@ -465,6 +471,7 @@ export function createWindows(desk, {
   const bars = [];
   let tabs = null;
   let tabsKey = '';
+  let maxed = null;               // the module whose window has the whole desk
   desk.setAttribute('data-screen', screen);
 
   const available = () => (typeof modules === 'function' ? modules() : modules) || [];
@@ -511,6 +518,59 @@ export function createWindows(desk, {
     if (!head.hasAttribute('tabindex')) head.setAttribute('tabindex', '0');
     head.setAttribute('aria-label', t('kit.windows.window', { name: nameOf(module) }));
     head.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown');
+    if (!head.querySelector('.cw-win__max')) head.append(el('button', { type: 'button', class: 'cw-win__max' }));
+    paintMax(module, node);
+  }
+
+  /** A head's button as its window is: «Maximize», or «Restore» with the window maximized. */
+  function paintMax(module, node) {
+    const button = node.querySelector?.('.cw-win__max');
+    const on = maxed === module;
+    node.toggleAttribute('data-max', on);
+    if (!button) return;
+    const text = t(on ? 'kit.windows.restore' : 'kit.windows.maximize');
+    button.setAttribute('aria-label', text);
+    button.setAttribute('title', text);
+    button.setAttribute('aria-pressed', String(on));
+    // Alone on the desk there is nothing to take the room of.
+    button.hidden = !on && shown.size < 2;
+    clear(button);
+    button.append(icon(on ? 'restore' : 'maximize'));
+  }
+
+  /** Every window's state as `maxed` says: the others step back and take no pointer or keys. */
+  function paintMaxed() {
+    desk.toggleAttribute('data-maxed', Boolean(maxed));
+    for (const [module, node] of nodes) {
+      paintMax(module, node);
+      if (shown.has(module)) node.inert = Boolean(maxed) && module !== maxed;
+    }
+  }
+
+  /**
+   * `module`'s window over the whole desk, or (null) the maximized one back to its place, sliding
+   * and growing there as on a trade of places. The module is paused while it moves, as while a bar
+   * resizes it, and drawn at its new size once there.
+   */
+  function maximize(module) {
+    const next = module && shown.has(module) && screen !== 'narrow' && shown.size > 1 ? module : null;
+    if (next === maxed) return;
+    gesture?.cancel();
+    const moving = next ?? maxed;
+    const node = nodes.get(moving);
+    const first = motion() && node ? new Map([[moving, node.getBoundingClientRect()]]) : null;
+    maxed = next;
+    paintMaxed();
+    if (next) focus(next);
+    if (!first) return;
+    // Going back it is still over the others until it is in its place.
+    node.style.zIndex = '6';
+    onPause(moving, true, { resizing: true });
+    flip(first, { duration: REFLOW_MS, easing: SPRING, paced: true });
+    win.setTimeout?.(() => {
+      node.style.zIndex = '';
+      onPause(moving, false, { resizing: true });
+    }, REFLOW_MS);
   }
 
   /** Puts every window where the layout says: grid placement only, nothing moves in the document. */
@@ -537,6 +597,9 @@ export function createWindows(desk, {
     drawBars(place.bars);
     drawTabs();
     evict();
+    // A change of the windows takes the maximized one back to its place first.
+    if (maxed && (!now.has(maxed) || screen === 'narrow' || now.size < 2)) maxed = null;
+    paintMaxed();
     if (save) {
       chosen = keep;
       writeLayout(storage, screen, keep);
@@ -704,6 +767,7 @@ export function createWindows(desk, {
 
   /** A new layout, the windows sliding from where they were (outside any gesture's loop); `keep` is what is kept. */
   function relayout(next, keep) {
+    if (maxed) maximize(null);
     const first = motion() ? boxes() : null;
     layout = normalizeLayout(next);
     apply({ keep: keep ?? layout });
@@ -726,7 +790,7 @@ export function createWindows(desk, {
    * for any `.cw-win__head` (the shell may call it too: a second call for the same press is ignored).
    */
   function grab(ev, node) {
-    if (gesture || screen === 'narrow' || ev.button || ev.isPrimary === false) return;
+    if (gesture || maxed || screen === 'narrow' || ev.button || ev.isPrimary === false) return;
     if (ev.target?.closest?.(CONTROLS)) return;
     const module = node?.getAttribute?.('data-win');
     if (!module || !shown.has(module) || shown.size < 2) return;
@@ -1173,9 +1237,15 @@ export function createWindows(desk, {
   desk.addEventListener('dblclick', (ev) => {
     const bar = ev.target?.closest?.('.cw-bar');
     const span = bar && bars.includes(bar) && !gesture ? spanOf(bar) : null;
-    if (span) relayout(span.even());
+    if (span) { relayout(span.even()); return; }
+    const head = ev.target?.closest?.('.cw-win__head');
+    const module = head && !ev.target.closest(CONTROLS) && moduleAt(head);
+    if (module && !gesture) maximize(maxed === module ? null : module);
   }, { signal });
   desk.addEventListener('click', (ev) => {
+    const max = ev.target?.closest?.('.cw-win__max');
+    const module = max && moduleAt(max);
+    if (module) { maximize(maxed === module ? null : module); return; }
     const tab = ev.target?.closest?.('.cw-tabs__tab');
     if (tab && tabs?.contains(tab)) show(tab.getAttribute('data-tab'));
   }, { signal });
@@ -1257,6 +1327,8 @@ export function createWindows(desk, {
     if (!module) return;
     if (shown.has(module)) { focus(module); return; }
     gesture?.cancel();
+    // It comes in under the maximized window: that one goes back to its place for it to be seen.
+    if (maxed) maximize(null);
     let next;
     if (screen === 'narrow' || !layout.cols.length) {
       next = { cols: [{ w: 1, wins: [module] }], focus: module };
@@ -1274,6 +1346,8 @@ export function createWindows(desk, {
   /** The window that has the keyboard (`ctx.active()`); one that doesn't show is shown. */
   function focus(module) {
     if (!shown.has(module)) { show(module); return; }
+    // Another window wanted (a link opened in it): the maximized one goes back to its place.
+    if (maxed && module !== maxed) maximize(null);
     recent = lruTouch(recent, module);
     if (layout.focus === module) return;
     layout = { ...layout, focus: module };
@@ -1310,6 +1384,8 @@ export function createWindows(desk, {
     get screen() { return screen; },
     /** The mounted modules, the last used first (the shell's choice of a window to reuse). */
     get recent() { return [...recent]; },
-    set, restore, columns, show, focus, grab, relabel, destroy,
+    /** The module whose window has the whole desk, or null. */
+    get maximized() { return maxed; },
+    set, restore, columns, show, focus, grab, maximize, relabel, destroy,
   };
 }

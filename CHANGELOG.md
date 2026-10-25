@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.170.0 — 2026-10-25
+
+- **A window maximizes over the whole desk, and comes back to its place** (`windows.js`, Martin):
+  a button at the end of each head, or a double click on the head, gives its window the desk over
+  the others, which fade out; it slides and grows there as windows do when they trade places
+  (420 ms, paced on our own clock), and the same button, now «Restaurar», takes it back to its place
+  and size. The layout under it isn't changed or kept; showing another window, moving, focusing
+  another or a phone's screen restores it first. `windows.maximize(module | null)` and
+  `windows.maximized`; new icons `maximize` and `restore`.
+
 ## 0.169.1 — 2026-10-25
 
 - **In Work's shell the button that folds the sidebar shares the search's line** (Martin: on a computer

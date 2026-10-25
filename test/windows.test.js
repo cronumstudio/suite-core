@@ -749,3 +749,50 @@ test('destroy: every listener off, the bars and tabs gone, the windows left to t
   assert.equal(made.get('notes').parentNode, desk, 'the windows are the shell’s');
   assert.equal(made.get('notes').style.transform, '');
 });
+
+test('maximize: a head’s button gives its window the whole desk and turns «Restore»; the layout stays, any change restores', () => {
+  const { desk, made, windows, head, press } = setup();
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
+  const button = (m) => head(m).querySelector('.cw-win__max');
+  assert.equal(button('notes').getAttribute('aria-label'), 'kit.windows.maximize');
+  assert.equal(button('notes').hidden, false);
+
+  desk.dispatch('click', { target: button('next') });
+  assert.equal(windows.maximized, 'next');
+  assert.equal(windows.layout.focus, 'next', 'and focused');
+  assert.ok(desk.hasAttribute('data-maxed'));
+  assert.ok(made.get('next').hasAttribute('data-max'));
+  assert.equal(made.get('notes').inert, true, 'the other takes no pointer or keys');
+  assert.equal(button('next').getAttribute('aria-label'), 'kit.windows.restore');
+  assert.equal(button('next').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes'], ['next']], 'the layout under it doesn’t change');
+
+  // Its head picks nothing up while it has the whole desk.
+  press(head('next'), 900, 60);
+  desk.dispatch('pointermove', { clientX: 300, clientY: 60, pointerId: 1 });
+  assert.equal(desk.hasAttribute('data-reordering'), false);
+
+  desk.dispatch('click', { target: button('next') });
+  assert.equal(windows.maximized, null);
+  assert.equal(made.get('notes').inert, false);
+  assert.equal(made.get('next').hasAttribute('data-max'), false);
+
+  // A double click on the head does the same; another window wanted (a link) restores it.
+  desk.dispatch('dblclick', { target: head('notes') });
+  assert.equal(windows.maximized, 'notes');
+  windows.focus('next');
+  assert.equal(windows.maximized, null);
+  desk.dispatch('dblclick', { target: head('notes') });
+  windows.show('tasks', { instead: 'next' });
+  assert.equal(windows.maximized, null, 'a change of the windows restores it');
+  windows.destroy();
+});
+
+test('maximize: alone on the desk, or on a phone, there is nothing to maximize', () => {
+  const { desk, windows, head } = setup();
+  windows.set({ cols: [{ wins: ['notes'] }] });
+  assert.equal(head('notes').querySelector('.cw-win__max').hidden, true);
+  desk.dispatch('click', { target: head('notes').querySelector('.cw-win__max') });
+  assert.equal(windows.maximized, null);
+  windows.destroy();
+});
