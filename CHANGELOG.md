@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.169.0 — 2026-10-25
+
+- **A module's search at the top of its sidebar, the same in every module** (`createShell({ search })`,
+  Martin: Tasks had its own there, with narrow, uneven margins; Notes its own above the notes; Projects
+  and Next none). `search: { label, placeholder?, onInput(text), onSubmit?(text) }` draws it as the
+  sidebar's first line (`.kit-side__search`), 12px from its top and its sides; Escape empties it,
+  Enter closes the phone's drawer so the results show; `shell.search` is the field. Its box alone
+  shows the focus.
+- **On a phone the floating button alone creates**: the sidebar's own button (`create`, «Nota nueva»)
+  is shown only where the sidebar sits beside the views, where the floating one is gone.
+- **A phone's tab in use is marked** (`windows.css`, Martin: pressing one, nothing showed which): its
+  icon sits on a pill and its name in the text's colour; the others' icons and names step back.
+
 ## 0.168.0 — 2026-10-25
 
 - **A phone's tabs have room above their icons** (`windows.css`, Martin on the iPhone): 12px between
