@@ -125,7 +125,8 @@ export async function shareDialog({
         const under = lineUnder(share);
         list.append(el('div', { class: 'kit-list__row' }, avatar(share.user),
           el('span', { class: 'kit-list__text' },
-            el('span', { text: share.user.id != null && share.user.id === me ? w('you', { name: share.user.name }) : share.user.name }),
+            // The whole name in its title: on a phone it keeps one line, cut with "…" (kit.css).
+            el('span', { class: 'kit-share__name', title: share.user.name, text: share.user.id != null && share.user.id === me ? w('you', { name: share.user.name }) : share.user.name }),
             under ? el('small', { text: under }) : null,
             owner && !share.accepted ? el('small', { class: 'kit-share__pending', text: w('pending') }) : null),
           owner ? permission : null,

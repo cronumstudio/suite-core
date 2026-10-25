@@ -921,6 +921,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* On a phone, what someone may do and the button to take it back go under their name. */
 .kit-share__people .kit-list__row { flex-wrap: wrap; gap: 8px 10px; }
 .kit-share__people .kit-list__text { flex: 1 1 150px; }
+/* A name never breaks mid-word ("Martíne / z" at 320 px, Tasks 1.x): one line, cut with "…", all of it in its title. */
+.kit-share__name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
 .kit-share__pending { color: var(--kit-warn) !important; }
 .kit-share__permission { width: auto; margin-inline-start: auto; min-height: 34px; padding-block: 4px; font-size: var(--look-subhead, 13.5px); }
 /* A touch screen's field text is never under 16px: below that the iPhone zooms the page in. */
