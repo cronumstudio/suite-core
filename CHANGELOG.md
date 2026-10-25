@@ -15,6 +15,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   replaces the `Offline` (Tasks' queue draws a change made without signal as done). `api.request`
   takes every option and `api.with(options)` gives the same client with them on every call.
   Without options every call behaves as before.
+
 ## 0.160.0 — 2026-10-25
 
 - **A module in a window of Work's shell fits the iPhone** (Martin's screenshots of Work installed):
