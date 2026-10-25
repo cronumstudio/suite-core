@@ -30,6 +30,18 @@ change an interface and a patch never does. Apps pin a version through the submo
   kit.css (`.kit-share*`), and the worker keeps the file.
 - Nothing changes for an app that doesn't call them.
 
+## 0.162.0 — 2026-10-25
+
+- **A tab's live channel ends with the session it was opened with** (`live.js` `stillIn`,
+  `recheck`; `sessions.stillOpen`, `sessions.whenClosed`). Until now `/api/events` (and the host's
+  `/api/events?all`) checked the session only when it opened and then stayed open for good: after
+  signing out, a session closed from the list, the account disabled or deleted, a tab opened with
+  that cookie (a stolen one, say) kept hearing the account's activity. Now a session closed here
+  closes its channels at once, with the `account` notice first, as "out everywhere" already did;
+  signing out closes only that browser's. Every heartbeat asks again for each channel, which also
+  ends the ones whose session expired or whose device went; asking doesn't use the session, so an
+  open tab doesn't keep it alive. A deleted account's channels close as it goes.
+
 ## 0.161.0 — 2026-10-25
 
 - **Deleting one's account leaves nothing of it on the device** (`settings.js`, `signin.js`

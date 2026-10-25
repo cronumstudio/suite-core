@@ -564,7 +564,10 @@ export async function createHost({
     migrate(suite.database, ownMigrations, { scope: app.id, log });
     // Its own notices: another module's open tabs don't reload for them. An
     // account that changed is everyone's.
-    const live = createLive();
+    // Its tabs' channels last while the host's sessions they were opened with do (live.js stillIn).
+    const live = createLive({ stillIn: (userId, token) => suite.sessions.stillOpen(token) === userId });
+    suite.sessions.whenClosed((id) => live.recheck(id));
+    suite.accounts.whenRemoved((id) => live.dropUser(id, { last: { event: 'account', data: { user_id: id } } }));
     suite.accounts.whenChanged((id) => live.publish({ audience: [id], event: 'account', data: { user_id: id } }));
     // Someone revoked (a new password, the admin's sign-out everywhere): their tabs of this module close too.
     suite.whenRevoked?.((id, { keep }) => live.dropUser(id, {

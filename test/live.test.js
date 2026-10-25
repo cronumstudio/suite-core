@@ -160,6 +160,102 @@ test('dropUser closes a person’s tabs but the kept session’s, telling them f
   assert.equal(live.connected(), 1);
 });
 
+test('a channel ends with its session: asked at every heartbeat, and at once by recheck()', async () => {
+  const open = new Set(['ada-laptop', 'ada-phone', 'bob']);
+  const live = createLive({ heartbeatMs: 20, stillIn: (userId, token) => open.has(token) });
+  const laptop = tab(1);
+  const phone = tab(1);
+  const bob = tab(2);
+  const sessionless = tab(1);
+  live.subscribe(laptop.req, laptop.res, laptop.user, { sessionToken: 'ada-laptop' });
+  live.subscribe(phone.req, phone.res, phone.user, { sessionToken: 'ada-phone' });
+  live.subscribe(bob.req, bob.res, bob.user, { sessionToken: 'bob' });
+  live.subscribe(sessionless.req, sessionless.res, sessionless.user);
+
+  // Signed out on the laptop: recheck(ada) closes that tab alone, with the account's notice.
+  open.delete('ada-laptop');
+  assert.equal(live.recheck(1), 1);
+  assert.equal(laptop.res.ended, true);
+  assert.deepEqual(eventsOf(laptop.res).at(-1), { id: null, event: 'account', data: { user_id: 1 } });
+  assert.equal(phone.res.ended, false);
+  live.publish({ audience: [1], data: { list_id: 4 } });
+  assert.equal(eventsOf(laptop.res).filter((e) => e.event === 'change').length, 0, 'nothing more reaches it');
+
+  // A session that ends without anyone saying so (it expired, a device gone): the heartbeat finds it.
+  open.delete('bob');
+  await new Promise((resolve) => { setTimeout(resolve, 80); });
+  assert.equal(bob.res.ended, true);
+  assert.equal(phone.res.ended, false);
+  assert.equal(sessionless.res.ended, false, 'a channel opened without a session isn’t asked');
+  live.close();
+});
+
+test('a channel ends with its session in the one channel for every module too', () => {
+  const open = new Set(['kept', 'gone']);
+  const stillIn = (userId, token) => open.has(token);
+  const notes = createLive({ stillIn });
+  const next = createLive({ stillIn });
+  const kept = tab(3);
+  const gone = tab(3);
+  subscribeAll([['notes', notes], ['next', next]], kept.req, kept.res, kept.user, { sessionToken: 'kept' });
+  subscribeAll([['notes', notes], ['next', next]], gone.req, gone.res, gone.user, { sessionToken: 'gone' });
+  open.delete('gone');
+  assert.equal(next.recheck(3), 1);
+  assert.equal(gone.res.ended, true, 'one module that finds it gone ends the stream');
+  assert.match(gone.res.text, /"module":"next","event":"account","data":\{"user_id":3\}/);
+  assert.equal(notes.connected(), 1, 'every module lets go of it');
+  assert.equal(kept.res.ended, false);
+  notes.close();
+  next.close();
+});
+
+test('signing out, a session closed from the list, out everywhere and a deleted account end their tabs', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-live-'));
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { live: true }, accounts: { minPasswordLength: 8 } },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', SECURE_COOKIES: 'false', ADMIN_PASSWORD: 'root-password' },
+    log: () => {}, exitOnError: false,
+  });
+  t.after(() => { suite.live.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const ada = suite.accounts.create({ username: 'ada', password: 'ada-password' });
+  const bob = suite.accounts.create({ username: 'bob', password: 'bob-password' });
+  const browser = (user) => {
+    const sessionToken = suite.sessions.open(user.id);
+    const t = tab(user.id);
+    suite.live.subscribe(t.req, t.res, t.user, { sessionToken });
+    return { ...t, sessionToken };
+  };
+  const ended = (...tabs) => tabs.map((each) => each.res.ended);
+
+  // Signing out (POST /api/auth/logout closes its session): that browser's tab, no other.
+  const laptop = browser(ada);
+  const phone = browser(ada);
+  const tablet = browser(ada);
+  const bobs = browser(bob);
+  suite.sessions.close(laptop.sessionToken);
+  assert.deepEqual(ended(laptop, phone, tablet, bobs), [true, false, false, false]);
+  assert.deepEqual(eventsOf(laptop.res).at(-1), { id: null, event: 'account', data: { user_id: ada.id } });
+
+  // One session closed from the list (DELETE /api/me/sessions/:key).
+  const key = suite.sessions.list(ada.id, tablet.sessionToken).find((s) => !s.current).key;
+  assert.equal(suite.sessions.revoke(ada.id, key), true);
+  assert.deepEqual(ended(phone, tablet), [true, false]);
+
+  // Out everywhere but here (a new password, revoke.js): every other tab of hers.
+  const desktop = browser(ada);
+  suite.revokeEverything(ada.id, { keep: { sessionToken: tablet.sessionToken }, reason: 'test' });
+  assert.deepEqual(ended(tablet, desktop, bobs), [false, true, false]);
+
+  // Her account disabled (asked to be deleted): all of them.
+  suite.accounts.update(ada.id, { disabled: true });
+  assert.deepEqual(ended(tablet, bobs), [true, false]);
+
+  // An account deleted for good.
+  suite.accounts.remove(bob.id);
+  assert.equal(bobs.res.ended, true);
+  assert.equal(suite.live.connected(), 0);
+});
+
 /** What one channel for every module told a tab, in order: { id, module, event, data }. */
 const messagesOf = (res) => res.text.split('\n\n').filter((block) => /^data: /m.test(block)).map((block) => ({
   id: /^id: (.+)$/m.exec(block)?.[1] ?? null,
