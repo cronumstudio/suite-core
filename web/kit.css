@@ -677,6 +677,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-side__search .kit-icon { width: 16px; height: 16px; flex: none; }
 /* The box shows the focus (:focus-within): a module's own input:focus ring would draw a second inside it. */
 .kit-side__search .kit-side__search-input:focus { box-shadow: none; outline: none; }
+/* In Work's shell, with a search (shell.js), the button that folds shares its line: no line of its own. */
+.kit-side__top { display: flex; align-items: center; gap: 4px; margin: 12px 12px 6px; }
+.kit-side__top .kit-side__search { flex: 1; min-width: 0; margin: 0; }
+.kit-side__top .kit-side__fold { margin-inline-end: -4px; }
 .kit-side__search-input {
   flex: 1; min-width: 0; padding: 9px 0; border: 0; background: none; outline: none; color: var(--kit-text);
   /* 16px or more: below it an iPhone zooms the page in on tapping it. */

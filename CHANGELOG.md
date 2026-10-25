@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.169.1 — 2026-10-25
+
+- **In Work's shell the button that folds the sidebar shares the search's line** (Martin: on a computer
+  it took a line of its own): with `createShell({ embedded: true, search })` the sidebar starts with one
+  line (`.kit-side__top`), the search and then the button. Without a search, or an app on its own, the
+  head is as before; in a phone's drawer the button is hidden as ever and the search takes the line.
+
 ## 0.169.0 — 2026-10-25
 
 - **A module's search at the top of its sidebar, the same in every module** (`createShell({ search })`,
