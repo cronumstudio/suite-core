@@ -19,6 +19,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   `listTools(principal)` and `instructionsFor(principal)` (what `tools/list` and `initialize`
   answer). `capResult` is exported; `host.js` exports `prefixNames`.
 - **"Unknown tool"** names the tools whose name ends in the one asked for.
+- **/admin › Activity** shows those lines as «Changed something from an assistant», with a filter «From an assistant».
 
 ## 0.188.0 — 2026-10-26
 

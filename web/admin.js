@@ -897,7 +897,7 @@ function paintDone(box, done) {
 /* ---------------------------------- audit ---------------------------------- */
 
 async function renderAudit(main) {
-  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'org.', 'billing.', 'data.'];
+  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'mcp.', 'org.', 'billing.', 'data.'];
   const filter = el('select', {}, prefixes.map((p) => el('option', { value: p, text: p ? t(`admin.audit.kinds.${p.slice(0, -1)}`) : t('admin.audit.all') })));
   const body = el('tbody', {});
   const more = el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.audit.more') });
