@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.181.0 — 2026-10-26
+
+- **The kit's `el()` takes what the apps' own copies took** (`dom.js`), so Tasks, Projects and Next
+  can drop theirs: `style` as an object (custom `--properties` through `setProperty`), `dataset` as
+  an object, and children in arrays nested at any depth (Tasks passes them in one array, sometimes
+  with arrays inside). New `svg()` makes SVG elements with the same props and children. A string
+  `style` is still an attribute, and every call that worked before builds the same node.
+- **`field()` can keep an app's own look** (`ui.js`): a fourth argument
+  `{ class, hintClass, hintTag, groupLabel }` names the wrapper's class and the hint's class and tag,
+  and `groupLabel: true` writes the label as a `<span>` when what it names is not something a
+  `<label>` can name (a palette of buttons), leaving its id alone. Without it, the field as before.
+
 ## 0.180.0 — 2026-10-26
 
 - **A swipe from the screen's start edge goes back in Settings, as its ← does** (Cronum core nº 12,
