@@ -19,6 +19,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   `listTools(principal)` and `instructionsFor(principal)` (what `tools/list` and `initialize`
   answer). `capResult` is exported; `host.js` exports `prefixNames`.
 - **"Unknown tool"** names the tools whose name ends in the one asked for.
+
 ## 0.188.0 — 2026-10-26
 
 - **Sharing, the same in every module** (`sharing.js`, audit A6). `createSharing({ db, kinds,
