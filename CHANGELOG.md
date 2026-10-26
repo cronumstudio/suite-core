@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.191.4 — 2026-10-26
+## 0.192.1 — 2026-10-26
 
 - **Cronum Work installs from its split view too** (Martin): installing it from an address like
   `/?w=tasks:…|notes:&f=notes`, Chrome said the page had no manifest, though it has one. Chrome
@@ -11,6 +11,21 @@ change an interface and a patch never does. Apps pin a version through the submo
   worker took it for a file: its fetch failed with no copy to give, and the error was the answer. A
   page asked for outside a navigation is now the browser's to fetch, as without a worker;
   navigations are still network first with the copy offline, and files are as they were.
+
+## 0.192.0 — 2026-10-26
+
+- **One test kit for every app** (`tools/test-kit.mjs`, audit tests-4 / A18): the helpers each
+  module's smoke test and Work's tests had their own copy of, drifting apart, are the suite's:
+  `createHarness()` (`check`, `section`, `started`, `fail`, the report written in one go with the
+  failures repeated last, `assertPassed()` under `node --test`), `client()` (its session cookie,
+  JSON, and a 15 s deadline per request that names the request that hung), `mcp()`/`rpc()`,
+  `freePorts()`/`freePort()`, `waitForHealth()`, `startServer()`/`startApp()` (a temporary
+  DATA_DIR, a port of its own, the log, `stop()` that waits for the process to go), `liveChannel()`/
+  `liveNotice()`, and the fakes: `fakeServer()`, `fakeWorkos()` (AuthKit with PKCE and a whole
+  sign-in round trip), `fakePaddle()`, and the RevenueCat and DOM fakes of the suite's own tests.
+  A section's title and each ✗ go to stderr as they happen, so a run that hangs says where.
+- **Without `i18nDir`** (`createApp`, and a module's parts in the host): no app or module kept its
+  catalogs outside `public/i18n`, so the option and its fingerprint in the host are gone.
 
 ## 0.191.3 — 2026-10-26
 
