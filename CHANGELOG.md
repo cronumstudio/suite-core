@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.192.3 — 2026-10-26
+
+- **Folds move so it shows** (Martin: «no veo que se abran de forma fluida»): the slide lasts
+  320 ms on an even curve (it used to cover two thirds of the way in the first 45 ms, which read
+  as instant), and what a fold holds fades in and out with it. Where the person asks for less
+  motion a fold no longer jumps: what it holds fades in or out in 160 ms, without sliding. The
+  chevrons turn in the same time.
+
 ## 0.192.2 — 2026-10-26
 
 - **About shows Cronum Work's version again, from every module** (Martin): a module mounted in a
