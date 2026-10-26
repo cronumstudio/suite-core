@@ -2085,7 +2085,7 @@ test('a frame drawn again passes a tap at the screen’s edge on once, not once 
   }
 });
 
-test('a swipe from the start edge over Settings goes back as its ←: from a section to the list, then out (Cronum core nº 12)', async () => {
+test('a swipe from the start edge over Settings follows the finger and goes back as its ←: from a section to the list, then out (Cronum core nº 12)', async () => {
   const { page, restore } = await framePage();
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
@@ -2101,37 +2101,93 @@ test('a swipe from the start edge over Settings goes back as its ←: from a sec
     const overlay = page.body.all().find((node) => node.className === 'kit-settings-page');
     const grid = overlay.all().find((node) => node.className === 'kit-settings');
     const under = overlay.all().find((node) => node.className === 'kit-settings__list');
-    /** A finger from the start edge, `by` px to the end, over what it lands on. */
-    const swipe = (target, from = 5, by = 60) => {
+    const section = overlay.all().find((node) => node.className === 'kit-settings__page');
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+    /** A finger from `from`, `by` px to the end in steps `ms` apart; `lift: false` keeps it down. */
+    const swipe = async (target, { from = 5, by = 150, ms = 16, lift = true } = {}) => {
       let prevented = 0;
       const preventDefault = () => { prevented += 1; };
+      let time = 1000;
       page.dispatch('touchstart', { touches: [{ clientX: from, clientY: 300 }], target, preventDefault });
-      page.dispatch('touchmove', { touches: [{ clientX: from + by, clientY: 302 }], target, preventDefault });
-      page.dispatch('touchend', { touches: [], target });
+      for (let x = 10; x <= by; x += 10) {
+        time += ms;
+        page.dispatch('touchmove', { touches: [{ clientX: from + x, clientY: 301 }], target, preventDefault, timeStamp: time });
+      }
+      if (lift) page.dispatch('touchend', { touches: [], target });
       return prevented;
     };
     const opened = () => shell.element.hasAttribute('data-drawer');
 
     settings.show('profile');
     assert.ok(grid.hasAttribute('data-open'), 'a section open, on a phone its own screen');
-    assert.ok(swipe(under) >= 1, 'taken from Safari');
+    assert.ok(await swipe(under, { lift: false }) >= 1, 'taken from Safari');
+    assert.match(section.style.transform, /translateX\(150px\)/, 'the section where the finger is');
+    assert.ok(grid.hasAttribute('data-swipe'), 'with the list beneath it');
+    assert.ok(grid.hasAttribute('data-open'), 'not gone back yet');
+    page.dispatch('touchend', { touches: [], target: under });
+    await settle();
     assert.ok(!grid.hasAttribute('data-open'), 'back to the list');
+    assert.ok(!grid.hasAttribute('data-swipe'));
+    assert.equal(section.style.transform, '', 'nothing left drawn by hand');
     assert.ok(overlay.parentNode, 'Settings still open');
     assert.equal(opened(), false, 'the drawer under it stays closed');
 
-    swipe(under, 200);
+    // A little, slowly: it comes back.
+    settings.show('profile');
+    await swipe(under, { by: 40, ms: 200 });
+    await settle();
+    assert.ok(grid.hasAttribute('data-open'), 'not far nor fast enough: the section stays');
+    // The same little, fast: a flick goes.
+    await swipe(under, { by: 40, ms: 8 });
+    await settle();
+    assert.ok(!grid.hasAttribute('data-open'), 'a flick goes back');
+
+    await swipe(under, { from: 200 });
+    await settle();
     assert.ok(overlay.parentNode, 'away from the edge, nothing');
-    swipe(under);
+    await swipe(under, { lift: false });
+    assert.match(overlay.style.transform, /translateX\(150px\)/, 'from the list, Settings themselves slide away');
+    page.dispatch('touchend', { touches: [], target: under });
+    await settle();
     assert.equal(overlay.parentNode, null, 'out of Settings');
     assert.equal(closed, 1);
 
     // Closed, it holds the edge no more.
     const row = shell.list.appendChild(page.createElement('div'));
-    swipe(row);
+    await swipe(row);
+    await settle();
     assert.equal(closed, 1);
     shell.destroy();
   } finally {
     globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('going back from a phone’s detail, the detail follows the finger over its list', async () => {
+  const { page, restore } = await framePage();
+  const realStyle = globalThis.getComputedStyle;
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const shell = createShell(frameOptions());
+    shell.detail.append(shell.head({ pane: 'detail', title: 'Task' }).element);
+    const inside = shell.detail.appendChild(page.createElement('p'));
+    shell.showDetail();
+    // On a phone the list is hidden behind the detail (kit.css).
+    globalThis.getComputedStyle = (node) => ({ ...realStyle(node), display: node === shell.list ? 'none' : 'block' });
+    page.dispatch('touchstart', { touches: [{ clientX: 5, clientY: 300 }], target: inside, preventDefault: () => {} });
+    for (let x = 10; x <= 150; x += 10) page.dispatch('touchmove', { touches: [{ clientX: 5 + x, clientY: 300 }], target: inside, preventDefault: () => {}, timeStamp: 1000 + x });
+    assert.ok(shell.element.hasAttribute('data-back-swipe'), 'the list drawn beneath');
+    assert.match(shell.detail.style.transform, /translateX\(150px\)/);
+    assert.equal(shell.screen, 'detail');
+    page.dispatch('touchend', { touches: [], target: inside });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(shell.screen, 'list');
+    assert.ok(!shell.element.hasAttribute('data-back-swipe'));
+    assert.equal(shell.detail.style.transform, '');
+    shell.destroy();
+  } finally {
+    globalThis.getComputedStyle = realStyle;
     restore();
   }
 });

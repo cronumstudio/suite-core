@@ -655,6 +655,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-app:not([data-screen="detail"]) .kit-pane--detail,
 .kit-app[data-panes="single"] .kit-pane--detail { display: none; }
 .kit-app[data-panes="single"] .kit-pane--list { display: block; }
+/* Going back from a phone's detail with a finger (shell.js): the list beneath, the detail over it. */
+.kit-app[data-back-swipe] .kit-pane--list { display: block; }
+.kit-app[data-back-swipe] .kit-pane--detail { position: relative; z-index: 1; }
 
 /* The sidebar, a drawer on a phone. */
 .kit-side {
@@ -1102,6 +1105,11 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings__page { padding: 20px 18px 40px; display: none; }
 .kit-settings[data-open] .kit-settings__list { display: none; }
 .kit-settings[data-open] .kit-settings__page { display: block; }
+/* A section going back with a finger (settings.js): the list beneath it, where the page had scrolled to. */
+/* Clipped, or the section slid aside would scroll the page sideways. */
+.kit-settings[data-swipe] { overflow: clip; }
+.kit-settings[data-swipe] .kit-settings__list { display: grid; position: absolute; inset-inline: 0; z-index: 0; }
+.kit-settings[data-swipe] .kit-settings__page { position: relative; z-index: 1; background: var(--kit-bg); }
 /* On a phone the bar already names the open section. */
 @container kit-settings (max-width: 719px) {
   .kit-settings__page h2:first-child { display: none; }
