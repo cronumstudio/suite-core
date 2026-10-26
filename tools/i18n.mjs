@@ -2,12 +2,14 @@
  * Catalog checks, for the suite's own texts and for each app's (taken from
  * Focus's tools/i18n.mjs):
  *
- *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]…  all of the below for an app, as its tests run them
+ *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]… [--kit-words]
+ *                                                            all of the below for an app, as its tests run them
  *   node server/suite/tools/i18n.mjs parity [dir]            every language says the same things
  *   node server/suite/tools/i18n.mjs used <dir> <src>…       every key the code uses exists
  *   node server/suite/tools/i18n.mjs hardcoded <src>…        no text for people written in the code
  *   node server/suite/tools/i18n.mjs hardcoded --server [--skip <file>]… <src>…
  *                                                            no text in another language on the server
+ *   node server/suite/tools/i18n.mjs kit-words <dir>         no key repeats a word of the kit (kitDuplicates)
  *
  * An app's catalogs (`<dir>/<lang>.json`, nested or dotted) are checked merged
  * over the suite's, which is what its browser gets from /i18n/<lang>.json.
@@ -390,6 +392,53 @@ export function hardcodedTexts(dirs, { allow = [], skip = [], server = false } =
   return found;
 }
 
+/* ------------------------------ the kit's words ----------------------------- */
+
+/** A suite key any app may use for the same thing: a word of the kit's own (`kit.cancel`) or a field's name (`fields.name`). */
+const SHARED_WORD = /^(?:kit|fields)\.[^.]+$/;
+
+/**
+ * An app's keys that the suite already says, word for word in every language:
+ * one that repeats a suite key with the suite's own texts (it overrides
+ * nothing), and one whose texts are those of a shared word of the kit
+ * (SHARED_WORD), which the app's code can use instead. A key of a deeper kit
+ * group (`kit.links.undo`) is not counted: the same word there belongs to
+ * another feature. An app's key that says something else under a suite key is
+ * an override and is left alone, and so is an app's own key in the suite's
+ * groups (`fields.start_date`), which the code finds by the server's name.
+ * `dir` is the app's public/i18n.
+ * → ['common.cancel: say kit.cancel', …]
+ */
+export function kitDuplicates(dir, languages = LANGUAGES) {
+  const own = {};
+  for (const lang of languages) {
+    try {
+      own[lang] = flatten(JSON.parse(readFileSync(path.join(dir, `${lang}.json`), 'utf8')));
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw new Error(`${lang}.json: ${err.message}`);
+    }
+  }
+  const spoken = languages.filter((lang) => own[lang]);
+  const suite = SUITE_CATALOGS.en || {};
+  const same = (key, suiteKey) => spoken.every((lang) =>
+    JSON.stringify(own[lang][key]) === JSON.stringify((SUITE_CATALOGS[lang] || {})[suiteKey]));
+  // The shortest first: `fields.name` before `fields.display_name`, which says the same.
+  const words = Object.keys(suite).filter((key) => SHARED_WORD.test(key)).sort((a, b) => a.length - b.length);
+  const found = [];
+  for (const key of Object.keys(own.en || {})) {
+    if (key in suite) {
+      if (same(key, key)) found.push(`${key}: the suite's own text in every language, nothing to override`);
+      continue;
+    }
+    // The suite's own groups (errors.<code>, fields.<name>) are looked up by the name the server
+    // gives, so an app's key there stays even when it reads like another one.
+    if (/^(?:kit|errors|fields)\./.test(key)) continue;
+    const word = words.find((suiteKey) => same(key, suiteKey));
+    if (word) found.push(`${key}: say ${word}, the same in every language`);
+  }
+  return found;
+}
+
 /* -------------------------------- an app's -------------------------------- */
 
 /**
@@ -398,9 +447,11 @@ export function hardcodedTexts(dirs, { allow = [], skip = [], server = false } =
  * keys its browser and server use, and no text written in its browser's code
  * or HTML, nor in another language on its server. `skip` leaves out data files
  * (seeds in every language); others' code under a `vendor` folder is never read.
+ * With `kitWords`, one more: no key of its own says what a word of the kit
+ * already says (kitDuplicates).
  * → [{ name, problems }], for the app's tests to turn into checks.
  */
-export function appChecks(root, { skip = [], allow = [] } = {}) {
+export function appChecks(root, { skip = [], allow = [], kitWords = false } = {}) {
   const dir = path.join(root, 'public', 'i18n');
   const publicDir = path.join(root, 'public');
   const serverDir = path.join(root, 'server');
@@ -420,6 +471,7 @@ export function appChecks(root, { skip = [], allow = [] } = {}) {
     { name: 'Every key the browser and the server use (t(), data-i18n, data-i18n-attr) is in the catalogs', problems: unknownKeys(catalogs.en, [publicDir, serverDir]) },
     { name: 'No text for people is written in the browser’s code or in the HTML', problems: hardcodedTexts([publicDir], { allow, skip }) },
     { name: 'Nothing on the server is written in another language: what people read comes from the catalogs', problems: hardcodedTexts([serverDir], { server: true, allow, skip }) },
+    ...(kitWords ? [{ name: 'No key of the app repeats what a word of the kit already says (kit.cancel, fields.name…)', problems: kitDuplicates(dir, languages) }] : []),
   ];
 }
 
@@ -431,11 +483,13 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     if (command === 'app') {
       const skip = [];
       let root = '.';
+      let kitWords = false;
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--skip') skip.push(args[++i]);
+        else if (args[i] === '--kit-words') kitWords = true;
         else root = args[i];
       }
-      const checks = appChecks(path.resolve(root), { skip });
+      const checks = appChecks(path.resolve(root), { skip, kitWords });
       for (const { name, problems: found } of checks) {
         console.log(`${found.length ? '✗' : '✓'} ${name}`);
         for (const problem of found.slice(0, 20)) console.log(`    ${problem}`);
@@ -452,11 +506,14 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
         else folders.push(path.resolve(args[i]));
       }
       problems = hardcodedTexts(folders, options).map((f) => `written in the code: ${f}`);
+    } else if (command === 'kit-words') {
+      problems = dir ? kitDuplicates(path.resolve(dir)) : ['Use: kit-words <dir>'];
+      if (!problems.length) console.log('No key repeats a word of the kit');
     } else {
       const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
       problems = command === 'parity' ? parity(catalogs)
         : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-          : [`Use: app [root] [--skip <file>]… | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…>`];
+          : [`Use: app [root] [--skip <file>]… [--kit-words] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir>`];
       if (!problems.length) {
         console.log(command === 'parity'
           ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`
