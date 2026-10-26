@@ -636,12 +636,14 @@
   "kit.account.signOut": "Se déconnecter",
   "kit.update.available": "Une nouvelle version est disponible.",
   "kit.twoFactor.title": "Validation en deux étapes",
-  "kit.twoFactor.off": "Désactivée. En plus du mot de passe, la connexion peut demander un code d’une application sur votre téléphone (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…) : qui découvre votre mot de passe ne pourra toujours pas entrer.",
+  "kit.twoFactor.statusOn": "Activée",
+  "kit.twoFactor.statusOff": "Désactivée",
+  "kit.twoFactor.off": "En plus du mot de passe, la connexion peut demander un code d’une application sur votre téléphone (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…) : qui découvre votre mot de passe ne pourra toujours pas entrer.",
   "kit.twoFactor.setUp": "La configurer",
   "kit.twoFactor.on": {
-    "=0": "Activée : la connexion demande le code de votre application. Il ne vous reste aucun code de secours : créez-en d’autres.",
-    "one": "Activée : la connexion demande le code de votre application. Il vous reste un code de secours.",
-    "other": "Activée : la connexion demande le code de votre application. Il vous reste {n} codes de secours."
+    "=0": "La connexion demande le code de votre application. Il ne vous reste aucun code de secours : créez-en d’autres.",
+    "one": "La connexion demande le code de votre application. Il vous reste un code de secours.",
+    "other": "La connexion demande le code de votre application. Il vous reste {n} codes de secours."
   },
   "kit.twoFactor.newCodes": "Nouveaux codes de secours",
   "kit.twoFactor.turnOff": "Désactiver",
@@ -664,7 +666,7 @@
   "kit.twoFactor.codeOrRecovery": "Code de l’application, ou code de secours",
   "kit.twoFactor.offNow": "La validation en deux étapes est désactivée.",
   "kit.twoFactor.newCodesDone": "Nouveaux codes de secours. Les précédents ne fonctionnent plus.",
-  "kit.twoFactor.onNoCodes": "Activée : à la connexion, après le mot de passe, un code de votre application d’authentification vous est demandé. Si vous perdez votre téléphone, écrivez au support de {app} : il peut la désactiver pour que vous puissiez revenir.",
+  "kit.twoFactor.onNoCodes": "À la connexion, après le mot de passe, un code de votre application d’authentification vous est demandé. Si vous perdez votre téléphone, écrivez au support de {app} : il peut la désactiver pour que vous puissiez revenir.",
   "kit.twoFactor.noCodesHint": "Il n’y a pas de codes de récupération : si vous perdez votre téléphone, écrivez au support de {app} pour la faire désactiver.",
   "kit.twoFactor.offAskNoCodes": "Pour la désactiver : votre mot de passe et un code de votre application.",
   "kit.twoFactor.code": "Code de l’application",

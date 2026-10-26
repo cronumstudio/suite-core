@@ -636,12 +636,14 @@
   "kit.account.signOut": "Cerrar sesión",
   "kit.update.available": "Hay una versión nueva de la aplicación.",
   "kit.twoFactor.title": "Verificación en dos pasos",
-  "kit.twoFactor.off": "Desactivada. Además de la contraseña, al entrar se puede pedir un código de una aplicación del móvil (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…): quien averigüe tu contraseña seguirá sin poder entrar.",
+  "kit.twoFactor.statusOn": "Activada",
+  "kit.twoFactor.statusOff": "Desactivada",
+  "kit.twoFactor.off": "Además de la contraseña, al entrar se puede pedir un código de una aplicación del móvil (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…): quien averigüe tu contraseña seguirá sin poder entrar.",
   "kit.twoFactor.setUp": "Configurarla",
   "kit.twoFactor.on": {
-    "=0": "Activada: al entrar se pide el código de tu aplicación. No te quedan códigos de recuperación: genera otros.",
-    "one": "Activada: al entrar se pide el código de tu aplicación. Te queda un código de recuperación.",
-    "other": "Activada: al entrar se pide el código de tu aplicación. Te quedan {n} códigos de recuperación."
+    "=0": "Al entrar se pide el código de tu aplicación. No te quedan códigos de recuperación: genera otros.",
+    "one": "Al entrar se pide el código de tu aplicación. Te queda un código de recuperación.",
+    "other": "Al entrar se pide el código de tu aplicación. Te quedan {n} códigos de recuperación."
   },
   "kit.twoFactor.newCodes": "Códigos de recuperación nuevos",
   "kit.twoFactor.turnOff": "Desactivar",
@@ -664,7 +666,7 @@
   "kit.twoFactor.codeOrRecovery": "Código de la aplicación, o uno de recuperación",
   "kit.twoFactor.offNow": "La verificación en dos pasos está desactivada.",
   "kit.twoFactor.newCodesDone": "Códigos de recuperación nuevos. Los anteriores ya no sirven.",
-  "kit.twoFactor.onNoCodes": "Activada: al entrar, después de la contraseña, se te pide un código de tu aplicación de autenticación. Si pierdes el móvil, escribe al soporte de {app}: pueden quitártela para que vuelvas a entrar.",
+  "kit.twoFactor.onNoCodes": "Al entrar, después de la contraseña, se te pide un código de tu aplicación de autenticación. Si pierdes el móvil, escribe al soporte de {app}: pueden quitártela para que vuelvas a entrar.",
   "kit.twoFactor.noCodesHint": "No hay códigos de recuperación: si pierdes el móvil, escribe al soporte de {app} para que te la quiten.",
   "kit.twoFactor.offAskNoCodes": "Para desactivarla: tu contraseña y un código de tu aplicación.",
   "kit.twoFactor.code": "Código de la aplicación",

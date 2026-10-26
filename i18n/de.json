@@ -636,12 +636,14 @@
   "kit.account.signOut": "Abmelden",
   "kit.update.available": "Eine neue Version ist verfügbar.",
   "kit.twoFactor.title": "Bestätigung in zwei Schritten",
-  "kit.twoFactor.off": "Aus. Zusätzlich zum Passwort kann die Anmeldung einen Code aus einer App auf deinem Handy verlangen (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…): Wer dein Passwort herausfindet, kommt trotzdem nicht hinein.",
+  "kit.twoFactor.statusOn": "Aktiv",
+  "kit.twoFactor.statusOff": "Aus",
+  "kit.twoFactor.off": "Zusätzlich zum Passwort kann die Anmeldung einen Code aus einer App auf deinem Handy verlangen (Google Authenticator, Microsoft Authenticator, 1Password, Aegis…): Wer dein Passwort herausfindet, kommt trotzdem nicht hinein.",
   "kit.twoFactor.setUp": "Einrichten",
   "kit.twoFactor.on": {
-    "=0": "Aktiv: Die Anmeldung verlangt den Code deiner App. Du hast keine Wiederherstellungscodes mehr: Erstelle neue.",
-    "one": "Aktiv: Die Anmeldung verlangt den Code deiner App. Dir bleibt ein Wiederherstellungscode.",
-    "other": "Aktiv: Die Anmeldung verlangt den Code deiner App. Dir bleiben {n} Wiederherstellungscodes."
+    "=0": "Die Anmeldung verlangt den Code deiner App. Du hast keine Wiederherstellungscodes mehr: Erstelle neue.",
+    "one": "Die Anmeldung verlangt den Code deiner App. Dir bleibt ein Wiederherstellungscode.",
+    "other": "Die Anmeldung verlangt den Code deiner App. Dir bleiben {n} Wiederherstellungscodes."
   },
   "kit.twoFactor.newCodes": "Neue Wiederherstellungscodes",
   "kit.twoFactor.turnOff": "Ausschalten",
@@ -664,7 +666,7 @@
   "kit.twoFactor.codeOrRecovery": "Code aus der App oder Wiederherstellungscode",
   "kit.twoFactor.offNow": "Die Bestätigung in zwei Schritten ist aus.",
   "kit.twoFactor.newCodesDone": "Neue Wiederherstellungscodes. Die bisherigen gelten nicht mehr.",
-  "kit.twoFactor.onNoCodes": "Aktiv: Beim Anmelden wird nach dem Passwort ein Code aus deiner Authenticator-App abgefragt. Wenn du dein Handy verlierst, schreib dem Support von {app}: Er kann sie abschalten, damit du wieder hineinkommst.",
+  "kit.twoFactor.onNoCodes": "Beim Anmelden wird nach dem Passwort ein Code aus deiner Authenticator-App abgefragt. Wenn du dein Handy verlierst, schreib dem Support von {app}: Er kann sie abschalten, damit du wieder hineinkommst.",
   "kit.twoFactor.noCodesHint": "Es gibt keine Wiederherstellungscodes: Wenn du dein Handy verlierst, schreib dem Support von {app}, damit sie abgeschaltet wird.",
   "kit.twoFactor.offAskNoCodes": "Zum Abschalten: dein Passwort und ein Code aus deiner App.",
   "kit.twoFactor.code": "Code aus der App",

@@ -1669,6 +1669,7 @@ test('with WorkOS and a password: changing it, and a second step with no recover
     await page.press(t('kit.security.changePassword'));
     assert.ok(asked.includes('POST /api/me/sign-in/password'));
     assert.ok(!asked.includes('POST /api/me/password'), 'not the local accounts\' route');
+    assert.ok(page.root.all().some((node) => node.className === 'kit-badge' && node.textContent === t('kit.twoFactor.statusOff')));
     await page.press(t('kit.twoFactor.setUp'));
     await page.press(t('kit.twoFactor.continue'));
     const text = () => page.root.all().find((node) => node.className === 'kit-settings__page').textContent;
@@ -1677,6 +1678,10 @@ test('with WorkOS and a password: changing it, and a second step with no recover
     await page.press(t('kit.twoFactor.turnOn'));
     for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
     assert.ok(text().includes(t('kit.twoFactor.onNoCodes', { app: 'Demo' })));
+    // Said in so many words, not left to the Turn off button.
+    const badge = () => page.root.all().find((node) => String(node.className).startsWith('kit-badge'));
+    assert.equal(badge().textContent, t('kit.twoFactor.statusOn'));
+    assert.equal(badge().className, 'kit-badge kit-badge--on');
     assert.ok(!page.root.find('button').some((node) => node.textContent === t('kit.twoFactor.newCodes')), 'no recovery codes to renew');
     assert.ok(!page.root.find('ul').some((node) => node.className === 'kit-codes'));
   } finally { page.done(); }
