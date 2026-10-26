@@ -786,6 +786,10 @@ export function createApp({
     // A host gives its own: its modules' plans, and the modules each person uses (host.js).
     allows: mcp.allows || entitlements.allows,
     ...(mcp.visible ? { visible: mcp.visible } : {}),
+    // What a host may add (hostMcp's options): tools on demand, a note of each change, a cap on answers.
+    ...(mcp.onDemand && mcp.door ? { onDemand: mcp.onDemand, door: mcp.door } : {}),
+    ...(mcp.recordChange ? { recordChange: mcp.recordChange } : {}),
+    ...(mcp.maxResultChars ? { maxResultChars: mcp.maxResultChars } : {}),
     // In a host this is its /mcp: the calls of the day count once for the whole app.
     quota: mcpQuota,
     authenticate: (token) => suite.authenticateToken(token),

@@ -1877,6 +1877,29 @@ longest an assistant reads); tool descriptions keep under the same limit. The ca
 from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
 `PLANS`): one count per person for the whole app, whichever module a call goes to.
 
+What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0.190.0):
+
+- **`byPlan`**: what someone's plan leaves out leaves their `tools/list`, not only their calls
+  (before, an account without `mcp` was listed every tool and refused each call). A module's tool
+  that names no `feature` needs the module's `mcp` when the module declares it. They keep a way to
+  learn why: that module's part of the instructions says it and where to change plan, and
+  `<host>_plan_info` (listed only to them) tells the assistant what to pass on.
+- **`onDemand`** (`{ mount: [tool names] }`): tools used now and then kept out of the list, which goes
+  whole into every conversation on most clients. `<host>_more_tools` names them in its description
+  (so the assistant knows they exist and reaches for one when asked) and says what each does and
+  takes; `<host>_use_tool` runs one, through the same plans, argument checks and calls of the day.
+  They still answer by their own names. Each person may have them all listed instead (Settings ›
+  Your AI, `PUT /api/me/ai-tools` with `all` or `door`, table `host_ai_tools`; no row: on demand).
+- **`namesInText`**: a module's tool names in its descriptions, parameter descriptions and prompts
+  get its prefix (`list_projects` → `next_list_projects`): whole words with an underscore only.
+- **`recordChanges`**: an `mcp.tool` line in the audit log for each call that changed something
+  (not `readOnlyHint`, no error): who, the tool and its module, never the arguments.
+- **`maxResultChars`**: an answer cut at a whole line past that many characters, saying how much
+  was left out and how to ask for less (`capResult`).
+
+A name that is no tool answers the tools whose name ends in it («Did you mean
+projects_list_projects or next_list_projects?»).
+
 ### 21.2.1 The apps' old addresses, for a while
 
 While people move from the apps on their own to the host, the host can answer the addresses the
