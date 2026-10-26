@@ -76,6 +76,7 @@ with its own pre-paint script adds the same line.
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
+| `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
 | `outbox.js` | `createOutbox({ local, … })`: changes made offline, sent once each; `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
