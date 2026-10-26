@@ -788,23 +788,27 @@ export function openSettings(options) {
     const code = (id) => input({ id, autocomplete: 'one-time-code', autocapitalize: 'none', spellcheck: 'false', maxlength: '12' });
     const password = (id) => input({ id, type: 'password', autocomplete: 'current-password' });
     const setOn = (on) => setUser({ ...state.user, two_factor: on });
+    // Whether it is on, said in so many words above what it means, not left to the buttons.
+    const status = (on) => el('p', {},
+      el('span', { class: `kit-badge ${on ? 'kit-badge--on' : ''}`.trim() }, on ? icon('check') : null,
+        t(on ? 'kit.twoFactor.statusOn' : 'kit.twoFactor.statusOff')));
 
     async function paint() {
-      let status;
+      let current;
       try {
-        status = recovery ? await api.get(base) : (await api.get('/api/me/sign-in')).two_factor;
+        current = recovery ? await api.get(base) : (await api.get('/api/me/sign-in')).two_factor;
       } catch (err) { fail(err); return; }
-      if (!status.enabled) {
-        clear(body).append(hint(t('kit.twoFactor.off')), row(button(t('kit.twoFactor.setUp'), askPassword, 'primary')));
+      if (!current.enabled) {
+        clear(body).append(status(false), hint(t('kit.twoFactor.off')), row(button(t('kit.twoFactor.setUp'), askPassword, 'primary')));
         return;
       }
       if (!recovery) {
-        clear(body).append(hint(t('kit.twoFactor.onNoCodes', { app: appName })),
+        clear(body).append(status(true), hint(t('kit.twoFactor.onNoCodes', { app: appName })),
           row(button(t('kit.twoFactor.turnOff'), () => confirmWith('off'), 'danger-quiet')));
         return;
       }
-      clear(body).append(
-        hint(t('kit.twoFactor.on', { n: status.recovery_codes_left })),
+      clear(body).append(status(true),
+        hint(t('kit.twoFactor.on', { n: current.recovery_codes_left })),
         row(button(t('kit.twoFactor.newCodes'), () => confirmWith('codes')), button(t('kit.twoFactor.turnOff'), () => confirmWith('off'), 'danger-quiet')));
     }
 
