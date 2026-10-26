@@ -960,7 +960,12 @@ export function openSettings(options) {
           hint: t('kit.calendar.showHint'),
           onChange: async (shown) => {
             try {
-              await api.put('/api/me/calendar', { shown });
+              // The host's root, as the modules' switches: a module's api.js would ask its own path.
+              const res = await fetch('/api/me/calendar', {
+                method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shown }),
+              });
+              if (!res.ok) throw new Error(String(res.status));
               // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
               document.dispatchEvent(new CustomEvent('kit-modules'));
             } catch (err) {

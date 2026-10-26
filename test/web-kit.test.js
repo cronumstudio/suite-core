@@ -798,7 +798,7 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
   assert.match(settings, /calendarSwitch\.hidden = typeof answer\.calendar_shown !== 'boolean';/);
-  assert.match(settings, /api\.put\('\/api\/me\/calendar', \{ shown \}\)/);
+  assert.match(settings, /fetch\('\/api\/me\/calendar', \{/, 'at the host\'s root, not the module\'s path');
   // On a phone, where the rail doesn't show, the switcher's menu has it.
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
@@ -894,8 +894,8 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
     assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, DRAWER_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)? \} from '\.\/base\.js'/, file);
-    // Only the host's own routes are asked at the root: which modules someone uses, and their look.
-    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`]|api\/me\/look['`])|import\(['`]\/|get\(['`]\/version/, file);
+    // Only the host's own routes are asked at the root: which modules someone uses, their look and their calendar's button.
+    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`]|api\/me\/look['`]|api\/me\/calendar['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
 });
 
