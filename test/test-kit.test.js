@@ -112,7 +112,8 @@ test('client keeps its session cookie, sends and reads JSON, and names a request
 });
 
 test('mcp and rpc speak JSON-RPC with a bearer token', async (t) => {
-  const fake = await fakeServer((req, res, { body, json }) => {
+  const fake = await fakeServer((req, res, { url, body, json }) => {
+    if (url.pathname === '/broken/mcp') { res.writeHead(502); return res.end('Bad gateway'); }
     const call = JSON.parse(body);
     if (call.method !== 'tools/call') return json(200, { jsonrpc: '2.0', id: call.id, result: { method: call.method, auth: req.headers.authorization ?? null } });
     if (call.params.name === 'fails') return json(200, { jsonrpc: '2.0', id: call.id, result: { isError: true, content: [{ type: 'text', text: 'No.' }] } });
@@ -126,7 +127,11 @@ test('mcp and rpc speak JSON-RPC with a bearer token', async (t) => {
   assert.equal(hi.status, 200);
   assert.deepEqual(await ask('fails'), { isError: true, text: 'No.', json: { jsonrpc: '2.0', id: 1, result: { isError: true, content: [{ type: 'text', text: 'No.' }] } }, status: 200 });
   const listed = await rpc(fake.url, 'tok', 'tools/list');
-  assert.deepEqual(listed, { status: 200, json: { jsonrpc: '2.0', id: 7, result: { method: 'tools/list', auth: 'Bearer tok' } } });
+  assert.equal(listed.status, 200);
+  assert.deepEqual(listed.json, { jsonrpc: '2.0', id: 7, result: { method: 'tools/list', auth: 'Bearer tok' } });
+  const broken = await mcp(`${fake.url}/broken`, 'tok')('hello');
+  assert.equal(broken.json, null);
+  assert.equal(broken.text, 'HTTP 502: Bad gateway', 'what isn’t JSON is said as it came');
   assert.equal((await rpc(fake.url, null, 'ping')).json.result.auth, null, 'no token, no header');
 });
 

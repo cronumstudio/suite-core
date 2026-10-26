@@ -197,13 +197,19 @@ export function client(base, { cookieName = null, cookie = '', headers: always =
   return call;
 }
 
-/** A raw JSON-RPC call to the app's MCP, for what isn't a tool: → { status, json }. */
+/**
+ * A raw JSON-RPC call to the app's MCP, for what isn't a tool: → { status, json, text }, `json`
+ * null when the answer isn't JSON (`text` is what came, for a check's detail).
+ */
 export async function rpc(base, token, method, params = {}, { path: at = '/mcp', id = 7, timeoutMs = REQUEST_MS, headers = {} } = {}) {
   const res = await timed('POST', base + at, {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
   }, timeoutMs);
-  return { status: res.status, json: await res.json().catch(() => null) };
+  const text = await res.text().catch((err) => `(the answer broke off: ${err.cause?.message || err.message})`);
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* not JSON: `text` says what came */ }
+  return { status: res.status, json, text };
 }
 
 /**
@@ -212,10 +218,10 @@ export async function rpc(base, token, method, params = {}, { path: at = '/mcp',
  */
 export function mcp(base, token, options = {}) {
   return async (name, args = {}) => {
-    const { status, json } = await rpc(base, token, 'tools/call', { name, arguments: args }, { id: 1, ...options });
+    const { status, json, text } = await rpc(base, token, 'tools/call', { name, arguments: args }, { id: 1, ...options });
     return {
       isError: Boolean(json?.result?.isError),
-      text: json?.result?.content?.map((c) => c.text).join('\n') || JSON.stringify(json),
+      text: json?.result?.content?.map((c) => c.text).join('\n') || (json ? JSON.stringify(json) : `HTTP ${status}: ${text}`),
       json,
       status,
     };
