@@ -19,6 +19,18 @@
  * it by itself) and gets what it missed while it was away, from a short
  * memory; when that is not possible —too much was missed, or the server
  * restarted— it gets `event: resync` and reloads everything it shows.
+ * `hello` carries an id too (where the server is now), so a tab that saw no
+ * notice still comes back with one; a page that opens a new channel after
+ * closing one sends that id as `?last=`, which EventSource can't send then.
+ * When either came, `hello` says `replayed: true`: what was missed has been
+ * said (or `resync`), so the page needn't reload everything on its own.
+ *
+ * A channel is opened with a session, and it ends with it: signing out, a
+ * session closed from the list, out everywhere, the account disabled or
+ * deleted. Whoever creates the channel says how to tell (`stillIn`); every
+ * heartbeat asks again for each channel, and `recheck(userId)` asks at once
+ * when that person's sessions close (sessions.whenClosed). Until then a tab
+ * opened with a stolen cookie kept hearing the account's activity for good.
  *
  * A host's page that shows several modules at once (Cronum Work's
  * one-document shell) opens one channel for all of them instead of one each:
@@ -44,14 +56,19 @@ const STREAM_HEAD = Object.freeze({
  * @param {object} [options]
  * @param {number} [options.remember]   how many recent events a reconnecting tab can get back
  * @param {number} [options.heartbeatMs]
+ * @param {(userId: number, sessionToken: string) => boolean} [options.stillIn]  whether the person
+ *   is still signed in with the session a channel was opened with; one opened without a session
+ *   isn't asked. Without it, a channel lasts while its tab does.
  */
-export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) {
+export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS, stillIn = null } = {}) {
   /** This run of the server: an id from another one can't be replayed. */
   const boot = randomToken(6);
   const clients = new Set();
   /** The last events, oldest first: { n, event, body, audience: Set | null }. */
   const recent = [];
   let last = 0;
+  /** Asks every channel's session again, once a heartbeat, while there are channels (`stillIn`). */
+  let sweeper = null;
 
   const frame = (n, event, body) => `id: ${boot}.${n}\nevent: ${event}\ndata: ${body}\n\n`;
   const reaches = (entry, userId) => !entry.audience || entry.audience.has(userId);
@@ -59,6 +76,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
   function drop(client) {
     if (!clients.delete(client)) return;
     clearInterval(client.timer);
+    if (!clients.size && sweeper) {
+      clearInterval(sweeper);
+      sweeper = null;
+    }
     try {
       if (client.end) client.end();
       else client.res.end();
@@ -116,6 +137,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     const theirs = [...clients].filter((other) => other.userId === client.userId);
     for (const old of theirs.slice(0, Math.max(0, theirs.length - PER_USER + 1))) drop(old);
     clients.add(client);
+    if (stillIn && !sweeper) {
+      sweeper = setInterval(() => recheck(), heartbeatMs);
+      sweeper.unref?.();
+    }
   }
 
   /**
@@ -130,13 +155,14 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     res.write('retry: 3000\n\n');
 
     // Coming back: what was missed, if it is still here; if not, reload everything.
-    const seen = String(req.headers['last-event-id'] || '');
+    const seen = lastSeenOf(req);
     if (seen) {
       const missed = missedSince(seen, user.id);
       if (!missed) res.write('event: resync\ndata: {}\n\n');
       else for (const entry of missed) res.write(frame(entry.n, entry.event, entry.body));
     }
-    res.write(`event: hello\ndata: ${JSON.stringify({ user_id: user.id })}\n\n`);
+    // With an id: where this run is now, so a tab that saw no notice still comes back with one.
+    res.write(frame(last, 'hello', JSON.stringify(seen ? { user_id: user.id, replayed: true } : { user_id: user.id })));
 
     const client = { res, userId: Number(user.id), sessionToken };
     admit(client);
@@ -192,7 +218,43 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
     return n;
   }
 
-  return { publish, subscribe, relay, dropUser, close, connected: () => clients.size };
+  /**
+   * Closes the channels (a person's, or everyone's without `userId`) whose session is no longer
+   * theirs (`stillIn`), telling each the account's notice first, as dropUser() does: the page
+   * looks again at who is signed in. What a session closed here calls at once; the heartbeat
+   * asks for every channel anyway (a session that ended, a device gone).
+   */
+  function recheck(userId = null) {
+    if (!stillIn) return 0;
+    let n = 0;
+    for (const client of [...clients]) {
+      if (!client.sessionToken || (userId != null && client.userId !== Number(userId))) continue;
+      let still = true;
+      try { still = stillIn(client.userId, client.sessionToken); } catch { /* asked again on the next heartbeat */ }
+      if (still) continue;
+      tell(client, { event: 'account', body: JSON.stringify({ user_id: client.userId }) });
+      drop(client);
+      n += 1;
+    }
+    return n;
+  }
+
+  return { publish, subscribe, relay, dropUser, recheck, close, connected: () => clients.size };
+}
+
+/**
+ * The last id a tab saw: the `Last-Event-ID` EventSource sends when it retries by itself, or
+ * `?last=` when the page opened a new channel after closing one (EventSource can't send the
+ * header then). '' when neither: a tab opening for the first time.
+ */
+function lastSeenOf(req) {
+  const header = req.headers?.['last-event-id'];
+  if (header) return String(header);
+  try {
+    return new URL(String(req.url || ''), 'http://host.invalid').searchParams.get('last') || '';
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -204,8 +266,10 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS } = {}) 
  *
  * Every message is unnamed (`message`, the EventSource's `onmessage`): the page can't know every
  * module's names. It opens with each module's `resync` or missed notices, then
- * `{ module: null, event: 'hello', data: { user_id } }`. Its id is where it is in every module
- * (`notes=<boot>.<n>,next=<boot>.<n>`), which the browser sends back on its own when it comes back.
+ * `{ module: null, event: 'hello', data: { user_id } }`, with `replayed: true` when it came back with
+ * an id, as a module's channel. Its id is where it is in every module
+ * (`notes=<boot>.<n>,next=<boot>.<n>`), which the browser sends back on its own when it comes back,
+ * or the page as `&last=` on a new channel.
  *
  * @param {Array<[string, object]>} channels  [[mount, createLive()], …]
  * @param {object} [options]
@@ -241,7 +305,7 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
   }
 
   // Coming back: the id it had, module by module. A module it has no place in may have said anything.
-  const seen = String(req.headers['last-event-id'] || '');
+  const seen = lastSeenOf(req);
   const before = new Map(seen.split(',').map((part) => part.split('=')).filter(([mount, id]) => mount && id));
   const opening = [];
   for (const [mount, live] of channels) {
@@ -259,7 +323,7 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
     else for (const missed of each.missed) opening.push(message(mount, missed.event, missed.body));
   }
   for (const text of opening) write(text);
-  write(message(null, 'hello', JSON.stringify({ user_id: user.id }), idOf()));
+  write(message(null, 'hello', JSON.stringify(seen ? { user_id: user.id, replayed: true } : { user_id: user.id }), idOf()));
 
   timer = setInterval(() => write(': ping\n\n'), heartbeatMs);
   timer.unref?.();
