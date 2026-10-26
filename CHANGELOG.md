@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.190.0 — 2026-10-26
+
+- **A host's MCP costs less of every conversation, and follows the plan** (`createHost({ mcpOptions })`,
+  architecture §21.2; each part off without it, so every host and app behaves as before):
+  `byPlan` keeps out of someone's `tools/list` what their plan leaves out (with `<host>_plan_info`
+  and a line in the instructions saying why and where to change it); `onDemand` keeps the tools
+  used now and then behind two of the host's own, `<host>_more_tools` (names them, says what they
+  take) and `<host>_use_tool` (runs one), unless the person wants them all (Settings › Your AI,
+  `PUT /api/me/ai-tools`, host migration 4 `host_ai_tools`); `namesInText` gives a module's tool
+  names in its texts the module's prefix; `recordChanges` writes `mcp.tool` to the audit log for
+  each call that changed something (never its arguments); `maxResultChars` cuts a long answer at a
+  whole line and says so.
+- **`createMcpServer`** takes `onDemand`/`door`, `recordChange` and `maxResultChars`, and returns
+  `listTools(principal)` and `instructionsFor(principal)` (what `tools/list` and `initialize`
+  answer). `capResult` is exported; `host.js` exports `prefixNames`.
+- **"Unknown tool"** names the tools whose name ends in the one asked for.
+- **/admin › Activity** shows those lines as «Changed something from an assistant», with a filter «From an assistant».
+
 ## 0.189.0 — 2026-10-26
 
 - **Going back with a finger slides the screen away, instead of the one before just appearing**

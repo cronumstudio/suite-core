@@ -139,6 +139,16 @@ export const HOST_MIGRATIONS = Object.freeze([
       chosen_at TEXT NOT NULL
     )`),
   },
+  {
+    version: 4,
+    name: 'ai-tools',
+    // Whether each person's assistant gets every tool listed (1) or some on demand (0). No row: on demand.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_ai_tools (
+      user_id   INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      all_tools INTEGER NOT NULL DEFAULT 0,
+      chosen_at TEXT NOT NULL
+    )`),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -239,9 +249,10 @@ const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
  * The host's instructions for an assistant: one line about the host, then
  * each module's own, short (`mcp.brief`, a text or `(name) => text` that gets
  * each tool's name as the host gives it; without it, the first paragraph of
- * its instructions). Whole parts only, as many as fit.
+ * its instructions). Whole parts only, as many as fit. `instead` may give a
+ * module's part in place of its brief (why its tools are not there).
  */
-export function hostInstructions({ modules, hostName, hostId = null, max = MCP_TEXT_MAX, log = () => {} }) {
+export function hostInstructions({ modules, hostName, hostId = null, max = MCP_TEXT_MAX, log = () => {}, instead = () => null }) {
   if (!modules.length) return '';
   const names = modules.map((m) => m.config.app.name);
   const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
@@ -251,7 +262,7 @@ export function hostInstructions({ modules, hostName, hostId = null, max = MCP_T
   for (const m of modules) {
     const spec = m.parts.mcp;
     const name = (tool) => `${m.mount}_${tool}`;
-    parts.push(typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions));
+    parts.push(instead(m) ?? (typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions)));
   }
   let text = '';
   const left = [];
@@ -265,12 +276,49 @@ export function hostInstructions({ modules, hostName, hostId = null, max = MCP_T
 }
 
 /**
+ * A module's tool names said in its texts, with the host's prefix: a module's
+ * descriptions and prompts say `list_projects`, which in the host is
+ * `next_list_projects` or `projects_list_projects`. Whole words only, and only
+ * names with an underscore: one-word names (`summary`, `reschedule`) are
+ * English words too. A name already prefixed is left alone.
+ */
+export function prefixNames(names, mount) {
+  const own = [...new Set(names)].filter((name) => name.includes('_')).sort((a, b) => b.length - a.length);
+  if (!own.length) return (text) => text;
+  const pattern = new RegExp(`(?<![\\w-])(${own.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\w-])`, 'g');
+  return (text) => (typeof text === 'string' ? text.replace(pattern, `${mount}_$1`) : text);
+}
+
+/** A JSON Schema with `say` applied to every description in it. */
+function schemaSaying(schema, say) {
+  if (Array.isArray(schema)) return schema.map((item) => schemaSaying(item, say));
+  if (!schema || typeof schema !== 'object') return schema;
+  return Object.fromEntries(Object.entries(schema).map(([key, value]) => [key,
+    key === 'description' && typeof value === 'string' ? say(value) : schemaSaying(value, say)]));
+}
+
+/**
  * One MCP for every module of a host, at the host's /mcp: each module's tools
  * with its path before their name (`tasks_add_task`), checked against that
  * module's plan features, and only those of the modules each person uses in
  * their list. Prompts the same way. Null when no module brings tools.
+ *
+ * What a host may add, each off unless asked for (createHost's `mcpOptions`):
+ * · `byPlan`: what someone's plan leaves out leaves their list too, not only
+ *   their calls; a module's tools need its `mcp` feature when they name none.
+ *   Whatever their plan, they keep a way to learn why: the module's part of
+ *   the instructions says it, and `<host>_plan_info` tells what to pass on.
+ * · `onDemand` ({ mount: [tool names] }): tools kept out of the list and
+ *   reached through the door (mcp.js), unless `allTools(principal)`.
+ * · `namesInText`: a module's tool names in its descriptions and prompts with
+ *   its prefix (prefixNames).
+ * · `record(principal, tool)`: after each call that changed something.
+ * · `maxResultChars`: the most text an answer carries (mcp.js capResult).
  */
-export function hostMcp({ modules, uses = () => true, hostName = 'The app', hostId = 'host', log = () => {}, links = null }) {
+export function hostMcp({
+  modules, uses = () => true, hostName = 'The app', hostId = 'host', log = () => {}, links = null,
+  byPlan = false, onDemand = null, allTools = () => false, namesInText = false, record = null, maxResultChars = null,
+}) {
   const entries = [];
   for (const m of modules) {
     for (const tool of m.parts?.mcp?.tools || []) entries.push({ m, tool, name: `${m.mount}_${tool.name}` });
@@ -279,54 +327,143 @@ export function hostMcp({ modules, uses = () => true, hostName = 'The app', host
   const linkable = links ? modules.filter((m) => m.parts?.cards) : [];
   if (!entries.length && linkable.length < 2) return null;
   const byMount = new Map(modules.map((m) => [m.mount, m]));
+  const sayers = new Map(modules.map((m) => [m.mount, namesInText
+    ? prefixNames((m.parts?.mcp?.tools || []).map((tool) => tool.name), m.mount) : (text) => text]));
+  /** Whether a module declares the `mcp` feature its tools need with `byPlan`. */
+  const gated = (m) => byPlan && Boolean(m.view?.entitlements?.knows?.('mcp'));
 
-  const tools = entries.map(({ m, tool, name }) => ({
-    ...tool,
-    name,
-    module: m.mount,
-    // A module's errors read as that module says, for the assistant to pass on.
-    handler: async (principal, args) => {
-      try {
-        return await tool.handler(principal, args);
-      } catch (error) {
-        const text = m.parts.mcp.describeError?.(error);
-        if (text) return { isError: true, content: [{ type: 'text', text }] };
-        throw error;
-      }
-    },
-  }));
+  const tools = entries.map(({ m, tool, name }) => {
+    const say = sayers.get(m.mount);
+    const feature = tool.feature ?? (gated(m) ? 'mcp' : undefined);
+    return {
+      ...tool,
+      name,
+      module: m.mount,
+      ...(feature ? { feature } : {}),
+      ...(namesInText ? { description: say(tool.description), inputSchema: schemaSaying(tool.inputSchema, say) } : {}),
+      // A module's errors read as that module says, for the assistant to pass on.
+      handler: async (principal, args) => {
+        try {
+          return await tool.handler(principal, args);
+        } catch (error) {
+          const text = m.parts.mcp.describeError?.(error);
+          if (text) return { isError: true, content: [{ type: 'text', text }] };
+          throw error;
+        }
+      },
+    };
+  });
+
+  // What someone may use, asked once a second at most: tools/list asks it of every tool, and a
+  // principal may outlive its request (a cached account), so nothing is kept longer.
+  const seen = new WeakMap();
+  const once = (principal, key, find) => {
+    if (!principal || typeof principal !== 'object') return find();
+    let known = seen.get(principal);
+    if (!known) seen.set(principal, (known = new Map()));
+    const hit = known.get(key);
+    if (hit && Date.now() - hit.at < 1000) return hit.value;
+    const value = find();
+    known.set(key, { at: Date.now(), value });
+    return value;
+  };
+  const using = (principal, mount) => once(principal, `uses:${mount}`, () => uses(principal, mount));
+  /** Whether their plan lets them use a module from an assistant: true, or the sentence why not. */
+  const planned = (principal, m) => (gated(m)
+    ? once(principal, `plan:${m.mount}`, () => m.view.entitlements.allows(principal, { feature: 'mcp' }))
+    : true);
+  const upgrade = (why) => `${why} They can change plan in ${hostName}, Settings › Plan.`;
+
   const allows = (principal, tool) => {
     const m = byMount.get(tool.module);
     if (!m) return true;
-    if (!uses(principal, m.mount)) {
+    if (!using(principal, m.mount)) {
       return `${m.config.app.name} is turned off for this person: they can turn it on in ${hostName}, Settings › Modules.`;
     }
-    return m.view.entitlements.allows(principal, tool);
+    if (!byPlan) return m.view.entitlements.allows(principal, tool);
+    const said = tool.feature ? once(principal, `allows:${m.mount}:${tool.feature}`, () => m.view.entitlements.allows(principal, tool)) : true;
+    return said === true ? true : upgrade(said);
   };
   // A module's tools for whoever uses it; the links', for whoever uses two modules with things to link.
-  const linking = (principal) => linkable.filter((m) => uses(principal, m.mount)).length >= 2;
-  const visible = (principal, tool) => !principal || (tool.module ? uses(principal, tool.module) : linking(principal));
+  const linking = (principal) => linkable.filter((m) => using(principal, m.mount) && planned(principal, m) === true).length >= 2;
+  /** The modules someone uses whose tools their plan leaves out, with the sentence why. */
+  const blocked = (principal) => modules.filter((m) => m.parts?.mcp?.tools?.length && using(principal, m.mount))
+    .map((m) => ({ m, why: planned(principal, m) })).filter(({ why }) => why !== true);
+  const planInfo = `${hostId}_plan_info`;
+  const visible = (principal, tool) => {
+    if (!principal) return true;
+    if (tool.name === planInfo) return blocked(principal).length > 0;
+    if (!tool.module) return linking(principal);
+    return using(principal, tool.module) && (!byPlan || allows(principal, tool) === true);
+  };
   // Named with the host's id, as a module's tools are with its own (no old bare names kept).
   if (linkable.length >= 2) {
     tools.push(...linkTools({ links, modules: () => linkable }).map((tool) => ({ ...tool, name: `${hostId}_${tool.name}` })));
   }
+  if (byPlan) {
+    tools.push({
+      name: planInfo,
+      title: 'Why some tools are missing',
+      description: `What the user's plan leaves out of ${hostName} for an assistant, and how they get it. Call it when they ask for something those modules do.`,
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      handler: (principal) => ({
+        content: [{
+          type: 'text',
+          text: blocked(principal).map(({ m, why }) => `${m.config.app.name}: ${upgrade(why)}`).join('\n')
+            || `Every module the user has in ${hostName} has its tools here.`,
+        }],
+      }),
+    });
+  }
+
+  // The tools reached through the door, by their names in the host; one that no module has is a mistake.
+  const kept = new Set();
+  for (const [mount, names] of Object.entries(onDemand || {})) {
+    const own = new Set((byMount.get(mount)?.parts?.mcp?.tools || []).map((tool) => tool.name));
+    for (const name of names) {
+      if (own.has(name)) kept.add(`${mount}_${name}`);
+      else log(`[mcp] onDemand: ${mount} has no tool "${name}"; it stays in the list`);
+    }
+  }
 
   const sources = modules.filter((m) => m.parts?.mcp?.prompts);
+  const promptSaying = (m, prompt) => {
+    if (!namesInText || !prompt) return prompt;
+    const say = sayers.get(m.mount);
+    return {
+      ...prompt,
+      ...(prompt.description ? { description: say(prompt.description) } : {}),
+      ...(Array.isArray(prompt.messages) ? {
+        messages: prompt.messages.map((message) => (message?.content?.type === 'text'
+          ? { ...message, content: { ...message.content, text: say(message.content.text) } } : message)),
+      } : {}),
+    };
+  };
   const prompts = sources.length ? {
-    list: (principal) => sources.filter((m) => !principal || uses(principal, m.mount))
-      .flatMap((m) => m.parts.mcp.prompts.list().map((p) => ({ ...p, name: `${m.mount}_${p.name}` }))),
+    list: (principal) => sources.filter((m) => !principal || using(principal, m.mount))
+      .flatMap((m) => m.parts.mcp.prompts.list().map((p) => ({ ...promptSaying(m, p), name: `${m.mount}_${p.name}` }))),
     get: (name, args, principal) => {
       const m = sources.find((s) => String(name).startsWith(`${s.mount}_`));
-      if (!m || (principal && !uses(principal, m.mount))) return null;
-      return m.parts.mcp.prompts.get(name.slice(m.mount.length + 1), args);
+      if (!m || (principal && !using(principal, m.mount))) return null;
+      return promptSaying(m, m.parts.mcp.prompts.get(name.slice(m.mount.length + 1), args));
     },
   } : null;
 
-  const instructions = (principal) => hostInstructions({
-    modules: modules.filter((m) => m.parts?.mcp && (!principal || uses(principal, m.mount))), hostName, log,
-    hostId: linkable.length >= 2 && (!principal || linking(principal)) ? hostId : null,
-  });
-  return { instructions, tools, prompts, allows, visible };
+  const instructions = (principal) => {
+    const instead = principal ? new Map(blocked(principal).map(({ m, why }) => [m.mount, `${m.config.app.name}: ${upgrade(why)}`])) : new Map();
+    return hostInstructions({
+      modules: modules.filter((m) => m.parts?.mcp && (!principal || using(principal, m.mount))), hostName, log,
+      hostId: linkable.length >= 2 && (!principal || linking(principal)) ? hostId : null,
+      instead: (m) => instead.get(m.mount) ?? null,
+    });
+  };
+  return {
+    instructions, tools, prompts, allows, visible,
+    ...(kept.size ? { onDemand: (principal, tool) => kept.has(tool.name) && !allTools(principal), door: hostId } : {}),
+    ...(record ? { recordChange: record } : {}),
+    ...(maxResultChars ? { maxResultChars } : {}),
+  };
 }
 
 /**
@@ -397,6 +534,12 @@ function moduleListErrors(modules) {
  *   several: `GET /api/events?all`, with the host's session, streams what each module's own
  *   `/<mount>/api/events` would tell that person, as `{ module, event, data }` (live.js
  *   subscribeAll). The modules' channels stay as they are
+ * @param {object} [options.mcpOptions]  what the host's one /mcp adds (hostMcp), each off without it:
+ *   `byPlan` (what a plan leaves out leaves the list), `onDemand` ({ mount: [tool names] } reached
+ *   through `<id>_more_tools` and `<id>_use_tool`; each person may have them all listed instead,
+ *   in Settings › Your AI, `PUT /api/me/ai-tools`), `namesInText` (a module's tool names in its
+ *   texts with its prefix), `recordChanges` (an `mcp.tool` line in the audit log for each call
+ *   that changed something: the tool and its module, never the arguments) and `maxResultChars`
  * @param {string} [options.version]
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
@@ -404,7 +547,7 @@ function moduleListErrors(modules) {
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
   aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
-  pages = [], scopedSheets = false, liveAll = false,
+  pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
@@ -778,7 +921,23 @@ export async function createHost({
     setImmediate(safely('links clean-up', () => links.prune()));
   });
 
-  const mcp = hostMcp({ modules: joined, uses, hostName: config.app.name, hostId: config.app.id, log, links });
+  // Tools reached on demand, when the host keeps some out of the list: each person may have them
+  // all listed instead (Settings › Your AI). No row: on demand.
+  const onDemand = mcpOptions?.onDemand && Object.values(mcpOptions.onDemand).some((names) => names?.length)
+    ? mcpOptions.onDemand : null;
+  const allTools = (user) => Boolean(user?.id
+    && suite.database.get('SELECT all_tools FROM host_ai_tools WHERE user_id = ?', user.id)?.all_tools);
+  /** What Settings › Your AI shows of the tools: kept on demand ('door') or all listed ('all'). */
+  const aiToolsOf = (user) => (onDemand ? { ai_tools: allTools(user) ? 'all' : 'door' } : {});
+  const mcp = hostMcp({
+    modules: joined, uses, hostName: config.app.name, hostId: config.app.id, log, links,
+    byPlan: Boolean(mcpOptions?.byPlan), onDemand, allTools, namesInText: Boolean(mcpOptions?.namesInText),
+    maxResultChars: mcpOptions?.maxResultChars || null,
+    // Who changed what from an assistant, in the audit log with the rest: the tool and its module, never what it was given.
+    record: mcpOptions?.recordChanges
+      ? (principal, tool) => suite.audit.record({ action: 'mcp.tool', actor: principal, meta: { tool: tool.name, ...(tool.module ? { module: tool.module } : {}) } })
+      : null,
+  });
   // The same as the root says of itself (createApp): on, and with tools or links to serve.
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
 
@@ -807,8 +966,20 @@ export async function createHost({
         // A founder, once the early access is over and while their price lasts: the notice every
         // module's frame shows (shell.js), with the date it ends.
         const offer = ctx.user && suite.billing?.enabled ? await suite.billing.founderOffer(ctx.user) : null;
-        sendJson(ctx.res, 200, offer ? { ...answer, founder_offer: offer } : answer);
+        sendJson(ctx.res, 200, { ...answer, ...aiToolsOf(ctx.user), ...(offer ? { founder_offer: offer } : {}) });
       });
+      // Whether an assistant gets every tool listed, or the ones used now and then on demand.
+      if (onDemand) {
+        api.put('/api/me/ai-tools', async (ctx) => {
+          if (!ctx.user) throw unauthorized();
+          const body = await readJson(ctx.req);
+          if (!['all', 'door'].includes(body.ai_tools)) throw badRequest('field_invalid', { field: 'ai_tools', options: ['all', 'door'] });
+          suite.database.run(`INSERT INTO host_ai_tools (user_id, all_tools, chosen_at) VALUES (?, ?, ?)
+            ON CONFLICT (user_id) DO UPDATE SET all_tools = excluded.all_tools, chosen_at = excluded.chosen_at`,
+          ctx.user.id, body.ai_tools === 'all' ? 1 : 0, new Date().toISOString());
+          sendJson(ctx.res, 200, aiToolsOf(ctx.user));
+        });
+      }
       registerLinksApi(api, { links });
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });

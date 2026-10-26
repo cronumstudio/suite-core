@@ -195,6 +195,8 @@ export function openSettings(options) {
   const kept = host ? hostModulesKept() : { modules: [] };
   let inUse = kept.modules;
   let hostInfo = kept.host || {};
+  // How an assistant gets the host's tools ('door': some on demand; 'all'), when the host keeps some on demand.
+  let aiTools = kept.ai_tools || null;
   // What is drawn from the modules in use, drawn again when the server's answer comes.
   const onModules = [];
   let closed = false;
@@ -341,6 +343,7 @@ export function openSettings(options) {
         if (closed || !Array.isArray(answer?.modules)) return;
         inUse = answer.modules;
         hostInfo = answer.host || hostInfo;
+        aiTools = answer.ai_tools || null;
         repaint();
         for (const paint of onModules) paint();
       })
@@ -1009,12 +1012,42 @@ export function openSettings(options) {
         type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(endpoint.textContent, endpoint),
       }))),
       ...hostAgents(endpoint.textContent, connected),
+      toolsBlock(),
       appsBlock,
       instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
       // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
       ...(options.aiExtra && !host ? [options.aiExtra()] : []),
     ];
+  }
+
+  /**
+   * In a host that keeps the tools used now and then on demand: whether the person's assistants
+   * get every tool listed from the start instead. Hidden while the host says nothing of it.
+   */
+  function toolsBlock() {
+    const section = block(t('kit.ai.toolsTitle'));
+    const paint = () => {
+      section.hidden = !aiTools;
+      section.querySelector('.kit-switch-row')?.remove();
+      if (!aiTools) return;
+      section.append(switchRow(t('kit.ai.toolsAll'), {
+        checked: aiTools === 'all',
+        hint: t('kit.ai.toolsHint'),
+        onChange: async (on) => {
+          try {
+            const answer = await api.put('/api/me/ai-tools', { ai_tools: on ? 'all' : 'door' });
+            aiTools = answer.ai_tools;
+          } catch (err) {
+            fail(err);
+            throw err;   // the switch goes back
+          }
+        },
+      }));
+    };
+    paint();
+    onModules.push(paint);
+    return section;
   }
 
   const used = (when) => (when ? t('kit.ai.lastUsed', { when: formatDateTime(when) }) : t('kit.ai.neverUsed'));
