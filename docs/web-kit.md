@@ -71,6 +71,7 @@ with its own pre-paint script adds the same line.
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `subscribePush()`; `deviceName()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
+| `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |

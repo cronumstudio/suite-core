@@ -3,6 +3,35 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.188.0 — 2026-10-26
+
+- **Sharing, the same in every module** (`sharing.js`, audit A6). `createSharing({ db, kinds,
+  notify, brake })` is Notes' engine, which was already written for any table: each kind names the
+  table of its offers and the column naming the thing, and brings its own rules as hooks (who may
+  see it, what else happens when it is offered or left, what a route answers). It offers by email,
+  by `user_id` (only one of the person's people, `peopleOf`; anyone else's id answers 404 as an id
+  nobody has) or, with `byUsername`, by username (an install whose directory is open); changes a
+  permission without asking again; accepts, declines and leaves; lists who has something, one's
+  people and what waits. `routes(router, { user, id, people })` makes each kind's routes with the
+  paths and answers the module already has (`/api/notebooks/:id/shares`, `/api/lists/:id/share`…).
+  No table changes: a module keeps its own, with its rows (`invitedBy`, `createdAt`, `stamp` for
+  tables that lack a column).
+- **The notice of a new offer goes by push when the person has a device that takes it, else by
+  email** (`notify: { push, email }`, each the module's, with its words), always behind the brake.
+- **The brake on invitations in the suite** (`share-brake.js`, A3): `createShareBrake()` counts new
+  offers and addresses without an account per hour (429 `share_limit`) and lets one notice per pair
+  of people through a day, however often the offer is taken back and made again. An address
+  answers the same whether an account has it or not, and nothing is created for one without. A
+  module may pass its own brake with the same two methods (Tasks keeps a table).
+- **The share dialog in the kit** (`web/share.js`, `shareDialog()`): Notes' dialog, with the kit's
+  words (`kit.share.*`, in the five languages) or the app's (`words`), through sharing.js' routes or
+  the app's own functions (`load`, `offer`, `setPermission`, `remove`, `leave`); `email: false`,
+  `empty`, `avatar` and `detail` for an app whose people are the whole household. Its styles are in
+  kit.css (`.kit-share*`), and the worker keeps the file.
+- Nothing changes for an app that doesn't call them.
+- **`time-zone.js` is in the kit's offline copy** (`SUITE_KIT_FILES`), as every kit file a module's
+  page imports: 0.186.0 added it without the line.
+
 ## 0.187.0 — 2026-10-26
 
 - **The storage a plan allows is checked in one place** (`storage.js`, `suite.storage.check(user,
