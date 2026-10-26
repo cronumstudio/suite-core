@@ -1144,9 +1144,9 @@ async function deployedWorkers(scope, server) {
       await waited;
     }
     /** What a page gets for a GET of `url`: the worker's answer, or null when it leaves it to the browser. */
-    const get = async (url) => {
+    const get = async (url, mode = 'cors') => {
       let answer = null;
-      listeners.fetch({ request: { method: 'GET', url, mode: 'cors' }, respondWith: (p) => { answer = p; }, waitUntil: () => {} });
+      listeners.fetch({ request: { method: 'GET', url, mode }, respondWith: (p) => { answer = p; }, waitUntil: () => {} });
       return answer;
     };
     return { get };
@@ -1221,6 +1221,23 @@ test('an app on its own keeps code network first', async () => {
   fetched.length = 0;
   assert.equal((await alone.get('https://tasks.example/js/main.js')).body, 'v2');
   assert.deepEqual(fetched, ['/js/main.js']);
+});
+
+test('a page asked for outside a navigation is the browser’s, so a failed fetch is not the worker’s error', async () => {
+  const server = { '/': 'home', '/js/home.js': 'v1', '/tasks/': 'tasks page' };
+  const { worker, fetched } = await deployedWorkers('https://work.example/', server);
+  const one = await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, shell: ['/', '/js/home.js', '/tasks/'], kit: false });
+  // Chrome checks the page before installing the app: Work's split view, `|` and all.
+  fetched.length = 0;
+  for (const page of ['https://work.example/?w=tasks:%3Flist%3D38|notes:&f=notes', 'https://work.example/w/', 'https://work.example/tasks/list/12', 'https://work.example/index.html']) {
+    assert.equal(await one.get(page), null, page);
+  }
+  assert.deepEqual(fetched, [], 'nothing asked by the worker');
+  // A navigation is still the worker's: network first, the copy offline.
+  assert.equal((await one.get('https://work.example/', 'navigate')).body, 'home');
+  // And a file without a copy still is: an icon, the code.
+  assert.equal((await one.get('https://work.example/js/home.js')).body, 'v1');
+  assert.notEqual(await one.get('https://work.example/icons/a.png'), null);
 });
 
 /* ------------------------------ texts in code ----------------------------- */

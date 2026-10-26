@@ -11,6 +11,14 @@ change an interface and a patch never does. Apps pin a version through the submo
   for updates» answered that the server couldn't be asked, though the shell's notice of a new
   version came. With no `updates` of its own, About now uses the page registry's
   (`workRegistry().updates`, and its `applyUpdate`, which waits for the whole app's worker).
+## 0.192.1 — 2026-10-26
+
+- **Cronum Work installs from its split view too** (Martin): installing it from an address like
+  `/?w=tasks:…|notes:&f=notes`, Chrome said the page had no manifest, though it has one. Chrome
+  asked for the page outside a navigation (in its console, the FetchEvent of that address), and the
+  worker took it for a file: its fetch failed with no copy to give, and the error was the answer. A
+  page asked for outside a navigation is now the browser's to fetch, as without a worker;
+  navigations are still network first with the copy offline, and files are as they were.
 
 ## 0.192.0 — 2026-10-26
 
