@@ -554,7 +554,7 @@
   "kit.ai.tokens": "Tokens",
   "kit.ai.toolsTitle": "Sus herramientas",
   "kit.ai.toolsAll": "Todas las herramientas desde el principio",
-  "kit.ai.toolsHint": "Apagado, tu asistente ve las herramientas de cada día y llega a las demás (subtareas, categorías, compartir, dependencias, organizar notas) cuando las necesita, y cada conversación gasta en ellas alrededor de un cuarto menos de su espacio. Encendido, las ve todas desde el principio.",
+  "kit.ai.toolsHint": "Desactivado, tu asistente ve las herramientas de cada día y llega a las demás (subtareas, categorías, compartir, dependencias, organizar notas) cuando las necesita, y cada conversación gasta en ellas alrededor de un cuarto menos de su espacio. Activado, las ve todas desde el principio.",
   "kit.ai.tokensHint": "Para clientes que no pueden iniciar sesión: crea un token y envíalo como cabecera Bearer.",
   "kit.ai.tokenName": "Nombre del conector",
   "kit.ai.createToken": "Crear token",

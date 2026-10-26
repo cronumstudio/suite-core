@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.191.1 — 2026-10-26
+
+- **"Desactivado" and "Activado"** in Spanish under Your AI's switch for all the tools, not
+  "Apagado" and "Encendido": a switch is activated and deactivated, as everywhere else in the suite
+  (Tasks' smoke test checks its catalog for it).
+
 ## 0.191.0 — 2026-10-26
 
 - **Folds slide open and shut** (Martin): the groups of Settings' list, the instructions in Your AI
