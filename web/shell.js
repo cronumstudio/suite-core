@@ -324,6 +324,12 @@ export function createShell({
    * the finger goes, over the open drawer it goes back the same way, and on
    * lifting the finger it opens or closes by how far the finger went. It was
    * Tasks' own gesture; the other apps' drawer came out all at once.
+   *
+   * Going back follows the finger too (Martin: the screen before appeared
+   * instead of sliding in): the screen on top slides away with it, over the
+   * one it goes back to, and on lifting the finger it goes all the way or
+   * comes back, by how far or how fast the finger went. A detail on a phone
+   * uncovers its list; Settings say what they uncover (ui.js holdBack).
    */
   // A little wider than the system's own strip seems to be: a swipe to open the drawer that began
   // just past 20 px went to the system, which took it as Back (the installed app, an iPhone).
@@ -341,6 +347,10 @@ export function createShell({
   const visible = (node) => node.offsetParent !== null;
   // In the bar or in a view's head: whichever shows.
   const showing = (selector) => [...element.querySelectorAll(selector)].some(visible);
+  /** Going back from a phone's detail: the detail slides away over its list. */
+  const detailSlide = () => (getComputedStyle(list).display === 'none' ? {
+    moving: detail, under: list, show: (on) => element.toggleAttribute('data-back-swipe', on),
+  } : null);
   const startAction = (target) => {
     if (!element.contains(target) || element.hasAttribute('data-drawer')) return null;
     if (showing('.kit-bar__back')) return () => (onBack || showList)();
@@ -368,7 +378,9 @@ export function createShell({
     const atStart = rtl ? x > innerWidth - EDGE : x < EDGE;
     const atEnd = rtl ? x < EDGE : x > innerWidth - EDGE;
     const held = atStart ? heldBack(target) : null;
-    const action = held || (atStart ? startAction(target) : null);
+    const action = held ? held.back : atStart ? startAction(target) : null;
+    // What follows the finger back, if anything: asked when it starts to go (startSlide).
+    const slide = held ? held.slide : action && showing('.kit-bar__back') ? detailSlide : null;
     // Without the Navigation API (older Safari) the history is assumed to have somewhere to go. In
     // Work's shell the page's edges are the shell's to keep from Safari: a window takes a touch only
     // for what it does itself, or every window mounted would pass the same tap on.
@@ -382,7 +394,8 @@ export function createShell({
       : open && element.contains(target) ? 'close'
         : action && !showing('.kit-bar__back') ? 'open' : null;
     swipe = {
-      x, y, lastY: y, rtl, target, action, held, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
+      x, y, lastY: y, rtl, target, action, held, slide, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
+      pane: null, at: [],
       scroller: taken ? scrollerOf(target) : null,
     };
   }, { passive: false, signal });
@@ -411,7 +424,14 @@ export function createShell({
       dragDrawer(swipe.drawer, dx, swipe.rtl);
       return;
     }
-    if (swipe.action && dx > 40) {
+    if (swipe.pane || (swipe.slide && dx >= DRAG_ARM && startSlide(swipe))) {
+      ev.preventDefault();
+      swipe.dx = dx;
+      swipe.at = [...swipe.at.slice(-4), { dx, time: ev.timeStamp || Date.now() }];
+      dragSlide(swipe.pane, dx, swipe.rtl);
+      return;
+    }
+    if (swipe.action && !swipe.slide && dx > 40) {
       swipe.done = true;
       swipe.action();
     } else if (dx < -50 && !swipe.held && element.hasAttribute('data-drawer')) {
@@ -422,19 +442,83 @@ export function createShell({
   }, { passive: false, signal });
   document.addEventListener('touchend', () => {
     if (swipe?.dragging) letGoDrawer(swipe, false);
+    else if (swipe?.pane) letGoSlide(swipe, false);
     else if (swipe?.taken && !swipe.axis && !swipe.done) tap(swipe.target);
     swipe = null;
   }, { signal });
   document.addEventListener('touchcancel', () => {
     if (swipe?.dragging) letGoDrawer(swipe, true);
+    else if (swipe?.pane) letGoSlide(swipe, true);
     swipe = null;
   }, { signal });
   // A finger that picks something up (drag.js) is no longer a swipe nor a tap: the drawer
   // it opens over ☰ must stay, and letting go must not open the row.
   document.addEventListener('kit-dragstart', () => {
     if (swipe?.dragging) letGoDrawer(swipe, true);
+    else if (swipe?.pane) letGoSlide(swipe, true);
     swipe = null;
   }, { signal });
+
+  /** How far back the screen beneath starts, as a share of its width: it comes in a little slower. */
+  const UNDER_LAG = 0.3;
+  /** How long the screen takes to finish going, or to come back, once the finger lifts. */
+  const SLIDE_MS = 220;
+  /** A flick: the finger went this fast (px/ms) at the end, and far enough to mean it. */
+  const FLICK_SPEED = 0.45;
+  const FLICK_MIN = 24;
+
+  /** The finger starts to go back: what it moves, drawn by hand from now on. → whether there is one. */
+  function startSlide(swipe) {
+    const pane = swipe.slide?.();
+    if (!pane?.moving) {
+      // Nothing to follow: back at once, as before, once the finger has gone far enough.
+      swipe.slide = null;
+      return false;
+    }
+    pane.show?.(true);
+    pane.width = pane.moving.getBoundingClientRect().width || innerWidth;
+    for (const node of [pane.moving, pane.under]) {
+      if (node) Object.assign(node.style, { transition: 'none', willChange: 'transform' });
+    }
+    pane.moving.style.boxShadow = `${swipe.rtl ? 8 : -8}px 0 24px rgba(0, 0, 0, .12)`;
+    swipe.pane = pane;
+    return true;
+  }
+
+  /** The screen where the finger is, and the one beneath a little behind it. */
+  function dragSlide(pane, dx, rtl) {
+    const at = Math.max(0, Math.min(pane.width, dx));
+    const sign = rtl ? -1 : 1;
+    pane.moving.style.transform = `translateX(${sign * at}px)`;
+    if (pane.under) pane.under.style.transform = `translateX(${-sign * (1 - at / pane.width) * UNDER_LAG * pane.width}px)`;
+  }
+
+  /** The finger lifted: all the way back, or the screen returns, from where it is. */
+  function letGoSlide(swipe, cancelled) {
+    const { pane, dx, at, rtl, action } = swipe;
+    const [first, last] = [at[0], at.at(-1)];
+    const speed = first && last && last.time > first.time ? (last.dx - first.dx) / (last.time - first.time) : 0;
+    const goes = dx >= (cancelled ? CANCEL_COMMIT : commitDistance(pane.width)) || (!cancelled && dx >= FLICK_MIN && speed >= FLICK_SPEED);
+    const sign = rtl ? -1 : 1;
+    const transition = `transform ${SLIDE_MS}ms cubic-bezier(.2, .7, .3, 1)`;
+    for (const node of [pane.moving, pane.under]) if (node) node.style.transition = transition;
+    pane.moving.style.transform = goes ? `translateX(${sign * pane.width}px)` : 'translateX(0px)';
+    if (pane.under) pane.under.style.transform = goes ? 'translateX(0px)' : `translateX(${-sign * UNDER_LAG * pane.width}px)`;
+    // Then the screens as they are, in one go: gone back (or not), and nothing drawn by hand. By a
+    // timer, not only transitionend: a page that isn't drawing would leave the screen halfway.
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (goes) action();
+      for (const node of [pane.moving, pane.under]) {
+        if (node) Object.assign(node.style, { transition: '', willChange: '', transform: '', boxShadow: '' });
+      }
+      pane.show?.(false);
+    };
+    pane.moving.addEventListener('transitionend', finish, { once: true, signal });
+    setTimeout(finish, SLIDE_MS + 40);
+  }
 
   /** The drawer where the finger is: drawn by hand (no transition) while it leads. */
   function dragDrawer(mode, dx, rtl) {

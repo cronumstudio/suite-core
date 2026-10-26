@@ -360,7 +360,18 @@ export function openSettings(options) {
   // On the page's body, in Work's shell, it says whose it is, so the module's sheet reaches it (mount.js).
   root.append(root === document.body ? markOwned(overlay) : overlay);
   // A swipe from the screen's start edge goes back as the bar's ← does: to the list, then out (shell.js).
-  cleanups.push(holdBack(overlay, () => back()));
+  // The screen follows the finger: a section on a phone uncovers the list beneath it, where the
+  // page had scrolled to; the list, or Settings beside a section, uncovers the app.
+  cleanups.push(holdBack(overlay, () => back(), () => (!wide() && frame.hasAttribute('data-open') ? {
+    moving: page,
+    under: list,
+    show: (on) => {
+      frame.toggleAttribute('data-swipe', on);
+      list.style.top = on ? `${scroller.scrollTop}px` : '';
+      // As tall as the screen at least: a short section would show the list under its foot.
+      page.style.minHeight = on ? `${scroller.scrollTop + scroller.clientHeight}px` : '';
+    },
+  } : { moving: overlay })));
   // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
   const shown = (open) => {
     if (!FRAMED) return;

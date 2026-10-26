@@ -172,8 +172,11 @@ moves to the detail and the bar's back button returns (`onBack`, or `showList()`
 drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
 drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
 edge does nothing instead of its forward. Over a page that covers the frame with a way back of its
-own (Settings), the start edge goes back there: such a page calls `holdBack(node, back)` (ui.js)
-while it is open and lets go with the function it returns. On a phone the drawer follows the finger, out from the
+own (Settings), the start edge goes back there: such a page calls `holdBack(node, back, slide)`
+(ui.js) while it is open and lets go with the function it returns. Going back follows the finger:
+the screen on top slides away over the one it goes back to and, on lifting, goes or returns by how
+far or how fast the finger went. A phone's detail slides over its list; a held page says what moves
+and what it uncovers with `slide()` → `{ moving, under, show(on) }`. On a phone the drawer follows the finger, out from the
 edge and back over it, and opens or closes by how far the finger went. Opened by a finger or the mouse, the drawer takes the
 focus itself, with no ring drawn; opened with Enter or Space on ☰ (`openDrawer({ keyboard: true })`),
 the focus goes to the current entry. With `panes: 'single'` there is one view in
