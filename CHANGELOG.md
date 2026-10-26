@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.191.0 — 2026-10-26
+
+- **Folds slide open and shut** (Martin): the groups of Settings' list, the instructions in Your AI
+  and the account's folds in /admin open and close in a short movement instead of at once; a tap in
+  the middle turns them back from where they got to, and where the person asks for less motion
+  they stay instant. `ui.js` exports what does it: `slideHidden(node, hide)` for a fold of a list,
+  `slidingDetails(details)` for a `<details>` (those of one `name` stay one open at a time, now in
+  `data-fold`, since the browser's own would shut the other at once).
+- **`navFold({ label, key, open, keep, children })`** (`shell.js`): a heading of the sidebar that
+  folds its group, sliding, with a chevron; the choice is kept on the device under `key`, `open` is
+  how it starts until then and `keep` unfolds it for the entry open in it. Folding leaves the drawer open.
+
 ## 0.190.1 — 2026-10-26
 
 - **No black line around a section of Settings** (Martin, with screenshots): a section takes the

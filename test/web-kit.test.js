@@ -2320,3 +2320,27 @@ test('on a phone the floating button creates, and the sidebar’s own only besid
   assert.match(css, /\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: none; \}/);
   assert.match(css, /@container kit-app \(min-width: 640px\) \{[^}]*\}[\s\S]*?\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: block; \}/);
 });
+
+test('a group of the sidebar folds under its heading: closed until opened, remembered, open with the entry in sight', async () => {
+  const { navFold } = await import('../web/shell.js');
+  const before = globalThis.localStorage;
+  const kept = new Map();
+  globalThis.localStorage = { setItem: (k, v) => kept.set(k, v), getItem: (k) => kept.get(k) ?? null };
+  try {
+    const group = navFold({ label: 'Tags', key: 'demo.tags', children: [document.createElement('button')] });
+    const [heading, body] = group.children;
+    assert.equal(heading.getAttribute('aria-expanded'), 'false');
+    assert.ok(body.hasAttribute('hidden'), 'closed at first');
+    let stopped = false;
+    for (const fn of heading.listeners.click) fn({ stopPropagation: () => { stopped = true; } });
+    assert.equal(heading.getAttribute('aria-expanded'), 'true');
+    assert.ok(!body.hasAttribute('hidden'));
+    assert.ok(stopped, 'the drawer stays open');
+    assert.equal(kept.get('demo.tags'), 'open');
+    assert.ok(!navFold({ label: 'Tags', key: 'demo.tags' }).children[1].hasAttribute('hidden'), 'as it was left');
+    kept.set('demo.tags', 'folded');
+    assert.ok(!navFold({ label: 'Tags', key: 'demo.tags', keep: true }).children[1].hasAttribute('hidden'), 'the entry open stays in sight');
+  } finally {
+    globalThis.localStorage = before;
+  }
+});

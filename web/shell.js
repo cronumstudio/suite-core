@@ -45,7 +45,7 @@ import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
-import { banner as bannerNode, menu, closeMenu, avatar, heldBack } from './ui.js';
+import { banner as bannerNode, menu, closeMenu, avatar, heldBack, slideHidden } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
 
@@ -910,6 +910,30 @@ export function createShell({
 
 /** A heading between groups of the sidebar ("Notebooks", "Tags"). */
 export const navSection = (label) => el('div', { class: 'kit-nav__section', text: label });
+
+/**
+ * A group of the sidebar that folds under its heading ("Tags"), sliding: the heading, with a
+ * chevron, folds and unfolds it, and the choice is kept on the device under `key`. `open` is how
+ * it starts until one is made; `keep` unfolds it whatever was chosen (the entry open is in it).
+ * Folding isn't going anywhere: the drawer stays open. → the group; its entries go in `children`.
+ */
+export function navFold({ label, key, open = false, keep = false, children = [] }) {
+  let chosen = null;
+  try { chosen = localStorage.getItem(key); } catch { /* private mode */ }
+  const unfolded = keep || (chosen ? chosen === 'open' : open);
+  const body = el('div', { class: 'kit-nav__fold-body', hidden: !unfolded }, children);
+  const heading = el('button', {
+    type: 'button', class: 'kit-nav__section kit-nav__fold', 'aria-expanded': String(unfolded),
+    onClick: (ev) => {
+      ev.stopPropagation();
+      const now = heading.getAttribute('aria-expanded') !== 'true';
+      heading.setAttribute('aria-expanded', String(now));
+      slideHidden(body, !now);
+      try { localStorage.setItem(key, now ? 'open' : 'folded'); } catch { /* private mode */ }
+    },
+  }, el('span', { text: label }), icon('chevron', { className: 'kit-nav__fold-chevron' }));
+  return el('div', { class: 'kit-nav__group' }, heading, body);
+}
 
 /**
  * An entry of the sidebar: `iconName` or `color` (a swatch for a list or a

@@ -66,7 +66,7 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from '.
 import { api, errorMessage } from './api.js';
 import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack } from './ui.js';
+import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
@@ -385,6 +385,8 @@ export function openSettings(options) {
   shown(true);
 
   const items = new Map();
+  // Each group's heading and what it folds, by its name, to slide one open and the other shut.
+  const folders = new Map();
   const built = new Map();
   let current = null;
   // The group unfolded in the list, by its name: one at a time.
@@ -393,12 +395,13 @@ export function openSettings(options) {
 
   /**
    * The list, folded by group: a group's heading unfolds it and folds the one that was open, or
-   * folds it again. A group with one section is that section's way in, with no fold of its own.
-   * Sections marked `unlisted` are opened from another one, never from the list.
+   * folds it again, both sliding (unfold). A group with one section is that section's way in, with
+   * no fold of its own. Sections marked `unlisted` are opened from another one, never from the list.
    */
   function paintList() {
     clear(list);
     items.clear();
+    folders.clear();
     const groups = [];
     for (const section of all.filter((s) => !s.unlisted)) {
       const last = groups.at(-1);
@@ -420,10 +423,7 @@ export function openSettings(options) {
       const folder = el('div', { class: 'kit-settings__folder', role: 'group', 'aria-label': name, hidden: !open });
       const heading = el('button', {
         type: 'button', class: 'kit-settings__group', 'aria-expanded': String(open),
-        onClick: () => {
-          unfolded = unfolded === name ? null : name;
-          paintList();
-        },
+        onClick: () => unfold(unfolded === name ? null : name),
       }, el('span', { class: 'kit-settings__group-name', text: name }), icon('chevron', { className: 'kit-settings__fold' }));
       for (const section of sections) {
         const props = { class: 'kit-settings__item', 'aria-current': section.id === current ? 'page' : null };
@@ -438,8 +438,18 @@ export function openSettings(options) {
         items.set(section.id, item);
         folder.append(item);
       }
+      folders.set(name, { heading, folder });
       list.append(heading, folder);
     }
+  }
+
+  /** Unfolds the group of that name (null: none), sliding it open and the one that was open shut. */
+  function unfold(name) {
+    unfolded = name;
+    return Promise.all([...folders].map(([group, { heading, folder }]) => {
+      heading.setAttribute('aria-expanded', String(group === name));
+      return slideHidden(folder, group !== name);
+    }));
   }
 
   /**
@@ -454,10 +464,7 @@ export function openSettings(options) {
     clear(page).append(built.get(id));
     frame.setAttribute('data-open', '');
     // Its group unfolds in the list, folding the one that was open; one opened from another stays as it was.
-    if (!section.unlisted && unfolded !== section.group) {
-      unfolded = section.group;
-      paintList();
-    }
+    if (!section.unlisted && unfolded !== section.group) unfold(section.group).then(reveal);
     for (const [key, item] of items) {
       if (key === id) item.setAttribute('aria-current', 'page');
       else item.removeAttribute('aria-current');
@@ -1168,17 +1175,12 @@ export function openSettings(options) {
    */
   function fold({ name, src, text, more = [] }, open) {
     const instruction = text ? el('pre', { class: 'kit-instruction', text }) : null;
-    const node = el('details', { class: 'kit-fold', name: 'kit-standing', open },
+    const node = slidingDetails(el('details', { class: 'kit-fold', name: 'kit-standing', open },
       el('summary', {}, src ? el('img', { src, alt: '', width: 22, height: 22 }) : null, el('span', { text: name }),
         icon('chevron-down', { className: 'kit-fold__chevron' })),
       el('div', { class: 'kit-fold__body' }, instruction,
         instruction ? row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary')) : null,
-        ...more));
-    // `name` makes them one-at-a-time where the browser knows it; here, where it doesn't.
-    node.addEventListener('toggle', () => {
-      if (!node.open) return;
-      for (const other of node.parentNode?.children || []) if (other !== node && other.open) other.open = false;
-    });
+        ...more)));
     return node;
   }
 
