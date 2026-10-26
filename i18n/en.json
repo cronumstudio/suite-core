@@ -104,6 +104,7 @@
   "fields.ai_tools": "Tools for the assistant",
   "fields.look": "Look",
   "fields.modules": "Modules",
+  "fields.shown": "Show the calendar",
   "fields.name": "Name",
   "fields.password": "Password",
   "fields.period_end": "End of the period",

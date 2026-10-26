@@ -104,6 +104,7 @@
   "fields.ai_tools": "Herramientas del asistente",
   "fields.look": "Estilo",
   "fields.modules": "Módulos",
+  "fields.shown": "Mostrar el calendario",
   "fields.name": "Nombre",
   "fields.password": "Contraseña",
   "fields.period_end": "Fin del periodo",
