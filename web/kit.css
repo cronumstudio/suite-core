@@ -1308,7 +1308,8 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 /* The Clean look's own touches, beyond its variables: an iPhone's large title, sidebar and section labels. */
 :root[data-look="clean"] .kit-head { border-bottom-color: transparent; }
 :root[data-look="clean"] .kit-head__title { letter-spacing: -.022em; }
-:root[data-look="clean"] .kit-nav__item { min-height: 44px; }
+:root[data-look="clean"] .kit-nav__item { min-height: 40px; padding-block: 8px; font-size: var(--look-callout, 15px); }
+:root[data-look="clean"] .kit-nav__item[aria-current="page"] { font-weight: 500; }
 :root[data-look="clean"] :is(.kit-nav__section, .kit-settings__group) { letter-spacing: .02em; }
 /* A list's narrow head, as on an iPhone: ☰, ← and the actions on the bar, the large title (with what
    leads it) on its own line under them. A detail's head keeps one line. */
@@ -1320,3 +1321,108 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
   :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__title:empty { display: none; }
 }
 
+
+/* --------------------------- shared components ---------------------------- */
+/*
+ * What Tasks, Projects, Next and Notes each drew for themselves until 0.176.0, so a module looks
+ * the same as the next one beside it in Cronum Work. Only --kit-* variables in here: an app's own
+ * (a Tasks list's colour, a project's) reach these through the variables each one names.
+ */
+
+/* The names the apps had for these, as the kit's: one set of names in every module. */
+:root {
+  --kit-faint: color-mix(in oklab, var(--kit-muted) 78%, var(--kit-bg));
+  --kit-border-strong: color-mix(in oklab, var(--kit-border) 82%, var(--kit-text));
+  --kit-radius-small: 8px;
+}
+:root[data-look="clean"] { --kit-radius-small: var(--look-r-sm, 10px); }
+
+/*
+ * Selected text, in either theme and inside a field: the accent through, the text keeping its own
+ * colour. The browser's blue could hardly be told from a dark ground; the iPhone ignores this in a
+ * field and tints with the caret, hence the caret in the accent.
+ */
+::selection { background: color-mix(in srgb, var(--kit-accent) 30%, transparent); }
+:root[data-theme="dark"] ::selection { background: color-mix(in srgb, var(--kit-accent) 48%, transparent); }
+input, textarea { caret-color: var(--kit-accent); }
+
+/* A field whose label names a group (a palette of colours): a span, as a <label> around several buttons would hand every click to the first. */
+.kit-field > .kit-field__label { font-size: var(--look-footnote, 13px); font-weight: 500; color: var(--kit-text); }
+
+/*
+ * A chip: something said of an item (its date, who has it), small and quiet. `--tint` colours it
+ * with --kit-chip (a state, a group); a button chip is one to press (a filter), `--large` beside
+ * others in a row, the accent while aria-pressed.
+ */
+.kit-chip {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 100%;
+  padding: 2px 9px; border: 1px solid var(--kit-border); border-radius: 999px;
+  background: var(--kit-panel); color: var(--kit-muted); font-size: var(--look-caption, 12px); white-space: nowrap;
+}
+.kit-chip--tint {
+  border-color: transparent; font-weight: 600; color: var(--kit-chip, var(--kit-muted));
+  background: color-mix(in srgb, var(--kit-chip, var(--kit-muted)) 16%, transparent);
+}
+.kit-chip--large { padding: 6px 13px; color: var(--kit-text); font-size: var(--look-subhead, 13.5px); }
+button.kit-chip { cursor: pointer; }
+button.kit-chip:hover { background: var(--kit-hover); }
+.kit-chip[aria-pressed="true"], .kit-chip[aria-pressed="true"]:hover {
+  background: var(--kit-accent); border-color: var(--kit-accent); color: var(--kit-on-accent); font-weight: 600;
+}
+
+/* An icon button in a row of items (a task's, a step's): smaller, so the row keeps its height. */
+.kit-icon-btn--small { width: 34px; height: 34px; border-radius: var(--look-r-sm, 8px); font-size: var(--look-callout, 16px); }
+.kit-icon-btn--small .kit-icon { width: 18px; height: 18px; }
+
+/* A colour to choose: a circle of --kit-swatch (or its own background), ringed while chosen. */
+.kit-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.kit-swatch {
+  width: 28px; height: 28px; flex: none; padding: 0; border-radius: 50%; border: 2px solid transparent;
+  background: var(--kit-swatch, var(--kit-muted)); cursor: pointer; transition: transform .12s;
+}
+.kit-swatch:hover { transform: scale(1.12); }
+.kit-swatch:is([aria-pressed="true"], [aria-checked="true"], .kit-swatch--on) {
+  border-color: var(--kit-text); box-shadow: inset 0 0 0 2px var(--kit-panel);
+}
+
+/*
+ * The round check of a task: an empty circle, filled with the accent and ticked once done
+ * (`--done`, or aria-pressed). The tick is an "L" turned 45°, whose box then hangs below its own
+ * centre: lifted by --kit-tick-lift it sits in the middle. Physical left and border on purpose: a tick
+ * is the same mark right to left. A finger misses a 21 px circle, and the row under it opens
+ * instead: an invisible margin takes the taps around it.
+ */
+.kit-round-check {
+  --kit-tick-lift: 2.1px;
+  position: relative; flex: none; width: 21px; height: 21px; padding: 0; display: grid; place-items: center;
+  border: 2px solid var(--kit-border-strong); border-radius: 50%; background: transparent; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .12s;
+}
+.kit-round-check:hover:not([disabled]) { border-color: var(--kit-accent); }
+.kit-round-check::before { content: ""; position: absolute; inset: -10px; }
+.kit-round-check::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 6px;
+  border-left: 2.2px solid var(--kit-on-accent); border-bottom: 2.2px solid var(--kit-on-accent);
+  transform: translate(-50%, calc(-50% - var(--kit-tick-lift))) rotate(-45deg) scale(.2); opacity: 0;
+  transition: transform .18s cubic-bezier(.2, .9, .3, 1.4), opacity .12s;
+}
+.kit-round-check:is(.kit-round-check--done, [aria-pressed="true"]) { background: var(--kit-accent); border-color: var(--kit-accent); }
+.kit-round-check:is(.kit-round-check--done, [aria-pressed="true"])::after { opacity: 1; transform: translate(-50%, calc(-50% - var(--kit-tick-lift))) rotate(-45deg) scale(1); }
+.kit-round-check[disabled] { opacity: .45; cursor: default; }
+.kit-round-check[disabled]::before { content: none; }
+
+/* The heading of a group of items in a list (Overdue, Completed, a section). */
+.kit-group-title {
+  display: flex; align-items: center; gap: 8px; margin: var(--look-section, 20px) 0 8px;
+  font-size: var(--look-footnote, 12.5px); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--kit-muted);
+}
+:root[data-look="clean"] .kit-group-title { font-weight: 600; letter-spacing: .02em; }
+
+/* An avatar's other sizes: a row's, a chip's, a header's. */
+.kit-avatar--small { width: 26px; height: 26px; }
+.kit-avatar--tiny { width: 20px; height: 20px; font-size: var(--look-caption2, 9.5px); }
+.kit-avatar--large { width: 34px; height: 34px; font-size: var(--look-caption, 13px); }
+
+/* An empty view: the blank message alone in the middle of the page, with a heading of its own. */
+.kit-blank--page { max-width: 460px; margin: 10vh auto 0; }
+.kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-title3, 19px); }

@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.183.0 — 2026-10-26
+
+- **The components each module drew for itself are the kit's** (`kit.css`): `kit-chip` (a quiet
+  pill; `--tint` coloured by `--kit-chip`, `--large` and `aria-pressed` for a filter),
+  `kit-swatch` and `kit-swatches` (a colour to choose, ringed while `aria-pressed`, `aria-checked`
+  or `--on`), `kit-round-check` (a task's circle, filled and ticked with `--done` or
+  `aria-pressed`, with a hit area wider than its drawing), `kit-group-title` (a group's heading in
+  a list), `kit-icon-btn--small` (34 px, for a row of items), `kit-avatar--small`, `--tiny` and
+  `--large`, `kit-blank--page` (an empty view, with an `h2` of its own) and `kit-field__label` (a field whose label names a group). Nothing that was
+  there changes; Tasks, Projects, Next and Notes move to these in their own releases, and look the
+  same as one another beside each other in Cronum Work.
+- **Selected text in the accent** everywhere (`::selection`, stronger in the dark), and the caret
+  of a field in the accent: what Tasks, Projects and Next each set.
+- **The Clean look's quiet sidebar is the kit's**: entries of 40 px with the callout size, the open
+  one not bold, as the four modules each wrote it (it was 44 px in the kit, which every module
+  overrode).
+- **One set of names for the variables**: `--kit-faint`, `--kit-border-strong` and
+  `--kit-radius-small` (8 px; 10 in Clean), the names Tasks had for them as the kit's. The radius
+  stays `--kit-radius`, 10 px.
+- **Where layouts change**, as brand tokens: `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px)
+  in `tokens.css`, for modules side by side to change at the same widths.
+
 ## 0.182.0 — 2026-10-26
 
 - **A form dialog for every module** (`ui.js` `formDialog`), from Next's: `onSubmit(form)` runs for
