@@ -1021,6 +1021,8 @@
   "kit.windows.resizeColumns": "Largeur des colonnes",
   "kit.windows.resizeRows": "Hauteur des fenêtres",
   "kit.windows.tabs": "Modules",
+  "kit.windows.maximize": "Agrandir",
+  "kit.windows.restore": "Restaurer",
   "errors.device_code_invalid": "Ce code de connexion n’est plus valable. Recommencez la connexion de l’appareil.",
   "errors.device_not_allowed": "Ce compte ne peut pas connecter d’appareils ici.",
   "errors.action_not_found": "Cette action n’est plus disponible ici. Ouvrez l’app pour la faire.",

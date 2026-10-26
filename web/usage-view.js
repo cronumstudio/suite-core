@@ -9,7 +9,8 @@
  *   atLimit(usage)                              // what is near or at a cap, as "17 lists", for a notice
  *
  * The storage is one bar split by module, as a phone shows its own: each module in the colour of
- * its icon (kit.css, by `data-module`), the room left grey, and a legend with each one's size.
+ * its icon (kit.css, by `data-part`: `data-module` is a module's window in Work, where its sheet
+ * applies), the room left grey, and a legend with each one's size.
  */
 import { el } from './dom.js';
 import { t, formatDate, formatDateTime, numberFormat } from './i18n.js';
@@ -83,11 +84,11 @@ function storageBreakdown(usage) {
   return [
     el('div', { class: 'kit-storage', role: 'img', 'aria-label': `${t('kit.usage.storageChart')}: ${legend.map((p) => `${p.name} ${p.size}`).join(', ')}` },
       parts.map((m) => el('span', {
-        class: 'kit-storage__part', 'data-module': m.mount, title: `${m.name}: ${sizeText(m.bytes)}`,
+        class: 'kit-storage__part', 'data-part': m.mount, title: `${m.name}: ${sizeText(m.bytes)}`,
         style: `flex-basis: ${((m.bytes / whole) * 100).toFixed(2)}%`,
       }))),
     el('ul', { class: 'kit-storage__legend' }, legend.map((p) => el('li', {},
-      el('span', { class: 'kit-storage__dot', ...(p.module ? { 'data-module': p.module } : { 'data-free': '' }) }),
+      el('span', { class: 'kit-storage__dot', ...(p.module ? { 'data-part': p.module } : { 'data-free': '' }) }),
       el('span', { text: p.name }), el('span', { class: 'kit-storage__size', text: p.size })))),
   ];
 }

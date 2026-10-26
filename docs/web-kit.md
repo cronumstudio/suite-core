@@ -67,7 +67,7 @@ with its own pre-paint script adds the same line.
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `subscribePush()`; `deviceName()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
@@ -469,6 +469,9 @@ changes are pointed at the real id (`idOf(answer)`, by default `answer.id`). It 
 signal, with the session ended or the server failing, and waits; a 409 goes to `onConflict` (Notes
 saves a conflict copy), anything else that can't be fixed by retrying to `onDropped`. One tab sends
 at a time (a Web Lock). `signOut({ local })` wipes it all: one person's notes don't stay for the next.
+Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
+a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
+queued offline cost no read to add and one record each to send.
 
 ### Drag and drop
 

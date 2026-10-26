@@ -6,8 +6,11 @@
  * - Changes in a row are grouped: five steps logged at once reload once.
  * - EventSource reconnects by itself and sends `Last-Event-ID`, so the server
  *   replays what was missed; when it can't (too much missed, or it restarted)
- *   it says `resync` and the page reloads what it shows. On `hello` after a
- *   cut, the same: something may have been missed while it was closed.
+ *   it says `resync` and the page reloads what it shows. A channel opened
+ *   again after closing sends the last id it saw as `?last=`, for the same.
+ *   A `hello` after a cut that says `replayed` needs nothing more: what was
+ *   missed came before it. One without (a server that doesn't replay, or a
+ *   page that had no id yet), or for someone else, reloads what is shown.
  * - `account`: the person's account changed elsewhere (email confirmed in
  *   another tab, a new password, signed out everywhere).
  * - A closed channel (the session expired, the server restarting) is opened
@@ -96,6 +99,8 @@ function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () =
   let groupTimer = null;
   let pending = [];
   let opened = false;   // a hello after the first one means a cut: things may have been missed
+  let lastId = '';      // the last id the server gave: where to come back from
+  let who = null;       // whose channel it was, from hello
   let stopped = false;
 
   const setState = (next) => {
@@ -114,6 +119,7 @@ function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () =
   const receive = (name) => (message) => {
     let data = null;
     try { data = message.data ? JSON.parse(message.data) : null; } catch { data = message.data; }
+    if (message.lastEventId) lastId = message.lastEventId;
     pending.push({ event: name, id: message.lastEventId || null, data });
     if (!groupTimer) groupTimer = timers.setTimeout(flush, GROUP_MS);
   };
@@ -123,11 +129,19 @@ function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () =
     if (!Source) return;   // no EventSource: the app works the same, without live changes
     close();
     setState('connecting');
-    source = new Source(url, { withCredentials: true });
-    source.addEventListener('hello', () => {
+    // A new EventSource can't send Last-Event-ID: the id it would have sent goes in the address.
+    const address = lastId ? `${url}${url.includes('?') ? '&' : '?'}last=${encodeURIComponent(lastId)}` : url;
+    source = new Source(address, { withCredentials: true });
+    source.addEventListener('hello', (message = {}) => {
+      let data = null;
+      try { data = message.data ? JSON.parse(message.data) : null; } catch { data = null; }
+      if (message.lastEventId) lastId = message.lastEventId;
       waited = 0;
       setState('open');
-      if (opened) onResync();
+      // Back after a cut: what was missed came before this hello, unless the server couldn't say.
+      const someoneElse = who != null && data?.user_id != null && String(data.user_id) !== who;
+      if (opened && (!data?.replayed || someoneElse)) onResync();
+      if (data?.user_id != null) who = String(data.user_id);
       opened = true;
     });
     source.addEventListener('change', receive('change'));
@@ -162,8 +176,8 @@ function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () =
 
   return {
     get state() { return state; },
-    /** Open again now (a "Retry" button, or after signing in again). */
-    reconnect: () => { stopped = false; waited = 0; open(); },
+    /** Open again now (a "Retry" button, or after signing in again): from scratch, everything reloaded. */
+    reconnect: () => { stopped = false; waited = 0; lastId = ''; open(); },
     /** Closes for good (signing out). */
     stop: () => {
       stopped = true;

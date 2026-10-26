@@ -373,15 +373,15 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
  * tells the four apart with any colour vision (light and dark each checked), the room left grey,
  * 2px of ground between parts. Another module, the muted ink.
  */
-.kit-usage [data-module] { --kit-part: var(--kit-muted); }
-.kit-usage [data-module="tasks"] { --kit-part: #EF4B2A; }
-.kit-usage [data-module="projects"] { --kit-part: #A12A83; }
-.kit-usage [data-module="next"] { --kit-part: #2BA8D2; }
-.kit-usage [data-module="notes"] { --kit-part: #7C3AED; }
-:root[data-theme="dark"] .kit-usage [data-module="tasks"] { --kit-part: #E8603F; }
-:root[data-theme="dark"] .kit-usage [data-module="projects"] { --kit-part: #AD3D92; }
-:root[data-theme="dark"] .kit-usage [data-module="next"] { --kit-part: #2A9FC6; }
-:root[data-theme="dark"] .kit-usage [data-module="notes"] { --kit-part: #9C7CF0; }
+.kit-usage [data-part] { --kit-part: var(--kit-muted); }
+.kit-usage [data-part="tasks"] { --kit-part: #EF4B2A; }
+.kit-usage [data-part="projects"] { --kit-part: #A12A83; }
+.kit-usage [data-part="next"] { --kit-part: #2BA8D2; }
+.kit-usage [data-part="notes"] { --kit-part: #7C3AED; }
+:root[data-theme="dark"] .kit-usage [data-part="tasks"] { --kit-part: #E8603F; }
+:root[data-theme="dark"] .kit-usage [data-part="projects"] { --kit-part: #AD3D92; }
+:root[data-theme="dark"] .kit-usage [data-part="next"] { --kit-part: #2A9FC6; }
+:root[data-theme="dark"] .kit-usage [data-part="notes"] { --kit-part: #9C7CF0; }
 .kit-storage { display: flex; gap: 2px; block-size: 12px; border-radius: 4px; background: var(--kit-border); overflow: hidden; }
 .kit-storage__part { flex-grow: 0; flex-shrink: 0; min-inline-size: 3px; background: var(--kit-part); }
 .kit-storage__legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: var(--look-footnote, 12.5px); }
@@ -664,6 +664,28 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* In Work's shell the head holds only that button: none in the drawer, at the end beside the views. */
 .kit-app[data-embedded] .kit-side__head { display: none; justify-content: flex-end; padding: 8px 12px 4px; }
 .kit-side__create { padding: 4px 12px 10px; }
+/* On a phone the floating button creates (.kit-fab): the sidebar's own would be a second one. */
+.kit-app:has(.kit-fab) .kit-side__create { display: none; }
+/* The module's search, the sidebar's first line: as far from its top as from its sides. */
+.kit-side__search {
+  display: flex; align-items: center; gap: 8px; margin: 12px 12px 6px; padding: 0 12px; min-height: 42px;
+  border: 1px solid var(--kit-border); border-radius: var(--look-r-md, 10px); background: var(--kit-bg); color: var(--kit-muted);
+}
+/* Under the app's name (an app on its own, or beside the views in Work), the head gives the room above. */
+.kit-app:not([data-embedded]) .kit-side__search { margin-top: 0; }
+.kit-side__search:focus-within { border-color: var(--kit-accent); box-shadow: 0 0 0 3px var(--kit-accent-soft); }
+.kit-side__search .kit-icon { width: 16px; height: 16px; flex: none; }
+/* The box shows the focus (:focus-within): a module's own input:focus ring would draw a second inside it. */
+.kit-side__search .kit-side__search-input:focus { box-shadow: none; outline: none; }
+/* In Work's shell, with a search (shell.js), the button that folds shares its line: no line of its own. */
+.kit-side__top { display: flex; align-items: center; gap: 4px; margin: 12px 12px 6px; }
+.kit-side__top .kit-side__search { flex: 1; min-width: 0; margin: 0; }
+.kit-side__top .kit-side__fold { margin-inline-end: -4px; }
+.kit-side__search-input {
+  flex: 1; min-width: 0; padding: 9px 0; border: 0; background: none; outline: none; color: var(--kit-text);
+  /* 16px or more: below it an iPhone zooms the page in on tapping it. */
+  font: inherit; font-size: max(16px, var(--look-body, 15px));
+}
 .kit-side__nav { flex: 1; overflow-y: auto; padding: 0 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px; }
 .kit-side__foot { border-top: 1px solid var(--kit-border); padding: 8px 8px calc(8px + var(--kit-safe-bottom)); }
 
@@ -717,6 +739,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   .kit-app[data-layout="side"] .kit-scrim, .kit-app[data-layout="side"] .kit-bar__menu { display: none; }
   .kit-side__fold { display: inline-grid; }
   .kit-app[data-embedded][data-layout="side"] .kit-side__head { display: flex; }
+  .kit-app[data-embedded][data-layout="side"] .kit-side__search { margin-top: 0; }
+  /* Beside the views the floating button is gone: the sidebar's creates. */
+  .kit-app:has(.kit-fab) .kit-side__create { display: block; }
   /* With the sidebar in view, its own button creates; the floating one is for phones. */
   .kit-app .kit-fab { display: none; }
 }
