@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.191.2 — 2026-10-26
+
+- **Settings cover the whole of Cronum Work in its shell** (Martin): with the windows side by side,
+  Settings opened from Projects or Next stayed inside that module's window, since those modules
+  hand `openSettings` their window as `root` and a window keeps what it holds inside it; from Tasks
+  and Notes they covered the page. In Work's shell they now hang on the page's body whatever `root`
+  says, over every window, as the whole app's.
+- **Another module's section, in its window**: choosing one in Settings in Work's shell went to
+  that module's own page (`/projects/?settings=…`), out of the shell. It now says
+  `kit:settings-goto` on the window, as a frame of the split view does, and the shell opens that
+  module's window with its Settings on the section; with no shell to hear it, the address as before.
+
 ## 0.191.1 — 2026-10-26
 
 - **"Desactivado" and "Activado"** in Spanish under Your AI's switch for all the tools, not

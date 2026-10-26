@@ -2235,6 +2235,14 @@ test('in a frame, the split view opens the module\'s Settings, and hears when th
   assert.match(settings, /overlay\.remove\(\);\s*shown\(false\);/);
 });
 
+test('in Work\'s shell, Settings cover the whole page and another module\'s section opens in its window', () => {
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  // Whatever root the module gave (Projects and Next give their window, which `contain`s what it holds).
+  assert.match(settings, /const place = workRegistry\(\) \? document\.body : root;\s*place\.append\(place === document\.body \? markOwned\(overlay\) : overlay\);/);
+  // The shell hears it on this window (work.js), and the page stays; with nobody to hear it, the address.
+  assert.match(settings, /if \(workRegistry\(\)\) \{\s*const detail = \{ mount: m\.mount, start: id, source: window, handled: false \};\s*close\(\);\s*window\.dispatchEvent\(new CustomEvent\(SETTINGS_GOTO_EVENT, \{ detail \}\)\);\s*if \(detail\.handled\) return;\s*\}\s*window\.location\.assign\(address\);/);
+});
+
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
   assert.match(read('signin.js'), /href: '\/auth\/login', target: FRAMED \? '_top' : null/);

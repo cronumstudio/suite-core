@@ -311,7 +311,9 @@ export function openSettings(options) {
   /**
    * To another module's section: there, with Settings open on it (`?settings=`, settingsAsked()).
    * In a frame of the host's split view, the view opens it in the frame that shows that module, if
-   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes.
+   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes. In Work's
+   * shell, the same event on this window: the shell opens it in that module's window, and the page
+   * stays.
    */
   function goTo(m, id) {
     const address = `${m.path}?settings=${encodeURIComponent(id)}`;
@@ -323,6 +325,12 @@ export function openSettings(options) {
       } catch { /* the view went */ }
       if (!detail.handled) window.top.location.assign(address);
       return;
+    }
+    if (workRegistry()) {
+      const detail = { mount: m.mount, start: id, source: window, handled: false };
+      close();
+      window.dispatchEvent(new CustomEvent(SETTINGS_GOTO_EVENT, { detail }));
+      if (detail.handled) return;
     }
     window.location.assign(address);
   }
@@ -360,8 +368,11 @@ export function openSettings(options) {
   const scroller = el('div', { class: 'kit-settings-page__body' }, frame);
   const overlay = el('div', { class: 'kit-settings-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('kit.settings.title') },
     el('header', { class: 'kit-settings-page__bar' }, backButton, title), scroller);
-  // On the page's body, in Work's shell, it says whose it is, so the module's sheet reaches it (mount.js).
-  root.append(root === document.body ? markOwned(overlay) : overlay);
+  // In Work's shell they are the whole app's, over every window, whatever `root` the module gave: a
+  // window keeps what it holds inside it (windows.css `contain`). On the page's body it says whose it
+  // is, so the module's sheet reaches it (mount.js).
+  const place = workRegistry() ? document.body : root;
+  place.append(place === document.body ? markOwned(overlay) : overlay);
   // A swipe from the screen's start edge goes back as the bar's ← does: to the list, then out (shell.js).
   // The screen follows the finger: a section on a phone uncovers the list beneath it, where the
   // page had scrolled to; the list, or Settings beside a section, uncovers the app.
