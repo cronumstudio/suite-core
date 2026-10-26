@@ -100,8 +100,12 @@ const MAX_ORPHAN_SHARE = 0.5;
  * @param {string} options.dir         where files live (DATA_DIR/uploads)
  * @param {number} [options.maxBytes]  per file: photos arrive already reduced by the browser
  *   (~300 kB); this is for PDFs, and so a broken client can't fill the disk
+ * @param {Function} [options.storage]  () → the app's storage (storage.js), for `storeChecked`;
+ *   asked when a file arrives, as an app on its own learns what it keeps only in createApp
  */
-export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.log, clock = () => Date.now() }) {
+export function createUploads({
+  dir, maxBytes = 15 * 1024 * 1024, log = console.log, clock = () => Date.now(), storage = null,
+}) {
   const root = path.resolve(dir);
 
   /** The absolute path of a stored file, or null when the record points outside the folder. */
@@ -253,6 +257,47 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
     });
   }
 
+  /**
+   * `store()` with an app's limits around it, as Tasks, Projects and Notes each
+   * did by hand: count, check, store, count again. → what `store` returns.
+   *
+   * · `count()` and `max`: how many files the record holds now (its trash too,
+   *   if the app counts it) and how many it may; `too_many_files` (400, with
+   *   `max`) when it is full. Without them, no cap.
+   * · `user` and `payer`: who adds the file and whose plan pays for it (by
+   *   default the same person), against `storage.mb` (storage.js `check`):
+   *   402 `plan_limit` past it. Without either, no storage check.
+   *
+   * Both are asked before a byte is read, with one byte for the storage (the
+   * size isn't known yet), and the body is swallowed so the answer can be sent.
+   * Then again once the file is on disk, with its real size: uploads sent
+   * together all passed the first count, and the second refuses the ones past
+   * the cap, taking their file off the disk. The app records what comes back.
+   */
+  async function storeChecked(req, { folder, name, user = null, payer = user, count = null, max = null }) {
+    let plan = null;
+    const room = (adding) => {
+      if (max != null && count && count() >= max) throw badRequest('too_many_files', { max });
+      if (plan) plan.check(user, adding, { payer });
+    };
+    try {
+      plan = payer ? (typeof storage === 'function' ? storage() : storage) : null;
+      if (payer && !plan) throw new Error('uploads.storeChecked: a payer, and no storage to check it against (createApp `storage`)');
+      room(1);
+    } catch (err) {
+      req.resume();
+      throw err;
+    }
+    const stored = await store(req, { folder, name });
+    try {
+      room(stored.size);
+    } catch (err) {
+      remove(stored.path);
+      throw err;
+    }
+    return stored;
+  }
+
   /** Deletes a stored file from the disk; false when it wasn't there. */
   function remove(relative) {
     const absolute = resolve(relative);
@@ -380,7 +425,7 @@ export function createUploads({ dir, maxBytes = 15 * 1024 * 1024, log = console.
    */
   const fromUrl = (url, options = {}) => openUrl(url, { maxBytes, ...options });
 
-  return { dir: root, maxBytes, store, resolve, remove, serve, sweep, fromUrl };
+  return { dir: root, maxBytes, store, storeChecked, resolve, remove, serve, sweep, fromUrl };
 }
 
 /* ------------------------------ from a link ------------------------------- */

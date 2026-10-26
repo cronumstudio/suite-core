@@ -87,11 +87,16 @@ suite-core/
                                sending to an app's own devices, with no user behind them
   native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1;
                                reminders the phone shows itself are not pushed to it
-  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
+  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link;
+                               storeChecked: the cap per record and storage.mb before and after the file arrives
+  storage.js            done   the storage a plan allows (storage.mb): check(user, adding, { payer }), the apps' 402
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
+  prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
   mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
+  sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
+  share-brake.js        done   the brake on invitations: new offers an hour, one notice per pair a day
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
@@ -1528,6 +1533,28 @@ kit's), then Notes is built on it whole, then the others as they move to English
   sweep takes loose files over a day old and refuses when the database knows none or more than half
   the folder would go. The app keeps its own table linking files to its records, its limits and its
   trash (Tasks' `task_files`). Storage per user or organization can be a plan limit.
+  - **The storage a plan allows** (v0.179.0, `storage.js`, `suite.storage`): `check(user, adding,
+    { payer })` answers 402 `plan_limit` with `{ feature: 'storage.mb', limit: '<n> MB', current:
+    '<n> MB', plan, plan_name }` when `adding` bytes more would take the payer past `storage.mb`, and
+    nothing within it or without a limit; `of(user)` → `{ used, limit }`. What is counted: on its
+    own, the app's files, as the app says where it counts them, at import
+    (`suite.countStorage(storageOf)` → `suite.storage`, so its scripts and command line, which run
+    without createApp, have it too; createApp's `storage`, the same `createModule().storage`, says it
+    otherwise); as a module of a host, the person's across every module (below), and
+    `countStorage` changes nothing there. Until an app says it, there is no `suite.storage`.
+  - **Who pays for a file** is, for now, each app's rule as it was, passed as `payer`: in Notes the
+    notebook's owner, whoever sent it (a file in someone's notebook takes their room); in Tasks and
+    Projects whoever uploads it (`payer` left out: the user). Unifying on "the owner of what holds
+    it" waits until production says who would go over their limit with it.
+  - **`uploads.storeChecked(req, { folder, name, user, payer, count, max })`** is `store()` with
+    those limits around it, as the three apps did by hand: `count()` against `max`
+    (`too_many_files`, 400, with `max`) and the payer's storage with one byte, before a byte is read
+    (the body swallowed so the answer can be sent); then both again with the file on disk and its
+    real size, because uploads sent together all passed the first count; a refusal then takes the
+    file off the disk. The app records what it returns.
+  - The most a file may weigh (`maxBytes`, 15 MB by default) is told to the page in
+    `/api/auth/config` as `app.uploads.max_bytes`, for the kit's `web/images.js` to warn before
+    spending data.
 - **Files from an assistant** (v0.89.0, `mcp-files.js`): an MCP tool carries JSON, not files, so a
   file reaches the app's own save function (with its checks, unchanged) as a stream, one of two
   ways. With a link, `suite.uploads.fromUrl(url)` downloads it → `{ stream, name }`: http or https
@@ -1746,6 +1773,7 @@ first, then Tasks, then the rest.
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
+| `storage.js`, `uploads.storeChecked`, `web/images.js` | done (v0.179.0: storage.mb checked once, with the payer explicit; a photo made ready in the kit) | Tasks, Projects and Notes drop their copies |
 | `mcp-files.js`, `uploads.fromUrl` | done (v0.89.0: files from an assistant, by link or one-time upload link) | Notes and Tasks attach through their MCP tools |
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud. Focus and Tracker carry their families and fleets |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |

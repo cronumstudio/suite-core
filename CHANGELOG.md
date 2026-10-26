@@ -19,6 +19,121 @@ change an interface and a patch never does. Apps pin a version through the submo
   `listTools(principal)` and `instructionsFor(principal)` (what `tools/list` and `initialize`
   answer). `capResult` is exported; `host.js` exports `prefixNames`.
 - **"Unknown tool"** names the tools whose name ends in the one asked for.
+## 0.188.0 — 2026-10-26
+
+- **Sharing, the same in every module** (`sharing.js`, audit A6). `createSharing({ db, kinds,
+  notify, brake })` is Notes' engine, which was already written for any table: each kind names the
+  table of its offers and the column naming the thing, and brings its own rules as hooks (who may
+  see it, what else happens when it is offered or left, what a route answers). It offers by email,
+  by `user_id` (only one of the person's people, `peopleOf`; anyone else's id answers 404 as an id
+  nobody has) or, with `byUsername`, by username (an install whose directory is open); changes a
+  permission without asking again; accepts, declines and leaves; lists who has something, one's
+  people and what waits. `routes(router, { user, id, people })` makes each kind's routes with the
+  paths and answers the module already has (`/api/notebooks/:id/shares`, `/api/lists/:id/share`…).
+  No table changes: a module keeps its own, with its rows (`invitedBy`, `createdAt`, `stamp` for
+  tables that lack a column).
+- **The notice of a new offer goes by push when the person has a device that takes it, else by
+  email** (`notify: { push, email }`, each the module's, with its words), always behind the brake.
+- **The brake on invitations in the suite** (`share-brake.js`, A3): `createShareBrake()` counts new
+  offers and addresses without an account per hour (429 `share_limit`) and lets one notice per pair
+  of people through a day, however often the offer is taken back and made again. An address
+  answers the same whether an account has it or not, and nothing is created for one without. A
+  module may pass its own brake with the same two methods (Tasks keeps a table).
+- **The share dialog in the kit** (`web/share.js`, `shareDialog()`): Notes' dialog, with the kit's
+  words (`kit.share.*`, in the five languages) or the app's (`words`), through sharing.js' routes or
+  the app's own functions (`load`, `offer`, `setPermission`, `remove`, `leave`); `email: false`,
+  `empty`, `avatar` and `detail` for an app whose people are the whole household. Its styles are in
+  kit.css (`.kit-share*`), and the worker keeps the file.
+- Nothing changes for an app that doesn't call them.
+- **`time-zone.js` is in the kit's offline copy** (`SUITE_KIT_FILES`), as every kit file a module's
+  page imports: 0.186.0 added it without the line.
+
+## 0.187.0 — 2026-10-26
+
+- **The storage a plan allows is checked in one place** (`storage.js`, `suite.storage.check(user,
+  adding, { payer })`). Tasks, Projects and Notes each had the same check and the same 402
+  `plan_limit`; now it is the suite's, with the same answer. Whose plan pays for a file stays each
+  app's rule, passed as `payer` (Notes: the notebook's owner; Tasks and Projects: who uploads), and
+  is written in docs/architecture.md. On its own an app's `suite.storage` counts what the app says
+  it keeps, where it counts it (`suite.countStorage(storageOf)`, at import, so its scripts and
+  command line have it too; or createApp's new `storage`); as a module of a host, the person's
+  across every module, as `used()` already did. Until an app says it, nothing changes.
+- **`uploads.storeChecked()`**: an upload with the cap per record and the storage checked before a
+  byte is read and again once the file is on disk, refused files taken off it, as the apps did by
+  hand. Its `too_many_files` has a sentence of the suite's, which an app's own catalog overrides.
+- **A photo made ready to upload, in the kit** (`web/images.js`): `prepareUpload(file, { keepGif,
+  asIs, maxBytes })` and `fileSize(bytes)`, from the three copies in the apps. A GIF goes as it is
+  (it may move), a small picture the server wouldn't take is made a JPEG all the same, and the
+  units are translated (French "Mo"). `/api/auth/config` tells the page the most a file may weigh
+  (`app.uploads.max_bytes`), with uploads on. The kit's worker keeps the new file.
+
+## 0.186.0 — 2026-10-26
+
+- **`PATCH /api/me` and the account as the browser sees it, once for every module** (`createApp({ prefs })`,
+  prefs.js, api.js `registerMeApi`; audit 2026-10-23 A7). Tasks, Projects, Next and Notes each had
+  their own copy of the profile route, of reading `users.prefs` and of what the browser sees of an
+  account, and they had drifted (Next and Notes never sent `has_password`, which Settings reads;
+  Projects let a session set a password on an identity provider's account). A module now says only
+  what its preferences are, `prefs: { defaults, normalize, merge, view, store }`, and the suite
+  serves `GET` and `PATCH /api/me`: `display_name`, `email` (with its link), `theme`,
+  `avatar_color` (where the table has one) and `prefs`, all checked before anything is written and
+  written once through `accounts.update`, so the person's other tabs hear of it. A password sent
+  there is refused with `use_me_password` (it has its own route). Prefs stay flat as they were:
+  each module keeps its keys of the one row and never drops another's, and the shared ones
+  (`lang`, `lang_seen`, `tz`, the zone canonical by time.js) are the suite's. `userSerializer(suite,
+  { prefs, fields })` is the account a module shows: `publicUser` (`has_password` always),
+  `auth_provider`, its own fields and `prefs`. In a host each module's `/<mount>/api/me` keeps its
+  own, and the host's `/api/me` has them all (`combinePrefs`). `accounts.update` takes `theme`,
+  `prefs` and `avatarColor` too. An app without `prefs` keeps its own routes, as before.
+- **The browser's time zone, told once** (`web/time-zone.js` `reportTimeZone(user, { send })`): what
+  Tasks and Notes each did on their own, for every module, so the day an assistant reads is the
+  person's in all of them (A5).
+
+## 0.185.0 — 2026-10-26
+
+- **A check for an app's texts that the kit already says** (`tools/i18n.mjs`, `kitDuplicates`): an
+  app's key whose texts, in every language, are those of a word of the kit (`kit.cancel`,
+  `kit.save`, `fields.name`…) is named with the key to use instead, and so is a key that repeats a
+  suite key with the suite's own texts, which overrides nothing. Keys of deeper kit groups
+  (`kit.links.undo`) don't count, since the same word there belongs to another feature, nor do an
+  app's overrides or its own keys in `errors.*`/`fields.*`. An app's tests opt in with
+  `appChecks(root, { kitWords: true })`; on the command line, `app --kit-words` or `kit-words <dir>`.
+  Without the option `appChecks` returns the same five checks as before.
+
+## 0.184.0 — 2026-10-26
+
+- **One HTTP client for every module** (`web/api.js`, additive). Each call now takes options for
+  what Tasks', Projects' and Next's own clients did on their own: its own `patience` (any method;
+  `0` waits) and an app's `signal`, both counting as no network when they stop it; `text: true`,
+  which answers `{ data, text }` (Next draws a view again only when the text changed); `type` for
+  an upload whose file has none; and three hooks: `beforeSend` (change what goes, or throw
+  `Offline` to not ask at all), `onAnswer(res, request)` once the status and headers are in
+  (Tasks' clock and signal, a 401 told to the app) and `onNoSignal(request)`, whose answer
+  replaces the `Offline` (Tasks' queue draws a change made without signal as done). `api.request`
+  takes every option and `api.with(options)` gives the same client with them on every call.
+  Without options every call behaves as before.
+
+## 0.183.0 — 2026-10-26
+
+- **The components each module drew for itself are the kit's** (`kit.css`): `kit-chip` (a quiet
+  pill; `--tint` coloured by `--kit-chip`, `--large` and `aria-pressed` for a filter),
+  `kit-swatch` and `kit-swatches` (a colour to choose, ringed while `aria-pressed`, `aria-checked`
+  or `--on`), `kit-round-check` (a task's circle, filled and ticked with `--done` or
+  `aria-pressed`, with a hit area wider than its drawing), `kit-group-title` (a group's heading in
+  a list), `kit-icon-btn--small` (34 px, for a row of items), `kit-avatar--small`, `--tiny` and
+  `--large`, `kit-blank--page` (an empty view, with an `h2` of its own) and `kit-field__label` (a field whose label names a group). Nothing that was
+  there changes; Tasks, Projects, Next and Notes move to these in their own releases, and look the
+  same as one another beside each other in Cronum Work.
+- **Selected text in the accent** everywhere (`::selection`, stronger in the dark), and the caret
+  of a field in the accent: what Tasks, Projects and Next each set.
+- **The Clean look's quiet sidebar is the kit's**: entries of 40 px with the callout size, the open
+  one not bold, as the four modules each wrote it (it was 44 px in the kit, which every module
+  overrode).
+- **One set of names for the variables**: `--kit-faint`, `--kit-border-strong` and
+  `--kit-radius-small` (8 px; 10 in Clean), the names Tasks had for them as the kit's. The radius
+  stays `--kit-radius`, 10 px.
+- **Where layouts change**, as brand tokens: `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px)
+  in `tokens.css`, for modules side by side to change at the same widths.
 
 ## 0.182.0 — 2026-10-26
 
