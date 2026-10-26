@@ -180,52 +180,70 @@ export async function copyText(text, fallback = null) {
 
 /* ---------------------------------- folds --------------------------------- */
 
-/** What is sliding now, so a second tap turns it back from where it got to. */
+/** What is moving now, so a second tap turns it back from where it got to. */
 const sliding = new WeakMap();
-const SLIDE = { duration: 220, easing: 'cubic-bezier(.2, 0, 0, 1)' };
+const SLIDE = { duration: 320, easing: 'cubic-bezier(.4, 0, .2, 1)' };
+/** Where the person asks for less motion: no sliding, only a short fade (as Apple's Reduce Motion does). */
+const FADE = { duration: 160, easing: 'ease-out' };
 
-/** At once where the person asks for less motion, or where nothing can be animated (a test's page). */
-const still = (node) => typeof node.animate !== 'function'
-  || Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+/**
+ * How a fold moves: 'slide' (its height, its content fading with it), 'fade' where the person asks
+ * for less motion, or null where nothing can be animated (a test's page): at once.
+ */
+const motionFor = (node) => (typeof node.animate !== 'function' ? null
+  : globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'fade' : 'slide');
 
-/** Slides `node` from height `from` to `to`, then `done()`; one already going is turned back. */
-function slideHeight(node, from, to, done) {
+/**
+ * Moves `node` from height `from` to `to` out of `full` (what it folds, open), each plus `base`
+ * (what stays in sight, a summary), fading `faded` (it, or what is under a summary) with it, then
+ * `done()`; one already moving is turned back. With 'fade', only `faded` fades, in or out.
+ */
+function move(node, { from, to, full, base = 0, faded = [node], how, done }) {
   if (from === to) {
     done();
     return Promise.resolve();
   }
-  node.style.overflow = 'hidden';
-  const motion = node.animate([{ height: `${from}px` }, { height: `${to}px` }], SLIDE);
-  sliding.set(node, motion);
-  return motion.finished.then(() => {
+  const share = (height) => (full > 0 ? Math.min(1, Math.max(0, height / full)) : 1);
+  const motions = how === 'fade'
+    ? faded.map((part) => part.animate([{ opacity: share(from) }, { opacity: share(to) }], FADE))
+    : [node.animate([{ height: `${from + base}px` }, { height: `${to + base}px` }], SLIDE),
+      ...faded.map((part) => part.animate([{ opacity: share(from) }, { opacity: share(to) }], SLIDE))];
+  if (how !== 'fade') node.style.overflow = 'hidden';
+  const together = { cancel: () => motions.forEach((m) => m.cancel()) };
+  sliding.set(node, together);
+  return Promise.all(motions.map((m) => m.finished)).then(() => {
+    if (sliding.get(node) !== together) return;
     sliding.delete(node);
     node.style.overflow = '';
     done();
-  }, () => { /* turned back: the next slide took over */ });
+  }, () => { /* turned back: the next move took over */ });
 }
 
 /**
- * Shows or hides `node` (its `hidden`) with its height sliding, so a fold of a list opens and
- * closes in a short movement instead of at once. A tap in the middle turns it back from where it
- * got to. → a promise, settled when it ends.
+ * Shows or hides `node` (its `hidden`) with its height sliding and its content fading, so a fold of
+ * a list opens and closes in a short movement instead of at once; a short fade where the person
+ * asks for less motion. A tap in the middle turns it back from where it got to. → a promise,
+ * settled when it ends.
  */
 export function slideHidden(node, hide) {
-  if (still(node)) {
+  const how = motionFor(node);
+  if (!how) {
     node.toggleAttribute('hidden', hide);
     return Promise.resolve();
   }
   const from = node.hasAttribute('hidden') ? 0 : node.getBoundingClientRect().height;
   sliding.get(node)?.cancel();
   node.removeAttribute('hidden');
-  const to = hide ? 0 : node.getBoundingClientRect().height;
-  return slideHeight(node, from, to, () => node.toggleAttribute('hidden', hide));
+  const full = node.getBoundingClientRect().height;
+  return move(node, { from, to: hide ? 0 : full, full, how, done: () => node.toggleAttribute('hidden', hide) });
 }
 
 const summaryOf = (details) => [...details.children].find((node) => node.tagName === 'SUMMARY');
 
 /** Opens or closes a <details> sliding, its summary always in sight; `data-closing` while it closes. */
 function slideDetails(details, open) {
-  if (still(details)) {
+  const how = motionFor(details);
+  if (!how) {
     details.open = open;
     return Promise.resolve();
   }
@@ -233,12 +251,17 @@ function slideDetails(details, open) {
   const from = details.getBoundingClientRect().height;
   sliding.get(details)?.cancel();
   details.open = true;
-  const to = open ? details.getBoundingClientRect().height
-    : (summary?.getBoundingClientRect().height || 0) + details.offsetHeight - details.clientHeight;
+  const full = details.getBoundingClientRect().height;
+  const shut = (summary?.getBoundingClientRect().height || 0) + details.offsetHeight - details.clientHeight;
   details.toggleAttribute('data-closing', !open);
-  return slideHeight(details, from, to, () => {
-    details.open = open;
-    details.removeAttribute('data-closing');
+  // What fades is what the summary folds; the heights count from the summary alone.
+  return move(details, {
+    from: from - shut, to: open ? full - shut : 0, full: full - shut, base: shut, how,
+    faded: [...details.children].filter((node) => node !== summary),
+    done: () => {
+      details.open = open;
+      details.removeAttribute('data-closing');
+    },
   });
 }
 
