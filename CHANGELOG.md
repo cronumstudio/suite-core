@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.180.0 — 2026-10-26
+## 0.181.0 — 2026-10-26
 
 - **One test kit for every app** (`tools/test-kit.mjs`, audit tests-4 / A18): the helpers each
   module's smoke test and Work's tests had their own copy of, drifting apart, are the suite's:
