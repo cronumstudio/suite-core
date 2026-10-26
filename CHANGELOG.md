@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.194.0 — 2026-10-26
+
+- **A calendar for the host** (`calendar.js`, `createHost({ calendar: '/calendar/' })`, Cronum
+  Work): what has a date in every module the person uses, by day, on a page of the host's own.
+  A module gives it with `createModule().calendar.range(user, { from, to })` (architecture
+  §21.3.1); the host asks them all at once in the person's zone at `GET /api/calendar`, and one
+  that fails is left out and named (`failed`), never the whole answer. The rail has a Calendar
+  button over the split view, and on a phone the modules' menu has it. Assistants get
+  `<host>_calendar`, the same days as text. Off unless the host passes `calendar`: nothing
+  changes for an app on its own.
+
 ## 0.193.4 — 2026-10-26
 
 - **Rows don't light up as a fold moves under a still pointer** (Martin: «como si se seleccionase
