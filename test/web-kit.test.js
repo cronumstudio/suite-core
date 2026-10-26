@@ -784,7 +784,7 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   // and always in a frame of the host's split view, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
   assert.match(shell, /const want = hosted && !embedded && \(FRAMED \|\| !\(beside\(\) && \(rail \|\| !answered\)\)\);/);
-  assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules');
+  assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*calendarPath = null;\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules or the calendar');
   // The split view's views on the rail, where the host has one, over Settings.
   assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
   assert.match(shell, /href: n === 1 \? null : `\$\{page\}\?layout=\$\{n\}&from=\$\{encodeURIComponent\(mount\)\}`/);
