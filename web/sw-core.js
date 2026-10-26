@@ -27,7 +27,8 @@
  * - Never cached: /api, /mcp, /auth, /oauth, /.well-known, /version, /health.
  *   /version above all: served from a cache, the app would never learn that
  *   there is a new version, which is what it exists for.
- * - Pages: network first, with the cached shell offline.
+ * - Pages: network first, with the cached shell offline. A page asked for
+ *   outside a navigation (the browser's checks before installing) is left to it.
  * - Other files (icons): the copy at once, refreshed behind the scenes.
  *
  * Every path above is the app's, read from the worker's scope: an app on its
@@ -112,6 +113,12 @@ function suiteOwnsCache(key, scope) {
 function suiteIsCode(pathname) {
   return pathname.indexOf('/js/') === 0 || pathname.indexOf('/css/') === 0 || pathname.indexOf('/suite/') === 0
     || pathname.indexOf('/i18n/') === 0 || pathname === '/manifest.webmanifest';
+}
+
+/** Whether a path is a page (`/`, `/w/`, `/tasks/list/12`, `/index.html`), not a file of one. */
+function suiteIsPage(pathname) {
+  var last = pathname.slice(pathname.lastIndexOf('/') + 1);
+  return last.indexOf('.') < 0 || /\.html$/.test(last);
 }
 
 /** Whether a request must always reach the server. */
@@ -272,6 +279,12 @@ function suiteWorker(options) {
       }, wait));
       return;
     }
+
+    // A page asked for by something other than a navigation (the browser checking it before
+    // installing the app, a prefetch) is the browser's to fetch, as without a worker. Taken for
+    // a file, a fetch that failed with no copy came back as an error, and Chrome said Work's
+    // split view had no manifest when installing it from there.
+    if (suiteIsPage(local)) return;
 
     if (suiteIsCode(local) && codeFirst) {
       // The copy is this release's: whatever changes comes with a new worker, never asked here.
