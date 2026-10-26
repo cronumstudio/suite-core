@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.180.0 — 2026-10-26
+
+- **One test kit for every app** (`tools/test-kit.mjs`, audit tests-4 / A18): the helpers each
+  module's smoke test and Work's tests had their own copy of, drifting apart, are the suite's:
+  `createHarness()` (`check`, `section`, `started`, `fail`, the report written in one go with the
+  failures repeated last, `assertPassed()` under `node --test`), `client()` (its session cookie,
+  JSON, and a 15 s deadline per request that names the request that hung), `mcp()`/`rpc()`,
+  `freePorts()`/`freePort()`, `waitForHealth()`, `startServer()`/`startApp()` (a temporary
+  DATA_DIR, a port of its own, the log, `stop()` that waits for the process to go), `liveChannel()`/
+  `liveNotice()`, and the fakes: `fakeServer()`, `fakeWorkos()` (AuthKit with PKCE and a whole
+  sign-in round trip), `fakePaddle()`, and the RevenueCat and DOM fakes of the suite's own tests.
+  A section's title and each ✗ go to stderr as they happen, so a run that hangs says where.
+- **Without `i18nDir`** (`createApp`, and a module's parts in the host): no app or module kept its
+  catalogs outside `public/i18n`, so the option and its fingerprint in the host are gone.
+
 ## 0.170.1 — 2026-10-26
 
 - **Maximize and restore take 280 ms** (`windows.js` `MAX_MS`, Martin: «un poco lento»): they took

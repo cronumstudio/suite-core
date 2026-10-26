@@ -620,7 +620,6 @@ export function clientTexts(flat) {
  * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
  * @param {string} [options.watchRoot]    the folder hot reload watches (the server's, by default)
- * @param {string} [options.i18nDir]      the app's catalogs (<lang>.json), by default publicDir/i18n
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
  * @param {object|Function} [options.deviceActions]  with modules.devices: what the phone does from a
@@ -639,7 +638,7 @@ export function clientTexts(flat) {
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {},
-  version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
+  version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none',
   deviceActions = null, resolveDeviceAction = null,
 }) {
@@ -822,7 +821,7 @@ export function createApp({
    * Without `all`, the suite's texts no page of the app shows are left out
    * (CLIENT_SKIPS): the admin panel's and the connect page's ask for them all.
    */
-  const catalogDir = i18nDir || (publicDir ? path.join(publicDir, 'i18n') : null);
+  const catalogDir = publicDir ? path.join(publicDir, 'i18n') : null;
   const catalogs = new Map();
   function catalogFor(lang, { all = false } = {}) {
     const key = all ? `${lang}+all` : lang;

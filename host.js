@@ -683,7 +683,7 @@ export async function createHost({
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
-      i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
+      portable: parts.portable ?? null, handleSignals: false, log,
       // In the split view each module is a frame of the host's page.
       frames: split ? 'self' : 'none',
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
@@ -874,8 +874,8 @@ export async function createHost({
   const KIT_DIR = path.join(path.dirname(fileURLToPath(HERE)), 'web');
   // The suite's texts, which every catalog the browser loads carries (app.js catalogFor).
   const KIT_TEXTS = path.join(path.dirname(fileURLToPath(HERE)), 'i18n');
-  /** Where a module's catalogs are: its own folder, by default public/i18n (app.js). */
-  const catalogsOf = (m) => m.parts.i18nDir ?? (m.parts.publicDir ? path.join(m.parts.publicDir, 'i18n') : null);
+  /** Where a module's catalogs are: public/i18n (app.js). */
+  const catalogsOf = (m) => (m.parts.publicDir ? path.join(m.parts.publicDir, 'i18n') : null);
   let printCache = { value: null, at: 0 };
   /**
    * What the whole app is now: the host's version and one fingerprint of the host's files, the
@@ -885,10 +885,9 @@ export async function createHost({
     if (printCache.value && Date.now() - printCache.at < 5000) return printCache.value;
     const prints = [['host', fingerprint(publicDir)], ['kit', fingerprint(KIT_DIR)],
       ...joined.map((m) => [m.mount, fingerprint(m.parts.publicDir)])];
-    // What else the browser loads changes the version too: the suite's texts, in every catalog, and a
-    // module's catalogs kept outside its public folder. The worker serves code from its copy first.
+    // What else the browser loads changes the version too: the suite's texts, in every catalog.
+    // The worker serves code from its copy first.
     const more = [['kit-texts', fingerprint(KIT_TEXTS)],
-      ...joined.filter((m) => m.parts.i18nDir).map((m) => [`${m.mount}-texts`, fingerprint(m.parts.i18nDir)]),
       // The host's own pages (`pages`): a release that changes only them is a new version too.
       ...pageList.map((page) => [`page${page.at}`, fingerprint(page.dir)])];
     const value = {
