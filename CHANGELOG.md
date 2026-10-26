@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.193.3 — 2026-10-26
+
+- **No blink or jump when one fold closes as another opens** (Martin, in Settings): each motion
+  holds its last frame until the fold is put as it ends, so no frame shows the closing one whole
+  for an instant (Safari drew one between the end and the hiding); and a fold's padding shrinks
+  with it, so the one closing goes all the way to nothing instead of stopping at 6 px and
+  vanishing, and the one opening starts from nothing.
+
 ## 0.193.2 — 2026-10-26
 
 - **Folds move so it shows** (Martin: «no veo que se abran de forma fluida»): the slide lasts
