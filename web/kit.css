@@ -398,6 +398,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-badge--accent { background: var(--kit-accent-soft); color: var(--kit-accent); }
 .kit-badge--ok { color: var(--kit-ok); }
+.kit-badge--on { background: color-mix(in srgb, var(--kit-ok) 14%, transparent); color: var(--kit-ok); }
+.kit-badge--on svg { width: 14px; height: 14px; }
 .kit-badge--warn { background: var(--kit-warn-soft); color: var(--kit-warn); }
 .kit-badge--danger { background: var(--kit-danger-soft); color: var(--kit-danger); }
 .kit-badge--now { background: color-mix(in srgb, var(--kit-now) 22%, transparent); color: var(--kit-now-text); }

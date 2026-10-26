@@ -3,13 +3,31 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.192.3 — 2026-10-26
+## 0.193.2 — 2026-10-26
 
 - **Folds move so it shows** (Martin: «no veo que se abran de forma fluida»): the slide lasts
   320 ms on an even curve (it used to cover two thirds of the way in the first 45 ms, which read
   as instant), and what a fold holds fades in and out with it. Where the person asks for less
   motion a fold no longer jumps: what it holds fades in or out in 160 ms, without sliding. The
   chevrons turn in the same time.
+
+## 0.193.1 — 2026-10-26
+
+- **Two-step verification says whether it is on** (Martin; `web/settings.js`, `web/kit.css`,
+  `i18n/*.json`). Its block in Settings › Password and sign-in now opens with a badge, **On** (green,
+  with a tick) or **Off**, instead of leaving it to the first word of the text and the Turn off
+  button. The texts under it lose that first word (`kit.twoFactor.off`, `.on`, `.onNoCodes`); new
+  `kit.twoFactor.statusOn` and `kit.twoFactor.statusOff`, and `.kit-badge--on`.
+
+## 0.193.0 — 2026-10-26
+
+- **With WorkOS, two-step verification is offered to everyone** (`workos.js`,
+  `workos-security.js`, `CONVENTIONS.md`). Since 0.127.0 only administrators were offered it
+  while it was tried with AuthKit. Tried: with the environment's Multi-Factor Auth set to
+  **Optional** in WorkOS's dashboard, AuthKit asks whoever turned it on for the code at every
+  sign-in, and nobody else; with it **Off**, the factor is kept and never asked for. So
+  `WORKOS_TWO_FACTOR` is now `on` when unset; `admins` and `off` still hold it back. Whoever
+  signs in with Google, Apple, Microsoft or GitHub is still not offered it.
 
 ## 0.192.2 — 2026-10-26
 
