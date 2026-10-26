@@ -970,17 +970,27 @@ test('a host without a split view: nobody may frame its modules, and the rail of
   assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
   assert.equal((await call('GET', '/api/modules')).data.host.aiInstruction, undefined, 'nor a prompt of the host’s');
   assert.equal((await call('GET', '/api/modules')).data.host.calendar, undefined, 'nor a calendar');
+  assert.equal('calendar_shown' in (await call('GET', '/api/modules')).data, false, 'nor its switch');
   assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 404, 'nor its route');
   const module = await call('GET', '/alpha/api/auth/config');
   assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(module.headers.get('x-frame-options'), 'DENY');
 });
 
-test('a host with a calendar: the rail offers it, and the root answers what has a date in the modules each person uses', async (t) => {
+test('a host with a calendar: the rail offers it to whoever turns it on, and the root answers what has a date in the modules each person uses', async (t) => {
   const { call } = await startHost(t, { calendar: '/calendar/' });
-  assert.equal((await call('GET', '/api/modules')).data.host.calendar, '/calendar/');
   assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 401, 'signed out: nothing');
+  assert.equal((await call('PUT', '/api/me/calendar', { shown: true })).status, 401);
   await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  // Off until the person turns it on (Settings › Modules): the rail stays as simple as it was.
+  const before = (await call('GET', '/api/modules')).data;
+  assert.equal(before.host.calendar, undefined);
+  assert.equal(before.calendar_shown, false, 'the switch, off');
+  assert.equal((await call('PUT', '/api/me/calendar', { shown: 'yes' })).data.field, 'shown');
+  const on = await call('PUT', '/api/me/calendar', { shown: true });
+  assert.deepEqual([on.status, on.data.host.calendar, on.data.calendar_shown], [200, '/calendar/', true]);
+  assert.equal((await call('GET', '/api/modules')).data.host.calendar, '/calendar/', 'kept');
+  assert.equal((await call('PUT', '/api/me/calendar', { shown: false })).data.host.calendar, undefined, 'and off again');
   for (const text of ['2026-11-03 Dentist', 'No date', '2026-12-24 Later']) await call('POST', '/alpha/api/items', { text });
   await call('POST', '/beta/api/items', { text: '2026-11-03 Beta gives no dates' });
   const november = await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-30');

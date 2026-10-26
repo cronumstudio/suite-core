@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.195.0 — 2026-10-26
+
+- **The calendar's button, for whoever wants it** (Martin: «así la vista no se le complica a quien
+  quiera una UI simple»): Settings › Modules has a switch, "Show the calendar", off to begin with.
+  On, the rail has the Calendar button (on a phone, the modules' menu); off, the rail is as it was.
+  `GET /api/modules` says `host.calendar` only to whoever has it on, and `calendar_shown` to
+  everyone where the host has a calendar; `PUT /api/me/calendar { shown }` changes it (new host
+  migration 5, `host_calendar`). The page and `<host>_calendar` stay for everyone.
+
 ## 0.194.0 — 2026-10-26
 
 - **A calendar for the host** (`calendar.js`, `createHost({ calendar: '/calendar/' })`, Cronum
