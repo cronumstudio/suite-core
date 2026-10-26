@@ -116,6 +116,9 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
  *                                        install's default from then on, with nothing to change
  * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
+ * @param {(userIds) => Map<number, number[]>} [options.organizationsOfMany]   the same for many
+ *                                        people at once, for `ofMany()`; left out, organizationsOf
+ *                                        is asked for each
  * @param {(organizationId) => boolean} [options.organizationExists]   whether a group is there and
  *                                        not archived, for `ofOrganization()`: one that isn't has the
  *                                        default plan, whatever grants it kept. Left out, any id's
@@ -127,7 +130,7 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
 export function createEntitlements({
   database, appId, features = {}, plans = null, defaultPlan = null,
   plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN, earlyAccess = null,
-  isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [], organizationExists = null,
+  isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [], organizationsOfMany = null, organizationExists = null,
   clock = () => Date.now(), othersDeclare = false,
 }) {
   const errors = [];
@@ -293,6 +296,49 @@ export function createEntitlements({
       return { plan: { id: plan, name: catalog[plan]?.name }, ends: null, features, unlimited: true };
     }
     return entitledBy(activeGrants(user, organizationId));
+  }
+
+  /**
+   * of() of many people at once, for a sweep such as the admin's list of accounts (usage.js):
+   * Map userId → what of(user) answers, in a fixed number of queries (their groups, then the active
+   * grants, by batches of 500), not two or more for each person.
+   */
+  function ofMany(users) {
+    const answers = new Map();
+    const counted = [];
+    for (const user of users) {
+      if (!user) continue;
+      if (isUnlimited(user)) answers.set(user.id, of(user));   // no query
+      else counted.push(user);
+    }
+    if (!counted.length) return answers;
+    const groupsOf = organizationsOfMany
+      ? organizationsOfMany(counted.map((user) => user.id))
+      : new Map(counted.map((user) => [user.id, organizationsOf(user) || []]));
+    const now = iso(clock());
+    const active = (type, ids) => {
+      const found = new Map();
+      for (let i = 0; i < ids.length; i += 500) {
+        const batch = ids.slice(i, i + 500);
+        for (const grant of database.all(`SELECT * FROM entitlement_grants WHERE subject_type = ?
+          AND subject_id IN (${batch.map(() => '?').join(', ')})
+          AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?) AND revoked_at IS NULL`, type, ...batch, now, now)) {
+          if (!found.has(grant.subject_id)) found.set(grant.subject_id, []);
+          found.get(grant.subject_id).push(grant);
+        }
+      }
+      return found;
+    };
+    const ofUsers = active('user', [...new Set(counted.map((user) => user.id))]);
+    const ofGroups = active('organization', [...new Set(counted.flatMap((user) => groupsOf.get(user.id) || []))]);
+    for (const user of counted) {
+      const groups = [...new Set(groupsOf.get(user.id) || [])];
+      // In the order of(user) reads them (ORDER BY id): with two of a plan, the one shown is the same.
+      const grants = [...(ofUsers.get(user.id) || []), ...groups.flatMap((id) => ofGroups.get(id) || [])]
+        .sort((a, b) => a.id - b.id);
+      answers.set(user.id, entitledBy(grants));
+    }
+    return answers;
   }
 
   /**
@@ -480,6 +526,23 @@ export function createEntitlements({
   }
 
   /**
+   * What a daily limit used today (UTC) for many people at once, for the admin's list: Map userId
+   * → used, 0 for whoever used none, in one query for each 500 of them. Reads, never spends.
+   */
+  function usedToday(userIds, feature) {
+    if (known(feature).type !== 'limit') throw new Error(`usedToday: "${feature}" is not a limit`);
+    const day = iso(clock()).slice(0, 10);
+    const used = new Map(userIds.map((id) => [id, 0]));
+    const ids = [...used.keys()];
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500);
+      for (const row of database.all(`SELECT user_id, used FROM entitlement_usage WHERE feature = ? AND day = ?
+        AND user_id IN (${batch.map(() => '?').join(', ')})`, feature, day, ...batch)) used.set(row.user_id, Number(row.used));
+    }
+    return used;
+  }
+
+  /**
    * The barrier. For a flag, throws 402 `plan_feature` when it is off; for a
    * limit, 402 `plan_limit` when `current` has reached it. The details let the
    * interface and the assistant say which plan and which limit.
@@ -584,7 +647,7 @@ export function createEntitlements({
   const knows = (key) => key in declared || key in aliasOf;
 
   return {
-    errors, ignored, knows, of, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, countDaily, dailyUsage,
+    errors, ignored, knows, of, ofMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, countDaily, dailyUsage, usedToday,
     grant, revoke, setPlan, seatsOf, grantsOf, describe,
   };
 }

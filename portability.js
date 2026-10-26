@@ -159,7 +159,9 @@ export function dataImportsSchema(d) {
  * a value without it is left out (the column's default; for a profile, what
  * the account has). A copy is a file anyone can write: without them, a name
  * of megabytes reached everyone the list was shared with. Text without a
- * limit is cut at MAX_TEXT.
+ * limit is cut at MAX_TEXT. Every value must be of its column's type, or the
+ * copy is refused: text in TEXT, a number in INTEGER and REAL, a blob only in
+ * BLOB (or a column without a type).
  *
  * A table renamed since copies were made says the names it had, `was: ['projects']`,
  * and a copy that has it under one of them still comes in.
@@ -278,6 +280,7 @@ export function describeData(database, declaration = {}, { organizationRoles } =
     }
     tables.push({
       name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was, onePer,
+      types: new Map(info.map((c) => [c.name, affinityOf(c.type)])),
       clean: typeof spec.clean === 'function' ? spec.clean : null,
       limits: limitsOf(spec.limits, columns, name, errors),
       omit: omitOf(spec.omit, { columns, key, refs, file }, name, errors),
@@ -430,9 +433,36 @@ function cut(text, max) {
  * describeData), or undefined when it doesn't have the shape the column takes.
  */
 function within(value, limit) {
+  if (value === null) return value;
+  // A pattern is a shape of text: a number or a blob never has it.
+  if (limit instanceof RegExp) return typeof value === 'string' && limit.test(value) ? value : undefined;
   if (typeof value !== 'string') return value;
-  if (limit instanceof RegExp) return limit.test(value) ? value : undefined;
   return cut(value, limit ?? MAX_TEXT);
+}
+
+/** A column's type affinity, by SQLite's own rules (sqlite.org/datatype3.html, 3.1). */
+function affinityOf(type) {
+  const name = String(type || '').toUpperCase();
+  if (name.includes('INT')) return 'integer';
+  if (/CHAR|CLOB|TEXT/.test(name)) return 'text';
+  if (!name || name.includes('BLOB')) return 'blob';
+  if (/REAL|FLOA|DOUB/.test(name)) return 'real';
+  return 'numeric';
+}
+
+/**
+ * Whether a value of a copy is one a column of that affinity holds, as the
+ * app writes it: text in TEXT, a number in INTEGER and REAL, a blob only where
+ * the app keeps blobs. SQLite would take any of them anywhere; a blob of
+ * megabytes as a list's name, or a number where the app reads text, would
+ * then reach everyone it is shared with.
+ */
+function fits(value, affinity) {
+  if (value === null) return true;
+  if (value instanceof Uint8Array) return affinity === 'blob';
+  if (affinity === 'text') return typeof value === 'string';
+  if (affinity === 'integer' || affinity === 'real') return typeof value === 'number';
+  return true;
 }
 
 /* ------------------------------- whose rows are ------------------------------- */
@@ -528,7 +558,7 @@ const countsOf = (kept) => Object.fromEntries([...kept].filter(([, rows]) => row
 
 /* ------------------------------ values in the file ----------------------------- */
 
-/** A value as it goes into JSON: blobs (none of the apps has one today) as base64. */
+/** A value as it goes into JSON: blobs (none of the apps has one today) as base64, which comes back only into a BLOB column. */
 const toJson = (value) => (value instanceof Uint8Array ? { $blob: Buffer.from(value).toString('base64') } : value);
 
 /** A value from the file as SQLite takes it, or undefined when it isn't a plain value. */
@@ -995,7 +1025,7 @@ export function createPortability({
         // What never travels doesn't come in either: a copy made before it was omitted, or one written by hand.
         if (table.omit.has(column)) continue;
         const clean = fromJson(value);
-        if (clean === undefined) throw invalidData(table.name, { column });
+        if (clean === undefined || !fits(clean, table.types.get(column))) throw invalidData(table.name, { column });
         const kept = within(clean, table.limits.get(column));
         if (kept !== undefined) row[column] = kept;
       }

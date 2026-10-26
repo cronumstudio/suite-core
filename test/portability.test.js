@@ -88,11 +88,11 @@ const PDF = Buffer.from('%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n');
 const HTML = Buffer.from('<!DOCTYPE html><script>alert(document.cookie)</script>');
 
 /** An install of the demo app in its own folder; every new account gets a "Welcome" group, like Tasks' first lists. */
-function install(t, env = {}) {
+function install(t, env = {}, migrations = MIGRATIONS) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-data-'));
   let suite = null;
   suite = createSuite({
-    config: PRODUCT, migrations: MIGRATIONS, log: () => {}, exitOnError: false,
+    config: PRODUCT, migrations, log: () => {}, exitOnError: false,
     env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', ...env },
     hooks: { onUserCreated: (user) => suite.database.run('INSERT INTO groups (user_id, name) VALUES (?, ?)', user.id, 'Welcome') },
   });
@@ -742,6 +742,61 @@ test('what a copy brings stays within what the app’s screens accept', async (t
 
   assert.throws(() => target.suite.portabilityFor({ ...DATA, tables: { ...DATA.tables, lists: { ...DATA.tables.lists, limits: { nope: 3 } } } },
     { version: '1.0.0' }), /lists\.nope: a limit for a column that isn't there/);
+});
+
+test('a value of another type than its column’s is refused: no blob, number or text where the app reads another', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const own = path.join(source.dir, 'ana.zip');
+  await exportTo(source, own, { scope: 'account', userId: s.ana.id });
+  const target = install(t);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  const strict = target.suite.portabilityFor({
+    ...DATA,
+    tables: { ...DATA.tables, groups: { ...DATA.tables.groups, limits: { name: /^[\w ]+$/ } } },
+    users: { ...DATA.users, limits: { avatar_color: /^#[0-9a-f]{6}$/i } },
+  }, { version: '1.0.0' });
+  const plan = (file) => strict.planFile(file, { mode: 'account', user: me });
+  const at = (name) => path.join(source.dir, name);
+  const first = (table, change) => editJson(`data/${table}.json`, (rows) => rows.map((r, i) => (i ? r : { ...r, ...change })));
+
+  // No table here has a BLOB column: a megabyte as a task's title, or as its number, was stored as it came.
+  const megabyte = { $blob: Buffer.alloc(1024 * 1024, 0x41).toString('base64') };
+  await rejectsWith(plan(await tamper(own, at('blob.zip'), first('tasks', { title: megabyte }))), 'import_invalid_data');
+  await rejectsWith(plan(await tamper(own, at('blob-number.zip'), first('tasks', { number: megabyte }))), 'import_invalid_data');
+  await rejectsWith(plan(await tamper(own, at('number.zip'), first('lists', { name: 42 }))), 'import_invalid_data');
+  await rejectsWith(plan(await tamper(own, at('flag.zip'), first('tasks', { title: true }))), 'import_invalid_data');
+  await rejectsWith(plan(await tamper(own, at('pattern.zip'), first('groups', { name: 7 }))), 'import_invalid_data');
+  await rejectsWith(plan(await tamper(own, at('text.zip'), first('lists', { next_number: 'zzz' }))), 'import_invalid_data');
+
+  // A number where an account's column takes a pattern hasn't its shape: the account keeps what it had.
+  target.db.run("UPDATE users SET avatar_color = '#123456' WHERE id = ?", me.id);
+  const color = await tamper(own, at('color.zip'), editJson('data/users.json', ([ana]) => [{ ...ana, avatar_color: 123456 }]));
+  const result = await strict.applyFile(color, { mode: 'account', user: me });
+  assert.equal(target.suite.accounts.byId(me.id).avatar_color, '#123456');
+  // The rest of the copy, as the app wrote it, comes in whole: texts, numbers, NULLs and flags.
+  assert.deepEqual(result.imported.tables, { groups: 1, lists: 1, list_prefs: 1, tasks: 4, files: 2, branches: 2, entries: 3 });
+  const list = target.db.get("SELECT id, name, next_number, settings FROM lists WHERE owner_id = ? AND name = 'Shopping'", me.id);
+  assert.deepEqual({ ...list, id: undefined }, { id: undefined, name: 'Shopping', next_number: 5, settings: '{"numbers":true}' });
+  assert.deepEqual(target.db.all('SELECT title, number, parent_id IS NULL AS top FROM tasks WHERE list_id = ? ORDER BY number', list.id)
+    .map((r) => [r.title, r.number, r.top]), [['Bread', 1, 1], ['Wholemeal', 2, 0], ['Milk', 3, 1], ['Old thing', 4, 1]]);
+});
+
+test('a blob travels in a BLOB column, and comes back byte for byte', async (t) => {
+  const withThumbs = [...MIGRATIONS, { version: 2, name: 'thumbs', up: (d) => d.exec('ALTER TABLE tasks ADD COLUMN thumb BLOB') }];
+  const source = install(t, {}, withThumbs);
+  const s = seedSource(source);
+  const thumb = Buffer.from([0, 1, 2, 250, 255]);
+  source.db.run("UPDATE tasks SET thumb = ? WHERE title = 'Bread'", thumb);
+  const own = path.join(source.dir, 'ana.zip');
+  await exportTo(source, own, { scope: 'account', userId: s.ana.id });
+  const { json } = await readZip(t, own);
+  assert.deepEqual((await json('data/tasks.json')).find((r) => r.title === 'Bread').thumb, { $blob: thumb.toString('base64') });
+
+  const target = install(t, {}, withThumbs);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  await target.portability.applyFile(own, { mode: 'account', user: me });
+  assert.deepEqual(Buffer.from(target.db.get("SELECT thumb FROM tasks WHERE title = 'Bread'").thumb), thumb);
 });
 
 test('someone’s own copy can’t fill the memory, the account’s row or the disk', async (t) => {

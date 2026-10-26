@@ -126,6 +126,35 @@ test('where someone is signed in: listed with the device, and revocable one by o
   assert.equal(sessions.list(1, here).length, 1);
 });
 
+test('whose a session still is, without moving its end; and who hears that sessions closed', (t) => {
+  const database = setup(t);
+  let now = Date.parse('2026-01-01T00:00:00Z');
+  const sessions = createSessions({ database, secret: 's', cookieName: 'sid', idleDays: 30, clock: () => now });
+  const heard = [];
+  sessions.whenClosed((userId) => heard.push(userId));
+  const laptop = sessions.open(1);
+  const phone = sessions.open(1);
+  const bobs = sessions.open(2);
+  const before = database.get('SELECT expires_at FROM sessions WHERE user_id = 2').expires_at;
+  now += 2 * DAY;
+  assert.equal(sessions.stillOpen(bobs), 2);
+  assert.equal(database.get('SELECT expires_at FROM sessions WHERE user_id = 2').expires_at, before, 'asking doesn’t use it');
+  assert.equal(sessions.stillOpen('nonsense'), null);
+
+  sessions.close(laptop);
+  sessions.close(laptop);
+  assert.equal(sessions.stillOpen(laptop), null);
+  assert.deepEqual(heard, [1], 'once, for the session that was there');
+  sessions.revoke(1, sessions.list(1).find(() => true).key);
+  assert.equal(sessions.stillOpen(phone), null);
+  assert.equal(sessions.closeAllOf(1), 0);
+  sessions.closeAllOf(2);
+  assert.deepEqual(heard, [1, 1, 2], 'nothing closed, nothing said');
+  const idle = sessions.open(2);
+  now += 31 * DAY;
+  assert.equal(sessions.stillOpen(idle), null, 'an ended session isn’t anyone’s');
+});
+
 test('the sessions of an app before suite-core carry on, signed in', (t) => {
   // The table as Tasks, Projects and Next had it, with a live session in it.
   const token = 'old-token';
