@@ -2013,6 +2013,45 @@ without it. A search's cards are shown as the module's `search` gives them, none
   another item and `row.refresh(events)` from the live channel (`events: ['links']`). On its own an
   app gets a hidden row, and nothing is asked.
 
+### 21.3.1 The calendar
+
+`calendar.js`, with `createHost({ calendar: '/calendar/' })`: a page of the host's own (in its
+`publicDir`, as the split view) that shows, by day, what has a date in each module. Read-only:
+each thing opens in its module. Without the option nothing of it is there. A module says what it
+has with a date, next to its `cards`:
+
+```js
+// server/module.js
+calendar: {
+  // What `user` sees with a date in [from, to] (both 'YYYY-MM-DD', included): an item is there
+  // when its span overlaps them. The same permissions as the module's own pages; [] for nothing.
+  range: (user, { from, to }) => [item…],          // or a promise of them
+},
+```
+
+An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine?, time? }`: the
+module's own kind of thing (`task`, `phase`, `milestone`, `daily`), the row's id, its first and
+last day (the same for one day; without `end`, one day), what shows under the title (a list, a
+project › phase, a notebook), its url relative to the module as a card's (`?list=3&task=9`),
+whether it is the person's, and `HH:MM` when it has a real time of day.
+
+- **`GET /api/calendar?from=&to=`** at the root (401 signed out; 400 `field_invalid` naming `from`
+  or `to` for a date that isn't one, `to` before `from`, or more than 366 days with both ends)
+  asks every module the person uses that has a calendar, all at once and in their zone (time.js),
+  and answers `{ from, to, modules: [{ mount, name, color, icon }], items, failed? }`: each item
+  with its `module` and its url under the module's path (`/tasks/?list=3&task=9`), sorted by first
+  day, then in the modules' order, then by title. What can't be shown is left out (no type or id,
+  a day that isn't one, an end before its start, outside the span), and each module gives its
+  2000 earliest at most. A module whose `range` throws, or gives no list, is logged and named in
+  `failed`, never a 500: the rest of the calendar still shows.
+- **On the rail** (`shell.js`), `GET /api/modules` says `host.calendar`, and every module's rail
+  has a Calendar button (`kit.calendar.title`) just over the split view's, a link to that page.
+- **For assistants**, the host's MCP adds `<host id>_calendar` (`work_calendar`) for whoever uses
+  a module that gives its dates (and, with `byPlan`, whose plan lets an assistant read it):
+  `{ from, to }`, `to` a week from `from` without it and `from` today in their zone without it,
+  answered as text by day, each thing with its `module:type:id` for the modules' tools and the
+  links'. A thing that lasts several days is said once, on its first day in the span.
+
 
 ### 21.4 From one module to another
 
@@ -2137,7 +2176,7 @@ const host = await createHost({
   the host's: GET and HEAD under `at` are files of `dir` (`at` itself is its `index`; `/w` goes to
   `/w/`), with the security headers and caching of the host's other files (`serveStatic`: ETag from
   what the file holds, code revalidated). A file the folder doesn't have is a 404, never a module's
-  page nor the host's. `at` is one path segment that is no module's, the split view's or the host's
+  page nor the host's. `at` is one path segment that is no module's, the split view's, the calendar's or the host's
   own (`RESERVED`); the start stops otherwise. One page may be the app's start (`root: true`): `/`
   answers its index too, but for an address with a query name it lists (`root: { except: ['modules'] }`,
   Work's `/?modules`), which opens the host's own home as before. A page's files count in the

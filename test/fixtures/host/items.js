@@ -72,6 +72,21 @@ export function itemCards({ suite, table }) {
   };
 }
 
+/**
+ * What has a date of a test module's items (suite-core calendar.js): an item whose text starts with
+ * one ("2026-11-03 Dentist") is on that day.
+ */
+export function itemCalendar({ suite, table }) {
+  return {
+    range: (user, { from, to }) => suite.database.all(`SELECT * FROM ${table} WHERE user_id = ? ORDER BY id`, user.id)
+      .map((row) => ({ row, day: /^(\d{4}-\d{2}-\d{2}) (.*)$/.exec(row.text) }))
+      .filter(({ day }) => day && day[1] >= from && day[1] <= to)
+      .map(({ row, day }) => ({
+        type: 'item', id: row.id, title: day[2], start: day[1], end: day[1], state: row.done ? 'done' : 'open', where: 'Items', url: `?item=${row.id}`,
+      })),
+  };
+}
+
 /** Marks an item done, as a module would, telling its links. */
 export function doneRoute(api, { suite, table }) {
   api.post('/api/items/:id/done', (ctx) => {

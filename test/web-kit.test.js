@@ -790,6 +790,11 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /href: n === 1 \? null : `\$\{page\}\?layout=\$\{n\}&from=\$\{encodeURIComponent\(mount\)\}`/);
   assert.match(css, /\.kit-rail__split \+ \.kit-rail__settings \{ margin-top: 0; \}/);
   for (const n of [1, 2, 3, 4]) assert.match(icons, new RegExp(` {2}'layout-${n}': '[^']+',\n`));
+  // The calendar, where the host has one: a link to its page, just over the split view.
+  assert.match(shell, /host\.calendar \? el\('a', \{\s*class: 'kit-rail__calendar', href: host\.calendar, title: t\('kit\.calendar\.title'\)/);
+  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__split'"), 'over the split view');
+  assert.match(css, /\.kit-rail__calendar \+ :is\(\.kit-rail__split, \.kit-rail__settings\) \{ margin-top: 0; \}/);
+  assert.match(icons, /\n {2}calendar: '[^']+',\n/);
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
   assert.match(shell, /foot\.hidden = on;/, 'the person\'s button gives way in a host');
   assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the person\'s button opened');

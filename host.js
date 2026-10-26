@@ -78,6 +78,7 @@ import {
 import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
+import { createCalendar, registerCalendarApi, calendarTools } from './calendar.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
 import { combinePrefs } from './prefs.js';
@@ -251,14 +252,17 @@ const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
  * each tool's name as the host gives it; without it, the first paragraph of
  * its instructions). Whole parts only, as many as fit. `instead` may give a
  * module's part in place of its brief (why its tools are not there).
+ * `hostDoes` says what the host's own tools (`<hostId>_…`) are for.
  */
-export function hostInstructions({ modules, hostName, hostId = null, max = MCP_TEXT_MAX, log = () => {}, instead = () => null }) {
+export function hostInstructions({
+  modules, hostName, hostId = null, hostDoes = 'link things between modules', max = MCP_TEXT_MAX, log = () => {}, instead = () => null,
+}) {
   if (!modules.length) return '';
   const names = modules.map((m) => m.config.app.name);
   const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
   const parts = [`${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
     + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')})`
-    + `${hostId ? `, or with ${hostId}_ for the ones that link things between modules` : ''}.`];
+    + `${hostId ? `, or with ${hostId}_ for the ones that ${hostDoes}` : ''}.`];
   for (const m of modules) {
     const spec = m.parts.mcp;
     const name = (tool) => `${m.mount}_${tool}`;
@@ -314,9 +318,11 @@ function schemaSaying(schema, say) {
  *   its prefix (prefixNames).
  * · `record(principal, tool)`: after each call that changed something.
  * · `maxResultChars`: the most text an answer carries (mcp.js capResult).
+ * · `calendar` (calendar.js createCalendar): `<host>_calendar`, what has a
+ *   date in the modules, for whoever uses one that gives its dates.
  */
 export function hostMcp({
-  modules, uses = () => true, hostName = 'The app', hostId = 'host', log = () => {}, links = null,
+  modules, uses = () => true, hostName = 'The app', hostId = 'host', log = () => {}, links = null, calendar = null,
   byPlan = false, onDemand = null, allTools = () => false, namesInText = false, record = null, maxResultChars = null,
 }) {
   const entries = [];
@@ -325,7 +331,9 @@ export function hostMcp({
   }
   // The host's own tools link things between modules: there when two modules have things to link.
   const linkable = links ? modules.filter((m) => m.parts?.cards) : [];
-  if (!entries.length && linkable.length < 2) return null;
+  // And the calendar, where the host has one: there when a module gives its dates.
+  const datable = calendar ? modules.filter((m) => typeof m.parts?.calendar?.range === 'function') : [];
+  if (!entries.length && linkable.length < 2 && !datable.length) return null;
   const byMount = new Map(modules.map((m) => [m.mount, m]));
   const sayers = new Map(modules.map((m) => [m.mount, namesInText
     ? prefixNames((m.parts?.mcp?.tools || []).map((tool) => tool.name), m.mount) : (text) => text]));
@@ -386,6 +394,9 @@ export function hostMcp({
   };
   // A module's tools for whoever uses it; the links', for whoever uses two modules with things to link.
   const linking = (principal) => linkable.filter((m) => using(principal, m.mount) && planned(principal, m) === true).length >= 2;
+  // The calendar's, for whoever uses one module that gives its dates, and only with the ones their plan lets an assistant read.
+  const dating = (principal) => datable.some((m) => using(principal, m.mount) && planned(principal, m) === true);
+  const calendarName = `${hostId}_calendar`;
   /** The modules someone uses whose tools their plan leaves out, with the sentence why. */
   const blocked = (principal) => modules.filter((m) => m.parts?.mcp?.tools?.length && using(principal, m.mount))
     .map((m) => ({ m, why: planned(principal, m) })).filter(({ why }) => why !== true);
@@ -393,12 +404,17 @@ export function hostMcp({
   const visible = (principal, tool) => {
     if (!principal) return true;
     if (tool.name === planInfo) return blocked(principal).length > 0;
+    if (tool.name === calendarName) return dating(principal);
     if (!tool.module) return linking(principal);
     return using(principal, tool.module) && (!byPlan || allows(principal, tool) === true);
   };
   // Named with the host's id, as a module's tools are with its own (no old bare names kept).
   if (linkable.length >= 2) {
     tools.push(...linkTools({ links, modules: () => linkable }).map((tool) => ({ ...tool, name: `${hostId}_${tool.name}` })));
+  }
+  if (datable.length) {
+    tools.push(...calendarTools({ calendar, allowed: (principal, m) => planned(principal, m) === true })
+      .map((tool) => ({ ...tool, name: `${hostId}_${tool.name}` })));
   }
   if (byPlan) {
     tools.push({
@@ -452,9 +468,12 @@ export function hostMcp({
 
   const instructions = (principal) => {
     const instead = principal ? new Map(blocked(principal).map(({ m, why }) => [m.mount, `${m.config.app.name}: ${upgrade(why)}`])) : new Map();
+    const linksOn = linkable.length >= 2 && (!principal || linking(principal));
+    const calendarOn = datable.length > 0 && (!principal || dating(principal));
     return hostInstructions({
       modules: modules.filter((m) => m.parts?.mcp && (!principal || using(principal, m.mount))), hostName, log,
-      hostId: linkable.length >= 2 && (!principal || linking(principal)) ? hostId : null,
+      hostId: linksOn || calendarOn ? hostId : null,
+      hostDoes: [linksOn && 'link things between modules', calendarOn && 'show what has a date in them'].filter(Boolean).join(' or '),
       instead: (m) => instead.get(m.mount) ?? null,
     });
   };
@@ -509,6 +528,9 @@ function moduleListErrors(modules) {
  * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
  *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
  *   framed by the host's own pages (never by another site's)
+ * @param {string} [options.calendar]   the host's page that shows what has a date in each module
+ *   (`/calendar/`, in its publicDir; calendar.js): the rail offers it, `GET /api/calendar` answers
+ *   it at the root and the host's MCP adds `<id>_calendar`, from the modules' `createModule().calendar`
  * @param {string} [options.aiInstruction]  the host's route that builds the prompt for an assistant, for the
  *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
  *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
@@ -545,7 +567,7 @@ function moduleListErrors(modules) {
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, calendar = null,
   aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
 }) {
@@ -583,6 +605,10 @@ export async function createHost({
   if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
     listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
   }
+  // So is the calendar.
+  if (calendar !== null && !(typeof calendar === 'string' && /^\/[a-z0-9-]+\/$/.test(calendar))) {
+    listErrors.push(`calendar: "${calendar}" is not a page of the host (such as /calendar/)`);
+  }
   // The prompt is one of the host's own routes, under /api/.
   if (aiInstruction !== null && !(typeof aiInstruction === 'string' && /^\/api\/[a-z0-9-]+$/.test(aiInstruction))) {
     listErrors.push(`aiInstruction: "${aiInstruction}" is not a route of the host (such as /api/ai-instruction)`);
@@ -596,7 +622,7 @@ export async function createHost({
   for (const [i, page] of pageList.entries()) {
     const at = page?.at;
     if (!(typeof at === 'string' && /^\/[a-z0-9-]+\/$/.test(at))) listErrors.push(`pages[${i}].at: "${at}" is not a path of the host (such as /w/)`);
-    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at) {
+    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at || calendar === at) {
       listErrors.push(`pages[${i}].at: ${at} is the host's already, or a module's`);
     } else if (pageList.findIndex((other) => other?.at === at) !== i) listErrors.push(`pages[${i}].at: ${at} twice`);
     if (!page?.dir || typeof page.dir !== 'string') listErrors.push(`pages[${i}].dir: the folder of its files is needed`);
@@ -898,7 +924,10 @@ export async function createHost({
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
     const look = user ? suite.database.get('SELECT look FROM host_looks WHERE user_id = ?', user.id)?.look : null;
     return {
-      host: { name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(aiInstruction ? { aiInstruction } : {}) },
+      host: {
+        name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendar ? { calendar } : {}),
+        ...(aiInstruction ? { aiInstruction } : {}),
+      },
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
@@ -921,6 +950,11 @@ export async function createHost({
     setImmediate(safely('links clean-up', () => links.prune()));
   });
 
+  // What has a date in each module (calendar.js), for the host's calendar page and its assistants' tool.
+  const agenda = calendar ? createCalendar({
+    modules: () => joined, uses, log, icon: (m) => mountedPath(m.mount, m.config.app.icon),
+  }) : null;
+
   // Tools reached on demand, when the host keeps some out of the list: each person may have them
   // all listed instead (Settings › Your AI). No row: on demand.
   const onDemand = mcpOptions?.onDemand && Object.values(mcpOptions.onDemand).some((names) => names?.length)
@@ -930,7 +964,7 @@ export async function createHost({
   /** What Settings › Your AI shows of the tools: kept on demand ('door') or all listed ('all'). */
   const aiToolsOf = (user) => (onDemand ? { ai_tools: allTools(user) ? 'all' : 'door' } : {});
   const mcp = hostMcp({
-    modules: joined, uses, hostName: config.app.name, hostId: config.app.id, log, links,
+    modules: joined, uses, hostName: config.app.name, hostId: config.app.id, log, links, calendar: agenda,
     byPlan: Boolean(mcpOptions?.byPlan), onDemand, allTools, namesInText: Boolean(mcpOptions?.namesInText),
     maxResultChars: mcpOptions?.maxResultChars || null,
     // Who changed what from an assistant, in the audit log with the rest: the tool and its module, never what it was given.
@@ -981,6 +1015,7 @@ export async function createHost({
         });
       }
       registerLinksApi(api, { links });
+      if (agenda) registerCalendarApi(api, { calendar: agenda });
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
       registerOwnUsageApi(api, { usageFor });

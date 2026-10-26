@@ -994,6 +994,7 @@
   "kit.split.layout2": "2 apps en colonnes",
   "kit.split.layout3": "3 apps en colonnes",
   "kit.split.layout4": "4 apps en grille",
+  "kit.calendar.title": "Calendrier",
   "kit.links.label": "Lié",
   "kit.links.add": "Lier",
   "kit.links.addTo": "Ajouter à {app}…",

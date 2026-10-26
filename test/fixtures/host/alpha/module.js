@@ -6,7 +6,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { joinHost } from '../../../../host.js';
-import { itemRoutes, itemTools, itemCards, doneRoute } from '../items.js';
+import { itemRoutes, itemTools, itemCards, itemCalendar, doneRoute } from '../items.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const events = { created: [], removed: [], started: 0, stopped: 0 };
@@ -40,6 +40,8 @@ export function createModule({ mount }) {
       doneRoute(api, { suite, table: 'alpha_items' });
     },
     cards: itemCards({ suite, table: 'alpha_items' }),
+    // Its items with a date, for a host with a calendar.
+    calendar: itemCalendar({ suite, table: 'alpha_items' }),
     // Its sections of Settings, for the other modules' Settings to list them.
     settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], about: true },
     // As if each item were a 1000-byte photo: what the host adds up for storage.mb.
