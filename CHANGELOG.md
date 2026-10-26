@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.184.0 — 2026-10-26
+
+- **One HTTP client for every module** (`web/api.js`, additive). Each call now takes options for
+  what Tasks', Projects' and Next's own clients did on their own: its own `patience` (any method;
+  `0` waits) and an app's `signal`, both counting as no network when they stop it; `text: true`,
+  which answers `{ data, text }` (Next draws a view again only when the text changed); `type` for
+  an upload whose file has none; and three hooks: `beforeSend` (change what goes, or throw
+  `Offline` to not ask at all), `onAnswer(res, request)` once the status and headers are in
+  (Tasks' clock and signal, a 401 told to the app) and `onNoSignal(request)`, whose answer
+  replaces the `Offline` (Tasks' queue draws a change made without signal as done). `api.request`
+  takes every option and `api.with(options)` gives the same client with them on every call.
+  Without options every call behaves as before.
+
 ## 0.183.0 — 2026-10-26
 
 - **The components each module drew for itself are the kit's** (`kit.css`): `kit-chip` (a quiet
