@@ -4,8 +4,9 @@
  * or a frame per module (architecture §21, Work's r2/ventanas.md). What the kit needs for it:
  *
  * - `workRegistry()`: the shell's services for the whole page (`document[Symbol.for('cronum.work')]`:
- *   `open`, `live`, `theme`, `language`), which the kit reaches without a ctx. Null on any other
- *   page, where the kit does what it always did.
+ *   `open`, `live`, `theme`, `language`, and `updates` and `applyUpdate`, the whole app's version
+ *   for Settings' About), which the kit reaches without a ctx. Null on any other page, where the
+ *   kit does what it always did.
  * - `ownerOf()`: the module this copy of the kit belongs to (`/notes/suite/…` → `notes`): each module
  *   loads the kit from its own address, so each has its own copy in the page.
  * - `markOwned(node)`: what this copy hangs on the page's body (toasts, dialogs, menus, the drag
