@@ -969,9 +969,50 @@ test('a host without a split view: nobody may frame its modules, and the rail of
   const { call } = await startHost(t);
   assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
   assert.equal((await call('GET', '/api/modules')).data.host.aiInstruction, undefined, 'nor a prompt of the host’s');
+  assert.equal((await call('GET', '/api/modules')).data.host.calendar, undefined, 'nor a calendar');
+  assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 404, 'nor its route');
   const module = await call('GET', '/alpha/api/auth/config');
   assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(module.headers.get('x-frame-options'), 'DENY');
+});
+
+test('a host with a calendar: the rail offers it, and the root answers what has a date in the modules each person uses', async (t) => {
+  const { call } = await startHost(t, { calendar: '/calendar/' });
+  assert.equal((await call('GET', '/api/modules')).data.host.calendar, '/calendar/');
+  assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 401, 'signed out: nothing');
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  for (const text of ['2026-11-03 Dentist', 'No date', '2026-12-24 Later']) await call('POST', '/alpha/api/items', { text });
+  await call('POST', '/beta/api/items', { text: '2026-11-03 Beta gives no dates' });
+  const november = await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-30');
+  assert.equal(november.status, 200);
+  assert.deepEqual(november.data, {
+    from: '2026-11-01', to: '2026-11-30',
+    modules: [{ mount: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1' }],
+    items: [{ module: 'alpha', type: 'item', id: 1, title: 'Dentist', start: '2026-11-03', end: '2026-11-03', state: 'open', where: 'Items', url: '/alpha/?item=1' }],
+  }, 'alpha’s, under its path; beta gives none');
+  const field = async (query) => (await call('GET', `/api/calendar?${query}`)).data;
+  assert.deepEqual(await field('to=2026-11-07'), { error: 'field_invalid', field: 'from' });
+  assert.equal((await field('from=2026-11-31&to=2026-12-07')).field, 'from', 'a day that doesn’t exist');
+  assert.equal((await field('from=2026-11-07&to=2026-11-01')).field, 'to', 'to before from');
+  assert.equal((await field('from=2026-01-01&to=2027-01-02')).field, 'to', 'more than a year');
+  assert.equal((await field('from=2026-01-01&to=2027-01-01')).items.length, 2, 'a year');
+  // A module turned off leaves the calendar too.
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-30')).data, { from: '2026-11-01', to: '2026-11-30', modules: [], items: [] });
+});
+
+test('a calendar that isn’t a page of the host stops the start', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  try {
+    for (const calendar of ['https://elsewhere.example/calendar/', '/calendar', '//evil/', 42]) {
+      await assert.rejects(
+        createHost({ config: HOST, modules: modules(), calendar, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }, handleSignals: false, exitOnError: false, log: () => {} }),
+        (err) => err instanceof SuiteConfigError && /calendar: .* is not a page of the host/.test(err.errors.join('\n')),
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a host with one prompt for an assistant names its route for Settings, and only a route of its own', async (t) => {

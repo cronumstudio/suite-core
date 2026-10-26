@@ -23,7 +23,9 @@
  * A host with a split view (host.js `split`) has its views on the rail, over
  * Settings: this module alone, or two to four at once on the host's page. There
  * each module is a frame (base.js FRAMED), drawn without the rail: the page says
- * which module each frame shows, and the app's name keeps Settings at hand.
+ * which module each frame shows, and the app's name keeps Settings at hand. A
+ * host with a calendar (host.js `calendar`) has it on the rail too, just over
+ * the split view: its page, with what has a date in every module.
  *
  * In a window of Cronum Work's one-document shell (`embedded`, mount.js), the
  * page is Work's and every module shares it: the rail, the person, the host's
@@ -609,6 +611,7 @@ export function createShell({
   let hosted = false;     // drawn as a host's module
   let answered = false;   // the host said (or failed to say) which modules: the rail is known
   let others = [];        // the other modules the person uses, for the switcher's menu
+  let calendarPath = null;   // the host's calendar, for the switcher's menu too
   let modulePaths = new Set();   // where each of the host's modules is, for going between them
 
   /** As a host's module (`on`) the person's button gives way; off, it is as in an app on its own. */
@@ -652,7 +655,9 @@ export function createShell({
         'aria-label': t('kit.modules.switch', { name: app.name }),
         onClick: () => toggleMenu(switcher, [
           ...others.map((m) => ({ label: m.name, image: m.icon, href: m.path })),
-          others.length ? 'separator' : null,
+          // The host's calendar, which the rail has where it shows.
+          calendarPath ? { label: t('kit.calendar.title'), iconName: 'calendar', href: calendarPath } : null,
+          others.length || calendarPath ? 'separator' : null,
           ...accountMenuItems(),
         ].filter(Boolean)),
       });
@@ -692,6 +697,7 @@ export function createShell({
     // A frame of the host's split view: the view has the modules, and remembers what it shows.
     if (FRAMED) {
       others = [];
+      calendarPath = null;
       asModule(true);
       return null;
     }
@@ -699,6 +705,7 @@ export function createShell({
     try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
     others = shown.filter((m) => m.mount !== mount);
+    calendarPath = host.calendar || null;
     modulePaths = new Set(modules.map((m) => new URL(m.path, window.location.href).pathname));
     // With one module too: the rail has Settings, where more are chosen (Settings › Modules).
     const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
@@ -711,6 +718,10 @@ export function createShell({
         class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,
         style: m.color ? `--module: ${m.color}` : null,
       }, el('img', { src: m.icon, alt: '', width: 28, height: 28 }), el('span', { class: 'kit-rail__name', text: m.name }))),
+      // The calendar, where the host has one: its own page, with what has a date in every module.
+      host.calendar ? el('a', {
+        class: 'kit-rail__calendar', href: host.calendar, title: t('kit.calendar.title'), 'aria-label': t('kit.calendar.title'),
+      }, icon('calendar')) : null,
       // The split view, where the host has one: this module alone (now), or two to four at once.
       host.split ? el('button', {
         type: 'button', class: 'kit-rail__split', title: t('kit.split.title'), 'aria-label': t('kit.split.title'),
