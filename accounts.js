@@ -23,6 +23,10 @@ import { ensureColumn } from './migrate.js';
 
 const iso = (ms) => new Date(ms).toISOString();
 
+/** How an account's pages look: the system's, or always light or dark. */
+export const THEMES = Object.freeze(['system', 'light', 'dark']);
+const AVATAR_COLOR = /^#[0-9a-f]{6}$/i;
+
 /** The `users` table in the suite's shape: created whole, or completed on an app's own. */
 export function usersSchema(d) {
   if (!d.columnsOf('users').length) {
@@ -427,6 +431,20 @@ export function createAccounts({
       if (verifiedAt !== (user.email_verified_at ?? null)) { sets.push('email_verified_at = ?'); params.push(verifiedAt); }
       if (fields.locale !== undefined && (fields.locale || null) !== (user.locale ?? null)) {
         sets.push('locale = ?'); params.push(fields.locale || null);
+      }
+      // The person's own, from their profile (PATCH /api/me): the look, the preferences (the whole
+      // text, as prefs.js leaves it) and, where the app's table has one, the colour of their avatar.
+      if (fields.theme !== undefined && fields.theme !== user.theme) {
+        if (!THEMES.includes(fields.theme)) throw badRequest('field_invalid', { field: 'theme', options: THEMES });
+        sets.push('theme = ?'); params.push(fields.theme);
+      }
+      if (fields.prefs !== undefined) {
+        const text = typeof fields.prefs === 'string' ? fields.prefs : JSON.stringify(fields.prefs ?? {});
+        if (text !== (user.prefs ?? '{}')) { sets.push('prefs = ?'); params.push(text); }
+      }
+      if (fields.avatarColor !== undefined && 'avatar_color' in user && fields.avatarColor !== user.avatar_color) {
+        if (!AVATAR_COLOR.test(String(fields.avatarColor))) throw badRequest('field_invalid', { field: 'avatar_color' });
+        sets.push('avatar_color = ?'); params.push(fields.avatarColor);
       }
       if (fields.role !== undefined && fields.role !== user.role) {
         checkRole(fields.role);

@@ -11,6 +11,9 @@
  *   const local = openLocal('notes', ['notes', 'notebooks']);
  *   await local.put('notes', note.id, note);
  *   const all = await local.entries('notes');   // [[key, value]…], by key
+ *
+ * For a queue (the outbox), what doesn't read every value: `count` (keys
+ * only), `first` (one record) and `rewrite` (one pass, in one transaction).
  */
 
 const BASE_STORES = ['outbox', 'meta'];
@@ -62,6 +65,7 @@ export function openLocal(app, stores = [], { indexedDB: idb = globalThis.indexe
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error('aborted'));
     });
+    done.catch(() => {});   // awaited below; when the work fails first, its error is the one that counts
     const result = await work(tx.objectStore(store));
     await done;
     return result;
@@ -76,6 +80,39 @@ export function openLocal(app, stores = [], { indexedDB: idb = globalThis.indexe
       const [keys, values] = await Promise.all([request(s.getAllKeys()), request(s.getAll())]);
       return keys.map((key, i) => [key, values[i]]);
     }),
+    /** How many records a store has, without reading them. */
+    count: (store) => run(store, 'readonly', (s) => request(s.count())),
+    /** The first [key, value] in key order, or undefined: one record read, not the whole store. */
+    first: (store) => run(store, 'readonly', async (s) => {
+      const cursor = await request(s.openCursor());
+      return cursor ? [cursor.key, cursor.value] : undefined;
+    }),
+    /**
+     * One pass over a store in one transaction: `change(value, key)` returns the value to keep in
+     * its place, or undefined to leave it. → how many changed.
+     */
+    rewrite: (store, change) => run(store, 'readwrite', (s) => new Promise((resolve, reject) => {
+      // Read in two requests (a cursor is a round trip per record), written back in the same
+      // transaction, from the requests' own callbacks: an await in between could let it end.
+      const keys = s.getAllKeys();
+      const values = s.getAll();
+      keys.onerror = () => reject(keys.error);
+      values.onerror = () => reject(values.error);
+      values.onsuccess = () => {
+        const writes = [];
+        try {
+          keys.result.forEach((key, i) => {
+            const next = change(values.result[i], key);
+            if (next !== undefined) writes.push([key, next]);
+          });
+        } catch (err) {
+          // All or nothing: nothing is written.
+          return reject(err);
+        }
+        for (const [key, next] of writes) s.put(next, key);
+        return resolve(writes.length);
+      };
+    })),
     clear: (store) => run(store, 'readwrite', (s) => request(s.clear())),
     /** Everything, every store: on signing out, one person's notes don't stay for the next. */
     clearAll: async () => {
@@ -92,11 +129,29 @@ export function memoryLocal() {
     return stores.get(store);
   };
   const clone = (value) => (value === undefined ? undefined : structuredClone(value));
+  const sorted = (store) => [...of(store)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return {
     get: async (store, key) => clone(of(store).get(key)),
     put: async (store, key, value) => { of(store).set(key, clone(value)); },
     delete: async (store, key) => { of(store).delete(key); },
-    entries: async (store) => [...of(store)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => [k, clone(v)]),
+    entries: async (store) => sorted(store).map(([k, v]) => [k, clone(v)]),
+    count: async (store) => of(store).size,
+    first: async (store) => {
+      let first;
+      for (const key of of(store).keys()) if (first === undefined || key < first) first = key;
+      return first === undefined ? undefined : [first, clone(of(store).get(first))];
+    },
+    rewrite: async (store, change) => {
+      let changed = 0;
+      for (const [key, value] of sorted(store)) {
+        const next = change(clone(value), key);
+        if (next !== undefined) {
+          of(store).set(key, clone(next));
+          changed += 1;
+        }
+      }
+      return changed;
+    },
     clear: async (store) => { of(store).clear(); },
     clearAll: async () => { stores.clear(); },
   };
