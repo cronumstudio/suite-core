@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, confirmDialog } from './ui.js';
+import { toast, field, openDialog, confirmDialog, slidingDetails } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -501,11 +501,11 @@ function methodName(method) {
  * reads as a summary), and what changes it. One open at a time, like Settings' folds.
  */
 function fold({ title, now = null, open = false }, ...body) {
-  return el('details', { class: 'kit-fold', name: 'kit-admin-user', open },
+  return slidingDetails(el('details', { class: 'kit-fold', name: 'kit-admin-user', open },
     el('summary', {}, el('span', { text: title }),
       typeof now === 'string' ? el('small', { class: 'kit-fold__now', text: now }) : now,
       icon('chevron-down', { className: 'kit-fold__chevron' })),
-    el('div', { class: 'kit-fold__body' }, ...body));
+    el('div', { class: 'kit-fold__body' }, ...body)));
 }
 
 /** The plan in a few words, for its fold's title: the default one marked as such. */
@@ -897,7 +897,7 @@ function paintDone(box, done) {
 /* ---------------------------------- audit ---------------------------------- */
 
 async function renderAudit(main) {
-  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'org.', 'billing.', 'data.'];
+  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'mcp.', 'org.', 'billing.', 'data.'];
   const filter = el('select', {}, prefixes.map((p) => el('option', { value: p, text: p ? t(`admin.audit.kinds.${p.slice(0, -1)}`) : t('admin.audit.all') })));
   const body = el('tbody', {});
   const more = el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.audit.more') });

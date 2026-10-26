@@ -1958,6 +1958,7 @@ test('the drawer opened by a finger takes the focus itself, with no ring on the 
   assert.match(shell, /if \(showing\('\.kit-bar__menu'\)(?: \|\| \(embedded && asDrawer\(\)\))?\) return \(\) => openDrawer\(\);/, 'a swipe from the edge is a finger');
   assert.match(css, /\.kit-nav__item:focus-visible \{ outline-offset: -2px; \}/, 'the ring inside the entry: the list would cut it');
   assert.match(css, /\.kit-side__nav:focus \{ outline: none; \}/);
+  assert.match(css, /\.kit-settings__page:focus \{ outline: none; \}/, 'a section of Settings takes the focus without a ring around the page');
 });
 
 test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing one doesn\'t show the bar', () => {
@@ -1975,7 +1976,7 @@ test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing
 test('the drawer follows the finger on a phone, and opens or closes by how far it went', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(shell, /const drawer = beside\(\) \? null/, 'beside the views the edge unfolds the sidebar, as before');
+  assert.match(shell, /const drawer = beside\(\) \|\| held \? null/, 'beside the views the edge unfolds the sidebar, as before');
   assert.match(shell, /dragDrawer\(swipe\.drawer, dx, swipe\.rtl\);/, 'drawn where the finger is while it moves');
   assert.match(shell, /const commitDistance = \(width\) => Math\.min\(90, width \* 0\.28\);/);
   assert.match(shell, /Math\.abs\(dx\) >= \(cancelled \? CANCEL_COMMIT : commitDistance\(width\)\)/, 'the finger\'s path decides, and less when the system takes the gesture away');
@@ -2085,6 +2086,113 @@ test('a frame drawn again passes a tap at the screen’s edge on once, not once 
   }
 });
 
+test('a swipe from the start edge over Settings follows the finger and goes back as its ←: from a section to the list, then out (Cronum core nº 12)', async () => {
+  const { page, restore } = await framePage();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { openSettings } = await import('../web/settings.js');
+    const shell = createShell(frameOptions());
+    let closed = 0;
+    const settings = openSettings({
+      app: { id: 'notes', name: 'Notes' }, user: { username: 'ada', role: 'user' },
+      config: { app: { modules: { mcp: false } } }, onClose: () => { closed += 1; },
+    });
+    const overlay = page.body.all().find((node) => node.className === 'kit-settings-page');
+    const grid = overlay.all().find((node) => node.className === 'kit-settings');
+    const under = overlay.all().find((node) => node.className === 'kit-settings__list');
+    const section = overlay.all().find((node) => node.className === 'kit-settings__page');
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+    /** A finger from `from`, `by` px to the end in steps `ms` apart; `lift: false` keeps it down. */
+    const swipe = async (target, { from = 5, by = 150, ms = 16, lift = true } = {}) => {
+      let prevented = 0;
+      const preventDefault = () => { prevented += 1; };
+      let time = 1000;
+      page.dispatch('touchstart', { touches: [{ clientX: from, clientY: 300 }], target, preventDefault });
+      for (let x = 10; x <= by; x += 10) {
+        time += ms;
+        page.dispatch('touchmove', { touches: [{ clientX: from + x, clientY: 301 }], target, preventDefault, timeStamp: time });
+      }
+      if (lift) page.dispatch('touchend', { touches: [], target });
+      return prevented;
+    };
+    const opened = () => shell.element.hasAttribute('data-drawer');
+
+    settings.show('profile');
+    assert.ok(grid.hasAttribute('data-open'), 'a section open, on a phone its own screen');
+    assert.ok(await swipe(under, { lift: false }) >= 1, 'taken from Safari');
+    assert.match(section.style.transform, /translateX\(150px\)/, 'the section where the finger is');
+    assert.ok(grid.hasAttribute('data-swipe'), 'with the list beneath it');
+    assert.ok(grid.hasAttribute('data-open'), 'not gone back yet');
+    page.dispatch('touchend', { touches: [], target: under });
+    await settle();
+    assert.ok(!grid.hasAttribute('data-open'), 'back to the list');
+    assert.ok(!grid.hasAttribute('data-swipe'));
+    assert.equal(section.style.transform, '', 'nothing left drawn by hand');
+    assert.ok(overlay.parentNode, 'Settings still open');
+    assert.equal(opened(), false, 'the drawer under it stays closed');
+
+    // A little, slowly: it comes back.
+    settings.show('profile');
+    await swipe(under, { by: 40, ms: 200 });
+    await settle();
+    assert.ok(grid.hasAttribute('data-open'), 'not far nor fast enough: the section stays');
+    // The same little, fast: a flick goes.
+    await swipe(under, { by: 40, ms: 8 });
+    await settle();
+    assert.ok(!grid.hasAttribute('data-open'), 'a flick goes back');
+
+    await swipe(under, { from: 200 });
+    await settle();
+    assert.ok(overlay.parentNode, 'away from the edge, nothing');
+    await swipe(under, { lift: false });
+    assert.match(overlay.style.transform, /translateX\(150px\)/, 'from the list, Settings themselves slide away');
+    page.dispatch('touchend', { touches: [], target: under });
+    await settle();
+    assert.equal(overlay.parentNode, null, 'out of Settings');
+    assert.equal(closed, 1);
+
+    // Closed, it holds the edge no more.
+    const row = shell.list.appendChild(page.createElement('div'));
+    await swipe(row);
+    await settle();
+    assert.equal(closed, 1);
+    shell.destroy();
+  } finally {
+    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('going back from a phone’s detail, the detail follows the finger over its list', async () => {
+  const { page, restore } = await framePage();
+  const realStyle = globalThis.getComputedStyle;
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const shell = createShell(frameOptions());
+    shell.detail.append(shell.head({ pane: 'detail', title: 'Task' }).element);
+    const inside = shell.detail.appendChild(page.createElement('p'));
+    shell.showDetail();
+    // On a phone the list is hidden behind the detail (kit.css).
+    globalThis.getComputedStyle = (node) => ({ ...realStyle(node), display: node === shell.list ? 'none' : 'block' });
+    page.dispatch('touchstart', { touches: [{ clientX: 5, clientY: 300 }], target: inside, preventDefault: () => {} });
+    for (let x = 10; x <= 150; x += 10) page.dispatch('touchmove', { touches: [{ clientX: 5 + x, clientY: 300 }], target: inside, preventDefault: () => {}, timeStamp: 1000 + x });
+    assert.ok(shell.element.hasAttribute('data-back-swipe'), 'the list drawn beneath');
+    assert.match(shell.detail.style.transform, /translateX\(150px\)/);
+    assert.equal(shell.screen, 'detail');
+    page.dispatch('touchend', { touches: [], target: inside });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(shell.screen, 'list');
+    assert.ok(!shell.element.hasAttribute('data-back-swipe'));
+    assert.equal(shell.detail.style.transform, '');
+    shell.destroy();
+  } finally {
+    globalThis.getComputedStyle = realStyle;
+    restore();
+  }
+});
+
 test('every listener the frame adds goes with its one signal, or by hand with destroy()', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const added = shell.match(/\.addEventListener\(/g).length;
@@ -2125,6 +2233,14 @@ test('in a frame, the split view opens the module\'s Settings, and hears when th
   assert.match(settings, /new window\.parent\.CustomEvent\(SETTINGS_SHOWN_EVENT, \{ detail: \{ open, source: window \} \}\)/);
   assert.match(settings, /shown\(true\);/);
   assert.match(settings, /overlay\.remove\(\);\s*shown\(false\);/);
+});
+
+test('in Work\'s shell, Settings cover the whole page and another module\'s section opens in its window', () => {
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  // Whatever root the module gave (Projects and Next give their window, which `contain`s what it holds).
+  assert.match(settings, /const place = workRegistry\(\) \? document\.body : root;\s*place\.append\(place === document\.body \? markOwned\(overlay\) : overlay\);/);
+  // The shell hears it on this window (work.js), and the page stays; with nobody to hear it, the address.
+  assert.match(settings, /if \(workRegistry\(\)\) \{\s*const detail = \{ mount: m\.mount, start: id, source: window, handled: false \};\s*close\(\);\s*window\.dispatchEvent\(new CustomEvent\(SETTINGS_GOTO_EVENT, \{ detail \}\)\);\s*if \(detail\.handled\) return;\s*\}\s*window\.location\.assign\(address\);/);
 });
 
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
@@ -2211,4 +2327,28 @@ test('on a phone the floating button creates, and the sidebar’s own only besid
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   assert.match(css, /\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: none; \}/);
   assert.match(css, /@container kit-app \(min-width: 640px\) \{[^}]*\}[\s\S]*?\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: block; \}/);
+});
+
+test('a group of the sidebar folds under its heading: closed until opened, remembered, open with the entry in sight', async () => {
+  const { navFold } = await import('../web/shell.js');
+  const before = globalThis.localStorage;
+  const kept = new Map();
+  globalThis.localStorage = { setItem: (k, v) => kept.set(k, v), getItem: (k) => kept.get(k) ?? null };
+  try {
+    const group = navFold({ label: 'Tags', key: 'demo.tags', children: [document.createElement('button')] });
+    const [heading, body] = group.children;
+    assert.equal(heading.getAttribute('aria-expanded'), 'false');
+    assert.ok(body.hasAttribute('hidden'), 'closed at first');
+    let stopped = false;
+    for (const fn of heading.listeners.click) fn({ stopPropagation: () => { stopped = true; } });
+    assert.equal(heading.getAttribute('aria-expanded'), 'true');
+    assert.ok(!body.hasAttribute('hidden'));
+    assert.ok(stopped, 'the drawer stays open');
+    assert.equal(kept.get('demo.tags'), 'open');
+    assert.ok(!navFold({ label: 'Tags', key: 'demo.tags' }).children[1].hasAttribute('hidden'), 'as it was left');
+    kept.set('demo.tags', 'folded');
+    assert.ok(!navFold({ label: 'Tags', key: 'demo.tags', keep: true }).children[1].hasAttribute('hidden'), 'the entry open stays in sight');
+  } finally {
+    globalThis.localStorage = before;
+  }
 });

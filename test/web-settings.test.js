@@ -67,15 +67,17 @@ test('in a host, Your AI has every module\'s instruction folded under its name w
     assert.ok(!labels.includes(t('kit.settings.moduleAi')), 'with its instruction in Your AI, what it adds there is out of the list');
     const folds = ai.all().filter((node) => node.className === 'kit-fold');
     assert.deepEqual(folds.map((node) => node.find('summary')[0].textContent), ['Tasks', 'Next'], 'one per module with an instruction');
-    assert.ok(folds.every((node) => node.getAttribute('name') === 'kit-standing' && !node.hasAttribute('open')), 'one open at a time, none at first');
+    assert.ok(folds.every((node) => node.dataset.fold === 'kit-standing' && !node.hasAttribute('open')), 'one open at a time, none at first');
     assert.equal(folds[0].find('pre')[0].textContent, t('kit.settings.title'));
     assert.equal(folds[1].find('pre')[0].textContent, '- Log progress in Next.', 'another module\'s, from its catalog');
     assert.equal(folds[1].find('img')[0].getAttribute('src'), '/next/icons/favicon.svg');
-    // Opening one folds the other, where the browser doesn't do it by `name`.
-    folds[0].open = true;
-    folds[1].open = true;
-    folds[1].dispatch('toggle');
-    assert.equal(folds[0].open, false);
+    // Opening one folds the other (sliding, where there is motion: slidingDetails).
+    const tap = (fold) => fold.find('summary')[0].dispatch('click', { preventDefault() {} });
+    tap(folds[0]);
+    tap(folds[1]);
+    assert.deepEqual(folds.map((fold) => fold.open), [false, true]);
+    tap(folds[1]);
+    assert.equal(folds[1].open, false, 'and its summary folds it again');
     // Under the instruction, what each says of it, from its catalog: paragraphs, and pairs in a row as one list.
     const body = (fold) => fold.all().find((node) => node.className === 'kit-fold__body');
     assert.deepEqual(body(folds[1]).children.slice(2).map((node) => node.tagName), ['P', 'UL', 'P'], 'a key it lacks is left out');

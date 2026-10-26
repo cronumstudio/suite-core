@@ -66,7 +66,7 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from '.
 import { api, errorMessage } from './api.js';
 import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
+import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
@@ -195,6 +195,8 @@ export function openSettings(options) {
   const kept = host ? hostModulesKept() : { modules: [] };
   let inUse = kept.modules;
   let hostInfo = kept.host || {};
+  // How an assistant gets the host's tools ('door': some on demand; 'all'), when the host keeps some on demand.
+  let aiTools = kept.ai_tools || null;
   // What is drawn from the modules in use, drawn again when the server's answer comes.
   const onModules = [];
   let closed = false;
@@ -309,7 +311,9 @@ export function openSettings(options) {
   /**
    * To another module's section: there, with Settings open on it (`?settings=`, settingsAsked()).
    * In a frame of the host's split view, the view opens it in the frame that shows that module, if
-   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes.
+   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes. In Work's
+   * shell, the same event on this window: the shell opens it in that module's window, and the page
+   * stays.
    */
   function goTo(m, id) {
     const address = `${m.path}?settings=${encodeURIComponent(id)}`;
@@ -321,6 +325,12 @@ export function openSettings(options) {
       } catch { /* the view went */ }
       if (!detail.handled) window.top.location.assign(address);
       return;
+    }
+    if (workRegistry()) {
+      const detail = { mount: m.mount, start: id, source: window, handled: false };
+      close();
+      window.dispatchEvent(new CustomEvent(SETTINGS_GOTO_EVENT, { detail }));
+      if (detail.handled) return;
     }
     window.location.assign(address);
   }
@@ -341,6 +351,7 @@ export function openSettings(options) {
         if (closed || !Array.isArray(answer?.modules)) return;
         inUse = answer.modules;
         hostInfo = answer.host || hostInfo;
+        aiTools = answer.ai_tools || null;
         repaint();
         for (const paint of onModules) paint();
       })
@@ -357,8 +368,24 @@ export function openSettings(options) {
   const scroller = el('div', { class: 'kit-settings-page__body' }, frame);
   const overlay = el('div', { class: 'kit-settings-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('kit.settings.title') },
     el('header', { class: 'kit-settings-page__bar' }, backButton, title), scroller);
-  // On the page's body, in Work's shell, it says whose it is, so the module's sheet reaches it (mount.js).
-  root.append(root === document.body ? markOwned(overlay) : overlay);
+  // In Work's shell they are the whole app's, over every window, whatever `root` the module gave: a
+  // window keeps what it holds inside it (windows.css `contain`). On the page's body it says whose it
+  // is, so the module's sheet reaches it (mount.js).
+  const place = workRegistry() ? document.body : root;
+  place.append(place === document.body ? markOwned(overlay) : overlay);
+  // A swipe from the screen's start edge goes back as the bar's ← does: to the list, then out (shell.js).
+  // The screen follows the finger: a section on a phone uncovers the list beneath it, where the
+  // page had scrolled to; the list, or Settings beside a section, uncovers the app.
+  cleanups.push(holdBack(overlay, () => back(), () => (!wide() && frame.hasAttribute('data-open') ? {
+    moving: page,
+    under: list,
+    show: (on) => {
+      frame.toggleAttribute('data-swipe', on);
+      list.style.top = on ? `${scroller.scrollTop}px` : '';
+      // As tall as the screen at least: a short section would show the list under its foot.
+      page.style.minHeight = on ? `${scroller.scrollTop + scroller.clientHeight}px` : '';
+    },
+  } : { moving: overlay })));
   // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
   const shown = (open) => {
     if (!FRAMED) return;
@@ -369,6 +396,8 @@ export function openSettings(options) {
   shown(true);
 
   const items = new Map();
+  // Each group's heading and what it folds, by its name, to slide one open and the other shut.
+  const folders = new Map();
   const built = new Map();
   let current = null;
   // The group unfolded in the list, by its name: one at a time.
@@ -377,12 +406,13 @@ export function openSettings(options) {
 
   /**
    * The list, folded by group: a group's heading unfolds it and folds the one that was open, or
-   * folds it again. A group with one section is that section's way in, with no fold of its own.
-   * Sections marked `unlisted` are opened from another one, never from the list.
+   * folds it again, both sliding (unfold). A group with one section is that section's way in, with
+   * no fold of its own. Sections marked `unlisted` are opened from another one, never from the list.
    */
   function paintList() {
     clear(list);
     items.clear();
+    folders.clear();
     const groups = [];
     for (const section of all.filter((s) => !s.unlisted)) {
       const last = groups.at(-1);
@@ -404,10 +434,7 @@ export function openSettings(options) {
       const folder = el('div', { class: 'kit-settings__folder', role: 'group', 'aria-label': name, hidden: !open });
       const heading = el('button', {
         type: 'button', class: 'kit-settings__group', 'aria-expanded': String(open),
-        onClick: () => {
-          unfolded = unfolded === name ? null : name;
-          paintList();
-        },
+        onClick: () => unfold(unfolded === name ? null : name),
       }, el('span', { class: 'kit-settings__group-name', text: name }), icon('chevron', { className: 'kit-settings__fold' }));
       for (const section of sections) {
         const props = { class: 'kit-settings__item', 'aria-current': section.id === current ? 'page' : null };
@@ -422,8 +449,18 @@ export function openSettings(options) {
         items.set(section.id, item);
         folder.append(item);
       }
+      folders.set(name, { heading, folder });
       list.append(heading, folder);
     }
+  }
+
+  /** Unfolds the group of that name (null: none), sliding it open and the one that was open shut. */
+  function unfold(name) {
+    unfolded = name;
+    return Promise.all([...folders].map(([group, { heading, folder }]) => {
+      heading.setAttribute('aria-expanded', String(group === name));
+      return slideHidden(folder, group !== name);
+    }));
   }
 
   /**
@@ -438,10 +475,7 @@ export function openSettings(options) {
     clear(page).append(built.get(id));
     frame.setAttribute('data-open', '');
     // Its group unfolds in the list, folding the one that was open; one opened from another stays as it was.
-    if (!section.unlisted && unfolded !== section.group) {
-      unfolded = section.group;
-      paintList();
-    }
+    if (!section.unlisted && unfolded !== section.group) unfold(section.group).then(reveal);
     for (const [key, item] of items) {
       if (key === id) item.setAttribute('aria-current', 'page');
       else item.removeAttribute('aria-current');
@@ -996,12 +1030,42 @@ export function openSettings(options) {
         type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(endpoint.textContent, endpoint),
       }))),
       ...hostAgents(endpoint.textContent, connected),
+      toolsBlock(),
       appsBlock,
       instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
       // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
       ...(options.aiExtra && !host ? [options.aiExtra()] : []),
     ];
+  }
+
+  /**
+   * In a host that keeps the tools used now and then on demand: whether the person's assistants
+   * get every tool listed from the start instead. Hidden while the host says nothing of it.
+   */
+  function toolsBlock() {
+    const section = block(t('kit.ai.toolsTitle'));
+    const paint = () => {
+      section.hidden = !aiTools;
+      section.querySelector('.kit-switch-row')?.remove();
+      if (!aiTools) return;
+      section.append(switchRow(t('kit.ai.toolsAll'), {
+        checked: aiTools === 'all',
+        hint: t('kit.ai.toolsHint'),
+        onChange: async (on) => {
+          try {
+            const answer = await api.put('/api/me/ai-tools', { ai_tools: on ? 'all' : 'door' });
+            aiTools = answer.ai_tools;
+          } catch (err) {
+            fail(err);
+            throw err;   // the switch goes back
+          }
+        },
+      }));
+    };
+    paint();
+    onModules.push(paint);
+    return section;
   }
 
   const used = (when) => (when ? t('kit.ai.lastUsed', { when: formatDateTime(when) }) : t('kit.ai.neverUsed'));
@@ -1122,17 +1186,12 @@ export function openSettings(options) {
    */
   function fold({ name, src, text, more = [] }, open) {
     const instruction = text ? el('pre', { class: 'kit-instruction', text }) : null;
-    const node = el('details', { class: 'kit-fold', name: 'kit-standing', open },
+    const node = slidingDetails(el('details', { class: 'kit-fold', name: 'kit-standing', open },
       el('summary', {}, src ? el('img', { src, alt: '', width: 22, height: 22 }) : null, el('span', { text: name }),
         icon('chevron-down', { className: 'kit-fold__chevron' })),
       el('div', { class: 'kit-fold__body' }, instruction,
         instruction ? row(button(t('kit.ai.standingCopy'), () => copyText(text, instruction), 'primary')) : null,
-        ...more));
-    // `name` makes them one-at-a-time where the browser knows it; here, where it doesn't.
-    node.addEventListener('toggle', () => {
-      if (!node.open) return;
-      for (const other of node.parentNode?.children || []) if (other !== node && other.open) other.open = false;
-    });
+        ...more)));
     return node;
   }
 

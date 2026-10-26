@@ -26,6 +26,16 @@
  * modules): `visible(principal, tool)` keeps a tool out of their list, and
  * `instructions` may be a function of the principal. Without them every
  * principal gets the same, as always.
+ *
+ * `tools/list` goes whole into every conversation on most clients, so a tool
+ * used now and then may be kept out of it and reached on demand
+ * (`onDemand(principal, tool)`, with `door` naming two tools of the server's
+ * own): `<door>_more_tools` names them in its description and tells what
+ * they do and take, and `<door>_use_tool` runs one. They work as always
+ * when called by name. Each is opt-in, and so are `recordChange` (a note of
+ * every call that changes something, never its arguments) and
+ * `maxResultChars` (a tool's answer cut at a whole line, saying how much was
+ * left out).
  */
 import crypto from 'node:crypto';
 import { isoDate, readJson, sendJson, sendText } from './http.js';
@@ -46,6 +56,50 @@ const rpcError = (id, code, message, data) => ({
 const textResult = (text, isError = false) => ({
   ...(isError ? { isError: true } : {}), content: [{ type: 'text', text }],
 });
+
+/**
+ * A tool's answer no longer than `max` characters of text: cut at the last
+ * whole line that fits, with a line saying how much was left out and how to
+ * ask for less. Every page of 500 tasks stays in the conversation, and is
+ * paid again on each turn after it.
+ */
+export function capResult(result, max) {
+  if (!max || !Array.isArray(result?.content)) return result;
+  let room = max;
+  let cut = null;
+  const content = result.content.map((part) => {
+    if (part?.type !== 'text' || typeof part.text !== 'string') return part;
+    if (cut || room <= 0) {
+      cut ??= { lines: 0, chars: 0 };
+      cut.lines += part.text.split('\n').length;
+      cut.chars += part.text.length;
+      return null;
+    }
+    if (part.text.length <= room) {
+      room -= part.text.length;
+      return part;
+    }
+    const end = part.text.lastIndexOf('\n', room);
+    const kept = end > 0 ? part.text.slice(0, end) : part.text.slice(0, room);
+    const rest = part.text.slice(kept.length);
+    cut = { lines: rest.split('\n').filter(Boolean).length || 1, chars: rest.length };
+    room = 0;
+    return { ...part, text: kept };
+  }).filter(Boolean);
+  if (!cut) return result;
+  content.push({
+    type: 'text',
+    text: `[Cut here: ${cut.lines.toLocaleString('en')} more lines (${cut.chars.toLocaleString('en')} characters) left out to keep the `
+      + 'conversation light. Ask for less: a filter, a smaller limit, a date range or one item at a time.]',
+  });
+  return { ...result, content };
+}
+
+const firstSentence = (text) => {
+  const line = String(text || '').split('\n')[0].trim();
+  const end = line.search(/[.!?](\s|$)/);
+  return end > 0 ? line.slice(0, end + 1) : line;
+};
 
 /* ------------------------- the arguments of a tool ------------------------ */
 
@@ -244,14 +298,20 @@ export function bearerToken(req, url = null) {
  * @param {(principal, tool) => boolean} [options.visible]   whether tools/list shows it to them
  * @param {(error) => string|null} [options.describeError]   the app's errors as text for the assistant
  * @param {boolean} [options.checkArgs]    check each call's arguments against the tool's inputSchema (on by default)
+ * @param {(principal, tool) => boolean} [options.onDemand]   kept out of their list, reached through the door
+ * @param {string} [options.door]   the start of the door's two names (`work` → work_more_tools, work_use_tool)
+ * @param {(principal, tool) => void} [options.recordChange]   after a call that went well of a tool that changes things
+ * @param {number} [options.maxResultChars]   the most text a tool's answer carries (capResult)
  */
 export function createMcpServer({
   serverInfo, instructions = '', tools = [], prompts = null,
   authenticate, challenge, oauthOffered = false, limiter = null,
   unavailable = () => false, allows = () => true, quota = () => true, describeError = () => null,
   log = console.error, visible = () => true, checkArgs = true,
+  onDemand = null, door = null, recordChange = null, maxResultChars = null,
 }) {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const doors = onDemand && door ? { more: `${door}_more_tools`, use: `${door}_use_tool` } : null;
   /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
   const sessions = new Map();
 
@@ -263,10 +323,99 @@ export function createMcpServer({
     ...(tool.annotations && { annotations: { title: tool.title, ...tool.annotations } }),
   });
 
+  /** What someone has in their list, and what they reach through the door. */
+  function listOf(principal) {
+    const shown = [];
+    const kept = [];
+    for (const tool of tools) {
+      if (!visible(principal, tool)) continue;
+      (doors && onDemand(principal, tool) ? kept : shown).push(tool);
+    }
+    return { shown, kept };
+  }
+
+  // The door: its description names every tool behind it, so the assistant knows they are there
+  // and reaches for them on its own when the person asks for one.
+  const doorTools = (kept) => [{
+    name: doors.more,
+    title: 'More tools',
+    description: `Tools kept out of your list to keep it short; they work like any other: ${kept.map((t) => t.name).join(', ')}. `
+      + `When the user asks for something one of them does, call this with its name to read what it does and takes, then run it with ${doors.use}.`,
+    inputSchema: {
+      type: 'object',
+      properties: { names: { type: 'array', items: { type: 'string' }, maxItems: 30, description: 'Names from the list above; none for a short line on each' } },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, {
+    name: doors.use,
+    title: 'Use a tool from More tools',
+    description: `Runs one of the tools ${doors.more} names, with its arguments, as if it were called directly.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The tool\'s name' },
+        arguments: { type: 'object', description: 'Its arguments, as its parameters say' },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  }];
+
+  /** What the tools behind the door do: a line each, or what each one named does and takes. */
+  function moreTools(principal, names) {
+    const { kept } = listOf(principal);
+    if (!kept.length) return textResult('Every tool is already in your list.');
+    const wanted = Array.isArray(names) ? names.map(String).filter(Boolean) : [];
+    if (!wanted.length) {
+      return textResult(kept.map((t) => {
+        const params = Object.keys(t.inputSchema?.properties || {})
+          .map((p) => ((t.inputSchema.required || []).includes(p) ? p : `${p}?`));
+        return `${t.name} (${params.join(', ')}): ${firstSentence(t.description)}`;
+      }).join('\n') + `\n\nCall ${doors.more} again with the names you need for what they take.`);
+    }
+    const byKept = new Map(kept.map((t) => [t.name, t]));
+    return textResult(wanted.map((name) => {
+      const tool = byKept.get(name) || byName.get(name);
+      if (!tool || !visible(principal, tool)) return `${name}: no such tool. ${unknownHint(principal, name)}`.trim();
+      const { additionalProperties, ...schema } = tool.inputSchema || {};
+      const kind = tool.annotations?.readOnlyHint ? 'Only reads.' : tool.annotations?.destructiveHint ? 'Changes or deletes things.' : 'Changes things.';
+      return `${tool.name} — ${tool.title}. ${kind}\n${tool.description}\nArguments (JSON Schema): ${JSON.stringify(schema)}`;
+    }).join('\n\n'));
+  }
+
+  /** The tools someone could have meant by a name that isn't one: those ending in it (`list_projects`). */
+  function unknownHint(principal, name) {
+    const like = tools.filter((t) => visible(principal, t) && t.name.endsWith(`_${name}`)).map((t) => t.name).slice(0, 5);
+    return like.length ? `Did you mean ${like.length > 1 ? `${like.slice(0, -1).join(', ')} or ${like.at(-1)}` : like[0]}?` : '';
+  }
+
+  /** What initialize says to someone. */
+  const instructionsFor = (principal) => (typeof instructions === 'function' ? instructions(principal) : instructions);
+
+  /** What tools/list answers someone: their list, and the door when some are kept behind it. */
+  function listTools(principal) {
+    const { shown, kept } = listOf(principal);
+    return [...shown, ...(kept.length ? doorTools(kept) : [])].map(descriptor);
+  }
+
   /** Runs a tool for a principal and returns its result in MCP form. */
   async function callTool(principal, name, args = {}) {
+    if (doors && name === doors.more) return moreTools(principal, args?.names);
+    if (doors && name === doors.use) {
+      const inner = String(args?.name ?? '');
+      if (!inner || inner === doors.more || inner === doors.use) return textResult(`Give the name of a tool ${doors.more} lists.`, true);
+      let innerArgs = args?.arguments ?? {};
+      // Some assistants send an object's JSON as a text.
+      if (typeof innerArgs === 'string') { try { innerArgs = JSON.parse(innerArgs || '{}'); } catch { /* refused below */ } }
+      if (innerArgs === null || typeof innerArgs !== 'object' || Array.isArray(innerArgs)) {
+        return textResult(`"arguments" must be an object with ${inner}'s arguments.`, true);
+      }
+      return callTool(principal, inner, innerArgs);
+    }
     const tool = byName.get(name);
-    if (!tool) return textResult(`Unknown tool: ${name}`, true);
+    if (!tool) return textResult(`Unknown tool: ${name}. ${unknownHint(principal, name)}`.trim(), true);
     const allowed = allows(principal, tool);
     if (allowed !== true) return textResult(String(allowed || 'Your plan does not include this.'), true);
     const current = { ...args };
@@ -280,7 +429,12 @@ export function createMcpServer({
     const spent = quota(principal, tool);
     if (spent !== true) return textResult(String(spent || 'The calls of today are used up.'), true);
     try {
-      return await tool.handler(principal, current);
+      const result = await tool.handler(principal, current);
+      // Who changed what from an assistant: the tool's name only, never its arguments (titles, notes).
+      if (recordChange && tool.annotations?.readOnlyHint !== true && !result?.isError) {
+        try { recordChange(principal, tool); } catch (error) { log(`[mcp] the change of ${tool.name} wasn't noted: ${error.message}`); }
+      }
+      return maxResultChars ? capResult(result, maxResultChars) : result;
     } catch (error) {
       const text = describeError(error);
       if (text) return textResult(text, true);
@@ -303,7 +457,7 @@ export function createMcpServer({
         sessions.set(sessionId, { created: Date.now() });
         if (sessions.size > 5000) sessions.delete(sessions.keys().next().value);
         context.sessionId = sessionId;
-        const text = typeof instructions === 'function' ? instructions(principal) : instructions;
+        const text = instructionsFor(principal);
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: { listChanged: false }, ...(prompts ? { prompts: { listChanged: false } } : {}) },
@@ -317,7 +471,7 @@ export function createMcpServer({
       case 'ping':
         return rpcResult(id, {});
       case 'tools/list':
-        return rpcResult(id, { tools: tools.filter((tool) => visible(principal, tool)).map(descriptor) });
+        return rpcResult(id, { tools: listTools(principal) });
       case 'tools/call':
         if (!params.name) return rpcError(id, -32602, 'Missing tool name');
         return rpcResult(id, await callTool(principal, params.name, params.arguments || {}));
@@ -472,5 +626,5 @@ export function createMcpServer({
     ...(prompts ? { prompts: prompts.list().map((p) => ({ name: p.name, description: p.description })) } : {}),
   });
 
-  return { handle, callTool, info, tools };
+  return { handle, callTool, listTools, instructionsFor, info, tools };
 }

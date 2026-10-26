@@ -47,6 +47,15 @@
   --cr-font-text: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --cr-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
   --cr-font-clean: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /*
+   * Where a layout changes, the same in every app, so modules side by side in Cronum Work change
+   * at the same widths: under the phone's, one column; under the tablet's, a list and its detail
+   * are two screens. CSS reads no variable in @media or @container, so a rule writes the number
+   * itself, one of these two; a script reads them (getComputedStyle) for matchMedia.
+   */
+  --cr-bp-phone: 640px;
+  --cr-bp-tablet: 860px;
 }
 
 /*
