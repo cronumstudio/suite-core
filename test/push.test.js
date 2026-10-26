@@ -624,6 +624,39 @@ test('over HTTP: /api/push/* with modules.push', async (t) => {
   assert.deepEqual((await phone('POST', '/api/push/test')).data, { sent: 0, gone: 0, failed: 0, no_devices: true });
 });
 
+test('over HTTP: signing out forgets this browser’s notices, only its own and only this person’s', async (t) => {
+  for (const modules of [{ push: true }, {}]) {
+    // Without modules.push too: in a host, a module that sends none (Notes) signs out of the host's table.
+    const { suite, browser } = await start(t, modules);
+    const ada = suite.accounts.create({ username: 'ada', password: 'ada-password' });
+    const bob = suite.accounts.create({ username: 'bob', password: 'bob-password' });
+    const device = deviceKeys();
+    const row = (user, endpoint) => suite.database.run(
+      'INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)', user.id, endpoint, device.p256dh, device.auth);
+    const LAPTOP = 'https://fcm.googleapis.com/fcm/send/shared-laptop';
+    const PHONE = 'https://fcm.googleapis.com/fcm/send/ada-phone';
+    const BOBS = 'https://fcm.googleapis.com/fcm/send/bob-tablet';
+    row(ada, LAPTOP);
+    row(ada, PHONE);
+    row(bob, BOBS);
+    const endpoints = () => suite.database.all('SELECT endpoint FROM push_subscriptions ORDER BY endpoint').map((r) => r.endpoint);
+
+    const laptop = browser();
+    await laptop('POST', '/api/auth/login', { username: 'ada', password: 'ada-password' });
+    const out = await laptop('POST', '/api/auth/logout', { push_endpoints: [LAPTOP, BOBS, 42] });
+    assert.deepEqual([out.status, out.data.ok], [200, true]);
+    assert.deepEqual(endpoints(), [PHONE, BOBS].sort(), 'the laptop’s gone; her phone and Bob’s tablet stay');
+    assert.equal((await laptop('GET', '/api/auth/me')).data.user, null, 'and the session with it');
+
+    // Without the addresses, or without a session, signing out is as before.
+    const again = browser();
+    await again('POST', '/api/auth/login', { username: 'ada', password: 'ada-password' });
+    assert.equal((await again('POST', '/api/auth/logout')).status, 200);
+    assert.equal((await browser()('POST', '/api/auth/logout', { push_endpoints: [PHONE] })).status, 200);
+    assert.deepEqual(endpoints(), [PHONE, BOBS].sort());
+  }
+});
+
 test('over HTTP: without modules.push the app keeps /api/push/* for itself, and no keys are made', async (t) => {
   const { suite, browser } = await start(t, {});
   assert.equal((await browser()('GET', '/api/push/config')).status, 404);

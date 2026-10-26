@@ -60,14 +60,14 @@ with its own pre-paint script adds the same line.
 | --- | --- |
 | `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
-| `dom.js` | `el(tag, props, …children)`, `$`, `$$`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings |
+| `dom.js` | `el(tag, props, …children)`, `svg(tag, props, …children)`, `$`, `$$`, `append`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings; `style` and `dataset` may be objects, children may come in nested arrays |
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
-| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field()`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()`, `confirmDialog()`, `menu()` |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })`, `menu(anchor, items, { header, at, parent })` (items with `glyph`) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `setCurrent()` |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `subscribePush()`; `deviceName()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
@@ -87,6 +87,31 @@ with its own pre-paint script adds the same line.
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
 | `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`. Nothing outside the app |
+
+### Components in the sheet alone
+
+Some of the kit's components are CSS with no script: an app writes the classes on its own markup.
+
+| Class | What it is |
+| --- | --- |
+| `kit-btn` (`--primary`, `--quiet`, `--danger`, `--danger-quiet`, `--small`, `--block`), `kit-icon-btn` (`--small`, 34 px in a row), `kit-link` | Buttons |
+| `kit-field` (`> label`, or `> .kit-field__label` for a group), `kit-input`, `kit-hint`, `kit-error`, `kit-check` | Fields, as `field()` makes them |
+| `kit-chip` (`--tint` with `--kit-chip`, `--large`; a `button` with `aria-pressed`) | Something said of an item, or a filter to press |
+| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`) | A colour to choose |
+| `kit-round-check` (`--done` or `aria-pressed`; `--kit-tick-lift` for another size) | A task's round check |
+| `kit-group-title` | The heading of a group in a list |
+| `kit-avatar` (`--tiny` 20, `--small` 26, `--large` 34 px) | A person, as `avatar()` makes it |
+| `kit-segmented` | One choice among a few, as `segmented()` makes it |
+| `kit-blank` (`--page`), `kit-empty` | Nothing here yet, as `blank()` makes it; a view's whole page |
+
+Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
+has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
+`--kit-panel`, `--kit-hover`, `--kit-text`, `--kit-muted`, `--kit-faint`, `--kit-border`,
+`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-shadow`,
+`--kit-radius` (10 px), `--kit-radius-small` (8 px), `--kit-radius-large`. An app keeps names of
+its own only for its domain (a list's colour, a project's state). Layouts change at the brand's
+widths, `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px): `@media` and `@container` read no
+variable, so a rule writes the number.
 
 ## Starting an app
 
@@ -144,7 +169,9 @@ name and icon, the live dot, the `create` button and the person at its foot. On 
 moves to the detail and the bar's back button returns (`onBack`, or `showList()`); the sidebar is a
 drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
 drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
-edge does nothing instead of its forward. On a phone the drawer follows the finger, out from the
+edge does nothing instead of its forward. Over a page that covers the frame with a way back of its
+own (Settings), the start edge goes back there: such a page calls `holdBack(node, back)` (ui.js)
+while it is open and lets go with the function it returns. On a phone the drawer follows the finger, out from the
 edge and back over it, and opens or closes by how far the finger went. Opened by a finger or the mouse, the drawer takes the
 focus itself, with no ring drawn; opened with Enter or Space on ☰ (`openDrawer({ keyboard: true })`),
 the focus goes to the current entry. With `panes: 'single'` there is one view in
@@ -469,6 +496,9 @@ changes are pointed at the real id (`idOf(answer)`, by default `answer.id`). It 
 signal, with the session ended or the server failing, and waits; a 409 goes to `onConflict` (Notes
 saves a conflict copy), anything else that can't be fixed by retrying to `onDropped`. One tab sends
 at a time (a Web Lock). `signOut({ local })` wipes it all: one person's notes don't stay for the next.
+Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
+a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
+queued offline cost no read to add and one record each to send.
 
 ### Drag and drop
 

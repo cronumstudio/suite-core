@@ -58,6 +58,7 @@ test('deleting one’s own account: asked again, disabled at once, offered back,
   const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password', email: 'ana@example.com' });
   suite.database.run('INSERT INTO notes (user_id, text) VALUES (?, ?)', ana.id, 'mine');
   suite.tokens.create(ana.id, { name: 'Claude' });
+  suite.database.run("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, 'https://push.example/ana', 'k', 'a')", ana.id);
 
   const anaTab = browser();
   const phone = browser();
@@ -79,6 +80,8 @@ test('deleting one’s own account: asked again, disabled at once, offered back,
   assert.ok(row.disabled_at && row.delete_after, 'disabled, with the day it goes');
   assert.equal((await anaTab('GET', '/api/auth/me')).data.user, null, 'this browser is out');
   assert.equal((await phone('GET', '/api/auth/me')).data.user, null, 'and every other device');
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?', ana.id).n, 0,
+    'no browser keeps getting its notices while it waits');
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM notes WHERE user_id = ?', ana.id).n, 1, 'the data waits with it');
   const audit = suite.audit.list({ action: 'account.deletion' });
   assert.equal(audit[0].action, 'account.deletion.request');
