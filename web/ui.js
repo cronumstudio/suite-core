@@ -81,13 +81,31 @@ export function saveState(initial = 'saved') {
 
 /* --------------------------------- fields --------------------------------- */
 
-/** A label, the control and, optionally, a hint under it. */
-export function field(label, control, hint = null) {
-  const id = control.id || `f-${Math.random().toString(36).slice(2, 9)}`;
-  control.id = id;
-  const hintNode = hint ? el('p', { class: 'kit-hint', id: `${id}-hint`, text: hint }) : null;
-  if (hintNode) control.setAttribute('aria-describedby', hintNode.id);
-  return el('div', { class: 'kit-field' }, el('label', { for: id, text: label }), control, hintNode);
+/** What a <label for> can name; anything else (a palette of buttons, a group) is not a control. */
+const LABELABLE = new Set(['BUTTON', 'INPUT', 'METER', 'OUTPUT', 'PROGRESS', 'SELECT', 'TEXTAREA']);
+
+/**
+ * A label, the control and, optionally, a hint under it. The label is tied with `for`, never by
+ * wrapping the control: wrapping forwards the activation, and a date input then opens its
+ * calendar and closes it in the same gesture.
+ *
+ * The options keep an app's own look: `class` for the wrapper, `hintClass` and `hintTag` for the
+ * hint, and `groupLabel: true` writes the label as a <span> when what it names isn't something a
+ * <label> can name (a palette of buttons), leaving the control's id alone. Without options, the
+ * kit's field as it has always been.
+ */
+export function field(label, control, hint = null, options = {}) {
+  const { class: className = 'kit-field', hintClass = 'kit-hint', hintTag = 'p', groupLabel = false } = options;
+  const labelable = !groupLabel || (control?.tagName && LABELABLE.has(control.tagName));
+  let id = null;
+  if (labelable) {
+    id = control.id || `f-${Math.random().toString(36).slice(2, 9)}`;
+    control.id = id;
+  }
+  const hintNode = hint ? el(hintTag, { class: hintClass, id: id && `${id}-hint`, text: hint }) : null;
+  if (hintNode && id) control.setAttribute('aria-describedby', `${id}-hint`);
+  const header = labelable ? el('label', { for: id, text: label }) : el('span', { text: label });
+  return el('div', { class: className }, header, control, hintNode);
 }
 
 /** An on/off switch with its label; `onChange(checked)` may throw to put it back. */
@@ -158,6 +176,32 @@ export async function copyText(text, fallback = null) {
   } catch {
     if (fallback) window.getSelection()?.selectAllChildren(fallback);
   }
+}
+
+/* ------------------------------- edge back -------------------------------- */
+
+/** What covers the frame with a way back of its own, the last one on top. This copy's only. */
+const backs = [];
+
+/**
+ * A page over the frame with a way back of its own (Settings: from a section to its list, then
+ * out) takes the swipe from the screen's start edge while it is open, as the frame's back button
+ * does under it (shell.js). Each module's copy of the kit keeps its own, so in Work's shell only
+ * the window that opened it goes back. → a function that lets it go.
+ */
+export function holdBack(node, back) {
+  const held = { node, back };
+  backs.push(held);
+  return () => {
+    const at = backs.indexOf(held);
+    if (at >= 0) backs.splice(at, 1);
+  };
+}
+
+/** The way back of the page on top, when `target` is on it; else null. */
+export function heldBack(target) {
+  const top = backs.at(-1);
+  return top && top.node.contains(target) ? top.back : null;
 }
 
 /* --------------------------------- dialogs -------------------------------- */
