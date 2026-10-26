@@ -197,6 +197,11 @@ const motionFor = (node) => (typeof node.animate !== 'function' ? null
  * Moves `node` from height `from` to `to` out of `full` (what it folds, open), each plus `base`
  * (what stays in sight, a summary), fading `faded` (it, or what is under a summary) with it, then
  * `done()`; one already moving is turned back. With 'fade', only `faded` fades, in or out.
+ *
+ * Its padding shrinks with it (a fold of its own, no `base`): a height can't go below it, and the
+ * fold would stop short and then vanish. Each motion holds its last frame until `done()` has put
+ * the fold as it ends, and only then lets go: a frame drawn in between (Safari draws one) would
+ * show the fold whole for an instant, a blink.
  */
 function move(node, { from, to, full, base = 0, faded = [node], how, done }) {
   if (from === to) {
@@ -204,18 +209,25 @@ function move(node, { from, to, full, base = 0, faded = [node], how, done }) {
     return Promise.resolve();
   }
   const share = (height) => (full > 0 ? Math.min(1, Math.max(0, height / full)) : 1);
-  const motions = how === 'fade'
-    ? faded.map((part) => part.animate([{ opacity: share(from) }, { opacity: share(to) }], FADE))
-    : [node.animate([{ height: `${from + base}px` }, { height: `${to + base}px` }], SLIDE),
-      ...faded.map((part) => part.animate([{ opacity: share(from) }, { opacity: share(to) }], SLIDE))];
+  const timing = { ...(how === 'fade' ? FADE : SLIDE), fill: 'forwards' };
+  const style = base ? null : getComputedStyle(node);
+  const [top, bottom] = style ? [parseFloat(style.paddingTop) || 0, parseFloat(style.paddingBottom) || 0] : [0, 0];
+  const frame = (height) => ({
+    height: `${height + base}px`,
+    ...(top || bottom ? { paddingTop: `${top * share(height)}px`, paddingBottom: `${bottom * share(height)}px` } : {}),
+  });
+  const fades = faded.map((part) => part.animate([{ opacity: share(from) }, { opacity: share(to) }], timing));
+  const motions = how === 'fade' ? fades : [node.animate([frame(from), frame(to)], timing), ...fades];
   if (how !== 'fade') node.style.overflow = 'hidden';
-  const together = { cancel: () => motions.forEach((m) => m.cancel()) };
+  const letGo = () => motions.forEach((m) => m.cancel());
+  const together = { cancel: letGo };
   sliding.set(node, together);
   return Promise.all(motions.map((m) => m.finished)).then(() => {
     if (sliding.get(node) !== together) return;
     sliding.delete(node);
-    node.style.overflow = '';
     done();
+    node.style.overflow = '';
+    letGo();
   }, () => { /* turned back: the next move took over */ });
 }
 
