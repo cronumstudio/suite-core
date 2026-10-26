@@ -276,3 +276,34 @@ test('menu: at a pointer\'s place, in a module\'s own place, with emoji in place
   root.remove();
   await settle();
 });
+
+test('menu: in a window of Cronum Work, inside that window, which cuts off whatever leaves it', async () => {
+  // A window of the desk from x 400 to 1000 and y 100 to 700, on a wider screen; the menu 200 tall.
+  const saved = { ...globalThis.window };
+  Object.assign(globalThis.window, { innerWidth: 1400, innerHeight: 900 });
+  Object.defineProperty(FakeElement.prototype, 'offsetHeight', { get: () => 200, configurable: true });
+  const body = el('div', { class: 'cw-win__body' });
+  const root = el('div', { id: 'modal-root' });
+  body.append(root);
+  document.body.append(body);
+  body.getBoundingClientRect = () => ({ left: 400, top: 100, right: 1000, bottom: 700, width: 600, height: 600 });
+  try {
+    // A tap near the window's end and bottom: the menu goes left and up, not under the next window.
+    const node = menu(null, [{ label: 'Bug' }], { at: { x: 950, y: 650 }, parent: root });
+    assert.equal(node.style.left, '772px', 'its end 8 px inside the window\'s end');
+    assert.equal(node.style.top, '450px', 'above the tap, as it doesn\'t fit below in the window');
+    assert.equal(node.style.maxHeight, undefined, 'it fits: no scroll');
+
+    // A window shorter than the menu: it scrolls inside the window's height.
+    body.getBoundingClientRect = () => ({ left: 400, top: 100, right: 1000, bottom: 250, width: 600, height: 150 });
+    const short = menu(null, [{ label: 'Bug' }], { at: { x: 500, y: 200 }, parent: root });
+    assert.equal(short.style.maxHeight, '134px');
+    assert.equal(short.style.overflowY, 'auto');
+  } finally {
+    closeMenu();
+    body.remove();
+    Object.defineProperty(FakeElement.prototype, 'offsetHeight', { get: () => 0, configurable: true });
+    globalThis.window = saved;
+    await settle();
+  }
+});

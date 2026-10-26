@@ -562,18 +562,29 @@ export function menu(anchor, items, { header = null, at = null, parent = null } 
   node.style.left = '0px';
   node.style.top = '0px';
   const origin = node.getBoundingClientRect();
+  // Its room: the screen, or in Cronum Work the module's window, which cuts off whatever leaves it
+  // (windows.css). A modal dialog is drawn above everything, so a menu in one has the screen.
+  const clip = node.parentElement.closest('dialog[open], .cw-win__body');
+  const frame = clip && clip.tagName !== 'DIALOG' ? clip.getBoundingClientRect()
+    : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
   // A pointer's place is a box of no size; a keyboard's click (at 0, 0) goes by the anchor.
   const point = at && (at.x || at.y) ? at : null;
   const box = point ? { left: point.x, top: point.y, bottom: point.y }
-    : anchor?.getBoundingClientRect?.() || { left: 8, top: 8, bottom: 8 };
-  const width = Math.min(Math.max(node.offsetWidth, 220), window.innerWidth - 16);
+    : anchor?.getBoundingClientRect?.() || { left: frame.left + 8, top: frame.top + 8, bottom: frame.top + 8 };
+  const width = Math.min(Math.max(node.offsetWidth, 220), frame.right - frame.left - 16);
   node.style.width = `${width}px`;
-  node.style.left = `${Math.min(Math.max(8, box.left), window.innerWidth - width - 8) - origin.left}px`;
+  node.style.left = `${Math.min(Math.max(frame.left + 8, box.left), frame.right - width - 8) - origin.left}px`;
+  // Longer than its room (a short window), it scrolls.
+  if (node.offsetHeight > frame.bottom - frame.top - 16) {
+    node.style.maxHeight = `${frame.bottom - frame.top - 16}px`;
+    node.style.overflowY = 'auto';
+  }
+  const height = node.offsetHeight;
   const gap = point ? 0 : 6;
-  if (box.bottom + node.offsetHeight + 8 > window.innerHeight && box.top > node.offsetHeight + 8) {
-    node.style.top = `${box.top - node.offsetHeight - gap - origin.top}px`;
+  if (box.bottom + height + 8 > frame.bottom && box.top - frame.top > height + 8) {
+    node.style.top = `${box.top - height - gap - origin.top}px`;
   } else {
-    node.style.top = `${Math.max(8, Math.min(box.bottom + gap, window.innerHeight - node.offsetHeight - 8)) - origin.top}px`;
+    node.style.top = `${Math.max(frame.top + 8, Math.min(box.bottom + gap, frame.bottom - height - 8)) - origin.top}px`;
   }
   anchor?.setAttribute?.('aria-expanded', 'true');
 

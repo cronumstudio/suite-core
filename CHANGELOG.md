@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.191.3 — 2026-10-26
+
+- **Menus stay inside their window in Cronum Work** (Martin): with the windows side by side, a menu
+  opened near a window's end (the category to pin in Tasks' bar, a list's ⋯) went past it and was
+  cut off, as a window keeps what it holds inside it, though it had room on the screen. `menu()`
+  now fits in the window it hangs in (`.cw-win__body`), as it fits in the screen elsewhere, and
+  scrolls when the window is shorter than it. A menu in a dialog still has the whole screen.
+
 ## 0.191.2 — 2026-10-26
 
 - **Settings cover the whole of Cronum Work in its shell** (Martin): with the windows side by side,
