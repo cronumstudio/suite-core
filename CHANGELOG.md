@@ -29,6 +29,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   `empty`, `avatar` and `detail` for an app whose people are the whole household. Its styles are in
   kit.css (`.kit-share*`), and the worker keeps the file.
 - Nothing changes for an app that doesn't call them.
+- **`time-zone.js` is in the kit's offline copy** (`SUITE_KIT_FILES`), as every kit file a module's
+  page imports: 0.186.0 added it without the line.
 
 ## 0.187.0 — 2026-10-26
 
