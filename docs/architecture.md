@@ -1257,12 +1257,20 @@ connected; the app works out who can see what changed, as Tasks does with a list
 `event` is `change` unless it says otherwise. Every event carries an id, `<run>.<n>`; the last 256
 are remembered, so a tab that reconnects with `Last-Event-ID` (EventSource sends it by itself)
 gets what it missed, and one that missed more, or comes from another run of the server, gets
-`event: resync` and reloads what it shows. The suite publishes one event of its own (v0.22.0):
+`event: resync` and reloads what it shows. `hello` carries an id too, so a tab that saw no notice
+still comes back with one, and a page opening a new channel after closing one sends it as
+`?last=` (EventSource can't send the header then); when either came, `hello` says
+`replayed: true` and the page reloads nothing more (v0.165.0: before, it reloaded everything on
+every `hello` after a cut, on top of the replay). The suite publishes one event of its own (v0.22.0):
 `account`, to the person's tabs when their account changes —an email confirmed from the mail,
 often opened in another tab or on the phone, a new password, the second step turned on or off,
 what the admin changed or signing them out everywhere— so the page reloads what it shows of the
 account (`/api/auth/me`). `accounts.whenChanged(hook)` hears those changes, and a module that
-changes an account says so with `accounts.changed(id)`. Events may carry the new state (Focus's run contract) or
+changes an account says so with `accounts.changed(id)`. A channel lasts while the session it was
+opened with does (v0.162.0): signing out, a session closed from the list, out everywhere, the
+account disabled or deleted close it at once (`sessions.whenClosed` → `live.recheck`), with
+`account` as its last word, and every heartbeat asks again (`sessions.stillOpen`, which doesn't
+slide the session). Events may carry the new state (Focus's run contract) or
 just say what changed (Tasks' lists): the app chooses.
 
 ## 13. MCP
@@ -1787,7 +1795,11 @@ await host.listen();
   must be what the module's barrier counts. The host adds the storage and the calls from
   assistants of the last 30 days (`entitlements.dailyUsage()`), and answers
   `GET /api/admin/users/:id/usage` and, for the list, `GET /api/admin/usage` (each account's
-  nearest cap). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
+  nearest cap). The list counts every account in batches of 100, letting the process answer
+  others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), today's
+  calls in one (`usedToday()`), and a module that has `usageAll(userIds)` / `storageAll(userIds)`
+  (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
+  they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
   web's session only, never an assistant's token.
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
@@ -1898,8 +1910,12 @@ the module that owns each thing decides about it. A module says what can be link
 // server/module.js
 cards: {
   task: {
-    read: (user, id) => card | 'gone' | null,      // null: it exists and this person can't see it
-    search: (user, text) => [card…],                // what this person may link
+    read: (user, id, opts?) => card | 'gone' | null,  // null: it exists and this person can't see it;
+                                                    // (null, id, { system: true }): the host itself
+    readMany: (user, ids, opts?) => Map<id, card | 'gone' | null>,
+                                                    // optional: read() of many at once, in a fixed
+                                                    // number of queries (IN (…) by batches of ≤ 500)
+    search: (user, text) => [card…],                // what this person may link, as read() shows it
     create: (user, { title, place }) => id,         // optional: "Add to Tasks", by the module's rules
     places: (user) => [{ id, name }],               // optional: where create() may put it
     complete: (user, id, done) => {},               // optional: what "done together" does here
@@ -1911,6 +1927,12 @@ cards: {
 A card is `{ id, title, state: 'open' | 'done' | 'cancelled', due?, where?, url? }`, its url
 relative to the module (`?list=27&task=389`). A thing is named by a ref, `module:type:id`
 (`tasks:task:389`): the module's path, its kind, and its id, never the number people see.
+
+The links of something, `changed()` and `prune()` read the other sides together: one `readMany`
+for each kind of thing whose module has it (the same answer as `read` for each id, keyed by the
+ids as strings), `read` for any id it leaves out, for every id when it throws, and for modules
+without it. A search's cards are shown as the module's `search` gives them, none read again
+(v0.166.0).
 
 - **Each pair once**, in a fixed order, whichever way it was linked. `GET /api/links?ref=` lists
   the links of something with the other side's card, as its module draws it and only to whoever
@@ -2087,7 +2109,8 @@ const host = await createHost({
   channel), streams what every module with `modules.live` would tell that person on its own
   `/<mount>/api/events`, in one connection: each notice an unnamed message whose data is
   `{ module, event, data }`. It opens with each module's missed notices or its `resync`, then
-  `{ module: null, event: 'hello', data: { user_id } }`; its id says where it is in every module
+  `{ module: null, event: 'hello', data: { user_id } }` (with `replayed: true` when it came back
+  with an id, by the header or `&last=`); its id says where it is in every module
   (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
   module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
   channels in each module, and ends with any of them: revoked sessions (`account` said first),

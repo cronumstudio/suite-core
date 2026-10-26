@@ -70,10 +70,12 @@ export function identityCheck({ limiter = null, twoFactor = null, localPasswords
  * @param {object} [deps.twoFactor]       from createTwoFactor(): the second step, for whoever turned it on
  * @param {object} [deps.deletion]        from createAccountDeletion(): an account waiting to be
  *   deleted is offered back to whoever signs in to it
+ * @param {object} [deps.database]        the install's: signing out forgets this browser's
+ *   push_subscriptions (`push_endpoints`), whether or not this app sends notices of its own
  */
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
-  mail = true, passwordMin = null, twoFactor = null, deletion = null,
+  mail = true, passwordMin = null, twoFactor = null, deletion = null, database = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
@@ -160,6 +162,16 @@ export function registerAuthApi(router, {
   }
 
   router.post('/api/auth/logout', async (ctx) => {
+    // This browser's notices end with its session (signin.js sends where they come to): on a shared
+    // computer, whoever uses it next must not get this person's. Their other devices keep theirs.
+    // The table is the install's (a host's, one for its modules), also where this app sends none.
+    if (ctx.user && database) {
+      const body = await readJson(ctx.req).catch(() => ({}));
+      const endpoints = Array.isArray(body.push_endpoints) ? body.push_endpoints.filter((e) => typeof e === 'string' && e) : [];
+      for (const endpoint of endpoints.slice(0, 10)) {
+        database.run('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?', ctx.user.id, endpoint);
+      }
+    }
     const idpSession = sessions.close(ctx.sessionToken);
     sessions.clearCookie(ctx.res);
     if (ctx.user) audit?.record({ action: 'auth.logout', actor: ctx.user, req: ctx.req });

@@ -1023,6 +1023,8 @@
   "kit.windows.resizeColumns": "Breite der Spalten",
   "kit.windows.resizeRows": "Höhe der Fenster",
   "kit.windows.tabs": "Module",
+  "kit.windows.maximize": "Maximieren",
+  "kit.windows.restore": "Wiederherstellen",
   "errors.device_code_invalid": "Dieser Verbindungscode gilt nicht mehr. Verbinde das Gerät noch einmal von vorn.",
   "errors.device_not_allowed": "Mit diesem Konto kannst du hier keine Geräte verbinden.",
   "errors.action_not_found": "Diese Aktion ist hier nicht mehr verfügbar. Öffne die App, um sie auszuführen.",

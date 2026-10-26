@@ -35,6 +35,7 @@
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
+ *     search: { label: searchLabel, onInput: (text) => findNotes(text) },
  *     onSettings: openSettings, onSignOut: signOut,
  *   });
  *   shell.nav.append(navItem({ label: allLabel, iconName: 'notes', count: 24, current: true }));
@@ -44,7 +45,7 @@ import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
-import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
+import { banner as bannerNode, menu, closeMenu, avatar, heldBack } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
 
@@ -61,7 +62,11 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers
- * @param {object} [options.create]          { label, onClick }: the button that creates
+ * @param {object} [options.create]          { label, onClick }: the button that creates (the
+ *   sidebar's, beside the views; on a phone the floating one)
+ * @param {object} [options.search]          { label, placeholder?, onInput(text), onSubmit?(text) }: the
+ *   module's search, at the top of its sidebar; Escape empties it, Enter in the drawer closes it
+ *   so the results show. `shell.search` is its field.
  * @param {Function} [options.onSettings]
  * @param {Function} [options.onSignOut]
  * @param {Function} [options.onBack]        the detail's back button (default: showList)
@@ -71,7 +76,7 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  */
 export function createShell({
-  panes = 'split', app, create = null, onSettings = null, onSignOut = null,
+  panes = 'split', app, create = null, search = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
   embedded = false,
 }) {
@@ -108,8 +113,30 @@ export function createShell({
   // shows the one live dot: the sidebar keeps only its button that folds it.
   const head = embedded ? el('div', { class: 'kit-side__head' }, fold) : el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
   const foot = el('div', { class: 'kit-side__foot' }, account);
+  // The module's search, the same in every module: the sidebar's first line.
+  const searchField = search ? el('input', {
+    type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || search.label,
+    'aria-label': search.label, enterkeyhint: 'search', autocomplete: 'off',
+  }) : null;
+  if (searchField) {
+    searchField.addEventListener('input', () => search.onInput?.(searchField.value), { signal });
+    searchField.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && searchField.value) {
+        ev.stopPropagation();
+        searchField.value = '';
+        search.onInput?.('');
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        search.onSubmit?.(searchField.value);
+        // In the drawer the results are behind it.
+        if (element.hasAttribute('data-drawer')) closeDrawer();
+      }
+    }, { signal });
+  }
+  const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null;
+  // In Work's shell, with a search, the button that folds shares its line instead of one of its own.
   const side = el('aside', { class: 'kit-side' },
-    head,
+    embedded && searchBox ? el('div', { class: 'kit-side__top' }, searchBox, fold) : [head, searchBox],
     create ? el('div', { class: 'kit-side__create' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,
@@ -286,7 +313,8 @@ export function createShell({
    * Safari takes a swipe from the screen's edge as back or forward in the
    * history, which leaves the app for whatever page came before. Here the
    * start edge does what the bar's button beside it does —opens the drawer,
-   * or goes back from a detail— and the end edge does nothing. Only a
+   * or goes back from a detail— and the end edge does nothing. Over a page
+   * with a way back of its own (Settings, ui.js holdBack) it goes back there. Only a
    * touchstart cancelled at once stops Safari, and that also cancels the tap
    * and the scroll, so a touch taken at an edge does them by hand: a tap is
    * passed on as a click, a vertical drag scrolls what is under the finger.
@@ -339,7 +367,8 @@ export function createShell({
     const rtl = getComputedStyle(element).direction === 'rtl';
     const atStart = rtl ? x > innerWidth - EDGE : x < EDGE;
     const atEnd = rtl ? x < EDGE : x > innerWidth - EDGE;
-    const action = atStart ? startAction(target) : null;
+    const held = atStart ? heldBack(target) : null;
+    const action = held || (atStart ? startAction(target) : null);
     // Without the Navigation API (older Safari) the history is assumed to have somewhere to go. In
     // Work's shell the page's edges are the shell's to keep from Safari: a window takes a touch only
     // for what it does itself, or every window mounted would pass the same tap on.
@@ -349,11 +378,11 @@ export function createShell({
     // The drawer to drag, on a phone (beside the views, folded, the edge unfolds the sidebar): out
     // from the edge where ☰ would open it, back from anywhere when open.
     const open = element.hasAttribute('data-drawer');
-    const drawer = beside() ? null
+    const drawer = beside() || held ? null
       : open && element.contains(target) ? 'close'
         : action && !showing('.kit-bar__back') ? 'open' : null;
     swipe = {
-      x, y, lastY: y, rtl, target, action, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
+      x, y, lastY: y, rtl, target, action, held, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
       scroller: taken ? scrollerOf(target) : null,
     };
   }, { passive: false, signal });
@@ -385,7 +414,7 @@ export function createShell({
     if (swipe.action && dx > 40) {
       swipe.done = true;
       swipe.action();
-    } else if (dx < -50 && element.hasAttribute('data-drawer')) {
+    } else if (dx < -50 && !swipe.held && element.hasAttribute('data-drawer')) {
       // Beside the views, the drawer a drag brought over them goes back with the same gesture.
       swipe.done = true;
       closeDrawer();
@@ -783,7 +812,7 @@ export function createShell({
   if (!embedded) nativeReady();
 
   return {
-    element, nav, list, detail, actions, banners, head: viewHead,
+    element, nav, list, detail, actions, banners, head: viewHead, search: searchField,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
     get folded() { return folded(); },

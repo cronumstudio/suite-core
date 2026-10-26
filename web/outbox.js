@@ -18,6 +18,12 @@
  *   and reported.
  * - Several tabs share the queue: one sends at a time (a Web Lock), and a
  *   change leaves the queue by its id, never by its place.
+ * - Nothing reads the whole queue to count it or to take the next change: an
+ *   afternoon without a signal is hundreds of changes (whole notes, in
+ *   Notes), and reading them all on every change made adding and sending
+ *   them quadratic, just when the signal came back. Counting reads keys only,
+ *   the next change is one record, and a provisional id is swapped in one
+ *   pass in one transaction (local.js `count`, `first`, `rewrite`).
  *
  *   const outbox = createOutbox({ local, onConflict, onDropped, onCount: (n) => … });
  *   await outbox.add({ method: 'POST', path: '/api/notes', body, tempId: 'tmp-…' });
@@ -70,8 +76,20 @@ export function createOutbox({
   let flushing = null;
 
   const entries = () => local.entries(STORE);
+  // A store without the queue's own reads (an app's own) still works, reading everything as before.
+  const size = () => (local.count ? local.count(STORE) : entries().then((all) => all.length));
+  const first = () => (local.first ? local.first(STORE) : entries().then(([head]) => head));
+  const rewrite = async (change) => {
+    if (local.rewrite) return local.rewrite(STORE, change);
+    let changed = 0;
+    for (const [key, value] of await entries()) {
+      const next = change(value, key);
+      if (next !== undefined) { await local.put(STORE, key, next); changed += 1; }
+    }
+    return changed;
+  };
   const count = async () => {
-    const n = (await entries()).length;
+    const n = await size();
     onCount(n);
     return n;
   };
@@ -106,9 +124,9 @@ export function createOutbox({
   async function sendAll() {
     const report = { sent: 0, dropped: [], conflicts: [], left: 0 };
     for (;;) {
-      const [first] = await entries();
-      if (!first) break;
-      const [key, op] = first;
+      const head = await first();
+      if (!head) break;
+      const [key, op] = head;
 
       // A provisional id still here has no creation left to come: it went wrong earlier.
       if (TEMP_IN_PATH.test(op.path)) {
@@ -141,12 +159,10 @@ export function createOutbox({
       const realId = idOf(answer);
       if (op.tempId && realId != null) {
         // What was done to it offline now points at the real id, in the stored queue.
-        for (const [otherKey, other] of await entries()) {
+        await rewrite((other) => {
           const swapped = swapId(other, op.tempId, String(realId));
-          if (swapped.path !== other.path || JSON.stringify(swapped.body) !== JSON.stringify(other.body)) {
-            await local.put(STORE, otherKey, swapped);
-          }
-        }
+          return swapped.path !== other.path || JSON.stringify(swapped.body) !== JSON.stringify(other.body) ? swapped : undefined;
+        });
         await onCreated({ op, tempId: op.tempId, id: realId, answer });
       }
     }
