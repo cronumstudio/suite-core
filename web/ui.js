@@ -177,6 +177,32 @@ export async function copyText(text, fallback = null) {
   }
 }
 
+/* ------------------------------- edge back -------------------------------- */
+
+/** What covers the frame with a way back of its own, the last one on top. This copy's only. */
+const backs = [];
+
+/**
+ * A page over the frame with a way back of its own (Settings: from a section to its list, then
+ * out) takes the swipe from the screen's start edge while it is open, as the frame's back button
+ * does under it (shell.js). Each module's copy of the kit keeps its own, so in Work's shell only
+ * the window that opened it goes back. → a function that lets it go.
+ */
+export function holdBack(node, back) {
+  const held = { node, back };
+  backs.push(held);
+  return () => {
+    const at = backs.indexOf(held);
+    if (at >= 0) backs.splice(at, 1);
+  };
+}
+
+/** The way back of the page on top, when `target` is on it; else null. */
+export function heldBack(target) {
+  const top = backs.at(-1);
+  return top && top.node.contains(target) ? top.back : null;
+}
+
 /* --------------------------------- dialogs -------------------------------- */
 
 /**
