@@ -68,6 +68,7 @@ import { migrate } from './migrate.js';
 import { createEntitlements } from './entitlements.js';
 import { createLive, subscribeAll } from './live.js';
 import { createUploads } from './uploads.js';
+import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
@@ -595,7 +596,7 @@ export async function createHost({
     // A folder of its own: each module sweeps the files its table doesn't know,
     // and in a folder shared with another it would take the other's for orphans.
     const uploads = resolved.modules.uploads
-      ? createUploads({ dir: path.join(install.dataDir, 'uploads', app.id), log: (line) => log(line) })
+      ? createUploads({ dir: path.join(install.dataDir, 'uploads', app.id), log: (line) => log(line), storage: () => entry.view?.storage })
       : null;
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
@@ -649,10 +650,13 @@ export async function createHost({
       /**
        * The storage a plan allows (`storage.mb`) is the person's, whichever module keeps their
        * files: `used(userId)` adds up what every module says it keeps for them
-       * (`createModule().storage`), so a module checks the whole against the limit. On its own
-       * an app has no `storage` and counts its own files, as always.
+       * (`createModule().storage`), so a module checks the whole against the limit with
+       * `check(user, adding, { payer })` (storage.js). On its own an app's `suite.storage` is
+       * createApp's, from its own files alone.
        */
-      storage: { used: (userId) => storageUsed(userId) },
+      storage: createStorage({ entitlements, used: (userId) => storageUsed(userId) }),
+      // A module's own count goes to the host by `createModule().storage`: here it changes nothing.
+      countStorage: () => entry.view.storage,
     };
     joined.push(entry);
     return entry.view;

@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.187.0 — 2026-10-26
+
+- **The storage a plan allows is checked in one place** (`storage.js`, `suite.storage.check(user,
+  adding, { payer })`). Tasks, Projects and Notes each had the same check and the same 402
+  `plan_limit`; now it is the suite's, with the same answer. Whose plan pays for a file stays each
+  app's rule, passed as `payer` (Notes: the notebook's owner; Tasks and Projects: who uploads), and
+  is written in docs/architecture.md. On its own an app's `suite.storage` counts what the app says
+  it keeps, where it counts it (`suite.countStorage(storageOf)`, at import, so its scripts and
+  command line have it too; or createApp's new `storage`); as a module of a host, the person's
+  across every module, as `used()` already did. Until an app says it, nothing changes.
+- **`uploads.storeChecked()`**: an upload with the cap per record and the storage checked before a
+  byte is read and again once the file is on disk, refused files taken off it, as the apps did by
+  hand. Its `too_many_files` has a sentence of the suite's, which an app's own catalog overrides.
+- **A photo made ready to upload, in the kit** (`web/images.js`): `prepareUpload(file, { keepGif,
+  asIs, maxBytes })` and `fileSize(bytes)`, from the three copies in the apps. A GIF goes as it is
+  (it may move), a small picture the server wouldn't take is made a JPEG all the same, and the
+  units are translated (French "Mo"). `/api/auth/config` tells the page the most a file may weigh
+  (`app.uploads.max_bytes`), with uploads on. The kit's worker keeps the new file.
+
 ## 0.186.0 — 2026-10-26
 
 - **`PATCH /api/me` and the account as the browser sees it, once for every module** (`createApp({ prefs })`,

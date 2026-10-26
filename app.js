@@ -69,6 +69,7 @@ import { createIdempotency } from './idempotency.js';
 import { createPush, vapidKeys } from './push.js';
 import { createNativePush, registerNativePushApi } from './native-push.js';
 import { createUploads } from './uploads.js';
+import { createStorage } from './storage.js';
 import { createUploadLinks, registerUploadLinksApi } from './mcp-files.js';
 import { createPortability, registerPortabilityApi } from './portability.js';
 import { createMcpServer, dailyLimitText } from './mcp.js';
@@ -432,8 +433,11 @@ export function createSuite({
     workos: workosClient, users: workosPeople, database, revokeEverything, log: (line) => log(`${tag} ${line}`),
   }) : null;
   // Files people attach, with modules.uploads: stored, served and swept here; the app keeps its table.
+  // Its `storeChecked` checks storage.mb against `suite.storage`, which createApp makes from what the
+  // app says it keeps: asked when a file arrives, by then it is there.
+  let made = null;
   const uploads = config.modules.uploads
-    ? createUploads({ dir: path.join(install.dataDir, 'uploads'), log: (line) => log(line) })
+    ? createUploads({ dir: path.join(install.dataDir, 'uploads'), log: (line) => log(line), storage: () => made?.storage })
     : null;
   // Files an assistant sends with curl, with uploads and the MCP on (mcp-files.js): one-time links,
   // in memory, at this app's own address. A module of a host gets its own, at its path (host.js).
@@ -578,12 +582,23 @@ export function createSuite({
     organizations,
   });
 
-  return {
+  made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
+    /**
+     * What the app keeps of someone against storage.mb, said where it is counted (its files'
+     * module, at import): from then on `suite.storage` checks it (storage.js), in its scripts and
+     * command line too, which run without createApp. → `suite.storage`. Said once; createApp's
+     * `storage` says it the same way. Until something says it there is no `suite.storage`, as before.
+     */
+    countStorage(used) {
+      if (!made.storage) made.storage = createStorage({ entitlements, used });
+      return made.storage;
+    },
   };
+  return made;
 }
 
 /** Paths clients use to negotiate authentication, not part of the web app. */
@@ -646,7 +661,7 @@ export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
   version = '0.0.0', watchRoot = null, i18nDir = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none',
-  deviceActions = null, resolveDeviceAction = null,
+  deviceActions = null, resolveDeviceAction = null, storage = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -658,6 +673,12 @@ export function createApp({
   const localPasswords = install.authProvider === 'local';
   const serialize = serializeUser
     || (prefs ? userSerializer(suite, { prefs }) : (user) => (user ? accounts.publicUser(user) : null));
+  // What the app keeps of someone against storage.mb (`createModule().storage`): on its own, its
+  // files are the whole of it, and `suite.storage` checks them (storage.js). A host's module already
+  // has the host's, which adds up every module's; nor is it made without the app saying.
+  if (typeof storage === 'function' && !suite.storage) {
+    suite.storage = suite.countStorage ? suite.countStorage(storage) : createStorage({ entitlements, used: storage });
+  }
 
   /* --------------------------- the suite's routes --------------------------- */
 
@@ -684,6 +705,8 @@ export function createApp({
       },
       // A module of a host (host.js) says where it is, for the kit to show the others beside it.
       ...(config.host ? { host: config.host } : {}),
+      // The most a file may weigh, for the page to say so before spending data (web/images.js).
+      ...(suite.uploads ? { uploads: { max_bytes: suite.uploads.maxBytes } } : {}),
     },
   });
   if (install.authProvider === 'local') {

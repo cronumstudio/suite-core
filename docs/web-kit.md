@@ -614,6 +614,19 @@ sidebar in the same drag: its places are all of them, and `check` says which is 
 - Whatever opens something when held (☰, the tabs: `data-drag-spring`) has `data-spring-armed`
   while the pointer waits over it.
 
+### Photos before they travel
+
+`prepareUpload(file, { keepGif, asIs, maxBytes })` (`web/images.js`) → `{ blob, name }` ready to
+send as an upload's body. A PDF goes as it is; so does a GIF (it may move; `keepGif: false` makes
+it a JPEG like the rest) and a picture the page made itself (`asIs: true`: a drawing's PNG, whose
+strokes a JPEG would blur). A picture under 500 kB and 2000 px that the server takes (JPEG, PNG,
+WebP) goes as it is; anything bigger, or of a kind the server refuses (an iPhone's HEIC), is
+decoded with its orientation applied, drawn on white and made a JPEG of 2000 px at most on its long
+side, named `.jpg`. What weighs more than `maxBytes` is refused before spending data, with the
+sentence to show (`kit.images.*`): `uploadLimit(config)` reads the server's limit from
+`/api/auth/config` (`app.uploads.max_bytes`), `MAX_BYTES` (15 MB) where it says none.
+`fileSize(bytes)` writes what a file weighs in the person's language, the unit too (French "Mo").
+
 ### Markdown
 
 `renderMarkdown(text, { onTaskToggle })` draws a note with `el()` —headings, lists, task lists,
