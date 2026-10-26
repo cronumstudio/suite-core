@@ -903,6 +903,7 @@ export function openSettings(options) {
    */
   function moduleChoice() {
     const switches = el('div', { class: 'kit-stack' });
+    const calendarSwitch = el('div', { hidden: true });
     const icons = el('div', { class: 'kit-row' });
     // What the switches say now: two pressed one after the other both count.
     const shownOn = () => [...switches.querySelectorAll('.kit-switch')]
@@ -950,6 +951,25 @@ export function openSettings(options) {
         row.firstChild.prepend(el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
         switches.append(row);
       }
+      // The host's calendar, where it has one: its button on the rail only for whoever wants it.
+      clear(calendarSwitch);
+      calendarSwitch.hidden = typeof answer.calendar_shown !== 'boolean';
+      if (!calendarSwitch.hidden) {
+        calendarSwitch.append(switchRow(t('kit.calendar.show'), {
+          checked: answer.calendar_shown,
+          hint: t('kit.calendar.showHint'),
+          onChange: async (shown) => {
+            try {
+              await api.put('/api/me/calendar', { shown });
+              // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
+              document.dispatchEvent(new CustomEvent('kit-modules'));
+            } catch (err) {
+              fail(err);
+              throw err;   // the switch goes back
+            }
+          },
+        }));
+      }
       clear(icons);
       // The host itself first: one icon for all of it, opening on the module used last. Its page
       // at /?modules stays put instead of going on to a module, so it can be installed from there.
@@ -967,7 +987,7 @@ export function openSettings(options) {
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((answer) => { paint(answer); repaint(); }, fail);
     return el('div', {},
-      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off'))),
+      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off')), calendarSwitch),
       block(t('kit.modules.icons'), hint(t('kit.modules.install', { host: host.name })), icons));
   }
 

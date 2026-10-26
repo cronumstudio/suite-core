@@ -997,6 +997,8 @@
   "kit.split.layout3": "3 apps in columns",
   "kit.split.layout4": "4 apps in a grid",
   "kit.calendar.title": "Calendar",
+  "kit.calendar.show": "Show the calendar",
+  "kit.calendar.showHint": "Its button on the side rail (on a phone, in the top bar): what has a date in every module, by day. Off, the page stays simpler.",
   "kit.links.label": "Linked",
   "kit.links.add": "Link",
   "kit.links.addTo": "Add to {app}…",

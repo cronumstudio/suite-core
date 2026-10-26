@@ -2046,6 +2046,9 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   `failed`, never a 500: the rest of the calendar still shows.
 - **On the rail** (`shell.js`), `GET /api/modules` says `host.calendar`, and every module's rail
   has a Calendar button (`kit.calendar.title`) just over the split view's, a link to that page.
+  Only for whoever turned it on (0.195.0): Settings › Modules has the switch (`calendar_shown` in
+  the same answer, `PUT /api/me/calendar { shown }`, table `host_calendar`); no row, no button,
+  so the rail stays as simple as it was. The page and the assistants' tool are there either way.
 - **For assistants**, the host's MCP adds `<host id>_calendar` (`work_calendar`) for whoever uses
   a module that gives its dates (and, with `byPlan`, whose plan lets an assistant read it):
   `{ from, to }`, `to` a week from `from` without it and `from` today in their zone without it,

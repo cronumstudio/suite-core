@@ -150,6 +150,16 @@ export const HOST_MIGRATIONS = Object.freeze([
       chosen_at TEXT NOT NULL
     )`),
   },
+  {
+    version: 5,
+    name: 'calendar-shown',
+    // Whether each person has the host's calendar on their rail (1). No row: not shown, for a simpler page.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_calendar (
+      user_id   INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      shown     INTEGER NOT NULL DEFAULT 0,
+      chosen_at TEXT NOT NULL
+    )`),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -923,11 +933,16 @@ export async function createHost({
     const chosen = rows.length > 0;
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
     const look = user ? suite.database.get('SELECT look FROM host_looks WHERE user_id = ?', user.id)?.look : null;
+    // The calendar's button only for whoever turned it on (Settings › Modules): off, the rail stays as it was.
+    const calendarShown = Boolean(calendar && user
+      && suite.database.get('SELECT shown FROM host_calendar WHERE user_id = ?', user.id)?.shown);
     return {
       host: {
-        name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendar ? { calendar } : {}),
+        name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendarShown ? { calendar } : {}),
         ...(aiInstruction ? { aiInstruction } : {}),
       },
+      // Whether they have it on, where the host has a calendar: Settings › Modules offers the switch.
+      ...(calendar ? { calendar_shown: calendarShown } : {}),
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
@@ -1016,6 +1031,20 @@ export async function createHost({
       }
       registerLinksApi(api, { links });
       if (agenda) registerCalendarApi(api, { calendar: agenda });
+      // Whether the calendar's button is on this person's rail: one choice for the whole host.
+      if (calendar) {
+        api.put('/api/me/calendar', async (ctx) => {
+          if (!ctx.user) throw unauthorized();
+          const body = await readJson(ctx.req);
+          if (typeof body.shown !== 'boolean') throw badRequest('field_invalid', { field: 'shown' });
+          suite.database.run(`INSERT INTO host_calendar (user_id, shown, chosen_at) VALUES (?, ?, ?)
+            ON CONFLICT (user_id) DO UPDATE SET shown = excluded.shown, chosen_at = excluded.chosen_at`,
+          ctx.user.id, body.shown ? 1 : 0, new Date().toISOString());
+          // Their open tabs, in every module, repaint their rail.
+          suite.accounts.changed(ctx.user.id);
+          sendJson(ctx.res, 200, modulesOf(ctx.user));
+        });
+      }
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
       registerOwnUsageApi(api, { usageFor });

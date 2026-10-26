@@ -997,6 +997,8 @@
   "kit.split.layout3": "3 app in colonne",
   "kit.split.layout4": "4 app in griglia",
   "kit.calendar.title": "Calendario",
+  "kit.calendar.show": "Mostra il calendario",
+  "kit.calendar.showHint": "Il suo pulsante nella barra laterale (sul telefono, nella barra in alto): ciò che ha una data in ogni modulo, giorno per giorno. Spento, la schermata resta più semplice.",
   "kit.links.label": "Collegati",
   "kit.links.add": "Collega",
   "kit.links.addTo": "Aggiungi a {app}…",

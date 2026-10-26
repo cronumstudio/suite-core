@@ -795,6 +795,10 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__split'"), 'over the split view');
   assert.match(css, /\.kit-rail__calendar \+ :is\(\.kit-rail__split, \.kit-rail__settings\) \{ margin-top: 0; \}/);
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
+  // Settings › Modules turns its button on and off, where the host has one.
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  assert.match(settings, /calendarSwitch\.hidden = typeof answer\.calendar_shown !== 'boolean';/);
+  assert.match(settings, /api\.put\('\/api\/me\/calendar', \{ shown \}\)/);
   // On a phone, where the rail doesn't show, the switcher's menu has it.
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);

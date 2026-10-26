@@ -997,6 +997,8 @@
   "kit.split.layout3": "3 Apps in Spalten",
   "kit.split.layout4": "4 Apps im Raster",
   "kit.calendar.title": "Kalender",
+  "kit.calendar.show": "Kalender anzeigen",
+  "kit.calendar.showHint": "Seine Schaltfläche in der Seitenleiste (auf dem Handy oben in der Leiste): alles mit Datum aus jedem Modul, Tag für Tag. Ausgeschaltet bleibt die Ansicht schlichter.",
   "kit.links.label": "Verknüpft",
   "kit.links.add": "Verknüpfen",
   "kit.links.addTo": "Zu {app} hinzufügen…",
