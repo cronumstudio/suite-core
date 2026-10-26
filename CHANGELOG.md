@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.193.0 — 2026-10-26
+
+- **With WorkOS, two-step verification is offered to everyone** (`workos.js`,
+  `workos-security.js`, `CONVENTIONS.md`). Since 0.127.0 only administrators were offered it
+  while it was tried with AuthKit. Tried: with the environment's Multi-Factor Auth set to
+  **Optional** in WorkOS's dashboard, AuthKit asks whoever turned it on for the code at every
+  sign-in, and nobody else; with it **Off**, the factor is kept and never asked for. So
+  `WORKOS_TWO_FACTOR` is now `on` when unset; `admins` and `off` still hold it back. Whoever
+  signs in with Google, Apple, Microsoft or GitHub is still not offered it.
+
 ## 0.192.2 — 2026-10-26
 
 - **About shows Cronum Work's version again, from every module** (Martin): a module mounted in a

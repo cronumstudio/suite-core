@@ -18,8 +18,11 @@
  * · WorkOS has no recovery codes. Whoever loses the phone is helped by an
  *   administrator, who takes the second step off (the admin panel, or WorkOS's
  *   dashboard); a forgotten password is AuthKit's "Forgot your password?".
- * · `twoFactor`: who is offered the second step: `on` (everyone), `admins`
- *   (while it is tried out) or `off`. Changing the password is always offered.
+ * · AuthKit asks for the code only when the WorkOS environment's Multi-Factor
+ *   Auth is **Optional** (or Required) in its dashboard: with it Off, a factor
+ *   is kept and never asked for.
+ * · `twoFactor`: who is offered the second step: `on` (everyone, the default),
+ *   `admins` (to try it out) or `off`. Changing the password is always offered.
  */
 import crypto from 'node:crypto';
 import { base32Encode, base32Decode, matchStep, totp } from './two-factor.js';
@@ -52,7 +55,7 @@ const fromIdentity = (provider) => String(provider || '').replace(/OAuth$/, '').
  *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist.
  */
 export function registerWorkosSecurityApi(router, {
-  workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'admins',
+  workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'on',
   revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, clock = () => Date.now(),
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>

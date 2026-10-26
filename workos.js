@@ -41,7 +41,7 @@ export function workosConfigFromEnv(env = process.env) {
     authkitDomain: env.WORKOS_AUTHKIT_DOMAIN || '',
     mcpAudience: env.WORKOS_MCP_AUDIENCE || '',
     // Who is offered two-step verification in Settings (workos-security.js): on | admins | off.
-    twoFactor: ['on', 'admins', 'off'].includes(env.WORKOS_TWO_FACTOR) ? env.WORKOS_TWO_FACTOR : 'admins',
+    twoFactor: ['on', 'admins', 'off'].includes(env.WORKOS_TWO_FACTOR) ? env.WORKOS_TWO_FACTOR : 'on',
   };
 }
 
