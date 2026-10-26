@@ -45,7 +45,7 @@ import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
-import { banner as bannerNode, menu, closeMenu, avatar } from './ui.js';
+import { banner as bannerNode, menu, closeMenu, avatar, heldBack } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
 
@@ -313,7 +313,8 @@ export function createShell({
    * Safari takes a swipe from the screen's edge as back or forward in the
    * history, which leaves the app for whatever page came before. Here the
    * start edge does what the bar's button beside it does —opens the drawer,
-   * or goes back from a detail— and the end edge does nothing. Only a
+   * or goes back from a detail— and the end edge does nothing. Over a page
+   * with a way back of its own (Settings, ui.js holdBack) it goes back there. Only a
    * touchstart cancelled at once stops Safari, and that also cancels the tap
    * and the scroll, so a touch taken at an edge does them by hand: a tap is
    * passed on as a click, a vertical drag scrolls what is under the finger.
@@ -366,7 +367,8 @@ export function createShell({
     const rtl = getComputedStyle(element).direction === 'rtl';
     const atStart = rtl ? x > innerWidth - EDGE : x < EDGE;
     const atEnd = rtl ? x < EDGE : x > innerWidth - EDGE;
-    const action = atStart ? startAction(target) : null;
+    const held = atStart ? heldBack(target) : null;
+    const action = held || (atStart ? startAction(target) : null);
     // Without the Navigation API (older Safari) the history is assumed to have somewhere to go. In
     // Work's shell the page's edges are the shell's to keep from Safari: a window takes a touch only
     // for what it does itself, or every window mounted would pass the same tap on.
@@ -376,11 +378,11 @@ export function createShell({
     // The drawer to drag, on a phone (beside the views, folded, the edge unfolds the sidebar): out
     // from the edge where ☰ would open it, back from anywhere when open.
     const open = element.hasAttribute('data-drawer');
-    const drawer = beside() ? null
+    const drawer = beside() || held ? null
       : open && element.contains(target) ? 'close'
         : action && !showing('.kit-bar__back') ? 'open' : null;
     swipe = {
-      x, y, lastY: y, rtl, target, action, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
+      x, y, lastY: y, rtl, target, action, held, taken, drawer, axis: null, done: false, dragging: false, dx: 0,
       scroller: taken ? scrollerOf(target) : null,
     };
   }, { passive: false, signal });
@@ -412,7 +414,7 @@ export function createShell({
     if (swipe.action && dx > 40) {
       swipe.done = true;
       swipe.action();
-    } else if (dx < -50 && element.hasAttribute('data-drawer')) {
+    } else if (dx < -50 && !swipe.held && element.hasAttribute('data-drawer')) {
       // Beside the views, the drawer a drag brought over them goes back with the same gesture.
       swipe.done = true;
       closeDrawer();

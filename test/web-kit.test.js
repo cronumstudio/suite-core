@@ -1975,7 +1975,7 @@ test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing
 test('the drawer follows the finger on a phone, and opens or closes by how far it went', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(shell, /const drawer = beside\(\) \? null/, 'beside the views the edge unfolds the sidebar, as before');
+  assert.match(shell, /const drawer = beside\(\) \|\| held \? null/, 'beside the views the edge unfolds the sidebar, as before');
   assert.match(shell, /dragDrawer\(swipe\.drawer, dx, swipe\.rtl\);/, 'drawn where the finger is while it moves');
   assert.match(shell, /const commitDistance = \(width\) => Math\.min\(90, width \* 0\.28\);/);
   assert.match(shell, /Math\.abs\(dx\) >= \(cancelled \? CANCEL_COMMIT : commitDistance\(width\)\)/, 'the finger\'s path decides, and less when the system takes the gesture away');
@@ -2081,6 +2081,57 @@ test('a frame drawn again passes a tap at the screen’s edge on once, not once 
     assert.equal(tapAtEdge(shell), 1);
     shell.destroy();
   } finally {
+    restore();
+  }
+});
+
+test('a swipe from the start edge over Settings goes back as its ←: from a section to the list, then out (Cronum core nº 12)', async () => {
+  const { page, restore } = await framePage();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { openSettings } = await import('../web/settings.js');
+    const shell = createShell(frameOptions());
+    let closed = 0;
+    const settings = openSettings({
+      app: { id: 'notes', name: 'Notes' }, user: { username: 'ada', role: 'user' },
+      config: { app: { modules: { mcp: false } } }, onClose: () => { closed += 1; },
+    });
+    const overlay = page.body.all().find((node) => node.className === 'kit-settings-page');
+    const grid = overlay.all().find((node) => node.className === 'kit-settings');
+    const under = overlay.all().find((node) => node.className === 'kit-settings__list');
+    /** A finger from the start edge, `by` px to the end, over what it lands on. */
+    const swipe = (target, from = 5, by = 60) => {
+      let prevented = 0;
+      const preventDefault = () => { prevented += 1; };
+      page.dispatch('touchstart', { touches: [{ clientX: from, clientY: 300 }], target, preventDefault });
+      page.dispatch('touchmove', { touches: [{ clientX: from + by, clientY: 302 }], target, preventDefault });
+      page.dispatch('touchend', { touches: [], target });
+      return prevented;
+    };
+    const opened = () => shell.element.hasAttribute('data-drawer');
+
+    settings.show('profile');
+    assert.ok(grid.hasAttribute('data-open'), 'a section open, on a phone its own screen');
+    assert.ok(swipe(under) >= 1, 'taken from Safari');
+    assert.ok(!grid.hasAttribute('data-open'), 'back to the list');
+    assert.ok(overlay.parentNode, 'Settings still open');
+    assert.equal(opened(), false, 'the drawer under it stays closed');
+
+    swipe(under, 200);
+    assert.ok(overlay.parentNode, 'away from the edge, nothing');
+    swipe(under);
+    assert.equal(overlay.parentNode, null, 'out of Settings');
+    assert.equal(closed, 1);
+
+    // Closed, it holds the edge no more.
+    const row = shell.list.appendChild(page.createElement('div'));
+    swipe(row);
+    assert.equal(closed, 1);
+    shell.destroy();
+  } finally {
+    globalThis.fetch = realFetch;
     restore();
   }
 });
