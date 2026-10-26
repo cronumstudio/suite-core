@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.193.1 — 2026-10-26
+
+- **Two-step verification says whether it is on** (Martin; `web/settings.js`, `web/kit.css`,
+  `i18n/*.json`). Its block in Settings › Password and sign-in now opens with a badge, **On** (green,
+  with a tick) or **Off**, instead of leaving it to the first word of the text and the Turn off
+  button. The texts under it lose that first word (`kit.twoFactor.off`, `.on`, `.onNoCodes`); new
+  `kit.twoFactor.statusOn` and `kit.twoFactor.statusOff`, and `.kit-badge--on`.
+
 ## 0.193.0 — 2026-10-26
 
 - **With WorkOS, two-step verification is offered to everyone** (`workos.js`,
