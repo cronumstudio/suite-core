@@ -110,6 +110,66 @@ test('in a host, Your AI has every module\'s instruction folded under its name w
   }
 });
 
+test('in Work’s shell a module passes no watcher: About shows the whole app’s version and checks and updates with the shell’s', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const REGISTRY = Symbol.for('cronum.work');
+  const realFetch = globalThis.fetch;
+  const modules = [
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: true } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: true } },
+  ];
+  globalThis.fetch = async (path) => {
+    const data = path === '/api/modules' ? { host: { name: 'Cronum Work', icon: '/icons/favicon.svg' }, modules }
+      : path === '/notes/i18n/en.json' ? { 'app.tagline': 'Your notes' } : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, json: async () => data };
+  };
+  globalThis.window = { location: { origin: 'https://work.example', assign: () => {} } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  const loaded = { app: '0.34.4', name: 'Cronum Work', version: 'abc', modules: { tasks: { app: '1.121.0' }, notes: { app: '0.71.0' } } };
+  const latest = { app: '0.34.5', name: 'Cronum Work', version: 'def' };
+  const asked = [];
+  const applied = [];
+  document[REGISTRY] = {
+    updates: { check: async (opts) => { asked.push(opts); return true; }, loaded: () => loaded, latest: () => latest },
+    applyUpdate: (event) => applied.push(['shell', event]),
+  };
+  try {
+    const root = document.createElement('div');
+    // As Tasks does when mounted in a window of the shell: `updates` is null, its own applyUpdate.
+    openSettings({
+      app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg', tagline: 'Your lists' }, user: { username: 'ada', role: 'user' }, root, start: 'about',
+      config: { app: { modules: {}, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: false, plans: false } } },
+      updates: null, applyUpdate: (event) => applied.push(['module', event]),
+    });
+    await settle();
+    const page = document.body.all().find((node) => node.className === 'kit-settings__page');
+    const facts = page.all().filter((node) => node.className === 'kit-fact');
+    assert.equal(facts[0].find('strong')[0].textContent, 'Cronum Work v0.34.4', 'the whole app’s version, not «—»');
+    assert.deepEqual(asked, [{ announce: true }], 'opening it asks the shell’s watcher');
+    assert.ok(!page.all().some((node) => node.textContent === t('kit.about.unknown')), 'the server was asked');
+    assert.ok(page.all().some((node) => node.tagName === 'STRONG' && node.textContent === 'v0.34.5'), 'the new version named');
+    const cards = page.all().filter((node) => node.className === 'kit-about-card');
+    assert.deepEqual(cards.map((card) => card.find('small')[0]?.textContent), ['v1.121.0', 'v0.71.0'], 'each module’s version');
+    const update = page.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.about.update'));
+    update.dispatch('click', {});
+    assert.equal(applied.length, 1);
+    assert.equal(applied[0][0], 'shell', 'the shell’s update, which waits for the whole app’s worker');
+    // «Check» asks again.
+    page.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.about.check')).dispatch('click', {});
+    await settle();
+    assert.equal(asked.length, 2);
+  } finally {
+    delete document[REGISTRY];
+    document.body.all().filter((node) => node.className === 'kit-settings-page').forEach((node) => node.remove());
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
 test('in a host with one prompt, Your AI has a chip for each agent with its steps, the prompt for the modules ticked and what each module adds', async () => {
   const { openSettings } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');

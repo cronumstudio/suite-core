@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.192.2 — 2026-10-26
+
+- **About shows Cronum Work's version again, from every module** (Martin): a module mounted in a
+  window of Work's shell starts no update watcher of its own (the shell's is the whole app's), so
+  its Settings › About had none: «—» for the version, no module's version on its card, and «Check
+  for updates» answered that the server couldn't be asked, though the shell's notice of a new
+  version came. With no `updates` of its own, About now uses the page registry's
+  (`workRegistry().updates`, and its `applyUpdate`, which waits for the whole app's worker).
 ## 0.192.1 — 2026-10-26
 
 - **Cronum Work installs from its split view too** (Martin): installing it from an address like

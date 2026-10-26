@@ -1600,12 +1600,17 @@ export function openSettings(options) {
    * the new version can be checked by hand here.
    */
   function about() {
+    // A module mounted in Work's shell watches no version of its own: the shell's watcher is the
+    // whole app's, and so is its update (mount.js `workRegistry().updates`).
+    const shell = options.updates ? null : workRegistry();
+    const updates = options.updates || shell?.updates || null;
+    const applyUpdate = shell?.updates ? shell.applyUpdate : options.applyUpdate;
     const serverLine = el('div', { class: 'kit-fact__value' });
     let running = el('div', { class: 'kit-fact' });
     let liveFact = el('div', { class: 'kit-fact' });
     // What runs and the live channel are known a moment after opening: painted again after each check.
     const paintFacts = () => {
-      const loaded = options.updates?.loaded?.() || null;
+      const loaded = updates?.loaded?.() || null;
       // In a host with one worker for everything, the whole app's version, with its name (update.js).
       running.replaceWith(running = fact(t('kit.about.version'), loaded?.app ? `${loaded.name ? `${loaded.name} ` : ''}v${loaded.app}` : '—',
         [loaded?.built ? formatDateTime(loaded.built) : null, loaded?.version].filter(Boolean).join(' · ')));
@@ -1613,7 +1618,7 @@ export function openSettings(options) {
     };
     const check = async () => {
       clear(serverLine).append(hint(t('kit.about.checking')));
-      const isNew = options.updates ? await options.updates.check({ announce: true }) : null;
+      const isNew = updates ? await updates.check({ announce: true }) : null;
       paintFacts();
       paintCards?.();
       clear(serverLine).append(...(isNew === null ? [hint(t('kit.about.unknown'))]
@@ -1622,13 +1627,13 @@ export function openSettings(options) {
     // The number the server has, and the button to bring it in. The same number as the one running
     // means a new build of it: its date tells them apart.
     const newest = () => {
-      const theirs = options.updates?.latest?.() || null;
-      const loaded = options.updates?.loaded?.() || null;
+      const theirs = updates?.latest?.() || null;
+      const loaded = updates?.loaded?.() || null;
       const sameNumber = theirs?.app && theirs.app === loaded?.app;
       return [
         el('strong', { text: theirs?.app ? `v${theirs.app}` : t('kit.about.newVersion') }),
         sameNumber && theirs.built ? el('span', { class: 'kit-hint', text: formatDateTime(theirs.built) }) : null,
-        button(t('kit.about.update'), (event) => options.applyUpdate?.(event), 'primary'),
+        button(t('kit.about.update'), (event) => applyUpdate?.(event), 'primary'),
       ].filter(Boolean);
     };
     // In a host, the host's: its source, its icon, its name. A module's own are its card's below.
@@ -1679,7 +1684,8 @@ export function openSettings(options) {
     const words = here ? null : moduleWords(m, currentLanguage(), () => paintCards());
     const taglineKey = m.settings?.tagline || 'app.tagline';
     const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
-    const version = (options.updates?.loaded?.()?.modules || options.updates?.latest?.()?.modules || {})[m.mount]?.app;
+    const updates = options.updates || workRegistry()?.updates;
+    const version = (updates?.loaded?.()?.modules || updates?.latest?.()?.modules || {})[m.mount]?.app;
     // What it is, on its own website (`site`), in a tab of its own: not a page of Settings.
     const site = here ? options.site : m.settings?.site;
     return el('div', { class: 'kit-about-card' },
