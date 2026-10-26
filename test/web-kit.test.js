@@ -1958,6 +1958,7 @@ test('the drawer opened by a finger takes the focus itself, with no ring on the 
   assert.match(shell, /if \(showing\('\.kit-bar__menu'\)(?: \|\| \(embedded && asDrawer\(\)\))?\) return \(\) => openDrawer\(\);/, 'a swipe from the edge is a finger');
   assert.match(css, /\.kit-nav__item:focus-visible \{ outline-offset: -2px; \}/, 'the ring inside the entry: the list would cut it');
   assert.match(css, /\.kit-side__nav:focus \{ outline: none; \}/);
+  assert.match(css, /\.kit-settings__page:focus \{ outline: none; \}/, 'a section of Settings takes the focus without a ring around the page');
 });
 
 test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing one doesn\'t show the bar', () => {
