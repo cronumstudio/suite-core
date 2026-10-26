@@ -611,6 +611,7 @@ export function createShell({
   let hosted = false;     // drawn as a host's module
   let answered = false;   // the host said (or failed to say) which modules: the rail is known
   let others = [];        // the other modules the person uses, for the switcher's menu
+  let calendarPath = null;   // the host's calendar, for the switcher's menu too
   let modulePaths = new Set();   // where each of the host's modules is, for going between them
 
   /** As a host's module (`on`) the person's button gives way; off, it is as in an app on its own. */
@@ -654,7 +655,9 @@ export function createShell({
         'aria-label': t('kit.modules.switch', { name: app.name }),
         onClick: () => toggleMenu(switcher, [
           ...others.map((m) => ({ label: m.name, image: m.icon, href: m.path })),
-          others.length ? 'separator' : null,
+          // The host's calendar, which the rail has where it shows.
+          calendarPath ? { label: t('kit.calendar.title'), iconName: 'calendar', href: calendarPath } : null,
+          others.length || calendarPath ? 'separator' : null,
           ...accountMenuItems(),
         ].filter(Boolean)),
       });
@@ -694,6 +697,7 @@ export function createShell({
     // A frame of the host's split view: the view has the modules, and remembers what it shows.
     if (FRAMED) {
       others = [];
+      calendarPath = null;
       asModule(true);
       return null;
     }
@@ -701,6 +705,7 @@ export function createShell({
     try { localStorage.setItem('host.module', mount); } catch { /* private mode */ }
     const shown = modules.filter((m) => m.active || m.mount === mount);
     others = shown.filter((m) => m.mount !== mount);
+    calendarPath = host.calendar || null;
     modulePaths = new Set(modules.map((m) => new URL(m.path, window.location.href).pathname));
     // With one module too: the rail has Settings, where more are chosen (Settings › Modules).
     const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');

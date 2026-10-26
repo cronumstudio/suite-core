@@ -779,7 +779,7 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   const icons = fs.readFileSync(new URL('../web/icons.js', import.meta.url), 'utf8');
   // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
   assert.match(shell, /class: 'kit-side__app', 'aria-haspopup': 'menu'/);
-  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),\s*others\.length \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
+  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
   // and always in a frame of the host's split view, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
@@ -795,6 +795,9 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__split'"), 'over the split view');
   assert.match(css, /\.kit-rail__calendar \+ :is\(\.kit-rail__split, \.kit-rail__settings\) \{ margin-top: 0; \}/);
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
+  // On a phone, where the rail doesn't show, the switcher's menu has it.
+  assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
+  assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
   assert.match(shell, /foot\.hidden = on;/, 'the person\'s button gives way in a host');
   assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the person\'s button opened');
