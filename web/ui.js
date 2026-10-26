@@ -219,8 +219,15 @@ function move(node, { from, to, full, base = 0, faded = [node], how, done }) {
   const fades = faded.map((part) => part.animate([{ opacity: share(from) }, { opacity: share(to) }], timing));
   const motions = how === 'fade' ? fades : [node.animate([frame(from), frame(to)], timing), ...fades];
   if (how !== 'fade') node.style.overflow = 'hidden';
+  folding(1);
+  let over = false;
+  const end = () => {
+    if (over) return;
+    over = true;
+    folding(-1);
+  };
   const letGo = () => motions.forEach((m) => m.cancel());
-  const together = { cancel: letGo };
+  const together = { cancel: () => { letGo(); end(); } };
   sliding.set(node, together);
   return Promise.all(motions.map((m) => m.finished)).then(() => {
     if (sliding.get(node) !== together) return;
@@ -228,7 +235,28 @@ function move(node, { from, to, full, base = 0, faded = [node], how, done }) {
     done();
     node.style.overflow = '';
     letGo();
+    end();
   }, () => { /* turned back: the next move took over */ });
+}
+
+/**
+ * How many folds are moving: while any is, the page's root says so (`data-kit-folding`), and the
+ * rows passing under a pointer that stays still don't light up (kit.css). It goes on saying so
+ * until the pointer moves: the row the list left under it lights up when the person reaches for
+ * it, not by itself at the end.
+ */
+let moving = 0;
+function folding(step) {
+  const root = globalThis.document?.documentElement;
+  moving = Math.max(0, moving + step);
+  if (!root?.toggleAttribute) return;
+  if (moving) {
+    root.setAttribute('data-kit-folding', '');
+    return;
+  }
+  root.ownerDocument.addEventListener('pointermove', () => {
+    if (!moving) root.removeAttribute('data-kit-folding');
+  }, { once: true });
 }
 
 /**

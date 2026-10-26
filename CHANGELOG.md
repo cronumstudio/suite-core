@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.193.4 — 2026-10-26
+
+- **Rows don't light up as a fold moves under a still pointer** (Martin: «como si se seleccionase
+  muy brevemente el panel»): switching groups in Settings slid the list under the mouse, and each
+  row passing beneath it took the hover colour for an instant, then the one left under it lit up
+  at the end. While a fold moves, and until the pointer moves again, the root says so
+  (`data-kit-folding`) and Settings' rows, the sidebar's entries and its fold headings keep their
+  colour.
+
 ## 0.193.3 — 2026-10-26
 
 - **No blink or jump when one fold closes as another opens** (Martin, in Settings): each motion

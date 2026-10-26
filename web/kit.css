@@ -1109,6 +1109,10 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings__folder { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding-bottom: 6px; }
 .kit-settings__folder[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { .kit-settings__fold { transition: none; } }
+/* While a fold slides (ui.js move), the rows passing under a pointer that stays still don't light
+   up one after another: it read as the list blinking. */
+:root[data-kit-folding] :is(.kit-settings__group, .kit-settings__item, .kit-nav__item):not([aria-current]):hover { background: none; }
+:root[data-kit-folding] :is(.kit-settings__group:not([aria-expanded="true"]):not([aria-current]), .kit-nav__fold):hover { color: var(--kit-muted); }
 .kit-settings__item {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: var(--look-row-y, 9px) 10px; border-radius: var(--look-r-md, 10px);
   border: 0; background: none; color: var(--kit-text); text-align: start; cursor: pointer; text-decoration: none;
