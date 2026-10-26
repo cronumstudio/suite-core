@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.172.0 — 2026-10-25
+## 0.188.0 — 2026-10-26
 
 - **Sharing, the same in every module** (`sharing.js`, audit A6). `createSharing({ db, kinds,
   notify, brake })` is Notes' engine, which was already written for any table: each kind names the
@@ -29,6 +29,238 @@ change an interface and a patch never does. Apps pin a version through the submo
   `empty`, `avatar` and `detail` for an app whose people are the whole household. Its styles are in
   kit.css (`.kit-share*`), and the worker keeps the file.
 - Nothing changes for an app that doesn't call them.
+
+## 0.187.0 — 2026-10-26
+
+- **The storage a plan allows is checked in one place** (`storage.js`, `suite.storage.check(user,
+  adding, { payer })`). Tasks, Projects and Notes each had the same check and the same 402
+  `plan_limit`; now it is the suite's, with the same answer. Whose plan pays for a file stays each
+  app's rule, passed as `payer` (Notes: the notebook's owner; Tasks and Projects: who uploads), and
+  is written in docs/architecture.md. On its own an app's `suite.storage` counts what the app says
+  it keeps, where it counts it (`suite.countStorage(storageOf)`, at import, so its scripts and
+  command line have it too; or createApp's new `storage`); as a module of a host, the person's
+  across every module, as `used()` already did. Until an app says it, nothing changes.
+- **`uploads.storeChecked()`**: an upload with the cap per record and the storage checked before a
+  byte is read and again once the file is on disk, refused files taken off it, as the apps did by
+  hand. Its `too_many_files` has a sentence of the suite's, which an app's own catalog overrides.
+- **A photo made ready to upload, in the kit** (`web/images.js`): `prepareUpload(file, { keepGif,
+  asIs, maxBytes })` and `fileSize(bytes)`, from the three copies in the apps. A GIF goes as it is
+  (it may move), a small picture the server wouldn't take is made a JPEG all the same, and the
+  units are translated (French "Mo"). `/api/auth/config` tells the page the most a file may weigh
+  (`app.uploads.max_bytes`), with uploads on. The kit's worker keeps the new file.
+
+## 0.186.0 — 2026-10-26
+
+- **`PATCH /api/me` and the account as the browser sees it, once for every module** (`createApp({ prefs })`,
+  prefs.js, api.js `registerMeApi`; audit 2026-10-23 A7). Tasks, Projects, Next and Notes each had
+  their own copy of the profile route, of reading `users.prefs` and of what the browser sees of an
+  account, and they had drifted (Next and Notes never sent `has_password`, which Settings reads;
+  Projects let a session set a password on an identity provider's account). A module now says only
+  what its preferences are, `prefs: { defaults, normalize, merge, view, store }`, and the suite
+  serves `GET` and `PATCH /api/me`: `display_name`, `email` (with its link), `theme`,
+  `avatar_color` (where the table has one) and `prefs`, all checked before anything is written and
+  written once through `accounts.update`, so the person's other tabs hear of it. A password sent
+  there is refused with `use_me_password` (it has its own route). Prefs stay flat as they were:
+  each module keeps its keys of the one row and never drops another's, and the shared ones
+  (`lang`, `lang_seen`, `tz`, the zone canonical by time.js) are the suite's. `userSerializer(suite,
+  { prefs, fields })` is the account a module shows: `publicUser` (`has_password` always),
+  `auth_provider`, its own fields and `prefs`. In a host each module's `/<mount>/api/me` keeps its
+  own, and the host's `/api/me` has them all (`combinePrefs`). `accounts.update` takes `theme`,
+  `prefs` and `avatarColor` too. An app without `prefs` keeps its own routes, as before.
+- **The browser's time zone, told once** (`web/time-zone.js` `reportTimeZone(user, { send })`): what
+  Tasks and Notes each did on their own, for every module, so the day an assistant reads is the
+  person's in all of them (A5).
+
+## 0.185.0 — 2026-10-26
+
+- **A check for an app's texts that the kit already says** (`tools/i18n.mjs`, `kitDuplicates`): an
+  app's key whose texts, in every language, are those of a word of the kit (`kit.cancel`,
+  `kit.save`, `fields.name`…) is named with the key to use instead, and so is a key that repeats a
+  suite key with the suite's own texts, which overrides nothing. Keys of deeper kit groups
+  (`kit.links.undo`) don't count, since the same word there belongs to another feature, nor do an
+  app's overrides or its own keys in `errors.*`/`fields.*`. An app's tests opt in with
+  `appChecks(root, { kitWords: true })`; on the command line, `app --kit-words` or `kit-words <dir>`.
+  Without the option `appChecks` returns the same five checks as before.
+
+## 0.184.0 — 2026-10-26
+
+- **One HTTP client for every module** (`web/api.js`, additive). Each call now takes options for
+  what Tasks', Projects' and Next's own clients did on their own: its own `patience` (any method;
+  `0` waits) and an app's `signal`, both counting as no network when they stop it; `text: true`,
+  which answers `{ data, text }` (Next draws a view again only when the text changed); `type` for
+  an upload whose file has none; and three hooks: `beforeSend` (change what goes, or throw
+  `Offline` to not ask at all), `onAnswer(res, request)` once the status and headers are in
+  (Tasks' clock and signal, a 401 told to the app) and `onNoSignal(request)`, whose answer
+  replaces the `Offline` (Tasks' queue draws a change made without signal as done). `api.request`
+  takes every option and `api.with(options)` gives the same client with them on every call.
+  Without options every call behaves as before.
+
+## 0.183.0 — 2026-10-26
+
+- **The components each module drew for itself are the kit's** (`kit.css`): `kit-chip` (a quiet
+  pill; `--tint` coloured by `--kit-chip`, `--large` and `aria-pressed` for a filter),
+  `kit-swatch` and `kit-swatches` (a colour to choose, ringed while `aria-pressed`, `aria-checked`
+  or `--on`), `kit-round-check` (a task's circle, filled and ticked with `--done` or
+  `aria-pressed`, with a hit area wider than its drawing), `kit-group-title` (a group's heading in
+  a list), `kit-icon-btn--small` (34 px, for a row of items), `kit-avatar--small`, `--tiny` and
+  `--large`, `kit-blank--page` (an empty view, with an `h2` of its own) and `kit-field__label` (a field whose label names a group). Nothing that was
+  there changes; Tasks, Projects, Next and Notes move to these in their own releases, and look the
+  same as one another beside each other in Cronum Work.
+- **Selected text in the accent** everywhere (`::selection`, stronger in the dark), and the caret
+  of a field in the accent: what Tasks, Projects and Next each set.
+- **The Clean look's quiet sidebar is the kit's**: entries of 40 px with the callout size, the open
+  one not bold, as the four modules each wrote it (it was 44 px in the kit, which every module
+  overrode).
+- **One set of names for the variables**: `--kit-faint`, `--kit-border-strong` and
+  `--kit-radius-small` (8 px; 10 in Clean), the names Tasks had for them as the kit's. The radius
+  stays `--kit-radius`, 10 px.
+- **Where layouts change**, as brand tokens: `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px)
+  in `tokens.css`, for modules side by side to change at the same widths.
+
+## 0.182.0 — 2026-10-26
+
+- **A form dialog for every module** (`ui.js` `formDialog`), from Next's: `onSubmit(form)` runs for
+  a submit action, Enter in a field or Ctrl/Cmd+Enter in a long text; what it throws shows inside
+  the dialog, which stays open to be corrected; `header`, `subtitle`, `tools`, `bar`, `extra` and
+  `setActions` for a footer that changes. Returns `{ dialog, form, close, setActions, showError }`.
+- **One action at a time in every kit dialog**: while an action (or a send) waits, every button of
+  the footer is disabled, not only the one pressed: a double click no longer creates two things,
+  and Save and Delete side by side can't both run.
+- **Escape is the top dialog's alone, and a menu's before its dialog's**: the menu keeps its
+  Escape from the dialog under it, and a cancel that reaches a dialog that isn't the kit's top one
+  (or one with a menu open) doesn't close it. A press that begins inside a dialog and ends on the
+  backdrop (selecting a field's text) no longer closes it; a tap on the backdrop still does.
+- **What the modules need to drop their own dialogs and menus**, all optional: `openDialog`
+  takes `width` (a variable, so a phone's sheet keeps the whole width), `className`, `parent` (the
+  module's own place, its window in Cronum Work) and `body`/`footer` nodes of the module's own;
+  `confirmDialog` takes `detail`, `cancel`, `width` and `parent`; `menu` takes `at` (a pointer's
+  place), `parent`, a null anchor with `at`, and items with a `glyph` (an emoji) in place of an
+  icon. With today's options every dialog and menu behaves as before.
+
+## 0.181.0 — 2026-10-26
+
+- **The kit's `el()` takes what the apps' own copies took** (`dom.js`), so Tasks, Projects and Next
+  can drop theirs: `style` as an object (custom `--properties` through `setProperty`), `dataset` as
+  an object, and children in arrays nested at any depth (Tasks passes them in one array, sometimes
+  with arrays inside). New `svg()` makes SVG elements with the same props and children. A string
+  `style` is still an attribute, and every call that worked before builds the same node.
+- **`field()` can keep an app's own look** (`ui.js`): a fourth argument
+  `{ class, hintClass, hintTag, groupLabel }` names the wrapper's class and the hint's class and tag,
+  and `groupLabel: true` writes the label as a `<span>` when what it names is not something a
+  `<label>` can name (a palette of buttons), leaving its id alone. Without it, the field as before.
+
+## 0.180.0 — 2026-10-26
+
+- **A swipe from the screen's start edge goes back in Settings, as its ← does** (Cronum core nº 12,
+  Martin): from a section to the list on a phone, then out of Settings. Before, the frame kept that
+  edge from Safari and did nothing with it while Settings covered it. A page over the frame with a
+  way back of its own says so with `holdBack(node, back)` (ui.js), and the frame's edge swipe
+  (shell.js) goes back there first; each module's copy of the kit keeps its own, so in Work's shell
+  only the window that opened it goes back. A task, a note or another detail already went back
+  from the same edge on a phone.
+
+## 0.170.1 — 2026-10-26
+
+- **Maximize and restore take 280 ms** (`windows.js` `MAX_MS`, Martin: «un poco lento»): they took
+  the 420 ms of windows trading places while one is carried, which for a click felt slow. Same
+  spring and pacing; the other windows fade in 0.25 s (was 0.3 s). Reordering is unchanged.
+
+## 0.170.0 — 2026-10-25
+
+- **A window maximizes over the whole desk, and comes back to its place** (`windows.js`, Martin):
+  a button at the end of each head, or a double click on the head, gives its window the desk over
+  the others, which fade out; it slides and grows there as windows do when they trade places
+  (420 ms, paced on our own clock), and the same button, now «Restaurar», takes it back to its place
+  and size. The layout under it isn't changed or kept; showing another window, moving, focusing
+  another or a phone's screen restores it first. `windows.maximize(module | null)` and
+  `windows.maximized`; new icons `maximize` and `restore`.
+
+## 0.169.1 — 2026-10-25
+
+- **In Work's shell the button that folds the sidebar shares the search's line** (Martin: on a computer
+  it took a line of its own): with `createShell({ embedded: true, search })` the sidebar starts with one
+  line (`.kit-side__top`), the search and then the button. Without a search, or an app on its own, the
+  head is as before; in a phone's drawer the button is hidden as ever and the search takes the line.
+
+## 0.169.0 — 2026-10-25
+
+- **A module's search at the top of its sidebar, the same in every module** (`createShell({ search })`,
+  Martin: Tasks had its own there, with narrow, uneven margins; Notes its own above the notes; Projects
+  and Next none). `search: { label, placeholder?, onInput(text), onSubmit?(text) }` draws it as the
+  sidebar's first line (`.kit-side__search`), 12px from its top and its sides; Escape empties it,
+  Enter closes the phone's drawer so the results show; `shell.search` is the field. Its box alone
+  shows the focus.
+- **On a phone the floating button alone creates**: the sidebar's own button (`create`, «Nota nueva»)
+  is shown only where the sidebar sits beside the views, where the floating one is gone.
+- **A phone's tab in use is marked** (`windows.css`, Martin: pressing one, nothing showed which): its
+  icon sits on a pill and its name in the text's colour; the others' icons and names step back.
+
+## 0.168.0 — 2026-10-25
+
+- **A phone's tabs have room above their icons** (`windows.css`, Martin on the iPhone): 12px between
+  the bar's top line and the icons (it was about 6), 2px under the names before the home bar's half.
+
+## 0.167.0 — 2026-10-25
+
+- **A phone's tabs sit lower in their bar** (`windows.css`, Martin on the iPhone: the icons looked
+  off centre, high in the bar). The bar kept all the home bar's room under them; it keeps half now.
+
+## 0.166.0 — 2026-10-25
+
+- **The links of something are read together, not one by one** (`links.js`). A module's cards may
+  have `readMany(user, ids, opts?)` → `Map<id, card | 'gone' | null>`, the same answer as `read`
+  for each id, in a fixed number of queries. The links of something, `changed()` (the titles kept)
+  and `prune()` ask it once for each kind of thing; an id it leaves out, every id when it throws,
+  and modules without it are read one by one, as before. Whether someone uses a module is asked
+  once per module in a request, not once per link. A search shows the cards the module's `search`
+  found as they come, without reading each again, and a kept title is written only when it changed.
+  The cards shown are the same.
+- **Admin › Users counts every account's usage in batches** (`usage.js`). `/api/admin/usage`
+  answered after computing every account at once, in one turn of the process, with each plan
+  asked again for each count. Now it counts 100 accounts at a time and lets the process answer
+  others in between; each plan for a whole batch in a fixed number of queries
+  (`entitlements.ofMany()`, with `organizations.organizationsOfMany()`), and today's calls in one
+  (`entitlements.usedToday()`), without the month the dialog shows. A module may also answer a
+  whole batch with `usageAll(userIds)` and `storageAll(userIds)` (a Map by user); without them it
+  is asked one by one. The answer is the same.
+## 0.165.0 — 2026-10-25
+
+- **Changes waiting without a signal are no longer read all over again for each one**
+  (`outbox.js`, `local.js`). To count what waited and to take the next change to send, the outbox
+  read the whole queue with its bodies (whole notes, in Notes): queueing n changes and sending them
+  when the signal came back were each quadratic, and an afternoon offline locked the page just as
+  the network returned. Counting now reads keys only, the next change is one record, and a
+  provisional id is swapped in one pass in one transaction. 200 changes queued: 20,100 records read
+  to add them, now none; 20,100 to send them, now 200. `openLocal()` and `memoryLocal()` gain
+  `count`, `first` and `rewrite`; the outbox still works on a store without them.
+- **Back from a cut, a page gets what it missed instead of reloading everything** (`live.js`,
+  `web/live.js`). The server already replayed what a tab missed (`Last-Event-ID`), but the page
+  reloaded everything it showed on every `hello` after a cut anyway, and did both. Now `hello` says
+  `replayed: true` when the tab came back with an id (what was missed came before it, or `resync`),
+  and the page then reloads nothing more; `hello` carries an id itself, so a tab that saw no notice
+  comes back with one too, and a channel the page opens again after closing one sends it as
+  `?last=`. Without `replayed` (a server before this one), for someone else, too much missed, or
+  `reconnect()`, everything is reloaded as before. Cronum Work's one channel for every module
+  (`/api/events?all`) says `replayed` and takes `&last=` the same way.
+## 0.164.0 — 2026-10-25
+
+- **A phone's tabs in Work's shell keep their own look** (`windows.js`, Martin on the iPhone: a tab
+  pressed stayed marked, in the window's type, and Notes' kept a grey ground). Each tab carried
+  `data-module`, which is what a module's scoped sheet takes as its window (`@scope
+  ([data-module="notes"])`), so the sheet's page rules (`html, body`) styled the tab once the
+  module had opened. The tabs now say their module with `data-tab`, and the storage bar of
+  Settings › Usage its parts with `data-part` (`usage-view.js`, `kit.css`), for the same reason.
+
+## 0.163.0 — 2026-10-25
+
+- **A copy's values must be of their column's type** (`portability`). Until now `{"$blob": …}`
+  came in as a blob into any column, and anything that wasn't text skipped the column's limit, its
+  pattern and the 100,000 characters: someone's own copy could bring a list's name or a note of
+  megabytes, or a number where the app reads a colour or a date, and share it. Now an import is
+  refused (`import_invalid_data`) when a value doesn't fit its column: text in TEXT, a number in
+  INTEGER and REAL, a blob only in BLOB (none of the apps has one; a blob column's copy still comes
+  back byte for byte). A pattern takes text only, so a number without the shape is left out like
+  any other value without it. Copies the apps made come in as before.
 
 ## 0.162.0 — 2026-10-25
 

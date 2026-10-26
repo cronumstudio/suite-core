@@ -57,6 +57,8 @@ export const PATHS = Object.freeze({
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   logout: 'M15 4h4v16h-4M10 17l5-5-5-5M15 12H3',
   mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
+  // A window over the whole desk, and back (windows.js).
+  maximize: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   menu: 'M4 6h16M4 12h16M4 18h16',
   minus: 'M5 12h14',
   moon: 'M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z',
@@ -67,6 +69,7 @@ export const PATHS = Object.freeze({
   plus: 'M12 5v14M5 12h14',
   'redo-2': 'M15 14l5-5-5-5M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
+  restore: 'M9 4v5H4M15 4v5h5M20 15h-5v5M4 15h5v5',
   search: 'M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM20 20l-3.5-3.5',
   shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
   sliders: 'M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4',

@@ -559,6 +559,10 @@ test('the storage a plan allows is the person’s, added up across the modules',
   await call('POST', '/beta/api/items', { text: 'Three' });
   assert.equal(alpha.suite.storage.used(admin), 2500, 'what alpha keeps and what beta keeps');
   assert.equal(beta.suite.storage.used(admin), 2500, 'the same from either module');
+  const adminUser = host.suite.accounts.byId(admin);
+  assert.deepEqual(alpha.suite.storage.of(adminUser), { used: 2500, limit: null }, 'its check reads that whole (storage.js)');
+  assert.equal(alpha.suite.storage.check(adminUser, 10 * 1024 * 1024 * 1024), undefined, 'and the admin has no limit');
+  assert.equal(alpha.suite.countStorage(() => 0), alpha.suite.storage, 'a module’s own count changes nothing in a host');
   await call('POST', '/beta/api/items', { text: 'Unreadable' });
   assert.equal(alpha.suite.storage.used(admin), 2000, 'a module that fails counts nothing, the rest still do');
   assert.ok(lines.some((line) => /\[beta\] storage of user \d+ failed: unreadable/.test(line)));
@@ -1327,8 +1331,8 @@ test('one live channel for every module (liveAll): each module’s notices for t
   await back.until(/"event":"hello"/);
   assert.deepEqual(back.messages().map(({ module, event, data }) => ({ module, event, data })), [
     { module: 'beta', event: 'change', data: { missed: true } },
-    { module: null, event: 'hello', data: { user_id: me.id } },
-  ]);
+    { module: null, event: 'hello', data: { user_id: me.id, replayed: true } },
+  ], 'and hello says so: the page needn’t reload everything');
   // An id of another run: everything reloaded, module by module.
   const lost = await stream(base, '/api/events?all', { Cookie: cookie, 'Last-Event-ID': 'alpha=old.1' });
   t.after(() => lost.stop());

@@ -9,9 +9,18 @@
  *
  *   cards: {
  *     task: {
- *       read(user, id)        → card | 'gone' | null   (null: it exists, this person can't see it;
- *                                                      user null: the host itself, to keep its title)
- *       search(user, text)    → [card…]                 (what this person may link)
+ *       read(user, id, opts?) → card | 'gone' | null   (null: it exists, this person can't see it;
+ *                                                      user null + { system: true }: the host itself,
+ *                                                      to keep its title)
+ *       readMany(user, ids, opts?) → Map<id, card | 'gone' | null>
+ *                                                     (optional: read() of many at once, the same
+ *                                                      answer for each id, keyed by the ids as given,
+ *                                                      strings. In a fixed number of queries, IN (…)
+ *                                                      by batches of ≤ 500, not one per id. An id left
+ *                                                      out of the Map, or every id if it throws, is
+ *                                                      asked of read() instead)
+ *       search(user, text)    → [card…]                 (what this person may link, each card as
+ *                                                      read() shows it to them: shown as it comes)
  *       create(user, data)    → id                      (optional: "Add to Tasks…", by the module's rules)
  *       places(user)          → [{ id, name }]          (optional: where create() may put it: lists, notebooks…)
  *       complete(user, id, done)                        (optional: what "done together" does here)
@@ -85,14 +94,51 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     return ref;
   }
 
-  /** What one module's thing looks like to someone: its card, gone, or hidden from them. */
-  function cardOf(user, ref) {
+  /**
+   * What the owners answer of some things, in the order asked: a card, 'gone' or null (what
+   * `read` says), or undefined for a thing no module here shows. One `readMany` for each kind of
+   * thing whose module has it, and `read` for the ids it leaves out and for the other kinds.
+   */
+  function readAll(user, refs, opts) {
+    const answers = new Array(refs.length).fill(undefined);
+    const kinds = new Map();
+    refs.forEach((ref, i) => {
+      const provider = moduleOf(ref.module) ? providerOf(ref) : null;
+      if (!provider) return;
+      const key = `${ref.module}:${ref.type}`;
+      if (!kinds.has(key)) kinds.set(key, { provider, at: new Map() });
+      const { at } = kinds.get(key);
+      const id = String(ref.id);
+      if (!at.has(id)) at.set(id, []);
+      at.get(id).push(i);
+    });
+    // read() as it was always asked: (user, id) for a person, (null, id, { system: true }) for the host.
+    const args = (ids) => (opts === undefined ? [user, ids] : [user, ids, opts]);
+    for (const { provider, at } of kinds.values()) {
+      let many = null;
+      if (typeof provider.readMany === 'function') {
+        try {
+          const answer = provider.readMany(...args([...at.keys()]));
+          many = answer instanceof Map ? answer : null;
+        } catch { many = null; }
+      }
+      for (const [id, places] of at) {
+        let found;
+        if (many?.has(id)) found = many.get(id);
+        else {
+          try { found = provider.read(...args(id)); } catch { found = null; }
+        }
+        for (const i of places) answers[i] = found ?? null;
+      }
+    }
+    return answers;
+  }
+
+  /** A card as the links show it, from what its owner answered (read, readMany or search). */
+  function shape(ref, found) {
     const m = moduleOf(ref.module);
-    const provider = providerOf(ref);
     const base = { ref: formatRef(ref), module: ref.module, type: ref.type, app: m?.config.app.name, color: m?.config.app.color };
-    if (!provider || !m) return { ...base, state: 'hidden' };
-    let found;
-    try { found = provider.read(user, ref.id); } catch { found = null; }
+    if (found === undefined || !m) return { ...base, state: 'hidden' };
     if (found === 'gone') return { ...base, state: 'gone' };
     if (!found) return { ...base, state: 'hidden' };
     const title = String(found.title ?? '').slice(0, TITLE_MAX);
@@ -104,8 +150,24 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     };
   }
 
+  /** What some modules' things look like to someone, in the order asked: each card, gone, or hidden from them. */
+  const cardsOf = (user, refs) => readAll(user, refs).map((found, i) => shape(refs[i], found));
+
+  /** What one module's thing looks like to someone: its card, gone, or hidden from them. */
+  const cardOf = (user, ref) => cardsOf(user, [ref])[0];
+
+  /** Whether someone uses a module, asked once per module in one request (the host reads it from the database). */
+  const usesOnce = (user) => {
+    const known = new Map();
+    return (mount) => {
+      if (!known.has(mount)) known.set(mount, uses(user, mount));
+      return known.get(mount);
+    };
+  };
+
   /** Someone can open it here: they use its module and its owner shows them its card. */
-  const visible = (user, ref) => uses(user, ref.module) && !['hidden', 'gone'].includes(cardOf(user, ref).state);
+  const visible = (user, ref, using = (mount) => uses(user, mount)) => using(ref.module)
+    && !['hidden', 'gone'].includes(cardOf(user, ref).state);
 
   const rowsOf = (ref) => database.all(
     `SELECT * FROM host_links WHERE (a_module = ? AND a_type = ? AND a_id = ?) OR (b_module = ? AND b_type = ? AND b_id = ?)
@@ -120,10 +182,9 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     return sameRef(a, ref) ? b : a;
   };
 
-  /** A link as someone sees it from one of its sides. */
-  function present(user, row, from) {
+  /** A link as someone sees it from one of its sides (`card`: the other side's, when it was read already). */
+  function present(user, row, from, card = cardOf(user, otherSide(row, from))) {
     const side = otherSide(row, from);
-    const card = cardOf(user, side);
     // Gone: its last title only to who linked it, who could see it then; nobody else learns it from here.
     if (card.state === 'gone' && side.title && row.created_by === user.id) card.title = side.title;
     if (card.state === 'hidden') delete card.title;
@@ -133,20 +194,30 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
   /** The links of something this person can see, to the modules they use. */
   function of(user, value) {
     const ref = refOf(value);
-    if (!visible(user, ref)) throw notFound();
-    return rowsOf(ref).filter((row) => uses(user, otherSide(row, ref).module)).map((row) => present(user, row, ref));
+    const using = usesOnce(user);
+    if (!visible(user, ref, using)) throw notFound();
+    const rows = rowsOf(ref).filter((row) => using(otherSide(row, ref).module));
+    // Every other side at once: a readMany for each kind of thing, not a read for each link.
+    const cards = cardsOf(user, rows.map((row) => otherSide(row, ref)));
+    return rows.map((row, i) => present(user, row, ref, cards[i]));
   }
 
-  /** Remembers the titles of a link's sides, for when one is gone. */
-  function remember(row) {
-    for (const side of sidesOf(row)) {
-      const provider = providerOf(side);
-      let found = null;
-      try { found = provider?.read(null, side.id, { system: true }); } catch { found = null; }
-      if (found && found !== 'gone' && found.title) {
-        database.run(`UPDATE host_links SET ${side.column} = ? WHERE id = ?`, String(found.title).slice(0, TITLE_MAX), row.id);
-      }
-    }
+  /** What the host itself reads of some sides (no person: their titles, whether they are gone), in order. */
+  const systemRead = (sides) => readAll(null, sides, { system: true });
+
+  /**
+   * Remembers the titles of some links' sides, for when one is gone: every side read at once, and
+   * a title written only where it changed.
+   */
+  function remember(rows) {
+    const sides = rows.flatMap((row) => sidesOf(row).map((side) => ({ ...side, row: row.id })));
+    const found = systemRead(sides);
+    sides.forEach((side, i) => {
+      const card = found[i];
+      if (!card || card === 'gone' || !card.title) return;
+      const title = String(card.title).slice(0, TITLE_MAX);
+      if (side.title !== title) database.run(`UPDATE host_links SET ${side.column} = ? WHERE id = ?`, title, side.row);
+    });
   }
 
   /** Who should hear that a link, or what it points at, changed: in each side's module, who sees that side. */
@@ -176,7 +247,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     a.module, a.type, String(a.id), b.module, b.type, String(b.id), together ? 1 : 0, user.id, now());
     const row = database.get('SELECT * FROM host_links WHERE id = ?', lastInsertRowid);
-    remember(row);
+    remember([row]);
     announce(row);
     return present(user, database.get('SELECT * FROM host_links WHERE id = ?', row.id), from);
   }
@@ -204,8 +275,9 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     const row = database.get('SELECT * FROM host_links WHERE id = ?', Number(id));
     if (!row) throw notFound();
     const [a, b] = sidesOf(row);
+    const using = usesOnce(user);
     // Someone who can see either side may unlink or change it; the rest don't know it is there.
-    if (!(uses(user, a.module) && visible(user, a)) && !(uses(user, b.module) && visible(user, b))) throw notFound();
+    if (!visible(user, a, using) && !visible(user, b, using)) throw notFound();
     return row;
   }
 
@@ -227,9 +299,11 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     const ref = refOf({ module, type, id: 'x' }, 'module');
     if (!uses(user, ref.module)) return { items: [], places: [] };
     const provider = providerOf(ref);
+    // The owner's search chose what this person may link, each card as read() shows it to them:
+    // shown as it comes, none read again.
     const items = (provider.search?.(user, String(text || '').slice(0, 200)) || []).slice(0, 30)
-      .map((card) => cardOf(user, { ...ref, id: String(card.id) }))
-      .filter((card) => card.state !== 'hidden' && card.state !== 'gone');
+      .filter((card) => card && typeof card === 'object' && card.id != null && String(card.id) !== '')
+      .map((card) => shape({ ...ref, id: String(card.id) }, card));
     const places = (provider.places?.(user) || []).slice(0, 200).map((p) => ({ id: String(p.id), name: String(p.name) }));
     return { items, places, creates: typeof provider.create === 'function' };
   }
@@ -246,10 +320,10 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
   function changed(value) {
     const ref = parseRef(typeof value === 'string' ? value : formatRef(value));
     if (!ref) return;
-    for (const row of rowsOf(ref)) {
-      remember(row);
-      announce(row);
-    }
+    const rows = rowsOf(ref);
+    if (!rows.length) return;
+    remember(rows);
+    for (const row of rows) announce(row);
   }
 
   function done(value, isDone, { user = null } = {}) {
@@ -288,34 +362,32 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
   function prune({ module = null } = {}) {
     let forgotten = 0;
     let removed = 0;
-    const gone = (side) => {
-      const provider = providerOf(side);
-      if (!provider) return false;   // a module no longer mounted: it may come back
-      try { return provider.read(null, side.id, { system: true }) === 'gone'; } catch { return false; }
-    };
     const rows = module
       ? database.all('SELECT * FROM host_links WHERE a_module = ? OR b_module = ?', module, module)
       : database.all('SELECT * FROM host_links');
+    // Every side at once, a readMany for each kind of thing whose module has it. A module no
+    // longer mounted answers nothing: not gone, it may come back.
+    const found = systemRead(rows.flatMap((row) => sidesOf(row)));
     database.tx(() => {
-      for (const row of rows) {
+      rows.forEach((row, r) => {
         const sides = sidesOf(row);
-        const which = sides.map((side) => gone(side));
+        const which = [found[2 * r] === 'gone', found[2 * r + 1] === 'gone'];
         if (which[0] && which[1]) {
           database.run('DELETE FROM host_links WHERE id = ?', row.id);
           removed += 1;
-          continue;
+          return;
         }
         sides.forEach((side, i) => {
           if (!which[i] || side.title == null || (module && side.module !== module)) return;
           database.run(`UPDATE host_links SET ${side.column} = NULL WHERE id = ?`, row.id);
           forgotten += 1;
         });
-      }
+      });
     });
     return { forgotten, removed };
   }
 
-  return { of, link, create, update, remove, search, changed, done, prune, cardOf, parseRef, formatRef };
+  return { of, link, create, update, remove, search, changed, done, prune, cardOf, cardsOf, parseRef, formatRef };
 }
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);

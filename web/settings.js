@@ -66,7 +66,7 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from '.
 import { api, errorMessage } from './api.js';
 import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText } from './ui.js';
+import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack } from './ui.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
@@ -359,6 +359,8 @@ export function openSettings(options) {
     el('header', { class: 'kit-settings-page__bar' }, backButton, title), scroller);
   // On the page's body, in Work's shell, it says whose it is, so the module's sheet reaches it (mount.js).
   root.append(root === document.body ? markOwned(overlay) : overlay);
+  // A swipe from the screen's start edge goes back as the bar's ← does: to the list, then out (shell.js).
+  cleanups.push(holdBack(overlay, () => back()));
   // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
   const shown = (open) => {
     if (!FRAMED) return;

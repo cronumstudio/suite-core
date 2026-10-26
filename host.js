@@ -20,6 +20,11 @@
  *     return { publicDir, routes: api, serializeUser, version, portable, start: () => stopTimers };
  *   }
  *
+ * A module may also say what its preferences are (`prefs`, prefs.js): its
+ * `/<mount>/api/me` is then the suite's, keeping the module's keys of the one
+ * `users.prefs` and leaving the others', and the host's own `/api/me` has
+ * every module's.
+ *
  * A module may also say what someone has in it (`usage`: its counts, and the
  * plan caps they meet, usage.js), for the admin's Usage of an account and each
  * person's own in Settings › Plan.
@@ -63,6 +68,7 @@ import { migrate } from './migrate.js';
 import { createEntitlements } from './entitlements.js';
 import { createLive, subscribeAll } from './live.js';
 import { createUploads } from './uploads.js';
+import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
@@ -74,7 +80,8 @@ import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
-import { usageOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
+import { combinePrefs } from './prefs.js';
+import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
   fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
@@ -554,6 +561,7 @@ export async function createHost({
       defaultPlan: resolved.defaultPlan, plansJson: install.plansJson ?? null, defaultPlanOverride: install.defaultPlan ?? null,
       earlyAccess: install.earlyAccess ?? null,
       organizationsOf: (user) => (suite.organizations ? suite.organizations.organizationsOf(user) : []),
+      organizationsOfMany: (ids) => (suite.organizations ? suite.organizations.organizationsOfMany(ids) : new Map()),
       organizationExists: (id) => Boolean(suite.organizations?.get(id)),
       othersDeclare: true,
     });
@@ -588,7 +596,7 @@ export async function createHost({
     // A folder of its own: each module sweeps the files its table doesn't know,
     // and in a folder shared with another it would take the other's for orphans.
     const uploads = resolved.modules.uploads
-      ? createUploads({ dir: path.join(install.dataDir, 'uploads', app.id), log: (line) => log(line) })
+      ? createUploads({ dir: path.join(install.dataDir, 'uploads', app.id), log: (line) => log(line), storage: () => entry.view?.storage })
       : null;
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
@@ -642,10 +650,13 @@ export async function createHost({
       /**
        * The storage a plan allows (`storage.mb`) is the person's, whichever module keeps their
        * files: `used(userId)` adds up what every module says it keeps for them
-       * (`createModule().storage`), so a module checks the whole against the limit. On its own
-       * an app has no `storage` and counts its own files, as always.
+       * (`createModule().storage`), so a module checks the whole against the limit with
+       * `check(user, adding, { payer })` (storage.js). On its own an app's `suite.storage` is
+       * createApp's, from its own files alone.
        */
-      storage: { used: (userId) => storageUsed(userId) },
+      storage: createStorage({ entitlements, used: (userId) => storageUsed(userId) }),
+      // A module's own count goes to the host by `createModule().storage`: here it changes nothing.
+      countStorage: () => entry.view.storage,
     };
     joined.push(entry);
     return entry.view;
@@ -682,6 +693,8 @@ export async function createHost({
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
+      // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
+      prefs: parts.prefs ?? null,
       i18nDir: parts.i18nDir ?? null, portable: parts.portable ?? null, handleSignals: false, log,
       // In the split view each module is a frame of the host's page.
       frames: split ? 'self' : 'none',
@@ -785,6 +798,9 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // The host's own /api/me (its pages, Settings at its root) with every module's preferences:
+    // each keeps its keys and none drops another's. Without any, none, as before.
+    prefs: combinePrefs(joined.map((m) => m.parts.prefs)),
     routes: (api) => {
       api.get('/api/modules', async (ctx) => {
         const answer = modulesOf(ctx.user);
@@ -797,7 +813,9 @@ export async function createHost({
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
       registerOwnUsageApi(api, { usageFor });
-      if (config.modules.admin) registerUsageApi(api, { accounts: suite.accounts, usageFor });
+      // Everyone's nearest cap for the admin's list, asked in batches: a fixed number of queries per module where it can.
+      const peaksFor = (users) => peaksOf(users, { modules: joined, entitlements: suite.entitlements, log });
+      if (config.modules.admin) registerUsageApi(api, { accounts: suite.accounts, usageFor, peaksFor });
       api.put('/api/me/modules', async (ctx) => {
         if (!ctx.user) throw unauthorized();
         const body = await readJson(ctx.req);

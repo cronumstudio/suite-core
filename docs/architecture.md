@@ -87,9 +87,12 @@ suite-core/
                                sending to an app's own devices, with no user behind them
   native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1;
                                reminders the phone shows itself are not pushed to it
-  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link
+  uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link;
+                               storeChecked: the cap per record and storage.mb before and after the file arrives
+  storage.js            done   the storage a plan allows (storage.mb): check(user, adding, { payer }), the apps' 402
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
+  prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
   mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
@@ -1258,7 +1261,11 @@ connected; the app works out who can see what changed, as Tasks does with a list
 `event` is `change` unless it says otherwise. Every event carries an id, `<run>.<n>`; the last 256
 are remembered, so a tab that reconnects with `Last-Event-ID` (EventSource sends it by itself)
 gets what it missed, and one that missed more, or comes from another run of the server, gets
-`event: resync` and reloads what it shows. The suite publishes one event of its own (v0.22.0):
+`event: resync` and reloads what it shows. `hello` carries an id too, so a tab that saw no notice
+still comes back with one, and a page opening a new channel after closing one sends it as
+`?last=` (EventSource can't send the header then); when either came, `hello` says
+`replayed: true` and the page reloads nothing more (v0.165.0: before, it reloaded everything on
+every `hello` after a cut, on top of the replay). The suite publishes one event of its own (v0.22.0):
 `account`, to the person's tabs when their account changes —an email confirmed from the mail,
 often opened in another tab or on the phone, a new password, the second step turned on or off,
 what the admin changed or signing them out everywhere— so the page reloads what it shows of the
@@ -1526,6 +1533,28 @@ kit's), then Notes is built on it whole, then the others as they move to English
   sweep takes loose files over a day old and refuses when the database knows none or more than half
   the folder would go. The app keeps its own table linking files to its records, its limits and its
   trash (Tasks' `task_files`). Storage per user or organization can be a plan limit.
+  - **The storage a plan allows** (v0.179.0, `storage.js`, `suite.storage`): `check(user, adding,
+    { payer })` answers 402 `plan_limit` with `{ feature: 'storage.mb', limit: '<n> MB', current:
+    '<n> MB', plan, plan_name }` when `adding` bytes more would take the payer past `storage.mb`, and
+    nothing within it or without a limit; `of(user)` → `{ used, limit }`. What is counted: on its
+    own, the app's files, as the app says where it counts them, at import
+    (`suite.countStorage(storageOf)` → `suite.storage`, so its scripts and command line, which run
+    without createApp, have it too; createApp's `storage`, the same `createModule().storage`, says it
+    otherwise); as a module of a host, the person's across every module (below), and
+    `countStorage` changes nothing there. Until an app says it, there is no `suite.storage`.
+  - **Who pays for a file** is, for now, each app's rule as it was, passed as `payer`: in Notes the
+    notebook's owner, whoever sent it (a file in someone's notebook takes their room); in Tasks and
+    Projects whoever uploads it (`payer` left out: the user). Unifying on "the owner of what holds
+    it" waits until production says who would go over their limit with it.
+  - **`uploads.storeChecked(req, { folder, name, user, payer, count, max })`** is `store()` with
+    those limits around it, as the three apps did by hand: `count()` against `max`
+    (`too_many_files`, 400, with `max`) and the payer's storage with one byte, before a byte is read
+    (the body swallowed so the answer can be sent); then both again with the file on disk and its
+    real size, because uploads sent together all passed the first count; a refusal then takes the
+    file off the disk. The app records what it returns.
+  - The most a file may weigh (`maxBytes`, 15 MB by default) is told to the page in
+    `/api/auth/config` as `app.uploads.max_bytes`, for the kit's `web/images.js` to warn before
+    spending data.
 - **Files from an assistant** (v0.89.0, `mcp-files.js`): an MCP tool carries JSON, not files, so a
   file reaches the app's own save function (with its checks, unchanged) as a stream, one of two
   ways. With a link, `suite.uploads.fromUrl(url)` downloads it → `{ stream, name }`: http or https
@@ -1744,6 +1773,7 @@ first, then Tasks, then the rest.
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
+| `storage.js`, `uploads.storeChecked`, `web/images.js` | done (v0.179.0: storage.mb checked once, with the payer explicit; a photo made ready in the kit) | Tasks, Projects and Notes drop their copies |
 | `mcp-files.js`, `uploads.fromUrl` | done (v0.89.0: files from an assistant, by link or one-time upload link) | Notes and Tasks attach through their MCP tools |
 | `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud. Focus and Tracker carry their families and fleets |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
@@ -1792,7 +1822,11 @@ await host.listen();
   must be what the module's barrier counts. The host adds the storage and the calls from
   assistants of the last 30 days (`entitlements.dailyUsage()`), and answers
   `GET /api/admin/users/:id/usage` and, for the list, `GET /api/admin/usage` (each account's
-  nearest cap). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
+  nearest cap). The list counts every account in batches of 100, letting the process answer
+  others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), today's
+  calls in one (`usedToday()`), and a module that has `usageAll(userIds)` / `storageAll(userIds)`
+  (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
+  they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
   web's session only, never an assistant's token.
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
@@ -1903,8 +1937,12 @@ the module that owns each thing decides about it. A module says what can be link
 // server/module.js
 cards: {
   task: {
-    read: (user, id) => card | 'gone' | null,      // null: it exists and this person can't see it
-    search: (user, text) => [card…],                // what this person may link
+    read: (user, id, opts?) => card | 'gone' | null,  // null: it exists and this person can't see it;
+                                                    // (null, id, { system: true }): the host itself
+    readMany: (user, ids, opts?) => Map<id, card | 'gone' | null>,
+                                                    // optional: read() of many at once, in a fixed
+                                                    // number of queries (IN (…) by batches of ≤ 500)
+    search: (user, text) => [card…],                // what this person may link, as read() shows it
     create: (user, { title, place }) => id,         // optional: "Add to Tasks", by the module's rules
     places: (user) => [{ id, name }],               // optional: where create() may put it
     complete: (user, id, done) => {},               // optional: what "done together" does here
@@ -1916,6 +1954,12 @@ cards: {
 A card is `{ id, title, state: 'open' | 'done' | 'cancelled', due?, where?, url? }`, its url
 relative to the module (`?list=27&task=389`). A thing is named by a ref, `module:type:id`
 (`tasks:task:389`): the module's path, its kind, and its id, never the number people see.
+
+The links of something, `changed()` and `prune()` read the other sides together: one `readMany`
+for each kind of thing whose module has it (the same answer as `read` for each id, keyed by the
+ids as strings), `read` for any id it leaves out, for every id when it throws, and for modules
+without it. A search's cards are shown as the module's `search` gives them, none read again
+(v0.166.0).
 
 - **Each pair once**, in a fixed order, whichever way it was linked. `GET /api/links?ref=` lists
   the links of something with the other side's card, as its module draws it and only to whoever
@@ -2092,7 +2136,8 @@ const host = await createHost({
   channel), streams what every module with `modules.live` would tell that person on its own
   `/<mount>/api/events`, in one connection: each notice an unnamed message whose data is
   `{ module, event, data }`. It opens with each module's missed notices or its `resync`, then
-  `{ module: null, event: 'hello', data: { user_id } }`; its id says where it is in every module
+  `{ module: null, event: 'hello', data: { user_id } }` (with `replayed: true` when it came back
+  with an id, by the header or `&last=`); its id says where it is in every module
   (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
   module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
   channels in each module, and ends with any of them: revoked sessions (`account` said first),
