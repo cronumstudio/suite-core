@@ -178,6 +178,94 @@ export async function copyText(text, fallback = null) {
   }
 }
 
+/* ---------------------------------- folds --------------------------------- */
+
+/** What is sliding now, so a second tap turns it back from where it got to. */
+const sliding = new WeakMap();
+const SLIDE = { duration: 220, easing: 'cubic-bezier(.2, 0, 0, 1)' };
+
+/** At once where the person asks for less motion, or where nothing can be animated (a test's page). */
+const still = (node) => typeof node.animate !== 'function'
+  || Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+
+/** Slides `node` from height `from` to `to`, then `done()`; one already going is turned back. */
+function slideHeight(node, from, to, done) {
+  if (from === to) {
+    done();
+    return Promise.resolve();
+  }
+  node.style.overflow = 'hidden';
+  const motion = node.animate([{ height: `${from}px` }, { height: `${to}px` }], SLIDE);
+  sliding.set(node, motion);
+  return motion.finished.then(() => {
+    sliding.delete(node);
+    node.style.overflow = '';
+    done();
+  }, () => { /* turned back: the next slide took over */ });
+}
+
+/**
+ * Shows or hides `node` (its `hidden`) with its height sliding, so a fold of a list opens and
+ * closes in a short movement instead of at once. A tap in the middle turns it back from where it
+ * got to. → a promise, settled when it ends.
+ */
+export function slideHidden(node, hide) {
+  if (still(node)) {
+    node.toggleAttribute('hidden', hide);
+    return Promise.resolve();
+  }
+  const from = node.hasAttribute('hidden') ? 0 : node.getBoundingClientRect().height;
+  sliding.get(node)?.cancel();
+  node.removeAttribute('hidden');
+  const to = hide ? 0 : node.getBoundingClientRect().height;
+  return slideHeight(node, from, to, () => node.toggleAttribute('hidden', hide));
+}
+
+const summaryOf = (details) => [...details.children].find((node) => node.tagName === 'SUMMARY');
+
+/** Opens or closes a <details> sliding, its summary always in sight; `data-closing` while it closes. */
+function slideDetails(details, open) {
+  if (still(details)) {
+    details.open = open;
+    return Promise.resolve();
+  }
+  const summary = summaryOf(details);
+  const from = details.getBoundingClientRect().height;
+  sliding.get(details)?.cancel();
+  details.open = true;
+  const to = open ? details.getBoundingClientRect().height
+    : (summary?.getBoundingClientRect().height || 0) + details.offsetHeight - details.clientHeight;
+  details.toggleAttribute('data-closing', !open);
+  return slideHeight(details, from, to, () => {
+    details.open = open;
+    details.removeAttribute('data-closing');
+  });
+}
+
+/**
+ * A <details> that opens and closes sliding. Those of one `name` side by side stay one open at a
+ * time, the one that was open closing as this one opens: the browser's own `name` would shut it at
+ * once, so it moves to `data-fold`. → the details.
+ */
+export function slidingDetails(details) {
+  const name = details.getAttribute('name');
+  if (name) {
+    details.removeAttribute('name');
+    details.dataset.fold = name;
+  }
+  summaryOf(details)?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const open = !details.open || details.hasAttribute('data-closing');
+    if (open && name) {
+      for (const other of details.parentNode?.children || []) {
+        if (other !== details && other.dataset?.fold === name && other.open && !other.hasAttribute('data-closing')) slideDetails(other, false);
+      }
+    }
+    slideDetails(details, open);
+  });
+  return details;
+}
+
 /* ------------------------------- edge back -------------------------------- */
 
 /** What covers the frame with a way back of its own, the last one on top. This copy's only. */
