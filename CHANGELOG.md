@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.190.1 — 2026-10-26
+
+- **No black line around a section of Settings** (Martin, with screenshots): a section takes the
+  focus when it opens, and the kit's focus ring drew a 2 px line in the accent colour (near black
+  in the clean look) under the section and, in a swipe back, along its edge. The page keeps the
+  focus, for the keyboard and a reader, without a ring, as the drawer does.
+
 ## 0.190.0 — 2026-10-26
 
 - **A host's MCP costs less of every conversation, and follows the plan** (`createHost({ mcpOptions })`,

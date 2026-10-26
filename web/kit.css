@@ -1103,6 +1103,9 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings__text small { display: block; color: var(--kit-muted); font-size: var(--look-footnote, 12.5px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kit-settings__chevron { color: var(--kit-muted); }
 .kit-settings__page { padding: 20px 18px 40px; display: none; }
+/* It takes the focus when a section opens (settings.js), for the keyboard and a reader, not to draw a
+   ring: around the whole page it showed as a black line under the section, and at its edge in a swipe. */
+.kit-settings__page:focus { outline: none; }
 .kit-settings[data-open] .kit-settings__list { display: none; }
 .kit-settings[data-open] .kit-settings__page { display: block; }
 /* A section going back with a finger (settings.js): the list beneath it, where the page had scrolled to. */
