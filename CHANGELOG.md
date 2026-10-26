@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.180.0 — 2026-10-26
+
+- **A swipe from the screen's start edge goes back in Settings, as its ← does** (Cronum core nº 12,
+  Martin): from a section to the list on a phone, then out of Settings. Before, the frame kept that
+  edge from Safari and did nothing with it while Settings covered it. A page over the frame with a
+  way back of its own says so with `holdBack(node, back)` (ui.js), and the frame's edge swipe
+  (shell.js) goes back there first; each module's copy of the kit keeps its own, so in Work's shell
+  only the window that opened it goes back. A task, a note or another detail already went back
+  from the same edge on a phone.
+
 ## 0.170.1 — 2026-10-26
 
 - **Maximize and restore take 280 ms** (`windows.js` `MAX_MS`, Martin: «un poco lento»): they took
