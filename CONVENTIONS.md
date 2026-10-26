@@ -156,6 +156,11 @@ Compose files use only the current names.
   texts (`tools/i18n.mjs app .`, also `npm run i18n`: flat catalogs that agree, keys in use, texts
   written in the code, anything in another language on the server; a line that must keep one says
   `i18n-exempt` and why); the version check. New behaviour comes with its check; a step that adds none has not been understood.
+- The pieces to start a server and talk to it come from the suite (`tools/test-kit.mjs`: the
+  harness, the HTTP and MCP clients with a deadline per request, ports from the OS, the fakes of
+  WorkOS and Paddle), not a copy of one's own. A test never writes into the repository's folders:
+  what it changes lives in a temporary folder. Areas that start their own server go in their own
+  `node --test` file; what the suite already proves (OAuth, WorkOS, plans) is tested in suite-core.
 - Before a change to anything a phone shows (audio, wake lock, safe areas, installation), it is
   tried on a real device: emulators lie about those.
 
