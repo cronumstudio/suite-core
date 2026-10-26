@@ -188,9 +188,13 @@ const backs = [];
  * out) takes the swipe from the screen's start edge while it is open, as the frame's back button
  * does under it (shell.js). Each module's copy of the kit keeps its own, so in Work's shell only
  * the window that opened it goes back. → a function that lets it go.
+ *
+ * `slide()`, asked when the finger starts to go, says what follows it: `{ moving, under, show }`,
+ * the screen that slides away, the one it uncovers (optional) and `show(on)`, which draws that
+ * one beneath while the finger leads. Without it, the page goes back at once.
  */
-export function holdBack(node, back) {
-  const held = { node, back };
+export function holdBack(node, back, slide = null) {
+  const held = { node, back, slide };
   backs.push(held);
   return () => {
     const at = backs.indexOf(held);
@@ -198,10 +202,10 @@ export function holdBack(node, back) {
   };
 }
 
-/** The way back of the page on top, when `target` is on it; else null. */
+/** The page on top, `{ back, slide }`, when `target` is on it; else null. */
 export function heldBack(target) {
   const top = backs.at(-1);
-  return top && top.node.contains(target) ? top.back : null;
+  return top && top.node.contains(target) ? top : null;
 }
 
 /* --------------------------------- dialogs -------------------------------- */

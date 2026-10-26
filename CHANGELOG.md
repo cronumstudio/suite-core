@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.188.0 — 2026-10-26
+
+- **Going back with a finger slides the screen away, instead of the one before just appearing**
+  (Cronum core nº 12, Martin: «de forma tosca»): from the screen's start edge, the screen on top
+  follows the finger with a shadow, over the one it goes back to, which comes in a little behind.
+  On lifting the finger it goes all the way, or comes back to its place, by how far the finger went
+  (the drawer's measure) or how fast at the end (a flick). A phone's detail slides over its list;
+  a section of Settings over Settings' list, where the page had scrolled to; Settings' list, or
+  Settings beside a section, over the app. `holdBack(node, back, slide)` (ui.js): `slide()` says
+  what moves and what it uncovers; without it a page goes back at once, as in 0.180.0.
+
 ## 0.187.0 — 2026-10-26
 
 - **The storage a plan allows is checked in one place** (`storage.js`, `suite.storage.check(user,
