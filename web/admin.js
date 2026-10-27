@@ -434,6 +434,11 @@ function userDialog(user) {
   const usageBox = el('div', { class: 'kit-contents' });
   const usage = fold({ title: t('admin.usage.title'), now: usageNow }, usageBox);
 
+  // What they answered the first time: a host's that asks only (host.js firstQuestions).
+  const firstNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
+  const firstBox = el('div', { class: 'kit-contents' });
+  const first = fold({ title: t('admin.firstAnswers.title'), now: firstNow }, firstBox);
+
   const grantsNow = el('small', { class: 'kit-fold__now' });
   // Drawn when they arrive, inside the fold's body as if they were its own.
   const grantsBox = el('div', { class: 'kit-contents' });
@@ -481,12 +486,13 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, usage, grants, passwordSection, signInBox), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, usage, first, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
+  paintFirstAnswers(firstBox, user, firstNow).catch(() => first.remove());
   if (signInBox) paintSignIn().catch(fail);
 }
 
@@ -610,6 +616,32 @@ async function paintUsage(box, user, now) {
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
   if (['near', 'reached'].includes(levelOf(usage.peak?.share ?? null))) now.setAttribute('class', 'kit-fold__now kit-fold__now--warn');
   clear(box).append(el('p', { class: 'kit-hint', text: t('admin.usage.lead') }), usageGroups(usage, { admin: true }));
+}
+
+/* ------------------------------ first answers ------------------------------ */
+
+/**
+ * What they answered the first time (a host's with `firstQuestions`): how they heard of the app and
+ * their channel, blog or newsletter. `now` is the fold's summary: where they came from.
+ */
+async function paintFirstAnswers(box, user, now) {
+  const { answers } = await api.get(`/api/admin/users/${user.id}/first-answers`);
+  const heard = answers?.heard_from ? t(`kit.firstQuestions.heard.${answers.heard_from}`) : null;
+  const channel = answers?.has_channel === true ? answers.channel || t('admin.firstAnswers.channelNoLink')
+    : answers?.has_channel === false ? t('admin.firstAnswers.noChannel') : null;
+  now.textContent = !answers ? t('admin.firstAnswers.notAsked')
+    : heard || channel ? [heard, answers.has_channel ? channel : null].filter(Boolean).join(' · ') : t('admin.firstAnswers.skipped');
+  if (!answers) {
+    clear(box).append(el('p', { class: 'kit-hint', text: t('admin.firstAnswers.notAskedLead') }));
+    return;
+  }
+  const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
+  const link = answers.has_channel && /^https?:\/\//i.test(answers.channel || '') ? answers.channel : null;
+  clear(box).append(el('div', { class: 'kit-facts' },
+    fact(t('kit.firstQuestions.heard', { app: state.config.app?.name || '' }), heard),
+    link ? el('div', { class: 'kit-fact' }, el('span', { text: t('kit.firstQuestions.channel') }),
+      el('a', { href: link, target: '_blank', rel: 'noopener noreferrer', text: link })) : fact(t('kit.firstQuestions.channel'), channel),
+    fact(t('admin.firstAnswers.when'), new Date(answers.answered_at).toLocaleDateString())));
 }
 
 /* ------------------------------- invitations ------------------------------- */

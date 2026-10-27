@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.196.0 — 2026-10-27
+
+- **Two questions the first time** (Martin, for the beta: «un par de preguntas cuando se abre work
+  por primera vez estaria bien»): with `createHost({ firstQuestions: true })` the host's first
+  start may ask, once and skippable, how someone heard of the app (`HEARD_FROM`: reddit, social,
+  friend, search, other) and whether they have a channel, blog or newsletter, with its address.
+  `GET /api/modules` says `first_questions: true` until they answer or skip
+  (`PUT /api/me/first-answers { heard_from, has_channel, channel }`, all optional; new host
+  migration 6, `host_first_answers`). The admin sees them in the account's dialog, in a fold of
+  their own (`GET /api/admin/users/:id/first-answers`). The texts are the kit's
+  (`kit.firstQuestions.*`). Off unless the host passes it: nothing changes for an app on its own.
+
 ## 0.195.0 — 2026-10-26
 
 - **The calendar's button, for whoever wants it** (Martin: «así la vista no se le complica a quien
