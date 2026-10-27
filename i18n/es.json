@@ -999,7 +999,7 @@
   "kit.split.layout4": "4 apps en cuadrícula",
   "kit.calendar.title": "Calendario",
   "kit.calendar.show": "Mostrar el calendario",
-  "kit.calendar.showHint": "Su botón en la barra lateral (en el móvil, en la barra de arriba): lo que tiene fecha en cada módulo, día a día. Apagado, la vista queda más sencilla.",
+  "kit.calendar.showHint": "Su botón en la barra lateral (en el móvil, en la barra de arriba): lo que tiene fecha en cada módulo, día a día. Desactivado, la vista queda más sencilla.",
   "kit.links.label": "Vinculado",
   "kit.links.add": "Vincular",
   "kit.links.addTo": "Añadir a {app}…",

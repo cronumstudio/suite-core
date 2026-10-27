@@ -118,6 +118,20 @@ test('parity: the suite’s catalogs agree, and what differs is named', () => {
   ]);
 });
 
+test('Spanish: a switch is turned on and off with "activar"/"desactivar", never "apagar"', () => {
+  // The apps serve the kit's texts in their own es.json and Tasks' smoke test
+  // fails on any "apag…" (from 20/10: kit.notifications.renew, kit.ai.toolsHint),
+  // so it is caught here, in the PR that writes it, and not when an app bumps
+  // the submodule. Read from the file and walked to the leaves, plurals too.
+  const spanish = JSON.parse(fs.readFileSync(new URL('../i18n/es.json', import.meta.url), 'utf8'));
+  const leaves = (value, key = '') => (value && typeof value === 'object'
+    ? Object.entries(value).flatMap(([k, v]) => leaves(v, key ? `${key}.${k}` : k))
+    : [[key, String(value)]]);
+  const offenders = leaves(spanish).filter(([, text]) => /apag/i.test(text)).map(([key]) => key);
+  assert.deepEqual(offenders, [],
+    `i18n/es.json says "apagar" in ${offenders.join(', ')}: say "desactivar"/"Desactivado" (and "activar"/"Activado")`);
+});
+
 test('every error the suite can send has its sentence, and every field it names has its name', () => {
   // What the modules throw, read from their code: a new code without a sentence
   // would reach people as "Something went wrong" (the apps' tests catch it late).
