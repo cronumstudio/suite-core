@@ -73,7 +73,7 @@ import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
 import { createPortability } from './portability.js';
 import {
-  sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, serveStatic, staticFile,
+  sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
 } from './http.js';
 import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
 import { watchCode } from './watcher.js';
@@ -160,9 +160,27 @@ export const HOST_MIGRATIONS = Object.freeze([
       chosen_at TEXT NOT NULL
     )`),
   },
+  {
+    version: 6,
+    name: 'first-answers',
+    // What each person answered the first time (options.firstQuestions): how they heard of the app
+    // (HEARD_FROM, or NULL), whether they have a channel, blog or newsletter (1, 0 or NULL) and its
+    // address. A row with every answer NULL: they skipped the questions. No row: never asked.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_first_answers (
+      user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      heard_from  TEXT,
+      has_channel INTEGER,
+      channel     TEXT,
+      answered_at TEXT NOT NULL
+    )`),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
+/** How someone heard of the app, as the first questions offer it (options.firstQuestions). */
+export const HEARD_FROM = Object.freeze(['reddit', 'social', 'friend', 'search', 'other']);
+/** The longest address of a channel kept from the first questions. */
+const CHANNEL_MAX = 300;
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
 /** What a kind of group says (organizations.js): a module's and the host's must agree on each. */
@@ -545,6 +563,11 @@ function moduleListErrors(modules) {
  *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
  *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
  *   module's instruction, folded
+ * @param {boolean} [options.firstQuestions]  two questions the host's first start asks once, which
+ *   can be skipped: how someone heard of the app (HEARD_FROM) and whether they have a channel, blog
+ *   or newsletter. GET /api/modules says `first_questions: true` until they answer or skip
+ *   (`PUT /api/me/first-answers`), and the admin sees the answers in the account's dialog
+ *   (`GET /api/admin/users/:id/first-answers`). Without it, none of this
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
  *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
  *   host's icon without them). The host's /version and /js/app-version.js are then the whole
@@ -578,7 +601,7 @@ function moduleListErrors(modules) {
  */
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, calendar = null,
-  aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
+  aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
@@ -943,6 +966,10 @@ export async function createHost({
       },
       // Whether they have it on, where the host has a calendar: Settings › Modules offers the switch.
       ...(calendar ? { calendar_shown: calendarShown } : {}),
+      // Whether the first start still asks them its two questions: once, answered or skipped.
+      ...(firstQuestions && user ? {
+        first_questions: !suite.database.get('SELECT 1 AS asked FROM host_first_answers WHERE user_id = ?', user.id),
+      } : {}),
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
@@ -1071,6 +1098,36 @@ export async function createHost({
         suite.accounts.changed(ctx.user.id);
         sendJson(ctx.res, 200, modulesOf(ctx.user));
       });
+      // The first start's two questions (options.firstQuestions): answered, or skipped with nothing.
+      if (firstQuestions) {
+        api.put('/api/me/first-answers', async (ctx) => {
+          if (!ctx.user) throw unauthorized();
+          const body = await readJson(ctx.req);
+          const heard = body.heard_from ?? null;
+          if (heard !== null && !HEARD_FROM.includes(heard)) throw badRequest('field_invalid', { field: 'heard_from', options: [...HEARD_FROM] });
+          const has = body.has_channel ?? null;
+          if (has !== null && typeof has !== 'boolean') throw badRequest('field_invalid', { field: 'has_channel' });
+          const channel = typeof body.channel === 'string' ? body.channel.trim() : null;
+          if (channel && channel.length > CHANNEL_MAX) throw badRequest('field_too_long', { field: 'channel', max: CHANNEL_MAX });
+          suite.database.run(`INSERT INTO host_first_answers (user_id, heard_from, has_channel, channel, answered_at) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (user_id) DO UPDATE SET heard_from = excluded.heard_from, has_channel = excluded.has_channel,
+              channel = excluded.channel, answered_at = excluded.answered_at`,
+          ctx.user.id, heard, has === null ? null : Number(has), has === false ? null : channel || null, new Date().toISOString());
+          sendJson(ctx.res, 200, { first_questions: false });
+        });
+        if (config.modules.admin) {
+          api.get('/api/admin/users/:id/first-answers', (ctx) => {
+            if (!ctx.user) throw unauthorized();
+            if (ctx.user.role !== 'admin') throw forbidden('admin_only');
+            const user = suite.accounts.byId(int(ctx.params.id, { field: 'id', min: 1 }));
+            if (!user) throw notFound('user_not_found');
+            const row = suite.database.get('SELECT heard_from, has_channel, channel, answered_at FROM host_first_answers WHERE user_id = ?', user.id);
+            sendJson(ctx.res, 200, {
+              answers: row ? { ...row, has_channel: row.has_channel === null ? null : Boolean(row.has_channel) } : null,
+            });
+          });
+        }
+      }
       // The look of every module for this person (LOOKS): one choice for the whole host.
       api.put('/api/me/look', async (ctx) => {
         if (!ctx.user) throw unauthorized();
