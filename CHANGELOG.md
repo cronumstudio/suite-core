@@ -3,11 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.195.1 — 2026-10-27
+## 0.197.1 — 2026-10-27
 
 - **"Desactivado"** in Spanish under Settings › Modules' "Mostrar el calendario", not "Apagado". And
   suite-core's own tests now check that no Spanish text says "apagar": until now only Tasks'
   smoke test did, so a word written here failed later, in the app that bumped the submodule.
+
+## 0.197.0 — 2026-10-27
+
+- **The calendar, framed by the host's own pages** (Martin: «quizas el calendario podria ser una
+  ventana como las de los modulos»): a host with a calendar and `pages` of its own lets those
+  pages frame the calendar's page (`frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`), so
+  Cronum Work's shell can open it in a window. Every other page of the root is still framed by
+  nobody, and a host without `pages` keeps its calendar unframed. `createApp({ frames })` takes a
+  function of the path as well as `'none'` or `'self'`.
+
+## 0.196.0 — 2026-10-27
+
+- **Two questions the first time** (Martin, for the beta: «un par de preguntas cuando se abre work
+  por primera vez estaria bien»): with `createHost({ firstQuestions: true })` the host's first
+  start may ask, once and skippable, how someone heard of the app (`HEARD_FROM`: reddit, social,
+  friend, search, other) and whether they have a channel, blog or newsletter, with its address.
+  `GET /api/modules` says `first_questions: true` until they answer or skip
+  (`PUT /api/me/first-answers { heard_from, has_channel, channel }`, all optional; new host
+  migration 6, `host_first_answers`). The admin sees them in the account's dialog, in a fold of
+  their own (`GET /api/admin/users/:id/first-answers`). The texts are the kit's
+  (`kit.firstQuestions.*`). Off unless the host passes it: nothing changes for an app on its own.
 
 ## 0.195.0 — 2026-10-26
 

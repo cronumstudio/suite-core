@@ -977,6 +977,28 @@ test('a host without a split view: nobody may frame its modules, and the rail of
   assert.equal(module.headers.get('x-frame-options'), 'DENY');
 });
 
+test('a host with a calendar and pages of its own: those may frame the calendar’s page, and nothing else of the root', async (t) => {
+  const dir = pageFolder(t);
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
+  t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(publicDir, 'calendar'));
+  fs.writeFileSync(path.join(publicDir, 'calendar', 'index.html'), '<!DOCTYPE html><title>Calendar</title>');
+  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Home</title>');
+  const { call } = await startHost(t, { publicDir, calendar: '/calendar/', pages: [{ at: '/w/', dir }] });
+  const page = await call('GET', '/calendar/');
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+  assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
+  for (const other of ['/', '/api/modules', '/calendar/../']) {
+    const res = await call('GET', other);
+    assert.match(res.headers.get('content-security-policy'), /frame-ancestors 'none'/, other);
+    assert.equal(res.headers.get('x-frame-options'), 'DENY', other);
+  }
+  // Without pages of its own, nobody frames the calendar either.
+  const { call: alone } = await startHost(t, { publicDir, calendar: '/calendar/' });
+  assert.equal((await alone('GET', '/calendar/')).headers.get('x-frame-options'), 'DENY');
+});
+
 test('a host with a calendar: the rail offers it to whoever turns it on, and the root answers what has a date in the modules each person uses', async (t) => {
   const { call } = await startHost(t, { calendar: '/calendar/' });
   assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 401, 'signed out: nothing');
@@ -1431,4 +1453,39 @@ test('without liveAll, /api/events?all is the host’s own channel, as before', 
   await own.until(/event: hello/);
   assert.match(own.text(), /event: hello\ndata: \{"user_id":\d+\}/, 'a named hello, the root’s');
   assert.equal(host.modules[0].suite.live.connected(), 0, 'no module’s');
+});
+
+test('a host with first questions asks them once, keeps the answers and shows them to the admin', async (t) => {
+  const { call } = await startHost(t, { firstQuestions: true });
+  assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'reddit' })).status, 401, 'signed in only');
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal((await call('GET', '/api/modules')).data.first_questions, true, 'not asked yet');
+
+  assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'tv' })).data.field, 'heard_from', 'only the options there are');
+  assert.equal((await call('PUT', '/api/me/first-answers', { has_channel: 'yes' })).data.field, 'has_channel');
+  assert.equal((await call('PUT', '/api/me/first-answers', { has_channel: true, channel: 'x'.repeat(301) })).data.error, 'field_too_long');
+  assert.equal((await call('GET', '/api/modules')).data.first_questions, true, 'nothing kept from a refused answer');
+
+  const answered = await call('PUT', '/api/me/first-answers', { heard_from: 'reddit', has_channel: true, channel: '  https://youtube.com/@me ' });
+  assert.deepEqual(answered.data, { first_questions: false });
+  assert.equal((await call('GET', '/api/modules')).data.first_questions, false, 'asked once');
+  const seen = (await call('GET', '/api/admin/users/1/first-answers')).data.answers;
+  assert.deepEqual({ ...seen, answered_at: typeof seen.answered_at },
+    { heard_from: 'reddit', has_channel: true, channel: 'https://youtube.com/@me', answered_at: 'string' });
+
+  // Skipped: a row with nothing in it, and no channel's address without a channel.
+  await call('PUT', '/api/me/first-answers', {});
+  assert.deepEqual({ ...(await call('GET', '/api/admin/users/1/first-answers')).data.answers, answered_at: null },
+    { heard_from: null, has_channel: null, channel: null, answered_at: null });
+  await call('PUT', '/api/me/first-answers', { has_channel: false, channel: 'https://ignored.example' });
+  assert.equal((await call('GET', '/api/admin/users/1/first-answers')).data.answers.channel, null);
+  assert.equal((await call('GET', '/api/admin/users/99/first-answers')).status, 404);
+});
+
+test('a host without first questions neither asks nor answers them', async (t) => {
+  const { call } = await startHost(t);
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal('first_questions' in (await call('GET', '/api/modules')).data, false);
+  assert.equal((await call('PUT', '/api/me/first-answers', {})).status, 404);
+  assert.equal((await call('GET', '/api/admin/users/1/first-answers')).status, 404);
 });
