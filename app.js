@@ -653,8 +653,9 @@ export function clientTexts(flat) {
  *   /mcp answers. A host passes a function for its modules, whose MCP is the host's: read on each
  *   request, it says whether the host's /mcp exists, which is known only once every module has
  *   joined (host.js).
- * @param {'none'|'self'} [options.frames]  who may frame its pages: nobody (default), or pages of
- *   the same site, a host's module in its split view (host.js `split`)
+ * @param {'none'|'self'|Function} [options.frames]  who may frame its pages: nobody (default), or pages of
+ *   the same site, a host's module in its split view (host.js `split`); or, by path, `(pathname) =>`
+ *   either (a host's calendar, in a window of its own page)
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
@@ -901,7 +902,7 @@ export function createApp({
     let pathname = String(req.url || '');
 
     // Before anything else, so they reach every response.
-    securityHeaders(res, { https: install.https, frames });
+    securityHeaders(res, { https: install.https, frames: typeof frames === 'function' ? frames(pathname.split('?')[0]) : frames });
 
     try {
       // Inside the try: a target or a Host no URL can be made of (`GET //`,

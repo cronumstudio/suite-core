@@ -977,6 +977,28 @@ test('a host without a split view: nobody may frame its modules, and the rail of
   assert.equal(module.headers.get('x-frame-options'), 'DENY');
 });
 
+test('a host with a calendar and pages of its own: those may frame the calendar’s page, and nothing else of the root', async (t) => {
+  const dir = pageFolder(t);
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
+  t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(publicDir, 'calendar'));
+  fs.writeFileSync(path.join(publicDir, 'calendar', 'index.html'), '<!DOCTYPE html><title>Calendar</title>');
+  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Home</title>');
+  const { call } = await startHost(t, { publicDir, calendar: '/calendar/', pages: [{ at: '/w/', dir }] });
+  const page = await call('GET', '/calendar/');
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+  assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
+  for (const other of ['/', '/api/modules', '/calendar/../']) {
+    const res = await call('GET', other);
+    assert.match(res.headers.get('content-security-policy'), /frame-ancestors 'none'/, other);
+    assert.equal(res.headers.get('x-frame-options'), 'DENY', other);
+  }
+  // Without pages of its own, nobody frames the calendar either.
+  const { call: alone } = await startHost(t, { publicDir, calendar: '/calendar/' });
+  assert.equal((await alone('GET', '/calendar/')).headers.get('x-frame-options'), 'DENY');
+});
+
 test('a host with a calendar: the rail offers it to whoever turns it on, and the root answers what has a date in the modules each person uses', async (t) => {
   const { call } = await startHost(t, { calendar: '/calendar/' });
   assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 401, 'signed out: nothing');

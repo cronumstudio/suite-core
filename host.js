@@ -1033,6 +1033,9 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // The calendar's page may be framed by the host's own pages (Cronum Work opens it in a window
+    // of its shell); every other page of the root, by nobody.
+    frames: calendar && pageList.length ? (pathname) => (pathname === calendar ? 'self' : 'none') : 'none',
     // The host's own /api/me (its pages, Settings at its root) with every module's preferences:
     // each keeps its keys and none drops another's. Without any, none, as before.
     prefs: combinePrefs(joined.map((m) => m.parts.prefs)),
