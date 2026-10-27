@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.197.0 — 2026-10-27
+
+- **The calendar, framed by the host's own pages** (Martin: «quizas el calendario podria ser una
+  ventana como las de los modulos»): a host with a calendar and `pages` of its own lets those
+  pages frame the calendar's page (`frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`), so
+  Cronum Work's shell can open it in a window. Every other page of the root is still framed by
+  nobody, and a host without `pages` keeps its calendar unframed. `createApp({ frames })` takes a
+  function of the path as well as `'none'` or `'self'`.
+
 ## 0.196.0 — 2026-10-27
 
 - **Two questions the first time** (Martin, for the beta: «un par de preguntas cuando se abre work
