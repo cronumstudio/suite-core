@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.195.1 — 2026-10-27
+
+- **"Desactivado"** in Spanish under Settings › Modules' "Mostrar el calendario", not "Apagado". And
+  suite-core's own tests now check that no Spanish text says "apagar": until now only Tasks'
+  smoke test did, so a word written here failed later, in the app that bumped the submodule.
+
 ## 0.195.0 — 2026-10-26
 
 - **The calendar's button, for whoever wants it** (Martin: «así la vista no se le complica a quien
