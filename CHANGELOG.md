@@ -3,13 +3,37 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.203.2 — 2026-10-28
+## 0.204.2 — 2026-10-28
 
 - **The plan's list in a host says the host's calls by the week** (Martin, testing 0.203.0: «pone
   1000 llamadas al dia en plan pro»): Settings › Plan opened from a module listed its own features
   and those of the other modules in use, never the host's, so Cronum Work's 2,000 calls a week
   didn't show and Next's own daily 1,000 did. The list now asks the host's root too, and by the
   week the daily line is left out (0.203.0).
+
+## 0.204.1 — 2026-10-28
+
+- **A module installed on its own stays in its app after signing in** (Martin, from his iPhone:
+  Notes installed from Settings opened Cronum Work whole, with Tasks failing to open, «Lo ideal
+  sería que mostrase Notes sin lo demás de Work»): WorkOS's `/auth/callback` always went to `/`,
+  which in Cronum Work is its one-document shell, outside an installed module's scope, so iOS
+  showed it in a sheet over the module. The sign-in screen's buttons now say where they were
+  (`/auth/login?return=/notes/`, the whole window's page when framed), WorkOS keeps it in its state
+  cookie as OpenID Connect already did, and the return lands there. Only a path of the app:
+  `//other.site`, `https://…` or a backslash go to `/` as before.
+
+## 0.204.0 — 2026-10-28
+
+- **The celebration when something is done is the suite's** (Martin asked for Tasks' option to be
+  a general one, for every module and Cronum Work's calendar): `web/celebrate.js`, taken from Tasks, with
+  `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
+  for a part done. Its confetti is animated with the
+  Web Animations API, so it needs no stylesheet, and hangs in the open dialog the origin is in (a
+  dialog is drawn over everything else). One choice, in Settings › Language and theme › «When
+  something is done»: animation and sound, with a button to try it, kept on the device
+  (`suite.celebrate`); until the person chooses there, what they chose in Tasks
+  (`tasks.celebrate`) holds, so nobody's setting flips. The worker keeps `celebrate.js` with the
+  kit.
 
 ## 0.203.1 — 2026-10-28
 

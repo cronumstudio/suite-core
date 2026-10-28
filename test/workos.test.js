@@ -134,8 +134,8 @@ accounts = createWorkosAccounts({
   stateCookie: 'test_auth', log: () => {},
 });
 
-const signIn = async (id) => {
-  const out = await fetch(`${base}/auth/login`, { redirect: 'manual' });
+const signIn = async (id, returnTo) => {
+  const out = await fetch(`${base}/auth/login${returnTo ? `?return=${encodeURIComponent(returnTo)}` : ''}`, { redirect: 'manual' });
   const target = new URL(out.headers.get('location'));
   const cookie = out.headers.get('set-cookie').split(';')[0];
   const code = `c-${id}-${Math.random()}`;
@@ -175,6 +175,11 @@ try {
   const bob = await signIn('user_bob');
   check('Others get a username from their email', USERS.find((u) => u.workos_user_id === 'user_bob')?.username === 'bob'
     && bob.back.status === 302);
+  check('Sign-in comes back where it began: a module installed on its own stays in its app',
+    (await signIn('user_bob', '/notes/?view=1')).back.headers.get('location') === '/notes/?view=1');
+  for (const elsewhere of ['//evil.example/x', 'https://evil.example/', '/\\evil.example']) {
+    check(`But never to another site (${elsewhere})`, (await signIn('user_bob', elsewhere)).back.headers.get('location') === '/');
+  }
   const wrongState = await fetch(`${base}/auth/callback?code=x&state=nope`, { redirect: 'manual', headers: { Cookie: ada.cookie } });
   check('A state that doesn’t match opens nothing', /auth_error=failed/.test(wrongState.headers.get('location')));
 
