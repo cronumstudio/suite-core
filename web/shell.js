@@ -50,6 +50,7 @@ import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, ho
 import { banner as bannerNode, menu, closeMenu, avatar, heldBack, slideHidden } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
+import { flushSettings } from './settings-queue.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -88,6 +89,8 @@ export function createShell({
   // screen's edge was then passed on once per frame ever made, and none was freed.
   const listening = new AbortController();
   const { signal } = listening;
+  // Preferences changed in Settings without a signal go once a page starts and the server answers.
+  flushSettings();
   const swallowing = new Set();
   let destroyed = false;
   let user = null;
