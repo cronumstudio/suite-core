@@ -27,6 +27,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import { createTexts } from './i18n.js';
 import { escapeHtml } from './brand.js';
+import { sendJson } from './http.js';
 
 /** Tables the app has to create (they are plain SQLite and idempotent). */
 export const OAUTH_SCHEMA = `
@@ -133,17 +134,6 @@ async function readForm(req) {
     } catch { return new Map(); }
   }
   return new Map(new URLSearchParams(raw));
-}
-
-function sendJson(res, status, data, headers = {}) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-    ...headers,
-  });
-  res.end(body);
 }
 
 /** Errors for machines follow RFC 6749: fixed English descriptions are fine. */

@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.202.2 — 2026-10-28
+
+- **The MCP works on a computer with Avast** (Martin: «esto se puede arreglar para no tener ese
+  fallo?», about the suite's tests failing on his PC): Avast's Web Shield, with its MCP detection,
+  rewrites any answer to a path ending in `/mcp` (or a GET ending in `/sse`) that has a
+  `Content-Length` into one that says `transfer-encoding: chunked` and isn't, so the client fails
+  with «Invalid character in chunk size». It happened to every MCP client on such a computer,
+  against production too (`https://work.cronumstudio.com/mcp`), not only to the tests. A chunked
+  answer it lets through, so `sendJson()` and `serveStatic()` leave the length out for those paths
+  and Node sends them chunked; the OAuth modules (`oauth.js`, `workos-accounts.js`) use `http.js`'s
+  `sendJson()` instead of a copy of their own. Everything else keeps its length. On that PC
+  `npm test` now passes whole (951), where 25 tests failed.
+
 ## 0.202.1 — 2026-10-28
 
 - **A third step for installing** (Martin: «me faltaria un tercer paso en las instrucciones, algo
