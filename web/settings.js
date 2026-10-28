@@ -60,11 +60,19 @@
  *
  * The list folds by group, one open at a time, so it stays short: the group
  * of the section open, or none on a phone until one is chosen.
+ *
+ * Without a signal (settings-queue.js `connection`): Settings are drawn from the install's
+ * config of last time, kept on this device, so a module of a host still shows the host's list.
+ * A preference (the theme, the language, the look, the name, the modules in use and their
+ * order, the calendar) is applied here at once and sent when the server answers again. What
+ * only the server knows (the password and sign-in, Your AI, notifications, the plan, the
+ * sessions) says it needs a connection instead, and what can't wait for one (the email,
+ * your data, deleting the account) is turned off until it comes back.
  */
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from './i18n.js';
-import { api, errorMessage } from './api.js';
-import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
+import { api, errorMessage, Offline } from './api.js';
+import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
 import { makeDraggable } from './drag.js';
@@ -75,6 +83,7 @@ import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from '
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
 import { leave } from './signin.js';
+import { connection, save, noSignal } from './settings-queue.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
 
@@ -164,6 +173,24 @@ function moduleWords(m, lang, then) {
 }
 
 /**
+ * The install's config for Settings (/api/auth/config): the one given, kept on this device for
+ * this app's path, or without one (offline, the request found no signal) the one of last time,
+ * so a module of a host doesn't draw itself as an app on its own. → the config, `{}` without any.
+ */
+export function settingsConfig(given, base = BASE) {
+  const key = `suite.settings.config:${base}`;
+  if (given && typeof given === 'object' && given.app) {
+    try { localStorage.setItem(key, JSON.stringify(given)); } catch { /* private mode, or full */ }
+    return given;
+  }
+  try {
+    const kept = JSON.parse(localStorage.getItem(key) || 'null');
+    if (kept && typeof kept === 'object' && kept.app) return kept;
+  } catch { /* private mode, or not JSON */ }
+  return given && typeof given === 'object' ? given : {};
+}
+
+/**
  * The section of Settings this page was opened for (`?settings=<id>`): another module's Settings
  * sent the person here, to one of this module's sections. Taken off the address, so going back or
  * reloading doesn't open Settings again. A module opens its Settings on it once it has started:
@@ -189,8 +216,9 @@ export function settingsAsked(win = globalThis.window) {
  */
 export function openSettings(options) {
   const {
-    app, config = {}, sections = [], onSignOut = null, root = document.body, start = null,
+    app, sections = [], onSignOut = null, root = document.body, start = null,
   } = options;
+  const config = settingsConfig(options.config);
   const state = { user: options.user };
   const setUser = (user) => {
     state.user = user;
@@ -219,7 +247,21 @@ export function openSettings(options) {
     : !selling ? null
       : typeof planOptions.open === 'function' ? planOptions.open
         : hideCheckout ? null : () => show('plan');
-  const fail = (err) => (openPlan && offerPlan(err, { open: openPlan })) || showError(err);
+  // A request that found no signal says so by what the sections show (needsServer, needsConnection), not a toast.
+  const fail = (err) => {
+    if (noSignal(err)) { goOffline(); return; }
+    if (!(openPlan && offerPlan(err, { open: openPlan }))) showError(err);
+  };
+  // A preference sent, or kept for when the server answers (settings-queue.js): `{ answer }` or
+  // `{ queued }`, and kept it says so.
+  const keep = async (method, path, body, { root: atRoot = false } = {}) => {
+    const done = await save(method, path, body, { root: atRoot, user: state.user?.id ?? null });
+    if (done.queued) {
+      goOffline();
+      toast(t('kit.offline.queued'));
+    }
+    return done;
+  };
   // What Settings listens to while it is open, let go when it closes.
   const cleanups = [];
   // The host's modules, with the ones this person uses (GET /api/modules): the last answer the
@@ -234,6 +276,70 @@ export function openSettings(options) {
   const onModules = [];
   let closed = false;
 
+  /* ---------------------------- without a signal ---------------------------- */
+
+  // Whether the server answers, for these Settings: not when the browser says so, nor once one of
+  // their requests found no signal, until settings-queue.js hears it again. Their own, from when
+  // they open: what another page found long ago says nothing of now.
+  let offline = globalThis.navigator?.onLine === false;
+  const offlineWatch = new Set();
+  const setOffline = (now) => {
+    if (closed || now === offline) return;
+    offline = now;
+    for (const fn of [...offlineWatch]) fn(now);
+  };
+  function goOffline() {
+    setOffline(true);
+    connection.noted();
+  }
+  cleanups.push(connection.on((off) => { if (!off || globalThis.navigator?.onLine === false) setOffline(off); }));
+  const watchOffline = (paint) => {
+    paint(offline);
+    offlineWatch.add(paint);
+    cleanups.push(() => offlineWatch.delete(paint));
+  };
+
+  /**
+   * A section only the server can draw: built while it answers. Without a signal, a notice that
+   * it needs a connection in its place, and the section built again, fresh, once it comes back.
+   */
+  function needsServer(render) {
+    const box = el('div', {});
+    let drawn = null;   // what the box holds: the section (true) or the notice (false)
+    const paint = (off) => {
+      if (closed || drawn === !off) return;
+      drawn = !off;
+      if (off) {
+        clear(box).append(el('div', { class: 'kit-notice kit-settings__offline', role: 'status' },
+          el('strong', { text: t('kit.offline.title') }), el('p', { text: t('kit.offline.server') })));
+      } else {
+        append(clear(box), render());
+      }
+    };
+    watchOffline(paint);
+    return box;
+  }
+
+  /**
+   * What can't be done without the server (the email, your data, deleting the account): off while
+   * there is no signal, saying why, and on again when it comes back.
+   */
+  function needsConnection(...children) {
+    const why = el('p', { class: 'kit-hint kit-settings__offline-hint', role: 'status', text: t('kit.offline.actions') });
+    const set = append(el('fieldset', { class: 'kit-settings__online' }, why), children);
+    const paint = (off) => {
+      set.disabled = off;
+      why.hidden = !off;
+      // A link (the export) isn't a control: out of reach too while off.
+      for (const a of set.querySelectorAll('a')) {
+        if (off) { a.setAttribute('aria-disabled', 'true'); a.setAttribute('tabindex', '-1'); }
+        else { a.removeAttribute('aria-disabled'); a.removeAttribute('tabindex'); }
+      }
+    };
+    watchOffline(paint);
+    return set;
+  }
+
   /* -------------------------------- sections -------------------------------- */
 
   // What every account has. In a host (Cronum Work) these are the same in every module: notices
@@ -243,7 +349,7 @@ export function openSettings(options) {
       hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() },
     // The password and two-step verification are the account's, next to who it is.
     { group: t('kit.settings.groups.account'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
-      hint: () => t(local || provider === 'workos' ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => security() },
+      hint: () => t(local || provider === 'workos' ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => needsServer(security) },
     host ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
       hint: () => inUse.filter((m) => m.active).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
     { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
@@ -251,19 +357,19 @@ export function openSettings(options) {
       render: () => appearance() },
     // The plan is the account's: what it is and what it includes, with the account's other things.
     options.plan || host?.plans ? { group: t('kit.settings.groups.account'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
-      hint: () => t('kit.plan.hint'), render: () => plan() } : null,
+      hint: () => t('kit.plan.hint'), render: () => needsServer(plan) } : null,
     // In a host, deleting the account (every module's) is the account's too, last. An app on its
     // own says it in Your data, with its data.
     host && deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
-      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => data({ module: false }) } : null,
+      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => needsConnection(data({ module: false })) } : null,
     // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
     modules.mcp !== false ? { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
-      hint: () => t('kit.ai.hint'), render: () => ai() } : null,
+      hint: () => t('kit.ai.hint'), render: () => needsServer(ai) } : null,
     options.push || host?.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
-      hint: () => t('kit.notifications.hint'), render: () => notifications() } : null,
+      hint: () => t('kit.notifications.hint'), render: () => needsServer(notifications) } : null,
     // The devices and browsers signed in to the account, with the other things connected to it.
     { group: t('kit.settings.groups.connections'), id: 'sessions', iconName: 'device', label: t('kit.security.sessions'),
-      hint: () => t('kit.sessions.hint'), render: () => sessionsBlock() },
+      hint: () => t('kit.sessions.hint'), render: () => needsServer(sessionsBlock) },
   ];
   const own = (group) => sections.map((section) => ({ group, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' }));
   const admin = (group) => (state.user?.role === 'admin'
@@ -274,7 +380,7 @@ export function openSettings(options) {
     ...common(),
     ...own(app.name),
     modules.data || deletionDays != null
-      ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'), hint: () => t(modules.data ? 'kit.data.hint' : 'kit.data.hintDelete'), render: () => data() }
+      ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'), hint: () => t(modules.data ? 'kit.data.hint' : 'kit.data.hintDelete'), render: () => needsConnection(data()) }
       : null,
     admin(app.name),
     { group: app.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: app.name }), hint: () => t('kit.about.hint', { app: app.name }), render: () => about() },
@@ -308,7 +414,7 @@ export function openSettings(options) {
   const thisModule = () => [
     ...own(app.name),
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
-      hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => data({ account: false }) } : null,
+      hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => needsConnection(data({ account: false })) } : null,
     options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'), unlisted: Boolean(options.standing),
       hint: () => t('kit.settings.moduleAiHint', { app: app.name }), render: () => [options.aiExtra()] } : null,
     options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
@@ -476,8 +582,12 @@ export function openSettings(options) {
           el('span', { class: 'kit-settings__text' }, el('span', { class: 'kit-settings__label', text: section.label }), el('small', { text: section.hint() })),
           icon(section.href ? 'external' : 'chevron', { className: 'kit-settings__chevron' }),
         ];
+        // Administration is a page of the server's: without a signal, said here instead of a browser's error.
         const item = section.href
-          ? el('a', { ...props, href: section.href, target: '_blank', rel: 'noopener' }, content)
+          ? el('a', {
+            ...props, href: section.href, target: '_blank', rel: 'noopener',
+            onClick: (ev) => { if (offline) { ev.preventDefault(); toast(t('kit.offline.server')); } },
+          }, content)
           : el('button', { ...props, type: 'button', onClick: () => (section.go ? section.go() : show(section.id)) }, content);
         items.set(section.id, item);
         folder.append(item);
@@ -568,14 +678,16 @@ export function openSettings(options) {
   function profile() {
     const name = input({ id: 'kit-profile-name', autocomplete: 'name', maxlength: '60', value: state.user?.display_name || '' });
     const saveName = button(t('kit.save'), async () => {
+      const displayName = name.value.trim();
       try {
-        const { user } = await api.patch('/api/me', { display_name: name.value.trim() });
-        setUser(user);
-        toast(t('kit.saved'));
+        const { answer, queued } = await keep('PATCH', '/api/me', { display_name: displayName });
+        // Kept for later: this device shows it already.
+        setUser(queued ? { ...state.user, display_name: displayName } : answer.user);
+        if (!queued) toast(t('kit.saved'));
       } catch (err) { fail(err); }
     });
     const parts = [block(null, field(t('kit.profile.name'), name, t('kit.profile.nameHint')), row(saveName))];
-    if (local) parts.push(emailBlock());
+    if (local) parts.push(needsConnection(emailBlock()));
     else parts.push(block(t('kit.profile.email.title'), el('p', { text: state.user?.email || '—' }), hint(t('kit.profile.email.provider'))));
     parts.push(block(null, row(el('span', { class: 'kit-hint', text: t('kit.profile.username', { username: state.user?.username || '' }) }))));
     // Signing out closes the page of the account, as on a phone's own settings: the account
@@ -642,7 +754,9 @@ export function openSettings(options) {
     select.value = choice;
     select.addEventListener('change', async () => {
       try {
-        const { user } = await api.patch('/api/me', { prefs: { lang: select.value } });
+        const lang = select.value;
+        const { answer, queued } = await keep('PATCH', '/api/me', { prefs: { lang } });
+        const user = queued ? { ...state.user, prefs: { ...state.user?.prefs, lang } } : answer.user;
         setUser(user);
         // The apps load it themselves (loadLanguage): in Work's shell every module speaks it, not this one
         // alone. An app that loads nothing here has nothing new to tell the shell.
@@ -665,8 +779,8 @@ export function openSettings(options) {
         if (shared) shared.set(value);
         else options.applyTheme?.(value);
         try {
-          const { user } = await api.patch('/api/me', { theme: value });
-          setUser(user);
+          const { answer, queued } = await keep('PATCH', '/api/me', { theme: value });
+          setUser(queued ? { ...state.user, theme: value } : answer.user);
         } catch (err) { fail(err); }
       });
     return [
@@ -682,11 +796,8 @@ export function openSettings(options) {
     const look = segmented(LOOKS.map((value) => ({ value, label: t(`kit.appearance.look.${value}`) })), saved, async (value) => {
       applyLook(value);
       try {
-        const res = await fetch('/api/me/look', {
-          method: 'PUT', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ look: value }),
-        });
-        if (!res.ok) throw new Error(String(res.status));
+        // Kept for later, it stays painted: this device has it already.
+        await keep('PUT', '/api/me/look', { look: value }, { root: true });
         saved = value;
       } catch (err) {
         applyLook(saved);   // not saved: the page goes back to the look this account has
@@ -783,6 +894,7 @@ export function openSettings(options) {
     const paint = async () => {
       let sessions = [];
       try { sessions = await api.get('/api/me/sessions'); } catch (err) { fail(err); return; }
+      if (!Array.isArray(sessions)) return;
       clear(box).append(...sessions.map((s) => el('div', { class: 'kit-list__row' },
         icon(/mobile|android|iphone/i.test(s.user_agent || '') ? 'phone' : 'device'),
         el('span', { class: 'kit-list__text' },
@@ -943,30 +1055,25 @@ export function openSettings(options) {
     // What the switches say now: two pressed one after the other both count.
     const shownOn = () => [...switches.querySelectorAll('.kit-switch')]
       .filter((s) => s.getAttribute('aria-checked') === 'true').map((s) => s.dataset.mount);
-    // One change at a time, in the order they were made: the last one sent is what stays.
+    // One change at a time, in the order they were made: the last one sent is what stays. Without
+    // a signal it is kept for later (settings-queue.js), and the answer is this device's own: the
+    // modules as they were, with the change, kept for the rail of the next page (shell.js) too.
     let sending = Promise.resolve();
-    const send = (active) => {
+    let answered = { ...hostModulesKept(), modules: inUse };
+    const sendOne = (path, body, mine) => {
       sending = sending.catch(() => {}).then(async () => {
-        const res = await fetch('/api/me/modules', {
-          method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ active }),
-        });
-        if (!res.ok) throw new Error(String(res.status));
-        return res.json();
+        const { answer, queued } = await keep('PUT', path, body, { root: true });
+        if (!queued) return answer;
+        const own = { ...answered, ...mine(answered) };
+        try { localStorage.setItem('host.modules', JSON.stringify(own)); } catch { /* private mode, full */ }
+        return own;
       });
-      return sending;
+      return sending.then((answer) => { answered = answer; return answer; });
     };
-    const sendOrder = (order) => {
-      sending = sending.catch(() => {}).then(async () => {
-        const res = await fetch('/api/me/modules/order', {
-          method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order }),
-        });
-        if (!res.ok) throw new Error(String(res.status));
-        return res.json();
-      });
-      return sending;
-    };
+    const send = (active) => sendOne('/api/me/modules', { active },
+      (was) => ({ modules: was.modules.map((m) => ({ ...m, active: active.includes(m.mount) })) }));
+    const sendOrder = (order) => sendOne('/api/me/modules/order', { order },
+      (was) => ({ modules: [...was.modules].sort((a, b) => order.indexOf(a.mount) - order.indexOf(b.mount)) }));
     /** The modules in a new order: drawn in it, kept, and the rail of every page follows. */
     const reorder = async (order) => {
       try {
@@ -1028,8 +1135,8 @@ export function openSettings(options) {
               // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
               modulesChanged();
             } catch (err) {
-              toast(t('errors.generic'), { error: true });
-              throw err;
+              fail(err);
+              throw err;   // the switch goes back
             }
           },
         });
@@ -1058,11 +1165,7 @@ export function openSettings(options) {
           onChange: async (shown) => {
             try {
               // The host's root, as the modules' switches: a module's api.js would ask its own path.
-              const res = await fetch('/api/me/calendar', {
-                method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shown }),
-              });
-              if (!res.ok) throw new Error(String(res.status));
+              await sendOne('/api/me/calendar', { shown }, () => ({ calendar_shown: shown }));
               // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
               modulesChanged();
             } catch (err) {
@@ -1085,9 +1188,14 @@ export function openSettings(options) {
       if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
       for (const m of inUse.filter((x) => x.active)) icons.append(link(m.path, m.icon, m.name));
     };
+    // Without a signal, the modules of last time (with the changes kept for later): they can still
+    // be turned on and off, and put in order.
+    const kept = hostModulesKept();
+    if (kept.modules.length) paint(answered = kept);
     fetch('/api/modules', { credentials: 'same-origin' })
+      .catch(() => Promise.reject(new Offline()))
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((answer) => { paint(answer); repaint(); }, fail);
+      .then((answer) => { if (closed) return; paint(answered = answer); repaint(); }, fail);
     return el('div', {},
       block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.order')), hint(t('kit.modules.one')), hint(t('kit.modules.off')), calendarSwitch),
       installing(icons));

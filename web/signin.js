@@ -24,6 +24,7 @@ import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
 import { inApp, nativeSignOut } from './native.js';
 import { markOwned } from './mount.js';
+import { forgetSettings } from './settings-queue.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -374,6 +375,8 @@ export async function pushEndpoints({ serviceWorker = globalThis.navigator?.serv
 export async function leave({ answer = null, local = null } = {}) {
   await local?.clearAll?.().catch(() => {});
   await clearDeviceCopies().catch(() => {});
+  // Preferences changed without a signal and not sent yet are this account's, not the next person's.
+  forgetSettings();
   // Inside the suite's app on a phone, the app lets go of its device too (native.js); nothing elsewhere.
   // Sent before the page goes anywhere, so the app hears it from this page.
   nativeSignOut();

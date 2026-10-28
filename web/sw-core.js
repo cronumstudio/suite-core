@@ -63,7 +63,7 @@ var SUITE_KIT_FILES = [
   '/suite/fonts/geist-latin.woff2', '/suite/fonts/geist-latin-ext.woff2',
   '/suite/fonts/geist-mono-latin.woff2', '/suite/fonts/space-grotesk-latin.woff2', '/suite/fonts/inter-latin.woff2',
   '/suite/theme.js', '/suite/base.js', '/suite/dom.js', '/suite/i18n.js', '/suite/api.js', '/suite/icons.js', '/suite/ui.js',
-  '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/mount.js', '/suite/local.js', '/suite/outbox.js',
+  '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/mount.js', '/suite/local.js', '/suite/outbox.js', '/suite/settings-queue.js',
   '/suite/signin.js', '/suite/settings.js', '/suite/plan.js', '/suite/usage-view.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js', '/suite/links.js', '/suite/shared.js', '/suite/people.js', '/suite/share.js',
   '/suite/keyboard.js', '/suite/agents.js', '/suite/images.js', '/suite/time-zone.js',
   '/suite/push.js', '/suite/worker.js', '/suite/native.js',
@@ -274,7 +274,10 @@ function suiteWorker(options) {
     if (request.mode === 'navigate') {
       event.respondWith(suiteNetworkFirst(fetch(request), function () {
         // A page of a folder of its own (the host's /split/) has its index.html there.
-        var page = url.pathname.slice(-1) === '/' && url.pathname !== base ? url.pathname + 'index.html' : null;
+        // The base itself is the page the server answers there, as the copy keeps it: in a host whose
+        // page at `/` is another (Cronum Work's shell, host.js `pages[].root`), its index.html is
+        // the home that chooses the modules, and the installed app opened on it offline.
+        var page = url.pathname.slice(-1) !== '/' ? null : url.pathname === base ? base : url.pathname + 'index.html';
         return (page ? caches.match(page) : Promise.resolve(null))
           .then(function (found) { return found || caches.match(suiteAt('/index.html', base)); })
           .then(function (found) { return found || caches.match(base); });
