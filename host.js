@@ -974,6 +974,9 @@ export async function createHost({
     return {
       host: {
         name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendarShown ? { calendar } : {}),
+        // The host's app opens on a page of its own (`pages[].root`, Work's one-document shell): a
+        // module's page installed as an app is then that module on its own, never the host's app.
+        ...(pageList.some((p) => p?.root) ? { shell: true } : {}),
         ...(aiInstruction ? { aiInstruction } : {}),
       },
       // Whether they have it on, where the host has a calendar: Settings › Modules offers the switch.
