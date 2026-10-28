@@ -66,7 +66,7 @@ var SUITE_KIT_FILES = [
   '/suite/shell.js', '/suite/update.js', '/suite/live.js', '/suite/mount.js', '/suite/local.js', '/suite/outbox.js',
   '/suite/signin.js', '/suite/settings.js', '/suite/plan.js', '/suite/usage-view.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js', '/suite/links.js', '/suite/shared.js', '/suite/people.js', '/suite/share.js',
   '/suite/keyboard.js', '/suite/agents.js', '/suite/images.js', '/suite/time-zone.js',
-  '/suite/push.js', '/suite/worker.js', '/suite/native.js',
+  '/suite/push.js', '/suite/worker.js', '/suite/native.js', '/suite/celebrate.js',
 ];
 
 var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];

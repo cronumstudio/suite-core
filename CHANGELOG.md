@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.201.0 — 2026-10-28
+
+- **The celebration when something is done is the suite's** (Martin: «quiero que la opción de
+  celebración la saques de Tasks y la hagas general»): `web/celebrate.js`, taken from Tasks, with
+  `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
+  for a part done, for every module and Cronum Work's calendar. Its confetti is animated with the
+  Web Animations API, so it needs no stylesheet, and hangs in the open dialog the origin is in (a
+  dialog is drawn over everything else). One choice, in Settings › Language and theme › «When
+  something is done»: animation and sound, with a button to try it, kept on the device
+  (`suite.celebrate`); until the person chooses there, what they chose in Tasks
+  (`tasks.celebrate`) holds, so nobody's setting flips. The worker keeps `celebrate.js` with the
+  kit.
+
 ## 0.200.0 — 2026-10-28
 
 - **Each person puts the modules in their own order** (Martin: «seria posible que el usuario
