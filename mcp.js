@@ -12,7 +12,7 @@
  * and may declare the `feature` it needs: with `allows(principal, tool)` the
  * app's plans decide, before the tool runs, and the assistant gets a sentence
  * it can pass on instead of a failure. `quota(principal, tool)` spends one of
- * the person's calls of the day the same way, after `allows`.
+ * the person's calls of the day or week the same way, after `allows`.
  *
  * Before a tool runs, its arguments are checked against its `inputSchema`
  * (`argumentProblems`): types, ranges, `enum`, lengths and `format: 'date'`.
@@ -268,6 +268,18 @@ export function dailyLimitText({ plan_name: planName, limit, more }, appName) {
     : ` The ${more.name} plan includes ${more.limit === null ? 'unlimited calls' : `${more.limit.toLocaleString('en')} a day`}.`;
   return `Daily limit reached: the ${planName} plan includes ${limit.toLocaleString('en')} calls a day from an assistant `
     + `to ${appName}, and today's are used up. They start again at 00:00 UTC.${better} Tell the person, and don't retry today.`;
+}
+
+/**
+ * What an assistant reads when the calls of the week are used up
+ * (entitlements.js countWeekly): the same as dailyLimitText, for a week that
+ * starts again on Monday.
+ */
+export function weeklyLimitText({ plan_name: planName, limit, more }, appName) {
+  const better = !more ? ''
+    : ` The ${more.name} plan includes ${more.limit === null ? 'unlimited calls' : `${more.limit.toLocaleString('en')} a week`}.`;
+  return `Weekly limit reached: the ${planName} plan includes ${limit.toLocaleString('en')} calls a week from an assistant `
+    + `to ${appName}, and this week's are used up. They start again on Monday at 00:00 UTC.${better} Tell the person, and don't retry this week.`;
 }
 
 /**

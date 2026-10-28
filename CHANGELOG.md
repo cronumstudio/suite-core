@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.203.0 — 2026-10-28
+
+- **Calls from assistants by the week** (Martin: «estoy viendo que quizas podriamos cambiar a "uso
+  por semana" como hacen los planes de IA … 100 llamadas al dia es muchisimo y nadie querria pasar
+  al plan pro porque nunca llegarian»): a new common feature, `mcp.calls_per_week`, counted from
+  Monday 00:00 UTC. An app that declares it is counted by the week instead of by the day
+  (`countWeekly()`, and `weeklyLimitText()` for the assistant when they are used up). Its uses are
+  kept by the day under `mcp.calls_per_day`'s key, so a host that moves to it keeps the days it
+  already counted. In `cronum-work`, Free has 100 a week and Pro and Team 2,000; `mcp.calls_per_day`
+  stays as it was (100, 1,000) for whoever still declares it, and Focus and Tracker are untouched.
+  New: `entitlements.countWeekly()`, `better()`, `usedThisWeek()` and `weekStart()`.
+- **The usage panel by the week**: with the calls counted by the week, `GET /api/me/usage` and the
+  admin's add `period: 'week'`, `week` (this week's) and `more` (the next plan with more, or null).
+  Settings › Plan › Your usage shows this week only: «Esta semana», «Se renueva el lunes» and a bar
+  for each day, Monday to Sunday, with their initials and the days still to come empty, without an
+  average. The limit shows while a bigger plan has more to offer, or from 75 % of it: on the top
+  plan a bar almost empty would only say how little it is used, so it says the calls alone. The
+  admin sees the limit always and the last four weeks from Monday, a gap before each, with the
+  average a week since the account was made. A plan's list says «100 llamadas a la semana desde tu
+  IA», and leaves out the daily calls a module of the host still declares. By the day everything
+  is as it was.
+
 ## 0.202.3 — 2026-10-28
 
 - **Cronum Work installed opens without a signal**: its one-document shell loads the kit's

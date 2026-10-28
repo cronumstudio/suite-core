@@ -35,6 +35,8 @@ export const COMMON_FEATURES = Object.freeze({
   mcp: { type: 'flag', default: true, label: 'using the app from an assistant' },
   // Tool calls from assistants per person and day (UTC); listing tools and prompts doesn't count.
   'mcp.calls_per_day': { type: 'limit', default: null, label: 'calls from an assistant per day' },
+  // The same calls per person and week, from Monday (UTC): an app declares this one or the daily one.
+  'mcp.calls_per_week': { type: 'limit', default: null, label: 'calls from an assistant per week' },
 });
 
 /** The common features named, as an app's `features` wants them. */
@@ -52,6 +54,9 @@ const FREE = {
   templates: false,
   mcp: true,
   'mcp.calls_per_day': 100,
+  // What Cronum Work declares since 0.203.0: a week evens out a busy day, and a daily 100 was
+  // more than almost anyone uses, so nobody needed Pro for it.
+  'mcp.calls_per_week': 100,
   sharing: true,
   attachments: true,
   activity: false,
@@ -71,6 +76,7 @@ const PRO = {
   publish: true,
   templates: true,
   'mcp.calls_per_day': 1000,
+  'mcp.calls_per_week': 2000,
   'lists.max': null,
   'projects.max': null,
   'notebooks.max': null,

@@ -316,6 +316,7 @@
   "admin.usage.peak": "{percent} · {what}",
   "admin.usage.noLimits": "Keine Grenzen",
   "admin.usage.noDailyLimit": "Ihr Tarif hat keine Tagesgrenze.",
+  "admin.usage.noWeeklyLimit": "Ihr Tarif hat keine Wochengrenze.",
   "admin.usage.lastChange": "Letzte Änderung: {date}",
   "admin.usage.off": "Ausgeschaltet",
   "admin.usage.failed": "Dieses Modul konnte nicht sagen, was die Person hat.",
@@ -797,6 +798,8 @@
   "kit.plan.benefits.mcp": "{app} aus deiner KI nutzen",
   "kit.plan.benefits.calls": "{n} Aufrufe pro Tag aus deiner KI",
   "kit.plan.benefits.callsUnlimited": "Unbegrenzte Aufrufe aus deiner KI",
+  "kit.plan.benefits.callsWeek": "{n} Aufrufe pro Woche aus deiner KI",
+  "kit.plan.benefits.callsWeekUnlimited": "Unbegrenzte Aufrufe aus deiner KI",
   "kit.plan.status.active": "Aktiv",
   "kit.plan.status.trialing": "Testphase",
   "kit.plan.status.past_due": "Zahlung ausstehend",
@@ -866,6 +869,7 @@
   "kit.usage.failed": "Dieses Modul konnte es gerade nicht zählen.",
   "kit.usage.nothing": "Hier ist noch nichts.",
   "kit.usage.noDailyLimit": "Dein Tarif hat keine Tagesgrenze.",
+  "kit.usage.noWeeklyLimit": "Dein Tarif hat keine Wochengrenze.",
   "kit.usage.reachedNotice": "Du hast die Grenze deines Tarifs erreicht:",
   "kit.usage.nearNotice": "Du näherst dich der Grenze deines Tarifs:",
   "kit.usage.counted.lists": {
@@ -905,6 +909,10 @@
     "one": "{n} Aufruf eines Assistenten heute",
     "other": "{n} Aufrufe von Assistenten heute"
   },
+  "kit.usage.counted.mcpWeek": {
+    "one": "{n} Aufruf eines Assistenten diese Woche",
+    "other": "{n} Aufrufe von Assistenten diese Woche"
+  },
   "kit.usage.free": "Frei",
   "kit.usage.storageChart": "Speicher nach Modul",
   "kit.usage.peakIn": "{what} in {module}",
@@ -928,15 +936,25 @@
   "kit.usage.used": "{size} belegt",
   "kit.usage.mcp": "Aufrufe von Assistenten (MCP)",
   "kit.usage.today": "Heute",
+  "kit.usage.thisWeek": "Diese Woche",
+  "kit.usage.renews": "Beginnt am Montag neu",
   "kit.usage.lastDays": {
     "one": "Erster Tag: {calls}",
     "other": "Letzte {n} Tage: {calls}, im Schnitt {avg} pro Tag"
+  },
+  "kit.usage.lastWeeks": "Letzte {n} Wochen: {calls}, im Schnitt {avg} pro Woche",
+  "kit.usage.lastDaysWeekly": "Letzte {n} Tage: {calls}, im Schnitt {avg} pro Woche",
+  "kit.usage.lastDaysOnly": {
+    "one": "Erster Tag: {calls}",
+    "other": "Letzte {n} Tage: {calls}"
   },
   "kit.usage.calls": {
     "one": "{n} Aufruf",
     "other": "{n} Aufrufe"
   },
   "kit.usage.monthChart": "Aufrufe an jedem der letzten 30 Tage",
+  "kit.usage.weekChart": "Aufrufe an jedem Tag dieser Woche",
+  "kit.usage.weeksChart": "Aufrufe an jedem Tag der letzten 4 Wochen",
   "kit.usage.dayCalls": "{date}: {calls}",
   "kit.data.hint": "Herunterladen, importieren oder löschen",
   "kit.data.hintDelete": "Dein Konto löschen",

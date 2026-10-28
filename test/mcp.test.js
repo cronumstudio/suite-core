@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { sendJson, serveStatic } from '../http.js';
-import { createMcpServer, dailyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
+import { createMcpServer, dailyLimitText, weeklyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
 
 class Unavailable extends Error {}
 class NotFound extends Error {}
@@ -182,6 +182,10 @@ test('the calls of the day: once spent, a sentence instead of the tool, and only
     "Daily limit reached: the Free plan includes 100 calls a day from an assistant to Tasks, and today's are used up. "
     + "They start again at 00:00 UTC. The Pro plan includes 1,000 a day. Tell the person, and don't retry today.");
   assert.match(dailyLimitText({ plan_name: 'Pro', limit: 1000, more: null }, 'Next'), /Pro plan includes 1,000 calls .* 00:00 UTC\. Tell/);
+  assert.equal(weeklyLimitText({ plan_name: 'Free', limit: 100, more: { id: 'pro', name: 'Pro', limit: 2000 } }, 'Cronum Work'),
+    "Weekly limit reached: the Free plan includes 100 calls a week from an assistant to Cronum Work, and this week's are used up. "
+    + "They start again on Monday at 00:00 UTC. The Pro plan includes 2,000 a week. Tell the person, and don't retry this week.");
+  assert.match(weeklyLimitText({ plan_name: 'Pro', limit: 2000, more: null }, 'Work'), /2,000 calls a week .* Monday at 00:00 UTC\. Tell/);
 });
 
 test('batches, notifications, SSE answers and the other methods', async (t) => {

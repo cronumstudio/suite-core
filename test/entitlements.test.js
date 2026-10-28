@@ -12,7 +12,7 @@ import path from 'node:path';
 import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
-import { createEntitlements, importUserPlans } from '../entitlements.js';
+import { createEntitlements, importUserPlans, weekStart } from '../entitlements.js';
 import { PLAN_CATALOGS, COMMON_FEATURES, pick } from '../plans.js';
 import { HttpError } from '../http.js';
 import { createSuite, SuiteConfigError } from '../app.js';
@@ -404,6 +404,48 @@ test('countDaily: calls of the day per person, refused ones not counted, back th
   assert.deepEqual(database.all('SELECT day FROM entitlement_usage WHERE user_id = 1').map((r) => r.day), ['2026-04-01'], 'older than 30 days is cleared');
   e.grant({ subjectId: 1, plan: 'pro', source: 'paddle' });
   assert.deepEqual([e.countDaily(ada, 'mcp.calls_per_day').limit, e.countDaily(ada, 'mcp.calls_per_day').more], [5, null]);
+});
+
+test('countWeekly: calls of the week from Monday, kept by the day under the daily key, back on Monday', (t) => {
+  const database = setup(t);
+  let now = Date.parse('2026-03-04T10:00:00Z');   // a Wednesday
+  const features = pick(COMMON_FEATURES, ['mcp.calls_per_week']);
+  const e = createEntitlements({ database, appId: 'work', features,
+    plansJson: JSON.stringify({ free: { name: 'Free', 'mcp.calls_per_week': 3 }, pro: { name: 'Pro', 'mcp.calls_per_week': 10 } }),
+    clock: () => now });
+  assert.deepEqual(e.errors, []);
+  // Sunday's call, from the daily counts a host kept before it moved to the week, is last week's.
+  database.run("INSERT INTO entitlement_usage (user_id, feature, day, used) VALUES (1, 'mcp.calls_per_day', '2026-03-01', 5)");
+  database.run("INSERT INTO entitlement_usage (user_id, feature, day, used) VALUES (1, 'mcp.calls_per_day', '2026-03-02', 1)");
+  assert.deepEqual(e.countWeekly(ada, 'mcp.calls_per_week'),
+    { allowed: true, used: 2, limit: 3, plan: 'free', plan_name: 'Free', resets: '2026-03-09', more: { id: 'pro', name: 'Pro', limit: 10 } },
+    'Monday’s call counts, Sunday’s doesn’t');
+  now += DAY;
+  assert.equal(e.countWeekly(ada, 'mcp.calls_per_week').used, 3);
+  const refused = e.countWeekly(ada, 'mcp.calls_per_week');
+  assert.deepEqual([refused.allowed, refused.used], [false, 3], 'at the limit, refused and not counted');
+  assert.deepEqual(database.all("SELECT day, used FROM entitlement_usage WHERE user_id = 1 AND day >= '2026-03-02' ORDER BY day")
+    .map((r) => [r.day, Number(r.used)]), [['2026-03-02', 1], ['2026-03-04', 1], ['2026-03-05', 1]]);
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM entitlement_usage WHERE feature = 'mcp.calls_per_week'").n, 0, 'no rows of its own');
+  assert.deepEqual(e.dailyUsage(1, 'mcp.calls_per_week', { days: 3 }).map((d) => d.used), [0, 1, 1], 'its days read the daily rows');
+  assert.deepEqual([...e.usedThisWeek([1, 2], 'mcp.calls_per_week')], [[1, 3], [2, 0]]);
+  assert.deepEqual([...e.usedToday([1], 'mcp.calls_per_week')], [[1, 1]]);
+  assert.deepEqual(e.better(ada, 'mcp.calls_per_week'), { id: 'pro', name: 'Pro', limit: 10 });
+
+  now = Date.parse('2026-03-08T23:59:00Z');   // Sunday night: still this week
+  assert.equal(e.countWeekly(ada, 'mcp.calls_per_week').allowed, false);
+  now = Date.parse('2026-03-09T00:00:00Z');   // Monday 00:00 UTC
+  assert.deepEqual([e.countWeekly(ada, 'mcp.calls_per_week').used, e.countWeekly(ada, 'mcp.calls_per_week').resets], [1, '2026-03-16']);
+
+  e.grant({ subjectId: 1, plan: 'pro', source: 'paddle' });
+  assert.equal(e.better(ada, 'mcp.calls_per_week'), null, 'nothing above the top plan');
+  assert.deepEqual([e.countWeekly(ada, 'mcp.calls_per_week').limit, e.countWeekly(ada, 'mcp.calls_per_week').more], [10, null]);
+  assert.throws(() => e.countWeekly(ada, 'mcp.calls_per_day'), /not declared|unknown|calls_per_day/);
+});
+
+test('weekStart: the Monday of a UTC day', () => {
+  assert.deepEqual(['2026-03-02', '2026-03-04', '2026-03-08', '2026-03-09', '2027-01-01'].map(weekStart),
+    ['2026-03-02', '2026-03-02', '2026-03-02', '2026-03-09', '2026-12-28']);
 });
 
 test('an organization’s plan covers its members', (t) => {

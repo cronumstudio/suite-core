@@ -561,6 +561,28 @@ test('the calls of the day from assistants count once for the whole app, whichev
   assert.match(await text('alpha_list_items'), /^Daily limit reached: .* 2 calls a day from an assistant to Work/);
 });
 
+test('with calls by the week, /mcp counts this week’s for the whole app, and the usage says the week’s', async (t) => {
+  const config = { ...HOST, features: { 'mcp.calls_per_week': { type: 'limit', default: 2, label: 'calls a week' } } };
+  const { call } = await startHost(t, { config });
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const ana = (await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' })).data.id;
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  const token = (await call('POST', '/api/me/tokens', { name: 'Claude' })).data.token;
+  let id = 0;
+  const text = async (name, args = {}) => (await call('POST', '/mcp', { jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } },
+    { Authorization: `Bearer ${token}` })).data.result.content[0].text;
+  assert.equal(await text('alpha_add_item', { text: 'One' }), 'Added.');
+  assert.equal(await text('beta_list_items'), '[]');
+  assert.match(await text('alpha_list_items'), /^Weekly limit reached: .* 2 calls a week from an assistant to Work, .* on Monday at 00:00 UTC/);
+
+  const mine = (await call('GET', '/api/me/usage')).data.mcp;
+  assert.deepEqual([mine.period, mine.limit, mine.today, mine.week, mine.share, mine.more, mine.total, mine.days.length], ['week', 2, 2, 2, 1, null, 2, 30]);
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.deepEqual((await call('GET', '/api/admin/usage')).data.peaks[ana], { share: 1, id: 'mcp' }, 'the list weighs the week too');
+});
+
 test('the storage a plan allows is the person’s, added up across the modules', async (t) => {
   const { host, call, lines } = await startHost(t);
   const [alpha, beta] = host.modules;
