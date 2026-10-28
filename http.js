@@ -35,11 +35,20 @@ export const conflict = (code = 'conflict', extra) => new HttpError(409, code, e
 
 /* --------------------------------- output --------------------------------- */
 
+/**
+ * An answer to a path that ends in /mcp or /sse (the MCP, its OAuth metadata, a module's old one,
+ * the old SSE transport): Avast's Web Shield, with its MCP detection, rewrites one that has a
+ * Content-Length into one that says "chunked" and isn't, and every MCP client on that computer
+ * fails ("Invalid character in chunk size"), the suite's own tests too. Without the length Node
+ * sends it chunked, which Avast lets through.
+ */
+const toMcp = (res) => /\/(mcp|sse)\/?$/i.test(String(res.req?.url ?? '').split('?')[0]);
+
 export function sendJson(res, status, data, headers = {}) {
   const body = status === 204 ? '' : JSON.stringify(data);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
+    ...(toMcp(res) ? {} : { 'Content-Length': Buffer.byteLength(body) }),
     'Cache-Control': 'no-store',
     ...headers,
   });
@@ -332,7 +341,8 @@ export function serveStatic(root, urlPath, res) {
   }
   res.writeHead(200, {
     'Content-Type': MIME[ext] || 'application/octet-stream',
-    'Content-Length': stat.size,
+    // The app's page at /mcp, for an app whose MCP has no tools: Avast's rewrite (sendJson).
+    ...(toMcp(res) ? {} : { 'Content-Length': stat.size }),
     ETag: etag,
     'Cache-Control': cacheControl,
   });

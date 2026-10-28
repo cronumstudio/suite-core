@@ -1118,7 +1118,8 @@ export function openSettings(options) {
 
   /**
    * Installing on this device: on the web Cronum Work or each module on its own, in the suite's
-   * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way.
+   * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way,
+   * then what installing it gives: it opens as an app and keeps what was seen, for without a signal.
    */
   function installing(icons) {
     const native = inApp();
@@ -1133,7 +1134,8 @@ export function openSettings(options) {
       hint(t(native ? 'kit.modules.installApp' : 'kit.modules.installWeb', { host: host.name })),
       el('ol', { class: 'kit-steps' },
         el('li', {}, el('p', { text: t(pick) }), icons),
-        el('li', {}, el('p', { text: t(how) }))));
+        el('li', {}, el('p', { text: t(how) })),
+        el('li', {}, el('p', { text: t('kit.modules.installOffline') }))));
   }
 
   function ai() {
@@ -1881,20 +1883,23 @@ const BENEFITS = Object.freeze([
   ['storage.mb', 'storage'], ['attachments', 'attachments'], ['files.per_note', 'filesPerNote'],
   ['sharing', 'sharing'], ['assign', 'assign'], ['publish', 'publish'], ['templates', 'templates'], ['activity', 'activity'],
   ['retention.days', 'retention'], ['history.days', 'history'], ['mcp', 'mcp'], ['mcp.calls_per_day', 'calls'],
+  ['mcp.calls_per_week', 'callsWeek'],
 ]);
 
 /**
  * What a plan includes as people read it: `features` as /api/me/entitlements gives them →
  * [{ text, included }], what is included first. A limit is a number, or null for none; a flag,
  * whether it is in. A key the kit doesn't name is left out, and so are the assistant's calls when
- * the assistant isn't included.
+ * the assistant isn't included, and those of the day when they are counted by the week (a host's,
+ * while a module of it still declares the daily ones).
  */
 export function planBenefits(features = {}, { app = '' } = {}) {
   const lines = [];
   for (const [key, name] of BENEFITS) {
     if (!(key in features)) continue;
     const value = features[key];
-    if (key === 'mcp.calls_per_day' && features.mcp === false) continue;
+    if (key.startsWith('mcp.calls_per_') && features.mcp === false) continue;
+    if (key === 'mcp.calls_per_day' && 'mcp.calls_per_week' in features) continue;
     if (typeof value === 'boolean') {
       lines.push({ text: t(`kit.plan.benefits.${name}`, { app }), included: value });
     } else if (value === null) {

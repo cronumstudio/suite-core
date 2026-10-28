@@ -8,12 +8,16 @@
  *   usageGroups(usage, { admin: true })         // the admin's: every module, off or on, and its last change
  *   atLimit(usage)                              // what is near or at a cap, as "17 lists", for a notice
  *
+ * The calls from assistants are counted by the week when the host's plans say so (`mcp.period`):
+ * each person sees this week, Monday to Sunday, and the admin the last four, with the average a
+ * week; by the day, the last 30 days and the average a day.
+ *
  * The storage is one bar split by module, as a phone shows its own: each module in the colour of
  * its icon (kit.css, by `data-part`: `data-module` is a module's window in Work, where its sheet
  * applies), the room left grey, and a legend with each one's size.
  */
 import { el } from './dom.js';
-import { t, formatDate, formatDateTime, numberFormat } from './i18n.js';
+import { t, formatDate, formatDateTime, numberFormat, dateFormat } from './i18n.js';
 
 const MB = 1024 * 1024;
 export const percent = (share) => numberFormat({ style: 'percent', maximumFractionDigits: 0 }).format(share);
@@ -57,15 +61,97 @@ function usageRow(label, value, share = null, note = null, { bar = true } = {}) 
     note ? el('small', { class: 'kit-usage__note', text: note }) : null);
 }
 
-/** The calls of the last 30 days as bars, today the last; each says its day and count on hover. */
-function dayBars(days) {
+/**
+ * The days that count of those given: from the one the account was made (`since`), or from the
+ * first with calls if that is earlier (an account brought from an app keeps its own), so a
+ * younger account isn't averaged over days it didn't exist.
+ */
+export function countedDays(mcp) {
+  const first = mcp.days.findIndex((d) => d.used > 0 || (mcp.since != null && d.day >= mcp.since));
+  return mcp.since == null ? mcp.days : mcp.days.slice(first < 0 ? mcp.days.length - 1 : first);
+}
+
+/** A UTC day ('2026-03-04') moved by `n` days. */
+const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+
+/**
+ * The days of `weeks` whole weeks, Monday to Sunday, this one the last (entitlements.js weekStart):
+ * each as `days` has it, which ends today, and those still to come with `ahead`.
+ */
+export function weekDays(days, weeks) {
+  const today = days.at(-1).day;
+  const monday = addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7));
+  const from = addDays(monday, -7 * (weeks - 1));
+  const used = new Map(days.map((d) => [d.day, d.used]));
+  return Array.from({ length: 7 * weeks }, (_, i) => {
+    const day = addDays(from, i);
+    return day > today ? { day, used: 0, ahead: true } : { day, used: used.get(day) ?? 0 };
+  });
+}
+
+/**
+ * The calls of each day as bars, today the last or, in weeks, the days still to come after it:
+ * those and the days before the account (the first `from`) an empty slot, and in weeks a gap
+ * before each Monday. Each day is a column as tall as the chart, so a quiet one is as easy to
+ * point at as a busy one, and pointing at it (or tapping it, which focuses it) shows its day and
+ * calls above.
+ */
+function dayBars(days, { from, label, weeks = 0 }) {
   const top = Math.max(1, ...days.map((d) => d.used));
-  return el('div', { class: 'kit-usage__days', role: 'img', 'aria-label': t('kit.usage.monthChart') },
-    days.map((d) => el('span', {
-      class: d.used ? null : 'kit-usage__day--none',
-      title: t('kit.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), n: whole(d.used) }),
-      style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%`,
-    })));
+  return el('div', { class: `kit-usage__days${weeks === 1 ? ' kit-usage__days--week' : weeks ? ' kit-usage__days--weeks' : ''}`, role: 'img', 'aria-label': label },
+    days.map((d, i) => {
+      const monday = weeks > 1 && i > 0 && i % 7 === 0 ? ' kit-usage__day--monday' : '';
+      if (i < from || d.ahead) return el('span', { class: `kit-usage__day kit-usage__day--${d.ahead ? 'ahead' : 'before'}${monday}` });
+      return el('span', {
+        class: `kit-usage__day${d.used ? '' : ' kit-usage__day--none'}${monday}`, tabindex: '-1',
+        'data-tip': t('kit.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), calls: t('kit.usage.calls', { n: d.used }) }),
+      }, el('span', { style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%` }));
+    }));
+}
+
+/** The initials of a week's days under its bars, so the empty ones read as days still to come. */
+function weekdays(days) {
+  const initial = dateFormat({ weekday: 'narrow', timeZone: 'UTC' });
+  return el('div', { class: 'kit-usage__weekdays', 'aria-hidden': 'true' },
+    days.map((d) => el('span', { text: initial.format(new Date(`${d.day}T12:00:00Z`)) })));
+}
+
+/**
+ * The calls by the week. The limit shows to the admin always, and to each person while a bigger
+ * plan has more to offer or from 75 % of it: on the top plan a bar almost empty would only say
+ * how little they use it. Each person sees this week's days; the admin the last four weeks, with
+ * the average a week since the account was made (`countedDays`), once it has a week of them.
+ */
+function weeklyCalls(mcp, { admin, say }) {
+  const shown = mcp.limit != null && (admin || mcp.more != null || mcp.share >= 0.75);
+  const row = usageRow(t('kit.usage.thisWeek'),
+    shown ? t('kit.usage.ofLimit', { count: whole(mcp.week), limit: whole(mcp.limit) }) : t('kit.usage.calls', { n: mcp.week }),
+    shown ? mcp.share : null, mcp.limit == null ? say('noWeeklyLimit') : shown ? t('kit.usage.renews') : null);
+  const days = weekDays(mcp.days, admin ? 4 : 1);
+  const past = days.filter((d) => !d.ahead);
+  const counted = countedDays({ ...mcp, days: past });
+  const from = past.length - counted.length;
+  if (!admin) return [row, dayBars(days, { from, label: t('kit.usage.weekChart'), weeks: 1 }), weekdays(days)];
+  const total = counted.reduce((a, d) => a + d.used, 0);
+  const calls = t('kit.usage.calls', { n: total });
+  const avg = whole(Math.round((total / counted.length) * 7));
+  const note = counted.length < 7 ? t('kit.usage.lastDaysOnly', { n: counted.length, calls })
+    : from === 0 ? t('kit.usage.lastWeeks', { n: 4, calls, avg }) : t('kit.usage.lastDaysWeekly', { n: counted.length, calls, avg });
+  return [row, el('small', { class: 'kit-usage__note', text: note }), dayBars(days, { from, label: t('kit.usage.weeksChart'), weeks: 4 })];
+}
+
+/** The calls by the day: today against the limit, the average a day and the last 30 days. */
+function dailyCalls(mcp, { say }) {
+  const counted = countedDays(mcp);
+  const average = counted.length ? mcp.total / counted.length : 0;
+  return [
+    usageRow(t('kit.usage.today'), mcp.limit == null ? whole(mcp.today) : t('kit.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }),
+      mcp.share, mcp.limit == null ? say('noDailyLimit') : null),
+    el('small', { class: 'kit-usage__note', text: t('kit.usage.lastDays', {
+      n: counted.length, calls: t('kit.usage.calls', { n: mcp.total }), avg: whole(average),
+    }) }),
+    dayBars(mcp.days, { from: mcp.days.length - counted.length, label: t('kit.usage.monthChart') }),
+  ];
 }
 
 /**
@@ -108,7 +194,9 @@ export function atLimit(usage) {
     for (const c of m.counts) add(c.share, t(`kit.usage.counted.${c.id}`, { n: c.count }));
   }
   if (usage.storage) add(usage.storage.share, t('kit.usage.counted.storage', { size: sizeText(usage.storage.bytes) }));
-  if (usage.mcp) add(usage.mcp.share, t('kit.usage.counted.mcp', { n: usage.mcp.today }));
+  if (usage.mcp) {
+    add(usage.mcp.share, usage.mcp.period === 'week' ? t('kit.usage.counted.mcpWeek', { n: usage.mcp.week }) : t('kit.usage.counted.mcp', { n: usage.mcp.today }));
+  }
   return found.sort((a, b) => b.share - a.share);
 }
 
@@ -131,7 +219,6 @@ export function usageGroups(usage, { admin = false } = {}) {
       : m.counts.length ? null : el('p', { class: 'kit-hint', text: m.bytes ? t('kit.usage.used', { size: sizeText(m.bytes) }) : say('nothing') })));
 
   const { storage, mcp } = usage;
-  const average = mcp?.days.length ? mcp.total / mcp.days.length : 0;
   return el('div', { class: 'kit-usage' },
     groups,
     storage ? el('section', { class: 'kit-usage__group' },
@@ -145,8 +232,5 @@ export function usageGroups(usage, { admin = false } = {}) {
       el('small', { class: 'kit-usage__note', text: t('kit.usage.filesCount', { n: storage.files }) })) : null,
     mcp ? el('section', { class: 'kit-usage__group' },
       el('h4', { class: 'kit-usage__title', text: t('kit.usage.mcp') }),
-      usageRow(t('kit.usage.today'), mcp.limit == null ? whole(mcp.today) : t('kit.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }),
-        mcp.share, mcp.limit == null ? say('noDailyLimit') : null),
-      el('small', { class: 'kit-usage__note', text: t('kit.usage.month', { n: whole(mcp.total), avg: whole(average) }) }),
-      dayBars(mcp.days)) : null);
+      ...(mcp.period === 'week' ? weeklyCalls(mcp, { admin, say }) : dailyCalls(mcp, { say }))) : null);
 }

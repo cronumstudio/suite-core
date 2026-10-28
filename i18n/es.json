@@ -316,6 +316,7 @@
   "admin.usage.peak": "{percent} · {what}",
   "admin.usage.noLimits": "Sin límites",
   "admin.usage.noDailyLimit": "Su plan no tiene tope diario.",
+  "admin.usage.noWeeklyLimit": "Su plan no tiene tope semanal.",
   "admin.usage.lastChange": "Último cambio: {date}",
   "admin.usage.off": "Desactivado",
   "admin.usage.failed": "Este módulo no ha podido decir qué tiene.",
@@ -804,6 +805,8 @@
   "kit.plan.benefits.mcp": "Usar {app} desde tu IA",
   "kit.plan.benefits.calls": "{n} llamadas al día desde tu IA",
   "kit.plan.benefits.callsUnlimited": "Llamadas sin límite desde tu IA",
+  "kit.plan.benefits.callsWeek": "{n} llamadas a la semana desde tu IA",
+  "kit.plan.benefits.callsWeekUnlimited": "Llamadas sin límite desde tu IA",
   "kit.plan.status.active": "Activa",
   "kit.plan.status.trialing": "De prueba",
   "kit.plan.status.past_due": "Pago pendiente",
@@ -873,6 +876,7 @@
   "kit.usage.failed": "Este módulo no ha podido contarlo ahora.",
   "kit.usage.nothing": "Aquí aún no hay nada.",
   "kit.usage.noDailyLimit": "Tu plan no tiene tope diario.",
+  "kit.usage.noWeeklyLimit": "Tu plan no tiene tope semanal.",
   "kit.usage.reachedNotice": "Has llegado al límite de tu plan:",
   "kit.usage.nearNotice": "Te acercas al límite de tu plan:",
   "kit.usage.counted.lists": {
@@ -912,6 +916,10 @@
     "one": "{n} llamada del asistente hoy",
     "other": "{n} llamadas del asistente hoy"
   },
+  "kit.usage.counted.mcpWeek": {
+    "one": "{n} llamada del asistente esta semana",
+    "other": "{n} llamadas del asistente esta semana"
+  },
   "kit.usage.free": "Libre",
   "kit.usage.storageChart": "Espacio por módulo",
   "kit.usage.peakIn": "{what} en {module}",
@@ -935,9 +943,26 @@
   "kit.usage.used": "{size} usados",
   "kit.usage.mcp": "Llamadas del asistente (MCP)",
   "kit.usage.today": "Hoy",
-  "kit.usage.month": "Últimos 30 días: {n}, {avg} al día de media",
+  "kit.usage.thisWeek": "Esta semana",
+  "kit.usage.renews": "Se renueva el lunes",
+  "kit.usage.lastDays": {
+    "one": "Primer día: {calls}",
+    "other": "Últimos {n} días: {calls}, {avg} al día de media"
+  },
+  "kit.usage.lastWeeks": "Últimas {n} semanas: {calls}, {avg} a la semana de media",
+  "kit.usage.lastDaysWeekly": "Últimos {n} días: {calls}, {avg} a la semana de media",
+  "kit.usage.lastDaysOnly": {
+    "one": "Primer día: {calls}",
+    "other": "Últimos {n} días: {calls}"
+  },
+  "kit.usage.calls": {
+    "one": "{n} llamada",
+    "other": "{n} llamadas"
+  },
   "kit.usage.monthChart": "Llamadas de cada uno de los últimos 30 días",
-  "kit.usage.dayCalls": "{date}: {n}",
+  "kit.usage.weekChart": "Llamadas de cada día de esta semana",
+  "kit.usage.weeksChart": "Llamadas de cada día de las últimas 4 semanas",
+  "kit.usage.dayCalls": "{date}: {calls}",
   "kit.data.hint": "Descargar, importar o borrar",
   "kit.data.hintDelete": "Borrar tu cuenta",
   "kit.data.confirmWord": "BORRAR",
@@ -1015,6 +1040,7 @@
   "kit.modules.installMacSafari": "En el menú Archivo, elige «Añadir al Dock».",
   "kit.modules.installFirefox": "Firefox no instala aplicaciones en el ordenador: abre la página en Chrome, Edge o Safari e instálala desde allí.",
   "kit.modules.installDesktop": "Pulsa el botón de instalar de la barra de direcciones o, en el menú del navegador, la opción de instalar la página como aplicación.",
+  "kit.modules.installOffline": "Listo: se abre como una app más y guarda en el dispositivo lo que ya has visto, así que puedes consultarlo sin conexión y seguir trabajando: los cambios se envían cuando vuelve la red.",
   "kit.split.title": "Pantalla dividida",
   "kit.split.layout1": "Una app",
   "kit.split.layout2": "2 apps en columnas",

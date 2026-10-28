@@ -316,6 +316,7 @@
   "admin.usage.peak": "{percent} · {what}",
   "admin.usage.noLimits": "Sans limites",
   "admin.usage.noDailyLimit": "Son offre n'a pas de limite quotidienne.",
+  "admin.usage.noWeeklyLimit": "Son offre n'a pas de limite hebdomadaire.",
   "admin.usage.lastChange": "Dernière modification : {date}",
   "admin.usage.off": "Désactivé",
   "admin.usage.failed": "Ce module n'a pas pu dire ce que la personne a.",
@@ -804,6 +805,8 @@
   "kit.plan.benefits.mcp": "Utiliser {app} depuis ton IA",
   "kit.plan.benefits.calls": "{n} appels par jour depuis ton IA",
   "kit.plan.benefits.callsUnlimited": "Appels illimités depuis ton IA",
+  "kit.plan.benefits.callsWeek": "{n} appels par semaine depuis ton IA",
+  "kit.plan.benefits.callsWeekUnlimited": "Appels illimités depuis ton IA",
   "kit.plan.status.active": "Actif",
   "kit.plan.status.trialing": "Période d’essai",
   "kit.plan.status.past_due": "Paiement en attente",
@@ -873,6 +876,7 @@
   "kit.usage.failed": "Ce module n’a pas pu le compter pour l’instant.",
   "kit.usage.nothing": "Rien ici pour l’instant.",
   "kit.usage.noDailyLimit": "Votre offre n’a pas de limite quotidienne.",
+  "kit.usage.noWeeklyLimit": "Votre offre n’a pas de limite hebdomadaire.",
   "kit.usage.reachedNotice": "Vous avez atteint la limite de votre offre :",
   "kit.usage.nearNotice": "Vous approchez de la limite de votre offre :",
   "kit.usage.counted.lists": {
@@ -912,6 +916,10 @@
     "one": "{n} appel d’assistant aujourd’hui",
     "other": "{n} appels d’assistants aujourd’hui"
   },
+  "kit.usage.counted.mcpWeek": {
+    "one": "{n} appel d’assistant cette semaine",
+    "other": "{n} appels d’assistants cette semaine"
+  },
   "kit.usage.free": "Libre",
   "kit.usage.storageChart": "Stockage par module",
   "kit.usage.peakIn": "{what} dans {module}",
@@ -935,9 +943,26 @@
   "kit.usage.used": "{size} utilisés",
   "kit.usage.mcp": "Appels des assistants (MCP)",
   "kit.usage.today": "Aujourd'hui",
-  "kit.usage.month": "30 derniers jours : {n}, {avg} par jour en moyenne",
+  "kit.usage.thisWeek": "Cette semaine",
+  "kit.usage.renews": "Repart à zéro lundi",
+  "kit.usage.lastDays": {
+    "one": "Premier jour : {calls}",
+    "other": "{n} derniers jours : {calls}, {avg} par jour en moyenne"
+  },
+  "kit.usage.lastWeeks": "{n} dernières semaines : {calls}, {avg} par semaine en moyenne",
+  "kit.usage.lastDaysWeekly": "{n} derniers jours : {calls}, {avg} par semaine en moyenne",
+  "kit.usage.lastDaysOnly": {
+    "one": "Premier jour : {calls}",
+    "other": "{n} derniers jours : {calls}"
+  },
+  "kit.usage.calls": {
+    "one": "{n} appel",
+    "other": "{n} appels"
+  },
   "kit.usage.monthChart": "Appels de chacun des 30 derniers jours",
-  "kit.usage.dayCalls": "{date} : {n}",
+  "kit.usage.weekChart": "Appels de chaque jour de cette semaine",
+  "kit.usage.weeksChart": "Appels de chaque jour des 4 dernières semaines",
+  "kit.usage.dayCalls": "{date} : {calls}",
   "kit.data.hint": "Télécharger, importer ou supprimer",
   "kit.data.hintDelete": "Supprimer votre compte",
   "kit.data.confirmWord": "SUPPRIMER",
@@ -1015,6 +1040,7 @@
   "kit.modules.installMacSafari": "Dans le menu Fichier, choisissez « Ajouter au Dock ».",
   "kit.modules.installFirefox": "Firefox n’installe pas d’applications sur ordinateur : ouvrez la page dans Chrome, Edge ou Safari et installez-la depuis là.",
   "kit.modules.installDesktop": "Cliquez sur le bouton d’installation de la barre d’adresse ou, dans le menu du navigateur, sur l’option pour installer la page comme application.",
+  "kit.modules.installOffline": "C’est fait : elle s’ouvre comme une autre application et garde sur l’appareil ce que vous avez déjà vu, que vous pouvez consulter sans connexion et continuer à modifier : vos modifications partent au retour du réseau.",
   "kit.split.title": "Écran partagé",
   "kit.split.layout1": "Une app",
   "kit.split.layout2": "2 apps en colonnes",

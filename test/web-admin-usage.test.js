@@ -86,21 +86,90 @@ test('Usage: each account’s nearest cap in the list, and in its dialog each mo
   assert.match(text, new RegExp(t('admin.usage.nothing')));
   assert.match(text, /3 MB of 50 MB · 6\s?%/);
   assert.match(text, new RegExp(t('kit.usage.reached')), 'today’s calls at the limit, in words');
-  assert.match(text, /Last 30 days: 104/);
+  assert.match(text, /Last 30 days: 104 calls, 3\.5 a day on average/, 'an account older than the month: its 30 days');
   const bars = fold.find('div').find((n) => n.getAttribute('class') === 'kit-usage__days');
   assert.equal(bars.childNodes.length, 30);
-  assert.equal(bars.childNodes.at(-1).getAttribute('style'), 'block-size: 100%', 'the busiest day reaches the top');
-  assert.equal(bars.childNodes[0].getAttribute('class'), 'kit-usage__day--none', 'a day without calls is a stub');
+  assert.equal(bars.childNodes.at(-1).childNodes[0].getAttribute('style'), 'block-size: 100%', 'the busiest day reaches the top');
+  assert.equal(bars.childNodes[0].getAttribute('class'), 'kit-usage__day kit-usage__day--none', 'a day without calls is a stub');
+  assert.match(bars.childNodes.at(-1).getAttribute('data-tip'), /: 90 calls$/, 'pointing at a day says its calls');
+  assert.match(bars.childNodes[1].getAttribute('data-tip'), /: 1 call$/);
+  assert.equal(bars.childNodes.at(-1).getAttribute('tabindex'), '-1', 'a tap focuses it, the Tab key passes it by');
   dialog.close();
 
   // Someone with no daily limit: their calls counted all the same, with no bar of a limit.
   server['GET /api/admin/users/2/grants'] = { grants: [] };
-  server['GET /api/admin/users/2/usage'] = { ...USAGE, user_id: 2, mcp: { limit: null, today: 12, share: null, days, total: 104 }, peak: null };
+  // …and made three days ago: the average is of its three days, and the days before it are empty.
+  server['GET /api/admin/users/2/usage'] = { ...USAGE, user_id: 2, mcp: { limit: null, today: 12, share: null, days: days.map((d, i) => (i < 27 ? { ...d, used: 0 } : d)), since: '2026-10-28', total: 91 }, peak: null };
   rows[1].dispatch('click');
   for (let turn = 0; turn < 20; turn++) await settle();
   const ben = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
   const benText = ben.find('details').find((node) => node.find('summary')[0].textContent.startsWith(t('admin.usage.title'))).textContent;
   assert.match(benText, new RegExp(`${t('kit.usage.today')}12${t('admin.usage.noDailyLimit')}`));
-  assert.match(benText, /Last 30 days: 104/);
+  assert.match(benText, /Last 3 days: 91 calls, 30\.3 a day on average/);
+  const benBars = ben.find('div').find((n) => n.getAttribute('class') === 'kit-usage__days');
+  assert.equal(benBars.childNodes.length, 30, 'the chart is still the month, today the last');
+  assert.equal(benBars.childNodes.filter((n) => n.getAttribute('class') === 'kit-usage__day kit-usage__day--before').length, 27);
+  assert.equal(benBars.childNodes[26].getAttribute('data-tip'), null, 'a day before the account says nothing');
   ben.close();
+});
+
+test('calls by the week: the admin sees four weeks from Monday and the average a week, each person this week, the limit while a bigger plan has more', async () => {
+  // Uses the English catalog the test above loaded. 30 October 2026 is a Friday: the week began on the 26th.
+  const { usageGroups, atLimit, weekDays } = await import('../web/usage-view.js');
+  const weekly = (mcp) => ({ ...USAGE, mcp: { period: 'week', limit: 100, today: 90, week: 92, share: 0.92, more: { id: 'pro', name: 'Pro', limit: 2000 }, days, since: null, total: 104, ...mcp } });
+  const calls = (node) => node.find('section').at(-1);
+  const chart = (node) => calls(node).find('div').find((n) => (n.getAttribute('class') || '').startsWith('kit-usage__days'));
+  const kinds = (bars) => bars.childNodes.map((n) => (n.getAttribute('class').match(/--(none|before|ahead)/)?.[1] ?? 'day'));
+
+  assert.deepEqual(weekDays(days, 1).map((d) => [d.day, d.used, d.ahead ?? false]), [['2026-10-26', 1, false], ['2026-10-27', 0, false],
+    ['2026-10-28', 1, false], ['2026-10-29', 0, false], ['2026-10-30', 90, false], ['2026-10-31', 0, true], ['2026-11-01', 0, true]]);
+  assert.equal(weekDays(days, 4)[0].day, '2026-10-05');
+
+  const admin = calls(usageGroups(weekly(), { admin: true }));
+  assert.match(admin.textContent, /^Calls from assistants \(MCP\)This week92 of 100 · 92\s?%/);
+  assert.match(admin.textContent, new RegExp(t('kit.usage.renews')));
+  assert.match(admin.textContent, /Last 4 weeks: 102 calls, 27 a week on average/, 'the days so far of four weeks, by the week');
+  const weeks = chart(usageGroups(weekly(), { admin: true }));
+  assert.equal(weeks.getAttribute('class'), 'kit-usage__days kit-usage__days--weeks');
+  assert.equal(weeks.childNodes.length, 28, 'four weeks, Monday to Sunday');
+  assert.deepEqual(weeks.childNodes.map((n, i) => (n.getAttribute('class').includes('--monday') ? i : null)).filter((i) => i !== null), [7, 14, 21]);
+  assert.deepEqual(kinds(weeks).slice(-3), ['day', 'ahead', 'ahead'], 'Saturday and Sunday still to come');
+  assert.equal(weeks.childNodes.at(-1).getAttribute('data-tip'), null);
+  assert.match(weeks.childNodes[25].getAttribute('data-tip'), /: 90 calls$/);
+
+  // Younger than a week: no average; younger than four weeks: since the account.
+  const young = { days: days.map((d, i) => (i < 27 ? { ...d, used: 0 } : d)), since: '2026-10-28', total: 91 };
+  assert.match(calls(usageGroups(weekly(young), { admin: true })).textContent, /Last 3 days: 91 calls$/);
+  const days11 = { days: days.map((d, i) => (i < 19 ? { ...d, used: 0 } : d)), since: '2026-10-20', total: 95 };
+  assert.match(calls(usageGroups(weekly(days11), { admin: true })).textContent, /Last 11 days: 95 calls, 60 a week on average/);
+  assert.equal(kinds(chart(usageGroups(weekly(young), { admin: true }))).filter((k) => k === 'before').length, 23);
+
+  // Each person: this week only, no average.
+  const own = calls(usageGroups(weekly()));
+  assert.match(own.textContent, /^Calls from assistants \(MCP\)This week92 of 100 · 92\s?%Near the limitStarts again on MondayMTWTFSS$/, 'no average, the initials of the days');
+  const week = chart(usageGroups(weekly()));
+  assert.equal(week.getAttribute('class'), 'kit-usage__days kit-usage__days--week');
+  assert.deepEqual(kinds(week), ['day', 'none', 'day', 'none', 'day', 'ahead', 'ahead']);
+  assert.deepEqual(kinds(chart(usageGroups(weekly(young)))), ['before', 'before', 'day', 'none', 'day', 'ahead', 'ahead']);
+  assert.deepEqual(atLimit(weekly()).map((c) => c.text), ['92 assistant calls this week', '17 lists'], 'the worst first');
+
+  // On the top plan, far from the limit: the calls alone, without a bar that would say how few.
+  const top = calls(usageGroups(weekly({ limit: 2000, week: 320, share: 0.16, more: null })));
+  assert.equal(top.textContent, `${t('kit.usage.mcp')}${t('kit.usage.thisWeek')}320 callsMTWTFSS`);
+  assert.equal(top.find('span').filter((n) => n.getAttribute('role') === 'meter').length, 0);
+  assert.match(calls(usageGroups(weekly({ limit: 2000, week: 1600, share: 0.8, more: null }))).textContent, /1,600 of 2,000 · 80\s?%/, 'near it, the limit shows');
+  assert.match(calls(usageGroups(weekly({ limit: null, week: 320, share: null, more: null }))).textContent,
+    new RegExp(`320 calls${t('kit.usage.noWeeklyLimit')}`));
+  assert.match(calls(usageGroups(weekly({ limit: 2000, week: 320, share: 0.16, more: null }), { admin: true })).textContent, /320 of 2,000/, 'the admin always sees it');
+});
+
+test('countedDays: the days of the month since the account, or since its first call when that is earlier', async () => {
+  const { countedDays } = await import('../web/usage-view.js');
+  const month = (used = () => 0) => Array.from({ length: 30 }, (_, i) => ({ day: `2026-10-${String(i + 1).padStart(2, '0')}`, used: used(i) }));
+  assert.equal(countedDays({ days: month() }).length, 30, 'without the day of the account, all of them');
+  assert.equal(countedDays({ days: month(), since: '2025-01-09' }).length, 30, 'an account older than the month');
+  assert.equal(countedDays({ days: month(), since: '2026-10-28' }).length, 3);
+  assert.equal(countedDays({ days: month(), since: '2026-10-30' }).length, 1, 'made today: today');
+  assert.equal(countedDays({ days: month(), since: '2026-11-02' }).length, 1, 'a clock behind: today all the same');
+  assert.equal(countedDays({ days: month((i) => (i === 19 ? 4 : 0)), since: '2026-10-28' }).length, 11, 'calls before the account (one brought from an app) count from the first');
 });

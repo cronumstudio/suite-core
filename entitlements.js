@@ -48,6 +48,19 @@ const DAY = 24 * 3600 * 1000;
 export const USAGE_DAYS = 30;
 
 /**
+ * The weekly limits that add up the days of a daily one: their uses are kept per UTC day under the
+ * daily key, so a host that moves from one to the other keeps the days already counted.
+ */
+const DAYS_OF = Object.freeze({ 'mcp.calls_per_week': 'mcp.calls_per_day' });
+const rowsOf = (feature) => DAYS_OF[feature] ?? feature;
+
+/** A UTC day ('2026-03-04') moved by `n` days. */
+const addDays = (day, n) => iso(Date.parse(`${day}T00:00:00Z`) + n * DAY).slice(0, 10);
+
+/** The Monday of a UTC day's week, where a weekly limit starts again: '2026-03-04' → '2026-03-02'. */
+export const weekStart = (day) => addDays(day, -((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7));
+
+/**
  * Plan ids renamed when every app moved them to English (Tasks' "gratis" is "free"). Like a renamed
  * variable (config.js), the old id is not read in what an install holds —a key of PLANS,
  * DEFAULT_PLAN—: it stops the start and names the new one. An alias would keep the install on the
@@ -480,66 +493,105 @@ export function createEntitlements({
     return iso(edge);
   }
 
+  /** The next plan of the catalog that allows more of a limit than `value`: { id, name, limit }, or null. */
+  function moreThan(planId, feature, value) {
+    if (value === null) return null;
+    const better = planIds.slice(rank(planId) + 1).map((id) => catalog[id])
+      .find((plan) => plan.features[feature] === null || plan.features[feature] > value);
+    return better ? { id: better.id, name: better.name, limit: better.features[feature] } : null;
+  }
+
+  /** The next plan that allows more of a limit than theirs (`moreThan`), for a page to say so: null on the top one. */
+  function better(user, feature, { organizationId = null } = {}) {
+    if (known(feature).type !== 'limit') throw new Error(`better: "${feature}" is not a limit`);
+    const entitled = of(user, { organizationId });
+    return moreThan(entitled.plan.id, feature, entitled.features[feature]);
+  }
+
   /**
-   * Spends one of today's uses (UTC) of a daily limit, such as
-   * `mcp.calls_per_day`: `{ allowed, used, limit, plan, plan_name, more }`,
-   * where `more` is the next plan of the catalog that allows more ({ id, name,
-   * limit }) or null. What is refused is not counted. Without a limit every use
-   * is allowed and still counted: the admin's Usage weighs whether the limits fit
-   * by what everyone does, those without one too.
+   * Spends one use of a limit counted by the UTC day (`countDaily`) or week (`countWeekly`, from
+   * Monday): `{ allowed, used, limit, plan, plan_name, more }`, `used` what the day or the week has
+   * spent, and `more` the next plan of the catalog that allows more (`moreThan`); a week's also
+   * `resets`, the Monday its uses start again ('2026-03-09'). What is refused is not counted.
+   * Without a limit every use is allowed and still counted: the admin's Usage weighs whether the
+   * limits fit by what everyone does, those without one too.
    */
-  function countDaily(user, feature, { organizationId = null } = {}) {
-    if (known(feature).type !== 'limit') throw new Error(`countDaily: "${feature}" is not a limit`);
+  function spend(user, feature, { organizationId = null, week = false } = {}) {
     const entitled = of(user, { organizationId });
     const value = entitled.features[feature];
-    const base = { limit: value, plan: entitled.plan.id, plan_name: entitled.plan.name };
     const day = iso(clock()).slice(0, 10);
-    const better = value === null ? null : planIds.slice(rank(entitled.plan.id) + 1).map((id) => catalog[id])
-      .find((plan) => plan.features[feature] === null || plan.features[feature] > value);
-    const more = better ? { id: better.id, name: better.name, limit: better.features[feature] } : null;
+    const from = week ? weekStart(day) : day;
+    const key = rowsOf(feature);
+    const base = { limit: value, plan: entitled.plan.id, plan_name: entitled.plan.name, ...(week ? { resets: addDays(from, 7) } : {}) };
+    const more = moreThan(entitled.plan.id, feature, value);
     return database.tx(() => {
-      const row = database.get('SELECT used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day = ?', user.id, feature, day);
-      const used = Number(row?.used || 0);
+      const row = database.get('SELECT used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day = ?', user.id, key, day);
+      const used = week
+        ? Number(database.get('SELECT SUM(used) AS used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day >= ?',
+          user.id, key, from)?.used || 0)
+        : Number(row?.used || 0);
       if (value !== null && used >= value) return { allowed: false, used, ...base, more };
       // The first use of a day clears what is older than the month the admin's Usage shows.
       if (!row) {
         database.run('DELETE FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day < ?',
-          user.id, feature, iso(clock() - (USAGE_DAYS - 1) * DAY).slice(0, 10));
+          user.id, key, iso(clock() - (USAGE_DAYS - 1) * DAY).slice(0, 10));
       }
       database.run(`INSERT INTO entitlement_usage (user_id, feature, day, used) VALUES (?, ?, ?, 1)
-        ON CONFLICT (user_id, feature, day) DO UPDATE SET used = used + 1`, user.id, feature, day);
+        ON CONFLICT (user_id, feature, day) DO UPDATE SET used = used + 1`, user.id, key, day);
       return { allowed: true, used: used + 1, ...base, more };
     });
   }
 
+  /** Spends one of today's uses of a daily limit, such as `mcp.calls_per_day` (`spend`). */
+  function countDaily(user, feature, { organizationId = null } = {}) {
+    if (known(feature).type !== 'limit') throw new Error(`countDaily: "${feature}" is not a limit`);
+    return spend(user, feature, { organizationId });
+  }
+
+  /** Spends one of this week's uses of a weekly limit, such as `mcp.calls_per_week` (`spend`). */
+  function countWeekly(user, feature, { organizationId = null } = {}) {
+    if (known(feature).type !== 'limit') throw new Error(`countWeekly: "${feature}" is not a limit`);
+    return spend(user, feature, { organizationId, week: true });
+  }
+
   /**
-   * What a daily limit used on each of the last `days` UTC days, today the last, for the admin:
-   * `[{ day: '2026-03-02', used }]`, a day without uses at 0. Reads, never spends.
+   * What a daily or weekly limit used on each of the last `days` UTC days, today the last, for the
+   * admin: `[{ day: '2026-03-02', used }]`, a day without uses at 0. Reads, never spends.
    */
   function dailyUsage(userId, feature, { days = USAGE_DAYS } = {}) {
     if (known(feature).type !== 'limit') throw new Error(`dailyUsage: "${feature}" is not a limit`);
     const now = clock();
     const span = Array.from({ length: days }, (_, i) => iso(now - (days - 1 - i) * DAY).slice(0, 10));
     const used = new Map(database.all('SELECT day, used FROM entitlement_usage WHERE user_id = ? AND feature = ? AND day >= ?',
-      userId, feature, span[0]).map((r) => [r.day, Number(r.used)]));
+      userId, rowsOf(feature), span[0]).map((r) => [r.day, Number(r.used)]));
     return span.map((day) => ({ day, used: used.get(day) || 0 }));
   }
 
   /**
-   * What a daily limit used today (UTC) for many people at once, for the admin's list: Map userId
-   * → used, 0 for whoever used none, in one query for each 500 of them. Reads, never spends.
+   * What a limit used since `from` (a UTC day) for many people at once, for the admin's list: Map
+   * userId → used, 0 for whoever used none, in one query for each 500 of them. Reads, never spends.
    */
-  function usedToday(userIds, feature) {
-    if (known(feature).type !== 'limit') throw new Error(`usedToday: "${feature}" is not a limit`);
-    const day = iso(clock()).slice(0, 10);
+  function usedFrom(userIds, feature, from) {
     const used = new Map(userIds.map((id) => [id, 0]));
     const ids = [...used.keys()];
     for (let i = 0; i < ids.length; i += 500) {
       const batch = ids.slice(i, i + 500);
-      for (const row of database.all(`SELECT user_id, used FROM entitlement_usage WHERE feature = ? AND day = ?
-        AND user_id IN (${batch.map(() => '?').join(', ')})`, feature, day, ...batch)) used.set(row.user_id, Number(row.used));
+      for (const row of database.all(`SELECT user_id, SUM(used) AS used FROM entitlement_usage WHERE feature = ? AND day >= ?
+        AND user_id IN (${batch.map(() => '?').join(', ')}) GROUP BY user_id`, rowsOf(feature), from, ...batch)) used.set(row.user_id, Number(row.used));
     }
     return used;
+  }
+
+  /** What a daily limit used today (UTC) for many people at once (`usedFrom`). */
+  function usedToday(userIds, feature) {
+    if (known(feature).type !== 'limit') throw new Error(`usedToday: "${feature}" is not a limit`);
+    return usedFrom(userIds, feature, iso(clock()).slice(0, 10));
+  }
+
+  /** What a weekly limit used this week, from Monday (UTC), for many people at once (`usedFrom`). */
+  function usedThisWeek(userIds, feature) {
+    if (known(feature).type !== 'limit') throw new Error(`usedThisWeek: "${feature}" is not a limit`);
+    return usedFrom(userIds, feature, weekStart(iso(clock()).slice(0, 10)));
   }
 
   /**
@@ -647,7 +699,7 @@ export function createEntitlements({
   const knows = (key) => key in declared || key in aliasOf;
 
   return {
-    errors, ignored, knows, of, ofMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, countDaily, dailyUsage, usedToday,
+    errors, ignored, knows, of, ofMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, better, countDaily, countWeekly, dailyUsage, usedToday, usedThisWeek,
     grant, revoke, setPlan, seatsOf, grantsOf, describe,
   };
 }

@@ -316,6 +316,17 @@ test('a language chosen in a module goes to the shell once; one the shell gives 
 
 /* ---------------------------------- source --------------------------------- */
 
+test('every script and sheet of the kit is in the service worker\'s copy, but the pages of their own (0.202.3)', () => {
+  // Cronum Work's one-document shell loads windows.js and windows.css, which no module's page does:
+  // left out, the installed app opened blank without a signal.
+  const sw = fs.readFileSync(new URL('sw-core.js', WEB), 'utf8');
+  const cached = new Set([.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'\/suite\/([^']+)'/g)].map((m) => m[1]));
+  // The worker itself, and pages never opened offline: admin and connecting a device.
+  const ownPages = new Set(['sw-core.js', 'admin.js', 'connect.js', 'oauth.css']);
+  const files = fs.readdirSync(WEB).filter((name) => /\.(js|css)$/.test(name) && !ownPages.has(name));
+  assert.deepEqual(files.filter((name) => !cached.has(name)), []);
+});
+
 test('every file the kit\'s own files import is in the service worker\'s copy: offline, one missing stops the app', () => {
   const sw = fs.readFileSync(new URL('sw-core.js', WEB), 'utf8');
   const cached = new Set([.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'\/suite\/([^']+)'/g)].map((m) => m[1]));

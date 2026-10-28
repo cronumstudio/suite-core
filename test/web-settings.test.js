@@ -265,6 +265,12 @@ test('what a plan includes, as people read it: what is in first, limits with the
   ]);
   assert.deepEqual(planBenefits({ mcp: false, 'mcp.calls_per_day': 100 }), [{ text: t('kit.plan.benefits.mcp', { app: '' }), included: false }],
     'no calls without the assistant');
+  assert.deepEqual(planBenefits({ mcp: true, 'mcp.calls_per_week': 2000 }).map((l) => l.text).at(-1), t('kit.plan.benefits.callsWeek', { n: 2000 }));
+  assert.equal(t('kit.plan.benefits.callsWeek', { n: 2000 }), '2,000 calls a week from your AI');
+  assert.deepEqual(planBenefits({ mcp: true, 'mcp.calls_per_week': null }).map((l) => l.text).at(-1), t('kit.plan.benefits.callsWeekUnlimited'));
+  assert.deepEqual(planBenefits({ mcp: false, 'mcp.calls_per_week': 100 }).length, 1, 'nor by the week');
+  assert.deepEqual(planBenefits({ mcp: true, 'mcp.calls_per_day': 100, 'mcp.calls_per_week': 100 }).map((l) => l.text).slice(1),
+    [t('kit.plan.benefits.callsWeek', { n: 100 })], 'by the week, the daily ones a module still declares are left out');
   assert.deepEqual(planBenefits({}), []);
 });
 

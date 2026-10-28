@@ -6,7 +6,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createMcpServer, dailyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { sendJson, serveStatic } from '../http.js';
+import { createMcpServer, dailyLimitText, weeklyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
 
 class Unavailable extends Error {}
 class NotFound extends Error {}
@@ -178,6 +182,10 @@ test('the calls of the day: once spent, a sentence instead of the tool, and only
     "Daily limit reached: the Free plan includes 100 calls a day from an assistant to Tasks, and today's are used up. "
     + "They start again at 00:00 UTC. The Pro plan includes 1,000 a day. Tell the person, and don't retry today.");
   assert.match(dailyLimitText({ plan_name: 'Pro', limit: 1000, more: null }, 'Next'), /Pro plan includes 1,000 calls .* 00:00 UTC\. Tell/);
+  assert.equal(weeklyLimitText({ plan_name: 'Free', limit: 100, more: { id: 'pro', name: 'Pro', limit: 2000 } }, 'Cronum Work'),
+    "Weekly limit reached: the Free plan includes 100 calls a week from an assistant to Cronum Work, and this week's are used up. "
+    + "They start again on Monday at 00:00 UTC. The Pro plan includes 2,000 a week. Tell the person, and don't retry this week.");
+  assert.match(weeklyLimitText({ plan_name: 'Pro', limit: 2000, more: null }, 'Work'), /2,000 calls a week .* Monday at 00:00 UTC\. Tell/);
 });
 
 test('batches, notifications, SSE answers and the other methods', async (t) => {
@@ -364,4 +372,28 @@ test('a ResolveError the app leaves alone reaches the AI with its options', asyn
   assert.deepEqual([asked.isError, asked.content[0].text],
     [true, '"shop" is ambiguous.\nOptions:\n- Shop (#1)\n- Shop online (#2)']);
   assert.equal((await mcp.callTool({ id: 1 }, 'told', {})).content[0].text, 'In the app\'s words.');
+});
+
+test('an answer to a path ending in /mcp or /sse goes chunked, never with a length: Avast breaks those', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-length-'));
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/page/')) serveStatic(dir, '/index.html', res);
+    else sendJson(res, 404, { error: 'not_found' });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const head = async (pathname) => {
+    const res = await fetch(base + pathname);
+    await res.text();
+    return { length: res.headers.get('content-length'), chunked: res.headers.get('transfer-encoding') === 'chunked' };
+  };
+  for (const pathname of ['/mcp', '/mcp/', '/MCP', '/notes/mcp?x=1', '/.well-known/oauth-protected-resource/mcp', '/mcp/sse', '/page/mcp']) {
+    assert.deepEqual(await head(pathname), { length: null, chunked: true }, pathname);
+  }
+  for (const pathname of ['/api/me', '/mcp-info', '/mcp/x', '/.well-known/oauth-protected-resource', '/page/view']) {
+    assert.equal((await head(pathname)).chunked, false, `${pathname}: with its length, as always`);
+  }
 });

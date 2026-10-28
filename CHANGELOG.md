@@ -3,18 +3,108 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.201.0 — 2026-10-28
+## 0.204.0 — 2026-10-28
 
 - **The celebration when something is done is the suite's** (Martin asked for Tasks' option to be
   a general one, for every module and Cronum Work's calendar): `web/celebrate.js`, taken from Tasks, with
   `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
-  for a part done, for every module and Cronum Work's calendar. Its confetti is animated with the
+  for a part done. Its confetti is animated with the
   Web Animations API, so it needs no stylesheet, and hangs in the open dialog the origin is in (a
   dialog is drawn over everything else). One choice, in Settings › Language and theme › «When
   something is done»: animation and sound, with a button to try it, kept on the device
   (`suite.celebrate`); until the person chooses there, what they chose in Tasks
   (`tasks.celebrate`) holds, so nobody's setting flips. The worker keeps `celebrate.js` with the
   kit.
+
+## 0.203.1 — 2026-10-28
+
+- **Cronum Work opens on its shell offline, not on the home** (Martin, with the phone app in
+  airplane mode: «tengo el mismo problema»): offline, a navigation that the network didn't answer
+  got `/index.html` from the copy before the page kept at its own path. In a host whose start is a
+  page of its own (Work's shell at `/`, `pages[].root`), `/index.html` is the home that chooses
+  modules, so the installed app and the phone app, which open `/`, got the home, which needs the
+  server, and showed «Algo ha fallado». The page kept at the path asked for comes first now; an app
+  on its own keeps the same page at both, and a module's route without a page of its own still
+  gets its module's index.
+
+## 0.203.0 — 2026-10-28
+
+- **Calls from assistants by the week** (Martin: «estoy viendo que quizas podriamos cambiar a "uso
+  por semana" como hacen los planes de IA … 100 llamadas al dia es muchisimo y nadie querria pasar
+  al plan pro porque nunca llegarian»): a new common feature, `mcp.calls_per_week`, counted from
+  Monday 00:00 UTC. An app that declares it is counted by the week instead of by the day
+  (`countWeekly()`, and `weeklyLimitText()` for the assistant when they are used up). Its uses are
+  kept by the day under `mcp.calls_per_day`'s key, so a host that moves to it keeps the days it
+  already counted. In `cronum-work`, Free has 100 a week and Pro and Team 2,000; `mcp.calls_per_day`
+  stays as it was (100, 1,000) for whoever still declares it, and Focus and Tracker are untouched.
+  New: `entitlements.countWeekly()`, `better()`, `usedThisWeek()` and `weekStart()`.
+- **The usage panel by the week**: with the calls counted by the week, `GET /api/me/usage` and the
+  admin's add `period: 'week'`, `week` (this week's) and `more` (the next plan with more, or null).
+  Settings › Plan › Your usage shows this week only: «Esta semana», «Se renueva el lunes» and a bar
+  for each day, Monday to Sunday, with their initials and the days still to come empty, without an
+  average. The limit shows while a bigger plan has more to offer, or from 75 % of it: on the top
+  plan a bar almost empty would only say how little it is used, so it says the calls alone. The
+  admin sees the limit always and the last four weeks from Monday, a gap before each, with the
+  average a week since the account was made. A plan's list says «100 llamadas a la semana desde tu
+  IA», and leaves out the daily calls a module of the host still declares. By the day everything
+  is as it was.
+
+## 0.202.3 — 2026-10-28
+
+- **Cronum Work installed opens without a signal**: its one-document shell loads the kit's
+  `windows.js` and `windows.css`, which no module's page loads, and the service worker didn't keep
+  them (`SUITE_KIT_FILES` in `sw-core.js`): offline the page stayed blank before any module could
+  open on what it had kept. Both are in the copy now, and a test checks that every script and
+  sheet of the kit is, but the pages of their own (admin, connecting a device) and the worker.
+- **…and its modules aren't unstyled offline**: each module's sheets scoped to its windows
+  (`/next/css/styles.css?scope=work`, `scopedSheets`) were only kept once a page with the worker
+  in control asked for them, so a new copy (a new release, a first install) opened without a
+  signal showed the modules without their styles. With `scopedSheets` the host's one worker keeps
+  them from the start, with no hash of their own: the kit writes them too, so they always travel
+  again.
+- **Installing says every module works offline**: Settings › Modules' «Instalar en tu dispositivo»
+  said only Tasks and Notes went on offline; Projects and Next do too now (Projects 0.82.0, Next
+  0.59.0), so its third step says the work goes on without a connection, whichever module it is.
+
+## 0.202.2 — 2026-10-28
+
+- **The MCP works on a computer with Avast** (Martin: «esto se puede arreglar para no tener ese
+  fallo?», about the suite's tests failing on his PC): Avast's Web Shield, with its MCP detection,
+  rewrites any answer to a path ending in `/mcp` (or a GET ending in `/sse`) that has a
+  `Content-Length` into one that says `transfer-encoding: chunked` and isn't, so the client fails
+  with «Invalid character in chunk size». It happened to every MCP client on such a computer,
+  against production too (`https://work.cronumstudio.com/mcp`), not only to the tests. A chunked
+  answer it lets through, so `sendJson()` and `serveStatic()` leave the length out for those paths
+  and Node sends them chunked; the OAuth modules (`oauth.js`, `workos-accounts.js`) use `http.js`'s
+  `sendJson()` instead of a copy of their own. Everything else keeps its length. On that PC
+  `npm test` now passes whole (951), where 25 tests failed.
+
+## 0.202.1 — 2026-10-28
+
+- **A third step for installing** (Martin: «me faltaria un tercer paso en las instrucciones, algo
+  asi como: la app instalada guarda los datos en local y puedes usarla sin conexion»): Settings ›
+  Modules' «Instalar en tu dispositivo» ends with what installing gives: it opens like any other
+  app and keeps what was already seen on the device, to look at without a connection; in Tasks and
+  Notes the work goes on offline too, sent when the connection is back (Next and Projects show
+  what they last had, but don't change offline).
+## 0.202.0 — 2026-10-28
+
+- **The calls from assistants averaged over the days the account has** (Martin: «si solo lleva x
+  dias de alta, el numero que sale no es representativo … que solo cuente desde ese momento y diga
+  "ultimos x dias: Y llamadas"»): in /admin › Users › Usage and in Settings › Plan › Your usage,
+  an account younger than a month says «Últimos 3 días: 91 llamadas, 30,3 al día de media» (and
+  «Primer día: …» on the day it is made); from its 30th day, the last 30 as before. The usage's
+  `mcp` carries `since`, the day of `users.created_at`, and `countedDays(mcp)` (usage-view.js)
+  counts from it, or from the first call if that is earlier (an account brought from an app).
+  The chart is still the month, today the last, the days before the account an empty slot.
+- **Each bar of the month says its day and calls** («al pasar el raton por encima de una barra te
+  diga las llamadas de ese dia»): every day is now a column as tall as the chart, so a quiet day
+  is as easy to point at as a busy one, and pointing at it, or tapping it on a phone, shows
+  «29 oct 2026: 5 llamadas» above the chart, kept inside it at both ends. It replaces the
+  browser's `title`, which only showed on the bar itself and never on a phone.
+- Texts: `kit.usage.month` is now `kit.usage.lastDays` (`{n}` the days, `{calls}`, `{avg}`; a
+  plural), with `kit.usage.calls`; `kit.usage.dayCalls` takes `{calls}` instead of `{n}`. An app
+  that overrode them has to rename them.
 
 ## 0.200.0 — 2026-10-28
 
