@@ -29,7 +29,8 @@
  *   shown, moved, another focused, a phone's screen) restores it first.
  * - Phones (< 768 px): one window at a time filling the desk, a bar of tabs at the bottom
  *   (`.cw-tabs`, one per module) and a sideways swipe to the module beside it among the mounted
- *   ones; the desk only pans vertically (kit: windows.css), so the page never scrolls sideways.
+ *   ones, unless it began on something that slides sideways itself (Next's line, the Gantt); the
+ *   desk only pans vertically (kit: windows.css), so the page never scrolls sideways.
  * - A window out of view is `hidden` and `inert` and its module paused (`onPause(module, true,
  *   { hidden: true })`); at most four stay mounted, and beyond that the one used least recently is
  *   given back (`onEvict(module)`: the shell unmounts it and removes its window).
@@ -1183,6 +1184,23 @@ export function createWindows(desk, {
     return i < 0 ? null : list[i + step] ?? null;
   }
 
+  /**
+   * Whether `target`, or what holds it in the window `node`, slides sideways itself: a box with
+   * more to show across (Next's line, a row of chips) or one that says sideways pans are its own
+   * (`touch-action: pan-x`, the whole Gantt). Martin, in Work installed on an iPhone: the line of
+   * Next moved and came back instead of showing what came before, and swiping the Gantt took him
+   * to another module. A finger there is the box's, wherever it is in it.
+   */
+  function slidesSideways(target, node) {
+    for (let at = target; at && at !== node; at = at.parentElement) {
+      const style = win.getComputedStyle?.(at);
+      if (/\bpan-x\b/.test(style?.touchAction ?? '')) return true;
+      const overflow = style?.overflowX;
+      if ((overflow === 'auto' || overflow === 'scroll') && at.scrollWidth > at.clientWidth + 1) return true;
+    }
+    return false;
+  }
+
   /** A sideways swipe on a phone's window: the module beside it comes in, as its tab would bring it. */
   function swipe(ev) {
     if (gesture || ev.pointerType === 'mouse' || ev.isPrimary === false) return;
@@ -1191,6 +1209,7 @@ export function createWindows(desk, {
     if (!node || !node.contains(target) || target.closest?.(EDITABLE) || target.closest?.('[data-drawer]')) return;
     if (globalThis.document?.documentElement?.hasAttribute('data-kit-dragging')) return;
     if (ev.clientX < SWIPE_EDGE || ev.clientX > (win.innerWidth ?? Infinity) - SWIPE_EDGE) return;
+    if (slidesSideways(target, node)) return;
     const own = new AbortController();
     const on = { signal: own.signal };
     const x0 = ev.clientX;
