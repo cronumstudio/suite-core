@@ -209,7 +209,10 @@ with `{ start }` or not. What the kit hangs on the page's body there (notices, d
 banners, Settings and sign-in on the body) carries `data-owner="<module>"` and a copy of `<html>`'s
 `data-theme`, `data-look` and `lang` (`markOwned`), so the module's sheet scoped to its windows
 reaches it; a theme chosen in Settings goes to the shell (`registry.theme.set`) instead of the
-app's `applyTheme`, and a language to `registry.language.set`. Anywhere else nothing changes.
+app's `applyTheme`, and a language to `registry.language.set`. On a phone a sideways swipe in the
+window brings the module beside it (windows.js); a module marks with `data-own-swipe` what has a
+sideways gesture of its own (Tasks' rows: left deletes, right stars), so a finger that starts
+there is that gesture's alone. Anywhere else nothing changes.
 
 **Drawing the frame again.** The frame listens on the document (touches at the screen's edges,
 drags) and, in a host, on the window. An app that builds a new frame without reloading the page (a

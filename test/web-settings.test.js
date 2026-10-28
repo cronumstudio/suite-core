@@ -274,3 +274,86 @@ test('what a plan includes, as people read it: what is in first, limits with the
   assert.deepEqual(planBenefits({}), []);
 });
 
+
+test('in a host, «every tool from the start» is kept at the host\'s own route, at the site\'s root', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const realFetch = globalThis.fetch;
+  const modules = [{ mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: false } }];
+  const sent = [];
+  let kept = 'door';
+  globalThis.fetch = async (path, { method = 'GET', body } = {}) => {
+    sent.push({ method, path, body: body ? JSON.parse(body) : undefined });
+    const data = path === '/api/modules' ? { host: { name: 'Cronum Work' }, modules, ai_tools: kept }
+      : method === 'PUT' && path === '/api/me/ai-tools' ? { ai_tools: (kept = JSON.parse(body).ai_tools) }
+        : path === '/api/me/apps' ? { enabled: false, grants: [] } : path === '/api/me/tokens' ? [] : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, headers: { get: () => null }, json: async () => data, text: async () => JSON.stringify(data) };
+  };
+  globalThis.window = { location: { origin: 'https://work.example', assign: () => {} } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  try {
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg' }, user: { username: 'ada', role: 'user' }, root, start: 'ai',
+      config: { app: { modules: { mcp: true }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: false, plans: false } } },
+    });
+    await settle();
+    const toggle = root.all().find((node) => node.getAttribute('aria-label') === t('kit.ai.toolsAll'));
+    assert.ok(toggle, 'the host says some tools are on demand: the switch shows');
+    assert.equal(toggle.getAttribute('aria-checked'), 'false');
+    toggle.dispatch('click', {});
+    await settle();
+    assert.deepEqual(sent.filter((r) => r.method === 'PUT'), [{ method: 'PUT', path: '/api/me/ai-tools', body: { ai_tools: 'all' } }]);
+    assert.equal(toggle.getAttribute('aria-checked'), 'true', 'the host kept it: the switch stays on');
+    // In a module's page the kit's paths are the module's (/tasks/api/…); this one is the host's.
+    const source = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+    assert.match(source, /api\.root\.put\('\/api\/me\/ai-tools'/);
+    assert.doesNotMatch(source, /[^.]api\.put\('\/api\/me\/ai-tools'/);
+  } finally {
+    document.body.all().filter((node) => node.className === 'kit-settings-page').forEach((node) => node.remove());
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
+test('Escape over Settings is the top dialog\'s alone: with one open over them, Settings stay', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) });
+  globalThis.window = { location: { origin: 'https://work.example', assign: () => {} }, matchMedia: () => ({ matches: true }) };
+  const keys = [];
+  const realQuery = document.querySelector;
+  let dialogOpen = false;
+  Object.assign(document, {
+    addEventListener: (type, fn) => { if (type === 'keydown') keys.push(fn); },
+    removeEventListener: (type, fn) => { if (keys.includes(fn)) keys.splice(keys.indexOf(fn), 1); },
+    querySelector: (selector) => (selector === 'dialog[open]' && dialogOpen ? {} : null),
+  });
+  let closed = 0;
+  try {
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' }, user: { username: 'ada', role: 'user' }, root,
+      config: { app: { modules: {} } }, onClose: () => { closed += 1; },
+    });
+    const press = (event = {}) => { for (const fn of [...keys]) fn({ key: 'Escape', defaultPrevented: false, ...event }); };
+    dialogOpen = true;
+    press();
+    assert.equal(closed, 0, 'a dialog over Settings: it closes, Settings stay');
+    dialogOpen = false;
+    press({ defaultPrevented: true });
+    assert.equal(closed, 0, 'a menu that took the key: Settings stay');
+    press();
+    assert.equal(closed, 1, 'with nothing over them, Escape closes Settings');
+  } finally {
+    document.body.all().filter((node) => node.className === 'kit-settings-page').forEach((node) => node.remove());
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+    document.querySelector = realQuery;
+  }
+});

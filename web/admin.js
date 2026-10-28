@@ -375,7 +375,7 @@ function userDialog(user) {
     }
     if (!answer.two_factor?.enabled || !manage) return;
     const again = reauthFields();
-    clear(twoFactorBox).append(
+    append(clear(twoFactorBox),
       el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLeadWorkos')}` }),
       again.nodes.some(Boolean) ? el('div', { class: 'kit-row kit-row--end' }, ...again.nodes) : null,
       el('button', {
@@ -623,7 +623,8 @@ async function paintGrants(box, user, now) {
   feature.addEventListener('change', paintValue);
   paintValue();
 
-  clear(box).append(
+  // The kit's append: the page's own wrote the parts left out (no history, nothing to add) as the text "null".
+  append(clear(box),
     el('p', { class: 'kit-hint', text: t('admin.grants.lead') }),
     extras.length ? table([t('admin.grants.what'), t('admin.grants.until'), ''],
       extras.map((g) => el('tr', {}, what(g), el('td', { text: ends(g) }), el('td', {}, revoke(g)))))

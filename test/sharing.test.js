@@ -14,7 +14,7 @@ import { createSharing } from '../sharing.js';
 import { createShareBrake, OFFERS_PER_HOUR } from '../share-brake.js';
 import { createRouter, HttpError, notFound, forbidden } from '../http.js';
 
-function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes } = {}) {
+function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes, clock = () => '2026-10-25T10:00:00.000Z' } = {}) {
   const database = new DatabaseSync(':memory:');
   database.exec(`
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, display_name TEXT, email TEXT);
@@ -72,7 +72,7 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
   const notices = [];
   const sharing = createSharing({
     db, brake, byUsername, codes, hasPush,
-    clock: () => '2026-10-25T10:00:00.000Z',
+    clock,
     notify: notify ?? {
       push: (n) => notices.push(['push', n.kind, n.name, n.actorId, n.targetId, n.permission]),
       email: (n) => notices.push(['email', n.kind, n.name, n.actorId, n.targetId, n.permission]),
@@ -123,8 +123,18 @@ test('an offer by email: waiting, told once, the same answer as an address witho
   assert.deepEqual(notices, [['email', 'board', 'Plans', 1, 2, 'view']]);
   assert.deepEqual(events, [['offered', 2, 'view', true]]);
 
+  // Offered again before it is accepted, it answers as offering an address without an account again (#693).
   const again = sharing.share('board', 1, 10, { email: 'ben@example.com', permission: 'edit' });
-  assert.equal(again.invited, false, 'offered again: not new');
+  const ghostAgain = sharing.share('board', 1, 10, { email: 'nobody@example.com', permission: 'edit' });
+  assert.equal(again.invited, true, 'offered again, still waiting: invited, as anyone else');
+  assert.deepEqual(again, { ...ghostAgain, share: { ...ghostAgain.share, user: { id: null, name: 'ben@example.com', email: 'ben@example.com' } } });
+  // Nor does its date tell: the time of asking, as for an address without an account.
+  let tick = 0;
+  const later = setup({ clock: () => `2026-10-25T10:00:0${tick++}.000Z` }).sharing;
+  const firstAt = later.share('board', 1, 10, { email: 'ben@example.com' }).share.created_at;
+  const againAt = later.share('board', 1, 10, { email: 'ben@example.com' }).share.created_at;
+  assert.ok(againAt > firstAt, `${againAt} after ${firstAt}`);
+  assert.equal(againAt, `2026-10-25T10:00:0${tick - 1}.000Z`, 'the time of the answer');
   assert.equal(notices.length, 1, 'nobody is told again');
   assert.equal(db.get('SELECT permission FROM board_shares WHERE user_id = 2').permission, 'edit');
 
@@ -172,6 +182,7 @@ test('the brake: new offers and unknown addresses count, then 429; one notice pe
   const brake = createShareBrake({ clock: () => now, offersPerHour: 3 });
   const { db, sharing, notices } = setup({ brake });
   sharing.share('board', 1, 10, { email: 'ben@example.com' });
+  sharing.accept('board', 2, 10);
   sharing.share('board', 1, 10, { email: 'ben@example.com', permission: 'view' });
   sharing.share('board', 1, 10, { email: 'nobody@example.com' });
   sharing.share('board', 1, 11, { email: 'cris@example.com' });
@@ -188,6 +199,15 @@ test('the brake: new offers and unknown addresses count, then 429; one notice pe
   sharing.remove('board', 1, 10, 2);
   sharing.share('board', 1, 10, { email: 'ben@example.com' });
   assert.deepEqual(notices.map((n) => n[4]), [2, 3, 2], 'a day later, once more');
+
+  // By email, an offer not accepted yet counts each time, as an address without an account does:
+  // the limit doesn't tell one from the other (#693).
+  for (const email of ['ben@example.com', 'nobody@example.com']) {
+    const tight = setup({ brake: createShareBrake({ clock: () => 0, offersPerHour: 2 }) }).sharing;
+    tight.share('board', 1, 10, { email });
+    tight.share('board', 1, 10, { email });
+    assert.equal(codeOf(() => tight.share('board', 1, 10, { email })), '429 share_limit', email);
+  }
 
   let at = 0;
   const own = createShareBrake({ clock: () => at });
@@ -265,7 +285,10 @@ test('who has it, and one\'s people of every kind', () => {
   assert.deepEqual(owner.shares.map((s) => [s.user.name, s.user.email, s.accepted]), [['Ben', 'ben@example.com', true], ['cris@example.com', 'cris@example.com', false]]);
   const guest = sharing.list('board', 2, 10);
   assert.deepEqual(guest.shares.map((s) => s.user), [{ id: 2, name: 'Ben' }], 'no emails, nothing unanswered');
-  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben', email: 'ben@example.com' }, { id: 3, name: 'Cris', email: 'cris@example.com' }]);
+  // Cris hasn't accepted anything: only the address it went to, not the account's name (#693).
+  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben', email: 'ben@example.com' }, { id: 3, name: 'cris@example.com', email: 'cris@example.com' }]);
+  sharing.accept('list', 3, 30);
+  assert.deepEqual(sharing.peopleOf(1).map((p) => p.name), ['Ben', 'Cris'], 'once accepted, by name');
   assert.deepEqual(sharing.peopleOf(2), [{ id: 1, name: 'Ana' }]);
   assert.deepEqual(sharing.peopleOf(4), []);
   assert.deepEqual(sharing.setPermission('board', 1, 10, 2, 'view').permission, 'view');

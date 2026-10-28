@@ -672,7 +672,12 @@ export function openSettings(options) {
     shown(false);
     options.onClose?.();
   }
-  const onKey = (ev) => { if (ev.key === 'Escape') back(); };
+  // Escape is the top dialog's alone: one opened over Settings (a confirmation, a form) closes and
+  // Settings stay. The key reaches the page before the browser closes that dialog, so it is still open.
+  const onKey = (ev) => {
+    if (ev.key !== 'Escape' || ev.defaultPrevented || document.querySelector('dialog[open]')) return;
+    back();
+  };
   document.addEventListener('keydown', onKey);
 
   paintList();
@@ -1338,7 +1343,8 @@ export function openSettings(options) {
         hint: t('kit.ai.toolsHint'),
         onChange: async (on) => {
           try {
-            const answer = await api.put('/api/me/ai-tools', { ai_tools: on ? 'all' : 'door' });
+            // The host's own route, at the site's root: from a module's page its base answered 404.
+            const answer = await api.root.put('/api/me/ai-tools', { ai_tools: on ? 'all' : 'door' });
             aiTools = answer.ai_tools;
           } catch (err) {
             fail(err);

@@ -163,6 +163,8 @@ function client(defaults = {}) {
     root: {
       get: (path) => call('GET', path, undefined, { root: true }),
       post: (path, body = {}) => call('POST', path, body, { root: true }),
+      put: (path, body = {}) => call('PUT', path, body, { root: true }),
+      patch: (path, body = {}) => call('PATCH', path, body, { root: true }),
       delete: (path) => call('DELETE', path, undefined, { root: true }),
     },
   };

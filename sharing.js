@@ -123,7 +123,9 @@ export function createSharing({
    * The person's people: everyone they share anything with or who shares
    * anything with them, of every kind, accepted or not, and whoever else has
    * something they accepted. Never themselves, each once, by name; the email
-   * only of those they offered something to (they typed it). → [{ id, name, email? }].
+   * only of those they offered something to (they typed it), and only the email
+   * for whoever they know only by offers not yet accepted: the name an account
+   * gave itself is for it to show by accepting (#693). → [{ id, name, email? }].
    */
   function peopleOf(userId) {
     const parts = [];
@@ -131,18 +133,18 @@ export function createSharing({
     for (const { table, key, owner } of Object.values(KINDS)) {
       if (!owner) continue;
       parts.push(
-        // Whoever they offered something of theirs to.
-        `SELECT s.user_id AS id, 1 AS offered FROM ${table} s ${owner.join} WHERE ${owner.column} = ?`,
+        // Whoever they offered something of theirs to, known by name once they accepted.
+        `SELECT s.user_id AS id, 1 AS offered, s.accepted AS known FROM ${table} s ${owner.join} WHERE ${owner.column} = ?`,
         // Whoever offered them something.
-        `SELECT ${owner.column}, 0 FROM ${table} s ${owner.join} WHERE s.user_id = ?`,
+        `SELECT ${owner.column}, 0, 1 FROM ${table} s ${owner.join} WHERE s.user_id = ?`,
         // Whoever else has what they accepted (as the dialog shows them).
-        `SELECT o.user_id, 0 FROM ${table} s JOIN ${table} o ON o.${key} = s.${key} WHERE s.user_id = ? AND s.accepted = 1 AND o.accepted = 1`,
+        `SELECT o.user_id, 0, 1 FROM ${table} s JOIN ${table} o ON o.${key} = s.${key} WHERE s.user_id = ? AND s.accepted = 1 AND o.accepted = 1`,
       );
       params.push(userId, userId, userId);
     }
     if (!parts.length) return [];
-    return all(`SELECT id, MAX(offered) AS offered FROM (${parts.join(' UNION ALL ')}) WHERE id <> ? GROUP BY id`, ...params, userId)
-      .map((row) => personOf(row.id, { email: Boolean(row.offered) }))
+    return all(`SELECT id, MAX(offered) AS offered, MAX(known) AS known FROM (${parts.join(' UNION ALL ')}) WHERE id <> ? GROUP BY id`, ...params, userId)
+      .map((row) => pendingMask(personOf(row.id, { email: Boolean(row.offered) }), Boolean(row.known)))
       .filter(Boolean)
       .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' }) || a.id - b.id);
   }
@@ -263,7 +265,13 @@ export function createSharing({
     if (target.ghost) return emailAnswer(target.email, permission);
     if (target.email) {
       const row = shareRow(kind, thing.id, target.id);
-      return emailAnswer(target.email, permission, { invited, accepted: Boolean(row?.accepted), createdAt: row?.created_at });
+      const accepted = Boolean(row?.accepted);
+      // Until it is accepted, offered again it is `invited` again and dated now, as an address
+      // without an account always is (Martin, #693: the second offer to an account said false and
+      // the first offer's date, to anyone else true and the time of asking).
+      return emailAnswer(target.email, permission, accepted
+        ? { invited, accepted, createdAt: row.created_at }
+        : { invited: true, accepted });
     }
     return { share: sharesOf(kind, thing.id, { owner: true }).find((s) => s.user.id === target.id), invited };
   }
@@ -282,8 +290,11 @@ export function createSharing({
     const permission = permissionOf(body.permission);
     const answer = spec.answer || defaultAnswer;
     if (who.ghost) return answer({ kind, userId, thing, target: who, permission, invited: true, ctx });
-    const invited = !shareRow(kind, thing.id, who.id);
-    if (invited) count(userId);
+    const row = shareRow(kind, thing.id, who.id);
+    const invited = !row;
+    // By email an offer not yet accepted counts every time, as an address without an account does:
+    // otherwise offering it again and again would find the limit only for addresses nobody has.
+    if (invited || (who.email && !row.accepted)) count(userId);
     offerRow(kind, thing.id, userId, who.id, permission);
     spec.offered?.({ userId, thing, targetId: who.id, permission, invited, ctx });
     if (invited) tell(kind, thing, userId, who.id, permission);

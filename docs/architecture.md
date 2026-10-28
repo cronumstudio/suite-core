@@ -2174,6 +2174,11 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   move a focused bar, and Alt with an arrow on a focused head moves its window. Escape cancels.
 - **Phones** (< 768 px): one window at a time, a bar of tabs at the bottom, and a sideways swipe
   to the mounted module beside it; the desk only pans up and down, so nothing scrolls sideways.
+  A swipe that begins on what slides sideways itself (a box with more to show across, or with
+  `touch-action: pan-x`) is that box's, and so is one that begins inside `[data-own-swipe]`: a
+  module marks so what has a sideways gesture of its own (Tasks' rows). Elsewhere, once the finger
+  goes more across than down, the swipe keeps its touchmoves from the browser, which would take
+  them in any scroller whatever the desk's `touch-action` says.
 - **Out of view and evicted.** A window out of view is `hidden`, `inert` and paused
   (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
   most four modules stay mounted: beyond that `onEvict(module)` names the least recently used one
