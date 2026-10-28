@@ -19,7 +19,8 @@ change an interface and a patch never does. Apps pin a version through the submo
     server answers again, by Settings or by the next page that starts the kit (`flushSettings()`
     in `createShell`), only while the same person is signed in. Signing out forgets them.
     Settings › Modules draws the modules of last time and keeps a change for the rail of the next
-    page too.
+    page too: `hostModules()` now keeps the host's answer (`host.modules`, `HOST_MODULES_KEY`)
+    whoever asked, Cronum Work's shell included, which kept it under its own key only.
   - **What can't wait** (the email, exporting, importing, erasing, deleting the account) stays
     there but turned off, saying it needs a connection, and comes back on with it. Administration
     says so instead of opening a page the browser can't load.

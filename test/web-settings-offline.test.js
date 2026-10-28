@@ -237,3 +237,15 @@ test('offline, a page at the worker’s base is the one kept there: Cronum Work�
   assert.equal(await open('https://work.example/tasks/'), 'tasks', 'a module at its base, as kept');
   assert.equal(await open('https://work.example/tasks/list/12'), 'tasks page', 'a module’s page, its index.html');
 });
+
+test('the host’s answer of its modules is kept whoever asked it, for Settings › Modules without a signal', async () => {
+  memory.clear();
+  const { hostModules, HOST_MODULES_KEY } = await import('../web/base.js');
+  const answer = { host: { name: 'Cronum Work' }, modules: MODULES };
+  await hostModules({ fresh: true, fetch: server({ 'GET /api/modules': answer }) });
+  assert.deepEqual(JSON.parse(memory.get(HOST_MODULES_KEY)), answer);
+  // Offline, or a host that says no: what was kept stays.
+  await hostModules({ fresh: true, fetch: noSignal }).catch(() => {});
+  await hostModules({ fresh: true, fetch: server({}) });
+  assert.deepEqual(JSON.parse(memory.get(HOST_MODULES_KEY)), answer);
+});

@@ -484,8 +484,9 @@ export function openSettings(options) {
     reveal();
   }
   if (host) {
+    // Asked as Settings open: without a signal, that is how they know at once (goOffline).
     fetch('/api/modules', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? res.json() : null), () => { goOffline(); return null; })
       .then((answer) => {
         if (closed || !Array.isArray(answer?.modules)) return;
         inUse = answer.modules;
