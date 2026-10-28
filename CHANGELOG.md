@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.205.1 — 2026-10-28
+
+- **The confetti is seen over a dialog, and stays when it closes** (Martin, trying it in Next and
+  Projects: the confetti should come as Done or Save is pressed, not once saving is over): the burst
+  goes in the browser's top layer (a manual popover) in the module's root, so a dialog's Save can
+  celebrate as it is pressed, and the dialog closing doesn't take the confetti with it. Without
+  popovers it hangs in the open dialog, as before.
+
 ## 0.205.0 — 2026-10-28
 
 - **Settings without a signal** (Martin: some parts of Settings wouldn't open offline in Cronum
