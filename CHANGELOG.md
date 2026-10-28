@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.206.0 — 2026-10-28
+
+- **A module installed on its own shows only itself** (Martin, with Notes installed from Settings:
+  «el que solo quiera un módulo, no debería ver los otros»): its switcher offered the other
+  modules, so closing the app on one of them opened it there the next time. In an app window
+  (`display-mode: standalone`, or an iPhone's home screen) a module's page whose host opens its
+  app on a page of its own (`pages[].root`, Work's one-document shell, now `host.shell` in
+  `GET /api/modules`) is that module installed on its own: no rail, no other modules or calendar
+  in the switcher, which keeps Settings and the account, and it isn't kept as the host's module
+  used last. In a browser tab, inside Work's shell or in a host without such a page, all is as
+  before.
+
 ## 0.205.1 — 2026-10-28
 
 - **The confetti is seen over a dialog, and stays when it closes** (Martin, trying it in Next and

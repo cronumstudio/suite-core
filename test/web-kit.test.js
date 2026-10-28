@@ -844,6 +844,15 @@ test('in the installed app, going to another module takes its place in the histo
   assert.match(shell, /const EDGE = 28;/);
 });
 
+test('a module installed on its own shows only itself: no rail, no other modules in the switcher', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  // Only where the host's own app is its one-document page (`host.shell`): a module's page in an app window is then the module's install.
+  assert.match(shell, /const alone = \(host\) => Boolean\(host\?\.shell\) && !FRAMED && !embedded && installed\(\);/);
+  assert.match(shell, /if \(alone\(host\)\) \{\s*others = \[\];\s*calendarPath = null;\s*modulePaths = new Set\(\);\s*dropRail\(\);\s*asModule\(true\);\s*return null;\s*\}/);
+  // Checked before the module is kept as the host's last: the host's own app keeps opening on its own.
+  assert.ok(shell.indexOf('if (alone(host))') < shell.indexOf("localStorage.setItem('host.module', mount)"));
+});
+
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');

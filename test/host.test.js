@@ -1264,6 +1264,7 @@ test('a page of the host’s own can be its root: / opens it, but for the home a
   assert.equal((await call('GET', '/?modules')).headers.get('location'), '/alpha/?modules', 'the home asked by name answers as before');
   assert.match((await call('GET', '/w/')).data, /<title>Desk<\/title>/, 'and the page is still at its own path');
   assert.match((await call('GET', '/alpha/')).data, /<title>Alpha<\/title>/);
+  assert.equal((await call('GET', '/api/modules')).data.host.shell, true, 'the modules know the host’s app is that page');
 
   const { call: plain } = await startHost(t, { pages: [{ at: '/w/', dir, root: true }] });
   assert.match((await plain('GET', '/?modules')).data, /<title>Desk<\/title>/, 'root: true takes every /');
