@@ -22,7 +22,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   plan a bar almost empty would only say how little it is used, so it says the calls alone. The
   admin sees the limit always and the last four weeks from Monday, a gap before each, with the
   average a week since the account was made. A plan's list says «100 llamadas a la semana desde tu
-  IA». By the day everything is as it was.
+  IA», and leaves out the daily calls a module of the host still declares. By the day everything
+  is as it was.
 
 ## 0.202.2 — 2026-10-28
 
