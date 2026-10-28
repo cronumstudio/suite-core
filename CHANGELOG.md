@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.205.2 — 2026-10-28
+
+- **A phone's swipe between modules leaves alone what slides sideways itself** (Martin, in Work
+  installed on an iPhone: Next's line moved and came back instead of showing what came before,
+  and swiping the Gantt took him to another module). The swipe of Cronum Work's windows
+  (`windows.js`) took any sideways finger in the window, and moved the window with it while the
+  line or the chart tried to scroll. Now a swipe that begins on a box with more to show across
+  (Next's line, a row of chips) or on one that takes sideways pans as its own (`touch-action:
+  pan-x`, the whole Gantt) is that box's; elsewhere in the window it still brings the module
+  beside.
+
 ## 0.205.1 — 2026-10-28
 
 - **The confetti is seen over a dialog, and stays when it closes** (Martin, trying it in Next and
