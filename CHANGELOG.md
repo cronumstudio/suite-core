@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.206.2 — 2026-10-28
+
+- **A module installed on its own has Settings of its own too** (Martin, with Notes installed on
+  its own: its switcher no longer offered the other modules, but Settings still listed their
+  sections). Settings ask the same as the switcher (`installedAlone`, now in `base.js` for both):
+  in a module's page installed as an app of its own, never a window of Work's shell nor a frame
+  of the split view, Settings show the account's sections, the module's group and the host's
+  (administration, About), without the choice of modules nor another module's group; Your AI's
+  prompt and About's cards name only that module.
+
 ## 0.206.1 — 2026-10-28
 
 - **A phone's swipe between modules leaves alone what slides sideways itself** (Martin, in Work

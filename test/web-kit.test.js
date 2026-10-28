@@ -834,8 +834,9 @@ test('from one module to another: the rail of last time at once, and one page fa
 
 test('in the installed app, going to another module takes its place in the history, and the edge is wider', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const base = fs.readFileSync(new URL('../web/base.js', import.meta.url), 'utf8');
   // The system's Back (an edge swipe on an iPhone) must not lead to the module used before.
-  assert.match(shell, /const installed = \(\) => navigator\.standalone === true\s*\|\| Boolean\(globalThis\.matchMedia\?\.\('\(display-mode: standalone\)'\)\?\.matches\);/);
+  assert.match(base, /export const installed = \(\) => globalThis\.navigator\?\.standalone === true\s*\|\| Boolean\(globalThis\.matchMedia\?\.\('\(display-mode: standalone\)'\)\?\.matches\);/);
   assert.match(shell, /modulePaths = new Set\(modules\.map\(\(m\) => new URL\(m\.path, window\.location\.href\)\.pathname\)\);/);
   assert.match(shell, /if \(!link \|\| link\.target === '_blank' \|\| !installed\(\)\) return;/, 'a browser keeps its history');
   assert.match(shell, /ev\.preventDefault\(\);\s*window\.location\.replace\(to\.href\);\s*\}, \{ capture: true, signal \}\);/);
@@ -846,11 +847,23 @@ test('in the installed app, going to another module takes its place in the histo
 
 test('a module installed on its own shows only itself: no rail, no other modules in the switcher', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  const base = fs.readFileSync(new URL('../web/base.js', import.meta.url), 'utf8');
   // Only where the host's own app is its one-document page (`host.shell`): a module's page in an app window is then the module's install.
-  assert.match(shell, /const alone = \(host\) => Boolean\(host\?\.shell\) && !FRAMED && !embedded && installed\(\);/);
+  assert.match(base, /export const installedAlone = \(host, \{ embedded = false \} = \{\}\) => Boolean\(host\?\.shell\) && !FRAMED && !embedded && installed\(\);/);
+  assert.match(shell, /const alone = \(host\) => installedAlone\(host, \{ embedded \}\);/);
   assert.match(shell, /if \(alone\(host\)\) \{\s*others = \[\];\s*calendarPath = null;\s*modulePaths = new Set\(\);\s*dropRail\(\);\s*asModule\(true\);\s*return null;\s*\}/);
   // Checked before the module is kept as the host's last: the host's own app keeps opening on its own.
   assert.ok(shell.indexOf('if (alone(host))') < shell.indexOf("localStorage.setItem('host.module', mount)"));
+});
+
+test('a module installed on its own has Settings of its own: no other modules, nor the choice of them', () => {
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  // In a window of Work's shell (its registry) the module is the whole app's, never alone.
+  assert.match(settings, /const alone = \(\) => Boolean\(host\) && installedAlone\(hostInfo, \{ embedded: Boolean\(workRegistry\(\)\) \}\);/);
+  assert.match(settings, /host && !alone\(\) \? \{ group: t\('kit\.settings\.groups\.account'\), id: 'modules',/);
+  // Its group, Your AI's words and About's cards all come from modulesHere(): only this module.
+  assert.match(settings, /function modulesHere\(\) \{\s*if \(alone\(\)\) return \[inUse\.find\(\(m\) => m\.mount === host\.mount\) \|\| \{ mount: host\.mount \}\];/);
+  assert.match(settings, /const list = !path \? \[\] : inUse\.length && !alone\(\) \? inUse : modulesHere\(\);/);
 });
 
 test('the sidebar folds only where it sits beside the views, and the device remembers it per app', () => {
@@ -903,7 +916,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, DRAWER_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)? \} from '\.\/base\.js'/, file);
+    assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, DRAWER_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)?(?:, installed)?(?:, installedAlone)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses and in what order, their look and their calendar's button.
     assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules(?:\/order)?['`]|api\/me\/look['`]|api\/me\/calendar['`])|import\(['`]\/|get\(['`]\/version/, file);
   }

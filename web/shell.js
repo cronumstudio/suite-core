@@ -46,7 +46,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
-import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules, installed, installedAlone } from './base.js';
 import { banner as bannerNode, menu, closeMenu, avatar, heldBack, slideHidden } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
@@ -632,10 +632,8 @@ export function createShell({
    * in went back to the module used before instead of opening it. Each module is a place of its
    * own, as a tab is in a phone's app. In a browser, with its Back button, the history is as it was.
    */
-  const installed = () => navigator.standalone === true
-    || Boolean(globalThis.matchMedia?.('(display-mode: standalone)')?.matches);
   /** This module installed as an app of its own: the host's own app is its one-document page. */
-  const alone = (host) => Boolean(host?.shell) && !FRAMED && !embedded && installed();
+  const alone = (host) => installedAlone(host, { embedded });
   if (!embedded) document.addEventListener('click', (ev) => {
     if (FRAMED || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
     const link = ev.target instanceof Element ? ev.target.closest('a[href]') : null;
