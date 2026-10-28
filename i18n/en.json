@@ -416,6 +416,7 @@
   "admin.audit.kinds.data": "Data copies",
   "admin.audit.when": "When",
   "admin.audit.who": "Who",
+  "admin.audit.via": "{who} · via {via}",
   "admin.audit.what": "What",
   "admin.audit.on": "On",
   "admin.audit.from": "From",

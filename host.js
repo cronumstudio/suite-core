@@ -605,7 +605,8 @@ function moduleListErrors(modules) {
  *   through `<id>_more_tools` and `<id>_use_tool`; each person may have them all listed instead,
  *   in Settings › Your AI, `PUT /api/me/ai-tools`), `namesInText` (a module's tool names in its
  *   texts with its prefix), `recordChanges` (an `mcp.tool` line in the audit log for each call
- *   that changed something: the tool and its module, never the arguments) and `maxResultChars`
+ *   that changed something: the tool, its module and the assistant (`via`), never the arguments)
+ *   and `maxResultChars`
  * @param {string} [options.version]
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
@@ -1039,7 +1040,7 @@ export async function createHost({
     maxResultChars: mcpOptions?.maxResultChars || null,
     // Who changed what from an assistant, in the audit log with the rest: the tool and its module, never what it was given.
     record: mcpOptions?.recordChanges
-      ? (principal, tool) => suite.audit.record({ action: 'mcp.tool', actor: principal, meta: { tool: tool.name, ...(tool.module ? { module: tool.module } : {}) } })
+      ? (principal, tool) => suite.audit.record({ action: 'mcp.tool', actor: principal, meta: { tool: tool.name, ...(tool.module ? { module: tool.module } : {}), ...(principal.via ? { via: principal.via } : {}) } })
       : null,
   });
   // The same as the root says of itself (createApp): on, and with tools or links to serve.

@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { sendJson, serveStatic } from '../http.js';
-import { createMcpServer, dailyLimitText, weeklyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
+import { createMcpServer, dailyLimitText, weeklyLimitText, MAX_BATCH, argumentProblems, schemaProblems, clientLabel, clientOfSession } from '../mcp.js';
 
 class Unavailable extends Error {}
 class NotFound extends Error {}
@@ -141,6 +141,41 @@ test('initialize, tools and prompts', async (t) => {
   assert.equal((await rpc('good-token', 'prompts/list')).result.prompts[0].name, 'setup');
   assert.equal((await rpc('good-token', 'prompts/get', { name: 'nope' })).error.code, -32602);
   assert.equal((await rpc('good-token', 'no/such')).error.code, -32601);
+});
+
+test('the assistant of a session reaches the tools as principal.via, after a restart too', async (t) => {
+  const seen = [];
+  const tools = [{
+    name: 'whoami', title: 'Who', description: 'Says who', inputSchema: { type: 'object', properties: {} },
+    handler: (principal) => { seen.push(principal.via ?? null); return { content: [{ type: 'text', text: 'ok' }] }; },
+  }];
+  const { call } = await start(t, { tools });
+  const open = async (clientInfo) => (await call('good-token', { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', clientInfo } })).headers.get('mcp-session-id');
+  const use = (sid) => call('good-token', { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'whoami', arguments: {} } }, sid ? { 'Mcp-Session-Id': sid } : {});
+
+  const code = await open({ name: 'claude-code', version: '2.1.0' });
+  await use(code);
+  await use(await open({ name: 'codex-mcp-client', title: 'Codex' }));
+  await use(await open({ name: 'my-agent', title: 'My <b>agent</b>\n' }));
+  await use(await open(undefined));
+  await use(null);
+  // Another server (a deployment since) knows it by its id alone; a made-up id says nothing.
+  const { call: after } = await start(t, { tools });
+  await after('good-token', { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'whoami', arguments: {} } }, { 'Mcp-Session-Id': code });
+  await use(`x.${Buffer.from('Claude\u0000').toString('base64url')}`);
+  await use('not-ours');
+  assert.deepEqual(seen, ['Claude Code', 'Codex', 'My bagentb', null, null, 'Claude Code', null, null]);
+  assert.equal(USERS['good-token'].via, undefined, 'the account itself is left as it was');
+});
+
+test('clientLabel: the known assistants by their names, others by what they say, short', () => {
+  assert.equal(clientLabel({ name: 'claude-ai', version: '0.1.0' }), 'Claude');
+  assert.equal(clientLabel({ name: 'openai-mcp' }), 'ChatGPT');
+  assert.equal(clientLabel({ name: 'Visual Studio Code' }), 'VS Code');
+  assert.equal(clientLabel({ name: 'x'.repeat(90) }).length, 40);
+  assert.equal(clientLabel({}), null);
+  assert.equal(clientLabel(null), null);
+  assert.equal(clientOfSession(null), null);
 });
 
 test('tool calls: arguments, plans and the app’s errors; old names are not aliases', async (t) => {
