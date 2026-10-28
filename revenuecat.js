@@ -61,6 +61,7 @@
 import crypto from 'node:crypto';
 import { HttpError, badRequest, unauthorized } from './http.js';
 import { verifySignature } from './billing.js';
+import { STORE_FIELDS } from './stores.js';
 
 export const REVENUECAT_API = 'https://api.revenuecat.com';
 
@@ -73,8 +74,8 @@ export const STORE_MANAGE_URLS = Object.freeze({
   play_store: 'https://play.google.com/store/account/subscriptions',
 });
 
-/** What `stores.products` calls each store, and the store's own name. */
-export const STORE_FIELDS = Object.freeze({ appStore: 'app_store', playStore: 'play_store' });
+/** What `stores.products` calls each store, and the store's own name (stores.js). */
+export { STORE_FIELDS };
 
 /** The webhooks that may change what someone has; the rest (experiments, aliases…) are acknowledged. */
 const TRIGGERS = new Set([
@@ -349,3 +350,43 @@ export function revenuecatProvider({
 
   return { id: 'revenuecat', kind: 'store', sandbox, parseWebhook, customerEvents, manage };
 }
+
+/**
+ * STORE_BILLING=revenuecat, as providers.js registers it: REVENUECAT_WEBHOOK_AUTH (the
+ * Authorization header value set in the webhook), REVENUECAT_API_KEY (a secret key of the
+ * project, sk_…), optionally REVENUECAT_WEBHOOK_SECRET (the webhook's signing secret: then its
+ * signature is required too) and REVENUECAT_SANDBOX (`on` by default: test purchases count, marked
+ * as such, as App Review buys in the sandbox; `off` makes them another product's).
+ */
+export const revenuecatStores = Object.freeze({
+  id: 'revenuecat',
+  name: 'RevenueCat',
+  fromEnv(env, { errors }) {
+    const missing = ['REVENUECAT_WEBHOOK_AUTH', 'REVENUECAT_API_KEY'].filter((name) => !env[name]);
+    const sandbox = env.REVENUECAT_SANDBOX || 'on';
+    const apiBase = String(env.REVENUECAT_API_BASE || REVENUECAT_API).replace(/\/+$/, '');
+    // The values themselves are never repeated: they are secrets.
+    if (missing.length) errors.push(`STORE_BILLING=revenuecat needs ${missing.join(' and ')}`);
+    else if (env.REVENUECAT_WEBHOOK_AUTH.length < 16) {
+      errors.push('REVENUECAT_WEBHOOK_AUTH: the Authorization header value set in RevenueCat\'s webhook, 16 characters or more');
+    } else if (!/^sk_\S{8,}$/.test(env.REVENUECAT_API_KEY)) {
+      errors.push('REVENUECAT_API_KEY must be a secret API key of the RevenueCat project (sk_…), never an app\'s public key');
+    } else if (env.REVENUECAT_WEBHOOK_SECRET && env.REVENUECAT_WEBHOOK_SECRET.length < 16) {
+      errors.push('REVENUECAT_WEBHOOK_SECRET: the webhook\'s signing secret, 16 characters or more, or left empty');
+    } else if (!['on', 'off'].includes(sandbox)) {
+      errors.push(`REVENUECAT_SANDBOX "${sandbox}": use on or off`);
+    } else if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(apiBase)) {
+      errors.push(`REVENUECAT_API_BASE "${env.REVENUECAT_API_BASE}" is not an http(s) address`);
+    } else {
+      return {
+        provider: 'revenuecat', webhookAuth: env.REVENUECAT_WEBHOOK_AUTH, webhookSecret: env.REVENUECAT_WEBHOOK_SECRET || null,
+        apiKey: env.REVENUECAT_API_KEY, apiBase, sandbox: sandbox === 'on',
+      };
+    }
+    return null;
+  },
+  create: (install, { products, log }) => revenuecatProvider({
+    webhookAuth: install.webhookAuth, webhookSecret: install.webhookSecret, apiKey: install.apiKey,
+    apiBase: install.apiBase, sandbox: install.sandbox, products, log,
+  }),
+});

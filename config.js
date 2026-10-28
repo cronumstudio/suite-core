@@ -22,8 +22,8 @@ import { mailConfigFromEnv, mailConfigErrors } from './mail.js';
 import { alertsFromEnv } from './alerts.js';
 import { vapidKeyErrors } from './push.js';
 import { nativePushFromEnv } from './native-push.js';
-import { PADDLE_API } from './paddle.js';
-import { REVENUECAT_API, STORE_FIELDS } from './revenuecat.js';
+import { STORE_FIELDS } from './stores.js';
+import { billingProviderOf, billingProviders, storeProviderOf, storeProviders } from './providers.js';
 import { productSeatsProblem } from './billing.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
@@ -54,13 +54,20 @@ const PRODUCT_KEYS = new Set([
 ]);
 
 /**
- * suite.config.js `billing`: what keeps another product's sales out (billing.js, paddle.js),
- * whether an account (or a group) that goes takes its billing links and grants with it
- * (`forgetOnRemove`), and whether a group deleted stops renewing (`stopOnOrganizationDeleted`).
+ * suite.config.js `billing`: what keeps another product's sales out (billing.js), whether an
+ * account (or a group) that goes takes its billing links and grants with it (`forgetOnRemove`),
+ * and whether a group deleted stops renewing (`stopOnOrganizationDeleted`). A provider may read
+ * settings of its own there too (providers.js `rules`, such as Paddle's `paddleProductIds`).
  */
 const BILLING_KEYS = new Set([
-  'ignoreUnknownProducts', 'app', 'strictPrices', 'paddleProductIds', 'forgetOnRemove', 'stopOnOrganizationDeleted',
+  'ignoreUnknownProducts', 'app', 'strictPrices', 'forgetOnRemove', 'stopOnOrganizationDeleted',
 ]);
+
+/** The sides a price may be given for, `{ sandbox: …, production: … }`: a provider's test account and its live one. */
+const PRICE_ENVIRONMENTS = Object.freeze(['sandbox', 'production']);
+
+/** "a, b or c", for the names an install may choose from. */
+const oneOf = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names.join(''));
 
 /** suite.config.js `stores`: what the app on a phone sells in the App Store and Google Play (stores.js). */
 const STORE_KEYS = new Set(['products', 'devices']);
@@ -362,49 +369,17 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   let billing = null;
   if (env.BILLING_PROVIDER) {
     if (!modules.billing) errors.push('BILLING_PROVIDER is set, but this app has modules.billing off');
-    else if (env.BILLING_PROVIDER === 'remote') {
-      if (!env.BILLING_SECRET || env.BILLING_SECRET.length < 16) errors.push('BILLING_PROVIDER=remote needs BILLING_SECRET (16 characters or more)');
-      else billing = { provider: 'remote', secret: env.BILLING_SECRET, url: String(env.BILLING_URL || '').replace(/\/+$/, '') };
-    } else if (env.BILLING_PROVIDER === 'stripe') {
-      const missing = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'].filter((name) => !env[name]);
-      if (missing.length) errors.push(`BILLING_PROVIDER=stripe needs ${missing.join(' and ')}`);
-      else if (!/^(sk|rk)_(test|live)_\S+$/.test(env.STRIPE_SECRET_KEY)) errors.push('STRIPE_SECRET_KEY must be a Stripe secret key (sk_test_…, sk_live_…) or a restricted one (rk_…)');
-      else if (!/^whsec_\S+$/.test(env.STRIPE_WEBHOOK_SECRET)) errors.push('STRIPE_WEBHOOK_SECRET must be the webhook endpoint\'s signing secret (whsec_…)');
-      else {
-        billing = {
-          provider: 'stripe', secretKey: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET,
-          apiBase: String(env.STRIPE_API_BASE || 'https://api.stripe.com').replace(/\/+$/, ''),
-        };
-        if (env.STRIPE_SECRET_KEY.includes('_live_') && !baseUrl.startsWith('https://')) {
-          warnings.push('STRIPE_SECRET_KEY is a live key but BASE_URL is not https: Stripe will not reach the webhook');
-        }
-      }
-    } else if (env.BILLING_PROVIDER === 'paddle') {
-      const environment = env.PADDLE_ENV || 'production';
-      const missing = ['PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET'].filter((name) => !env[name]);
-      if (missing.length) errors.push(`BILLING_PROVIDER=paddle needs ${missing.join(' and ')}`);
-      else if (!PADDLE_API[environment]) errors.push(`PADDLE_ENV "${env.PADDLE_ENV}": use sandbox or production`);
-      else if (!/^pdl_(sdbx|live)_apikey_\S+$/.test(env.PADDLE_API_KEY)) errors.push('PADDLE_API_KEY must be a Paddle API key (pdl_sdbx_apikey_…, pdl_live_apikey_…)');
-      // A sandbox key against the live API (or the other way round) only fails at the first checkout.
-      else if ((environment === 'sandbox') !== env.PADDLE_API_KEY.startsWith('pdl_sdbx_')) {
-        errors.push(`PADDLE_API_KEY is a ${env.PADDLE_API_KEY.startsWith('pdl_sdbx_') ? 'sandbox' : 'live'} key but PADDLE_ENV is ${environment}`);
-      } else if (!/^pdl_ntfset_\S+$/.test(env.PADDLE_WEBHOOK_SECRET)) errors.push('PADDLE_WEBHOOK_SECRET must be the secret of the app\'s notification destination (pdl_ntfset_…)');
-      else if (env.PADDLE_CHECKOUT_URL && !/^https:\/\/[^/\s]+\/\S*$/.test(env.PADDLE_CHECKOUT_URL)
-        && !(environment === 'sandbox' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/\S*$/.test(env.PADDLE_CHECKOUT_URL))) {
-        errors.push(`PADDLE_CHECKOUT_URL "${env.PADDLE_CHECKOUT_URL}" must be an https address (the page with Paddle.js)`);
-      } else if (env.PADDLE_CHECKOUT_SECRET && String(env.PADDLE_CHECKOUT_SECRET).length < 32) {
-        errors.push('PADDLE_CHECKOUT_SECRET must be at least 32 characters (it signs what each checkout says, paddle.js)');
+    else {
+      // Only the providers registered (providers.js) can be named: an image without one says so.
+      const provider = billingProviderOf(env.BILLING_PROVIDER);
+      if (!provider) {
+        const ids = billingProviders().map((p) => p.id);
+        errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": ${ids.length ? `use ${oneOf(ids)}` : 'this image has no payment provider'}`);
       } else {
-        billing = {
-          provider: 'paddle', apiKey: env.PADDLE_API_KEY, webhookSecret: env.PADDLE_WEBHOOK_SECRET, environment,
-          apiBase: String(env.PADDLE_API_BASE || PADDLE_API[environment]).replace(/\/+$/, ''),
-          checkoutUrl: env.PADDLE_CHECKOUT_URL || '',
-          // The key of each checkout's signature; empty, one derived from PADDLE_WEBHOOK_SECRET. Installs
-          // that grant one subscription together, a notification destination each, share it.
-          signingSecret: env.PADDLE_CHECKOUT_SECRET || '',
-        };
+        billing = provider.fromEnv(env, { baseUrl, errors, warnings }) || null;
+        if (billing && billing.provider !== provider.id) throw new Error(`billing provider "${provider.id}": fromEnv() names "${billing.provider}"`);
       }
-    } else errors.push(`BILLING_PROVIDER "${env.BILLING_PROVIDER}": use stripe, paddle or remote`);
+    }
     // Who joined before this date pays the founder's price of the products that have one; with
     // FOUNDER_OFFER_UNTIL, only until that date, and after it the regular price, founders too.
     if (billing && env.EARLY_ACCESS_UNTIL) {
@@ -548,11 +523,8 @@ function storesFor(given, webProducts, modules, errors) {
 }
 
 /**
- * The install's store purchases (STORE_BILLING): today `revenuecat`, with REVENUECAT_WEBHOOK_AUTH
- * (the Authorization header value set in the webhook), REVENUECAT_API_KEY (a secret key of the
- * project, sk_…), optionally REVENUECAT_WEBHOOK_SECRET (the webhook's signing secret: then its
- * signature is required too) and REVENUECAT_SANDBOX (`on` by default: test purchases count, marked
- * as such, as App Review buys in the sandbox; `off` makes them another product's).
+ * The install's store purchases (STORE_BILLING): a store provider registered (providers.js), such
+ * as `revenuecat`, which reads its own variables.
  */
 function storeBillingFromEnv(env, { modules, stores, errors }) {
   if (!env.STORE_BILLING) return null;
@@ -560,56 +532,42 @@ function storeBillingFromEnv(env, { modules, stores, errors }) {
     errors.push('STORE_BILLING is set, but this app has modules.billing off');
     return null;
   }
-  if (env.STORE_BILLING !== 'revenuecat') {
-    errors.push(`STORE_BILLING "${env.STORE_BILLING}": use revenuecat`);
+  const provider = storeProviderOf(env.STORE_BILLING);
+  if (!provider) {
+    const ids = storeProviders().map((p) => p.id);
+    errors.push(`STORE_BILLING "${env.STORE_BILLING}": ${ids.length ? `use ${oneOf(ids)}` : 'this image has no store provider'}`);
     return null;
   }
-  const missing = ['REVENUECAT_WEBHOOK_AUTH', 'REVENUECAT_API_KEY'].filter((name) => !env[name]);
-  const sandbox = env.REVENUECAT_SANDBOX || 'on';
-  const apiBase = String(env.REVENUECAT_API_BASE || REVENUECAT_API).replace(/\/+$/, '');
-  // The values themselves are never repeated: they are secrets.
-  if (missing.length) errors.push(`STORE_BILLING=revenuecat needs ${missing.join(' and ')}`);
-  else if (env.REVENUECAT_WEBHOOK_AUTH.length < 16) {
-    errors.push('REVENUECAT_WEBHOOK_AUTH: the Authorization header value set in RevenueCat\'s webhook, 16 characters or more');
-  } else if (!/^sk_\S{8,}$/.test(env.REVENUECAT_API_KEY)) {
-    errors.push('REVENUECAT_API_KEY must be a secret API key of the RevenueCat project (sk_…), never an app\'s public key');
-  } else if (env.REVENUECAT_WEBHOOK_SECRET && env.REVENUECAT_WEBHOOK_SECRET.length < 16) {
-    errors.push('REVENUECAT_WEBHOOK_SECRET: the webhook\'s signing secret, 16 characters or more, or left empty');
-  } else if (!['on', 'off'].includes(sandbox)) {
-    errors.push(`REVENUECAT_SANDBOX "${sandbox}": use on or off`);
-  } else if (!/^https?:\/\/[^/\s]+(\/\S*)?$/.test(apiBase)) {
-    errors.push(`REVENUECAT_API_BASE "${env.REVENUECAT_API_BASE}" is not an http(s) address`);
-  } else if (!Object.keys(stores.products).length) {
+  const install = provider.fromEnv(env, { errors }) || null;
+  if (!install) return null;
+  if (install.provider !== provider.id) throw new Error(`store provider "${provider.id}": fromEnv() names "${install.provider}"`);
+  if (!Object.keys(stores.products).length) {
     errors.push('STORE_BILLING is set, but suite.config.js stores.products sells nothing');
-  } else {
-    return {
-      provider: 'revenuecat', webhookAuth: env.REVENUECAT_WEBHOOK_AUTH, webhookSecret: env.REVENUECAT_WEBHOOK_SECRET || null,
-      apiKey: env.REVENUECAT_API_KEY, apiBase, sandbox: sandbox === 'on',
-    };
+    return null;
   }
-  return null;
+  return install;
 }
 
 /**
- * suite.config.js `billing`, all off by default (billing.js and paddle.js say why):
- *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true,
- *     paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] }, forgetOnRemove: true,
+ * suite.config.js `billing`, all off by default (billing.js says why):
+ *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true, forgetOnRemove: true,
  *     stopOnOrganizationDeleted: true }
- * The Paddle products are given per environment: a sandbox product's id is never the live one's,
- * so one list for both would be right in one of them and, in the other, make every sale of this
- * install foreign without a word. With Paddle on, the ones of PADDLE_ENV are used and must be
- * there: a guard asked for and left without them would let every other product's sale in.
- * `app`, `strictPrices` and `paddleProductIds` are Paddle's: with another provider, a warning.
+ * plus the settings each registered provider reads itself (providers.js `rules`), such as
+ * Paddle's `paddleProductIds`, checked by it whichever provider the install has. `app` and
+ * `strictPrices` only do something with a provider that `honors` them: with another, a warning.
  */
 function billingRulesFor(given, install, errors, warnings) {
-  const rules = { ignoreUnknownProducts: false, app: null, strictPrices: false, paddleProductIds: null };
+  const providers = billingProviders();
+  const rules = { ignoreUnknownProducts: false, app: null, strictPrices: false };
+  for (const provider of providers) for (const key of provider.rules?.keys ?? []) rules[key] = null;
   if (given === undefined) return rules;
   if (!isObject(given)) {
     errors.push('billing: an object, such as { ignoreUnknownProducts: true }');
     return rules;
   }
+  const known = new Set([...BILLING_KEYS, ...providers.flatMap((provider) => provider.rules?.keys ?? [])]);
   for (const key of Object.keys(given)) {
-    if (!BILLING_KEYS.has(key)) errors.push(`billing.${key} is not a setting (a typo?)`);
+    if (!known.has(key)) errors.push(`billing.${key} is not a setting (a typo?)`);
   }
   for (const key of ['ignoreUnknownProducts', 'strictPrices']) {
     if (given[key] === undefined) continue;
@@ -626,45 +584,41 @@ function billingRulesFor(given, install, errors, warnings) {
     if (!/^[a-z][a-z0-9-]{1,30}$/.test(String(given.app))) errors.push('billing.app: lowercase letters, digits and -, starting with a letter');
     else rules.app = String(given.app);
   }
-  const paddle = install?.provider === 'paddle';
-  if (given.paddleProductIds != null) {
-    const environment = paddle ? install.environment : 'production';
-    let ids = given.paddleProductIds;
-    if (isObject(ids)) {
-      for (const name of Object.keys(ids)) {
-        if (!PADDLE_API[name]) errors.push(`billing.paddleProductIds: "${name}" is not sandbox or production`);
-      }
-      ids = ids[environment] ?? null;
-    }
-    if (paddle && Array.isArray(given.paddleProductIds)) {
-      errors.push("billing.paddleProductIds: one list per environment, { sandbox: ['pro_…'], production: ['pro_…'] }, as Paddle's product ids differ between them");
-    } else if (ids != null && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string' && /^pro_[a-z0-9]{26}$/.test(id)))) {
-      errors.push('billing.paddleProductIds: a list of Paddle product ids (pro_…) for each environment');
-    } else if (paddle && !ids?.length) {
-      errors.push(`billing.paddleProductIds: none for PADDLE_ENV ${environment}`);
-    } else rules.paddleProductIds = ids?.length ? [...ids] : null;
+  for (const provider of providers) {
+    if (provider.rules) Object.assign(rules, provider.rules.read(given, install, errors));
   }
-  // Only Paddle's checkout writes the app, and only Paddle's events carry it with a price and a product id.
-  const paddleOnly = ['app', 'strictPrices', 'paddleProductIds'].filter((key) => rules[key]).map((key) => `billing.${key}`);
-  if (install && !paddle && paddleOnly.length) {
-    warnings.push(`${paddleOnly.join(', ')} ${paddleOnly.length > 1 ? 'are' : 'is'} Paddle's: with BILLING_PROVIDER=${install.provider} ${paddleOnly.length > 1 ? 'they do' : 'it does'} nothing`);
+  // A setting only another provider applies does nothing here: said, never an error.
+  if (install) {
+    const honored = new Set(billingProviderOf(install.provider)?.honors ?? []);
+    for (const provider of providers) {
+      if (provider.id === install.provider) continue;
+      const ownOnly = [...(provider.honors ?? []), ...(provider.rules?.keys ?? [])]
+        .filter((key) => rules[key] && !honored.has(key))
+        .map((key) => `billing.${key}`);
+      if (ownOnly.length) {
+        warnings.push(`${ownOnly.join(', ')} ${ownOnly.length > 1 ? 'are' : 'is'} ${provider.name || provider.id}'s: with BILLING_PROVIDER=${install.provider} ${ownOnly.length > 1 ? 'they do' : 'it does'} nothing`);
+      }
+    }
   }
   return rules;
 }
 
 /**
- * The products with the prices of this install's provider. A product may give
- * a price per Paddle environment, `price: { sandbox: 'pri_…', production: 'pri_…' }`,
- * since the sandbox and the live account have their own ids: the one of
- * PADDLE_ENV is kept (the live one when billing is off). Paddle's ids are
- * checked here, so a price copied wrong stops the start instead of a checkout.
+ * The products with the prices of this install's provider. A product may give a price per
+ * environment, `price: { sandbox: 'pri_…', production: 'pri_…' }`, since a provider's sandbox and
+ * live account have their own ids: the one of the provider's environment is kept (the live one
+ * when billing is off or the provider has none). A provider that says what its price ids look
+ * like (providers.js `priceId`) has them checked here, so a price copied wrong stops the start
+ * instead of a checkout.
  */
 function productsFor(products, billing, errors) {
-  const environment = billing?.provider === 'paddle' ? billing.environment : 'production';
+  const provider = billing ? billingProviderOf(billing.provider) : null;
+  const environment = provider?.environment?.(billing) ?? 'production';
+  const priceId = provider?.priceId ?? null;
   const pick = (key, field, value) => {
     if (!isObject(value)) return value;
     for (const name of Object.keys(value)) {
-      if (!PADDLE_API[name]) errors.push(`products.${key}.${field}: "${name}" is not sandbox or production`);
+      if (!PRICE_ENVIRONMENTS.includes(name)) errors.push(`products.${key}.${field}: "${name}" is not sandbox or production`);
     }
     return value[environment] ?? null;
   };
@@ -680,8 +634,8 @@ function productsFor(products, billing, errors) {
     for (const field of ['price', 'founderPrice']) {
       if (spec[field] === undefined) continue;
       resolved[field] = pick(key, field, spec[field]);
-      if (billing?.provider === 'paddle' && resolved[field] != null && !/^pri_[a-z0-9]{26}$/.test(resolved[field])) {
-        errors.push(`products.${key}.${field}: "${resolved[field]}" is not a Paddle price id (pri_…)`);
+      if (priceId && resolved[field] != null && !priceId.pattern.test(resolved[field])) {
+        errors.push(`products.${key}.${field}: "${resolved[field]}" is not ${priceId.name}`);
       }
     }
     // Prices no longer sold that subscriptions still renew on: a list, or one per environment.
@@ -689,9 +643,9 @@ function productsFor(products, billing, errors) {
       const old = pick(key, 'oldPrices', spec.oldPrices) ?? [];
       resolved.oldPrices = old;
       if (!Array.isArray(old)) errors.push(`products.${key}.oldPrices: a list of price ids, or one per environment`);
-      else if (billing?.provider === 'paddle') {
+      else if (priceId) {
         for (const price of old) {
-          if (!/^pri_[a-z0-9]{26}$/.test(String(price))) errors.push(`products.${key}.oldPrices: "${price}" is not a Paddle price id (pri_…)`);
+          if (!priceId.pattern.test(String(price))) errors.push(`products.${key}.oldPrices: "${price}" is not ${priceId.name}`);
         }
       }
     }

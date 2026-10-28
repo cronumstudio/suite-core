@@ -430,15 +430,79 @@ export function paddleProvider({
  */
 export const providerId = (environment) => (environment === 'sandbox' ? 'paddle-sandbox' : 'paddle');
 
+const ENVIRONMENTS = Object.keys(PADDLE_API);
+const PRODUCT_ID = /^pro_[a-z0-9]{26}$/;
+
 /**
- * Migration 19: before 0.48.0 both environments wrote "paddle", and the only
- * Paddle data any install has from then is the sandbox's (the live account
- * sold nothing before this version), so it becomes "paddle-sandbox".
+ * BILLING_PROVIDER=paddle, as providers.js registers it: PADDLE_ENV (production by default),
+ * PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET, and optionally PADDLE_CHECKOUT_URL (the page with
+ * Paddle.js), PADDLE_CHECKOUT_SECRET and PADDLE_API_BASE. Its own setting of suite.config.js
+ * `billing`, `paddleProductIds`, is given per environment: a sandbox product's id is never the
+ * live one's, so one list for both would be right in one of them and, in the other, make every
+ * sale of this install foreign without a word. With Paddle on, the ones of PADDLE_ENV are used
+ * and must be there: a guard asked for and left without them would let every other product's
+ * sale in.
  */
-export function paddleEnvironmentsSchema(d) {
-  const has = (table) => d.columnsOf(table).length > 0;
-  for (const table of ['billing_customers', 'billing_subscriptions', 'billing_events', 'billing_pending']) {
-    if (has(table)) d.run(`UPDATE ${table} SET provider = 'paddle-sandbox' WHERE provider = 'paddle'`);
-  }
-  if (has('entitlement_grants')) d.run("UPDATE entitlement_grants SET source = 'paddle-sandbox' WHERE source = 'paddle'");
-}
+export const paddleBilling = Object.freeze({
+  id: 'paddle',
+  name: 'Paddle',
+  fromEnv(env, { errors }) {
+    const environment = env.PADDLE_ENV || 'production';
+    const missing = ['PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET'].filter((name) => !env[name]);
+    if (missing.length) errors.push(`BILLING_PROVIDER=paddle needs ${missing.join(' and ')}`);
+    else if (!PADDLE_API[environment]) errors.push(`PADDLE_ENV "${env.PADDLE_ENV}": use sandbox or production`);
+    else if (!/^pdl_(sdbx|live)_apikey_\S+$/.test(env.PADDLE_API_KEY)) errors.push('PADDLE_API_KEY must be a Paddle API key (pdl_sdbx_apikey_…, pdl_live_apikey_…)');
+    // A sandbox key against the live API (or the other way round) only fails at the first checkout.
+    else if ((environment === 'sandbox') !== env.PADDLE_API_KEY.startsWith('pdl_sdbx_')) {
+      errors.push(`PADDLE_API_KEY is a ${env.PADDLE_API_KEY.startsWith('pdl_sdbx_') ? 'sandbox' : 'live'} key but PADDLE_ENV is ${environment}`);
+    } else if (!/^pdl_ntfset_\S+$/.test(env.PADDLE_WEBHOOK_SECRET)) errors.push('PADDLE_WEBHOOK_SECRET must be the secret of the app\'s notification destination (pdl_ntfset_…)');
+    else if (env.PADDLE_CHECKOUT_URL && !/^https:\/\/[^/\s]+\/\S*$/.test(env.PADDLE_CHECKOUT_URL)
+      && !(environment === 'sandbox' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/\S*$/.test(env.PADDLE_CHECKOUT_URL))) {
+      errors.push(`PADDLE_CHECKOUT_URL "${env.PADDLE_CHECKOUT_URL}" must be an https address (the page with Paddle.js)`);
+    } else if (env.PADDLE_CHECKOUT_SECRET && String(env.PADDLE_CHECKOUT_SECRET).length < 32) {
+      errors.push('PADDLE_CHECKOUT_SECRET must be at least 32 characters (it signs what each checkout says, paddle.js)');
+    } else {
+      return {
+        provider: 'paddle', apiKey: env.PADDLE_API_KEY, webhookSecret: env.PADDLE_WEBHOOK_SECRET, environment,
+        apiBase: String(env.PADDLE_API_BASE || PADDLE_API[environment]).replace(/\/+$/, ''),
+        checkoutUrl: env.PADDLE_CHECKOUT_URL || '',
+        // The key of each checkout's signature; empty, one derived from PADDLE_WEBHOOK_SECRET. Installs
+        // that grant one subscription together, a notification destination each, share it.
+        signingSecret: env.PADDLE_CHECKOUT_SECRET || '',
+      };
+    }
+    return null;
+  },
+  environment: (install) => install.environment,
+  priceId: { pattern: /^pri_[a-z0-9]{26}$/, name: 'a Paddle price id (pri_…)' },
+  // Only Paddle's checkout writes the app, and only Paddle's events carry it with a price and a product id.
+  honors: ['app', 'strictPrices'],
+  rules: {
+    keys: ['paddleProductIds'],
+    read(given, install, errors) {
+      if (given.paddleProductIds == null) return {};
+      const paddle = install?.provider === 'paddle';
+      const environment = paddle ? install.environment : 'production';
+      let ids = given.paddleProductIds;
+      if (ids && typeof ids === 'object' && !Array.isArray(ids)) {
+        for (const name of Object.keys(ids)) {
+          if (!ENVIRONMENTS.includes(name)) errors.push(`billing.paddleProductIds: "${name}" is not sandbox or production`);
+        }
+        ids = ids[environment] ?? null;
+      }
+      if (paddle && Array.isArray(given.paddleProductIds)) {
+        errors.push("billing.paddleProductIds: one list per environment, { sandbox: ['pro_…'], production: ['pro_…'] }, as Paddle's product ids differ between them");
+      } else if (ids != null && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string' && PRODUCT_ID.test(id)))) {
+        errors.push('billing.paddleProductIds: a list of Paddle product ids (pro_…) for each environment');
+      } else if (paddle && !ids?.length) {
+        errors.push(`billing.paddleProductIds: none for PADDLE_ENV ${environment}`);
+      } else return { paddleProductIds: ids?.length ? [...ids] : null };
+      return {};
+    },
+  },
+  create: (install, { products, rules = {}, log }) => paddleProvider({
+    apiKey: install.apiKey, webhookSecret: install.webhookSecret, environment: install.environment,
+    apiBase: install.apiBase, checkoutUrl: install.checkoutUrl, signingSecret: install.signingSecret, products, log,
+    strictPrices: rules.strictPrices ?? false, paddleProductIds: rules.paddleProductIds ?? null,
+  }),
+});

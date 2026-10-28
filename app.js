@@ -43,11 +43,9 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import {
-  createBilling, signedProvider, registerBillingApi, combinedBilling, registerBillingOverviewApi, founderPriceOpen, joinedEarly,
+  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, founderPriceOpen, joinedEarly,
 } from './billing.js';
-import { stripeProvider } from './stripe.js';
-import { paddleProvider } from './paddle.js';
-import { revenuecatProvider } from './revenuecat.js';
+import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
@@ -213,18 +211,11 @@ export function createSuite({
     if (hooks.onOrganizationDeleted) organizations.whenDeleted(hooks.onOrganizationDeleted);
   }
 
-  const billingProvider = !install.billing ? null
-    : install.billing.provider === 'stripe' ? stripeProvider({
-      secretKey: install.billing.secretKey, webhookSecret: install.billing.webhookSecret,
-      apiBase: install.billing.apiBase, products: config.products, log,
-    })
-      : install.billing.provider === 'paddle' ? paddleProvider({
-        apiKey: install.billing.apiKey, webhookSecret: install.billing.webhookSecret,
-        environment: install.billing.environment, apiBase: install.billing.apiBase,
-        checkoutUrl: install.billing.checkoutUrl, signingSecret: install.billing.signingSecret, products: config.products, log,
-        strictPrices: config.billing?.strictPrices ?? false, paddleProductIds: config.billing?.paddleProductIds ?? null,
-      })
-        : signedProvider({ id: 'remote', secret: install.billing.secret, baseUrl: install.billing.url });
+  // The provider the install names, as registered (providers.js): the suite never knows it by name.
+  const billingProvider = install.billing
+    ? registered(billingProviderOf, 'BILLING_PROVIDER', install.billing.provider)
+      .create(install.billing, { products: config.products, rules: config.billing ?? {}, log })
+    : null;
   const workosClient = install.authProvider === 'workos' ? createWorkosClient(install.workos) : null;
   const workosPeople = install.authProvider === 'workos' ? workosUsers(accounts, { database }) : null;
   // Who someone is where they sign in: what a subscription is bought for, the
@@ -289,10 +280,9 @@ export function createSuite({
   }
   // Purchases in the App Store and Google Play (STORE_BILLING), a second instance on the same
   // tables: its grants count with the web's. Nobody is waited for: a store's buyer has an account.
-  const storeProvider = install.stores?.provider === 'revenuecat' ? revenuecatProvider({
-    webhookAuth: install.stores.webhookAuth, webhookSecret: install.stores.webhookSecret, apiKey: install.stores.apiKey,
-    apiBase: install.stores.apiBase, sandbox: install.stores.sandbox, products: config.stores.products, log,
-  }) : null;
+  const storeProvider = install.stores
+    ? registered(storeProviderOf, 'STORE_BILLING', install.stores.provider).create(install.stores, { products: config.stores.products, log })
+    : null;
   const stores = config.modules.billing && storeProvider ? createStoreBilling({
     database, entitlements, provider: storeProvider, products: config.stores.products, audit, log,
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false,
@@ -609,6 +599,13 @@ const DISCOVERY_PATHS = ['/.well-known', '/register', '/authorize', '/token', '/
  * disk: decoded and normalized as it does, with Windows' own leniency (any case, a backslash,
  * trailing dots or spaces, an NTFS stream after a colon) in the folder's name.
  */
+/** A payment provider the install's config named, which must still be registered. */
+function registered(of, variable, id) {
+  const provider = of(id);
+  if (!provider) throw new Error(`${variable} "${id}" is not registered in this image (providers.js)`);
+  return provider;
+}
+
 function inCatalogDir(pathname) {
   let decoded;
   try { decoded = decodeURIComponent(pathname); } catch { return false; }   // serveStatic refuses it too

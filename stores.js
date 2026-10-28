@@ -49,6 +49,9 @@ import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody } from './http.js';
 import { createBilling } from './billing.js';
 
+/** What `stores.products` calls each store, and the store's own name. */
+export const STORE_FIELDS = Object.freeze({ appStore: 'app_store', playStore: 'play_store' });
+
 const LIVE = ['active', 'trialing', 'past_due'];
 /** What a delivery's id may be: no `:` or `/`, so neither it nor its readings' ids ever name a note's row. */
 const DELIVERY_ID = /^[A-Za-z0-9._-]{1,100}$/;

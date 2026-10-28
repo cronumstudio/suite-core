@@ -22,7 +22,6 @@ import { organizationsSchema } from './organizations.js';
 import { auditSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
-import { paddleEnvironmentsSchema } from './paddle.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
@@ -32,6 +31,20 @@ import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
 import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
+
+/**
+ * Migration 19: before 0.48.0 both of Paddle's environments wrote "paddle", and the only Paddle
+ * data any install has from then is the sandbox's (the live account sold nothing before that
+ * version), so it becomes "paddle-sandbox" (paddle.js `providerId`). It only renames values: an
+ * install that never sold through Paddle runs it without a change.
+ */
+function paddleEnvironmentsSchema(d) {
+  const has = (table) => d.columnsOf(table).length > 0;
+  for (const table of ['billing_customers', 'billing_subscriptions', 'billing_events', 'billing_pending']) {
+    if (has(table)) d.run(`UPDATE ${table} SET provider = 'paddle-sandbox' WHERE provider = 'paddle'`);
+  }
+  if (has('entitlement_grants')) d.run("UPDATE entitlement_grants SET source = 'paddle-sandbox' WHERE source = 'paddle'");
+}
 
 export const SUITE_MIGRATIONS = Object.freeze([
   { version: 1, name: 'sessions', up: sessionsSchema },
