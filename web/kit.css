@@ -299,6 +299,14 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .kit-switch-row small { display: block; color: var(--kit-muted); font-size: var(--look-footnote, 12.5px); }
 .kit-switch-row--swatch > span:first-child { display: flex; align-items: center; gap: 8px; }
+/* What picks a module up to put it in order (Settings › Modules): dragged, or pressed for its menu. */
+.kit-module-grip {
+  display: inline-grid; place-items: center; width: 28px; height: 32px; margin-inline-start: -6px; flex: none;
+  border: 0; border-radius: var(--look-r-xs, 6px); background: none; color: var(--kit-muted); cursor: grab; touch-action: none;
+}
+.kit-module-grip:hover { color: var(--kit-text); }
+.kit-module-grip:active { cursor: grabbing; }
+.kit-module-grip .kit-icon { width: 18px; height: 18px; stroke-width: 3; }
 
 /* One choice among a few, side by side (the theme). */
 .kit-segmented { display: inline-flex; flex-wrap: wrap; padding: 3px; border-radius: var(--look-r-md, 10px); background: var(--kit-hover); gap: 2px; }

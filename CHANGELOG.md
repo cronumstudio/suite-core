@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.200.0 — 2026-10-28
+
+- **Each person puts the modules in their own order** (Martin: «seria posible que el usuario
+  reordene los modulos segun su preferencia? … asi en la barra los iconos se muestran en el orden
+  escogido»): in Settings › Modules each row has a grip, dragged up or down, or pressed for «Move
+  up» and «Move down» (the keyboard and a screen reader too). `PUT /api/me/modules/order` keeps
+  it (`host_module_order`, migration 7 of the host), and `GET /api/modules` lists the modules in
+  that order, so the rail, a phone's tabs, Settings and the host's home all follow; one the host
+  adds later comes last. The order isn't which they use: a module turned off keeps its place.
+- **Installing on this device, step by step** (Martin: «no se entiende bien porque puede parecer que
+  se refiere a la pantalla de inicio de work»): Settings › Modules' «Iconos en la pantalla de
+  inicio» is now «Instalar en tu dispositivo». On the web: install the host or each module on its
+  own, 1) click or tap the one you want (its button, now just its name), 2) this device's way
+  (\`installKind\`: an iPhone or iPad, Android, Safari on a Mac, Chrome or Edge, or that Firefox
+  installs nothing on a computer). In the suite's app, which is the host installed already, only
+  the modules, each opened in the browser (\`open-external\`), with the phone's own steps.
+
 ## 0.199.0 — 2026-10-28
 
 - **A module turned off leaves Cronum Work's windows at once** (Martin: «desmarcar modulos no hace

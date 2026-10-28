@@ -134,6 +134,18 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('GET', '/alpha/')).status, 200, 'a module turned off still opens: its data is there');
   await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
 
+  // The order of the modules, one choice for the whole host: the host's own until they choose.
+  assert.equal((await call('PUT', '/api/me/modules/order', { order: ['beta', 'gamma'] })).data.field, 'order', 'only modules there are');
+  assert.equal((await call('PUT', '/api/me/modules/order', {})).data.field, 'order');
+  const ordered = await call('PUT', '/api/me/modules/order', { order: ['beta'] });
+  assert.deepEqual(ordered.data.modules.map((m) => m.mount), ['beta', 'alpha'], 'any left out after the ones named');
+  assert.deepEqual((await call('GET', '/api/modules')).data.modules.map((m) => `${m.mount}:${m.active}`), ['beta:true', 'alpha:true'], 'kept');
+  assert.equal((await call('GET', '/api/modules')).data.chosen, true, 'the order isn’t which they use');
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await call('GET', '/api/modules')).data.modules.map((m) => m.mount), ['beta', 'alpha'], 'turned off, it keeps its place');
+  await call('PUT', '/api/me/modules', { active: ['alpha', 'beta'] });
+  await call('PUT', '/api/me/modules/order', { order: ['alpha', 'beta'] });
+
   // The look of every module, one choice for the whole host: the suite's own until they choose.
   assert.equal((await call('PUT', '/api/me/look', { look: 'pink' })).data.field, 'look', 'only the looks there are');
   assert.equal((await call('PUT', '/api/me/look', { look: 'clean' })).data.look, 'clean');
