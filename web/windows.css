@@ -58,6 +58,28 @@
 }
 .cw-desk[data-maxed] > .cw-win:not([data-max]) { opacity: 0; visibility: hidden; transition: opacity .25s ease, visibility 0s linear .25s; }
 .cw-desk[data-maxed] > .cw-bar { visibility: hidden; }
+/*
+ * Maximize and restore (windows.js `crossfade`): the window's box grows or shrinks to its place,
+ * and in it what it showed fades out as what it shows fades in, each drawn at its own size from
+ * the top corner, cut by the box, never stretched. The others fade with the page (their own
+ * fade waits), and nothing else on the page is named meanwhile.
+ */
+:root[data-cw-max-fade] .cw-desk > .cw-win { transition: none; }
+:root[data-cw-max-fade] .kit-rail { view-transition-name: none; }
+:root[data-cw-max-fade]::view-transition-old(root),
+:root[data-cw-max-fade]::view-transition-new(root) { animation-duration: .28s; }
+::view-transition-group(cw-win-max) {
+  animation-duration: .28s; animation-timing-function: cubic-bezier(.4, .05, .2, 1.06);
+  border-radius: 12px; background: var(--kit-bg); box-shadow: inset 0 0 0 1px var(--kit-border);
+}
+::view-transition-image-pair(cw-win-max) { clip-path: inset(0 round 12px); }
+::view-transition-old(cw-win-max), ::view-transition-new(cw-win-max) {
+  inline-size: auto; block-size: auto; object-fit: none; object-position: 0 0;
+}
+/* The new one comes in over the old, which stays as it is under it: no moment where both are faint. */
+::view-transition-old(cw-win-max) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(cw-win-max) { animation: cw-win-fade-in .2s ease-out .03s both; mix-blend-mode: normal; }
+@keyframes cw-win-fade-in { from { opacity: 0; } }
 
 /* The module's page, inside its window: what was the viewport is the window's body. */
 .cw-win__body { position: relative; flex: 1; min-height: 0; overflow: hidden; contain: layout paint; }

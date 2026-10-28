@@ -788,6 +788,49 @@ test('maximize: a head’s button gives its window the whole desk and turns «Re
   windows.destroy();
 });
 
+test('maximize: with view transitions, the window fades from what it showed to what it shows; a change of the windows restores it at once', async () => {
+  const { desk, made, windows, head } = setup();
+  const root = new FakeElement('html');
+  const fades = [];
+  desk.ownerDocument = {
+    documentElement: root,
+    startViewTransition(update) {
+      let done;
+      const fade = { update, finished: new Promise((r) => { done = r; }), end() { update(); done(); } };
+      fades.push(fade);
+      return fade;
+    },
+  };
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
+  const button = (m) => head(m).querySelector('.cw-win__max');
+
+  desk.dispatch('click', { target: button('next') });
+  assert.equal(fades.length, 1);
+  assert.equal(windows.maximized, 'next');
+  assert.equal(made.get('next').style.viewTransitionName, 'cw-win-max', 'the window, named for windows.css');
+  assert.ok(root.hasAttribute('data-cw-max-fade'));
+  assert.equal(made.get('next').hasAttribute('data-max'), false, 'drawn as it was until the browser has its picture');
+  fades[0].end();
+  assert.ok(made.get('next').hasAttribute('data-max'));
+  assert.equal(made.get('notes').inert, true);
+  await fades[0].finished;
+  await null;
+  assert.equal(made.get('next').style.viewTransitionName, '');
+  assert.equal(root.hasAttribute('data-cw-max-fade'), false);
+
+  // Back to its place the same way; a link to another window restores it with no fade.
+  desk.dispatch('click', { target: button('next') });
+  fades[1].end();
+  assert.equal(made.get('next').hasAttribute('data-max'), false);
+  desk.dispatch('dblclick', { target: head('notes') });
+  fades[2].end();
+  windows.focus('next');
+  assert.equal(fades.length, 3, 'no fade for a restore that is part of another change');
+  assert.equal(windows.maximized, null);
+  assert.equal(made.get('notes').hasAttribute('data-max'), false);
+  windows.destroy();
+});
+
 test('maximize: alone on the desk, or on a phone, there is nothing to maximize', () => {
   const { desk, windows, head } = setup();
   windows.set({ cols: [{ wins: ['notes'] }] });
