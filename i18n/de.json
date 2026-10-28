@@ -928,9 +928,16 @@
   "kit.usage.used": "{size} belegt",
   "kit.usage.mcp": "Aufrufe von Assistenten (MCP)",
   "kit.usage.today": "Heute",
-  "kit.usage.month": "Letzte 30 Tage: {n}, im Schnitt {avg} pro Tag",
+  "kit.usage.lastDays": {
+    "one": "Erster Tag: {calls}",
+    "other": "Letzte {n} Tage: {calls}, im Schnitt {avg} pro Tag"
+  },
+  "kit.usage.calls": {
+    "one": "{n} Aufruf",
+    "other": "{n} Aufrufe"
+  },
   "kit.usage.monthChart": "Aufrufe an jedem der letzten 30 Tage",
-  "kit.usage.dayCalls": "{date}: {n}",
+  "kit.usage.dayCalls": "{date}: {calls}",
   "kit.data.hint": "Herunterladen, importieren oder löschen",
   "kit.data.hintDelete": "Dein Konto löschen",
   "kit.data.confirmWord": "LÖSCHEN",

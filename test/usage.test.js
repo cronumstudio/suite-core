@@ -165,3 +165,11 @@ test('the admin’s list counts in batches, letting the process answer in betwee
   assert.deepEqual(sent.peaks, Object.fromEntries(oneByOne(users, options)));
   await assert.rejects(async () => routes['/api/admin/usage']({ user: { id: 2, role: 'user' }, res }), /admin_only/);
 });
+
+test('the calls of the month say the day the account was made, in either way it is kept', (t) => {
+  const { users, options } = setup(t, { accounts: 16 });
+  const user = users.find((u) => u.id === 8);
+  assert.equal(usageOf({ ...user, created_at: '2026-10-26T09:15:00.000Z' }, options).mcp.since, '2026-10-26');
+  assert.equal(usageOf({ ...user, created_at: '2026-10-26 09:15:00' }, options).mcp.since, '2026-10-26', 'SQLite’s own format too');
+  assert.equal(usageOf(user, options).mcp.since, null, 'unknown: the whole month counts');
+});
