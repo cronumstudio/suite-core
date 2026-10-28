@@ -70,7 +70,7 @@ import { toast, field, segmented, switchRow, confirmDialog, openDialog, signatur
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
-import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
+import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
@@ -102,6 +102,25 @@ function modulesChanged() {
   try {
     window.parent.document.dispatchEvent(new window.parent.CustomEvent('kit-modules'));
   } catch { /* the page that framed it went */ }
+}
+
+/**
+ * How this device installs a web app, for Settings › Modules' steps: 'ios' (an iPhone or an iPad,
+ * the suite's app on one too: Share › Add to Home Screen), 'android', 'mac-safari' (File › Add to
+ * Dock), 'firefox' (on a computer it installs none) or 'desktop' (the install button of the address
+ * bar, Chrome's and Edge's).
+ */
+export function installKind(win = globalThis.window) {
+  const native = nativeInfo(win)?.platform;
+  if (native === 'ios' || native === 'android') return native;
+  const nav = win?.navigator || {};
+  const agent = String(nav.userAgent || '');
+  // iPadOS says it is a Mac; a Mac with a touch screen is an iPad.
+  if (/iPhone|iPad|iPod/.test(agent) || (/Macintosh/.test(agent) && nav.maxTouchPoints > 1)) return 'ios';
+  if (/Android/.test(agent)) return 'android';
+  if (/Firefox\//.test(agent)) return 'firefox';
+  if (/Macintosh/.test(agent) && /Version\/[\d.]+.*Safari\//.test(agent) && !/Chrome|Chromium|Edg\//.test(agent)) return 'mac-safari';
+  return 'desktop';
 }
 
 /** The host's last answer of its modules that the frame keeps (shell.js RAIL_KEY), or none. */
@@ -1054,24 +1073,44 @@ export function openSettings(options) {
         }));
       }
       clear(icons);
-      // The host itself first: one icon for all of it, opening on the module used last. Its page
-      // at /?modules stays put instead of going on to a module, so it can be installed from there.
-      if (answer.host?.name) {
-        icons.append(el('a', { class: 'kit-btn kit-btn--small', href: '/?modules', target: '_blank', rel: 'noopener' },
-          answer.host.icon ? el('img', { src: answer.host.icon, alt: '', width: 18, height: 18 }) : null,
-          t('kit.modules.open', { name: answer.host.name })));
-      }
-      for (const m of inUse.filter((x) => x.active)) {
-        icons.append(el('a', { class: 'kit-btn kit-btn--small', href: m.path, target: '_blank', rel: 'noopener' },
-          el('img', { src: m.icon, alt: '', width: 18, height: 18 }), t('kit.modules.open', { name: m.name })));
-      }
+      // In the suite's app each one opens outside it, in the browser, where it can be installed.
+      const native = inApp();
+      const link = (href, image, name) => el('a', {
+        class: 'kit-btn kit-btn--small', href, target: '_blank', rel: 'noopener',
+        onClick: (ev) => { if (native && openExternal(new URL(href, window.location.href).href)) ev.preventDefault(); },
+      }, image ? el('img', { src: image, alt: '', width: 18, height: 18 }) : null, name);
+      // The host itself first, but not in its own app, which is it installed: one icon for all of it,
+      // opening on the module used last. Its page at /?modules stays put instead of going on to a
+      // module, so it can be installed from there.
+      if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
+      for (const m of inUse.filter((x) => x.active)) icons.append(link(m.path, m.icon, m.name));
     };
     fetch('/api/modules', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((answer) => { paint(answer); repaint(); }, fail);
     return el('div', {},
       block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.order')), hint(t('kit.modules.one')), hint(t('kit.modules.off')), calendarSwitch),
-      block(t('kit.modules.icons'), hint(t('kit.modules.install', { host: host.name })), icons));
+      installing(icons));
+  }
+
+  /**
+   * Installing on this device: on the web Cronum Work or each module on its own, in the suite's
+   * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way.
+   */
+  function installing(icons) {
+    const native = inApp();
+    const kind = installKind();
+    const pick = native ? 'kit.modules.installPickApp'
+      : kind === 'ios' || kind === 'android' ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
+    const how = {
+      ios: 'kit.modules.installIos', android: 'kit.modules.installAndroid',
+      'mac-safari': 'kit.modules.installMacSafari', firefox: 'kit.modules.installFirefox',
+    }[kind] || 'kit.modules.installDesktop';
+    return block(t('kit.modules.installTitle'),
+      hint(t(native ? 'kit.modules.installApp' : 'kit.modules.installWeb', { host: host.name })),
+      el('ol', { class: 'kit-steps' },
+        el('li', {}, el('p', { text: t(pick) }), icons),
+        el('li', {}, el('p', { text: t(how) }))));
   }
 
   function ai() {
