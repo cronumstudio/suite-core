@@ -1820,7 +1820,8 @@ await host.listen();
   (`createModule().usage(userId)` → `{ counts: [{ id, count, feature? }], active_at }`, `id` one of
   `USAGE_ITEMS`). A count with a `feature` is set against that limit of the module's plan, so it
   must be what the module's barrier counts. The host adds the storage and the calls from
-  assistants of the last 30 days (`entitlements.dailyUsage()`), and answers
+  assistants of the last 30 days (`entitlements.dailyUsage()`, with `since`, the day the account
+  was made, so a younger one is averaged over its own days: `countedDays()`), and answers
   `GET /api/admin/users/:id/usage` and, for the list, `GET /api/admin/usage` (each account's
   nearest cap). The list counts every account in batches of 100, letting the process answer
   others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), today's

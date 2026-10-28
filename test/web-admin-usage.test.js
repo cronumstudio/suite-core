@@ -86,21 +86,40 @@ test('Usage: each account’s nearest cap in the list, and in its dialog each mo
   assert.match(text, new RegExp(t('admin.usage.nothing')));
   assert.match(text, /3 MB of 50 MB · 6\s?%/);
   assert.match(text, new RegExp(t('kit.usage.reached')), 'today’s calls at the limit, in words');
-  assert.match(text, /Last 30 days: 104/);
+  assert.match(text, /Last 30 days: 104 calls, 3\.5 a day on average/, 'an account older than the month: its 30 days');
   const bars = fold.find('div').find((n) => n.getAttribute('class') === 'kit-usage__days');
   assert.equal(bars.childNodes.length, 30);
-  assert.equal(bars.childNodes.at(-1).getAttribute('style'), 'block-size: 100%', 'the busiest day reaches the top');
-  assert.equal(bars.childNodes[0].getAttribute('class'), 'kit-usage__day--none', 'a day without calls is a stub');
+  assert.equal(bars.childNodes.at(-1).childNodes[0].getAttribute('style'), 'block-size: 100%', 'the busiest day reaches the top');
+  assert.equal(bars.childNodes[0].getAttribute('class'), 'kit-usage__day kit-usage__day--none', 'a day without calls is a stub');
+  assert.match(bars.childNodes.at(-1).getAttribute('data-tip'), /: 90 calls$/, 'pointing at a day says its calls');
+  assert.match(bars.childNodes[1].getAttribute('data-tip'), /: 1 call$/);
+  assert.equal(bars.childNodes.at(-1).getAttribute('tabindex'), '-1', 'a tap focuses it, the Tab key passes it by');
   dialog.close();
 
   // Someone with no daily limit: their calls counted all the same, with no bar of a limit.
   server['GET /api/admin/users/2/grants'] = { grants: [] };
-  server['GET /api/admin/users/2/usage'] = { ...USAGE, user_id: 2, mcp: { limit: null, today: 12, share: null, days, total: 104 }, peak: null };
+  // …and made three days ago: the average is of its three days, and the days before it are empty.
+  server['GET /api/admin/users/2/usage'] = { ...USAGE, user_id: 2, mcp: { limit: null, today: 12, share: null, days: days.map((d, i) => (i < 27 ? { ...d, used: 0 } : d)), since: '2026-10-28', total: 91 }, peak: null };
   rows[1].dispatch('click');
   for (let turn = 0; turn < 20; turn++) await settle();
   const ben = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
   const benText = ben.find('details').find((node) => node.find('summary')[0].textContent.startsWith(t('admin.usage.title'))).textContent;
   assert.match(benText, new RegExp(`${t('kit.usage.today')}12${t('admin.usage.noDailyLimit')}`));
-  assert.match(benText, /Last 30 days: 104/);
+  assert.match(benText, /Last 3 days: 91 calls, 30\.3 a day on average/);
+  const benBars = ben.find('div').find((n) => n.getAttribute('class') === 'kit-usage__days');
+  assert.equal(benBars.childNodes.length, 30, 'the chart is still the month, today the last');
+  assert.equal(benBars.childNodes.filter((n) => n.getAttribute('class') === 'kit-usage__day kit-usage__day--before').length, 27);
+  assert.equal(benBars.childNodes[26].getAttribute('data-tip'), null, 'a day before the account says nothing');
   ben.close();
+});
+
+test('countedDays: the days of the month since the account, or since its first call when that is earlier', async () => {
+  const { countedDays } = await import('../web/usage-view.js');
+  const month = (used = () => 0) => Array.from({ length: 30 }, (_, i) => ({ day: `2026-10-${String(i + 1).padStart(2, '0')}`, used: used(i) }));
+  assert.equal(countedDays({ days: month() }).length, 30, 'without the day of the account, all of them');
+  assert.equal(countedDays({ days: month(), since: '2025-01-09' }).length, 30, 'an account older than the month');
+  assert.equal(countedDays({ days: month(), since: '2026-10-28' }).length, 3);
+  assert.equal(countedDays({ days: month(), since: '2026-10-30' }).length, 1, 'made today: today');
+  assert.equal(countedDays({ days: month(), since: '2026-11-02' }).length, 1, 'a clock behind: today all the same');
+  assert.equal(countedDays({ days: month((i) => (i === 19 ? 4 : 0)), since: '2026-10-28' }).length, 11, 'calls before the account (one brought from an app) count from the first');
 });

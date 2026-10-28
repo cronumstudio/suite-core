@@ -148,8 +148,10 @@ export function usageOf(user, { modules, uses = () => true, entitlements = null,
     mcpOf: (limit) => {
       const days = entitlements.dailyUsage(user.id, 'mcp.calls_per_day');
       const today = days.at(-1)?.used ?? 0;
-      // Counted with a limit or without (countDaily): the share only where there is one.
-      return { limit, today, share: share(today, limit), days, total: days.reduce((a, d) => a + d.used, 0) };
+      // Counted with a limit or without (countDaily): the share only where there is one. `since`,
+      // the day the account was made, so an account younger than the month averages its own days.
+      const since = /^\d{4}-\d{2}-\d{2}/.test(user.created_at ?? '') ? user.created_at.slice(0, 10) : null;
+      return { limit, today, share: share(today, limit), days, since, total: days.reduce((a, d) => a + d.used, 0) };
     },
   });
 }

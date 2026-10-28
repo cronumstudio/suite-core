@@ -928,9 +928,16 @@
   "kit.usage.used": "{size} usados",
   "kit.usage.mcp": "Llamadas del asistente (MCP)",
   "kit.usage.today": "Hoy",
-  "kit.usage.month": "Últimos 30 días: {n}, {avg} al día de media",
+  "kit.usage.lastDays": {
+    "one": "Primer día: {calls}",
+    "other": "Últimos {n} días: {calls}, {avg} al día de media"
+  },
+  "kit.usage.calls": {
+    "one": "{n} llamada",
+    "other": "{n} llamadas"
+  },
   "kit.usage.monthChart": "Llamadas de cada uno de los últimos 30 días",
-  "kit.usage.dayCalls": "{date}: {n}",
+  "kit.usage.dayCalls": "{date}: {calls}",
   "kit.data.hint": "Descargar, importar o borrar",
   "kit.data.hintDelete": "Borrar tu cuenta",
   "kit.data.confirmWord": "BORRAR",

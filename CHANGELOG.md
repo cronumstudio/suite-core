@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.200.1 — 2026-10-28
+## 0.202.1 — 2026-10-28
 
 - **A third step for installing** (Martin: «me faltaria un tercer paso en las instrucciones, algo
   asi como: la app instalada guarda los datos en local y puedes usarla sin conexion»): Settings ›
@@ -11,6 +11,24 @@ change an interface and a patch never does. Apps pin a version through the submo
   app and keeps what was already seen on the device, to look at without a connection; in Tasks and
   Notes the work goes on offline too, sent when the connection is back (Next and Projects show
   what they last had, but don't change offline).
+## 0.202.0 — 2026-10-28
+
+- **The calls from assistants averaged over the days the account has** (Martin: «si solo lleva x
+  dias de alta, el numero que sale no es representativo … que solo cuente desde ese momento y diga
+  "ultimos x dias: Y llamadas"»): in /admin › Users › Usage and in Settings › Plan › Your usage,
+  an account younger than a month says «Últimos 3 días: 91 llamadas, 30,3 al día de media» (and
+  «Primer día: …» on the day it is made); from its 30th day, the last 30 as before. The usage's
+  `mcp` carries `since`, the day of `users.created_at`, and `countedDays(mcp)` (usage-view.js)
+  counts from it, or from the first call if that is earlier (an account brought from an app).
+  The chart is still the month, today the last, the days before the account an empty slot.
+- **Each bar of the month says its day and calls** («al pasar el raton por encima de una barra te
+  diga las llamadas de ese dia»): every day is now a column as tall as the chart, so a quiet day
+  is as easy to point at as a busy one, and pointing at it, or tapping it on a phone, shows
+  «29 oct 2026: 5 llamadas» above the chart, kept inside it at both ends. It replaces the
+  browser's `title`, which only showed on the bar itself and never on a phone.
+- Texts: `kit.usage.month` is now `kit.usage.lastDays` (`{n}` the days, `{calls}`, `{avg}`; a
+  plural), with `kit.usage.calls`; `kit.usage.dayCalls` takes `{calls}` instead of `{n}`. An app
+  that overrode them has to rename them.
 
 ## 0.200.0 — 2026-10-28
 
