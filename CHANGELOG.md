@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.198.0 — 2026-10-28
+
+- **Maximize and restore without a stretched window** (Martin: «al estar en una ventana mas pequeña
+  queda distorsionado … No se puede buscar otra transicion? no del contenedor, que eso esta bien,
+  sino del contenido»): the window's box still grows or shrinks to its place, and in it what it
+  shows now comes in over what it showed, each drawn at its own size from the top corner, never
+  scaled (a view transition: windows.js `crossfade`, windows.css `cw-win-max`). The other windows
+  fade with the page. Browsers without view transitions, and a restore that is part of another
+  change (a window shown, a link to another window, a new layout), keep the slide; with less
+  motion asked for, none.
+
 ## 0.197.1 — 2026-10-27
 
 - **"Desactivado"** in Spanish under Settings › Modules' "Mostrar el calendario", not "Apagado". And

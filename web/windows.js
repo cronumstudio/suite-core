@@ -473,6 +473,7 @@ export function createWindows(desk, {
   let tabs = null;
   let tabsKey = '';
   let maxed = null;               // the module whose window has the whole desk
+  let fades = 0;                  // maximize()'s view transitions, the last one's number
   desk.setAttribute('data-screen', screen);
 
   const available = () => (typeof modules === 'function' ? modules() : modules) || [];
@@ -549,16 +550,19 @@ export function createWindows(desk, {
   }
 
   /**
-   * `module`'s window over the whole desk, or (null) the maximized one back to its place, sliding
-   * and growing there as on a trade of places. The module is paused while it moves, as while a bar
-   * resizes it, and drawn at its new size once there.
+   * `module`'s window over the whole desk, or (null) the maximized one back to its place. Asked for
+   * (`fade`), its box grows or shrinks there while what it showed fades into what it shows, each
+   * at its own size and never stretched (a view transition, windows.css). Otherwise, or where the
+   * browser has none, it slides and grows there as on a trade of places: the module is paused while
+   * it moves, as while a bar resizes it, and drawn at its new size once there.
    */
-  function maximize(module) {
+  function maximize(module, { fade = true } = {}) {
     const next = module && shown.has(module) && screen !== 'narrow' && shown.size > 1 ? module : null;
     if (next === maxed) return;
     gesture?.cancel();
     const moving = next ?? maxed;
     const node = nodes.get(moving);
+    if (fade && node && motion() && crossfade(node, next)) return;
     const first = motion() && node ? new Map([[moving, node.getBoundingClientRect()]]) : null;
     maxed = next;
     paintMaxed();
@@ -572,6 +576,41 @@ export function createWindows(desk, {
       node.style.zIndex = '';
       onPause(moving, false, { resizing: true });
     }, MAX_MS);
+  }
+
+  /**
+   * maximize()'s view transition: the browser draws the window as it was and as it will be, and
+   * moves its box from one to the other with both pictures in it, unscaled (windows.css
+   * `cw-win-max`); the others fade with the rest of the page. False where there are none.
+   */
+  function crossfade(node, next) {
+    const doc = desk.ownerDocument;
+    if (typeof doc?.startViewTransition !== 'function') return false;
+    const root = doc.documentElement;
+    const mine = ++fades;
+    for (const other of nodes.values()) other.style.viewTransitionName = '';
+    node.style.viewTransitionName = 'cw-win-max';
+    root.setAttribute('data-cw-max-fade', '');
+    maxed = next;
+    let fading;
+    try {
+      fading = doc.startViewTransition(() => {
+        paintMaxed();
+        if (next) focus(next);
+      });
+    } catch {
+      node.style.viewTransitionName = '';
+      root.removeAttribute('data-cw-max-fade');
+      paintMaxed();
+      if (next) focus(next);
+      return true;
+    }
+    fading.finished.catch(() => {}).then(() => {
+      if (mine !== fades) return;   // a newer one has them
+      node.style.viewTransitionName = '';
+      root.removeAttribute('data-cw-max-fade');
+    });
+    return true;
   }
 
   /** Puts every window where the layout says: grid placement only, nothing moves in the document. */
@@ -768,7 +807,7 @@ export function createWindows(desk, {
 
   /** A new layout, the windows sliding from where they were (outside any gesture's loop); `keep` is what is kept. */
   function relayout(next, keep) {
-    if (maxed) maximize(null);
+    if (maxed) maximize(null, { fade: false });
     const first = motion() ? boxes() : null;
     layout = normalizeLayout(next);
     apply({ keep: keep ?? layout });
@@ -1329,7 +1368,7 @@ export function createWindows(desk, {
     if (shown.has(module)) { focus(module); return; }
     gesture?.cancel();
     // It comes in under the maximized window: that one goes back to its place for it to be seen.
-    if (maxed) maximize(null);
+    if (maxed) maximize(null, { fade: false });
     let next;
     if (screen === 'narrow' || !layout.cols.length) {
       next = { cols: [{ w: 1, wins: [module] }], focus: module };
@@ -1348,7 +1387,7 @@ export function createWindows(desk, {
   function focus(module) {
     if (!shown.has(module)) { show(module); return; }
     // Another window wanted (a link opened in it): the maximized one goes back to its place.
-    if (maxed && module !== maxed) maximize(null);
+    if (maxed && module !== maxed) maximize(null, { fade: false });
     recent = lruTouch(recent, module);
     if (layout.focus === module) return;
     layout = { ...layout, focus: module };
