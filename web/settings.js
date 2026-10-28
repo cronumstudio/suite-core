@@ -1524,8 +1524,8 @@ export function openSettings(options) {
 
   /**
    * What the plan includes, line by line: the features this app declares and, in a host, those of
-   * every other module in use too (each answers for its own, at its /api/me/entitlements), once
-   * they come. Without any the kit can name, nothing.
+   * every other module in use and the host's own too (each answers for its own, at its
+   * /api/me/entitlements), once they come. Without any the kit can name, nothing.
    */
   let othersFeatures = null;
   function paintBenefits(node, answer) {
@@ -1539,11 +1539,16 @@ export function openSettings(options) {
     };
     const own = answer.features || {};
     draw(own);
-    const others = host ? inUse.filter((m) => m.active && m.mount !== host.mount && m.path) : [];
-    if (!others.length) return;
-    othersFeatures ||= Promise.all(others.map((m) => fetch(`${m.path}api/me/entitlements`, { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .catch(() => null)))
+    if (!host) return;
+    const others = inUse.filter((m) => m.active && m.mount !== host.mount && m.path);
+    // The host's own too, at its root: what is its alone, such as the calls from assistants of its
+    // one MCP, which no module answers for (a module may still declare its own daily ones).
+    othersFeatures ||= Promise.all([
+      api.root.get('/api/me/entitlements').catch(() => null),
+      ...others.map((m) => fetch(`${m.path}api/me/entitlements`, { credentials: 'same-origin' })
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null)),
+    ])
       .then((answers) => Object.assign({}, ...answers.map((a) => a?.features || {})));
     othersFeatures.then((more) => { if (!closed && node.isConnected !== false) draw({ ...more, ...own }); });
   }

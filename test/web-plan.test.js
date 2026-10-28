@@ -218,6 +218,27 @@ test('Your usage, in a host: under the plan, the modules in use against their ca
   view.settings.close();
 });
 
+test('what the plan includes, in a host: the host’s own too, so its calls by the week, not a module’s by the day', async () => {
+  // The module's answer first (load), then the host's at its root (the stand-in can't tell the paths apart).
+  let calls = 0;
+  const host = { ...PRO, features: { mcp: true, 'mcp.calls_per_week': 2000 } };
+  const view = await planPage({}, {
+    config: IN_HOST,
+    server: {
+      'GET /api/me/entitlements': () => ({ data: calls++ === 0 ? { ...PRO, features: { 'lists.max': null } } : host }),
+      'GET /api/modules': { data: { modules: [{ mount: 'demo', name: 'Demo', active: true, path: '/demo/' }, { mount: 'next', name: 'Next', active: true, path: '/next/' }] } },
+      'GET /next/api/me/entitlements': { data: { ...PRO, features: { mcp: true, 'mcp.calls_per_day': 1000 } } },
+      'GET /api/me/usage': { status: 404 },
+    },
+  });
+  for (let turn = 0; turn < 5; turn++) await settle();
+  const lines = view.page.all().filter((n) => n.tagName === 'UL' && n.className === 'kit-benefits')[0].find('li').map(textOf);
+  assert.ok(lines.includes(t('kit.plan.benefits.callsWeek', { n: 2000 })), lines.join(' | '));
+  assert.ok(!lines.some((l) => /a day/.test(l)), 'the daily ones a module declares are left out');
+  assert.equal(calls, 2, 'the module’s and the host’s');
+  view.settings.close();
+});
+
 test('Your usage: at a cap with nothing more to buy, no way to it; without limits, numbers and no bars; nowhere to ask, no block', async () => {
   // Nothing more to buy: no button; the notice stays.
   const top = await planPage({ billing: true }, {
