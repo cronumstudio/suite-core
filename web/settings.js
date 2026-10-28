@@ -72,7 +72,7 @@
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from './i18n.js';
 import { api, errorMessage, Offline } from './api.js';
-import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
 import { makeDraggable } from './drag.js';
@@ -273,6 +273,9 @@ export function openSettings(options) {
   let hostInfo = kept.host || {};
   // How an assistant gets the host's tools ('door': some on demand; 'all'), when the host keeps some on demand.
   let aiTools = kept.ai_tools || null;
+  // This module installed as an app of its own (shell.js): its Settings are its own and the
+  // account's, without the host's other modules nor the choice of them.
+  const alone = () => Boolean(host) && installedAlone(hostInfo, { embedded: Boolean(workRegistry()) });
   // What is drawn from the modules in use, drawn again when the server's answer comes.
   const onModules = [];
   let closed = false;
@@ -351,7 +354,7 @@ export function openSettings(options) {
     // The password and two-step verification are the account's, next to who it is.
     { group: t('kit.settings.groups.account'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
       hint: () => t(local || provider === 'workos' ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => needsServer(security) },
-    host ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
+    host && !alone() ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
       hint: () => inUse.filter((m) => m.active).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
     { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
       hint: () => `${LANGUAGE_NAMES[currentLanguage()] || currentLanguage()} · ${t(`kit.appearance.theme.${state.user?.theme || 'system'}`)}`,
@@ -401,8 +404,9 @@ export function openSettings(options) {
     { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hostHint'), render: () => about() },
   ];
 
-  /** The host's modules this person uses, in the host's order, and always the one open here. */
+  /** The host's modules this person uses, in the host's order, and always the one open here: only it, installed alone. */
   function modulesHere() {
+    if (alone()) return [inUse.find((m) => m.mount === host.mount) || { mount: host.mount }];
     const shown = inUse.filter((m) => m.active || m.mount === host.mount);
     return shown.some((m) => m.mount === host.mount) ? shown : [{ mount: host.mount }];
   }
@@ -1422,7 +1426,7 @@ export function openSettings(options) {
       agents.hidden = !path;
       promptBlock.hidden = !path;
       // The modules: the host's, in its order, the ones in use ticked; drawn again only when they change.
-      const list = !path ? [] : inUse.length ? inUse : modulesHere();
+      const list = !path ? [] : inUse.length && !alone() ? inUse : modulesHere();
       const key = path ? `${path}|${list.map((m) => `${m.mount}:${m.active ? 1 : 0}`).join(',')}` : '';
       if (key !== drawn) {
         drawn = key;

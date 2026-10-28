@@ -45,6 +45,17 @@ export function framedIn(win = globalThis.window) {
 
 export const FRAMED = framedIn();
 
+/** This page as an installed app, in a window of its own (an icon on the home screen), not a browser's tab. */
+export const installed = () => globalThis.navigator?.standalone === true
+  || Boolean(globalThis.matchMedia?.('(display-mode: standalone)')?.matches);
+
+/**
+ * A host's module installed as an app of its own: its page in an app window, where the host's own
+ * app is its one-document page (`/api/modules`' `host.shell`), neither a frame of the split view
+ * nor a window of that page (`embedded`). It shows only itself, never the host's other modules.
+ */
+export const installedAlone = (host, { embedded = false } = {}) => Boolean(host?.shell) && !FRAMED && !embedded && installed();
+
 /**
  * Between the host's split view and a module in one of its frames, both pages of the same site:
  * the view asks the module for its Settings with `kit:settings` on the frame's window (shell.js),

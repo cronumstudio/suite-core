@@ -281,7 +281,7 @@ class FakeWindow extends FakeEventTarget {
   }
   requestAnimationFrame(fn) { fn(); return 0; }
   cancelAnimationFrame() {}
-  getComputedStyle() { return { direction: this.dir, paddingLeft: '8px', paddingRight: '8px' }; }
+  getComputedStyle(node) { return { direction: this.dir, paddingLeft: '8px', paddingRight: '8px', ...node?.computed }; }
   matchMedia() { return { matches: false }; }
 }
 
@@ -724,11 +724,37 @@ test('phones: one window, a tab per module, switching by tab or by swipe, the ed
   }
   assert.equal(desk.listeners.pointermove?.length ?? 0, 0, 'no swipe left listening');
 
-  // A mouse doesn't swipe; a head isn't picked up on a phone.
-  press(made.get('notes').children[1], 300, 400);
+  // On something that slides sideways itself (Next's line, the Gantt), the finger is its own;
+  // the same box with nothing to slide still swipes.
+  const line = document.createElement('div');
+  line.computed = { overflowX: 'auto' };
+  line.clientWidth = 336;
+  line.scrollWidth = 1389;
+  const dot = document.createElement('span');
+  line.append(dot);
+  made.get('notes').children[1].append(line);
+  press(dot, 300, 400, { pointerType: 'touch', timeStamp: 0 });
   desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 400, timeStamp: 50 });
+  assert.equal(made.get('notes').style.transform ?? '', '', 'the window stays put');
   desk.dispatch('pointerup', { pointerId: 1 });
   assert.equal(windows.layout.focus, 'notes');
+  line.scrollWidth = 336;
+  line.computed = { touchAction: 'pan-x pan-y' };
+  press(dot, 300, 400, { pointerType: 'touch', timeStamp: 0 });
+  desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 400, timeStamp: 50 });
+  desk.dispatch('pointerup', { pointerId: 1 });
+  assert.equal(windows.layout.focus, 'notes', 'what takes sideways pans as its own keeps them');
+  line.computed = { overflowX: 'auto' };
+  press(dot, 300, 400, { pointerType: 'touch', timeStamp: 0 });
+  desk.dispatch('pointermove', { pointerId: 1, clientX: 400, clientY: 400, timeStamp: 50 });
+  desk.dispatch('pointerup', { pointerId: 1 });
+  assert.equal(windows.layout.focus, 'next', 'a line that fits swipes to the module before');
+
+  // A mouse doesn't swipe; a head isn't picked up on a phone.
+  press(made.get('next').children[1], 300, 400);
+  desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 400, timeStamp: 50 });
+  desk.dispatch('pointerup', { pointerId: 1 });
+  assert.equal(windows.layout.focus, 'next');
   windows.destroy();
 });
 

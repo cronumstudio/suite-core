@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.207.0 — 2026-10-28
+## 0.207.0 — 2026-10-29
 
 - **What an assistant does says which assistant it was** (Martin: «el registro de actividad dice
   que yo he hecho todo, cuando casi todo lo hace el agente vía MCP»). Each MCP server hands its
@@ -12,6 +12,27 @@ change an interface and a patch never does. Apps pin a version through the submo
   in the session's id, so a deployment doesn't lose it; a call without a session has none. A host's
   `recordChanges` writes it in each `mcp.tool` line (`meta.via`), and the admin's Activity shows
   it with the person: «@martin · vía Claude Code». Nothing changes for an app that doesn't read it.
+
+## 0.206.2 — 2026-10-28
+
+- **A module installed on its own has Settings of its own too** (Martin, with Notes installed on
+  its own: its switcher no longer offered the other modules, but Settings still listed their
+  sections). Settings ask the same as the switcher (`installedAlone`, now in `base.js` for both):
+  in a module's page installed as an app of its own, never a window of Work's shell nor a frame
+  of the split view, Settings show the account's sections, the module's group and the host's
+  (administration, About), without the choice of modules nor another module's group; Your AI's
+  prompt and About's cards name only that module.
+
+## 0.206.1 — 2026-10-28
+
+- **A phone's swipe between modules leaves alone what slides sideways itself** (Martin, in Work
+  installed on an iPhone: Next's line moved and came back instead of showing what came before,
+  and swiping the Gantt took him to another module). The swipe of Cronum Work's windows
+  (`windows.js`) took any sideways finger in the window, and moved the window with it while the
+  line or the chart tried to scroll. Now a swipe that begins on a box with more to show across
+  (Next's line, a row of chips) or on one that takes sideways pans as its own (`touch-action:
+  pan-x`, the whole Gantt) is that box's; elsewhere in the window it still brings the module
+  beside.
 
 ## 0.206.0 — 2026-10-28
 
