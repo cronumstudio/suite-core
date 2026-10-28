@@ -66,7 +66,8 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from '.
 import { api, errorMessage } from './api.js';
 import { at, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails } from './ui.js';
+import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
+import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings } from './native.js';
@@ -912,7 +913,9 @@ export function openSettings(options) {
   /**
    * Which modules of the host this person uses (PUT /api/me/modules at the host's root). One
    * stays on; one turned off keeps its data and only leaves their menus. Each can have its own
-   * icon on a phone's home screen, installed from its own page.
+   * icon on a phone's home screen, installed from its own page. Their order on the rail and a
+   * phone's tabs (PUT /api/me/modules/order): each row dragged by its grip, or moved from the
+   * grip's menu, which the keyboard and a screen reader reach too.
    */
   function moduleChoice() {
     const switches = el('div', { class: 'kit-stack' });
@@ -934,6 +937,58 @@ export function openSettings(options) {
       });
       return sending;
     };
+    const sendOrder = (order) => {
+      sending = sending.catch(() => {}).then(async () => {
+        const res = await fetch('/api/me/modules/order', {
+          method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        return res.json();
+      });
+      return sending;
+    };
+    /** The modules in a new order: drawn in it, kept, and the rail of every page follows. */
+    const reorder = async (order) => {
+      try {
+        paint(await sendOrder(order));
+        repaint();
+        modulesChanged();
+      } catch (err) {
+        fail(err);
+      }
+    };
+    const mounts = () => inUse.map((m) => m.mount);
+    /** The order with `mount` taken to `index` among the others. */
+    const moved = (mount, index) => {
+      const rest = mounts().filter((x) => x !== mount);
+      rest.splice(Math.max(0, Math.min(index, rest.length)), 0, mount);
+      return rest;
+    };
+    /** Where a row let go before or after another lands: the new order, or null where it already is. */
+    const dropped = (row, place, zone) => {
+      const rest = mounts().filter((x) => x !== row.dataset.mount);
+      const at = rest.indexOf(place.dataset.mount);
+      if (at < 0) return null;
+      const order = moved(row.dataset.mount, zone === 'after' ? at + 1 : at);
+      return order.join() === mounts().join() ? null : order;
+    };
+    const nameOf = (mount) => inUse.find((m) => m.mount === mount)?.name || mount;
+    const dragging = makeDraggable(switches, {
+      items: '.kit-switch-row[data-mount]',
+      handle: '.kit-module-grip',
+      targets: '.kit-switch-row[data-mount]',
+      zones: 'between',
+      label: (row) => nameOf(row.dataset.mount),
+      check: (row, place, { zone }) => (dropped(row, place, zone)
+        ? { ok: true, text: t(zone === 'after' ? 'kit.modules.after' : 'kit.modules.before', { name: nameOf(place.dataset.mount) }) }
+        : { ok: false, text: t('kit.modules.here') }),
+      onDrop: (row, place, { zone }) => {
+        const order = dropped(row, place, zone);
+        if (order) reorder(order);
+      },
+    });
+    cleanups.push(() => dragging.destroy());
     const paint = (answer) => {
       inUse = answer.modules || [];
       clear(switches);
@@ -960,8 +1015,18 @@ export function openSettings(options) {
           },
         });
         row.querySelector('.kit-switch').dataset.mount = m.mount;
+        row.dataset.mount = m.mount;
         row.classList.add('kit-switch-row--swatch');
-        row.firstChild.prepend(el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
+        const at = inUse.indexOf(m);
+        const grip = el('button', {
+          type: 'button', class: 'kit-module-grip', 'aria-haspopup': 'menu',
+          'aria-label': t('kit.modules.move', { name: m.name }), title: t('kit.modules.move', { name: m.name }),
+          onClick: (ev) => menu(ev.currentTarget, [
+            at > 0 ? { label: t('kit.modules.moveUp'), onClick: () => reorder(moved(m.mount, at - 1)) } : null,
+            at < inUse.length - 1 ? { label: t('kit.modules.moveDown'), onClick: () => reorder(moved(m.mount, at + 1)) } : null,
+          ].filter(Boolean)),
+        }, icon('grip'));
+        row.firstChild.prepend(grip, el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
         switches.append(row);
       }
       // The host's calendar, where it has one: its button on the rail only for whoever wants it.
@@ -1005,7 +1070,7 @@ export function openSettings(options) {
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((answer) => { paint(answer); repaint(); }, fail);
     return el('div', {},
-      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.one')), hint(t('kit.modules.off')), calendarSwitch),
+      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.order')), hint(t('kit.modules.one')), hint(t('kit.modules.off')), calendarSwitch),
       block(t('kit.modules.icons'), hint(t('kit.modules.install', { host: host.name })), icons));
   }
 

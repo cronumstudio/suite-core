@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.200.0 — 2026-10-28
+
+- **Each person puts the modules in their own order** (Martin: «seria posible que el usuario
+  reordene los modulos segun su preferencia? … asi en la barra los iconos se muestran en el orden
+  escogido»): in Settings › Modules each row has a grip, dragged up or down, or pressed for «Move
+  up» and «Move down» (the keyboard and a screen reader too).  keeps
+  it (, migration 7 of the host), and  lists the modules in
+  that order, so the rail, a phone's tabs, Settings and the host's home all follow; one the host
+  adds later comes last. The order isn't which they use: a module turned off keeps its place.
+
 ## 0.199.0 — 2026-10-28
 
 - **A module turned off leaves Cronum Work's windows at once** (Martin: «desmarcar modulos no hace

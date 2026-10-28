@@ -174,6 +174,17 @@ export const HOST_MIGRATIONS = Object.freeze([
       answered_at TEXT NOT NULL
     )`),
   },
+  {
+    version: 7,
+    name: 'module-order',
+    // The order each person put the modules in (Settings › Modules): their mounts as a JSON array.
+    // No row: the host's own order.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_module_order (
+      user_id   INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      modules   TEXT NOT NULL,
+      chosen_at TEXT NOT NULL
+    )`),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -956,6 +967,7 @@ export async function createHost({
     const chosen = rows.length > 0;
     const on = new Map(rows.map((r) => [r.module, Boolean(r.active)]));
     const look = user ? suite.database.get('SELECT look FROM host_looks WHERE user_id = ?', user.id)?.look : null;
+    const order = orderOf(user);
     // The calendar's button only for whoever turned it on (Settings › Modules): off, the rail stays as it was.
     const calendarShown = Boolean(calendar && user
       && suite.database.get('SELECT shown FROM host_calendar WHERE user_id = ?', user.id)?.shown);
@@ -974,8 +986,21 @@ export async function createHost({
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
       // A module added to the host after someone chose comes on for them: nothing hides by itself.
-      modules: listed.map((m) => ({ ...m, active: chosen ? on.get(m.mount) ?? true : true })),
+      // In the order they chose, if they did; one the host added since comes last.
+      modules: order.map((m) => ({ ...m, active: chosen ? on.get(m.mount) ?? true : true })),
     };
+  }
+
+  /** The host's modules in the order someone put them, or the host's own (Settings › Modules). */
+  function orderOf(user) {
+    let kept = null;
+    try {
+      kept = user ? JSON.parse(suite.database.get('SELECT modules FROM host_module_order WHERE user_id = ?', user.id)?.modules || 'null') : null;
+    } catch { kept = null; }
+    if (!Array.isArray(kept)) return listed;
+    const rank = new Map(kept.map((mount, i) => [mount, i]));
+    const at = (m) => rank.get(m.mount) ?? kept.length;
+    return [...listed].sort((a, b) => at(a) - at(b));
   }
 
   /** Whether someone uses a module: every one until they choose. */
@@ -1131,6 +1156,21 @@ export async function createHost({
           });
         }
       }
+      // The order of the modules on this person's rail, a phone's tabs and Settings: every module, once.
+      api.put('/api/me/modules/order', async (ctx) => {
+        if (!ctx.user) throw unauthorized();
+        const body = await readJson(ctx.req);
+        const order = Array.isArray(body.order) ? [...new Set(body.order.map(String))] : null;
+        if (!order || order.some((mount) => !byMount.has(mount))) throw badRequest('field_invalid', { field: 'order' });
+        // Any the request left out keeps its place after the ones it named, as the host lists them.
+        const full = [...order, ...listed.map((m) => m.mount).filter((mount) => !order.includes(mount))];
+        suite.database.run(`INSERT INTO host_module_order (user_id, modules, chosen_at) VALUES (?, ?, ?)
+          ON CONFLICT (user_id) DO UPDATE SET modules = excluded.modules, chosen_at = excluded.chosen_at`,
+        ctx.user.id, JSON.stringify(full), new Date().toISOString());
+        // Their open tabs, in every module, repaint their rail.
+        suite.accounts.changed(ctx.user.id);
+        sendJson(ctx.res, 200, modulesOf(ctx.user));
+      });
       // The look of every module for this person (LOOKS): one choice for the whole host.
       api.put('/api/me/look', async (ctx) => {
         if (!ctx.user) throw unauthorized();

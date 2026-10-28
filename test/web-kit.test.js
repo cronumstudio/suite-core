@@ -894,8 +894,8 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
     assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, DRAWER_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)? \} from '\.\/base\.js'/, file);
-    // Only the host's own routes are asked at the root: which modules someone uses, their look and their calendar's button.
-    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules['`]|api\/me\/look['`]|api\/me\/calendar['`])|import\(['`]\/|get\(['`]\/version/, file);
+    // Only the host's own routes are asked at the root: which modules someone uses and in what order, their look and their calendar's button.
+    assert.doesNotMatch(code, /fetch\(['`]\/(?!api\/(?:me\/)?modules(?:\/order)?['`]|api\/me\/look['`]|api\/me\/calendar['`])|import\(['`]\/|get\(['`]\/version/, file);
   }
 });
 
