@@ -8,8 +8,8 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **Each person puts the modules in their own order** (Martin: «seria posible que el usuario
   reordene los modulos segun su preferencia? … asi en la barra los iconos se muestran en el orden
   escogido»): in Settings › Modules each row has a grip, dragged up or down, or pressed for «Move
-  up» and «Move down» (the keyboard and a screen reader too).  keeps
-  it (, migration 7 of the host), and  lists the modules in
+  up» and «Move down» (the keyboard and a screen reader too). `PUT /api/me/modules/order` keeps
+  it (`host_module_order`, migration 7 of the host), and `GET /api/modules` lists the modules in
   that order, so the rail, a phone's tabs, Settings and the host's home all follow; one the host
   adds later comes last. The order isn't which they use: a module turned off keeps its place.
 
