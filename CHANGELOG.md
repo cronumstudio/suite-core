@@ -5,8 +5,8 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.201.0 — 2026-10-28
 
-- **The celebration when something is done is the suite's** (Martin: «quiero que la opción de
-  celebración la saques de Tasks y la hagas general»): `web/celebrate.js`, taken from Tasks, with
+- **The celebration when something is done is the suite's** (Martin asked for Tasks' option to be
+  a general one, for every module and Cronum Work's calendar): `web/celebrate.js`, taken from Tasks, with
   `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
   for a part done, for every module and Cronum Work's calendar. Its confetti is animated with the
   Web Animations API, so it needs no stylesheet, and hangs in the open dialog the origin is in (a
