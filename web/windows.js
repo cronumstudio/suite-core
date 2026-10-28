@@ -33,6 +33,7 @@
  * - A window out of view is `hidden` and `inert` and its module paused (`onPause(module, true,
  *   { hidden: true })`); at most four stay mounted, and beyond that the one used least recently is
  *   given back (`onEvict(module)`: the shell unmounts it and removes its window).
+ * - A module the person turns off goes with `drop(module)`: its window and its tab, at once.
  * - The layout is kept on this device, one per screen class (`work.layout`: wide ≥ 1280 px, mid
  *   ≥ 768 px, narrow), because four columns don't fit on a tablet.
  *
@@ -1383,6 +1384,35 @@ export function createWindows(desk, {
     apply();
   }
 
+  /**
+   * A module the person no longer uses (turned off in Settings › Modules): its window leaves the
+   * layout, as it shows and as it was chosen, and its tab leaves a phone's bar; the shell gets it
+   * back (`onEvict`). The windows that stay take its room; with none left, the first of `modules`.
+   * Call it once `modules` no longer lists it.
+   */
+  function drop(module) {
+    if (!nodes.has(module) && !where(layout, module) && !where(chosen, module)) return;
+    gesture?.cancel();
+    if (maxed === module) maxed = null;
+    const without = (from) => normalizeLayout({
+      cols: from.cols.map((col) => ({ ...col, wins: col.wins.filter((m) => m !== module) })),
+      focus: from.focus === module ? null : from.focus,
+    });
+    let want = without(chosen);
+    if (!modulesOf(want).length) {
+      const first = available().find((m) => m !== module);
+      want = normalizeLayout({ cols: first ? [{ w: 1, wins: [first] }] : [] });
+    }
+    const had = nodes.has(module);
+    nodes.delete(module);
+    asleep.delete(module);
+    recent = recent.filter((m) => m !== module);
+    room = measure();
+    layout = arrange(want);
+    apply({ keep: want });
+    if (had) onEvict(module);
+  }
+
   /** The window that has the keyboard (`ctx.active()`); one that doesn't show is shown. */
   function focus(module) {
     if (!shown.has(module)) { show(module); return; }
@@ -1426,6 +1456,6 @@ export function createWindows(desk, {
     get recent() { return [...recent]; },
     /** The module whose window has the whole desk, or null. */
     get maximized() { return maxed; },
-    set, restore, columns, show, focus, grab, maximize, relabel, destroy,
+    set, restore, columns, show, focus, drop, grab, maximize, relabel, destroy,
   };
 }

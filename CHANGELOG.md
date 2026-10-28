@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.199.0 — 2026-10-28
+
+- **A module turned off leaves Cronum Work's windows at once** (Martin: «desmarcar modulos no hace
+  que dejen de verse sus iconos en la barra lateral o inferior»): windows.js `drop(module)` takes
+  its window out of the layout, as it shows and as it is kept on the device, and its tab out of a
+  phone's bar; the windows that stay take its room (with none left, the first module shows), and
+  the shell gets it back through `onEvict` to unmount it.
+
 ## 0.198.0 — 2026-10-28
 
 - **Maximize and restore without a stretched window** (Martin: «al estar en una ventana mas pequeña
