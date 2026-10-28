@@ -36,6 +36,11 @@
  * every call that changes something, never its arguments) and
  * `maxResultChars` (a tool's answer cut at a whole line, saying how much was
  * left out).
+ *
+ * The assistant a call comes from reaches the tools as `principal.via` ("Claude Code",
+ * "ChatGPT"…): what its client said of itself when the session began (`clientLabel`), carried
+ * in the session's id. A tool may write it next to who did something; without a session the
+ * principal has none.
  */
 import crypto from 'node:crypto';
 import { isoDate, readJson, sendJson, sendText } from './http.js';
@@ -283,6 +288,43 @@ export function weeklyLimitText({ plan_name: planName, limit, more }, appName) {
 }
 
 /**
+ * The assistants people know, by the name their client gives itself when it connects
+ * (`clientInfo.name` of `initialize`): Claude's apps say `claude-ai`, ChatGPT `openai-mcp`.
+ */
+const CLIENT_NAMES = new Map([
+  ['claude-ai', 'Claude'], ['claude-code', 'Claude Code'], ['openai-mcp', 'ChatGPT'],
+  ['codex-mcp-client', 'Codex'], ['cursor-vscode', 'Cursor'], ['gemini-cli-mcp-client', 'Gemini CLI'],
+  ['visual studio code', 'VS Code'],
+]);
+const CLIENT_MAX = 40;
+const clientText = (value) => String(value ?? '').replace(/[^\p{L}\p{N} .()+_-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, CLIENT_MAX).trim();
+
+/**
+ * The assistant a client is, as people call it: one of the known ones, else its title or its
+ * name, cleaned to a short line. It is what the client says of itself, so it names the
+ * assistant for whoever reads a log; it proves nothing. null for a client that says nothing.
+ */
+export function clientLabel(info) {
+  const name = clientText(info?.name);
+  return CLIENT_NAMES.get(name.toLowerCase()) || clientText(info?.title) || name || null;
+}
+
+/**
+ * A session's id carries its client (`<uuid>.<label in base64url>`): the server keeps no
+ * sessions, and a deployment would forget a map of them while the client goes on sending the
+ * same id. The client of a session, or null for an id that carries none or isn't one of ours.
+ */
+const sessionIdFor = (client) => (client
+  ? `${crypto.randomUUID()}.${Buffer.from(client).toString('base64url')}` : crypto.randomUUID());
+export function clientOfSession(id) {
+  const value = String(id || '');
+  const dot = value.lastIndexOf('.');
+  if (dot < 0 || value.length > 200) return null;
+  const label = Buffer.from(value.slice(dot + 1), 'base64url').toString('utf8');
+  return label && clientText(label) === label ? label : null;
+}
+
+/**
  * The token of a request: the Authorization header, or the X-MCP-Token header.
  * Never the address (?token=): an address ends up in logs and histories.
  */
@@ -465,7 +507,7 @@ export function createMcpServer({
       case 'initialize': {
         const protocolVersion = PROTOCOL_VERSIONS.includes(params.protocolVersion)
           ? params.protocolVersion : PROTOCOL_VERSIONS[0];
-        const sessionId = crypto.randomUUID();
+        const sessionId = sessionIdFor(clientLabel(params.clientInfo));
         sessions.set(sessionId, { created: Date.now() });
         if (sessions.size > 5000) sessions.delete(sessions.keys().next().value);
         context.sessionId = sessionId;
@@ -590,6 +632,10 @@ export function createMcpServer({
       return;
     }
     const context = { sessionId: req.headers['mcp-session-id'] ? String(req.headers['mcp-session-id']) : null };
+    // Which assistant acts for them (`principal.via`), for what the tools write down: a copy,
+    // since an account may be cached and shared by other requests.
+    const via = clientOfSession(context.sessionId);
+    if (via) principal = { ...principal, via };
     const batch = Array.isArray(body) ? body : [body];
     if (batch.length > MAX_BATCH) {
       sendJson(res, 400, rpcError(null, -32600, `A batch may carry at most ${MAX_BATCH} messages.`));

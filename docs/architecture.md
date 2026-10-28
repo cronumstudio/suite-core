@@ -1930,9 +1930,18 @@ What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0
 - **`namesInText`**: a module's tool names in its descriptions, parameter descriptions and prompts
   get its prefix (`list_projects` → `next_list_projects`): whole words with an underscore only.
 - **`recordChanges`**: an `mcp.tool` line in the audit log for each call that changed something
-  (not `readOnlyHint`, no error): who, the tool and its module, never the arguments.
+  (not `readOnlyHint`, no error): who, the tool and its module, and the assistant (`via`), never
+  the arguments. The admin's Activity shows the assistant with whoever acted («@ana · via Claude
+  Code»).
 - **`maxResultChars`**: an answer cut at a whole line past that many characters, saying how much
   was left out and how to ask for less (`capResult`).
+
+Every MCP server (mcp.js) hands its tools the assistant a call comes from as `principal.via`
+(«Claude Code», «ChatGPT», «Codex»…): what its client said of itself in `initialize`
+(`clientInfo`, `clientLabel`), carried in the session's id (`<uuid>.<label in base64url>`) so a
+deployment doesn't forget it while the client goes on with the same session. It names the
+assistant for whoever reads it and proves nothing; without a session there is none. A module may
+write it next to who did something (Tasks: created and changed by).
 
 A name that is no tool answers the tools whose name ends in it («Did you mean
 projects_list_projects or next_list_projects?»).

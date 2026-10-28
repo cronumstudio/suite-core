@@ -204,10 +204,10 @@ test('a host with mcpOptions: the plan decides the list, some tools on demand, n
 
   // Through the door, with a note in the audit log: the tool and its module, never the text.
   assert.equal(said(await mcp.callTool(bob(), 'work_use_tool', { name: 'alpha_add_item', arguments: { text: 'Private words' } })), 'Added.');
-  await mcp.callTool(bob(), 'gamma_add_item', { text: 'More words' });
+  await mcp.callTool({ ...bob(), via: 'Claude Code' }, 'gamma_add_item', { text: 'More words' });
   await mcp.callTool(bob(), 'alpha_list_items', {});
   const notes = suite.database.all("SELECT actor_user_id, meta FROM audit_log WHERE action = 'mcp.tool' ORDER BY id");
-  assert.deepEqual(notes.map((n) => JSON.parse(n.meta)), [{ tool: 'alpha_add_item', module: 'alpha' }, { tool: 'gamma_add_item', module: 'gamma' }]);
+  assert.deepEqual(notes.map((n) => JSON.parse(n.meta)), [{ tool: 'alpha_add_item', module: 'alpha' }, { tool: 'gamma_add_item', module: 'gamma', via: 'Claude Code' }]);
   assert.ok(notes.every((n) => n.actor_user_id === bob().id));
   assert.ok(!notes.some((n) => n.meta.includes('words')));
 

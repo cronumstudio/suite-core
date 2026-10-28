@@ -416,6 +416,7 @@
   "admin.audit.kinds.data": "Copie dei dati",
   "admin.audit.when": "Quando",
   "admin.audit.who": "Chi",
+  "admin.audit.via": "{who} · tramite {via}",
   "admin.audit.what": "Cosa",
   "admin.audit.on": "Su",
   "admin.audit.from": "Da",
