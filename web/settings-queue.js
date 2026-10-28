@@ -5,7 +5,8 @@
  * `connection` says whether the server answers: offline when the browser says so or a request
  * found no signal (`noted(err)`), and back once a light question to `/version` (never a copy,
  * sw-core.js) is answered, asked again from 3 s up to 30 s apart, and at once on the browser's
- * `online`. Settings draws from it: what only the server knows says it needs a connection, and
+ * `online`. It starts listening on first use, never on import (a module's mount does it, Cronum
+ * Work's rule). Settings draws from it: what only the server knows says it needs a connection, and
  * what can't wait for it (a password, deleting) stays off until then.
  *
  * `save(method, path, body)` is a preference's change (the theme, the language, the name, the
@@ -26,7 +27,8 @@ const MODULES_EVENT = 'kit-modules';
 /* ------------------------------- connection ------------------------------- */
 
 const listeners = new Set();
-let offline = globalThis.navigator?.onLine === false;
+let offline = false;
+let listening = false;
 let timer = null;
 let pause = 3000;
 
@@ -56,6 +58,7 @@ function later() {
 
 /** Whether the server answers now (any answer counts): `connection` follows. → true when it does. */
 async function check() {
+  listen();
   try {
     await globalThis.fetch('/version', { cache: 'no-store', credentials: 'same-origin' });
     set(false);
@@ -67,18 +70,25 @@ async function check() {
   }
 }
 
-if (typeof globalThis.addEventListener === 'function') {
-  globalThis.addEventListener('online', () => { check(); });
-  globalThis.addEventListener('offline', () => { set(true); later(); });
+/** The browser's word, from the first use on: once, and what it says then is where it starts. */
+function listen() {
+  if (listening) return;
+  listening = true;
+  offline = globalThis.navigator?.onLine === false;
+  if (typeof globalThis.addEventListener === 'function') {
+    globalThis.addEventListener('online', () => { check(); });
+    globalThis.addEventListener('offline', () => { set(true); later(); });
+  }
 }
 
 /** Whether an error is a request that found no signal (the api's Offline). */
 export const noSignal = (err) => err instanceof Offline;
 
 export const connection = {
-  get offline() { return offline; },
+  get offline() { listen(); return offline; },
   /** `fn(offline)` each time it changes. → a function that stops it. */
   on(fn) {
+    listen();
     listeners.add(fn);
     return () => listeners.delete(fn);
   },
@@ -86,6 +96,7 @@ export const connection = {
   /** A request found no signal (`err`, when it says so): offline until the server answers again. */
   noted(err) {
     if (err !== undefined && !noSignal(err)) return;
+    listen();
     set(true);
     later();
   },
