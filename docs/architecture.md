@@ -793,6 +793,7 @@ plan ended, not from when each thing was done:
 entitlements.cutoff(owner, 'retention.days')        // → ISO date (older goes) | null (nothing goes)
 entitlements.cutoffOrganization(id, 'history.days') // → the same, by the group's own plan
 entitlements.countDaily(user, 'mcp.calls_per_day')  // → { allowed, used, limit, plan, more }
+entitlements.countWeekly(user, 'mcp.calls_per_week') // → the same, from Monday, and resets
 ```
 
 **A group's own plan.** Some things act for a group with no person behind them: a child's paired
@@ -810,14 +811,18 @@ organizationId })` is unchanged.
 passed, and `now − days` after that. Each app sweeps its own data with it, by the plan of whoever
 owns the list, project or notebook, in the function it hands to `createApp({ sweep })`: run a
 minute after the start and then every six hours, with the clean-ups. `countDaily()` spends one use of the day (UTC) and counts
-nothing it refuses; the transport uses it for `mcp.calls_per_day`, a brake on abuse that answers a
-sentence the assistant can pass on (`dailyLimitText()`), never a switch.
+nothing it refuses; the transport uses it for `mcp.calls_per_day`, a limit that answers a sentence
+the assistant can pass on (`dailyLimitText()`), never a switch. `countWeekly()` does the same for a
+week from Monday 00:00 UTC (`weekStart()`), adding up the days: an app that declares
+`mcp.calls_per_week` is counted by the week instead (`weeklyLimitText()`), and since its uses are
+kept by the day under `mcp.calls_per_day`'s key, moving from one to the other keeps what was
+already counted. `better(user, feature)` is the next plan with more of a limit, or null (0.203.0).
 
 **The suite's catalog.** The hosted suite's plans are written once, in `plans.js`, and an install
 names them: `PLANS=cronum-work`. Each app reads only the features it declares, and a feature it
 declares that the catalog doesn't set stops the start, so a new barrier always comes with its
 value. The features every app names the same are there too (`COMMON_FEATURES`: `retention.days`,
-`storage.mb`, `assign`, `publish`, `templates`, `mcp`, `mcp.calls_per_day`), for an app's
+`storage.mb`, `assign`, `publish`, `templates`, `mcp`, `mcp.calls_per_day`, `mcp.calls_per_week`), for an app's
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 
@@ -1821,11 +1826,14 @@ await host.listen();
   `USAGE_ITEMS`). A count with a `feature` is set against that limit of the module's plan, so it
   must be what the module's barrier counts. The host adds the storage and the calls from
   assistants of the last 30 days (`entitlements.dailyUsage()`, with `since`, the day the account
-  was made, so a younger one is averaged over its own days: `countedDays()`), and answers
+  was made, so a younger one is averaged over its own days: `countedDays()`). Counted by the week
+  (`mcp.period: 'week'`), it also says this week's (`week`) and `more`, the plan with more of them:
+  each person sees this week's days, and the limit only while a bigger plan has more or from 75 %
+  of it; the admin, the last four weeks from Monday with the average a week. It answers
   `GET /api/admin/users/:id/usage` and, for the list, `GET /api/admin/usage` (each account's
   nearest cap). The list counts every account in batches of 100, letting the process answer
-  others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), today's
-  calls in one (`usedToday()`), and a module that has `usageAll(userIds)` / `storageAll(userIds)`
+  others in between: each plan in a fixed number of queries (`entitlements.ofMany()`), the calls
+  of the day or the week in one (`usedToday()`, `usedThisWeek()`), and a module that has `usageAll(userIds)` / `storageAll(userIds)`
   (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
   they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
@@ -1902,9 +1910,9 @@ module's name (`tasks_add_task`, `notes_search_notes`), each with the module's p
 whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
 Only those names answer: neither a module's own bare names nor old ones (0.148.0). The instructions are written per person from each used module's `mcp.brief` (or its
 instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
-longest an assistant reads); tool descriptions keep under the same limit. The calls of the day
-from assistants are the host's plan feature (`mcp.calls_per_day` in its configuration or
-`PLANS`): one count per person for the whole app, whichever module a call goes to.
+longest an assistant reads); tool descriptions keep under the same limit. The calls from
+assistants are the host's plan feature (`mcp.calls_per_week` or `mcp.calls_per_day` in its
+configuration or `PLANS`): one count per person for the whole app, whichever module a call goes to.
 
 What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0.190.0):
 

@@ -72,7 +72,7 @@ import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks, registerUploadLinksApi } from './mcp-files.js';
 import { createPortability, registerPortabilityApi } from './portability.js';
-import { createMcpServer, dailyLimitText } from './mcp.js';
+import { createMcpServer, dailyLimitText, weeklyLimitText } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
   identityCheck, registerMeApi,
@@ -800,12 +800,18 @@ export function createApp({
   /* --------------------------------- MCP ---------------------------------- */
 
   /**
-   * Calls from assistants per person and day, when the app declares
-   * `mcp.calls_per_day`: a brake on abuse, never a switch, so the sentence says
-   * when they come back and which plan has more, for the assistant to tell.
+   * Calls from assistants per person and week, when the app declares
+   * `mcp.calls_per_week`, or else per day with `mcp.calls_per_day`: never a
+   * switch, so the sentence says when they come back and which plan has more,
+   * for the assistant to tell.
    */
   const mcpQuota = (user) => {
-    if (!entitlements.describe().features['mcp.calls_per_day']) return true;
+    const declared = entitlements.describe().features;
+    if (declared['mcp.calls_per_week']) {
+      const week = entitlements.countWeekly(user, 'mcp.calls_per_week');
+      return week.allowed || weeklyLimitText(week, config.app.name);
+    }
+    if (!declared['mcp.calls_per_day']) return true;
     const day = entitlements.countDaily(user, 'mcp.calls_per_day');
     if (day.allowed) return true;
     return dailyLimitText(day, config.app.name);
@@ -826,7 +832,7 @@ export function createApp({
     ...(mcp.onDemand && mcp.door ? { onDemand: mcp.onDemand, door: mcp.door } : {}),
     ...(mcp.recordChange ? { recordChange: mcp.recordChange } : {}),
     ...(mcp.maxResultChars ? { maxResultChars: mcp.maxResultChars } : {}),
-    // In a host this is its /mcp: the calls of the day count once for the whole app.
+    // In a host this is its /mcp: the calls from assistants count once for the whole app.
     quota: mcpQuota,
     authenticate: (token) => suite.authenticateToken(token),
     // With OAuth, the 401 says where the metadata is: that is what makes Claude

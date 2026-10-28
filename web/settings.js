@@ -1860,6 +1860,7 @@ const BENEFITS = Object.freeze([
   ['storage.mb', 'storage'], ['attachments', 'attachments'], ['files.per_note', 'filesPerNote'],
   ['sharing', 'sharing'], ['assign', 'assign'], ['publish', 'publish'], ['templates', 'templates'], ['activity', 'activity'],
   ['retention.days', 'retention'], ['history.days', 'history'], ['mcp', 'mcp'], ['mcp.calls_per_day', 'calls'],
+  ['mcp.calls_per_week', 'callsWeek'],
 ]);
 
 /**
@@ -1873,7 +1874,7 @@ export function planBenefits(features = {}, { app = '' } = {}) {
   for (const [key, name] of BENEFITS) {
     if (!(key in features)) continue;
     const value = features[key];
-    if (key === 'mcp.calls_per_day' && features.mcp === false) continue;
+    if (key.startsWith('mcp.calls_per_') && features.mcp === false) continue;
     if (typeof value === 'boolean') {
       lines.push({ text: t(`kit.plan.benefits.${name}`, { app }), included: value });
     } else if (value === null) {
