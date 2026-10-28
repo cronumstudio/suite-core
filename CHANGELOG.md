@@ -25,6 +25,23 @@ change an interface and a patch never does. Apps pin a version through the submo
   IA», and leaves out the daily calls a module of the host still declares. By the day everything
   is as it was.
 
+## 0.202.3 — 2026-10-28
+
+- **Cronum Work installed opens without a signal**: its one-document shell loads the kit's
+  `windows.js` and `windows.css`, which no module's page loads, and the service worker didn't keep
+  them (`SUITE_KIT_FILES` in `sw-core.js`): offline the page stayed blank before any module could
+  open on what it had kept. Both are in the copy now, and a test checks that every script and
+  sheet of the kit is, but the pages of their own (admin, connecting a device) and the worker.
+- **…and its modules aren't unstyled offline**: each module's sheets scoped to its windows
+  (`/next/css/styles.css?scope=work`, `scopedSheets`) were only kept once a page with the worker
+  in control asked for them, so a new copy (a new release, a first install) opened without a
+  signal showed the modules without their styles. With `scopedSheets` the host's one worker keeps
+  them from the start, with no hash of their own: the kit writes them too, so they always travel
+  again.
+- **Installing says every module works offline**: Settings › Modules' «Instalar en tu dispositivo»
+  said only Tasks and Notes went on offline; Projects and Next do too now (Projects 0.82.0, Next
+  0.59.0), so its third step says the work goes on without a connection, whichever module it is.
+
 ## 0.202.2 — 2026-10-28
 
 - **The MCP works on a computer with Avast** (Martin: «esto se puede arreglar para no tener ese

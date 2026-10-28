@@ -798,7 +798,7 @@ test('a module’s notices with the host’s one worker open at its path (host-w
 test('a module’s shell, read from its own worker, at its path (host-worker.js)', async () => {
   const { moduleShell } = await import('../host-worker.js');
   const dir = new URL('./fixtures/host/alpha/public', import.meta.url);
-  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js'], optional: [], icon: null });
+  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/alpha/css/app.css'], optional: [], icon: null });
   assert.deepEqual(moduleShell(null, 'beta'), { shell: ['/beta/', '/beta/index.html'], optional: [] }, 'without a worker, its page');
 });
 
@@ -1355,6 +1355,22 @@ test('a module’s sheet scoped to its windows (scopedSheets): its own file in @
   assert.equal((await call('GET', '/alpha/css/app.css')).data, own);
   assert.equal((await call('GET', '/alpha/css/app.css?scope=other')).data, own);
   assert.equal((await call('GET', '/alpha/css/nothing.css?scope=work')).status, 404);
+});
+
+test('a module’s scoped sheets are in the one worker’s copy (0.202.3): a new copy opened offline isn’t unstyled', async (t) => {
+  const optionsOf = (body) => {
+    let given = null;
+    new Function('importScripts', 'suiteWorker', body)(() => {}, (o) => { given = o; });
+    return given;
+  };
+  const { call } = await startHost(t, { scopedSheets: true, worker: true });
+  const options = optionsOf((await call('GET', '/sw.js')).data);
+  assert.ok(options.shell.includes('/alpha/css/app.css?scope=work'), 'the sheet its windows load');
+  assert.ok(options.shell.includes('/alpha/css/app.css'), 'and the file itself, as before');
+  assert.equal(options.hashes['/alpha/css/app.css?scope=work'], undefined, 'written by the kit too: it always travels again');
+
+  const { call: plain } = await startHost(t, { worker: true });
+  assert.ok(!optionsOf((await plain('GET', '/sw.js')).data).shell.some((url) => url.includes('?scope=')), 'without scopedSheets, none');
 });
 
 test('without scopedSheets, ?scope=work is a query like any other', async (t) => {

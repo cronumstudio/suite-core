@@ -1033,7 +1033,7 @@
   "kit.modules.installMacSafari": "En el menú Archivo, elige «Añadir al Dock».",
   "kit.modules.installFirefox": "Firefox no instala aplicaciones en el ordenador: abre la página en Chrome, Edge o Safari e instálala desde allí.",
   "kit.modules.installDesktop": "Pulsa el botón de instalar de la barra de direcciones o, en el menú del navegador, la opción de instalar la página como aplicación.",
-  "kit.modules.installOffline": "Listo: se abre como una app más y guarda en el dispositivo lo que ya has visto, así que puedes consultarlo sin conexión. En Tasks y Notes también puedes seguir trabajando sin red: los cambios se envían cuando vuelve.",
+  "kit.modules.installOffline": "Listo: se abre como una app más y guarda en el dispositivo lo que ya has visto, así que puedes consultarlo sin conexión y seguir trabajando: los cambios se envían cuando vuelve la red.",
   "kit.split.title": "Pantalla dividida",
   "kit.split.layout1": "Una app",
   "kit.split.layout2": "2 apps en columnas",

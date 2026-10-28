@@ -1033,7 +1033,7 @@
   "kit.modules.installMacSafari": "In the File menu, choose “Add to Dock”.",
   "kit.modules.installFirefox": "Firefox doesn’t install apps on a computer: open the page in Chrome, Edge or Safari and install it from there.",
   "kit.modules.installDesktop": "Click the install button in the address bar or, in the browser’s menu, the option to install the page as an app.",
-  "kit.modules.installOffline": "Done: it opens like any other app and keeps on the device what you have already seen, so you can look at it without a connection. In Tasks and Notes you can also keep working offline: your changes are sent when the connection is back.",
+  "kit.modules.installOffline": "Done: it opens like any other app and keeps on the device what you have already seen, so you can look at it without a connection and keep working: your changes are sent when the connection is back.",
   "kit.split.title": "Split screen",
   "kit.split.layout1": "One app",
   "kit.split.layout2": "2 apps in columns",
