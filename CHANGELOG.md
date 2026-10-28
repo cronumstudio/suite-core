@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.204.2 — 2026-10-28
+
+- **The plan's list in a host says the host's calls by the week** (Martin, testing 0.203.0: «pone
+  1000 llamadas al dia en plan pro»): Settings › Plan opened from a module listed its own features
+  and those of the other modules in use, never the host's, so Cronum Work's 2,000 calls a week
+  didn't show and Next's own daily 1,000 did. The list now asks the host's root too, and by the
+  week the daily line is left out (0.203.0).
+
 ## 0.204.1 — 2026-10-28
 
 - **A module installed on its own stays in its app after signing in** (Martin, from his iPhone:
