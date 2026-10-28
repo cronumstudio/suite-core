@@ -45,7 +45,7 @@ test('what is stored broken or of another kind is the default', () => {
   assert.deepEqual(celebratePrefs(), { animation: true, sound: true });
 });
 
-test('the confetti hangs in the dialog the origin is in, else the root given, else the body; and goes', async () => {
+test('without popovers, the confetti hangs in the dialog the origin is in, else the root given, else the body; and goes', async () => {
   const dialog = document.createElement('dialog');
   dialog.setAttribute('open', '');
   const check = document.createElement('button');
@@ -65,6 +65,27 @@ test('the confetti hangs in the dialog the origin is in, else the root given, el
 
   await new Promise((resolve) => setTimeout(resolve, 1150));
   assert.equal(inDialog.parentNode, null, 'it leaves nothing behind');
+});
+
+test('where there are popovers, the confetti is in the top layer: over a dialog, and not gone with it', () => {
+  const dialog = document.createElement('dialog');
+  dialog.setAttribute('open', '');
+  const save = document.createElement('button');
+  dialog.append(save);
+  document.body.append(dialog);
+  const root = document.createElement('div');
+  const kind = Object.getPrototypeOf(dialog);
+  const shown = [];
+  kind.showPopover = function showPopover() { shown.push(this); };
+  try {
+    const layer = confetti(save, { root });
+    assert.equal(layer.parentNode, root, 'in the module\'s root, not in the dialog that is closing');
+    assert.equal(layer.getAttribute('popover'), 'manual');
+    assert.deepEqual(shown, [layer], 'shown on top');
+    assert.equal(layer.style.background, 'transparent', 'without the popover\'s look');
+  } finally {
+    delete kind.showPopover;
+  }
 });
 
 test('no confetti when it is turned off, or the system asks for less motion', () => {

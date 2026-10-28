@@ -8,11 +8,12 @@
  *   if (!task.done) celebrate(checkbox);                  // a task, a step, a project ticked
  *   celebrate(checkbox, { root: place.root });            // out of a dialog, in the module's own root
  *   celebrate({ x, y });                                  // from a point, when the button is gone
+ *   celebrate(saveButton, { root: place.root });         // a dialog's Save, as it is pressed
  *
  * Taken from Tasks, where it began (`tasks.celebrate`): until the person
  * chooses here, what they chose there still holds. No images or audio files:
  * the confetti is elements animated with the Web Animations API (no stylesheet
- * needed, so it works the same in every module and in a dialog), and the sound
+ * needed, so it works the same in every module and over a dialog), and the sound
  * is synthesised with WebAudio. The system's "reduce motion" is respected.
  */
 
@@ -137,26 +138,38 @@ function pointOf(origin) {
 }
 
 /**
- * A burst of confetti from `origin` (normally, what was ticked). It hangs in
- * the open dialog the origin is in (a dialog is drawn over everything else, so
- * confetti outside it would fall behind it), else in `root` —a module's own,
- * to keep nothing of its own on the page's body—, else in the page's body.
+ * A burst of confetti from `origin` (normally, what was ticked, or the Save
+ * that marks it done). It hangs in `root` —a module's own, to keep nothing of
+ * its own on the page's body—, else in the page's body, and is shown in the
+ * browser's top layer (a popover): over an open dialog, and still there once
+ * the dialog closes, so a dialog's Save can celebrate as it is pressed. Where
+ * there are no popovers it hangs in the open dialog the origin is in, as a
+ * dialog is drawn over everything else.
  */
 export function confetti(origin = null, { root = null } = {}) {
   if (!celebratePrefs().animation || reducedMotion()) return null;
   const doc = globalThis.document;
   if (!doc) return null;
-  const host = (typeof origin?.closest === 'function' && origin.closest('dialog[open]')) || root || doc.body;
   const { x, y } = pointOf(origin);
 
   const layer = doc.createElement('div');
+  const onTop = typeof layer.showPopover === 'function';
+  const host = (!onTop && typeof origin?.closest === 'function' && origin.closest('dialog[open]')) || root || doc.body;
   layer.className = 'kit-confetti';
   layer.setAttribute('aria-hidden', 'true');
   Object.assign(layer.style, {
     position: 'fixed', left: '0px', top: '0px', width: '0px', height: '0px',
     zIndex: '2147483000', pointerEvents: 'none', overflow: 'visible',
   });
+  if (onTop) {
+    layer.setAttribute('popover', 'manual');
+    // Without the browser's popover look: a box in the middle, with a border and a background.
+    Object.assign(layer.style, { right: 'auto', bottom: 'auto', margin: '0', border: '0', padding: '0', background: 'transparent' });
+  }
   host.append(layer);
+  if (onTop) {
+    try { layer.showPopover(); } catch { layer.removeAttribute('popover'); }
+  }
   // In a transformed parent (a dialog sliding in) "fixed" is that parent's: start from where the layer landed.
   const at = layer.getBoundingClientRect?.() || { left: 0, top: 0 };
   const left = x - (at.left || 0);
