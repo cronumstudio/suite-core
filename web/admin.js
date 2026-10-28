@@ -942,10 +942,13 @@ async function renderAudit(main) {
     if (before) query.set('before', String(before));
     const { entries } = await api.get(`/api/admin/audit?${query}`);
     for (const e of entries) {
-      const meta = Object.entries(e.meta || {}).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ');
+      // The assistant someone acted through goes with them, not among the details.
+      const { via, ...rest } = e.meta || {};
+      const meta = Object.entries(rest).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ');
+      const who = e.actor_username ? `@${e.actor_username}` : '—';
       body.append(el('tr', {},
         el('td', { text: formatDateTime(e.at, { dateStyle: 'short', timeStyle: 'medium' }) }),
-        el('td', { text: e.actor_username ? `@${e.actor_username}` : '—' }),
+        el('td', { text: via ? t('admin.audit.via', { who, via }) : who }),
         el('td', {}, el('span', { text: actionText(e.action) }), el('small', { class: 'kit-mono', text: e.action })),
         el('td', { text: e.target_type ? `${e.target_type} ${e.target_id ?? ''}`.trim() : '' }),
         el('td', { class: 'kit-mono', text: e.ip || '' }),

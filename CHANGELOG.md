@@ -3,13 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.206.3 — 2026-10-28
+## 0.207.1 — 2026-10-29
 
 - **Settings without a signal listen only once used, never on import** (Projects' mount rule
   failed with suite-core 0.205.0: importing its `main.js` added two listeners). `settings-queue.js`
   added the browser's `online`/`offline` listeners at the top of the module, so a module of
   Cronum Work did something just by being imported. Now `connection` starts listening on first
   use (`offline`, `on`, `check`, `noted`), once, and reads `navigator.onLine` again then.
+
+## 0.207.0 — 2026-10-29
+
+- **What an assistant does says which assistant it was** (Martin: «el registro de actividad dice
+  que yo he hecho todo, cuando casi todo lo hace el agente vía MCP»). Each MCP server hands its
+  tools `principal.via`: the assistant the call comes from («Claude Code», «ChatGPT», «Codex»…),
+  as its client named itself when the session began (`clientInfo`, `clientLabel()`). It travels
+  in the session's id, so a deployment doesn't lose it; a call without a session has none. A host's
+  `recordChanges` writes it in each `mcp.tool` line (`meta.via`), and the admin's Activity shows
+  it with the person: «@martin · vía Claude Code». Nothing changes for an app that doesn't read it.
 
 ## 0.206.2 — 2026-10-28
 
