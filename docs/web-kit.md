@@ -88,6 +88,7 @@ with its own pre-paint script adds the same line.
 | `qr.js` | `qrSvg(text, { label })` |
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
+| `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
 | `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`. Nothing outside the app |
 

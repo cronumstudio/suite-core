@@ -17,6 +17,9 @@ const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
 /** The metadata is read from browsers too (the MCP inspector, for instance). */
 const CORS = { 'Access-Control-Allow-Origin': '*' };
 
+/** Only a path of this app: never another site, whatever the link says (oidc.js's too). */
+const localPath = (value) => (typeof value === 'string' && /^\/(?!\/)[^\\\s]*$/.test(value) ? value : '/');
+
 function redirect(res, target) {
   res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
   res.end();
@@ -437,7 +440,10 @@ export function createWorkosAccounts({
     if (path === '/auth/login') {
       const { verifier, challenge: pkceChallenge } = workos.pkcePair();
       const state = crypto.randomBytes(16).toString('base64url');
-      addCookie(res, stateCookieHeader(`${state}.${verifier}`, 600));
+      // Back where sign-in began (`return`): a module installed on its own (`/notes/`) back in
+      // its own app, not at `/`, which in Cronum Work is the whole of it.
+      const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
+      addCookie(res, stateCookieHeader(`${state}.${verifier}.${back}`, 600));
       redirect(res, workos.signInUrl({
         redirectUri: `${BASE_URL}/auth/callback`,
         state,
@@ -450,7 +456,7 @@ export function createWorkosAccounts({
     }
 
     if (path === '/auth/callback') {
-      const [state, verifier] = String(cookieValue(req, stateCookie) || '').split('.');
+      const [state, verifier, back] = String(cookieValue(req, stateCookie) || '').split('.');
       addCookie(res, stateCookieHeader('', 0));
       const code = url.searchParams.get('code');
       // Without a state matching the cookie's, this return wasn't started by
@@ -477,7 +483,7 @@ export function createWorkosAccounts({
         }
         users.signedIn?.(user, account, method);
         sessions.open(res, user.id, { workosSessionId: sessionId, req });
-        redirect(res, '/');
+        redirect(res, localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/'));
       } catch (err) {
         log(`[workos] sign-in could not be completed: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof WorkosUnavailable ? 'unavailable' : 'failed'}`);

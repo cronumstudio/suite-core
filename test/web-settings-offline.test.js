@@ -1,15 +1,13 @@
 /**
  * Settings without a signal (web/settings.js, web/settings-queue.js): the host's list from the
  * config of last time, a notice where only the server can answer, what needs it turned off, and
- * the preferences kept on this device and sent, in order, once the server answers. And the
- * service worker's page at its base offline (web/sw-core.js): the one the server answers there.
+ * the preferences kept on this device and sent, in order, once the server answers.
  *
  *   npm test
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import vm from 'node:vm';
 import { installFakeDom } from './fake-dom.js';
 
 const document = installFakeDom();
@@ -209,33 +207,6 @@ test('the queue: one change per address, a PATCH’s fields merged, and sent in 
     globalThis.fetch = realFetch;
     delete document.dispatchEvent;
   }
-});
-
-test('offline, a page at the worker’s base is the one kept there: Cronum Work’s shell at /, not its home', async () => {
-  const code = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
-  const kept = new Map([
-    ['/', 'shell'], ['/index.html', 'home'], ['/split/index.html', 'split'],
-    ['/tasks/', 'tasks'], ['/tasks/index.html', 'tasks page'],
-  ]);
-  const handlers = {};
-  const sandbox = {
-    self: { registration: { scope: 'https://work.example/' }, location: { origin: 'https://work.example' }, addEventListener: (type, fn) => { handlers[type] = fn; } },
-    caches: { match: async (key) => kept.get(key), open: async () => ({ match: async () => undefined, put: async () => {} }), keys: async () => [] },
-    fetch: () => Promise.reject(new TypeError('Failed to fetch')),
-    Response: { error: () => 'error' },
-    URL, setTimeout, clearTimeout,
-  };
-  vm.runInNewContext(`${code}\nsuiteWorker({ version: 'work-1', shell: [], modules: ['/tasks/'] });`, sandbox);
-  const open = (url) => {
-    let answer = null;
-    handlers.fetch({ request: { method: 'GET', url, mode: 'navigate' }, respondWith: (p) => { answer = p; }, waitUntil: () => {} });
-    return answer;
-  };
-  assert.equal(await open('https://work.example/?w=tasks:list/12'), 'shell', 'the installed app opens on its shell');
-  assert.equal(await open('https://work.example/'), 'shell');
-  assert.equal(await open('https://work.example/split/'), 'split', 'a folder of its own, its index.html');
-  assert.equal(await open('https://work.example/tasks/'), 'tasks', 'a module at its base, as kept');
-  assert.equal(await open('https://work.example/tasks/list/12'), 'tasks page', 'a module’s page, its index.html');
 });
 
 test('the host’s answer of its modules is kept whoever asked it, for Settings › Modules without a signal', async () => {

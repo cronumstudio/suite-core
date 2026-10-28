@@ -1110,6 +1110,8 @@ async function deployedWorkers(scope, server) {
     fetch: async (input) => {
       const pathname = pathOf(input);
       fetched.push(pathname);
+      // No signal (`server.offline = true`): the browser's fetch fails.
+      if (server.offline) throw new TypeError('Failed to fetch');
       if (!(pathname in server)) return new Response('', { status: 404 });
       const response = new Response(server[pathname]);
       response.url = new URL(pathname, scope).href;
@@ -1224,6 +1226,33 @@ test('a host’s worker serves code from its copy, keeps the kit once, and a rel
   fetched.length = 0;
   assert.equal((await two.get('https://work.example/tasks/js/late.js')).body, 'late');
   assert.deepEqual(fetched, []);
+});
+
+test('offline, a navigation gets the page kept at its own path: Cronum Work opens on its shell at /, not on the home (0.203.1)', async () => {
+  // The host's start is a page of its own (Work's shell, pages[].root): / answers it, and
+  // /index.html is the home that chooses modules. The installed app and the phone app open /.
+  const server = {
+    '/': 'shell', '/index.html': 'home', '/split/': 'split', '/split/index.html': 'split index',
+    '/tasks/': 'tasks page', '/tasks/index.html': 'tasks index',
+  };
+  const { worker } = await deployedWorkers('https://work.example/', server);
+  const one = await worker({
+    version: 'work-a', modules: ['/tasks/'], codeFirst: true,
+    shell: ['/', '/index.html', '/split/', '/split/index.html', '/tasks/', '/tasks/index.html'], kit: false,
+  });
+  server.offline = true;
+  assert.equal((await one.get('https://work.example/', 'navigate')).body, 'shell');
+  assert.equal((await one.get('https://work.example/?w=tasks:', 'navigate')).body, 'shell', 'with the windows in its address');
+  assert.equal((await one.get('https://work.example/split/', 'navigate')).body, 'split');
+  assert.equal((await one.get('https://work.example/tasks/?list=4', 'navigate')).body, 'tasks page');
+  assert.equal((await one.get('https://work.example/tasks/list/12', 'navigate')).body, 'tasks index', 'a route without a page of its own: its module’s index, as before');
+
+  // An app on its own keeps one page, at / and at /index.html: the same either way, any route.
+  const own = { '/': 'tasks', '/index.html': 'tasks' };
+  const app = await (await deployedWorkers('https://tasks.example/', own)).worker({ version: 'tasks-v1', shell: ['/', '/index.html'], kit: false });
+  own.offline = true;
+  assert.equal((await app.get('https://tasks.example/?list=4', 'navigate')).body, 'tasks');
+  assert.equal((await app.get('https://tasks.example/list/4', 'navigate')).body, 'tasks');
 });
 
 test('an app on its own keeps code network first', async () => {
@@ -2283,7 +2312,10 @@ test('in Work\'s shell, Settings cover the whole page and another module\'s sect
 
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-  assert.match(read('signin.js'), /href: '\/auth\/login', target: FRAMED \? '_top' : null/);
+  assert.match(read('signin.js'), /href: login\(\), target: FRAMED \? '_top' : null/);
+  // And back to the whole window's page, not the frame's: a module installed on its own stays in its app.
+  assert.match(read('signin.js'), /\(FRAMED \? window\.top : window\)\.location; here = page\.pathname \+ page\.search;/);
+  assert.match(read('signin.js'), /return=\$\{encodeURIComponent\(here\)\}/);
   assert.match(read('signin.js'), /const page = FRAMED \? window\.top : window;/);
   // Leaving with the account goes the way signing out does (signin.js leave()).
   assert.match(read('settings.js'), /await leave\(\{ answer: done \}\);/);

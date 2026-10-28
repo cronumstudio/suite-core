@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.204.0 — 2026-10-28
+## 0.205.0 — 2026-10-28
 
 - **Settings without a signal** (Martin: some parts of Settings wouldn't open offline in Cronum
   Work, they gave an error). Settings are drawn from the install's config of last time, kept on
@@ -24,10 +24,49 @@ change an interface and a patch never does. Apps pin a version through the submo
   - **What can't wait** (the email, exporting, importing, erasing, deleting the account) stays
     there but turned off, saying it needs a connection, and comes back on with it. Administration
     says so instead of opening a page the browser can't load.
-- **Cronum Work installed opens offline**: the service worker answered a page at its base (`/`)
-  with the copy of `/index.html` before the copy of `/`. In Cronum Work, whose page at `/` is the
-  shell (`pages[].root`), that file is the home that chooses the modules, so the installed app
-  opened offline on «Something went wrong». The base is now the copy kept at the base itself.
+
+## 0.204.2 — 2026-10-28
+
+- **The plan's list in a host says the host's calls by the week** (Martin, testing 0.203.0: «pone
+  1000 llamadas al dia en plan pro»): Settings › Plan opened from a module listed its own features
+  and those of the other modules in use, never the host's, so Cronum Work's 2,000 calls a week
+  didn't show and Next's own daily 1,000 did. The list now asks the host's root too, and by the
+  week the daily line is left out (0.203.0).
+
+## 0.204.1 — 2026-10-28
+
+- **A module installed on its own stays in its app after signing in** (Martin, from his iPhone:
+  Notes installed from Settings opened Cronum Work whole, with Tasks failing to open, «Lo ideal
+  sería que mostrase Notes sin lo demás de Work»): WorkOS's `/auth/callback` always went to `/`,
+  which in Cronum Work is its one-document shell, outside an installed module's scope, so iOS
+  showed it in a sheet over the module. The sign-in screen's buttons now say where they were
+  (`/auth/login?return=/notes/`, the whole window's page when framed), WorkOS keeps it in its state
+  cookie as OpenID Connect already did, and the return lands there. Only a path of the app:
+  `//other.site`, `https://…` or a backslash go to `/` as before.
+
+## 0.204.0 — 2026-10-28
+
+- **The celebration when something is done is the suite's** (Martin asked for Tasks' option to be
+  a general one, for every module and Cronum Work's calendar): `web/celebrate.js`, taken from Tasks, with
+  `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
+  for a part done. Its confetti is animated with the
+  Web Animations API, so it needs no stylesheet, and hangs in the open dialog the origin is in (a
+  dialog is drawn over everything else). One choice, in Settings › Language and theme › «When
+  something is done»: animation and sound, with a button to try it, kept on the device
+  (`suite.celebrate`); until the person chooses there, what they chose in Tasks
+  (`tasks.celebrate`) holds, so nobody's setting flips. The worker keeps `celebrate.js` with the
+  kit.
+
+## 0.203.1 — 2026-10-28
+
+- **Cronum Work opens on its shell offline, not on the home** (Martin, with the phone app in
+  airplane mode: «tengo el mismo problema»): offline, a navigation that the network didn't answer
+  got `/index.html` from the copy before the page kept at its own path. In a host whose start is a
+  page of its own (Work's shell at `/`, `pages[].root`), `/index.html` is the home that chooses
+  modules, so the installed app and the phone app, which open `/`, got the home, which needs the
+  server, and showed «Algo ha fallado». The page kept at the path asked for comes first now; an app
+  on its own keeps the same page at both, and a module's route without a page of its own still
+  gets its module's index.
 
 ## 0.203.0 — 2026-10-28
 
