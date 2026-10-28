@@ -75,6 +75,7 @@ import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from '
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
 import { leave } from './signin.js';
+import { celebratePrefs, setCelebratePref, celebrate } from './celebrate.js';
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
 
@@ -673,7 +674,29 @@ export function openSettings(options) {
       block(null, field(t('kit.appearance.language'), select)),
       block(t('kit.appearance.themeTitle'), theme, hint(t('kit.appearance.themeHint'))),
       host ? lookBlock() : null,
+      celebrateBlock(),
     ];
+  }
+
+  /**
+   * The celebration when something is done (celebrate.js), the same in every module and in the
+   * host's calendar: on this device, as the theme kept in this browser.
+   */
+  function celebrateBlock() {
+    const prefs = celebratePrefs();
+    return block(t('kit.appearance.celebrate.title'),
+      switchRow(t('kit.appearance.celebrate.animation'), {
+        hint: t('kit.appearance.celebrate.animationHint'),
+        checked: prefs.animation,
+        onChange: (on) => setCelebratePref('animation', on),
+      }),
+      switchRow(t('kit.appearance.celebrate.sound'), {
+        hint: t('kit.appearance.celebrate.soundHint'),
+        checked: prefs.sound,
+        onChange: (on) => setCelebratePref('sound', on),
+      }),
+      row(button(t('kit.appearance.celebrate.test'), (ev) => celebrate(ev.currentTarget))),
+      hint(t('kit.appearance.celebrate.hint')));
   }
 
   /** In a host, the look of every module (host.js LOOKS): the suite's own, or Clean. */
@@ -1860,20 +1883,23 @@ const BENEFITS = Object.freeze([
   ['storage.mb', 'storage'], ['attachments', 'attachments'], ['files.per_note', 'filesPerNote'],
   ['sharing', 'sharing'], ['assign', 'assign'], ['publish', 'publish'], ['templates', 'templates'], ['activity', 'activity'],
   ['retention.days', 'retention'], ['history.days', 'history'], ['mcp', 'mcp'], ['mcp.calls_per_day', 'calls'],
+  ['mcp.calls_per_week', 'callsWeek'],
 ]);
 
 /**
  * What a plan includes as people read it: `features` as /api/me/entitlements gives them →
  * [{ text, included }], what is included first. A limit is a number, or null for none; a flag,
  * whether it is in. A key the kit doesn't name is left out, and so are the assistant's calls when
- * the assistant isn't included.
+ * the assistant isn't included, and those of the day when they are counted by the week (a host's,
+ * while a module of it still declares the daily ones).
  */
 export function planBenefits(features = {}, { app = '' } = {}) {
   const lines = [];
   for (const [key, name] of BENEFITS) {
     if (!(key in features)) continue;
     const value = features[key];
-    if (key === 'mcp.calls_per_day' && features.mcp === false) continue;
+    if (key.startsWith('mcp.calls_per_') && features.mcp === false) continue;
+    if (key === 'mcp.calls_per_day' && 'mcp.calls_per_week' in features) continue;
     if (typeof value === 'boolean') {
       lines.push({ text: t(`kit.plan.benefits.${name}`, { app }), included: value });
     } else if (value === null) {

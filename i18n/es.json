@@ -316,6 +316,7 @@
   "admin.usage.peak": "{percent} · {what}",
   "admin.usage.noLimits": "Sin límites",
   "admin.usage.noDailyLimit": "Su plan no tiene tope diario.",
+  "admin.usage.noWeeklyLimit": "Su plan no tiene tope semanal.",
   "admin.usage.lastChange": "Último cambio: {date}",
   "admin.usage.off": "Desactivado",
   "admin.usage.failed": "Este módulo no ha podido decir qué tiene.",
@@ -543,6 +544,13 @@
   "kit.appearance.look.cronum": "Cronum",
   "kit.appearance.look.clean": "Limpio",
   "kit.appearance.lookHint": "Para todo {app} y en cada dispositivo. Limpio: blanco, la letra Inter y menos color.",
+  "kit.appearance.celebrate.title": "Al terminar algo",
+  "kit.appearance.celebrate.animation": "Animación",
+  "kit.appearance.celebrate.animationHint": "Confeti al marcar como hecha una tarea, un paso o un proyecto",
+  "kit.appearance.celebrate.sound": "Sonido",
+  "kit.appearance.celebrate.soundHint": "Un pequeño \"ding\" de recompensa",
+  "kit.appearance.celebrate.test": "🎉 Probar",
+  "kit.appearance.celebrate.hint": "En todos los módulos y en el calendario, en este dispositivo. Con el movimiento reducido, sin confeti.",
   "kit.security.password": "Contraseña",
   "kit.security.currentPassword": "Contraseña actual",
   "kit.security.newPassword": "Contraseña nueva",
@@ -797,6 +805,8 @@
   "kit.plan.benefits.mcp": "Usar {app} desde tu IA",
   "kit.plan.benefits.calls": "{n} llamadas al día desde tu IA",
   "kit.plan.benefits.callsUnlimited": "Llamadas sin límite desde tu IA",
+  "kit.plan.benefits.callsWeek": "{n} llamadas a la semana desde tu IA",
+  "kit.plan.benefits.callsWeekUnlimited": "Llamadas sin límite desde tu IA",
   "kit.plan.status.active": "Activa",
   "kit.plan.status.trialing": "De prueba",
   "kit.plan.status.past_due": "Pago pendiente",
@@ -866,6 +876,7 @@
   "kit.usage.failed": "Este módulo no ha podido contarlo ahora.",
   "kit.usage.nothing": "Aquí aún no hay nada.",
   "kit.usage.noDailyLimit": "Tu plan no tiene tope diario.",
+  "kit.usage.noWeeklyLimit": "Tu plan no tiene tope semanal.",
   "kit.usage.reachedNotice": "Has llegado al límite de tu plan:",
   "kit.usage.nearNotice": "Te acercas al límite de tu plan:",
   "kit.usage.counted.lists": {
@@ -905,6 +916,10 @@
     "one": "{n} llamada del asistente hoy",
     "other": "{n} llamadas del asistente hoy"
   },
+  "kit.usage.counted.mcpWeek": {
+    "one": "{n} llamada del asistente esta semana",
+    "other": "{n} llamadas del asistente esta semana"
+  },
   "kit.usage.free": "Libre",
   "kit.usage.storageChart": "Espacio por módulo",
   "kit.usage.peakIn": "{what} en {module}",
@@ -928,15 +943,25 @@
   "kit.usage.used": "{size} usados",
   "kit.usage.mcp": "Llamadas del asistente (MCP)",
   "kit.usage.today": "Hoy",
+  "kit.usage.thisWeek": "Esta semana",
+  "kit.usage.renews": "Se renueva el lunes",
   "kit.usage.lastDays": {
     "one": "Primer día: {calls}",
     "other": "Últimos {n} días: {calls}, {avg} al día de media"
+  },
+  "kit.usage.lastWeeks": "Últimas {n} semanas: {calls}, {avg} a la semana de media",
+  "kit.usage.lastDaysWeekly": "Últimos {n} días: {calls}, {avg} a la semana de media",
+  "kit.usage.lastDaysOnly": {
+    "one": "Primer día: {calls}",
+    "other": "Últimos {n} días: {calls}"
   },
   "kit.usage.calls": {
     "one": "{n} llamada",
     "other": "{n} llamadas"
   },
   "kit.usage.monthChart": "Llamadas de cada uno de los últimos 30 días",
+  "kit.usage.weekChart": "Llamadas de cada día de esta semana",
+  "kit.usage.weeksChart": "Llamadas de cada día de las últimas 4 semanas",
   "kit.usage.dayCalls": "{date}: {calls}",
   "kit.data.hint": "Descargar, importar o borrar",
   "kit.data.hintDelete": "Borrar tu cuenta",

@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.202.4 — 2026-10-28
+## 0.204.1 — 2026-10-28
 
 - **A module installed on its own stays in its app after signing in** (Martin, from his iPhone:
   Notes installed from Settings opened Cronum Work whole, with Tasks failing to open, «Lo ideal
@@ -13,6 +13,52 @@ change an interface and a patch never does. Apps pin a version through the submo
   (`/auth/login?return=/notes/`, the whole window's page when framed), WorkOS keeps it in its state
   cookie as OpenID Connect already did, and the return lands there. Only a path of the app:
   `//other.site`, `https://…` or a backslash go to `/` as before.
+
+## 0.204.0 — 2026-10-28
+
+- **The celebration when something is done is the suite's** (Martin asked for Tasks' option to be
+  a general one, for every module and Cronum Work's calendar): `web/celebrate.js`, taken from Tasks, with
+  `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
+  for a part done. Its confetti is animated with the
+  Web Animations API, so it needs no stylesheet, and hangs in the open dialog the origin is in (a
+  dialog is drawn over everything else). One choice, in Settings › Language and theme › «When
+  something is done»: animation and sound, with a button to try it, kept on the device
+  (`suite.celebrate`); until the person chooses there, what they chose in Tasks
+  (`tasks.celebrate`) holds, so nobody's setting flips. The worker keeps `celebrate.js` with the
+  kit.
+
+## 0.203.1 — 2026-10-28
+
+- **Cronum Work opens on its shell offline, not on the home** (Martin, with the phone app in
+  airplane mode: «tengo el mismo problema»): offline, a navigation that the network didn't answer
+  got `/index.html` from the copy before the page kept at its own path. In a host whose start is a
+  page of its own (Work's shell at `/`, `pages[].root`), `/index.html` is the home that chooses
+  modules, so the installed app and the phone app, which open `/`, got the home, which needs the
+  server, and showed «Algo ha fallado». The page kept at the path asked for comes first now; an app
+  on its own keeps the same page at both, and a module's route without a page of its own still
+  gets its module's index.
+
+## 0.203.0 — 2026-10-28
+
+- **Calls from assistants by the week** (Martin: «estoy viendo que quizas podriamos cambiar a "uso
+  por semana" como hacen los planes de IA … 100 llamadas al dia es muchisimo y nadie querria pasar
+  al plan pro porque nunca llegarian»): a new common feature, `mcp.calls_per_week`, counted from
+  Monday 00:00 UTC. An app that declares it is counted by the week instead of by the day
+  (`countWeekly()`, and `weeklyLimitText()` for the assistant when they are used up). Its uses are
+  kept by the day under `mcp.calls_per_day`'s key, so a host that moves to it keeps the days it
+  already counted. In `cronum-work`, Free has 100 a week and Pro and Team 2,000; `mcp.calls_per_day`
+  stays as it was (100, 1,000) for whoever still declares it, and Focus and Tracker are untouched.
+  New: `entitlements.countWeekly()`, `better()`, `usedThisWeek()` and `weekStart()`.
+- **The usage panel by the week**: with the calls counted by the week, `GET /api/me/usage` and the
+  admin's add `period: 'week'`, `week` (this week's) and `more` (the next plan with more, or null).
+  Settings › Plan › Your usage shows this week only: «Esta semana», «Se renueva el lunes» and a bar
+  for each day, Monday to Sunday, with their initials and the days still to come empty, without an
+  average. The limit shows while a bigger plan has more to offer, or from 75 % of it: on the top
+  plan a bar almost empty would only say how little it is used, so it says the calls alone. The
+  admin sees the limit always and the last four weeks from Monday, a gap before each, with the
+  average a week since the account was made. A plan's list says «100 llamadas a la semana desde tu
+  IA», and leaves out the daily calls a module of the host still declares. By the day everything
+  is as it was.
 
 ## 0.202.3 — 2026-10-28
 

@@ -32,14 +32,19 @@
  * `usage` fails shows that it couldn't say, and the rest still do.
  *
  * Read-only and on demand: nothing here is kept, except the month of daily
- * counts that entitlements.js keeps for `mcp.calls_per_day`.
+ * counts that entitlements.js keeps for `mcp.calls_per_day` (and adds up by the
+ * week for `mcp.calls_per_week`).
  */
 import { sendJson, unauthorized, forbidden, notFound, int } from './http.js';
+import { weekStart } from './entitlements.js';
 
 /** What a module may count, as the panels name them (kit.usage.items.<id>). */
 export const USAGE_ITEMS = Object.freeze(['lists', 'tasks', 'subtasks', 'notebooks', 'notes', 'projects', 'entries', 'files']);
 
 const MB = 1024 * 1024;
+
+/** The limit of calls from assistants the host declares: by the week, else by the day, or null (app.js mcpQuota). */
+const callsFeature = (entitlements) => ['mcp.calls_per_week', 'mcp.calls_per_day'].find((f) => entitlements?.knows?.(f)) ?? null;
 
 /** How much of a limit a count takes: 0.85 is 85 %; null when there is no limit. */
 export function share(count, limit) {
@@ -73,7 +78,7 @@ function limitOf(entitlements, user, feature) {
 
 /**
  * Someone's usage, from what the modules answered of them: the rows of the account's dialog, the
- * storage, the calls of the day and the cap they are nearest to. One reckoning for one account
+ * storage, the calls from assistants and the cap they are nearest to. One reckoning for one account
  * (usageOf) and for the admin's list (peaksOf), which only differ in how they ask.
  */
 function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, mcpOf, log }) {
@@ -118,8 +123,9 @@ function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, m
   const limitMb = storageLimit ?? null;
   const storage = measured ? { bytes, files, limit_mb: limitMb, share: share(bytes, limitMb == null ? null : limitMb * MB) } : null;
 
-  // The calls of the day count once for the whole app, with the host's plans (app.js mcpQuota).
-  const mcp = entitlements?.knows?.('mcp.calls_per_day') ? mcpOf(limitIn(entitlements, 'mcp.calls_per_day')) : null;
+  // The calls count once for the whole app, with the host's plans (app.js mcpQuota).
+  const calls = callsFeature(entitlements);
+  const mcp = calls ? mcpOf(limitIn(entitlements, calls), calls) : null;
 
   // The cap they are nearest to, for the list: the module's count, the storage or today's calls.
   let peak = null;
@@ -136,7 +142,7 @@ function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, m
 /**
  * Someone's usage across the modules. `modules` are the host's joined ones ({ mount, config,
  * parts, view }), `uses(user, mount)` whether they have it on, `entitlements` the host's own (the
- * one that counts the calls of the day).
+ * one that counts the calls from assistants).
  */
 export function usageOf(user, { modules, uses = () => true, entitlements = null, log = () => {} }) {
   return reckon(user, {
@@ -145,13 +151,21 @@ export function usageOf(user, { modules, uses = () => true, entitlements = null,
     answerOf: (m) => m.parts.usage(user.id),
     bytesOf: (m) => m.parts.storage(user.id),
     limitIn: (plans, feature) => limitOf(plans, user, feature),
-    mcpOf: (limit) => {
-      const days = entitlements.dailyUsage(user.id, 'mcp.calls_per_day');
+    mcpOf: (limit, feature) => {
+      const days = entitlements.dailyUsage(user.id, feature);
       const today = days.at(-1)?.used ?? 0;
       // Counted with a limit or without (countDaily): the share only where there is one. `since`,
       // the day the account was made, so an account younger than the month averages its own days.
       const since = /^\d{4}-\d{2}-\d{2}/.test(user.created_at ?? '') ? user.created_at.slice(0, 10) : null;
-      return { limit, today, share: share(today, limit), days, since, total: days.reduce((a, d) => a + d.used, 0) };
+      const total = days.reduce((a, d) => a + d.used, 0);
+      if (feature !== 'mcp.calls_per_week') return { period: 'day', limit, today, share: share(today, limit), days, since, total };
+      // By the week, from Monday (UTC); `more`, the plan with more of them, for the page to show the
+      // limit while there is a bigger one to offer.
+      const from = weekStart(days.at(-1).day);
+      const week = days.filter((d) => d.day >= from).reduce((a, d) => a + d.used, 0);
+      let more = null;
+      try { more = entitlements.better?.(user, feature) ?? null; } catch { more = null; }
+      return { period: 'week', limit, today, week, share: share(week, limit), more, days, since, total };
     },
   });
 }
@@ -173,7 +187,7 @@ function askAll(m, hook, ids, log) {
  * Each account's nearest cap, for the admin's list: Map userId → usageOf(user).peak, the same
  * answer, asked in batches. A module with `usageAll` / `storageAll` answers all of them at once
  * (an id it leaves out, or every id if it fails, is asked one by one); each plan in a fixed number
- * of queries (entitlements `ofMany`); today's calls in one, without the month the dialog shows.
+ * of queries (entitlements `ofMany`); the calls of the day or the week in one, without the month the dialog shows.
  */
 export function peaksOf(users, { modules, entitlements = null, log = () => {} }) {
   const ids = users.map((user) => user.id);
@@ -189,8 +203,10 @@ export function peaksOf(users, { modules, entitlements = null, log = () => {} })
     }
     return plans.get(source);
   };
-  const calls = entitlements?.knows?.('mcp.calls_per_day') && typeof entitlements.usedToday === 'function'
-    ? entitlements.usedToday(ids, 'mcp.calls_per_day') : null;
+  const feature = callsFeature(entitlements);
+  const weekly = feature === 'mcp.calls_per_week';
+  const counter = weekly ? entitlements?.usedThisWeek : entitlements?.usedToday;
+  const calls = feature && typeof counter === 'function' ? counter(ids, feature) : null;
   const fromAll = (all, id, one) => (all?.has(id) ? all.get(id) : one());
   const peaks = new Map();
   for (const user of users) {
@@ -207,9 +223,10 @@ export function peaksOf(users, { modules, entitlements = null, log = () => {} })
         return Object.hasOwn(entitled.features, feature) ? entitled.features[feature] : null;
       },
       mcpOf: (limit) => {
-        const today = calls ? calls.get(user.id) ?? 0
-          : entitlements.dailyUsage(user.id, 'mcp.calls_per_day', { days: 1 }).at(-1)?.used ?? 0;
-        return { limit, today, share: share(today, limit) };
+        const days = calls ? null : entitlements.dailyUsage(user.id, feature, { days: 7 });
+        const used = calls ? calls.get(user.id) ?? 0 : weekly
+          ? days.filter((d) => d.day >= weekStart(days.at(-1).day)).reduce((a, d) => a + d.used, 0) : days.at(-1)?.used ?? 0;
+        return { limit, [weekly ? 'week' : 'today']: used, share: share(used, limit) };
       },
     });
     peaks.set(user.id, peak);

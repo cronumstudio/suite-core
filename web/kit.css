@@ -368,8 +368,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-usage-cell { min-inline-size: 96px; }
 .kit-usage-cell .kit-meter { inline-size: 80px; margin-block: 4px 2px; }
 /*
- * The calls of the month: thin bars on one baseline, a day without any a stub, a day before the
- * account nothing. Each day is a column the chart's height; pointing at it (or tapping it) says
+ * The calls of each day: thin bars on one baseline, a day without any a stub, a day before the
+ * account or still to come nothing; in weeks, a gap before each Monday, and one week's seven wider. Each day is a column the chart's height; pointing at it (or tapping it) says
  * its day and calls above the chart, kept inside it at both ends.
  */
 .kit-usage__days { display: flex; align-items: stretch; gap: 2px; block-size: 48px; border-block-end: 1px solid var(--kit-border); }
@@ -385,6 +385,13 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-usage__day[data-tip] { position: relative; }
 .kit-usage__day:nth-child(-n+6)[data-tip]:is(:hover, :focus)::after { inset-inline-start: 0; translate: 0 0; }
 .kit-usage__day:nth-last-child(-n+6)[data-tip]:is(:hover, :focus)::after { inset-inline-start: auto; inset-inline-end: 0; translate: 0 0; }
+.kit-usage__days--weeks > .kit-usage__day--monday { margin-inline-start: 6px; }
+.kit-usage__days--week { gap: 8px; }
+.kit-usage__weekdays { display: flex; gap: 8px; margin-block-start: 4px; }
+.kit-usage__weekdays > span { flex: 1; text-align: center; font-size: var(--look-caption, 11px); color: var(--kit-muted); }
+.kit-usage__days--week > .kit-usage__day[data-tip]:is(:hover, :focus)::after { inset-inline-start: 50%; inset-inline-end: auto; translate: -50% 0; }
+.kit-usage__days--week > .kit-usage__day:first-child[data-tip]:is(:hover, :focus)::after { inset-inline-start: 0; translate: 0 0; }
+.kit-usage__days--week > .kit-usage__day:last-child[data-tip]:is(:hover, :focus)::after { inset-inline-start: auto; inset-inline-end: 0; translate: 0 0; }
 /* Settings › Plan › Your usage: near a cap of one's own plan, said first, with what is at it. */
 .kit-usage__alert--near { border-color: var(--kit-warn); }
 .kit-usage__alert--reached { border-color: var(--kit-danger); }

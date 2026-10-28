@@ -316,6 +316,7 @@
   "admin.usage.peak": "{percent} · {what}",
   "admin.usage.noLimits": "No limits",
   "admin.usage.noDailyLimit": "Their plan has no daily limit.",
+  "admin.usage.noWeeklyLimit": "Their plan has no weekly limit.",
   "admin.usage.lastChange": "Last change {date}",
   "admin.usage.off": "Turned off",
   "admin.usage.failed": "This module couldn't say what they have.",
@@ -543,6 +544,13 @@
   "kit.appearance.look.cronum": "Cronum",
   "kit.appearance.look.clean": "Clean",
   "kit.appearance.lookHint": "For all of {app}, on every device. Clean: white, the Inter typeface and less colour.",
+  "kit.appearance.celebrate.title": "When something is done",
+  "kit.appearance.celebrate.animation": "Animation",
+  "kit.appearance.celebrate.animationHint": "Confetti when you mark a task, a step or a project as done",
+  "kit.appearance.celebrate.sound": "Sound",
+  "kit.appearance.celebrate.soundHint": "A little reward “ding”",
+  "kit.appearance.celebrate.test": "🎉 Try it",
+  "kit.appearance.celebrate.hint": "In every module and the calendar, on this device. With reduced motion on, no confetti.",
   "kit.security.password": "Password",
   "kit.security.currentPassword": "Current password",
   "kit.security.newPassword": "New password",
@@ -797,6 +805,8 @@
   "kit.plan.benefits.mcp": "Use {app} from your AI",
   "kit.plan.benefits.calls": "{n} calls a day from your AI",
   "kit.plan.benefits.callsUnlimited": "Unlimited calls from your AI",
+  "kit.plan.benefits.callsWeek": "{n} calls a week from your AI",
+  "kit.plan.benefits.callsWeekUnlimited": "Unlimited calls from your AI",
   "kit.plan.status.active": "Active",
   "kit.plan.status.trialing": "Trial",
   "kit.plan.status.past_due": "Payment pending",
@@ -866,6 +876,7 @@
   "kit.usage.failed": "This module couldn’t count it just now.",
   "kit.usage.nothing": "Nothing here yet.",
   "kit.usage.noDailyLimit": "Your plan has no daily limit.",
+  "kit.usage.noWeeklyLimit": "Your plan has no weekly limit.",
   "kit.usage.reachedNotice": "You’ve reached your plan’s limit:",
   "kit.usage.nearNotice": "You’re getting close to your plan’s limit:",
   "kit.usage.counted.lists": {
@@ -905,6 +916,10 @@
     "one": "{n} assistant call today",
     "other": "{n} assistant calls today"
   },
+  "kit.usage.counted.mcpWeek": {
+    "one": "{n} assistant call this week",
+    "other": "{n} assistant calls this week"
+  },
   "kit.usage.free": "Free",
   "kit.usage.storageChart": "Storage by module",
   "kit.usage.peakIn": "{what} in {module}",
@@ -928,15 +943,25 @@
   "kit.usage.used": "{size} used",
   "kit.usage.mcp": "Calls from assistants (MCP)",
   "kit.usage.today": "Today",
+  "kit.usage.thisWeek": "This week",
+  "kit.usage.renews": "Starts again on Monday",
   "kit.usage.lastDays": {
     "one": "First day: {calls}",
     "other": "Last {n} days: {calls}, {avg} a day on average"
+  },
+  "kit.usage.lastWeeks": "Last {n} weeks: {calls}, {avg} a week on average",
+  "kit.usage.lastDaysWeekly": "Last {n} days: {calls}, {avg} a week on average",
+  "kit.usage.lastDaysOnly": {
+    "one": "First day: {calls}",
+    "other": "Last {n} days: {calls}"
   },
   "kit.usage.calls": {
     "one": "{n} call",
     "other": "{n} calls"
   },
   "kit.usage.monthChart": "Calls on each of the last 30 days",
+  "kit.usage.weekChart": "Calls on each day of this week",
+  "kit.usage.weeksChart": "Calls on each day of the last 4 weeks",
   "kit.usage.dayCalls": "{date}: {calls}",
   "kit.data.hint": "Download, import or delete",
   "kit.data.hintDelete": "Delete your account",
