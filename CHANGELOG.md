@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.202.1 — 2026-10-28
+
+- **A third step for installing** (Martin: «me faltaria un tercer paso en las instrucciones, algo
+  asi como: la app instalada guarda los datos en local y puedes usarla sin conexion»): Settings ›
+  Modules' «Instalar en tu dispositivo» ends with what installing gives: it opens like any other
+  app and keeps what was already seen on the device, to look at without a connection; in Tasks and
+  Notes the work goes on offline too, sent when the connection is back (Next and Projects show
+  what they last had, but don't change offline).
 ## 0.202.0 — 2026-10-28
 
 - **The calls from assistants averaged over the days the account has** (Martin: «si solo lleva x
