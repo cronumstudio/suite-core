@@ -67,6 +67,8 @@ var SUITE_KIT_FILES = [
   '/suite/signin.js', '/suite/settings.js', '/suite/plan.js', '/suite/usage-view.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js', '/suite/links.js', '/suite/shared.js', '/suite/people.js', '/suite/share.js',
   '/suite/keyboard.js', '/suite/agents.js', '/suite/images.js', '/suite/time-zone.js',
   '/suite/push.js', '/suite/worker.js', '/suite/native.js',
+  // The windows of a host with one document (Cronum Work at /w/): without them the app opens blank offline.
+  '/suite/windows.css', '/suite/windows.js',
 ];
 
 var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];
