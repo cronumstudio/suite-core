@@ -2279,7 +2279,10 @@ test('in Work\'s shell, Settings cover the whole page and another module\'s sect
 
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-  assert.match(read('signin.js'), /href: '\/auth\/login', target: FRAMED \? '_top' : null/);
+  assert.match(read('signin.js'), /href: login\(\), target: FRAMED \? '_top' : null/);
+  // And back to the whole window's page, not the frame's: a module installed on its own stays in its app.
+  assert.match(read('signin.js'), /\(FRAMED \? window\.top : window\)\.location; here = page\.pathname \+ page\.search;/);
+  assert.match(read('signin.js'), /return=\$\{encodeURIComponent\(here\)\}/);
   assert.match(read('signin.js'), /const page = FRAMED \? window\.top : window;/);
   // Leaving with the account goes the way signing out does (signin.js leave()).
   assert.match(read('settings.js'), /await leave\(\{ answer: done \}\);/);

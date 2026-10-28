@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.202.4 — 2026-10-28
+
+- **A module installed on its own stays in its app after signing in** (Martin, from his iPhone:
+  Notes installed from Settings opened Cronum Work whole, with Tasks failing to open, «Lo ideal
+  sería que mostrase Notes sin lo demás de Work»): WorkOS's `/auth/callback` always went to `/`,
+  which in Cronum Work is its one-document shell, outside an installed module's scope, so iOS
+  showed it in a sheet over the module. The sign-in screen's buttons now say where they were
+  (`/auth/login?return=/notes/`, the whole window's page when framed), WorkOS keeps it in its state
+  cookie as OpenID Connect already did, and the return lands there. Only a path of the app:
+  `//other.site`, `https://…` or a backslash go to `/` as before.
+
 ## 0.202.3 — 2026-10-28
 
 - **Cronum Work installed opens without a signal**: its one-document shell loads the kit's
