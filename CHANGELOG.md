@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.207.1 — 2026-10-29
+
+- **Settings without a signal listen only once used, never on import** (Projects' mount rule
+  failed with suite-core 0.205.0: importing its `main.js` added two listeners). `settings-queue.js`
+  added the browser's `online`/`offline` listeners at the top of the module, so a module of
+  Cronum Work did something just by being imported. Now `connection` starts listening on first
+  use (`offline`, `on`, `check`, `noted`), once, and reads `navigator.onLine` again then.
+
 ## 0.207.0 — 2026-10-29
 
 - **What an assistant does says which assistant it was** (Martin: «el registro de actividad dice
