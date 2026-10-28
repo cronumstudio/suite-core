@@ -367,10 +367,24 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-meter--reached > span { background: var(--kit-danger); }
 .kit-usage-cell { min-inline-size: 96px; }
 .kit-usage-cell .kit-meter { inline-size: 80px; margin-block: 4px 2px; }
-/* The calls of the month: thin bars on one baseline, a day without any a stub. */
-.kit-usage__days { display: flex; align-items: end; gap: 2px; block-size: 48px; border-block-end: 1px solid var(--kit-border); }
-.kit-usage__days > span { flex: 1; min-inline-size: 0; border-radius: 2px 2px 0 0; background: var(--kit-accent); }
-.kit-usage__days > .kit-usage__day--none { background: var(--kit-border); }
+/*
+ * The calls of the month: thin bars on one baseline, a day without any a stub, a day before the
+ * account nothing. Each day is a column the chart's height; pointing at it (or tapping it) says
+ * its day and calls above the chart, kept inside it at both ends.
+ */
+.kit-usage__days { display: flex; align-items: stretch; gap: 2px; block-size: 48px; border-block-end: 1px solid var(--kit-border); }
+.kit-usage__day { flex: 1; min-inline-size: 0; display: flex; align-items: end; outline: none; cursor: default; }
+.kit-usage__day > span { flex: 1; border-radius: 2px 2px 0 0; background: var(--kit-accent); }
+.kit-usage__day--none > span { background: var(--kit-border); }
+.kit-usage__day:not(.kit-usage__day--before):is(:hover, :focus) > span { filter: brightness(1.15); box-shadow: 0 0 0 1px var(--kit-text); }
+.kit-usage__day[data-tip]:is(:hover, :focus)::after {
+  content: attr(data-tip); position: absolute; inset-block-end: calc(100% + 4px); inset-inline-start: 50%; translate: -50% 0; z-index: 2;
+  padding: 3px 8px; border-radius: 6px; background: var(--kit-text); color: var(--kit-bg);
+  font-size: var(--look-footnote, 12.5px); white-space: nowrap; pointer-events: none;
+}
+.kit-usage__day[data-tip] { position: relative; }
+.kit-usage__day:nth-child(-n+6)[data-tip]:is(:hover, :focus)::after { inset-inline-start: 0; translate: 0 0; }
+.kit-usage__day:nth-last-child(-n+6)[data-tip]:is(:hover, :focus)::after { inset-inline-start: auto; inset-inline-end: 0; translate: 0 0; }
 /* Settings › Plan › Your usage: near a cap of one's own plan, said first, with what is at it. */
 .kit-usage__alert--near { border-color: var(--kit-warn); }
 .kit-usage__alert--reached { border-color: var(--kit-danger); }

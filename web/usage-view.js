@@ -57,15 +57,29 @@ function usageRow(label, value, share = null, note = null, { bar = true } = {}) 
     note ? el('small', { class: 'kit-usage__note', text: note }) : null);
 }
 
-/** The calls of the last 30 days as bars, today the last; each says its day and count on hover. */
-function dayBars(days) {
+/**
+ * The days that count of the last 30: from the one the account was made (`since`), or from the
+ * first with calls if that is earlier (an account brought from an app keeps its own), so a
+ * younger account isn't averaged over days it didn't exist.
+ */
+export function countedDays(mcp) {
+  const first = mcp.days.findIndex((d) => d.used > 0 || (mcp.since != null && d.day >= mcp.since));
+  return mcp.since == null ? mcp.days : mcp.days.slice(first < 0 ? mcp.days.length - 1 : first);
+}
+
+/**
+ * The calls of the last 30 days as bars, today the last, the days before the account an empty
+ * slot. Each day is a column as tall as the chart, so a quiet one is as easy to point at as a
+ * busy one, and pointing at it (or tapping it, which focuses it) shows its day and calls above.
+ */
+function dayBars(days, counted) {
   const top = Math.max(1, ...days.map((d) => d.used));
+  const from = days.length - counted.length;
   return el('div', { class: 'kit-usage__days', role: 'img', 'aria-label': t('kit.usage.monthChart') },
-    days.map((d) => el('span', {
-      class: d.used ? null : 'kit-usage__day--none',
-      title: t('kit.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), n: whole(d.used) }),
-      style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%`,
-    })));
+    days.map((d, i) => (i < from ? el('span', { class: 'kit-usage__day kit-usage__day--before' }) : el('span', {
+      class: `kit-usage__day${d.used ? '' : ' kit-usage__day--none'}`, tabindex: '-1',
+      'data-tip': t('kit.usage.dayCalls', { date: formatDate(`${d.day}T12:00:00Z`), calls: t('kit.usage.calls', { n: d.used }) }),
+    }, el('span', { style: `block-size: ${d.used ? Math.max(6, Math.round((d.used / top) * 100)) : 4}%` })))));
 }
 
 /**
@@ -131,7 +145,8 @@ export function usageGroups(usage, { admin = false } = {}) {
       : m.counts.length ? null : el('p', { class: 'kit-hint', text: m.bytes ? t('kit.usage.used', { size: sizeText(m.bytes) }) : say('nothing') })));
 
   const { storage, mcp } = usage;
-  const average = mcp?.days.length ? mcp.total / mcp.days.length : 0;
+  const counted = mcp ? countedDays(mcp) : [];
+  const average = counted.length ? mcp.total / counted.length : 0;
   return el('div', { class: 'kit-usage' },
     groups,
     storage ? el('section', { class: 'kit-usage__group' },
@@ -147,6 +162,8 @@ export function usageGroups(usage, { admin = false } = {}) {
       el('h4', { class: 'kit-usage__title', text: t('kit.usage.mcp') }),
       usageRow(t('kit.usage.today'), mcp.limit == null ? whole(mcp.today) : t('kit.usage.ofLimit', { count: whole(mcp.today), limit: whole(mcp.limit) }),
         mcp.share, mcp.limit == null ? say('noDailyLimit') : null),
-      el('small', { class: 'kit-usage__note', text: t('kit.usage.month', { n: whole(mcp.total), avg: whole(average) }) }),
-      dayBars(mcp.days)) : null);
+      el('small', { class: 'kit-usage__note', text: t('kit.usage.lastDays', {
+        n: counted.length, calls: t('kit.usage.calls', { n: mcp.total }), avg: whole(average),
+      }) }),
+      dayBars(mcp.days, counted)) : null);
 }
