@@ -634,6 +634,8 @@ export function createShell({
    */
   const installed = () => navigator.standalone === true
     || Boolean(globalThis.matchMedia?.('(display-mode: standalone)')?.matches);
+  /** This module installed as an app of its own: the host's own app is its one-document page. */
+  const alone = (host) => Boolean(host?.shell) && !FRAMED && !embedded && installed();
   if (!embedded) document.addEventListener('click', (ev) => {
     if (FRAMED || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
     const link = ev.target instanceof Element ? ev.target.closest('a[href]') : null;
@@ -701,6 +703,17 @@ export function createShell({
     if (FRAMED) {
       others = [];
       calendarPath = null;
+      asModule(true);
+      return null;
+    }
+    // Installed on its own (the host's app is its page at /, not this one): only this module, as an
+    // app of its own. No rail and no other modules in the switcher, which keeps the person's menu;
+    // it doesn't become the host's module used last either.
+    if (alone(host)) {
+      others = [];
+      calendarPath = null;
+      modulePaths = new Set();
+      dropRail();
       asModule(true);
       return null;
     }
