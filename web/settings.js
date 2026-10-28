@@ -1095,7 +1095,8 @@ export function openSettings(options) {
 
   /**
    * Installing on this device: on the web Cronum Work or each module on its own, in the suite's
-   * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way.
+   * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way,
+   * then what installing it gives: it opens as an app and keeps what was seen, for without a signal.
    */
   function installing(icons) {
     const native = inApp();
@@ -1110,7 +1111,8 @@ export function openSettings(options) {
       hint(t(native ? 'kit.modules.installApp' : 'kit.modules.installWeb', { host: host.name })),
       el('ol', { class: 'kit-steps' },
         el('li', {}, el('p', { text: t(pick) }), icons),
-        el('li', {}, el('p', { text: t(how) }))));
+        el('li', {}, el('p', { text: t(how) })),
+        el('li', {}, el('p', { text: t('kit.modules.installOffline') }))));
   }
 
   function ai() {
