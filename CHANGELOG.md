@@ -10,6 +10,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   its window out of the layout, as it shows and as it is kept on the device, and its tab out of a
   phone's bar; the windows that stay take its room (with none left, the first module shows), and
   the shell gets it back through `onEvict` to unmount it.
+- **Settings › Modules in a frame tells the page around it too**: a module shown in a frame (Work's
+  shell in a browser without `@scope`, the split view) said `kit-modules` only to itself, so the
+  page framing it never knew a module was turned on or off; now it says it on its parent's
+  document as well.
 
 ## 0.198.0 — 2026-10-28
 

@@ -90,6 +90,19 @@ const input = (props) => el('input', { class: 'kit-input', ...props });
 /** A section's id, as `?settings=` names it (host.js moduleSettings). */
 const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
 
+/**
+ * The modules or the calendar turned on or off: this page's rail and Linked rows ask again
+ * (shell.js, links.js), and so does the page that frames it, when one does (Cronum Work's shell
+ * with a module in a frame, the split view).
+ */
+function modulesChanged() {
+  document.dispatchEvent(new CustomEvent('kit-modules'));
+  if (!FRAMED) return;
+  try {
+    window.parent.document.dispatchEvent(new window.parent.CustomEvent('kit-modules'));
+  } catch { /* the page that framed it went */ }
+}
+
 /** The host's last answer of its modules that the frame keeps (shell.js RAIL_KEY), or none. */
 function hostModulesKept() {
   try {
@@ -939,7 +952,7 @@ export function openSettings(options) {
               if (shownOn().join() === active.join()) paint(answer);
               repaint();
               // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
-              document.dispatchEvent(new CustomEvent('kit-modules'));
+              modulesChanged();
             } catch (err) {
               toast(t('errors.generic'), { error: true });
               throw err;
@@ -967,7 +980,7 @@ export function openSettings(options) {
               });
               if (!res.ok) throw new Error(String(res.status));
               // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
-              document.dispatchEvent(new CustomEvent('kit-modules'));
+              modulesChanged();
             } catch (err) {
               fail(err);
               throw err;   // the switch goes back
