@@ -177,6 +177,8 @@ export function shellHashes(urls, { kitDir, places = [], catalogs = '' }) {
   for (const url of [...urls, ...kit]) {
     const pathname = String(url).split('?')[0];
     if (pathname.endsWith('/') || /\.(html|webmanifest)$/.test(pathname) || pathname.endsWith('/js/app-version.js')) continue;
+    // A sheet scoped to a module's windows (host.js scopedSheets) is written by the kit too: it always travels.
+    if (/[?&]scope=/.test(String(url))) continue;
     if (pathname.startsWith('/suite/')) {
       const hash = kitDir ? hashOf(path.join(kitDir, pathname.slice('/suite/'.length))) : null;
       if (hash) found[url] = hash;

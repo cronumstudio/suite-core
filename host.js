@@ -1258,7 +1258,10 @@ export async function createHost({
     const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
     const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
       // The host's own pages' files, at their paths: the new worker brings them with its version.
-      ...pageList.flatMap((page) => pageShell(page))])];
+      ...pageList.flatMap((page) => pageShell(page)),
+      // A page that shows several modules loads each one's sheets scoped to its windows (scopedSheets):
+      // kept too, or a module opened without a signal on a new copy shows unstyled.
+      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])];
     // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
     const optional = [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])];
     const options = {
