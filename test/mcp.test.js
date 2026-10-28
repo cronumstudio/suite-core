@@ -6,6 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { sendJson, serveStatic } from '../http.js';
 import { createMcpServer, dailyLimitText, MAX_BATCH, argumentProblems, schemaProblems } from '../mcp.js';
 
 class Unavailable extends Error {}
@@ -364,4 +368,28 @@ test('a ResolveError the app leaves alone reaches the AI with its options', asyn
   assert.deepEqual([asked.isError, asked.content[0].text],
     [true, '"shop" is ambiguous.\nOptions:\n- Shop (#1)\n- Shop online (#2)']);
   assert.equal((await mcp.callTool({ id: 1 }, 'told', {})).content[0].text, 'In the app\'s words.');
+});
+
+test('an answer to a path ending in /mcp or /sse goes chunked, never with a length: Avast breaks those', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-length-'));
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/page/')) serveStatic(dir, '/index.html', res);
+    else sendJson(res, 404, { error: 'not_found' });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const head = async (pathname) => {
+    const res = await fetch(base + pathname);
+    await res.text();
+    return { length: res.headers.get('content-length'), chunked: res.headers.get('transfer-encoding') === 'chunked' };
+  };
+  for (const pathname of ['/mcp', '/mcp/', '/MCP', '/notes/mcp?x=1', '/.well-known/oauth-protected-resource/mcp', '/mcp/sse', '/page/mcp']) {
+    assert.deepEqual(await head(pathname), { length: null, chunked: true }, pathname);
+  }
+  for (const pathname of ['/api/me', '/mcp-info', '/mcp/x', '/.well-known/oauth-protected-resource', '/page/view']) {
+    assert.equal((await head(pathname)).chunked, false, `${pathname}: with its length, as always`);
+  }
 });

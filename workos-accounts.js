@@ -10,22 +10,12 @@
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
+import { sendJson } from './http.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
 const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
 /** The metadata is read from browsers too (the MCP inspector, for instance). */
 const CORS = { 'Access-Control-Allow-Origin': '*' };
-
-function sendJson(res, status, data, headers = {}) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-    ...headers,
-  });
-  res.end(body);
-}
 
 function redirect(res, target) {
   res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
