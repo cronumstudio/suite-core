@@ -11,6 +11,17 @@ change an interface and a patch never does. Apps pin a version through the submo
   didn't show and Next's own daily 1,000 did. The list now asks the host's root too, and by the
   week the daily line is left out (0.203.0).
 
+## 0.203.1 — 2026-10-28
+
+- **Cronum Work opens on its shell offline, not on the home** (Martin, with the phone app in
+  airplane mode: «tengo el mismo problema»): offline, a navigation that the network didn't answer
+  got `/index.html` from the copy before the page kept at its own path. In a host whose start is a
+  page of its own (Work's shell at `/`, `pages[].root`), `/index.html` is the home that chooses
+  modules, so the installed app and the phone app, which open `/`, got the home, which needs the
+  server, and showed «Algo ha fallado». The page kept at the path asked for comes first now; an app
+  on its own keeps the same page at both, and a module's route without a page of its own still
+  gets its module's index.
+
 ## 0.203.0 — 2026-10-28
 
 - **Calls from assistants by the week** (Martin: «estoy viendo que quizas podriamos cambiar a "uso

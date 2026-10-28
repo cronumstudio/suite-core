@@ -273,9 +273,14 @@ function suiteWorker(options) {
 
     if (request.mode === 'navigate') {
       event.respondWith(suiteNetworkFirst(fetch(request), function () {
+        // The page at its own path first, as the copy kept it: a host whose start is a page of its
+        // own (Cronum Work's shell at /, host.js `pages[].root`) keeps that one at /, and its
+        // /index.html is the home that chooses modules, which offline opened instead of the shell.
+        var own = url.pathname.slice(-1) === '/' ? caches.match(url.pathname) : Promise.resolve(null);
         // A page of a folder of its own (the host's /split/) has its index.html there.
         var page = url.pathname.slice(-1) === '/' && url.pathname !== base ? url.pathname + 'index.html' : null;
-        return (page ? caches.match(page) : Promise.resolve(null))
+        return own
+          .then(function (found) { return found || (page ? caches.match(page) : null); })
           .then(function (found) { return found || caches.match(suiteAt('/index.html', base)); })
           .then(function (found) { return found || caches.match(base); });
       }, wait));
