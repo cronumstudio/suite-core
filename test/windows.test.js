@@ -406,6 +406,45 @@ test('windows: four mounted at most, the least recently used given back', () => 
   windows.destroy();
 });
 
+test('drop: a module turned off leaves the layout, the kept one and the phone’s tabs; the shell gets it back', () => {
+  const list = ['next', 'notes', 'tasks'];
+  const { told, made, windows, data } = setup({ modules: () => list });
+  windows.set({ cols: [{ w: 2, wins: ['notes'] }, { w: 1, wins: ['next', 'tasks'], h: 0.3 }], focus: 'tasks' });
+  told.length = 0;
+  list.splice(list.indexOf('tasks'), 1);
+  windows.drop('tasks');
+  assert.deepEqual(windows.layout.cols, [{ w: 2, wins: ['notes'] }, { w: 1, wins: ['next'] }], 'the others take its room');
+  assert.equal(windows.layout.focus, 'notes');
+  assert.deepEqual(told.filter(([what]) => what === 'evict'), [['evict', 'tasks']]);
+  assert.equal(made.has('tasks'), false);
+  assert.equal(windows.recent.includes('tasks'), false);
+  assert.equal(JSON.stringify(JSON.parse(data.get(KEY)).wide).includes('tasks'), false, 'gone from the layout kept');
+  told.length = 0;
+  windows.drop('tasks');
+  assert.deepEqual(told, [], 'twice is nothing');
+
+  // Its only window: the first module left shows instead.
+  windows.set({ cols: [{ wins: ['notes'] }] });
+  list.splice(list.indexOf('notes'), 1);
+  windows.drop('notes');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next']]);
+  windows.destroy();
+});
+
+test('drop: on a phone its tab goes at once', () => {
+  const list = ['next', 'notes', 'tasks'];
+  const { desk, windows } = setup({ width: 390, modules: () => list });
+  windows.restore({ cols: [{ wins: ['tasks'] }] });
+  windows.show('notes');
+  const tabs = () => desk.querySelector('.cw-tabs').children.map((b) => b.getAttribute('data-tab'));
+  assert.deepEqual(tabs(), ['next', 'notes', 'tasks']);
+  list.splice(list.indexOf('tasks'), 1);
+  windows.drop('tasks');
+  assert.deepEqual(tabs(), ['next', 'notes']);
+  assert.equal(windows.layout.focus, 'notes');
+  windows.destroy();
+});
+
 test('windows: the rail’s columns, and what doesn’t fit the desk stacks', () => {
   const { windows } = setup({ width: 1000 });
   windows.set({ cols: [{ wins: ['notes'] }] });
