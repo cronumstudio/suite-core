@@ -798,7 +798,8 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
   assert.match(settings, /calendarSwitch\.hidden = typeof answer\.calendar_shown !== 'boolean';/);
-  assert.match(settings, /fetch\('\/api\/me\/calendar', \{/, 'at the host\'s root, not the module\'s path');
+  assert.match(settings, /sendOne\('\/api\/me\/calendar', \{ shown \}/);
+  assert.match(settings, /keep\('PUT', path, body, \{ root: true \}\)/, 'at the host\'s root, not the module\'s path');
   // On a phone, where the rail doesn't show, the switcher's menu has it.
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
@@ -1447,10 +1448,12 @@ test('Settings offers the AI connector only where there is one; a server that sa
   Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
   // Your AI, opened, names the address to connect to.
   globalThis.window = { location: { origin: 'https://demo.example' } };
+  // Each closed at the end: one left open would draw itself again when another test's server answers.
+  const opened = [];
   try {
     const listed = (config, start = null) => {
       const root = document.createElement('div');
-      openSettings({ app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, config, root, start });
+      opened.push(openSettings({ app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user' }, config, root, start }));
       const texts = (className) => root.all().filter((node) => node.className === className).map((node) => node.textContent);
       return { labels: texts('kit-settings__label'), groups: texts('kit-settings__group'), page: root.all().find((node) => node.className === 'kit-settings__page') };
     };
@@ -1468,6 +1471,7 @@ test('Settings offers the AI connector only where there is one; a server that sa
       'a server from before the flag keeps it');
     assert.ok(listed({}).groups.includes(connections), 'and so does a config without the app');
   } finally {
+    for (const settings of opened) settings.close();
     delete globalThis.window;
     delete document.addEventListener;
     delete document.removeEventListener;

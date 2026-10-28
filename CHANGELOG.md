@@ -3,13 +3,35 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.204.3 — 2026-10-28
+## 0.205.1 — 2026-10-28
 
 - **The confetti is seen over a dialog, and stays when it closes** (Martin, trying it in Next and
   Projects: the confetti should come as Done or Save is pressed, not once saving is over): the burst
   goes in the browser's top layer (a manual popover) in the module's root, so a dialog's Save can
   celebrate as it is pressed, and the dialog closing doesn't take the confetti with it. Without
   popovers it hangs in the open dialog, as before.
+
+## 0.205.0 — 2026-10-28
+
+- **Settings without a signal** (Martin: some parts of Settings wouldn't open offline in Cronum
+  Work, they gave an error). Settings are drawn from the install's config of last time, kept on
+  this device for each app's path (`settingsConfig()`): offline each module got no
+  `/api/auth/config` and drew itself as an app on its own, without Modules, deleting the account,
+  the other modules' groups or About of the whole app. Then, as Martin chose for each kind:
+  - **What only the server knows** (Password and sign-in, Your AI, Notifications, Plan, where the
+    session is open) says «Needs a connection» in its place instead of a toast and an empty
+    section, and is drawn again, fresh, once the server answers.
+  - **Preferences go in a queue** (the theme, the language, the look, the name, the modules in use
+    and their order, the calendar's button): applied here at once, kept on this device
+    (`settings-queue.js`, one change per address, the last choice wins) and sent in order when the
+    server answers again, by Settings or by the next page that starts the kit (`flushSettings()`
+    in `createShell`), only while the same person is signed in. Signing out forgets them.
+    Settings › Modules draws the modules of last time and keeps a change for the rail of the next
+    page too: `hostModules()` now keeps the host's answer (`host.modules`, `HOST_MODULES_KEY`)
+    whoever asked, Cronum Work's shell included, which kept it under its own key only.
+  - **What can't wait** (the email, exporting, importing, erasing, deleting the account) stays
+    there but turned off, saying it needs a connection, and comes back on with it. Administration
+    says so instead of opening a page the browser can't load.
 
 ## 0.204.2 — 2026-10-28
 

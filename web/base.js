@@ -70,6 +70,8 @@ export const OPEN_EVENT = 'kit:open';
 export const DRAWER_EVENT = 'kit:drawer';
 
 let modulesAsked = null;
+/** Where this browser keeps the host's last answer of its modules (shell.js RAIL_KEY). */
+export const HOST_MODULES_KEY = 'host.modules';
 /**
  * The host's answer of which modules there are (GET /api/modules at the root), asked once per page
  * by whoever needs it first (the rail, the Linked row): `{ status, answer }`, `answer` null unless
@@ -78,7 +80,15 @@ let modulesAsked = null;
 export function hostModules({ fresh = false, fetch: get = (...args) => globalThis.fetch(...args) } = {}) {
   if (fresh || !modulesAsked) {
     const asking = get('/api/modules', { credentials: 'same-origin' })
-      .then(async (res) => ({ status: res.status, answer: res.ok ? await res.json() : null }));
+      .then(async (res) => {
+        const answer = res.ok ? await res.json() : null;
+        // Kept for without a signal, whoever asked (a module's rail, Cronum Work's shell): Settings ›
+        // Modules and the next page's rail draw it then (shell.js, settings.js `host.modules`).
+        if (answer) {
+          try { localStorage.setItem(HOST_MODULES_KEY, JSON.stringify(answer)); } catch { /* private mode, full */ }
+        }
+        return { status: res.status, answer };
+      });
     // Offline: the next one asks again.
     asking.catch(() => { if (modulesAsked === asking) modulesAsked = null; });
     modulesAsked = asking;

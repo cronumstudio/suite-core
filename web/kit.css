@@ -1177,6 +1177,12 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings__block:first-of-type { border-top: 0; padding-top: 0; }
 .kit-settings__block h3 { margin: 0; font-size: var(--look-headline, 15px); font-weight: 600; }
 .kit-settings__block > p { margin: 0; }
+/* Without a signal (settings.js): a section only the server can draw says so in its place, and what
+   needs it (the email, your data) is off, saying why, its links out of reach too. */
+.kit-settings__offline { max-width: 640px; }
+.kit-settings__online { border: 0; margin: 0; padding: 0; min-width: 0; }
+.kit-settings__offline-hint { margin: 0 0 6px; color: var(--kit-text); font-weight: 600; }
+.kit-settings__online:disabled a { pointer-events: none; opacity: 0.5; }
 /*
  * Side by side, the list and the open section each scroll on their own: the
  * grid fills the page exactly (a container query can't reach the page's body,
