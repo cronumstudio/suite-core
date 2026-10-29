@@ -77,9 +77,7 @@ suite-core/
   entitlements.js       done   features, plans and grants; can() / limit() / require()
   billing.js            done   payments turned into grants: provider interface, signed webhooks
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
-  paddle.js             done   Paddle Billing as that provider: transactions, customer portal, webhooks
   stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
-  revenuecat.js         done   RevenueCat as the store adapter: webhook as a trigger, the customer read from its API
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -232,7 +230,8 @@ export default {
 
   // What keeps another product's sales out, all off unless given (section 9, "Another product's sales").
   // `app` is not app.id: one value for every app sold as one subscription (Cronum Work's say 'work').
-  billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true, paddleProductIds: { sandbox: ['pro_…'], production: ['pro_…'] } },
+  // A provider's own settings go here too (providers.js `rules`), unless it keeps them for the app (`catalog`).
+  billing: { ignoreUnknownProducts: true, app: 'work', strictPrices: true },
   // billing.forgetOnRemove: true lets an account that goes take its billing links and grants here with it
   // (and a group deleted, its billing links); billing.stopOnOrganizationDeleted: true stops a deleted
   // group's subscriptions renewing at the end of the period paid (section 10).
@@ -250,9 +249,9 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote`, `stripe` or `paddle`) with `BILLING_*`, `STRIPE_*` or `PADDLE_*`, `EARLY_ACCESS_UNTIL`,
+`BILLING_PROVIDER` (`remote`, `stripe` or one registered from outside) with `BILLING_*`, `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
 `FOUNDER_OFFER_UNTIL` and `EARLY_ACCESS_PLAN`,
-`STORE_BILLING` (`revenuecat`) with `REVENUECAT_*`, `MAIL_PROVIDER` (`log` |
+`STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
@@ -971,6 +970,9 @@ item), `checkout.session.completed` and `.async_payment_succeeded` of a paid one
 become purchases, and a full `charge.refunded` a refund; everything else is acknowledged and
 ignored. The webhook to set in Stripe's dashboard is `BASE_URL/api/billing/webhook`.
 
+> `paddle.js` is since 0.209.0 outside this repository: the hosted suite registers it (providers.js), with the price and product ids of the apps it sells (`catalog`).
+> What follows is its design, kept here because billing.js's options were made with it.
+
 **Paddle** (`paddle.js`, **done**, v0.38.0; the merchant of record chosen on 2026-10-02: it charges
 each country's VAT, invoices and refunds). `BILLING_PROVIDER=paddle`, `PADDLE_API_KEY`
 (pdl_sdbx_apikey_… or pdl_live_apikey_…), `PADDLE_WEBHOOK_SECRET` (pdl_ntfset_…, the secret of
@@ -1036,6 +1038,8 @@ tells the two apart, and `strictPrices` with `ignoreUnknownProducts` calls such 
 an install sets the three together. Paddle's product ids differ between the sandbox and the live
 account, so `paddleProductIds` is one list per environment; with Paddle on, a single list, or none
 for `PADDLE_ENV`, stops the start.
+
+> `revenuecat.js` is since 0.209.0 outside this repository: the hosted suite registers it (providers.js); `stores.js` and its interface stay.
 
 **Several providers and the stores** (v0.78.0; Tracker's P6 and P7, RevenueCat chosen to start easy
 and free, with a move to Apple's and Google's own APIs kept open). People buy for
@@ -1784,8 +1788,8 @@ first, then Tasks, then the rest.
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
-| `billing.js`, `stripe.js`, `paddle.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
-| `stores.js`, `revenuecat.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`) | Tracker sells Pro in the App Store and Google Play (its step A12) |
+| `billing.js`, `stripe.js`, `providers.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options; v0.208.0: providers by registration; v0.209.0: Paddle outside the repository) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
+| `stores.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`; v0.209.0: RevenueCat outside the repository) | Tracker sells Pro in the App Store and Google Play (its step A12) |
 
 ## 21. Several apps as one: the host
 

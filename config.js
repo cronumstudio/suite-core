@@ -57,7 +57,7 @@ const PRODUCT_KEYS = new Set([
  * suite.config.js `billing`: what keeps another product's sales out (billing.js), whether an
  * account (or a group) that goes takes its billing links and grants with it (`forgetOnRemove`),
  * and whether a group deleted stops renewing (`stopOnOrganizationDeleted`). A provider may read
- * settings of its own there too (providers.js `rules`, such as Paddle's `paddleProductIds`).
+ * settings of its own there too (providers.js `rules`).
  */
 const BILLING_KEYS = new Set([
   'ignoreUnknownProducts', 'app', 'strictPrices', 'forgetOnRemove', 'stopOnOrganizationDeleted',
@@ -407,8 +407,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     if (Number.isNaN(until)) errors.push('EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL, the date the early access ends (2026-12-31)');
     else earlyAccess = { plan: env.EARLY_ACCESS_PLAN, until: new Date(until).toISOString() };
   }
-  const products = productsFor(isObject(p.products) ? p.products : {}, billing, errors);
-  const billingRules = billingRulesFor(p.billing, billing, errors, warnings);
+  const own = withCatalog(p, billing, errors);
+  const products = productsFor(own.products, billing, errors);
+  const billingRules = billingRulesFor(own.billing, billing, errors, warnings);
   const stores = storesFor(p.stores, products, modules, errors);
   const storeBilling = storeBillingFromEnv(env, { modules, stores, errors });
 
@@ -465,7 +466,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
 }
 
 /**
- * suite.config.js `stores`, what the app on a phone sells (stores.js, revenuecat.js):
+ * suite.config.js `stores`, what the app on a phone sells (stores.js):
  *   { products: { 'pro-monthly': { plan: 'pro', kind: 'subscription',
  *       appStore: 'com.example.app.pro.monthly', playStore: 'app_pro:monthly' } },
  *     devices: true }
@@ -553,7 +554,7 @@ function storeBillingFromEnv(env, { modules, stores, errors }) {
  *   { ignoreUnknownProducts: true, app: 'work', strictPrices: true, forgetOnRemove: true,
  *     stopOnOrganizationDeleted: true }
  * plus the settings each registered provider reads itself (providers.js `rules`), such as
- * Paddle's `paddleProductIds`, checked by it whichever provider the install has. `app` and
+ * a provider's own ids of its products, checked by it whichever provider the install has. `app` and
  * `strictPrices` only do something with a provider that `honors` them: with another, a warning.
  */
 function billingRulesFor(given, install, errors, warnings) {
@@ -601,6 +602,43 @@ function billingRulesFor(given, install, errors, warnings) {
     }
   }
   return rules;
+}
+
+/**
+ * suite.config.js `products` and `billing` with what the install's provider keeps for this app
+ * (providers.js `catalog`): the ids it sells each product by (`price`, `founderPrice`,
+ * `oldPrices`) and its own settings, as if the app had written them. So a hosted provider's ids
+ * stay with it, out of an app's open config. Given both here and by the provider is an error, as
+ * is a product the provider sells that the app doesn't have.
+ */
+function withCatalog(p, install, errors) {
+  const products = isObject(p.products) ? p.products : {};
+  const provider = install ? billingProviderOf(install.provider) : null;
+  const catalog = provider?.catalog?.(p.app?.id ?? null) ?? null;
+  if (!catalog) return { products, billing: p.billing };
+  const name = provider.name || provider.id;
+  const out = { ...products };
+  for (const [key, ids] of Object.entries(catalog.products ?? {})) {
+    if (!isObject(out[key])) {
+      errors.push(`${name} sells "${key}", which suite.config.js products doesn't have`);
+      continue;
+    }
+    const spec = { ...out[key] };
+    for (const field of ['price', 'founderPrice', 'oldPrices']) {
+      if (ids[field] === undefined) continue;
+      if (spec[field] !== undefined) errors.push(`products.${key}.${field}: given both here and by ${name}`);
+      else spec[field] = ids[field];
+    }
+    out[key] = spec;
+  }
+  // A `billing` that isn't an object is billingRulesFor's to say.
+  if (!catalog.billing || (p.billing !== undefined && !isObject(p.billing))) return { products: out, billing: p.billing };
+  const billing = { ...(p.billing ?? {}) };
+  for (const [key, value] of Object.entries(catalog.billing)) {
+    if (billing[key] !== undefined) errors.push(`billing.${key}: given both here and by ${name}`);
+    else billing[key] = value;
+  }
+  return { products: out, billing };
 }
 
 /**

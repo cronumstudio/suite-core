@@ -35,7 +35,7 @@ import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js'
 /**
  * Migration 19: before 0.48.0 both of Paddle's environments wrote "paddle", and the only Paddle
  * data any install has from then is the sandbox's (the live account sold nothing before that
- * version), so it becomes "paddle-sandbox" (paddle.js `providerId`). It only renames values: an
+ * version), so it becomes "paddle-sandbox", the id Paddle's adapter gives its sandbox. It only renames values: an
  * install that never sold through Paddle runs it without a change.
  */
 function paddleEnvironmentsSchema(d) {
@@ -73,7 +73,7 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 17, name: 'idp-connection-consents', up: connectionConsentsSchema },
   // What was paid for by someone with no account here yet, and refunded periods (billing.js).
   { version: 18, name: 'billing-pending', up: billingPendingSchema },
-  // Paddle's sandbox and live account apart: what there is so far is the sandbox's (paddle.js).
+  // Paddle's sandbox and live account apart: what there is so far is the sandbox's.
   { version: 19, name: 'paddle-environments', up: paddleEnvironmentsSchema },
   // Daily limits spent per person, such as calls from assistants (entitlements.js countDaily).
   { version: 20, name: 'entitlement-usage', up: entitlementUsageSchema },

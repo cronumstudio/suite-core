@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.209.0 — 2026-10-29
+
+- **Paddle and RevenueCat leave the open repository** (Cronum core #8, step 5). `paddle.js` and
+  `revenuecat.js`, with their tests, are now the hosted suite's, registered from outside before
+  the app starts (`providers.js`, 0.208.0); this copy registers Stripe and `remote`, and no store
+  provider. An install that names `BILLING_PROVIDER=paddle` or `STORE_BILLING=revenuecat` without
+  them registered doesn't start, and is told which providers the image has. Migration 19 and the
+  `paddle-sandbox`/`revenuecat` ids in the data stay as they are.
+- **A provider may keep an app's ids itself** (`catalog`): the price ids of each product
+  (`price`, `founderPrice`, `oldPrices`) and its own `billing` settings, for the app whose
+  `app.id` it is given, counted as if the app's suite.config.js had them. So a hosted provider's
+  ids stay out of an app's open config. Given both there and by the provider, or for a product
+  the app doesn't have, is an error.
+- The tests of organizations' subscriptions and of the stores run on stand-in providers instead of
+  Paddle and RevenueCat (`test/fake-provider.js`, `test/fake-store.js`). `tools/test-kit.mjs` no
+  longer exports `fakeRevenueCat`, `revenueCatWebhook` or `revenueCatSubscription`: no app used them.
+
 ## 0.208.0 — 2026-10-29
 
 - **Payment providers by registration, never by name** (Cronum core #8: what only the hosted
