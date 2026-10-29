@@ -534,6 +534,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   position: fixed; inset-inline: 12px; bottom: calc(16px + var(--kit-safe-bottom)); z-index: 1000;
   display: grid; justify-items: center; gap: 8px; pointer-events: none;
 }
+/* Over an open dialog (ui.js toast), without the browser's popover look: a box in the middle, framed. */
+.kit-toasts[popover] {
+  top: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; color: inherit; overflow: visible;
+}
 .kit-toast {
   pointer-events: auto; display: flex; align-items: center; gap: 12px; max-width: min(460px, 100%);
   padding: 10px 10px 10px 14px; border-radius: var(--look-r-lg, 12px); background: var(--kit-toast); color: var(--kit-toast-text);

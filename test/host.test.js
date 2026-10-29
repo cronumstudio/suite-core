@@ -661,6 +661,27 @@ test('the admin sees what each person uses: every module’s counts against its 
   assert.equal((await call('GET', '/api/admin/users/9999/usage')).status, 404);
 });
 
+test('/admin › Plans: what each module’s plans allow, beside the host’s own catalog, to the admin only', async (t) => {
+  const config = { ...HOST, features: { 'mcp.calls_per_week': { type: 'limit', default: null, label: 'calls a week' } } };
+  const plans = { free: { name: 'Free', 'items.max': 4, 'mcp.calls_per_week': 100 }, pro: { name: 'Pro', 'items.max': null, 'mcp.calls_per_week': 2000 } };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  const { call } = await startHost(t, { config, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: JSON.stringify(plans) } });
+  // After the host's own clean-up, which closes the database first (Windows keeps an open file's folder).
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  // The host's own catalog is its MCP's, as it was; the modules' come apart, each with its name.
+  assert.deepEqual(Object.keys((await call('GET', '/api/admin/plans')).data.features), ['mcp.calls_per_week']);
+  const { modules } = (await call('GET', '/api/admin/plans/modules')).data;
+  assert.deepEqual(modules, [{
+    mount: 'alpha', name: 'Alpha', features: { 'items.max': { type: 'limit', default: null, label: 'more items' } },
+    plans: [{ id: 'free', name: 'Free', features: { 'items.max': 4 } }, { id: 'pro', name: 'Pro', features: { 'items.max': null } }],
+  }], 'beta limits nothing: no table of its own');
+  await call('POST', '/api/admin/users', { username: 'ana', password: 'ana-password', display_name: 'Ana' });
+  await call('POST', '/api/auth/logout');
+  await call('POST', '/api/auth/login', { username: 'ana', password: 'ana-password' });
+  assert.equal((await call('GET', '/api/admin/plans/modules')).status, 403, 'the admin’s only');
+});
+
 test('each person sees their own usage, signed in on the web: nobody else’s, and not with an assistant’s token', async (t) => {
   const config = { ...HOST, features: { 'mcp.calls_per_day': { type: 'limit', default: null, label: 'calls a day' } } };
   const plans = { free: { name: 'Free', 'items.max': 4, 'mcp.calls_per_day': 10 } };

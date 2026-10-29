@@ -1842,6 +1842,12 @@ await host.listen();
   they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
   web's session only, never an assistant's token.
+- **What each module's plans allow** (`GET /api/admin/plans/modules`, the admin's only): the
+  host's `/api/admin/plans` is its own catalog (its one MCP's calls); this one says, per module
+  with a feature of its own, its declared features and each plan's values for them. A feature the
+  host declares is the host's row, not again a module's. `/admin › Plans` draws the host's table
+  and one per module under it; an app on its own has no such route, and shows its catalog alone
+  (v0.210.0).
 - **How a module is reached**: everything under `/<mount>/` goes to a `createApp()` of the
   module's own with the prefix taken off, so its API answers at `/<mount>/api/…`, the kit at
   `/<mount>/suite/…`, and its catalogs, `app-version.js`, service worker and files at their usual

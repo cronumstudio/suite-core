@@ -103,6 +103,34 @@ test('Users: the default plan says it is the default, a gift for good and why, a
   assert.equal(reasonIn(ben).value, 'early tester', 'changing the end keeps the reason');
   assert.ok(buttonIn(ben, 'admin.users.defaultPlan'), 'a gift can be taken back');
   const extras = folds[2];
-  assert.deepEqual(extras.find('table')[0].find('tr').slice(1).map((row) => row.find('td')[0].textContent), ['more lists: 50big project']);
+  assert.deepEqual(extras.find('table')[0].find('tr').slice(1).map((row) => row.find('td')[0].textContent), [`${t('features.lists.max')}: 50big project`], 'the suite’s words for a common feature, in the admin’s language');
   assert.ok(extras.find('summary').some((node) => node.textContent === t('admin.grants.history', { n: 2 })), 'the plans and what was taken back');
+
+  // Its profile's Save: grey with nothing changed, pressable once something is, and once saved
+  // grey again with "Saved" beside it (the dialog covers the page's notices).
+  const profile = folds[0];
+  const save = buttonIn(profile, 'admin.save');
+  const savedNote = profile.find('span').find((node) => node.className === 'kit-saved');
+  assert.equal(save.disabled, true, 'nothing to save yet');
+  assert.equal(savedNote.hidden, true);
+  const nameInput = profile.find('input')[0];
+  nameInput.value = 'Ben B.';
+  nameInput.dispatch('input');
+  assert.equal(save.disabled, false, 'a change to save');
+  nameInput.value = 'ben';
+  nameInput.dispatch('input');
+  assert.equal(save.disabled, true, 'back as it was: nothing to save');
+  nameInput.value = 'Ben B.';
+  nameInput.dispatch('input');
+  server['PATCH /api/admin/users/2'] = { ...USERS[1], display_name: 'Ben B.' };
+  save.dispatch('click');
+  for (let turn = 0; turn < 10; turn++) await settle();
+  assert.equal(sent.find((r) => r.method === 'PATCH')?.body.display_name, 'Ben B.');
+  assert.equal(save.disabled, true, 'saved: grey until the next change');
+  assert.equal(savedNote.hidden, false);
+  assert.match(savedNote.textContent, new RegExp(t('kit.saveState.saved')));
+  nameInput.value = 'Ben';
+  nameInput.dispatch('input');
+  assert.equal(save.disabled, false);
+  assert.equal(savedNote.hidden, true, 'a new change is not saved yet');
 });

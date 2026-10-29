@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, confirmDialog, slidingDetails } from './ui.js';
+import { toast, field, openDialog, confirmDialog, slidingDetails, saveState } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -31,13 +31,16 @@ const planName = (id) => {
   const plan = state.catalog?.plans.find((p) => p.id === id);
   return plan ? t(plan.name) : id;
 };
-/** A feature in words: the app's text for it (features.<key>) when it has one, else its label. */
-const featureLabel = (key) => {
+/**
+ * A feature in words: the app's text for it (features.<key>) when it has one, else its label.
+ * `features` is the catalog it is in: the host's, or a module's (Plans).
+ */
+const featureLabel = (key, features = state.catalog?.features) => {
   const text = t(`features.${key}`);
-  return text === `features.${key}` ? state.catalog?.features[key]?.label || key : text;
+  return text === `features.${key}` ? features?.[key]?.label || key : text;
 };
-const valueText = (key, value) => {
-  const type = state.catalog?.features[key]?.type;
+const valueText = (key, value, features = state.catalog?.features) => {
+  const type = features?.[key]?.type;
   if (type === 'flag') return value ? t('admin.plans.yes') : t('admin.plans.no');
   return value == null ? t('admin.plans.noLimit') : String(value);
 };
@@ -284,18 +287,18 @@ function userDialog(user) {
     el('label', { class: 'kit-check' }, disabled, el('span', { text: t('admin.users.disabled') })),
     self ? el('p', { class: 'kit-hint', text: t('admin.users.notOnYourself') }) : null,
     el('div', { class: 'kit-row' },
-      el('button', {
-        type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small', text: t('admin.save'),
-        onClick: async () => {
-          try {
-            await api.patch(`/api/admin/users/${user.id}`, {
-              display_name: name.value.trim(), email: email.value.trim() || null,
-              ...(local() ? { email_verified: verified.checked && Boolean(email.value.trim()) } : {}),
-              ...(self ? {} : { role: role.value, disabled: disabled.checked }),
-            });
-            toast(t('admin.saved'));
-            refresh();
-          } catch (err) { fail(err); }
+      ...saveButton({
+        label: t('admin.save'),
+        controls: [name, email, role, verified, disabled],
+        read: () => ({ name: name.value.trim(), email: email.value.trim(), verified: verified.checked, role: role.value, disabled: disabled.checked }),
+        save: async () => {
+          Object.assign(user, await api.patch(`/api/admin/users/${user.id}`, {
+            display_name: name.value.trim(), email: email.value.trim() || null,
+            ...(local() ? { email_verified: verified.checked && Boolean(email.value.trim()) } : {}),
+            ...(self ? {} : { role: role.value, disabled: disabled.checked }),
+          }));
+          nowOf(profile, [user.email, t(`admin.roles.${user.role}`)].filter(Boolean).join(' · '));
+          refresh();
         },
       })));
 
@@ -398,22 +401,26 @@ function userDialog(user) {
     // The reason the admin gave stays when only the end changes.
     const note = el('input', { maxlength: '200', placeholder: t('admin.users.optional'), value: user.plan_source?.kind === 'admin' ? user.plan_source.note || '' : '' });
     const byDefault = user.plan_source?.kind === 'default';
+    // Nothing keeps it: it follows the install's default plan, and goes when that changes.
+    const followsDefault = byDefault ? el('p', { class: 'kit-warning', text: t('admin.users.planIsDefault', { plan: user.plan ? t(user.plan.name || user.plan.id) : '' }) }) : null;
     planSection = fold({ title: t('admin.users.plan'), now: planSummary(user), open: true },
-      // Nothing keeps it: it follows the install's default plan, and goes when that changes.
-      byDefault ? el('p', { class: 'kit-warning', text: t('admin.users.planIsDefault', { plan: user.plan ? t(user.plan.name || user.plan.id) : '' }) }) : null,
+      followsDefault,
       user.unlimited ? el('p', { class: 'kit-hint', text: t('admin.users.adminsUnlimited') }) : null,
       el('div', { class: 'kit-grid kit-grid--3' }, field(t('admin.users.planName'), plan), field(t('admin.users.planUntil'), until),
         field(t('admin.users.planNote'), note)),
       el('p', { class: 'kit-hint', text: t('admin.users.planHint') }),
       el('div', { class: 'kit-row' },
-        el('button', {
-          type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.users.setPlan'),
-          onClick: async () => {
-            try {
-              await api.put(`/api/admin/users/${user.id}/plan`, { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null });
-              toast(t('admin.saved'));
-              refresh();
-            } catch (err) { fail(err); }
+        ...saveButton({
+          label: t('admin.users.setPlan'),
+          controls: [plan, until, note],
+          read: () => ({ plan: plan.value, until: until.value, note: note.value.trim() }),
+          // The default plan the account follows is saved as its own when pressed, as it always was.
+          dirty: byDefault,
+          save: async () => {
+            Object.assign(user, await api.put(`/api/admin/users/${user.id}/plan`, { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null }));
+            nowOf(planSection, planSummary(user));
+            if (user.plan_source?.kind !== 'default') followsDefault?.remove();
+            refresh();
           },
         }),
         // Only what the admin gave can be taken back here; a subscription is the person's.
@@ -512,6 +519,54 @@ function fold({ title, now = null, open = false }, ...body) {
       typeof now === 'string' ? el('small', { class: 'kit-fold__now', text: now }) : now,
       icon('chevron-down', { className: 'kit-fold__chevron' })),
     el('div', { class: 'kit-fold__body' }, ...body)));
+}
+
+/** A fold's summary anew, once what it sums up was saved: a text, or the node planSummary gives. */
+function nowOf(details, now) {
+  const old = details.querySelector('summary')?.querySelector('.kit-fold__now');
+  const next = typeof now === 'string' ? el('small', { class: 'kit-fold__now', text: now }) : now;
+  if (old) old.replaceWith(next);
+}
+
+/**
+ * A Save that can be pressed only with something to save: grey until one of `controls` holds other
+ * than what was saved (`read()`, compared as it was), then, once saved, grey again with "Saved"
+ * beside it. The account's dialog covers the page, so its own place says so, not only a notice.
+ * `dirty`: pressable from the start (the default plan, which Save makes the account's own).
+ * → [the button, its state], for a row.
+ */
+function saveButton({ label, controls, read, save, dirty = false }) {
+  const status = saveState('saved');
+  status.node.hidden = true;
+  let saved = dirty ? null : JSON.stringify(read());
+  const button = el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small', text: label });
+  const check = () => {
+    const changed = JSON.stringify(read()) !== saved;
+    button.disabled = !changed;
+    if (changed) status.node.hidden = true;
+  };
+  for (const control of controls) {
+    control.addEventListener('input', check);
+    control.addEventListener('change', check);
+  }
+  button.addEventListener('click', async () => {
+    const now = JSON.stringify(read());
+    button.disabled = true;
+    status.set('saving');
+    status.node.hidden = false;
+    try {
+      await save();
+      saved = now;
+      status.set('saved');
+      check();
+    } catch (err) {
+      status.node.hidden = true;
+      button.disabled = false;
+      fail(err);
+    }
+  });
+  check();
+  return [button, status.node];
 }
 
 /** The plan in a few words, for its fold's title: the default one marked as such. */
@@ -709,15 +764,24 @@ async function renderInvitations(main) {
 
 async function renderPlans(main) {
   const catalog = state.catalog;
-  const features = Object.entries(catalog.features || {});
-  main.append(
+  // A host's modules limit what is theirs (lists, notebooks, storage…) with the same plans; an app
+  // on its own has no such route, and its catalog is all there is.
+  const modules = (await api.get('/api/admin/plans/modules').catch(() => null))?.modules || [];
+  /** One catalog as a table: a row per feature, a column per plan, the default one marked. */
+  const plansTable = ({ plans, features }) => table(
+    [t('admin.plans.feature'), ...plans.map((p) => `${t(p.name)}${p.id === catalog.defaultPlan ? ` · ${t('admin.plans.default')}` : ''}`)],
+    Object.keys(features).map((key) => el('tr', {},
+      el('td', { text: featureLabel(key, features) }),
+      plans.map((p) => el('td', { text: valueText(key, p.features[key], features) })))));
+  const own = Object.keys(catalog.features || {}).length;
+  append(main,
     el('h2', { text: t('admin.plans.title') }),
     el('p', { class: 'kit-lead', text: t('admin.plans.lead') }),
-    features.length ? table([t('admin.plans.feature'), ...catalog.plans.map((p) => `${t(p.name)}${p.id === catalog.defaultPlan ? ` · ${t('admin.plans.default')}` : ''}`)],
-      features.map(([key]) => el('tr', {},
-        el('td', { text: featureLabel(key) }),
-        catalog.plans.map((p) => el('td', { text: valueText(key, p.features[key]) })))))
-      : el('p', { class: 'kit-empty', text: t('admin.plans.nothingToLimit') }),
+    // The host's own (its one MCP) under its name when modules follow; alone, as it always was.
+    own && modules.length ? el('h3', { text: state.config.app?.name || '' }) : null,
+    own ? plansTable(catalog) : null,
+    ...modules.flatMap((m) => [el('h3', { text: m.name }), plansTable(m)]),
+    !own && !modules.length ? el('p', { class: 'kit-empty', text: t('admin.plans.nothingToLimit') }) : null,
   );
 }
 

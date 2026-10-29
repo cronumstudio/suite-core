@@ -3,6 +3,22 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.210.0 — 2026-10-29
+
+- **A Save in an account's dialog in /admin says it saved** (Martin: the changes were kept, but
+  the window did nothing). Its notice was there, under the dialog: a modal dialog is drawn over the
+  whole page. The kit's notices (`toast`) go to the browser's top layer while a dialog is open, over
+  it, in every app. And the dialog's Save of the profile and of the plan is grey until something
+  differs from what was saved, says "Saving…" and then "Saved" beside it, and is grey again until
+  the next change; the fold's summary says what was saved. The plan of an account that follows the
+  default plan can still be saved as its own from the start, as before.
+- **/admin › Plans shows every module's limits in a host** (Martin: in Cronum Work only the calls
+  from assistants a week showed). Those were the host's catalog; each module's (own lists, sharing,
+  photos and files, storage, notebooks, active projects…) were in force but not shown. The host
+  answers `GET /api/admin/plans/modules`, and the page draws a table per module under the host's,
+  with the same plans. The suite's common features have their words in every language
+  (`features.<key>`), over the English label a module gives them.
+
 ## 0.209.0 — 2026-10-29
 
 - **Paddle and RevenueCat leave the open repository** (Cronum core #8, step 5). `paddle.js` and
