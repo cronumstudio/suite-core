@@ -538,6 +538,24 @@ test('a login shared with other apps: asked whether it goes too only of someone 
   assert.ok(last.said.includes(t('kit.data.identityGoesUnknown')));
 });
 
+test('erasing one’s data says the account stays, and where deleting it is', async () => {
+  const erasing = async (config) => {
+    const view = await settingsPage({}, { config, server: {}, start: 'data' });
+    click(view.buttons(t('kit.data.eraseButton'))[0]);
+    await settle();
+    const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open).at(-1);
+    const said = dialog.all().map(textOf).join(' ');
+    click(dialog.all().find((node) => node.className.split(' ').includes('kit-btn--quiet')));
+    view.settings.close();
+    return said;
+  };
+  const section = t('kit.data.deleteTitle');
+  assert.ok((await erasing({ app: { id: 'demo', modules: { data: true } }, provider: 'workos', deletion_days: 30 }))
+    .includes(t('kit.data.eraseKeepsBelow', { section })), 'on its own: the deletion further down');
+  assert.ok((await erasing({ app: { id: 'demo', modules: { data: true } }, provider: 'workos' }))
+    .includes(t('kit.data.eraseKeeps')), 'an install that doesn’t delete accounts: only that it stays');
+});
+
 test('signing out in a browser takes its notices along: the server forgets where they come to, the browser keeps its subscription', async () => {
   const { signOut } = await import('../web/signin.js');
   let unsubscribed = 0;

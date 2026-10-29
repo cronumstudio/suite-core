@@ -25,6 +25,9 @@ change an interface and a patch never does. Apps pin a version through the submo
   `identity` (true or false), migration 28 (`users.delete_identity`, `user_identities.marked_at`),
   `createWorkosAccounts`' `mark` and `confirmDialog`'s `more`. It can't go with
   `deleteAtProviders`, which always deletes the login.
+- **«Erase my data» says the account stays, and where deleting it is** (Martin). Its confirmation
+  adds that only the data goes and the account stays active, and, to delete the account too, to
+  go to Settings › Delete my account (in a host) or to use it further down (an app on its own).
 
 ## 0.210.2 — 2026-10-29
 

@@ -1830,10 +1830,15 @@ export function openSettings(options) {
       ? el('p', {}, t('kit.data.downloadFirst'), ' ', el('a', { class: 'kit-link', href: at('/api/me/export'), download: '', text: t('kit.data.export') }))
       : null);
 
+    // Erasing is not deleting the account: said, with where that is (in a host its own section of
+    // Settings; an app on its own has it under this one).
+    const keepsAccount = () => (deletionDays == null ? t('kit.data.eraseKeeps')
+      : t(host ? 'kit.data.eraseKeepsGoTo' : 'kit.data.eraseKeepsBelow', { section: t('kit.data.deleteTitle') }));
+
     const erase = button(t('kit.data.eraseButton'), async () => {
       const done = await sure({
         title: t('kit.data.eraseAsk', { app: app.name }),
-        lines: [t('kit.data.eraseText', { app: app.name }), options.shareNote, downloadFirst()],
+        lines: [t('kit.data.eraseText', { app: app.name }), keepsAccount(), options.shareNote, downloadFirst()],
         confirm: t('kit.data.eraseConfirm'),
         run: (body) => api.post('/api/me/erase', body),
       });
