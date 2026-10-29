@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.208.0 — 2026-10-29
+
+- **Payment providers by registration, never by name** (Cronum core #8: what only the hosted
+  suite uses leaves the open repositories). `BILLING_PROVIDER` and `STORE_BILLING` name what
+  `providers.js` has registered (`registerBillingProvider`, `registerStoreProvider`): each
+  provider reads its own variables (`fromEnv`), its own settings of suite.config.js `billing`
+  (`rules`, such as Paddle's `paddleProductIds`), the side of a price given per environment
+  (`environment`) and what its price ids look like (`priceId`), and creates its adapter
+  (`create`). Stripe, Paddle, `remote` and RevenueCat register themselves there, so nothing
+  changes for an install: the same variables, the same errors and warnings. A provider from
+  outside this repository registers the same way before the app starts (`node --import`), and
+  an unknown name lists the ones the image has. Migration 19's body moved to `schema.js`, and
+  `STORE_FIELDS` to `stores.js` (`revenuecat.js` still exports it).
+
 ## 0.207.1 — 2026-10-29
 
 - **Settings without a signal listen only once used, never on import** (Projects' mount rule

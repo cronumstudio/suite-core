@@ -245,3 +245,28 @@ export function stripeProvider({
     id: 'stripe', needsPrice: true, checkoutUrl, portalUrl, parseWebhook, translate, cancelSubscription, keepSubscription,
   };
 }
+
+/** BILLING_PROVIDER=stripe, as providers.js registers it. */
+export const stripeBilling = Object.freeze({
+  id: 'stripe',
+  name: 'Stripe',
+  fromEnv(env, { baseUrl = '', errors, warnings }) {
+    const missing = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'].filter((name) => !env[name]);
+    if (missing.length) errors.push(`BILLING_PROVIDER=stripe needs ${missing.join(' and ')}`);
+    else if (!/^(sk|rk)_(test|live)_\S+$/.test(env.STRIPE_SECRET_KEY)) errors.push('STRIPE_SECRET_KEY must be a Stripe secret key (sk_test_…, sk_live_…) or a restricted one (rk_…)');
+    else if (!/^whsec_\S+$/.test(env.STRIPE_WEBHOOK_SECRET)) errors.push('STRIPE_WEBHOOK_SECRET must be the webhook endpoint\'s signing secret (whsec_…)');
+    else {
+      if (env.STRIPE_SECRET_KEY.includes('_live_') && !baseUrl.startsWith('https://')) {
+        warnings.push('STRIPE_SECRET_KEY is a live key but BASE_URL is not https: Stripe will not reach the webhook');
+      }
+      return {
+        provider: 'stripe', secretKey: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+        apiBase: String(env.STRIPE_API_BASE || 'https://api.stripe.com').replace(/\/+$/, ''),
+      };
+    }
+    return null;
+  },
+  create: (install, { products, log }) => stripeProvider({
+    secretKey: install.secretKey, webhookSecret: install.webhookSecret, apiBase: install.apiBase, products, log,
+  }),
+});
