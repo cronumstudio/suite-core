@@ -1,0 +1,21 @@
+# Contributor License Agreement: a pull request is merged only once its authors have signed
+# Cronum Studio's CLA, by commenting on it as the bot asks (the organization's shared check,
+# cronumstudio/.github: CLA.md and .github/workflows/cla.yml). The signatures stay in this
+# repository, on the branch cla-signatures.
+name: CLA
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  statuses: write
+
+jobs:
+  cla:
+    uses: cronumstudio/.github/.github/workflows/cla.yml@main
