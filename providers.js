@@ -8,28 +8,30 @@
  *
  * A web provider:
  *   {
- *     id: 'paddle', name: 'Paddle',
+ *     id: 'acme', name: 'Acme Pay',
  *     fromEnv(env, { baseUrl, errors, warnings }) → the install's billing ({ provider: id, … }) or null,
  *         reading only its own variables; what is wrong goes to `errors`, never a secret's value
  *     create(install, { products, rules, log }) → the adapter billing.js describes
  *     environment?(install) → 'sandbox' | 'production', the side kept of a price given per environment
  *     priceId?: { pattern, name }   what its price ids look like, checked at the start
- *     rules?: { keys: ['paddleProductIds'], read(given, install, errors) → rules of its own }
+ *     rules?: { keys: ['acmeAccounts'], read(given, install, errors) → rules of its own }
  *         settings of suite.config.js `billing` that only it reads; `install` is the install's
  *         billing, whichever provider it is, or null
  *     honors?: ['app', 'strictPrices']   the suite's own `billing` settings that only it applies
+ *     catalog?(appId) → { products?: { key: { price, founderPrice?, oldPrices? } }, billing?: {…} } | null
+ *         the ids it sells an app's products by, and its own settings for that app, kept with the
+ *         provider instead of in the app's suite.config.js: when it is the install's provider, they
+ *         count as if the app whose `app.id` it is given had written them (config.js)
  *   }
  * A store provider:
  *   { id, fromEnv(env, { errors }) → the install's stores ({ provider: id, … }) or null,
  *     create(install, { products, log }) → the adapter stores.js describes }
  *
- * This copy registers `stripe` and `remote` (the hosted suite's accounts service), and for now
- * `paddle` and `revenuecat`, which the hosted suite will register itself.
+ * This copy registers `stripe` and `remote` (the hosted suite's accounts service), and no store
+ * provider. The hosted suite registers its own (Paddle, RevenueCat) from a private repository.
  */
 import { signedProvider } from './billing.js';
 import { stripeBilling } from './stripe.js';
-import { paddleBilling } from './paddle.js';
-import { revenuecatStores } from './revenuecat.js';
 
 const web = new Map();
 const stores = new Map();
@@ -77,6 +79,4 @@ export const remoteBilling = Object.freeze({
 });
 
 registerBillingProvider(stripeBilling);
-registerBillingProvider(paddleBilling);
 registerBillingProvider(remoteBilling);
-registerStoreProvider(revenuecatStores);

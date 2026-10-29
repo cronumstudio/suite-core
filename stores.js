@@ -1,6 +1,6 @@
 /**
  * Store purchases: what people buy inside an app on a phone, in the App Store and Google Play, as
- * grants next to the web's. Off unless an install sets STORE_BILLING (revenuecat.js today) with
+ * grants next to the web's. Off unless an install sets STORE_BILLING (a registered store provider) with
  * `modules.billing` on; nothing changes for an app that doesn't.
  *
  * It is a second instance of billing.js, on the same tables under its own provider id: each event
@@ -14,8 +14,8 @@
  * `appAccountToken` and Google Play as `obfuscatedAccountId`, so the people who bought can stay
  * the same when the adapter changes.
  *
- * A store adapter (RevenueCat's is revenuecat.js; Apple's and Google's own server APIs could take
- * its place):
+ * A store adapter (the hosted suite's is RevenueCat's, registered from outside this repository;
+ * Apple's and Google's own server APIs could take its place):
  *   {
  *     id: 'revenuecat', kind: 'store',
  *     parseWebhook({ headers, body }) → Promise<notice | null>   (throws on a bad signature)

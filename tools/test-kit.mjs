@@ -27,7 +27,6 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-export { fakeRevenueCat, webhook as revenueCatWebhook, subscription as revenueCatSubscription } from '../test/fake-revenuecat.js';
 export { installFakeDom, FakeElement, FakeEventTarget } from '../test/fake-dom.js';
 
 /** How long one request may take before the test says which one hung, instead of CI's own timeout. */
