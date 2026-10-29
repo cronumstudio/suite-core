@@ -10,6 +10,7 @@
  */
 import { randomToken, sha256 } from './crypto.js';
 import { HttpError, badRequest, forbidden } from './http.js';
+import { accountMail } from './mail-layout.js';
 
 const HOUR = 3600 * 1000;
 const LIFETIME = { verify: 48 * HOUR, reset: HOUR, invite: 7 * 24 * HOUR };
@@ -39,12 +40,13 @@ export function accountTokensSchema(d) {
  * @param {object} options.mailer       from createMailer()
  * @param {Function} options.texts      (req, user) → { lang, t }, for the messages
  * @param {string} options.baseUrl, options.appName
+ * @param {object} [options.brand]      from mailBrand(): with it, each message also goes as HTML
  * @param {'admin'|'invite'|'open'} [options.signup]   who may create an account
  * @param {boolean} [options.localPasswords]   false when accounts sign in elsewhere
  * @param {string[]} [options.roles]    the roles an invitation may give
  */
 export function createAccountMail({
-  database, accounts, mailer, texts, baseUrl, appName, limiter = null, audit = null,
+  database, accounts, mailer, texts, baseUrl, appName, brand = null, limiter = null, audit = null,
   signup = 'admin', localPasswords = true, roles = ['admin', 'user'], clock = () => Date.now(), log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/+$/, '');
@@ -92,10 +94,13 @@ export function createAccountMail({
    * gets `mail_failed`: a person can't fix it, but knows it wasn't sent.
    */
   async function send(to, key, vars, { req = null, user = null } = {}) {
-    const { t } = texts(req, user);
+    const { lang, t } = texts(req, user);
     const all = { app: appName, ...vars };
+    const subject = t(`mail.${key}.subject`, all);
+    const text = t(`mail.${key}.body`, all);
+    const html = brand ? accountMail({ lang, brand, subject, body: text, link: vars.link, button: t(`mail.${key}.button`, all) }) : null;
     try {
-      await mailer.send({ to, subject: t(`mail.${key}.subject`, all), text: t(`mail.${key}.body`, all) });
+      await mailer.send({ to, subject, text, html });
     } catch (err) {
       log(`[mail] to ${to}: not sent (${key}): ${err.message}`);
       throw new HttpError(502, 'mail_failed');

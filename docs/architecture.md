@@ -169,6 +169,12 @@ export default {
     languages: ['en', 'es'],      // English first: it is the fallback
     color: '#EF4B2A',             // the product's colour: the accent of the OAuth consent screen
     icon: '/icons/favicon.svg',   // the default; a path on the app, with its ?v= if the icons carry one
+    mail: {                       // how its emails look (mail-layout.js), all optional:
+      icon: '/icons/apple-touch-180.png',  // the default: a PNG on the app (mail clients show no SVG); null for none
+      colorOnDark: '#8C9BFF',     // the button and links in dark mode, with ink text (default: color, cream text)
+      signature: 'by Cronum Studio',       // after the product's name at the foot
+      about: { en: 'What it is, in a line.', es: '…' },  // under an invitation, for whoever doesn't know it
+    },
   },
 
   // Anything not listed keeps its default; a key that is not a module is an error.
@@ -1592,7 +1598,10 @@ kit's), then Notes is built on it whole, then the others as they move to English
   (1 h, once, every other session closed; the answer is the same whether the account exists), the
   admin's invitations (7 days; the link is also returned, to pass on by hand) and open sign-up.
   Every link is a single-use token kept as a hash; the brake limits requests per address and links
-  per inbox. The texts are the suite's, in each person's language. With WorkOS or OIDC the provider
+  per inbox. The texts are the suite's, in each person's language. Since v0.212.0 each one also goes
+  as HTML in the product's clothes (`mail-layout.js`, `app.mail`), its link as a button, and the
+  modules tell someone something was offered to them with one email for all (`share-mail.js`,
+  `suite.shareMail`), signed by the host in a host. With WorkOS or OIDC the provider
   sends its own. Without a mail server nothing pretends otherwise (v0.16.0): `/api/auth/config`
   says `mail: false`, so screens don't promise a link that won't arrive; an invitation comes back
   `sent: false` with its link; and the admin can confirm an email by hand (`email_verified` on

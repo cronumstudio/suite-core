@@ -71,6 +71,7 @@ import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
+import { createShareMail } from './share-mail.js';
 import { createPortability } from './portability.js';
 import {
   sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
@@ -826,6 +827,7 @@ export async function createHost({
 
     entry.config = moduleConfig;
     entry.hooks = ownHooks;
+    const moduleTexts = ownHooks.texts || createTexts();
     entry.view = {
       ...suite,
       config: moduleConfig,
@@ -837,7 +839,19 @@ export async function createHost({
       uploadLinks: uploads && config.modules.mcp
         ? createUploadLinks({ baseUrl: moduleInstall.baseUrl, accounts: suite.accounts })
         : null,
-      texts: ownHooks.texts || createTexts(),
+      texts: moduleTexts,
+      /**
+       * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
+       * the module —Tasks— over the heading in its colour and in the card with its icon, in the
+       * module's words; the button goes to the module.
+       */
+      shareMail: createShareMail({
+        mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
+        module: {
+          name: app.name, color: app.color || suite.mailBrand.color,
+          icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
+        },
+      }),
       portabilityFor,
       // With the host's one worker, a notice opens at the module's path (host-worker.js).
       push: resolved.modules.push && suite.push

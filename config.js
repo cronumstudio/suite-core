@@ -117,6 +117,15 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // The product's colour and icon: the accent and the picture of the OAuth consent screen.
     color: a.color ?? null,
     icon: a.icon ?? '/icons/favicon.svg',
+    // How its emails are signed (mail-layout.js): its icon as a PNG at its own address (mail
+    // clients don't show SVG), a lighter colour for dark mode, a line under its name, and what
+    // it is, by language, for whoever an invitation reaches without knowing it.
+    mail: {
+      icon: isObject(a.mail) && 'icon' in a.mail ? a.mail.icon : '/icons/apple-touch-180.png',
+      colorOnDark: (isObject(a.mail) && a.mail.colorOnDark) || null,
+      signature: (isObject(a.mail) && a.mail.signature) || null,
+      about: (isObject(a.mail) && a.mail.about) || null,
+    },
   };
   if (!/^[a-z][a-z0-9-]{1,30}$/.test(app.id)) errors.push('app.id: lowercase letters, digits and -, starting with a letter');
   if (!app.name.trim()) errors.push('app.name is needed');
@@ -127,6 +136,18 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (app.color !== null && !/^#[0-9a-fA-F]{6}$/.test(String(app.color))) errors.push('app.color: a colour as #RRGGBB, e.g. #3A4660');
   // The consent screen's CSP only loads images from the app itself.
   if (!/^\/(?!\/)[^\s"'<>\\]*$/.test(String(app.icon))) errors.push('app.icon: a path on the app itself, starting with /');
+  if (a.mail !== undefined && !isObject(a.mail)) errors.push('app.mail: an object ({ icon, colorOnDark, signature, about })');
+  if (app.mail.icon !== null && !/^\/(?!\/)[^\s"'<>\\]*\.png(\?[^\s"'<>\\]*)?$/.test(String(app.mail.icon))) {
+    errors.push('app.mail.icon: a PNG on the app itself, starting with /, or null');
+  }
+  if (app.mail.colorOnDark !== null && !/^#[0-9a-fA-F]{6}$/.test(String(app.mail.colorOnDark))) errors.push('app.mail.colorOnDark: a colour as #RRGGBB');
+  if (app.mail.signature !== null && (typeof app.mail.signature !== 'string' || app.mail.signature.length > 80)) {
+    errors.push('app.mail.signature: a short text');
+  }
+  if (app.mail.about !== null && (!isObject(app.mail.about) || typeof app.mail.about.en !== 'string'
+    || Object.entries(app.mail.about).some(([lang, text]) => !LANGUAGES.includes(lang) || typeof text !== 'string'))) {
+    errors.push(`app.mail.about: a text by language (${LANGUAGES.join(', ')}), English at least`);
+  }
 
   /* ------------------------------- modules ------------------------------ */
 

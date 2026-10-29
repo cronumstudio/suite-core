@@ -53,6 +53,8 @@ import { registerWorkosSecurityApi } from './workos-security.js';
 import { watchPasswordResets } from './workos-events.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
+import { mailBrand } from './mail-layout.js';
+import { createShareMail } from './share-mail.js';
 import { createAlerts } from './alerts.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
@@ -450,13 +452,15 @@ export function createSuite({
 
   // Mail: an SMTP server, or the server's log until one is set.
   const mailer = createMailer(install.mail, { log });
+  // How its emails look (mail-layout.js): the product's name, colour and icon.
+  const brand = mailBrand(config.app, install.baseUrl);
   // Emails to whoever runs the install when the server fails (ALERT_EMAIL, alerts.js): without it,
   // or with the log as the mailer, every call on it does nothing.
   const alerts = createAlerts({
     to: install.alerts?.to ?? null, mailer, database, app: config.app, baseUrl: install.baseUrl, log,
   });
   const accountMail = createAccountMail({
-    database, accounts, mailer, texts, baseUrl: install.baseUrl,
+    database, accounts, mailer, texts, baseUrl: install.baseUrl, brand,
     appName: config.app.name, limiter, audit, signup: config.accounts.signup,
     localPasswords: install.authProvider === 'local', roles: config.accounts.roles, log,
   });
@@ -467,7 +471,7 @@ export function createSuite({
     endSubscriptions: config.accounts.endSubscriptions, shared: config.accounts.sharedIdentity,
     // With the stores, both instances: a store stops nothing for the person, who cancels there.
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
-    baseUrl: install.baseUrl, log,
+    baseUrl: install.baseUrl, brand, log,
   });
   if (hooks.onDeletionRequested) deletion.whenRequested(hooks.onDeletionRequested);
   if (hooks.onDeletionCancelled) deletion.whenCancelled(hooks.onDeletionCancelled);
@@ -586,6 +590,8 @@ export function createSuite({
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
+    // The email of something offered (share-mail.js), in the app's own clothes.
+    shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, log }), mailBrand: brand,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
     /**
