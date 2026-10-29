@@ -17,6 +17,13 @@
  *   with the person and deletes their files— and the audit keeps only that
  *   account #n went.
  *
+ * Where the identity provider's users are shared with other apps (`shared`,
+ * config.accounts.sharedIdentity), the login goes too unless the person uses
+ * another of them: the request says so (`identity`: `all`, the person chose to;
+ * `none`, they chose not to; `auto`, they weren't asked, as no other app was
+ * theirs), and with `auto` it is asked again when the account goes. Whatever
+ * stays there no longer names this app (`idp.unmark`).
+ *
  * An account the admin deletes in /admin goes at once, as before.
  *
  * Who else hears it: `whenRequested(hook)` and `whenCancelled(hook)`, after the
@@ -55,13 +62,16 @@ export function readDeletionTicket(sign, token, clock = Date.now) {
  *   and their subscriptions end (config.accounts.deleteAtProviders)
  * @param {boolean} [options.endSubscriptions]  whether their subscriptions end, without going at the
  *   identity provider (config.accounts.endSubscriptions); left out, as atProviders
- * @param {object} [options.idp]        the identity provider: deleteIdentity(userId), when it can
+ * @param {boolean} [options.shared]   whether the login there is shared with other apps and goes
+ *   only as the person decides (config.accounts.sharedIdentity); atProviders still always takes it
+ * @param {object} [options.idp]        the identity provider: deleteIdentity(userId), when it can,
+ *   and with `shared` otherApps(userId) and unmark(userId)
  * @param {object} [options.billing]    from createBilling(): stopRenewals, keepRenewals, endSubscriptions
  * @param {object} [options.mailer], options.texts, options.appName, options.baseUrl   the message
  * @param {object} [options.audit]
  */
 export function createAccountDeletion({
-  accounts, sign, days = 30, atProviders = false, endSubscriptions = atProviders, idp = null, billing = null, audit = null,
+  accounts, sign, days = 30, atProviders = false, endSubscriptions = atProviders, shared = false, idp = null, billing = null, audit = null,
   mailer = null, texts = null, appName = '', baseUrl = '', clock = () => Date.now(), log = console.log,
 }) {
   const subscriptions = endSubscriptions && billing?.enabled ? billing : null;
@@ -94,9 +104,17 @@ export function createAccountDeletion({
     }
   }
 
-  /** The owner asks: disabled now, gone in `days`. → the account, with `delete_after`. */
-  async function request(user, { req = null } = {}) {
-    const waiting = accounts.requestDeletion(user.id, { days });
+  // Only where the login is shared and the provider can say who else uses it.
+  const choosing = Boolean(shared && !atProviders && idp?.otherApps && idp?.deleteIdentity);
+  const IDENTITY = ['all', 'none', 'auto'];
+
+  /**
+   * The owner asks: disabled now, gone in `days`. `identity` (all, none or auto) is whether their
+   * shared login goes too; left out, `auto`. → the account, with `delete_after`.
+   */
+  async function request(user, { req = null, identity = 'auto' } = {}) {
+    if (choosing && !IDENTITY.includes(identity)) throw badRequest('identity_invalid');
+    const waiting = accounts.requestDeletion(user.id, { days, identity: choosing ? identity : null });
     audit?.record({
       action: 'account.deletion.request', actor: user, req, targetType: 'user', targetId: user.id,
       meta: { delete_after: waiting.delete_after },
@@ -150,6 +168,7 @@ export function createAccountDeletion({
           }
         }
         if (atProviders && idp?.deleteIdentity) await idp.deleteIdentity(user.id);
+        else if (choosing) await identityGoes(user);
         accounts.remove(user.id);
         audit?.record({ action: 'account.delete', targetType: 'user', targetId: user.id, meta: { requested: true } });
         gone += 1;
@@ -161,8 +180,20 @@ export function createAccountDeletion({
     return gone;
   }
 
+  /**
+   * The shared login of an account going for good: deleted if the person chose so, or wasn't asked
+   * and still uses no other app; otherwise only this app is taken off it. The provider not
+   * answering whether another app is theirs throws: the account waits for the next sweep.
+   */
+  async function identityGoes(user) {
+    const choice = user.delete_identity || 'auto';
+    const goes = choice === 'all' || (choice === 'auto' && (await idp.otherApps(user.id)).length === 0);
+    if (goes) await idp.deleteIdentity(user.id);
+    else await idp.unmark(user.id);
+  }
+
   return {
-    days, request, restore, sweep,
+    days, request, restore, sweep, choosing,
     ticketFor: (userId) => deletionTicket(sign, userId, clock),
     whenRequested: (hook) => { requestedHooks.push(hook); },
     whenCancelled: (hook) => { cancelledHooks.push(hook); },

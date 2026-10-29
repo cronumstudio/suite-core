@@ -160,6 +160,10 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // the person stays at the identity provider (an install that bills alone, with apps that share
     // its logins). Left out, as deleteAtProviders.
     endSubscriptions: ac.endSubscriptions ?? ac.deleteAtProviders ?? false,
+    // The WorkOS users are shared with other apps, each noting itself on them (`app_<id>` in their
+    // metadata): an account deleted here takes its WorkOS user too when the person uses no other
+    // app, or chooses so; the admin's deletion only when the admin chooses so (account-deletion.js).
+    sharedIdentity: ac.sharedIdentity ?? false,
   };
   if (!['admin', 'invite', 'open'].includes(accounts.signup)) {
     errors.push(`${env.SIGNUP ? 'SIGNUP' : 'accounts.signup'} "${accounts.signup}": use admin, invite or open`);
@@ -169,6 +173,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (typeof accounts.deleteAtProviders !== 'boolean') errors.push('accounts.deleteAtProviders: true or false');
   if (typeof accounts.adminIdentity !== 'boolean') errors.push('accounts.adminIdentity: true or false');
   if (typeof accounts.endSubscriptions !== 'boolean') errors.push('accounts.endSubscriptions: true or false');
+  if (typeof accounts.sharedIdentity !== 'boolean') errors.push('accounts.sharedIdentity: true or false');
+  if (accounts.sharedIdentity && accounts.deleteAtProviders) errors.push('accounts.sharedIdentity and deleteAtProviders: one or the other, the second always deletes the login');
   if (!accounts.roles.includes('admin')) errors.push('accounts.roles must include "admin"');
 
   const se = isObject(p.sessions) ? p.sessions : {};

@@ -232,6 +232,8 @@ export function openSettings(options) {
   const host = config.app?.host || null;
   // Deleting one's own account: how many days it waits before it goes (none: the install doesn't offer it).
   const deletionDays = config.deletion_days ?? null;
+  // Its login is shared with other apps: whether it goes too is the person's to say, when they use one.
+  const deletionIdentity = config.deletion_identity === true;
   // What the plan section sells (plan.js): only when the app asks for it, or in a host when the host
   // sells (the same in every module), and the server doesn't say it can't.
   const planOptions = options.plan && typeof options.plan === 'object' ? options.plan : {};
@@ -1828,10 +1830,15 @@ export function openSettings(options) {
       ? el('p', {}, t('kit.data.downloadFirst'), ' ', el('a', { class: 'kit-link', href: at('/api/me/export'), download: '', text: t('kit.data.export') }))
       : null);
 
+    // Erasing is not deleting the account: said, with where that is (in a host its own section of
+    // Settings; an app on its own has it under this one).
+    const keepsAccount = () => (deletionDays == null ? t('kit.data.eraseKeeps')
+      : t(host ? 'kit.data.eraseKeepsGoTo' : 'kit.data.eraseKeepsBelow', { section: t('kit.data.deleteTitle') }));
+
     const erase = button(t('kit.data.eraseButton'), async () => {
       const done = await sure({
         title: t('kit.data.eraseAsk', { app: app.name }),
-        lines: [t('kit.data.eraseText', { app: app.name }), options.shareNote, downloadFirst()],
+        lines: [t('kit.data.eraseText', { app: app.name }), keepsAccount(), options.shareNote, downloadFirst()],
         confirm: t('kit.data.eraseConfirm'),
         run: (body) => api.post('/api/me/erase', body),
       });
@@ -1842,14 +1849,17 @@ export function openSettings(options) {
     }, 'danger-quiet');
 
     const remove = button(t('kit.data.deleteButton'), async () => {
+      const identity = deletionIdentity ? await identityChoice() : null;
+      if (identity === undefined) return;
       const done = await sure({
         title: t('kit.data.deleteAsk'),
         lines: [
           t('kit.data.deleteText', { app: product, n: deletionDays }), sharedOnDelete,
-          modules.billing ? t('kit.data.deleteBilling') : null, downloadFirst(),
+          modules.billing ? t('kit.data.deleteBilling') : null, identity?.node, downloadFirst(),
         ],
         confirm: t('kit.data.deleteConfirm'),
-        run: async (body) => {
+        run: async (given) => {
+          const body = identity ? { ...given, identity: identity.box.checked } : given;
           // The sign-in screen says until when (signin.js farewell). Left before asking: the
           // session ends with the request, and the app may reload for that before the answer.
           const remember = (value) => { try { sessionStorage.setItem('suite.deletion', value); } catch { /* private mode */ } };
@@ -1870,6 +1880,31 @@ export function openSettings(options) {
       // (in the suite's app, its own, without the farewell notice). Its notices went at the server.
       await leave({ answer: done });
     }, 'danger-quiet');
+
+    /**
+     * Whether the login goes too, asked only of someone who uses it in other apps (by their names,
+     * or "other apps" when the provider can't say just now): unticked, only this app's account goes
+     * and they still sign in there. → { node, box }, null when there is nothing to ask, undefined
+     * when it couldn't be known (offline: said, and nothing is deleted).
+     */
+    async function identityChoice() {
+      let others;
+      try {
+        others = (await api.get('/api/me/deletion')).other_apps;
+      } catch (err) {
+        showError(err);
+        return undefined;
+      }
+      if (Array.isArray(others) && !others.length) return null;
+      const apps = others ? listFormat({ type: 'conjunction' }).format(others) : null;
+      const vars = { app: product, apps };
+      const box = el('input', { type: 'checkbox', id: 'kit-delete-identity' });
+      const node = el('div', { class: 'kit-stack kit-delete-identity' },
+        el('p', { text: apps ? t('kit.data.identityUsed', vars) : t('kit.data.identityUnknown', vars) }),
+        el('label', { class: 'kit-check' }, box, el('span', { text: apps ? t('kit.data.identityGoes', vars) : t('kit.data.identityGoesUnknown') })),
+        el('p', { class: 'kit-hint', text: apps ? t('kit.data.identityHint', vars) : t('kit.data.identityHintUnknown', vars) }));
+      return { node, box };
+    }
 
     return [
       ...(modules.data && withModule ? [

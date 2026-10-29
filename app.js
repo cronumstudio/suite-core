@@ -122,6 +122,15 @@ const EXAMPLE_PASSWORDS = new Set([
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
  */
+/**
+ * This app on a WorkOS user's metadata (`accounts.sharedIdentity`): its key, `app_<id>`, and its
+ * name, in the ASCII WorkOS takes (40 and 600 characters at most).
+ */
+export function identityMark(app) {
+  const ascii = (text) => String(text).normalize('NFKD').replace(/[^ -~]/g, '').trim();
+  return { key: `app_${app.id}`.slice(0, 40), name: ascii(app.name).slice(0, 600) || app.id };
+}
+
 export function createSuite({
   config: given, migrations = [], hooks = {}, env = process.env, log = console.log, exitOnError = true,
   othersDeclare = false,
@@ -320,6 +329,8 @@ export function createSuite({
     users: workosPeople,
     connections: workosAiClients,
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
+    // Shared with other apps: this app's name on the person's WorkOS user, so another can see it is theirs.
+    mark: config.accounts.sharedIdentity ? identityMark(config.app) : null,
     // Without an MCP, AI clients find no OAuth metadata to follow.
     mcp: config.modules.mcp,
     sessions: {
@@ -453,7 +464,7 @@ export function createSuite({
   // Someone deleting their own account: disabled now, gone after the install's days (account-deletion.js).
   const deletion = createAccountDeletion({
     accounts, sign: sessions.sign, days: config.accounts.deletionDays, atProviders: config.accounts.deleteAtProviders,
-    endSubscriptions: config.accounts.endSubscriptions,
+    endSubscriptions: config.accounts.endSubscriptions, shared: config.accounts.sharedIdentity,
     // With the stores, both instances: a store stops nothing for the person, who cancels there.
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,
     baseUrl: install.baseUrl, log,
@@ -733,7 +744,7 @@ export function createApp({
   if (config.modules.admin) {
     registerAdminApi(api, {
       accounts, entitlements, organizations, sessions, audit, twoFactor, revokeEverything: suite.revokeEverything,
-      devices: suite.devices,
+      devices: suite.devices, sharedLogin: config.accounts.sharedIdentity ? suite.idp : null,
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
@@ -1118,6 +1129,11 @@ export function createApp({
       const sweepAccounts = () => deletion.sweep().catch(failed('account deletion'));
       timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
+    }
+    if (suite.workos?.markAll) {
+      // Who signed in before this app noted itself on their WorkOS user: told once, a minute after starting.
+      const markAll = () => suite.workos.markAll().catch(failed('noting this app at WorkOS'));
+      timers.push(setTimeout(markAll, MINUTE_BEFORE_SWEEP).unref());
     }
     if (suite.workosResets) {
       // Passwords reset on AuthKit's own page: everything that let that person in here, revoked. Every minute.

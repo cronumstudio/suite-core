@@ -73,6 +73,16 @@ export function identityCheck({ limiter = null, twoFactor = null, localPasswords
  * @param {object} [deps.database]        the install's: signing out forgets this browser's
  *   push_subscriptions (`push_endpoints`), whether or not this app sends notices of its own
  */
+/** The other apps that share someone's login, by name; null when the provider doesn't answer. */
+async function otherAppsOf(idp, userId) {
+  try {
+    return await idp.otherApps(userId);
+  } catch (err) {
+    console.error(`[auth] the other apps of user #${userId} at ${idp.name} can't be read: ${err.message}`);
+    return null;
+  }
+}
+
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
   mail = true, passwordMin = null, twoFactor = null, deletion = null, database = null,
@@ -87,11 +97,13 @@ export function registerAuthApi(router, {
     // `two_factor`: whether people can add a code from an app to their password.
     // `app`: which app this is, the languages it speaks and the modules it has on,
     // for the suite's own pages (the admin panel).
-    // `deletion_days`: how long an account someone deletes waits before it goes.
+    // `deletion_days`: how long an account someone deletes waits before it goes; `deletion_identity`,
+    // that its login is shared with other apps and goes with it only as the person decides.
     sendJson(ctx.res, 200, {
       provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
       mail: Boolean(mail), password_min: idp ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
       ...(deletion ? { deletion_days: deletion.days } : {}),
+      ...(deletion?.choosing ? { deletion_identity: true } : {}),
       ...(app ? { app } : {}),
     });
   });
@@ -396,14 +408,29 @@ export function registerProfileApi(router, {
       const body = await readJson(ctx.req);
       sure(ctx, user, body);
       if (user.role === 'admin' && accounts?.activeAdmins() <= 1) throw conflict('last_admin');
+      // Whether the shared login goes too: asked only of someone who uses another app with it.
+      if (body.identity != null && typeof body.identity !== 'boolean') throw badRequest('identity_invalid');
+      const identity = body.identity == null ? 'auto' : (body.identity ? 'all' : 'none');
       const idpSession = sessions.close(ctx.sessionToken);
       sessions.clearCookie(ctx.res);
-      const waiting = await deletion.request(user, { req: ctx.req });
+      const waiting = await deletion.request(user, { req: ctx.req, identity });
       const logoutUrl = idpSession && idp ? await idp.signOutUrl(idpSession) : null;
       sendJson(ctx.res, 200, {
         ok: true, delete_after: accounts?.publicUser(waiting).delete_after ?? waiting.delete_after,
         ...(logoutUrl ? { logout_url: logoutUrl } : {}),
       });
+    });
+  }
+
+  if (deletion?.choosing) {
+    /**
+     * Before deleting one's account: the other apps that share its login (`other_apps`, their
+     * names), whose access would go with it if the person chooses so; null if the provider can't
+     * say just now.
+     */
+    router.get('/api/me/deletion', async (ctx) => {
+      const user = requireUser(ctx);
+      sendJson(ctx.res, 200, { other_apps: await otherAppsOf(idp, user.id) });
     });
   }
 
@@ -669,8 +696,10 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
-  tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null,
+  tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null, sharedLogin = null,
 }) {
+  // The identity provider, where its login is shared with other apps (config.accounts.sharedIdentity) and it can say who else uses it.
+  const sharedIdentity = Boolean(sharedLogin?.otherApps && sharedLogin?.deleteIdentity && sharedLogin?.unmark);
   /**
    * Out everywhere, for a lost phone or a departure: the sessions here and at
    * the identity provider, the API tokens, the assistants' OAuth grants, the
@@ -761,14 +790,41 @@ export function registerAdminApi(router, {
     sendJson(ctx.res, 200, withPlan(accounts.byId(user.id)));
   });
 
-  router.delete('/api/admin/users/:id', (ctx) => {
+  /**
+   * Deleting an account, at once. Where its login is shared with other apps (`sharedIdentity`),
+   * `?identity=1` deletes it there too (first: if the provider can't, nothing goes); otherwise
+   * it stays, no longer naming this app.
+   */
+  router.delete('/api/admin/users/:id', async (ctx) => {
     requireAdmin(ctx);
     const id = idOf(ctx.params.id);
     if (id === ctx.user.id) throw badRequest('not_on_yourself');
+    if (!accounts.byId(id)) throw notFound('user_not_found');
+    const withIdentity = Boolean(sharedIdentity && ctx.query?.get('identity') === '1');
+    if (withIdentity) {
+      try {
+        await sharedLogin.deleteIdentity(id);
+      } catch (err) {
+        console.error(`[admin] the login of user #${id} at ${sharedLogin.name} could not be deleted: ${err.message}`);
+        throw new HttpError(503, 'provider_unavailable');
+      }
+    } else if (sharedIdentity) {
+      await sharedLogin.unmark(id);
+    }
     accounts.remove(id);
-    record(ctx, 'admin.user.remove', 'user', id);
+    record(ctx, 'admin.user.remove', 'user', id, withIdentity ? { identity: true } : undefined);
     sendJson(ctx.res, 200, { ok: true });
   });
+
+  if (sharedIdentity) {
+    /** The other apps that share someone's login (their names), or null if the provider can't say just now. */
+    router.get('/api/admin/users/:id/other-apps', async (ctx) => {
+      requireAdmin(ctx);
+      const id = idOf(ctx.params.id);
+      if (!accounts.byId(id)) throw notFound('user_not_found');
+      sendJson(ctx.res, 200, { other_apps: await otherAppsOf(sharedLogin, id) });
+    });
+  }
 
   /** Signs someone out everywhere (a lost phone, a departure). */
   router.delete('/api/admin/users/:id/sessions', (ctx) => {

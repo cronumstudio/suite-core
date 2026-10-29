@@ -480,9 +480,10 @@ function userDialog(user) {
       self ? null : el('button', {
         type: 'button', class: 'kit-btn kit-btn--small kit-btn--danger kit-row__last', text: t('admin.users.delete'),
         onClick: async () => {
-          if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name })))) return;
+          const identity = state.config?.deletion_identity ? await identityChoice(user) : null;
+          if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name }), { more: identity?.node }))) return;
           try {
-            await api.delete(`/api/admin/users/${user.id}`);
+            await api.delete(`/api/admin/users/${user.id}${identity?.box.checked ? '?identity=1' : ''}`);
             toast(t('admin.users.deleted'));
             dialog.close();
             refresh();
@@ -501,6 +502,26 @@ function userDialog(user) {
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
   paintFirstAnswers(firstBox, user, firstNow).catch(() => first.remove());
   if (signInBox) paintSignIn().catch(fail);
+}
+
+/**
+ * Whether deleting someone takes their login too, where it is shared with other apps: unticked,
+ * only the account here goes. Says which other apps they use with it, when the provider can tell.
+ * → { node, box }
+ */
+async function identityChoice(user) {
+  let others = null;
+  try {
+    others = (await api.get(`/api/admin/users/${user.id}/other-apps`)).other_apps;
+  } catch { /* said as not known */ }
+  const box = el('input', { type: 'checkbox', id: 'admin-delete-identity' });
+  const said = others == null ? t('admin.users.identityUnknown')
+    : others.length ? t('admin.users.identityUsed', { apps: listFormat({ type: 'conjunction' }).format(others) })
+      : t('admin.users.identityAlone');
+  const node = el('div', { class: 'kit-stack' },
+    el('label', { class: 'kit-check' }, box, el('span', { text: t('admin.users.identityGoes', { provider: state.config?.name || '' }) })),
+    el('p', { class: 'kit-hint', text: said }));
+  return { node, box };
 }
 
 /** How someone signs in, as people say it: "Google", "a password"… */

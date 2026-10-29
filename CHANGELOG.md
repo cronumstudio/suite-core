@@ -3,6 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.211.0 — 2026-10-29
+
+- **A login shared with other apps goes with the account only when nobody needs it elsewhere**
+  (Martin: deleting a test account in Work kept its WorkOS user, so signing up again asked for no
+  code; and someone leaving Work for good should be able to leave everything). With
+  `accounts.sharedIdentity`, each app that signs in with the same WorkOS users notes itself on
+  the person's user (`app_<id>` in its metadata, with the app's name): when they sign in, and
+  once, a minute after starting, for whoever came before. Deleting one's account then:
+  - asks nothing of someone no other app has noted, and their WorkOS user goes with the account
+    when their days are over, unless another app has noted them by then;
+  - shows someone who uses another app which ones, with a box, unticked, to delete their access
+    there too, and what that means (what they have there stays: delete it or cancel a
+    subscription there first). Unticked, only this app's account goes and they still sign in to
+    the others.
+  - In /admin, deleting someone says which other apps they use and keeps their login unless the
+    box is ticked (`DELETE /api/admin/users/:id?identity=1`; WorkOS not answering deletes
+    nothing).
+  A login that stays no longer names this app. New: `GET /api/me/deletion`, `GET
+  /api/admin/users/:id/other-apps`, `/api/auth/config`'s `deletion_identity`, the request's
+  `identity` (true or false), migration 28 (`users.delete_identity`, `user_identities.marked_at`),
+  `createWorkosAccounts`' `mark` and `confirmDialog`'s `more`. It can't go with
+  `deleteAtProviders`, which always deletes the login.
+- **«Erase my data» says the account stays, and where deleting it is** (Martin). Its confirmation
+  adds that only the data goes and the account stays active, and, to delete the account too, to
+  go to Settings › Delete my account (in a host) or to use it further down (an app on its own).
+
 ## 0.210.2 — 2026-10-29
 
 - **An assistant is named in a few letters: «vía Claude», not «vía AnthropicClaudeAI»** (Martin,
