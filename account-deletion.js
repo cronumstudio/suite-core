@@ -34,6 +34,7 @@
  */
 import { badRequest, HttpError } from './http.js';
 import { safeEqual } from './crypto.js';
+import { accountMail } from './mail-layout.js';
 
 const TICKET_MS = 15 * 60 * 1000;
 
@@ -68,11 +69,12 @@ export function readDeletionTicket(sign, token, clock = Date.now) {
  *   and with `shared` otherApps(userId) and unmark(userId)
  * @param {object} [options.billing]    from createBilling(): stopRenewals, keepRenewals, endSubscriptions
  * @param {object} [options.mailer], options.texts, options.appName, options.baseUrl   the message
+ * @param {object} [options.brand]   from mailBrand(): with it, the message also goes as HTML
  * @param {object} [options.audit]
  */
 export function createAccountDeletion({
   accounts, sign, days = 30, atProviders = false, endSubscriptions = atProviders, shared = false, idp = null, billing = null, audit = null,
-  mailer = null, texts = null, appName = '', baseUrl = '', clock = () => Date.now(), log = console.log,
+  mailer = null, texts = null, appName = '', baseUrl = '', brand = null, clock = () => Date.now(), log = console.log,
 }) {
   const subscriptions = endSubscriptions && billing?.enabled ? billing : null;
   const requestedHooks = [];
@@ -98,7 +100,11 @@ export function createAccountDeletion({
       date: new Intl.DateTimeFormat(lang, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(user.delete_after)),
     };
     try {
-      await mailer.send({ to: user.email, subject: t('mail.deletion.subject', vars), text: t('mail.deletion.body', vars) });
+      const subject = t('mail.deletion.subject', vars);
+      const text = t('mail.deletion.body', vars);
+      const html = brand
+        ? accountMail({ lang, brand, subject, body: text, link: vars.link, button: t('mail.deletion.button', vars) }) : null;
+      await mailer.send({ to: user.email, subject, text, html });
     } catch (err) {
       log(`[mail] to ${user.email}: not sent (deletion): ${err.message}`);
     }

@@ -29,8 +29,9 @@
  * every new offer and every address without an account counts towards a limit
  * per hour (429 share_limit), and each pair of people is told once a day.
  *
- * The notice of a new offer: by push if the person has a device that takes it,
- * else by email (`notify: { push, email }`, each the module's, with its words).
+ * The notice of a new offer: an email always, and a push too if the person has a
+ * device that takes it (`notify: { push, email }`, each the module's, with its
+ * words; 0.212.0: the push no longer stands in for the email).
  *
  * Each kind brings its own rules as hooks (who may see it, what changes when it
  * is offered or left, what a route answers), so the routes keep the paths and the
@@ -230,20 +231,22 @@ export function createSharing({
 
   /**
    * Tells someone something was offered to them, once a day per pair (the
-   * brake): by push if a device of theirs takes it, else by email. A notice
-   * that fails is logged; the invitation is in the app all the same.
+   * brake): by email, and by push as well if a device of theirs takes it. A
+   * notice that fails is logged; the other still goes, and the invitation is in
+   * the app all the same.
    */
   function tell(kind, thing, actorId, targetId, permission) {
     if (!notify || !brake.notice(actorId, targetId)) return;
     const spec = specOf(kind);
     const notice = { kind, thing, name: spec.name ? spec.name(thing) : thing?.name, actorId, targetId, permission };
-    const send = typeof notify === 'function' ? notify
-      : notify.push && pushable(targetId) ? notify.push : notify.email;
-    if (!send) return;
-    try {
-      Promise.resolve(send(notice)).catch((err) => log(`[sharing] the notice of a ${kind} offered was not sent: ${err?.message}`));
-    } catch (err) {
-      log(`[sharing] the notice of a ${kind} offered was not sent: ${err?.message}`);
+    const sends = typeof notify === 'function' ? [notify]
+      : [notify.email, notify.push && pushable(targetId) ? notify.push : null].filter(Boolean);
+    for (const send of sends) {
+      try {
+        Promise.resolve(send(notice)).catch((err) => log(`[sharing] the notice of a ${kind} offered was not sent: ${err?.message}`));
+      } catch (err) {
+        log(`[sharing] the notice of a ${kind} offered was not sent: ${err?.message}`);
+      }
     }
   }
 

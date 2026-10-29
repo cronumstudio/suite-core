@@ -1561,3 +1561,16 @@ test('a host without first questions neither asks nor answers them', async (t) =
   assert.equal((await call('PUT', '/api/me/first-answers', {})).status, 404);
   assert.equal((await call('GET', '/api/admin/users/1/first-answers')).status, 404);
 });
+
+test('a module’s share email: signed by the host, the module over the heading, the button to the module', async (t) => {
+  const { host } = await startHost(t);
+  const alpha = host.modules.find((m) => m.mount === 'alpha');
+  const { subject, html, text } = alpha.suite.shareMail.compose({
+    to: { id: 9, email: 'ana@example.com', prefs: '{"lang":"es"}' }, actor: 'Lucía', kind: 'list', name: 'Compras',
+  });
+  assert.equal(subject, 'Lucía te ha invitado a la lista «Compras»');
+  assert.match(html, /<b style="font-weight:700">work<\/b>/, 'the host’s name over the sheet');
+  assert.match(html, /Invitación · Alpha/);
+  assert.match(html, /src="http:\/\/127\.0\.0\.1\/alpha\/icons\/apple-touch-180\.png"/, 'the module’s icon, at its address');
+  assert.match(text, /Ver y aceptar: http:\/\/127\.0\.0\.1\/alpha\//);
+});

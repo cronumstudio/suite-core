@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.212.0 — 2026-10-29
+
+- **Emails in the product's clothes, and one invitation email for every module** (Martin: the
+  email of a list shared with you said only that, in plain text, with no Cronum Work, no logo and
+  nothing about what it is; Projects sent none). New `mail-layout.js`: one HTML layout for every
+  message the suite sends —the product's icon and name over a cream sheet, a big heading ending in
+  the yolk dot, a clear button, small print, a line on what the product is—, made of tables and
+  inline styles so Gmail, Outlook (its button in VML) and Apple Mail read it alike, narrower on a
+  phone and dark in dark mode; every text escaped, only http(s) links and images, no hidden text,
+  and the plain-text part saying the same. New `share-mail.js`, `suite.shareMail({ to, actor, kind,
+  name, icon?, permission?, role?, url? })`: a list, a notebook, a group of notebooks, a note or a
+  place in a project offered to someone, in their language (texts `mail.share.*` in the five), with
+  the module over the heading in its colour and in a card with its icon, and the button "View and
+  accept" to the module. In a host it is signed by the host (Cronum Work) and goes to the module's
+  address. The account's own messages (confirming an email, a new password, the admin's
+  invitation, a deletion) go in the same layout, their link as the button (`mail.*.button`).
+  New in suite.config.js: `app.mail` — `icon` (a PNG on the app; `/icons/apple-touch-180.png` by
+  default), `colorOnDark`, `signature` and `about` by language — checked on start.
+- **An invitation always comes by email, and by push too** (Martin: whoever is invited in any
+  module should get the email besides the notice). `sharing.js` sent the push alone to whoever had
+  a device that takes it, and the email only to whoever had none; now the email goes to everyone
+  and the push as well where it reaches, still once a day per pair. One that fails leaves the other.
+
 ## 0.211.0 — 2026-10-29
 
 - **A login shared with other apps goes with the account only when nobody needs it elsewhere**
