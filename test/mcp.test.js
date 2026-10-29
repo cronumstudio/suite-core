@@ -172,7 +172,14 @@ test('clientLabel: the known assistants by their names, others by what they say,
   assert.equal(clientLabel({ name: 'claude-ai', version: '0.1.0' }), 'Claude');
   assert.equal(clientLabel({ name: 'openai-mcp' }), 'ChatGPT');
   assert.equal(clientLabel({ name: 'Visual Studio Code' }), 'VS Code');
-  assert.equal(clientLabel({ name: 'x'.repeat(90) }).length, 40);
+  assert.equal(clientLabel({ name: 'Anthropic/ClaudeAI' }), 'Claude', 'claude.ai, as it names itself');
+  assert.equal(clientLabel({ name: 'Claude Code' }), 'Claude Code');
+  assert.equal(clientLabel({ name: 'Acme Corp/Helper Agent' }), 'Helper Agent', 'the last part of a name');
+  assert.equal(clientLabel({ name: 'x'.repeat(90) }).length, 24);
+  const session = (label) => `00000000-0000-0000-0000-000000000000.${Buffer.from(label).toString('base64url')}`;
+  assert.equal(clientOfSession(session('AnthropicClaudeAI')), 'Claude', 'a label of an earlier version, named again');
+  assert.equal(clientOfSession(session('y'.repeat(40))), 'y'.repeat(24));
+  assert.equal(clientOfSession(session('<script>')), null);
   assert.equal(clientLabel({}), null);
   assert.equal(clientLabel(null), null);
   assert.equal(clientOfSession(null), null);
