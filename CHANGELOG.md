@@ -3,6 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.210.1 — 2026-10-29
+
+- **On a phone, a task's row keeps its swipe and every module swipes to the next** (Martin, #47
+  in his test list: swiping a task deleted it and brought the next module in too; from Projects,
+  Next or Notes the swipe did nothing). The swipe of Cronum Work's windows (`windows.js`) now gives
+  way to whatever has a sideways gesture of its own and says so with `data-own-swipe` (Tasks marks
+  its rows from 1.124.1). And once a finger goes more across than down it keeps the touch's moves
+  from the browser: in a module's list (a scroller) the browser took the sideways pan for itself
+  whatever the desk's `touch-action` said, and cancelled the swipe; only Tasks, whose lists say
+  `pan-y`, swiped. Up and down still scrolls, and what slides sideways itself still does.
+- **Inviting an email answers the same whether it has an account or not, also the second time**
+  (#693). Offered again before it was accepted, an address with an account answered `invited:
+  false` and one without `true`, and only the second kind ever ran into the hourly limit. Now an
+  offer by email not yet accepted is `invited` and counted each time, as an address without an
+  account is; and one's people (`peopleOf`, the share dialog's chips) name someone known only
+  by offers not yet accepted by the address it went to, not by the account's name. Tasks' list
+  shows its pending shares the same way from 1.124.1.
+- **«Every tool from the start» stays on** (Settings › Your AI in a host). The switch sent its
+  `PUT` to the module's base (`/tasks/api/me/ai-tools`), which answered 404, and went back; it
+  goes to the host's own route at the site's root now. The kit's client has `api.root.put` and
+  `api.root.patch` beside `get`, `post` and `delete`.
+- **Escape closes only the dialog over Settings**, not Settings with it: the key reached Settings
+  before the browser closed the dialog. Settings close with Escape only when nothing is over them.
+- **An account's Extras in /admin no longer show "null"** where there was no history (or nothing
+  to add): those parts are left out, as the rest of the page does.
+
 ## 0.210.0 — 2026-10-29
 
 - **A Save in an account's dialog in /admin says it saved** (Martin: the changes were kept, but

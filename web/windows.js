@@ -29,8 +29,11 @@
  *   shown, moved, another focused, a phone's screen) restores it first.
  * - Phones (< 768 px): one window at a time filling the desk, a bar of tabs at the bottom
  *   (`.cw-tabs`, one per module) and a sideways swipe to the module beside it among the mounted
- *   ones, unless it began on something that slides sideways itself (Next's line, the Gantt); the
- *   desk only pans vertically (kit: windows.css), so the page never scrolls sideways.
+ *   ones, unless it began on something that slides sideways itself (Next's line, the Gantt) or
+ *   on something with a sideways gesture of its own that says so with `data-own-swipe` (Tasks'
+ *   rows: left deletes, right stars). The desk only pans vertically (kit: windows.css), so the
+ *   page never scrolls sideways, and once a finger goes sideways the swipe keeps its moves from
+ *   the browser, in any module's list.
  * - A window out of view is `hidden` and `inert` and its module paused (`onPause(module, true,
  *   { hidden: true })`); at most four stay mounted, and beyond that the one used least recently is
  *   given back (`onEvict(module)`: the shell unmounts it and removes its window).
@@ -86,6 +89,9 @@ const SWIPE_ARM = 10;       // pixels before it is a swipe or a scroll
 const SWIPE_HOLD_MS = 350;  // held still that long first, it is a finger picking a row up (drag.js)
 const SWIPE_EDGE = 32;      // the screen's edges are the module's drawer's and the system's (shell.js)
 const SWIPE_FLICK = 0.5;    // px/ms: a quick flick is enough, whatever its length
+const SWIPE_TAKE = 3;       // pixels, more across than down, before the swipe keeps the finger from the browser
+/** What has a sideways gesture of its own (Tasks' rows): a finger that starts there is never the windows' swipe. */
+export const OWN_SWIPE = '[data-own-swipe]';
 
 // Inside a head these keep their own job.
 const CONTROLS = 'button, a, input, select, textarea, label, [contenteditable=""], [contenteditable="true"]';
@@ -100,6 +106,19 @@ export const screenClass = (width) => (width >= 1280 ? 'wide' : width >= 768 ? '
 export function fitColumns(width) {
   if (!Number.isFinite(width) || width <= 0) return MAX_COLS;
   return Math.max(1, Math.min(MAX_COLS, Math.floor((width + BAR_PX) / (MIN_PX + BAR_PX))));
+}
+
+/**
+ * Whether a touch's move is a phone's swipe between modules, to keep from the browser: once the
+ * swipe is one (`armed`), or while the finger, from (`x0`, `y0`), has gone more across than up and
+ * down. Read from the touch itself, not from the pointer's move a browser may hand out after it.
+ * Up and down stays the module's scroll.
+ */
+export function swipeHolds(touch, { x0, y0, armed = false }) {
+  if (armed) return true;
+  const dx = touch.clientX - x0;
+  const dy = touch.clientY - y0;
+  return Math.hypot(dx, dy) >= SWIPE_TAKE && Math.abs(dx) >= Math.abs(dy) * 1.2;
 }
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
@@ -1207,6 +1226,8 @@ export function createWindows(desk, {
     const node = nodes.get(layout.focus);
     const target = ev.target;
     if (!node || !node.contains(target) || target.closest?.(EDITABLE) || target.closest?.('[data-drawer]')) return;
+    // Martin, #47: a swipe on a task's row deleted the task and brought the next module in too.
+    if (target.closest?.(OWN_SWIPE)) return;
     if (globalThis.document?.documentElement?.hasAttribute('data-kit-dragging')) return;
     if (ev.clientX < SWIPE_EDGE || ev.clientX > (win.innerWidth ?? Infinity) - SWIPE_EDGE) return;
     if (slidesSideways(target, node)) return;
@@ -1223,6 +1244,7 @@ export function createWindows(desk, {
     let dir = false;
     let ends = { next: null, previous: null };
     const forward = (dx) => (dx < 0) !== dir;   // a finger going left brings the next tab (right to left, the other way)
+    const holds = (touch) => swipeHolds(touch, { x0, y0, armed });
     const paint = () => {
       frame = 0;
       const dx = x - x0;
@@ -1272,10 +1294,20 @@ export function createWindows(desk, {
     desk.addEventListener('pointermove', move, on);
     desk.addEventListener('pointerup', (e) => { if (e.pointerId === ev.pointerId) end(true); }, on);
     desk.addEventListener('pointercancel', (e) => { if (e.pointerId === ev.pointerId) end(false); }, on);
-    gesture = { kind: 'swipe', cancel: () => end(false) };
+    gesture = { kind: 'swipe', cancel: () => end(false), holds };
   }
 
   /* ---------------------------------- listening ---------------------------------- */
+
+  // A sideways finger in a module's list was the browser's: a scroller lets it pan every way again,
+  // whatever the desk's `touch-action` says, and it took the gesture (pointercancel) before the
+  // swipe could, so only Tasks, whose lists say `pan-y`, swiped (Martin, #47). The swipe keeps the
+  // touch's moves from it instead, as the frame keeps the screen's edges (shell.js); the frame
+  // already hears every touchmove that way, so nothing scrolls later than it did.
+  desk.addEventListener('touchmove', (ev) => {
+    if (gesture?.kind !== 'swipe' || ev.touches?.length !== 1 || !gesture.holds(ev.touches[0])) return;
+    if (ev.cancelable !== false) ev.preventDefault();
+  }, { passive: false, signal });
 
   // Whatever is touched or reached with the keyboard inside a window gives it the focus.
   desk.addEventListener('pointerdown', (ev) => {

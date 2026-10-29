@@ -69,6 +69,8 @@ test('Users: the default plan says it is the default, a gift for good and why, a
   for (let turn = 0; turn < 20; turn++) await settle();
   const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
   assert.ok(dialog, 'the account opens');
+  // Its extras with no history and nothing in force: what is left out isn't written as "null".
+  assert.doesNotMatch(dialog.textContent, /null/);
   assert.match(dialog.textContent, new RegExp(t('admin.users.planIsDefault', { plan: 'Pro' }).replace(/[()]/g, '\\$&')));
   const reasonIn = (box) => {
     const label = box.find('label').find((node) => node.textContent === t('admin.users.planNote'));
