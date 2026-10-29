@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.210.2 — 2026-10-29
+
+- **An assistant is named in a few letters: «vía Claude», not «vía AnthropicClaudeAI»** (Martin,
+  testing 0.207.0). Claude's web and desktop apps call themselves `Anthropic/ClaudeAI`, which the
+  list of known assistants didn't have, so their label was the name cleaned of its signs. The
+  known names are compared now without case, spaces or signs (`Anthropic/ClaudeAI`, `claude-ai`
+  and `Claude AI` are «Claude»; `claude-code` and `Claude Code` «Claude Code»…); an unknown one is
+  its title or the last part of its name, in 24 letters at most (it was 40). A session opened
+  before this version keeps its id and is named again from it, so the next call is already
+  «Claude»; what was written before keeps the name it got.
+
 ## 0.210.1 — 2026-10-29
 
 - **On a phone, a task's row keeps its swipe and every module swipes to the next** (Martin, #47

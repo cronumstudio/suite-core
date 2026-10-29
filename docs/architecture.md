@@ -1948,8 +1948,10 @@ What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0
 
 Every MCP server (mcp.js) hands its tools the assistant a call comes from as `principal.via`
 («Claude Code», «ChatGPT», «Codex»…): what its client said of itself in `initialize`
-(`clientInfo`, `clientLabel`), carried in the session's id (`<uuid>.<label in base64url>`) so a
-deployment doesn't forget it while the client goes on with the same session. It names the
+(`clientInfo`, `clientLabel`), a known assistant by its short name (`Anthropic/ClaudeAI` is
+«Claude») and any other in 24 letters at most, carried in the session's id (`<uuid>.<label in
+base64url>`) so a deployment doesn't forget it while the client goes on with the same session; a
+label of an earlier version is named again as this one would. It names the
 assistant for whoever reads it and proves nothing; without a session there is none. A module may
 write it next to who did something (Tasks: created and changed by).
 

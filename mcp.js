@@ -289,30 +289,40 @@ export function weeklyLimitText({ plan_name: planName, limit, more }, appName) {
 
 /**
  * The assistants people know, by the name their client gives itself when it connects
- * (`clientInfo.name` of `initialize`): Claude's apps say `claude-ai`, ChatGPT `openai-mcp`.
+ * (`clientInfo.name` of `initialize`): Claude's apps say `claude-ai` or `Anthropic/ClaudeAI`,
+ * ChatGPT `openai-mcp`. Compared without case, spaces or signs.
  */
 const CLIENT_NAMES = new Map([
-  ['claude-ai', 'Claude'], ['claude-code', 'Claude Code'], ['openai-mcp', 'ChatGPT'],
-  ['codex-mcp-client', 'Codex'], ['cursor-vscode', 'Cursor'], ['gemini-cli-mcp-client', 'Gemini CLI'],
-  ['visual studio code', 'VS Code'],
+  ['claudeai', 'Claude'], ['anthropicclaudeai', 'Claude'], ['anthropicclaude', 'Claude'], ['claude', 'Claude'],
+  ['claudecode', 'Claude Code'], ['openaimcp', 'ChatGPT'], ['chatgpt', 'ChatGPT'],
+  ['codexmcpclient', 'Codex'], ['codex', 'Codex'], ['cursorvscode', 'Cursor'], ['cursor', 'Cursor'],
+  ['geminiclimcpclient', 'Gemini CLI'], ['visualstudiocode', 'VS Code'],
 ]);
-const CLIENT_MAX = 40;
-const clientText = (value) => String(value ?? '').replace(/[^\p{L}\p{N} .()+_-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, CLIENT_MAX).trim();
+const CLIENT_MAX = 24;
+const LABEL_MAX = 64;
+const CLIENT_SIGNS = /[^\p{L}\p{N} .()+_-]/gu;
+const clientKey = (value) => String(value ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const clientText = (value, max = CLIENT_MAX) => String(value ?? '').replace(CLIENT_SIGNS, '').replace(/\s+/g, ' ').trim().slice(0, max).trim();
 
 /**
- * The assistant a client is, as people call it: one of the known ones, else its title or its
- * name, cleaned to a short line. It is what the client says of itself, so it names the
- * assistant for whoever reads a log; it proves nothing. null for a client that says nothing.
+ * The assistant a client is, as people call it, in a few letters: one of the known ones, else
+ * its title or the last part of its name ("Acme/Agent" is "Agent"), cleaned to a short line. It
+ * is what the client says of itself, so it names the assistant for whoever reads a log; it
+ * proves nothing. null for a client that says nothing.
  */
 export function clientLabel(info) {
-  const name = clientText(info?.name);
-  return CLIENT_NAMES.get(name.toLowerCase()) || clientText(info?.title) || name || null;
+  const raw = String(info?.name ?? '');
+  const name = clientText(raw.slice(raw.lastIndexOf('/') + 1));
+  return CLIENT_NAMES.get(clientKey(raw)) || CLIENT_NAMES.get(clientKey(name))
+    || clientText(info?.title) || name || clientText(raw) || null;
 }
 
 /**
  * A session's id carries its client (`<uuid>.<label in base64url>`): the server keeps no
  * sessions, and a deployment would forget a map of them while the client goes on sending the
  * same id. The client of a session, or null for an id that carries none or isn't one of ours.
+ * A label written by an earlier version is named again as this one would ("AnthropicClaudeAI"
+ * is "Claude"), so a session open across a deployment changes names with it.
  */
 const sessionIdFor = (client) => (client
   ? `${crypto.randomUUID()}.${Buffer.from(client).toString('base64url')}` : crypto.randomUUID());
@@ -321,7 +331,7 @@ export function clientOfSession(id) {
   const dot = value.lastIndexOf('.');
   if (dot < 0 || value.length > 200) return null;
   const label = Buffer.from(value.slice(dot + 1), 'base64url').toString('utf8');
-  return label && clientText(label) === label ? label : null;
+  return label && clientText(label, LABEL_MAX) === label ? clientLabel({ name: label }) : null;
 }
 
 /**
