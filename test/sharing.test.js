@@ -223,11 +223,11 @@ test('the brake: new offers and unknown addresses count, then 429; one notice pe
   assert.equal(own.notice(2, 1), true, 'either way round');
 });
 
-test('the notice goes by push to whoever has a device that takes it, else by email', () => {
+test('the notice goes by email to everyone, and by push too to whoever has a device that takes it', () => {
   const { sharing, notices } = setup({ hasPush: (userId) => userId === 3 });
   sharing.share('board', 1, 10, { email: 'ben@example.com' });
   sharing.share('board', 1, 10, { email: 'cris@example.com', permission: 'view' });
-  assert.deepEqual(notices.map((n) => n[0] + n[4]), ['email2', 'push3']);
+  assert.deepEqual(notices.map((n) => n[0] + n[4]), ['email2', 'email3', 'push3']);
 
   const fromPush = setup({ hasPush: undefined });
   const pushService = { subscriptionsOf: (ids) => (ids[0] === 2 ? [{ endpoint: 'x' }] : []) };
@@ -238,7 +238,15 @@ test('the notice goes by push to whoever has a device that takes it, else by ema
   });
   s.share('board', 1, 10, { email: 'ben@example.com' });
   s.share('board', 1, 10, { email: 'cris@example.com' });
-  assert.deepEqual(told, ['push2', 'email3']);
+  assert.deepEqual(told, ['email2', 'push2', 'email3']);
+
+  const halfDown = [];
+  const half = setup({
+    hasPush: () => true,
+    notify: { email: () => { throw new Error('down'); }, push: (n) => halfDown.push(`push${n.targetId}`) },
+  });
+  half.sharing.share('board', 1, 10, { email: 'ben@example.com' });
+  assert.deepEqual(halfDown, ['push2'], 'an email that fails leaves the push');
 
   const failing = setup({ notify: async () => { throw new Error('down'); } });
   assert.equal(failing.sharing.share('board', 1, 10, { email: 'ben@example.com' }).invited, true, 'a notice that fails fails nothing else');

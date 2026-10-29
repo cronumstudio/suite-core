@@ -21,6 +21,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   invitation, a deletion) go in the same layout, their link as the button (`mail.*.button`).
   New in suite.config.js: `app.mail` — `icon` (a PNG on the app; `/icons/apple-touch-180.png` by
   default), `colorOnDark`, `signature` and `about` by language — checked on start.
+- **An invitation always comes by email, and by push too** (Martin: whoever is invited in any
+  module should get the email besides the notice). `sharing.js` sent the push alone to whoever had
+  a device that takes it, and the email only to whoever had none; now the email goes to everyone
+  and the push as well where it reaches, still once a day per pair. One that fails leaves the other.
 
 ## 0.211.0 — 2026-10-29
 
