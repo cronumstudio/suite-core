@@ -1716,6 +1716,15 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
   `deleteAtProviders`.
+  `accounts.sharedIdentity` (v0.211.0) is for WorkOS users shared by several apps, each of which
+  notes itself on them (`app_<id>`: its name, in the user's metadata) when someone signs in, and
+  once at start for whoever came before. Deleting one's account asks whether the login goes too
+  only of someone another app has noted (`GET /api/me/deletion` names those apps; the request's
+  `identity`, true or false, is kept as `users.delete_identity`, all or none); nobody else is
+  asked (`auto`), and their login goes with the account unless, by then, another app has noted
+  them. The admin's deletion keeps the login unless asked (`?identity=1`; `GET
+  /api/admin/users/:id/other-apps` says who else they use). A login that stays no longer names
+  this app. One or the other with `deleteAtProviders`, which always deletes it.
   `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's `onDeletionRequested`,
   `onDeletionCancelled`) tell others of the request and of its taking back, awaited after it; a
   hook that fails is logged; a host's modules get them too. With `billing.stopOnOrganizationDeleted`,

@@ -576,11 +576,12 @@ export function formDialog({
 
 /**
  * Asks before something that can't be undone. Resolves true or false.
- * `detail` is a second, quieter line; `width` and `parent` as openDialog's.
+ * `detail` is a second, quieter line; `more`, a node after it (a choice that
+ * goes with the answer); `width` and `parent` as openDialog's.
  */
 export function confirmDialog(text, {
   title = t('kit.areYouSure'), confirm = t('kit.confirm'), cancel = t('kit.cancel'), danger = true,
-  detail = null, width = null, parent = null,
+  detail = null, more = null, width = null, parent = null,
 } = {}) {
   return new Promise((resolve) => {
     let answer = false;
@@ -588,7 +589,7 @@ export function confirmDialog(text, {
       title,
       width,
       parent,
-      content: [el('p', { text }), detail ? el('p', { class: 'kit-hint', text: detail }) : null],
+      content: [el('p', { text }), detail ? el('p', { class: 'kit-hint', text: detail }) : null, more],
       actions: [
         { label: cancel },
         { label: confirm, primary: !danger, danger, onClick: () => { answer = true; } },

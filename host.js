@@ -1564,6 +1564,11 @@ export async function createHost({
       timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
       timers.push(setInterval(sweepAccounts, HOUR).unref());
     }
+    if (suite.workos?.markAll) {
+      // Who signed in before the host noted itself on their WorkOS user (accounts.sharedIdentity): told once.
+      const markAll = () => suite.workos.markAll().catch(failed('noting this app at WorkOS'));
+      timers.push(setTimeout(markAll, MINUTE_BEFORE_SWEEP).unref());
+    }
     if (suite.workosResets) {
       // Passwords reset on AuthKit's own page, once for every module (workos-events.js). Every minute.
       const resets = () => suite.workosResets.poll();

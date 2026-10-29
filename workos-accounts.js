@@ -110,6 +110,10 @@ export function workosUsers(accounts, { database = null } = {}) {
     create: ({ username, displayName, role, email, workosId }) =>
       accounts.create({ username, displayName, role, identity: { provider: PROVIDER, subject: workosId, email } }),
     signedIn: (user, account, method = null) => accounts.usedIdentity(PROVIDER, account.id, { method: signInMethod(method) }),
+    // Whether WorkOS was told this app is the person's (createWorkosAccounts' `mark`).
+    markedAt: (workosId) => accounts.markedIdentity(PROVIDER, workosId),
+    marked: (workosId, at) => accounts.markedIdentity(PROVIDER, workosId, at),
+    unmarked: (limit) => accounts.unmarkedIdentities(PROVIDER, limit),
     /** How they last signed in through WorkOS (signInMethod), or null when it isn't known yet. */
     methodOf: (userId) => accounts.identitiesOf(userId).find((i) => i.provider === PROVIDER)?.method ?? null,
   };
@@ -224,13 +228,18 @@ function freeUsername(seed, taken) {
  * @param {string} [options.stateCookie]   name of the cookie holding state and PKCE verifier
  * @param {(user) => string} [options.pendingDeletion]   the ticket that offers back an account
  *   its owner asked to delete (account-deletion.js); without it, it is just disabled
+ * @param {object} [options.mark]   where the WorkOS users are shared with other apps
+ *   (`accounts.sharedIdentity`): `{ key, name }`, this app's key in a user's metadata (`app_<id>`)
+ *   and its name there. Signing in here sets it, once (`users.marked`), and `markAll` sets it for
+ *   whoever signed in before; `otherApps(userId)` reads the names the others set, and
+ *   `unmark(userId)` takes this app's off when the account here goes but the user there stays.
  * @param {boolean} [options.mcp]   false when the app has no MCP: the OAuth metadata for AI
  *   clients isn't served, so its paths answer the app's JSON 404 and no client is sent to AuthKit
  *   for a connector that isn't there. Sign-in on the web is the same either way.
  */
 export function createWorkosAccounts({
   baseUrl, appName, workos, adminEmail = '', users, sessions, connections = null,
-  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, log = console.log,
+  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, mark = null, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
@@ -346,7 +355,72 @@ export function createWorkosAccounts({
     // An account the admin disabled is no one, whatever AuthKit says.
     if (!user || user.disabled_at) return null;
     if (connections && data.client_id) connections.used(data.sub, data.client_id, data.sid || null);
+    markOnce(data.sub);
     return user;
+  }
+
+  /* ----------------- the apps that share the WorkOS users ----------------- */
+
+  const marking = new Set();
+
+  /** Tells WorkOS this app is the person's. → false if the user is gone there. */
+  async function markUser(workosId) {
+    const done = await workos.setMetadata(workosId, { [mark.key]: mark.name });
+    if (done) users.marked(workosId, new Date().toISOString());
+    return done;
+  }
+
+  /** The first time someone comes here (or since it was taken off), told in the background: never a reason to fail. */
+  function markOnce(workosId) {
+    if (!mark || !users.marked || marking.has(workosId) || users.markedAt(workosId)) return;
+    marking.add(workosId);
+    markUser(workosId)
+      .catch((err) => log(`[workos] this app could not be noted on a user: ${err.message}`))
+      .finally(() => marking.delete(workosId));
+  }
+
+  /**
+   * Whoever has an account here and WorkOS wasn't told of yet (signed in before this app noted
+   * it), a hundred at a time until none is left. WorkOS not answering stops it until the next time.
+   * → how many were noted.
+   */
+  async function markAll() {
+    if (!mark || !users.unmarked) return 0;
+    let done = 0;
+    for (;;) {
+      const batch = users.unmarked(100).filter((id) => !marking.has(id));
+      if (!batch.length) return done;
+      for (const workosId of batch) {
+        // Gone at WorkOS: noted all the same, nothing more to tell it.
+        if (!(await markUser(workosId))) users.marked(workosId, new Date().toISOString());
+        done += 1;
+      }
+    }
+  }
+
+  /**
+   * The other apps that share this person's WorkOS user, by the names they noted on it
+   * (`['Focus']`), or [] with none, or no WorkOS user.
+   * @throws {WorkosUnavailable}
+   */
+  async function otherApps(userId) {
+    const workosId = users.workosIdOf?.(userId);
+    if (!workosId) return [];
+    const account = await workos.account(workosId);
+    return Object.entries(account?.metadata || {})
+      .filter(([key, value]) => key.startsWith('app_') && key !== mark.key && value)
+      .map(([, value]) => String(value));
+  }
+
+  /** The account here goes and their WorkOS user stays: this app is no longer theirs there. Never a reason to fail. */
+  async function unmark(userId) {
+    const workosId = users.workosIdOf?.(userId);
+    if (!workosId) return;
+    try {
+      await workos.setMetadata(workosId, { [mark.key]: null });
+    } catch (err) {
+      log(`[workos] this app could not be taken off user #${userId} at WorkOS: ${err.message}`);
+    }
   }
 
   /**
@@ -482,6 +556,7 @@ export function createWorkosAccounts({
           return true;
         }
         users.signedIn?.(user, account, method);
+        markOnce(account.id);
         sessions.open(res, user.id, { workosSessionId: sessionId, req });
         redirect(res, localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/'));
       } catch (err) {
@@ -532,6 +607,7 @@ export function createWorkosAccounts({
     resourceMetadata: (resource, name) => workos.resourceMetadata({ resource, name }),
     authorizationServerMetadata: () => workos.authorizationServerMetadata(),
     ...(users.workosIdOf ? { connectionsOf, revokeConnection, revokeAllConnections, deleteIdentity } : {}),
+    ...(mark && users.workosIdOf ? { markAll, otherApps, unmark } : {}),
     signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,
   };
 }

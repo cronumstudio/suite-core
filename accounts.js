@@ -81,6 +81,17 @@ export function identityMethodSchema(d) {
   ensureColumn(d, 'user_identities', 'method', 'method TEXT');
 }
 
+/**
+ * Where the identity provider's account is shared with other apps (`accounts.sharedIdentity`):
+ * whether an account its owner asked to delete takes its login there too (`users.delete_identity`:
+ * all, auto or none, account-deletion.js), and when this app last told the provider the person
+ * uses it (`user_identities.marked_at`, workos-accounts.js).
+ */
+export function identityDeletionSchema(d) {
+  ensureColumn(d, 'users', 'delete_identity', 'delete_identity TEXT');
+  ensureColumn(d, 'user_identities', 'marked_at', 'marked_at TEXT');
+}
+
 export function identitiesSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS user_identities (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,6 +291,29 @@ export function createAccounts({
   // How someone last signed in through a provider (migration 27): a database from before has no column.
   let methods = false;
   const hasMethod = () => (methods ||= database.columnsOf('user_identities').includes('method'));
+  let choices = null;
+  const hasChoice = () => (choices ||= database.columnsOf('users').includes('delete_identity'));
+  let marks = null;
+  const hasMarks = () => (marks ||= database.columnsOf('user_identities').includes('marked_at'));
+
+  /**
+   * The provider was told that this app is the person's (`at`), or told it no longer is (null):
+   * workos-accounts.js. `markedIdentity(provider, subject)` alone reads it.
+   */
+  function markedIdentity(provider, subject, ...at) {
+    if (!hasMarks()) return null;
+    if (!at.length) {
+      return database.get('SELECT marked_at FROM user_identities WHERE provider = ? AND subject = ?', provider, String(subject))?.marked_at ?? null;
+    }
+    database.run('UPDATE user_identities SET marked_at = ? WHERE provider = ? AND subject = ?', at[0], provider, String(subject));
+    return at[0];
+  }
+
+  /** The provider's subjects of accounts here the provider wasn't told of yet (oldest first, `limit` of them). */
+  const unmarkedIdentities = (provider, limit = 100) => (hasMarks()
+    ? database.all(`SELECT i.subject FROM user_identities i JOIN users u ON u.id = i.user_id
+      WHERE i.provider = ? AND i.marked_at IS NULL AND u.delete_after IS NULL ORDER BY i.id LIMIT ?`, provider, limit).map((r) => r.subject)
+    : []);
 
   const identitiesOf = (userId) => database.all(`SELECT provider, subject, email, created_at, last_used_at${hasMethod() ? ', method' : ''}
     FROM user_identities WHERE user_id = ? ORDER BY provider`, userId);
@@ -523,7 +557,7 @@ export function createAccounts({
    * out, as when the admin disables it) and deleted for good once `days` have
    * passed. Asked again, it keeps the first date. Never the last administrator.
    */
-  function requestDeletion(id, { days = 30 } = {}) {
+  function requestDeletion(id, { days = 30, identity = null } = {}) {
     const user = mustExist(id);
     if (user.delete_after) return user;
     if (user.disabled_at) throw conflict('account_disabled');
@@ -532,6 +566,8 @@ export function createAccounts({
     database.tx(() => {
       database.run('UPDATE users SET disabled_at = ?, delete_after = ? WHERE id = ?',
         iso(now), iso(now + days * 24 * 60 * 60 * 1000), id);
+      // Whether its login at the provider goes too, where it is shared (account-deletion.js).
+      if (identity && hasChoice()) database.run('UPDATE users SET delete_identity = ? WHERE id = ?', identity, id);
       shutOut(id);
     });
     changed(id);
@@ -540,7 +576,7 @@ export function createAccounts({
 
   /** The owner takes the account back before it goes: enabled again, as it was. False if it wasn't waiting. */
   function cancelDeletion(id) {
-    const done = database.run(`UPDATE users SET disabled_at = NULL, delete_after = NULL
+    const done = database.run(`UPDATE users SET disabled_at = NULL, delete_after = NULL${hasChoice() ? ', delete_identity = NULL' : ''}
       WHERE id = ? AND delete_after IS NOT NULL`, id).changes > 0;
     if (done) changed(id);
     return done;
@@ -554,7 +590,7 @@ export function createAccounts({
 
   return {
     create, update, setPassword, checkPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
-    requestDeletion, cancelDeletion, dueForDeletion,
+    requestDeletion, cancelDeletion, dueForDeletion, markedIdentity, unmarkedIdentities,
     byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
     linkedByEmail, relinkIdentity,
     setVerifiedEmail, fromIdentity, freeUsername,

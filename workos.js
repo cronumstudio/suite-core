@@ -167,6 +167,22 @@ export function createWorkosClient({
     throw new Error(`WorkOS did not delete the user (${status})`);
   }
 
+  /**
+   * Some of a WorkOS user's metadata: the keys given change, the others stay, and a key set to
+   * null goes (WorkOS's updates of metadata are partial). False if the user is gone (404).
+   * @throws {WorkosUnavailable}
+   */
+  async function setMetadata(id, metadata) {
+    const { ok, status } = await request(`${API_URL}/user_management/users/${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metadata }),
+    });
+    if (ok) return true;
+    if (status === 404) return false;
+    if (status >= 500 || status === 429) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    throw new Error(`WorkOS did not change the user's metadata (${status})`);
+  }
+
   /** A WorkOS user by id (`user_…`), or null. */
   async function account(id) {
     const { ok, status, body } = await request(
@@ -455,7 +471,7 @@ export function createWorkosClient({
 
   return {
     authkitDomain: AUTHKIT,
-    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, account, knows,
+    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, setMetadata, account, knows,
     authorizedApplications, revokeApplication, listEvents, verifyToken, resourceMetadata, authorizationServerMetadata,
     checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor,
   };

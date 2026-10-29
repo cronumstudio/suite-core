@@ -491,6 +491,53 @@ test('deleting one’s account in the app: the app told first, then the site’s
   storage.delete('suite.deletion');
 });
 
+test('a login shared with other apps: asked whether it goes too only of someone who uses one, and the answer sent', async () => {
+  // What the dialog showed and sent, kept apart from leaving()'s own answer.
+  let last = null;
+  const capture = (others, tick) => leaving(null, async () => {
+    let sent = null;
+    const view = await settingsPage({}, {
+      config: { app: { id: 'demo', modules: {} }, provider: 'workos', deletion_days: 30, deletion_identity: true },
+      server: {
+        'GET /api/me/deletion': { data: { other_apps: others } },
+        'POST /api/me/deletion': (body) => { sent = body; return { data: { ok: true, delete_after: '2026-11-28T10:00:00.000Z' } }; },
+      },
+      start: 'data',
+    });
+    click(view.buttons(t('kit.data.deleteButton'))[0]);
+    await settle();
+    // The newest: one an earlier test left open may still be in the page.
+    const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open).at(-1);
+    const box = dialog.find('input').find((node) => node.getAttribute('type') === 'checkbox') || null;
+    const said = dialog.all().map(textOf).join(' ');
+    if (box && tick) box.checked = true;
+    const word = dialog.find('input').find((node) => node.getAttribute('type') !== 'checkbox');
+    word.value = t('kit.data.confirmWord');
+    word.dispatch('input');
+    click(dialog.all().find((node) => node.className.split(' ').includes('kit-btn--danger')));
+    await settle();
+    view.settings.close();
+    storage.delete('suite.deletion');
+    last = { box: Boolean(box), said, sent };
+  });
+
+  await capture([], false);
+  assert.equal(last.box, false, 'only this app: nothing to ask');
+  assert.equal('identity' in last.sent, false, 'and the server decides (auto)');
+
+  await capture(['Focus'], false);
+  assert.equal(last.box, true);
+  assert.ok(last.said.includes(t('kit.data.identityUsed', { apps: 'Focus' })), 'it names the other app');
+  assert.equal(last.sent.identity, false, 'unticked: only this app goes');
+
+  await capture(['Focus', 'Tracker'], true);
+  assert.equal(last.sent.identity, true, 'ticked: the login goes too');
+
+  await capture(null, false);
+  assert.equal(last.box, true, 'the provider couldn’t say: asked all the same');
+  assert.ok(last.said.includes(t('kit.data.identityGoesUnknown')));
+});
+
 test('signing out in a browser takes its notices along: the server forgets where they come to, the browser keeps its subscription', async () => {
   const { signOut } = await import('../web/signin.js');
   let unsubscribed = 0;
