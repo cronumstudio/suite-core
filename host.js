@@ -1110,6 +1110,24 @@ export async function createHost({
       // Everyone's nearest cap for the admin's list, asked in batches: a fixed number of queries per module where it can.
       const peaksFor = (users) => peaksOf(users, { modules: joined, entitlements: suite.entitlements, log });
       if (config.modules.admin) registerUsageApi(api, { accounts: suite.accounts, usageFor, peaksFor });
+      // What each module's plans allow, for /admin › Plans under the host's own (/api/admin/plans
+      // is the host's catalog: its one MCP). The plans are the install's, the features each
+      // module's; what the host declares itself is the host's row, not again a module's.
+      if (config.modules.admin) {
+        api.get('/api/admin/plans/modules', (ctx) => {
+          if (!ctx.user) throw unauthorized();
+          if (ctx.user.role !== 'admin') throw forbidden('admin_only');
+          const modules = joined.map((m) => {
+            const { plans, features } = m.view.entitlements.describe();
+            const own = Object.fromEntries(Object.entries(features).filter(([key]) => !suite.entitlements?.knows?.(key)));
+            return {
+              mount: m.mount, name: m.config.app.name, features: own,
+              plans: plans.map((p) => ({ id: p.id, name: p.name, features: Object.fromEntries(Object.keys(own).map((key) => [key, p.features[key]])) })),
+            };
+          });
+          sendJson(ctx.res, 200, { modules: modules.filter((m) => Object.keys(m.features).length) });
+        });
+      }
       api.put('/api/me/modules', async (ctx) => {
         if (!ctx.user) throw unauthorized();
         const body = await readJson(ctx.req);

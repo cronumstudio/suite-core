@@ -114,6 +114,7 @@ export class FakeElement {
     this.remove();
   }
   appendChild(node) { this.append(node); return node; }
+  replaceChildren(...nodes) { this.textContent = ''; this.append(...nodes); }
   remove() {
     if (!this.parentNode) return;
     this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1);

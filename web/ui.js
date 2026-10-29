@@ -18,6 +18,22 @@ import { markOwned } from './mount.js';
 /* --------------------------------- notices -------------------------------- */
 
 /**
+ * The notices in the browser's top layer (a popover) while a dialog is open: a modal dialog is
+ * drawn over everything else, so what its Save said stayed under it (an account's in /admin).
+ * Shown again each time, to be over the dialog opened last. Without popovers, where it was.
+ */
+function onTop(box) {
+  if (typeof box.showPopover !== 'function') return;
+  // Once a popover, always shown as one: closed, it would hide the notices with it.
+  if (!box.hasAttribute('popover') && !document.querySelector('dialog[open]')) return;
+  box.setAttribute('popover', 'manual');
+  try {
+    if (box.matches(':popover-open')) box.hidePopover();
+    box.showPopover();
+  } catch { box.removeAttribute('popover'); }
+}
+
+/**
  * A notice for a few seconds; errors stay longer. `action` adds a button
  * ("Undo", "Retry") that runs and closes it. Returns a function that closes it.
  */
@@ -36,6 +52,7 @@ export function toast(text, { error = false, action = null, duration = null } = 
       onClick: () => { close(); action.onClick?.(); },
     }) : null);
   box.append(markOwned(note));
+  onTop(box);
   // An action needs time to be reached; an error, to be read.
   setTimeout(close, duration ?? (action ? 8000 : error ? 7000 : 3500));
   return close;
