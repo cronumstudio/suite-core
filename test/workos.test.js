@@ -128,9 +128,12 @@ const database = openDatabase({ path: ':memory:' });
 connectionsSchema(database);
 connectionConsentsSchema(database);
 const connections = workosConnections(database);
+// What a phone's connect page left for the callback (device-pages.js connectAfterSignIn): set by a test.
+let connectPending = null;
 accounts = createWorkosAccounts({
   baseUrl: base, appName: 'Test app', workos, adminEmail: 'ada@example.com', users, connections,
   sessions: { open: (res, userId, extra) => opened.push({ userId, ...extra }) },
+  afterSignIn: () => connectPending,
   stateCookie: 'test_auth', log: () => {},
 });
 
@@ -182,6 +185,12 @@ try {
   }
   const wrongState = await fetch(`${base}/auth/callback?code=x&state=nope`, { redirect: 'manual', headers: { Cookie: ada.cookie } });
   check('A state that doesn’t match opens nothing', /auth_error=failed/.test(wrongState.headers.get('location')));
+  connectPending = '/devices/connect?code_challenge=c&state=s';
+  check('A phone’s connect page waiting: straight back to it from the callback, not by `/`',
+    (await signIn('user_bob')).back.headers.get('location') === connectPending);
+  check('But a sign-in that began elsewhere goes back there',
+    (await signIn('user_bob', '/notes/')).back.headers.get('location') === '/notes/');
+  connectPending = null;
 
   console.log('\nMCP tokens');
   const now = Math.floor(Date.now() / 1000);

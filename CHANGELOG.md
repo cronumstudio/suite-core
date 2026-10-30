@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.216.0 — 2026-10-30
+
+- **A phone's first sign-in goes back to the app** (Martin, Cronum Work's app on Android: signing in
+  for the first time, the Custom Tab stayed on Work's home page; the second time, already signed
+  in, Allow went back to the app). The provider's callback (WorkOS and OIDC) always went to `/`,
+  where `devicePages.back()` found the connect cookie and sent the browser back to
+  `/devices/connect`; but `/` is the app's, and Work's service worker, which Chrome shares with the
+  Custom Tab, answered it from its copy when the server took longer than four seconds. Now the
+  callback, once the session is open, goes straight to the connect page with the cookie's request
+  and clears it: new `connectAfterSignIn({ config, sessions })` in `device-pages.js`, passed by
+  `createSuite` as the new `afterSignIn` option of `createWorkosAccounts` and `createOidcAccounts`
+  (`(req, res) => path | null`, asked only when the sign-in would land on `/`: one that began
+  elsewhere, with `return`, still goes there). `back()` on `/` stays for a callback that came there
+  all the same. The service worker leaves `/devices/connect` to the network (`SUITE_EXACT_NEVER`),
+  as it does `/devices/session`. The cookie now waits 30 minutes instead of 10 (`CONNECT_MS`): a
+  first sign-in may be a sign-up with an emailed code and a second step; it holds nothing secret,
+  and the page still asks for Allow.
+
 ## 0.215.0 — 2026-10-30
 
 - **An address without an account gets the invitation by email too** (Martin: "si se quiere

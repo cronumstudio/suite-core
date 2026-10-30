@@ -24,7 +24,8 @@
  *   (a proxy in front turned "network first" into hours of old code), but
  *   not forever: after four seconds with a weak signal the copy is served,
  *   and the network's answer still refreshes it for next time.
- * - Never cached: /api, /mcp, /auth, /oauth, /.well-known, /version, /health.
+ * - Never cached: /api, /mcp, /auth, /oauth, /.well-known, /version, /health,
+ *   /devices/session and /devices/connect.
  *   /version above all: served from a cache, the app would never learn that
  *   there is a new version, which is what it exists for.
  * - Pages: network first, with the cached shell offline. A page asked for
@@ -73,8 +74,9 @@ var SUITE_KIT_FILES = [
 
 var SUITE_NEVER = ['/api/', '/mcp', '/auth/', '/oauth/', '/.well-known/'];
 // `/devices/session` spends a one-time code and sets the session cookie (device-pages.js): never a
-// copy, nor a page in its place when the network is slow.
-var SUITE_EXACT_NEVER = ['/version', '/health', '/devices/session'];
+// copy, nor a page in its place when the network is slow. Nor `/devices/connect`, where the phone's
+// sign-in comes back: the home page in its place left the phone waiting.
+var SUITE_EXACT_NEVER = ['/version', '/health', '/devices/session', '/devices/connect'];
 var SUITE_WAIT_MS = 4000;
 /** Where a copy notes the hash of each file it holds (`hashes`): a dotfile, never a path the server has. */
 var SUITE_HASHES = '.suite-hashes';

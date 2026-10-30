@@ -37,7 +37,7 @@ import { createTokens } from './tokens.js';
 import {
   createDevices, registerDevicesApi, deviceActionOf, deviceActionsProblem,
 } from './devices.js';
-import { createDevicePages } from './device-pages.js';
+import { createDevicePages, connectAfterSignIn } from './device-pages.js';
 import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
@@ -336,6 +336,7 @@ export function createSuite({
     mark: config.accounts.sharedIdentity ? identityMark(config.app) : null,
     // Without an MCP, AI clients find no OAuth metadata to follow.
     mcp: config.modules.mcp,
+    afterSignIn: connectAfterSignIn({ config, sessions }),
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId: workosSessionId });
@@ -353,6 +354,7 @@ export function createSuite({
     secureCookies: install.secureCookies,
     stateCookie: `${config.app.id.replace(/-/g, '_')}_oidc`,
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
+    afterSignIn: connectAfterSignIn({ config, sessions }),
     sessions: {
       open: (res, userId, { idpSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId });

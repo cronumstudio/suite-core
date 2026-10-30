@@ -214,6 +214,66 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
   assert.match(signedIn, /@ada/, 'with a session, just the permission');
 });
 
+test('OIDC: a phone’s connect page that sent to the sign-in gets the browser straight back from the callback', async (t) => {
+  const { P, codes } = await startProvider(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-oidc-connect-'));
+  const BACK = 'com.example.work:/auth';
+  const suite = createSuite({
+    config: {
+      app: { id: 'demo', name: 'Demo' }, modules: { devices: true },
+      devices: { prefix: 'workdev_', redirectUris: [BACK], connectPage: true },
+    },
+    env: {
+      DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'oidc',
+      OIDC_ISSUER: `${P}/`, OIDC_CLIENT_ID: 'demo-client', OIDC_CLIENT_SECRET: 'demo-secret',
+    },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const ask = {
+    code_challenge: crypto.createHash('sha256').update('v'.repeat(43)).digest('base64url'), state: 'st-1',
+    redirect_uri: BACK, name: 'Ana’s phone', platform: 'android',
+  };
+  /** The connect page without a session, then the provider and its callback, with the cookies a browser would send. */
+  const connectAndSignIn = async (sub, { returnTo = null, connect = true } = {}) => {
+    let connectCookie = '';
+    if (connect) {
+      const page = await fetch(`${base}/devices/connect?${new URLSearchParams(ask)}`, { redirect: 'manual' });
+      assert.equal(page.headers.get('location'), '/auth/login');
+      connectCookie = page.headers.getSetCookie().find((c) => c.startsWith('demo_connect=')).split(';')[0];
+      assert.match(page.headers.getSetCookie().join(), /demo_connect=.+; Max-Age=1800;/, 'thirty minutes to sign in');
+    }
+    const out = await fetch(`${base}/auth/login${returnTo ? `?return=${encodeURIComponent(returnTo)}` : ''}`, { redirect: 'manual' });
+    const target = new URL(out.headers.get('location'));
+    const code = `c-${crypto.randomUUID()}`;
+    codes.set(code, {
+      sub, claims: { sub, email: `${sub}@example.com`, email_verified: true }, override: {}, signing: {},
+      nonce: target.searchParams.get('nonce'), challenge: target.searchParams.get('code_challenge'),
+      redirect: target.searchParams.get('redirect_uri'),
+    });
+    const cookie = [out.headers.get('set-cookie').split(';')[0], connectCookie].filter(Boolean).join('; ');
+    const back = await fetch(`${base}/auth/callback?code=${code}&state=${target.searchParams.get('state')}`,
+      { redirect: 'manual', headers: { Cookie: cookie } });
+    return { location: back.headers.get('location'), cookies: back.headers.getSetCookie() };
+  };
+
+  // Straight to the page with the request, never by `/`, where a service worker can answer instead.
+  const back = await connectAndSignIn('u-ana');
+  assert.match(back.location, /^\/devices\/connect\?code_challenge=/);
+  assert.deepEqual(Object.fromEntries(new URL(back.location, base).searchParams), ask);
+  assert.ok(back.cookies.some((c) => /^demo_connect=; Max-Age=0/.test(c)), 'the cookie cleared');
+  assert.ok(back.cookies.some((c) => c.startsWith('demo_sid=')), 'signed in');
+  // Without the cookie, `/` as always; a sign-in that began elsewhere goes back there, cookie or not.
+  assert.equal((await connectAndSignIn('u-ana', { connect: false })).location, '/');
+  const elsewhere = await connectAndSignIn('u-ana', { returnTo: '/oauth/authorize?x=1' });
+  assert.equal(elsewhere.location, '/oauth/authorize?x=1');
+  assert.ok(!elsewhere.cookies.some((c) => c.startsWith('demo_connect=')), 'the cookie left for later');
+});
+
 test('OIDC: a provider that doesn’t answer, and a configuration that is missing', async () => {
   // A port that was just free: nothing listens there any more.
   const gone = http.createServer();

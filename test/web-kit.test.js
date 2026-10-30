@@ -1069,6 +1069,9 @@ test('the service worker of an app on its own works as it always did', async () 
   assert.deepEqual(alone.deleted, ['tasks-v24'], 'the cache keeps its name; the old one goes');
   assert.equal(alone.answers('https://tasks.example/api/lists'), false);
   assert.equal(alone.answers('https://tasks.example/version'), false);
+  // Where a phone's sign-in comes back: the server's answer, never the home page in its place.
+  assert.equal(alone.answers('https://tasks.example/devices/connect?code_challenge=c', 'navigate'), false);
+  assert.equal(alone.answers('https://tasks.example/devices/session?code=c', 'navigate'), false);
   assert.equal(alone.answers('https://tasks.example/js/main.js'), true);
 });
 
