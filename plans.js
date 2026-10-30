@@ -31,7 +31,7 @@ export const COMMON_FEATURES = Object.freeze({
   'storage.mb': { type: 'limit', default: null, label: 'storage for photos and files (MB)' },
   assign: { type: 'flag', default: true, label: 'assigning work to other people' },
   publish: { type: 'flag', default: true, label: 'public read-only links' },
-  // A public page embedded in another site without the Cronum Work mark under it (Next's).
+  // A public page embedded in another site without the Cronum Work mark under it.
   'embed.unbranded': { type: 'flag', default: true, label: 'embedding without the Cronum Work mark' },
   templates: { type: 'flag', default: true, label: 'templates' },
   mcp: { type: 'flag', default: true, label: 'using the app from an assistant' },
@@ -52,7 +52,8 @@ const FREE = {
   'retention.days': 90,
   'storage.mb': 50,
   assign: false,
-  publish: false,
+  // A public page of a project, a note or a list (Next, Projects, Notes, Tasks): free, with the mark.
+  publish: true,
   'embed.unbranded': false,
   templates: false,
   mcp: true,

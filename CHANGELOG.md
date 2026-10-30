@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.219.0 — 2026-10-30
+
+- **Public read-only links are free** (Martin: Projects, Notes and Tasks get a public page of their
+  own, with its own link and the code to embed it, free like Next's). `publish` goes on in Free in
+  the cronum-work catalog; taking the Cronum Work mark off an embedded page (`embed.unbranded`)
+  stays Pro's.
+
 ## 0.218.0 — 2026-10-30
 
 - **Pages any site may embed** (Martin: a Next project's public page, in an `<iframe>` on someone's
