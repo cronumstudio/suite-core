@@ -83,7 +83,7 @@ test('the share email: in the language of whoever gets it, the module over the h
 test('the share email: every kind, to read or to edit, and a project with its role', () => {
   const send = createShareMail({ mailer: fakeMailer(), texts: createTexts(), brand: work, module: tasks, baseUrl: 'https://w.example.com/notes' });
   for (const lang of ['en', 'es', 'fr', 'de', 'it']) {
-    for (const kind of ['list', 'notebook', 'group', 'note', 'project']) {
+    for (const kind of ['list', 'notebook', 'group', 'note', 'project', 'plan']) {
       for (const permission of ['view', 'edit']) {
         const { subject, html, text } = send.compose({ to: person(lang), actor: 'Ana', kind, name: 'Plan', permission, role: 'Member' });
         for (const part of [subject, html, text]) assert.doesNotMatch(part, /mail\.share|\{\w+\}/, `${lang} ${kind}: ${part.slice(0, 80)}`);
@@ -97,6 +97,12 @@ test('the share email: every kind, to read or to edit, and a project with its ro
   assert.match(view.text, /view only/);
   const project = send.compose({ to: person('en'), actor: 'Ana', kind: 'project', name: 'Plan', role: 'Member' });
   assert.match(project.text, /Tasks project · Member/);
+  // A project of Next (its kind is `plan`, as `project` is a place in a team of Projects) is followed, to read or to log.
+  const plan = send.compose({ to: person('es'), actor: 'Ana', kind: 'plan', name: 'Lanzamiento', icon: '🚀', permission: 'view' });
+  assert.equal(plan.subject, 'Ana te ha invitado al proyecto «Lanzamiento»');
+  assert.match(plan.text, /para que sigas su avance: cada paso dado y el siguiente./);
+  assert.match(plan.text, /Proyecto de Tasks · solo lectura/);
+  assert.match(send.compose({ to: person('en'), actor: 'Ana', kind: 'plan', name: 'Launch' }).text, /follow its progress and log its steps/);
   assert.match(send.compose({ to: person('en'), actor: 'Ana', kind: 'note', name: '' }).subject, /“Untitled”/);
   assert.throws(() => send.compose({ to: person('en'), actor: 'Ana', kind: 'folder', name: 'x' }), /no kind/);
 });
