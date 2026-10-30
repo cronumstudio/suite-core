@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.220.0 — 2026-10-30
+## 0.222.0 — 2026-10-31
 
 Changes made without a signal, on leaving and on another account signing in (audit of 30/10:
 sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
