@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.213.0 — 2026-10-30
+
+- **The invitation email knows a project of Next** (Martin: "we must be able to invite people to
+  Next too"). `suite.shareMail` takes a new kind, `plan`: a Next project offered to follow, to
+  read (every step taken and the next one) or to log its steps too, with `mail.share.plan.*` in
+  the five languages. Its name is `plan` because `project` is already a place in a team of
+  Projects, given with a role.
+
 ## 0.212.0 — 2026-10-29
 
 - **Emails in the product's clothes, and one invitation email for every module** (Martin: the

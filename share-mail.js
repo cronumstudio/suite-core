@@ -1,6 +1,7 @@
 /**
  * The email that tells someone a thing was offered to them (a list, a
- * notebook, a group of notebooks, a note, a place in a project): one message
+ * notebook, a group of notebooks, a note, a place in a project, a Next project
+ * to follow): one message
  * for every module, in the product's clothes (mail-layout.js), in the language
  * of whoever receives it, with the button that takes them to answer it.
  *
@@ -16,7 +17,7 @@
  */
 import { renderMail } from './mail-layout.js';
 
-export const SHARE_KINDS = ['list', 'notebook', 'group', 'note', 'project'];
+export const SHARE_KINDS = ['list', 'notebook', 'group', 'note', 'project', 'plan'];
 
 /**
  * @param {object} options
