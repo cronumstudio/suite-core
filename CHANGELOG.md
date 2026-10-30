@@ -18,7 +18,7 @@ sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
   `outbox` (the modules not open too, without opening anything else) and the preferences kept.
   `ask` can be a function `(n) → Promise<boolean>`. **`before`**: what the app does once the server
   has heard, before the device lets go. Without the options, as before (except the offline case).
-- **Whose each queued change is**: `createOutbox({ owner: () => id })` keeps the id with each change,
+- **Whose each queued change is**: `createOutbox({ owner: () => id })` keeps the id with each change (or `add({ owner })`, for one made before the server has said who is signed in),
   sends nothing while it isn't known (null), and never sends another account's: a session that
   ended with changes waiting, then someone else signing in on the same browser, sent them with the
   newcomer's cookie. They leave the queue unsent (`report.others`, not `onDropped`), and

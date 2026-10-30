@@ -104,11 +104,12 @@ export function createOutbox({
 
   /**
    * Keeps a change for later. `tempId`: the provisional id of what this
-   * change creates, so later changes can point at it. Returns the change.
+   * change creates, so later changes can point at it. `owner`: whose it is, when
+   * the app knows it before the server has said so (drawn offline for them). Returns the change.
    */
-  async function add({ method, path, body = null, tempId: provisional = null }) {
+  async function add({ method, path, body = null, tempId: provisional = null, owner: given = null }) {
     const ts = now();
-    const who = owner?.() ?? null;
+    const who = given ?? owner?.() ?? null;
     const op = { id: newId(), method, path, body, ts, ...(provisional ? { tempId: provisional } : {}), ...(who != null ? { owner: who } : {}) };
     await local.put(STORE, orderKey(ts), op);
     await count();

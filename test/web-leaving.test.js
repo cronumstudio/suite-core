@@ -67,9 +67,12 @@ test('the outbox notes whose each change is and never sends one of another accou
 
   // The session ended; nobody known yet: nothing goes, nothing is lost.
   who = null;
+  // Drawn offline for whoever was signed in last, before the server has said so: theirs all the same.
+  await outbox.add({ method: 'PATCH', path: '/api/tasks/5', body: {}, owner: 7 });
+  assert.equal((await outbox.pending()).at(-1).owner, 7);
   let report = await outbox.flush();
   assert.equal(report.sent, 0);
-  assert.equal(report.left, 2);
+  assert.equal(report.left, 3);
   assert.deepEqual(sent, []);
 
   // Someone else signed in on this device: theirs is not this, it goes nowhere.
@@ -77,7 +80,7 @@ test('the outbox notes whose each change is and never sends one of another accou
   await outbox.add({ method: 'PATCH', path: '/api/tasks/3', body: {} });
   report = await outbox.flush();
   assert.deepEqual(sent, ['/api/tasks/3'], 'only the account’s own change went');
-  assert.deepEqual(report.others.map((op) => op.path), ['/api/tasks/1', '/api/tasks/2']);
+  assert.deepEqual(report.others.map((op) => op.path), ['/api/tasks/1', '/api/tasks/2', '/api/tasks/5']);
   assert.deepEqual(dropped, [], 'another account’s changes are not this person’s errors');
   assert.equal(report.left, 0);
 });
