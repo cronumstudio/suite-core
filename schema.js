@@ -31,6 +31,7 @@ import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
 import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
+import { strangerInvitesSchema } from './stranger-invites.js';
 
 /**
  * Migration 19: before 0.48.0 both of Paddle's environments wrote "paddle", and the only Paddle
@@ -93,4 +94,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 27, name: 'identity-sign-in-method', up: identityMethodSchema },
   // Where the login is shared with other apps: whether it goes with the account, and this app noted on it (accounts.js).
   { version: 28, name: 'identity-deletion', up: identityDeletionSchema },
+  // Invitations emailed to addresses without an account, and the addresses that want no more (stranger-invites.js).
+  { version: 29, name: 'stranger-invites', up: strangerInvitesSchema },
 ]);

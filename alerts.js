@@ -71,6 +71,13 @@ const KINDS = Object.freeze({
     what: ({ job }) => `The scheduled job "${job || 'unnamed'}" failed: it runs again at its next turn.`,
     unit: 'failed jobs',
   },
+  strangers: {
+    subject: 'invitations to new addresses reached the limit of the day',
+    what: ({ count }) => `Invitations by email to addresses without an account reached ${count} in 24 hours, `
+      + 'MAIL_STRANGERS_PER_DAY: until the day turns, the rest wait in the app without an email (stranger-invites.js). '
+      + 'If this is ordinary use, raise MAIL_STRANGERS_PER_DAY; if not, someone may be inviting addresses in bulk.',
+    unit: 'invitations not emailed',
+  },
 });
 export const ALERT_KINDS = Object.freeze(Object.keys(KINDS));
 

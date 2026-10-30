@@ -188,8 +188,8 @@ test('one email per kind every 30 minutes, across restarts, with what was held b
 
   // A kind that isn't one is said in the log, never thrown.
   assert.equal(await second.alerts.report('toString', new Error('x')), false);
-  assert.match(second.lines.at(-1), /"toString" is not a kind of alert \(crash, rejection, errors, job\)/);
-  assert.deepEqual(ALERT_KINDS, ['crash', 'rejection', 'errors', 'job']);
+  assert.match(second.lines.at(-1), /"toString" is not a kind of alert \(crash, rejection, errors, job, strangers\)/);
+  assert.deepEqual(ALERT_KINDS, ['crash', 'rejection', 'errors', 'job', 'strangers']);
   database.close();
 });
 
