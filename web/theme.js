@@ -24,3 +24,38 @@
   } catch (err) { /* no storage: the default */ }
   root.setAttribute('data-theme', theme);
 }());
+
+/*
+ * The status bar in the page's ground, for a page whose theme-color asks for it
+ * (`<meta name="theme-color" data-kit-ground>`, before this script): an app on
+ * an iPhone's Home Screen with the opaque status bar (style `default`), and
+ * Android's. Painted once the page is there and again whenever its theme or
+ * look changes, as the ground does (Cronum Work's shell paints its own).
+ */
+(function () {
+  var root = document.documentElement;
+  var metas = document.querySelectorAll('meta[name="theme-color"][data-kit-ground]');
+  if (!metas.length || !window.MutationObserver) return;
+  var painted = null;
+  function paint() {
+    if (!document.body) return;
+    var color = rgbOf(getComputedStyle(document.body).backgroundColor);
+    if (!color || color === painted) return;
+    painted = color;
+    for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', color);
+  }
+  // The kit's grounds are mixed in oklab, which a theme-color may not take: as `rgb()`.
+  function rgbOf(color) {
+    var pen = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (!pen) return null;
+    pen.fillStyle = color;
+    pen.fillRect(0, 0, 1, 1);
+    var px = pen.getImageData(0, 0, 1, 1).data;
+    return px[3] ? 'rgb(' + px[0] + ', ' + px[1] + ', ' + px[2] + ')' : null;
+  }
+  // Once the page is there, and again once its sheets surely are.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paint);
+  else paint();
+  window.addEventListener('load', paint);
+  new MutationObserver(paint).observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-look', 'data-app', 'style'] });
+}());

@@ -954,6 +954,52 @@ test('a host’s look: applyLook paints Clean on <html> and keeps it for theme.j
   }
 });
 
+test('theme.js paints the status bar in the page’s ground when its theme-color asks, and again as the theme changes', async () => {
+  const vm = await import('node:vm');
+  const code = fs.readFileSync(new URL('../web/theme.js', import.meta.url), 'utf8');
+  /** theme.js in a sandbox: `asks` puts data-kit-ground on the metas; the ground is what the body's background says. */
+  function run({ asks }) {
+    const attrs = new Map([['data-theme', 'light']]);
+    const metas = ['#7C3AED', '#16130E'].map((content) => ({ content, setAttribute(k, v) { if (k === 'content') this.content = v; } }));
+    const state = { ground: 'oklab(0.98 0 0.01)', observer: null, listeners: {} };
+    const pixels = { 'oklab(0.98 0 0.01)': [250, 248, 244, 255], 'oklab(0.15 0 0.01)': [20, 18, 14, 255], 'transparent': [0, 0, 0, 0] };
+    const document = {
+      readyState: 'complete',
+      documentElement: { getAttribute: (k) => attrs.get(k) ?? null, setAttribute: (k, v) => attrs.set(k, v) },
+      body: {},
+      querySelectorAll: (sel) => (asks && sel.includes('[data-kit-ground]') ? metas : []),
+      createElement: () => ({ getContext: () => {
+        let fill = null;
+        return { set fillStyle(v) { fill = v; }, fillRect() {}, getImageData: () => ({ data: pixels[fill] }) };
+      } }),
+      addEventListener() {},
+    };
+    const window = {
+      MutationObserver: class { constructor(fn) { state.observer = fn; } observe() {} },
+      addEventListener: (type, fn) => { state.listeners[type] = fn; },
+      matchMedia: () => ({ matches: false }),
+    };
+    vm.runInNewContext(code, {
+      document, window, MutationObserver: window.MutationObserver, localStorage: { getItem: () => null },
+      getComputedStyle: () => ({ backgroundColor: state.ground }),
+    });
+    return { metas, state };
+  }
+  const page = run({ asks: true });
+  assert.deepEqual(page.metas.map((m) => m.content), ['rgb(250, 248, 244)', 'rgb(250, 248, 244)'], 'the ground, as rgb(), in both');
+  page.state.ground = 'oklab(0.15 0 0.01)';
+  page.state.observer();
+  assert.deepEqual(page.metas.map((m) => m.content), ['rgb(20, 18, 14)', 'rgb(20, 18, 14)'], 'dark now');
+  page.state.ground = 'transparent';
+  page.state.observer();
+  assert.equal(page.metas[0].content, 'rgb(20, 18, 14)', 'no ground: the colour stays');
+  assert.equal(typeof page.state.listeners.load, 'function', 'once the sheets are there too');
+  // A page that doesn't ask keeps its theme-color (the shell of Cronum Work paints its own).
+  const other = run({ asks: false });
+  assert.deepEqual(other.metas.map((m) => m.content), ['#7C3AED', '#16130E']);
+  assert.equal(other.state.observer, null);
+});
+
 test('an app’s pages reach the kit relative to their base, in Node too (tools/web-resolve.mjs)', async () => {
   await import('../tools/web-resolve.mjs');
   const os = await import('node:os');

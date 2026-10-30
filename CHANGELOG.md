@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.214.0 — 2026-10-30
+
+- **The status bar in the page's ground** (Martin, Notes installed on an iPhone: a blank band at
+  the foot of the screen, which moved when dragged beside the open drawer). With the see-through
+  status bar (`black-translucent`) and `viewport-fit=cover`, iOS 26 shows an installed app shorter
+  than the screen by the status bar (WebKit 301108); an app takes the opaque one (`default`), as
+  Cronum Work's shell did in its 0.29.5, and that bar has the colour of `theme-color`. A page whose
+  `theme-color` metas say `data-kit-ground` gets them painted by `theme.js` in its ground (the
+  body's background, as `rgb()`), and again whenever its theme, look or app change. Opt-in: a page
+  without it keeps its `theme-color` as it was.
+
 ## 0.213.0 — 2026-10-30
 
 - **The invitation email knows a project of Next** (Martin: "we must be able to invite people to
