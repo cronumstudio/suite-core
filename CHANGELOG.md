@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.219.0 — 2026-10-30
+
+- **Public pages free, embedding them Pro's** (Martin: Projects, Notes and Tasks get a public page
+  of their own, like Next's; its link for everyone, putting it in another website for Pro, and
+  then without the Cronum Work mark). `publish` goes on in Free in the cronum-work catalog. New
+  common feature `embed` (off in Free, on in Pro; without `PLANS`, allowed), named in the plan's
+  benefits. **Interface:** `embed.unbranded` (0.218.0) is gone: an app that declares it moves
+  to `embed`.
+
 ## 0.218.0 — 2026-10-30
 
 - **Pages any site may embed** (Martin: a Next project's public page, in an `<iframe>` on someone's
