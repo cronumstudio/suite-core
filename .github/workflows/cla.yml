@@ -2,20 +2,25 @@
 # Cronum Studio's CLA, by commenting on it as the bot asks (the organization's shared check,
 # cronumstudio/.github: CLA.md and .github/workflows/cla.yml). The signatures stay in this
 # repository, on the branch cla-signatures.
+#
+# The token can write to this repository and the check runs on pull requests from anyone, so the
+# shared workflow is pinned by commit (a branch could change under it) and the write permissions
+# go to its job alone; it runs on GitHub's machines and pins its action by commit too.
 name: CLA
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
 
-permissions:
-  contents: write
-  pull-requests: write
-  actions: write
-  statuses: write
+permissions: {}
 
 jobs:
   cla:
-    uses: cronumstudio/.github/.github/workflows/cla.yml@main
+    permissions:
+      contents: write        # writes the signatures
+      pull-requests: write   # comments on the pull request
+      actions: write         # runs the check again after a signature
+      statuses: write
+    uses: cronumstudio/.github/.github/workflows/cla.yml@2aeb556f70b37813200c117fb25103f417b8b86d # cronumstudio/.github#13

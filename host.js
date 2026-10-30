@@ -62,7 +62,7 @@ import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { createSuite, createApp, SuiteConfigError } from './app.js';
+import { createSuite, createApp, healthOf, SuiteConfigError } from './app.js';
 import { resolveConfig } from './config.js';
 import { migrate } from './migrate.js';
 import { createEntitlements } from './entitlements.js';
@@ -1343,6 +1343,13 @@ export async function createHost({
     if (url.pathname === '/version') {
       securityHeaders(res, { https: install.https });
       sendJson(res, 200, hostVersion());
+      return true;
+    }
+    // The host's, not the root app's: the same fingerprint as /version, so a deploy that waits
+    // for the new one on either sees the same.
+    if (url.pathname === '/health') {
+      securityHeaders(res, { https: install.https });
+      sendJson(res, ...healthOf(suite.database, hostVersion));
       return true;
     }
     // As an app's (app.js), with the host's name: the code of the whole app that this tab runs.
