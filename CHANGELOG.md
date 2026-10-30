@@ -3,6 +3,36 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.220.0 — 2026-10-30
+
+Changes made without a signal, on leaving and on another account signing in (audit of 30/10:
+sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
+
+- **Signing out without a signal deletes nothing.** `signOut()` ignored a logout that didn't reach
+  the server: it deleted every `*-local` copy, with the changes waiting in it, and reloaded, while the
+  session went on at the server. Now, without a signal or with the server in trouble (5xx), it says
+  so (`kit.account.signOutOffline`) and everything stays; a session that had already ended (401)
+  lets go of the device as before. It answers `true` when it left, `false` when it stayed.
+- **`signOut({ ask })`** asks first, with the count, when changes wait anywhere on the device
+  (`kit.account.unsent`, «Sign out anyway»): new `pendingChanges()` counts every `*-local`
+  `outbox` (the modules not open too, without opening anything else) and the preferences kept.
+  `ask` can be a function `(n) → Promise<boolean>`. **`before`**: what the app does once the server
+  has heard, before the device lets go. Without the options, as before (except the offline case).
+- **Whose each queued change is**: `createOutbox({ owner: () => id })` keeps the id with each change,
+  sends nothing while it isn't known (null), and never sends another account's: a session that
+  ended with changes waiting, then someone else signing in on the same browser, sent them with the
+  newcomer's cookie. They leave the queue unsent (`report.others`, not `onDropped`), and
+  `outbox.keepOnly(id)` lets go of them at once. A change kept before it had an owner goes as before.
+- **A preference that reaches the server takes the older one out of the queue** (`save()`): sent
+  later, the queued one undid it (Notes turned off again, the old theme). A PUT's address goes
+  whole; a PATCH of the person (`…/api/me`, any module's path: one row in a host) only the fields
+  it said, `prefs` key by key.
+- **`flushSettings()`**: one copy of the kit at a time (a Web Lock, `suite.settings.queue`: every
+  module carries its own copy in Cronum Work), each change read from the queue as it goes; the
+  server in trouble (5xx, 429) keeps the change, only a refusal (4xx) drops it; a change kept more
+  than a day doesn't go; an ended session keeps the queue (it is kept with whose it is) instead of
+  forgetting it; and without `localStorage` the queue is kept on the page instead of nowhere.
+
 ## 0.218.0 — 2026-10-30
 
 - **Pages any site may embed** (Martin: a Next project's public page, in an `<iframe>` on someone's

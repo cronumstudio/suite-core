@@ -16,6 +16,14 @@
  * merged, so the last choice is the one that stays. It is the account's: kept with whose it is,
  * sent only while the same person is signed in (`/api/auth/me`), and gone on signing out
  * (signin.js leave).
+ *
+ * Learnt (audit of 30/10): a choice that reaches the server takes out of the queue what it says
+ * again (the older one, sent later, undid it); in a host every module's copy of the kit shares the
+ * queue and the person's row (`/tasks/api/me` and `/notes/api/me` are one), so one copy sends at a
+ * time (a Web Lock) and reads each change from the queue as it goes; a change kept more than a day
+ * doesn't go (changed since on another device, perhaps); the server in trouble (5xx, 429) keeps it
+ * and only a refusal (4xx) drops it; and a browser that keeps nothing in `localStorage` keeps it on
+ * this page.
  */
 import { api, Offline, SessionExpired } from './api.js';
 import { at } from './base.js';
@@ -104,7 +112,13 @@ export const connection = {
 
 /* ---------------------------------- queue --------------------------------- */
 
+/** A change kept longer than this doesn't go: it would undo what was chosen since, on another device. */
+const MAX_AGE_MS = 24 * 3600 * 1000;
+/** The queue when `localStorage` keeps nothing (blocked, full, some private windows): this page's. */
+let onPage = null;
+
 function read() {
+  if (onPage) return onPage;
   try {
     const kept = JSON.parse(localStorage.getItem(KEY) || 'null');
     return kept && Array.isArray(kept.items) ? kept : null;
@@ -117,13 +131,52 @@ function write(kept) {
   try {
     if (kept?.items.length) localStorage.setItem(KEY, JSON.stringify(kept));
     else localStorage.removeItem(KEY);
-  } catch { /* private mode, or full: the change stays on this page only */ }
+    onPage = null;
+  } catch {
+    // Private mode, or full: kept on this page, and sent from it.
+    onPage = kept?.items.length ? kept : null;
+  }
 }
 
 const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 /** A PATCH's fields over the ones kept: `prefs` merged too, as the server merges them (prefs.js). */
 const merged = (a, b) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((k) =>
   [k, k in b ? (isObject(a[k]) && isObject(b[k]) ? { ...a[k], ...b[k] } : b[k]) : a[k]]));
+
+/** What a path changes: in a host `/tasks/api/me` and `/notes/api/me` are the same person's row. */
+const target = (path) => { const at = path.indexOf('/api/'); return at >= 0 ? path.slice(at) : path; };
+const ACCOUNT = /^\/api\/me$/;
+
+/** `body` without what `sent` said (`prefs` key by key); null when nothing is left. */
+function without(body, sent) {
+  const left = {};
+  for (const [k, v] of Object.entries(body || {})) {
+    if (!(k in sent)) { left[k] = v; continue; }
+    if (isObject(v) && isObject(sent[k])) {
+      const rest = Object.fromEntries(Object.entries(v).filter(([key]) => !(key in sent[k])));
+      if (Object.keys(rest).length) left[k] = rest;
+    }
+  }
+  return Object.keys(left).length ? left : null;
+}
+
+/**
+ * A change that reached the server: what waits for the same thing is older, and goes. A PUT's
+ * address goes whole; a PATCH of the person takes out only the fields it said.
+ */
+function settled(method, path, body) {
+  const kept = read();
+  if (!kept?.items.length) return;
+  const sentTo = target(path);
+  const items = [];
+  for (const item of kept.items) {
+    if (item.method !== method || target(item.path) !== sentTo) { items.push(item); continue; }
+    if (method !== 'PATCH' || !ACCOUNT.test(sentTo) || !isObject(body)) continue;
+    const left = without(item.body, body);
+    if (left) items.push({ ...item, body: left });
+  }
+  if (items.length !== kept.items.length || items.some((item, i) => item !== kept.items[i])) write({ ...kept, items });
+}
 
 /**
  * Keeps a change to send later: `path` the site's (`/tasks/api/me`), by `user`'s id. One for
@@ -133,7 +186,7 @@ export function queueSetting(method, path, body, user) {
   const kept = read();
   const items = kept && kept.user === user ? kept.items : [];
   const index = items.findIndex((i) => i.method === method && i.path === path);
-  const item = { method, path, body: index >= 0 && method === 'PATCH' ? merged(items[index].body, body) : body };
+  const item = { method, path, body: index >= 0 && method === 'PATCH' ? merged(items[index].body, body) : body, at: Date.now() };
   if (index >= 0) items.splice(index, 1);
   items.push(item);
   write({ user, items });
@@ -141,11 +194,12 @@ export function queueSetting(method, path, body, user) {
 
 /** The changes waiting on this device: [{ method, path, body }]. */
 export function queuedSettings() {
-  return read()?.items || [];
+  return (read()?.items || []).map(({ method, path, body }) => ({ method, path, body }));
 }
 
 /** Forgets every change waiting (signing out). */
 export function forgetSettings() {
+  onPage = null;
   try { localStorage.removeItem(KEY); } catch { /* private mode */ }
 }
 
@@ -159,7 +213,9 @@ export async function save(method, path, body, { root = false, user = null } = {
   // reaches the server needn't wait. Only the browser saying it has no network keeps it here at once.
   if (globalThis.navigator?.onLine !== false) {
     try {
-      return { answer: await api.request(method, path, body, { root }) };
+      const answer = await api.request(method, path, body, { root });
+      settled(method, root ? path : at(path), body);
+      return { answer };
     } catch (err) {
       if (!noSignal(err)) throw err;
       connection.noted();
@@ -170,52 +226,64 @@ export async function save(method, path, body, { root = false, user = null } = {
 }
 
 let flushing = null;
+const LOCK = 'suite.settings.queue';
 
 /**
  * Sends what was kept, in order, while the same person is signed in; a change that the server
- * refuses goes (the server has the last word), one that finds no signal waits. → how many went.
+ * refuses goes (the server has the last word), one that finds no signal or a server in trouble
+ * waits. One copy of the kit at a time, every module's in a host. → how many went.
  */
 export function flushSettings() {
   if (flushing) return flushing;
   if (!read()?.items.length) return Promise.resolve(0);
-  flushing = (async () => {
-    let sent = 0;
-    let modules = false;
+  const locks = globalThis.navigator?.locks;
+  // Another copy of the kit (another module's, another tab) holding it is sending the same queue.
+  flushing = (locks ? locks.request(LOCK, { ifAvailable: true }, (lock) => (lock ? sendKept() : 0)) : sendKept())
+    .finally(() => { flushing = null; });
+  return flushing;
+}
+
+async function sendKept() {
+  let sent = 0;
+  let modules = false;
+  try {
+    const kept = read();
+    if (!kept?.items.length) return 0;
+    let who;
     try {
-      const kept = read();
-      if (!kept?.items.length) return 0;
-      let who;
-      try {
-        who = (await api.request('GET', '/api/auth/me', undefined, { root: true }))?.user?.id ?? null;
-      } catch (err) {
-        if (err instanceof SessionExpired) forgetSettings();   // no one signed in: whoever comes next starts clean
-        else if (noSignal(err)) connection.noted();
-        return 0;
-      }
-      if (who !== kept.user) { forgetSettings(); return 0; }
-      for (const item of kept.items) {
+      who = (await api.request('GET', '/api/auth/me', undefined, { root: true }))?.user?.id ?? null;
+    } catch (err) {
+      // No one signed in now: kept with whose it is, for the same person signing in again.
+      if (noSignal(err)) connection.noted();
+      return 0;
+    }
+    if (who !== kept.user) { forgetSettings(); return 0; }
+    for (;;) {
+      // Read again each time: a choice that went straight to the server meanwhile took its own out.
+      const now = read();
+      const item = now?.user === who ? now.items[0] : null;
+      if (!item) break;
+      if (item.at == null || Date.now() - item.at <= MAX_AGE_MS) {
         try {
           await api.request(item.method, item.path, item.body, { root: true });
           sent++;
-          if (/^\/api\/me\/(modules|calendar)/.test(item.path)) modules = true;
+          if (/^\/api\/me\/(modules|calendar)/.test(target(item.path))) modules = true;
         } catch (err) {
           if (noSignal(err)) { connection.noted(); break; }
-          if (err instanceof SessionExpired) { forgetSettings(); return sent; }
-          // Refused: it goes, the server's stays.
-        }
-        // Gone from the queue unless it changed while on its way (a newer choice waits its turn).
-        const now = read();
-        if (now) {
-          now.items = now.items.filter((i) => !(i.method === item.method && i.path === item.path
-            && JSON.stringify(i.body) === JSON.stringify(item.body)));
-          write(now);
+          // The session ended, or the server is in trouble: it waits. Refused (4xx): it goes, the server's stays.
+          if (err instanceof SessionExpired || !(err?.status < 500) || err.status === 429) break;
         }
       }
-      return sent;
-    } finally {
-      flushing = null;
-      if (modules) globalThis.document?.dispatchEvent?.(new CustomEvent(MODULES_EVENT));
+      // Gone from the queue unless it changed while on its way (a newer choice waits its turn).
+      const after = read();
+      if (after) {
+        after.items = after.items.filter((i) => !(i.method === item.method && i.path === item.path
+          && JSON.stringify(i.body) === JSON.stringify(item.body)));
+        write(after);
+      }
     }
-  })();
-  return flushing;
+    return sent;
+  } finally {
+    if (modules) globalThis.document?.dispatchEvent?.(new CustomEvent(MODULES_EVENT));
+  }
 }

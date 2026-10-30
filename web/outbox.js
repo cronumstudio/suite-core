@@ -24,8 +24,14 @@
  *   them quadratic, just when the signal came back. Counting reads keys only,
  *   the next change is one record, and a provisional id is swapped in one
  *   pass in one transaction (local.js `count`, `first`, `rewrite`).
+ * - A change is someone's (`owner`): a session can end with changes waiting
+ *   and someone else sign in on the same browser, and the cookie then is
+ *   theirs. Each change keeps whose it is, nothing goes while the app doesn't
+ *   know who is signed in, and one of another account never goes: it leaves
+ *   the queue (`report.others`), and `keepOnly(id)` lets go of them at once.
+ *   A change kept before it had an owner goes as it always did.
  *
- *   const outbox = createOutbox({ local, onConflict, onDropped, onCount: (n) => … });
+ *   const outbox = createOutbox({ local, owner: () => user?.id, onConflict, onDropped, onCount: (n) => … });
  *   await outbox.add({ method: 'POST', path: '/api/notes', body, tempId: 'tmp-…' });
  *   outbox.flush();   // also by itself when the browser says it is online again
  */
@@ -66,12 +72,14 @@ const TEMP_IN_PATH = /\/tmp-[\w-]+(?=\/|\?|$)/;
  * @param {Function} [options.onCreated]  ({ op, tempId, id, answer }) → a provisional id became a real one
  * @param {Function} [options.onCount]    (n) → how many changes wait
  * @param {Function} [options.idOf]       (answer) → the real id of what a creation made (default: answer.id)
+ * @param {Function} [options.owner]      () → the id of whoever is signed in, as the server said (null: not known
+ *                                        yet); each change keeps it, and only theirs is sent. Without it, as before.
  * @param {string}   [options.lockName]
  */
 export function createOutbox({
   local, send = (op) => api.write(op.method, op.path, op.body, { key: op.id }),
   onConflict = () => {}, onDropped = () => {}, onCreated = () => {}, onCount = () => {}, idOf = (answer) => answer?.id,
-  lockName = 'kit-outbox', locks = globalThis.navigator?.locks, now = Date.now,
+  lockName = 'kit-outbox', locks = globalThis.navigator?.locks, now = Date.now, owner = null,
 }) {
   let flushing = null;
 
@@ -100,7 +108,8 @@ export function createOutbox({
    */
   async function add({ method, path, body = null, tempId: provisional = null }) {
     const ts = now();
-    const op = { id: newId(), method, path, body, ts, ...(provisional ? { tempId: provisional } : {}) };
+    const who = owner?.() ?? null;
+    const op = { id: newId(), method, path, body, ts, ...(provisional ? { tempId: provisional } : {}), ...(who != null ? { owner: who } : {}) };
     await local.put(STORE, orderKey(ts), op);
     await count();
     return op;
@@ -122,11 +131,21 @@ export function createOutbox({
   }
 
   async function sendAll() {
-    const report = { sent: 0, dropped: [], conflicts: [], left: 0 };
+    const report = { sent: 0, dropped: [], conflicts: [], others: [], left: 0 };
     for (;;) {
+      // Whose the session is, asked for each change: it can end half way.
+      const who = owner ? owner() ?? null : undefined;
+      if (who === null) break;
       const head = await first();
       if (!head) break;
       const [key, op] = head;
+
+      // Another account's, from before this session: never sent with it.
+      if (who !== undefined && op.owner != null && op.owner !== who) {
+        await local.delete(STORE, key);
+        report.others.push(op);
+        continue;
+      }
 
       // A provisional id still here has no creation left to come: it went wrong earlier.
       if (TEMP_IN_PATH.test(op.path)) {
@@ -178,6 +197,17 @@ export function createOutbox({
     add, pending, flush, count,
     /** Forgets every change waiting (signing out). */
     clear: async () => { await local.clear(STORE); await count(); },
+    /** Forgets every change that isn't `id`'s, one kept without an owner too (someone else signed in). → how many. */
+    keepOnly: async (id) => {
+      let gone = 0;
+      for (const [key, op] of await entries()) {
+        if (op.owner === id) continue;
+        await local.delete(STORE, key);
+        gone += 1;
+      }
+      if (gone) await count();
+      return gone;
+    },
     stop: () => globalThis.removeEventListener?.('online', onOnline),
   };
 }

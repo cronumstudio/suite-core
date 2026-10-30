@@ -720,6 +720,13 @@
   "kit.about.upToDate": "Sei aggiornato",
   "kit.about.check": "Cerca aggiornamenti",
   "kit.account.signOut": "Esci",
+  "kit.account.unsent": {
+    "one": "{n} modifica non è ancora stata inviata",
+    "other": "{n} modifiche non sono ancora state inviate"
+  },
+  "kit.account.signOutAnyway": "Esci comunque",
+  "kit.account.unsentDetail": "Uscendo si cancella ciò che è salvato su questo dispositivo, quindi quelle modifiche andrebbero perse.",
+  "kit.account.signOutOffline": "Senza connessione non puoi uscire: il server non lo saprebbe. Riprova quando torna la rete.",
   "kit.update.available": "È disponibile una nuova versione.",
   "kit.twoFactor.title": "Verifica in due passaggi",
   "kit.twoFactor.statusOn": "Attiva",

@@ -19,12 +19,12 @@
  */
 import { el, clear } from './dom.js';
 import { t, formatDateTime } from './i18n.js';
-import { api, errorMessage } from './api.js';
+import { api, errorMessage, Offline, SessionExpired } from './api.js';
 import { at, FRAMED } from './base.js';
-import { signature, toast } from './ui.js';
+import { signature, toast, confirmDialog } from './ui.js';
 import { inApp, nativeSignOut } from './native.js';
 import { markOwned } from './mount.js';
-import { forgetSettings } from './settings-queue.js';
+import { forgetSettings, queuedSettings } from './settings-queue.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -355,6 +355,39 @@ export async function clearDeviceCopies({ indexedDB: idb = globalThis.indexedDB,
 }
 
 /**
+ * How many changes made here wait to be sent: every app's queue on this device (the `outbox` of each
+ * `<app>-local`, outbox.js), the modules not open too, and the preferences kept (settings-queue.js).
+ * Signing out deletes all of it (`leave`), so it is asked first. Only counted: a database is opened
+ * as it is (no version, so nothing is created or upgraded) and closed at once. Never waits more than
+ * `wait` ms for one.
+ */
+export async function pendingChanges({ indexedDB: idb = globalThis.indexedDB, wait = 1500 } = {}) {
+  const settings = queuedSettings().length;
+  if (!idb?.databases) return settings;
+  let names = [];
+  try { names = (await idb.databases()).map((d) => d.name).filter((n) => typeof n === 'string' && n.endsWith('-local')); } catch { return settings; }
+  const counted = (name) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(0), wait);
+    const done = (n) => { clearTimeout(timer); resolve(Number(n) || 0); };
+    let req;
+    try { req = idb.open(name); } catch { done(0); return; }
+    req.onerror = req.onblocked = () => done(0);
+    req.onsuccess = () => {
+      const db = req.result;
+      const close = (n) => { try { db.close(); } catch { /* gone already */ } done(n); };
+      try {
+        if (!db.objectStoreNames.contains('outbox')) { close(0); return; }
+        const count = db.transaction('outbox', 'readonly').objectStore('outbox').count();
+        count.onsuccess = () => close(count.result);
+        count.onerror = () => close(0);
+      } catch { close(0); }
+    };
+  });
+  const counts = await Promise.all(names.map(counted));
+  return counts.reduce((sum, n) => sum + n, settings);
+}
+
+/**
  * Where this browser's notices come to: the subscription of each of the site's workers (the host's,
  * and a module's not yet retired, worker.js), for the server to forget with the session. The
  * subscription itself stays: a device's own notices may share it (push.js). Inside the suite's app
@@ -396,9 +429,34 @@ export async function leave({ answer = null, local = null } = {}) {
 /**
  * Signs out here (and at the provider, which then comes back to the app), with this browser's
  * notices: the server forgets where they come to, so whoever uses it next doesn't get them.
+ *
+ * `ask`: true (or `(n) → Promise<boolean>`) asks first when changes wait to be sent anywhere on this
+ * device (`pendingChanges`), since leaving deletes them; no keeps everything as it is. Without a
+ * signal, or with the server in trouble, the session still counts there: nothing here is deleted
+ * and the page stays, with a word why (it used to delete it all and stay signed in at the server).
+ * A session that had already ended lets go of the device as always. `before`: what the app does
+ * once the server has heard, before the device lets go (its own copies, its live channel).
+ * → true when it left, false when it stayed.
  */
-export async function signOut({ local = null } = {}) {
+export async function signOut({ local = null, ask = false, before = null } = {}) {
+  if (ask) {
+    const waiting = await pendingChanges().catch(() => 0);
+    const confirm = typeof ask === 'function' ? ask : (n) => confirmDialog(t('kit.account.unsent', { n }), {
+      danger: true, confirm: t('kit.account.signOutAnyway'), detail: t('kit.account.unsentDetail'),
+    });
+    if (waiting && !await confirm(waiting)) return false;
+  }
   const endpoints = await pushEndpoints();
-  const answer = await api.post('/api/auth/logout', endpoints.length ? { push_endpoints: endpoints } : {}).catch(() => null);
+  let answer = null;
+  try {
+    answer = await api.post('/api/auth/logout', endpoints.length ? { push_endpoints: endpoints } : {});
+  } catch (err) {
+    if (!(err instanceof SessionExpired)) {
+      toast(err instanceof Offline ? t('kit.account.signOutOffline') : errorMessage(err), { error: true });
+      return false;
+    }
+  }
+  await before?.();
   await leave({ answer, local });
+  return true;
 }

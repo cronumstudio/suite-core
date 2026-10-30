@@ -720,6 +720,13 @@
   "kit.about.upToDate": "Du bist auf dem neuesten Stand",
   "kit.about.check": "Nach Updates suchen",
   "kit.account.signOut": "Abmelden",
+  "kit.account.unsent": {
+    "one": "{n} Änderung wurde noch nicht gesendet",
+    "other": "{n} Änderungen wurden noch nicht gesendet"
+  },
+  "kit.account.signOutAnyway": "Trotzdem abmelden",
+  "kit.account.unsentDetail": "Beim Abmelden wird gelöscht, was auf diesem Gerät gespeichert ist, diese Änderungen gingen also verloren.",
+  "kit.account.signOutOffline": "Ohne Verbindung kannst du dich nicht abmelden: Der Server würde es nicht erfahren. Versuche es erneut, wenn das Netz zurück ist.",
   "kit.update.available": "Eine neue Version ist verfügbar.",
   "kit.twoFactor.title": "Bestätigung in zwei Schritten",
   "kit.twoFactor.statusOn": "Aktiv",
