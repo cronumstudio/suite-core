@@ -22,7 +22,8 @@ import { resolveConfig } from '../config.js';
 import { createSuite, createApp, SuiteConfigError } from '../app.js';
 import { createHost } from '../host.js';
 import {
-  connectRequest, connectPath, createConnectCookie, createDevicePages, localNext, CONNECT_MS, REFUSED_PATH, FRESH_LOGIN_PATH,
+  connectRequest, connectPath, createConnectCookie, createDevicePages, connectAfterSignIn, localNext, CONNECT_MS, REFUSED_PATH,
+  FRESH_LOGIN_PATH,
 } from '../device-pages.js';
 import { randomToken, sha256 } from '../crypto.js';
 
@@ -74,7 +75,7 @@ test('a connect request: the core’s shapes, an allowed return address exactly,
   assert.match(connectPath(connectRequest(new URLSearchParams(ask), options)), /^\/devices\/connect\?code_challenge=/);
 });
 
-test('the cookie across the sign-in: signed, ten minutes, and only for a request still allowed', () => {
+test('the cookie across the sign-in: signed, thirty minutes, and only for a request still allowed', () => {
   let now = Date.parse('2026-10-20T10:00:00Z');
   const sign = (value) => sha256(`secret|${value}`);
   const cookie = createConnectCookie({ name: 'work_connect', sign, redirectUris: [BACK], clock: () => now });
@@ -82,6 +83,7 @@ test('the cookie across the sign-in: signed, ten minutes, and only for a request
   const req = (value) => ({ headers: { cookie: `work_connect=${value}` } });
   const value = cookie.value(request);
   assert.deepEqual(cookie.read(req(value)), request);
+  assert.equal(CONNECT_MS, 30 * MINUTE, 'time for a first sign-in: a sign-up, an emailed code, a second step');
   const [payload, signature] = value.split('.');
   const changed = Buffer.from(JSON.stringify({ ...request, redirect_uri: 'com.evil.app:/auth', expires: now + 1000 })).toString('base64url');
   assert.equal(cookie.read(req(`${changed}.${signature}`)), null, 'changed');
@@ -92,7 +94,7 @@ test('the cookie across the sign-in: signed, ten minutes, and only for a request
     'an address no longer allowed');
   const res = { headers: {}, getHeader(k) { return this.headers[k]; }, setHeader(k, v) { this.headers[k] = v; } };
   cookie.write(res, request);
-  assert.match([].concat(res.headers['Set-Cookie'])[0], /^work_connect=.+; Max-Age=600; Path=\/; HttpOnly; SameSite=Lax$/);
+  assert.match([].concat(res.headers['Set-Cookie'])[0], /^work_connect=.+; Max-Age=1800; Path=\/; HttpOnly; SameSite=Lax$/);
 });
 
 test('`next`: a path of this site only', () => {
@@ -140,7 +142,7 @@ test('under a provider’s sign-in: the request waits in a cookie, and `/` bring
   const ask = ASK();
   const out = exchange(providerPages(), `/devices/connect${query(ask)}`);
   assert.deepEqual([out.answered, out.status, out.location], [true, 302, '/auth/login']);
-  assert.match(out.cookies[0], /^my_work_connect=.+; Max-Age=600; Path=\/; HttpOnly; SameSite=Lax; Secure$/);
+  assert.match(out.cookies[0], /^my_work_connect=.+; Max-Age=1800; Path=\/; HttpOnly; SameSite=Lax; Secure$/);
   const value = out.cookies[0].split(';')[0];
 
   // Back from the provider, signed in: to the page with the same request, the cookie cleared.
@@ -180,6 +182,35 @@ test('another account, under a provider’s sign-in: the sign-in asks again, and
   // A request that is not one: the bare page, prompt or not.
   assert.equal(exchange(providerPages(), `/devices/connect${query({ ...ask, prompt: 'login', redirect_uri: 'https://evil.example/' })}`).location,
     '/devices/connect');
+});
+
+test('back from the provider’s callback: straight to the page with the cookie’s request, the cookie cleared', () => {
+  const sign = (value) => sha256(`k|${value}`);
+  const config = (install = { authProvider: 'workos', secureCookies: true }, devices = { redirectUris: [BACK], connectPage: true }) => ({
+    app: { id: 'my-work', name: 'Work' }, devices, install,
+  });
+  const after = connectAfterSignIn({ config: config(), sessions: { sign } });
+  const call = (cookie) => {
+    const headers = {};
+    const res = { getHeader: (k) => headers[k.toLowerCase()], setHeader: (k, v) => { headers[k.toLowerCase()] = v; } };
+    const location = after({ headers: cookie ? { cookie } : {} }, res);
+    return { location, cookies: [].concat(headers['set-cookie'] || []) };
+  };
+  const ask = ASK();
+  // The cookie the page wrote before the sign-in, the session only now being opened by the callback.
+  const value = exchange(providerPages(), `/devices/connect${query(ask)}`).cookies[0].split(';')[0];
+  const back = call(`my_work_auth=x; ${value}`);
+  assert.deepEqual(Object.fromEntries(new URL(back.location, 'http://x').searchParams), { ...ask, platform: 'ios' });
+  assert.match(back.location, /^\/devices\/connect\?/);
+  assert.match(back.cookies[0], /^my_work_connect=; Max-Age=0/);
+  // No cookie: where it would have gone, nothing written. A bad one: the same, the cookie cleared.
+  assert.deepEqual(call('my_work_auth=x'), { location: null, cookies: [] });
+  const bad = call('my_work_connect=abc.def');
+  assert.equal(bad.location, null);
+  assert.match(bad.cookies[0], /^my_work_connect=; Max-Age=0/);
+  // Nothing to do without a connect page, or with local accounts (the page signs in in place).
+  assert.equal(connectAfterSignIn({ config: config(undefined, { redirectUris: [BACK] }), sessions: { sign } }), null);
+  assert.equal(connectAfterSignIn({ config: config({ authProvider: 'local' }), sessions: { sign } }), null);
 });
 
 test('no options, no pages', () => {

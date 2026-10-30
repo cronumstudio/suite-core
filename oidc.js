@@ -174,10 +174,12 @@ export function createOidcClient({
  * @param {object} options.accounts     from createAccounts(): fromIdentity() does the rest
  * @param {string} [options.adminEmail] whoever signs in with this verified email administers
  * @param {object} options.sessions     open(res, userId, { idpSessionId, req }) opens the app's session
+ * @param {(req, res) => string|null} [options.afterSignIn]   where a sign-in that would land on `/`
+ *   goes instead, once the session is open (device-pages.js connectAfterSignIn), or null for `/`
  */
 export function createOidcAccounts({
   baseUrl, oidc, accounts, adminEmail = '', sessions, secureCookies = false, stateCookie = 'suite_oidc',
-  pendingDeletion = null, log = console.log,
+  pendingDeletion = null, afterSignIn = null, log = console.log,
 }) {
   const BASE_URL = noSlash(baseUrl);
   const REDIRECT = `${BASE_URL}/auth/callback`;
@@ -259,7 +261,9 @@ export function createOidcAccounts({
           return true;
         }
         sessions.open(res, user.id, { idpSessionId: `oidc:${claims.sid || '-'}`, req });
-        redirect(res, localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/'));
+        const target = localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/');
+        // A phone's connect page that sent here: straight back to it, not by `/` (device-pages.js).
+        redirect(res, (target === '/' && afterSignIn?.(req, res)) || target);
       } catch (err) {
         log(`[oidc] sign-in could not be completed: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof OidcUnavailable ? 'unavailable' : 'failed'}`);

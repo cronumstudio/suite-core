@@ -228,6 +228,9 @@ function freeUsername(seed, taken) {
  * @param {string} [options.stateCookie]   name of the cookie holding state and PKCE verifier
  * @param {(user) => string} [options.pendingDeletion]   the ticket that offers back an account
  *   its owner asked to delete (account-deletion.js); without it, it is just disabled
+ * @param {(req, res) => string|null} [options.afterSignIn]   where a sign-in that would land on
+ *   `/` goes instead, once the session is open: a phone's connect page (device-pages.js
+ *   connectAfterSignIn), or null for `/`
  * @param {object} [options.mark]   where the WorkOS users are shared with other apps
  *   (`accounts.sharedIdentity`): `{ key, name }`, this app's key in a user's metadata (`app_<id>`)
  *   and its name there. Signing in here sets it, once (`users.marked`), and `markAll` sets it for
@@ -239,7 +242,8 @@ function freeUsername(seed, taken) {
  */
 export function createWorkosAccounts({
   baseUrl, appName, workos, adminEmail = '', users, sessions, connections = null,
-  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, mark = null, log = console.log,
+  secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, mark = null, afterSignIn = null,
+  log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
@@ -558,7 +562,9 @@ export function createWorkosAccounts({
         users.signedIn?.(user, account, method);
         markOnce(account.id);
         sessions.open(res, user.id, { workosSessionId: sessionId, req });
-        redirect(res, localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/'));
+        const target = localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/');
+        // A phone's connect page that sent here: straight back to it, not by `/` (device-pages.js).
+        redirect(res, (target === '/' && afterSignIn?.(req, res)) || target);
       } catch (err) {
         log(`[workos] sign-in could not be completed: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof WorkosUnavailable ? 'unavailable' : 'failed'}`);

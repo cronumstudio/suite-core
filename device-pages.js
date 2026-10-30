@@ -16,12 +16,16 @@
  *   gets the bare page (302), which says the link can't connect a device, so
  *   nothing else ever carries a bad request on;
  * - without a session, under a sign-in that leaves the site (WorkOS, OIDC), the
- *   request is kept in a host-only cookie, `<app id>_connect` (10 minutes,
+ *   request is kept in a host-only cookie, `<app id>_connect` (30 minutes,
  *   HttpOnly, SameSite=Lax, signed with the session secret), and the browser
- *   goes to /auth/login. The provider's callback lands on `/`, where `back()`
- *   finds the cookie and a session, sends the browser back to the page with the
- *   request, and clears the cookie. With local accounts the page signs in in
- *   place, so no cookie is needed;
+ *   goes to /auth/login. The provider's callback, once it has opened the
+ *   session, sends the browser straight back to the page with the request and
+ *   clears the cookie (`connectAfterSignIn`, in workos-accounts.js and oidc.js):
+ *   `/` would be the app's, and a service worker that took over it (Chrome
+ *   shares Work's with the Custom Tab the phone signs in in) showed its copy of
+ *   the home page instead, the server's answer never seen. `back()` on `/` stays
+ *   for a callback that came there all the same. With local accounts the page
+ *   signs in in place, so no cookie is needed;
  * - a cookie that was changed, has expired or no longer names an allowed return
  *   address is dropped, and `/` shows as it would without it;
  * - "Use another account" (web/connect.js): the page ends the browser's session
@@ -74,8 +78,12 @@ export const SESSION_PATH = '/devices/session';
 export const REFUSED_PATH = '/?device_session=refused';
 /** Where the sign-in starts for "another account": the provider asks again, whatever session it holds. */
 export const FRESH_LOGIN_PATH = '/auth/login?prompt=login';
-/** How long the request waits in the cookie for the sign-in to come back. */
-export const CONNECT_MS = 10 * 60 * 1000;
+/**
+ * How long the request waits in the cookie for the sign-in to come back: a first sign-in may be a
+ * sign-up, with an emailed code and a second step to set up. It holds nothing secret (the app keeps
+ * the verifier), and the page still asks for Allow.
+ */
+export const CONNECT_MS = 30 * 60 * 1000;
 const PAGE = fileURLToPath(new URL('./web/connect.html', import.meta.url));
 
 // The core's own rules for a code (devices.js, issueCode), so a request the page carries on is one
@@ -182,6 +190,40 @@ export function localNext(params) {
   }
 }
 
+/** The connect request's cookie of this app, or null when it has no connect page under a provider's sign-in. */
+function connectCookieOf({ config, sessions, clock = () => Date.now() }) {
+  // The configuration takes connectPage only with modules.devices (config.js).
+  const options = config.devices || {};
+  if (!options.connectPage) return null;
+  return createConnectCookie({
+    name: `${config.app.id.replace(/-/g, '_')}_connect`, sign: sessions.sign, secure: config.install.secureCookies,
+    redirectUris: options.redirectUris, clock,
+  });
+}
+
+/** The page's address for the cookie's request, the cookie cleared; null without a cookie or with a bad one (cleared too). */
+function takeRequest(cookie, req, res) {
+  if (!cookie || !cookie.present(req)) return null;
+  const request = cookie.read(req);
+  cookie.clear(res);
+  return request ? connectPath(request) : null;
+}
+
+/**
+ * For the provider's callback (WorkOS, OIDC), once it has opened the session: `(req, res)` → the
+ * connect page's address with the request the cookie kept, the cookie cleared, or null to go where
+ * it would have gone. Null itself when the app has no connect page, or signs in here.
+ *
+ * @param {object} options
+ * @param {object} options.config     the suite's resolved configuration
+ * @param {object} options.sessions   from createSessions(): its `sign`
+ */
+export function connectAfterSignIn({ config, sessions, clock }) {
+  if (config.install.authProvider === 'local') return null;
+  const cookie = connectCookieOf({ config, sessions, clock });
+  return cookie ? (req, res) => takeRequest(cookie, req, res) : null;
+}
+
 /**
  * The pages, for createApp's dispatch. → { handle(req, res, url), back(req, res, url) }, each
  * answering true when it has answered; null when the app turned none of them on.
@@ -195,10 +237,7 @@ export function createDevicePages({ suite, clock = () => Date.now() }) {
   if (!devices || (!options.connectPage && !options.webSessions)) return null;
   const { install } = config;
   const external = install.authProvider !== 'local';
-  const cookie = options.connectPage ? createConnectCookie({
-    name: `${config.app.id.replace(/-/g, '_')}_connect`, sign: sessions.sign, secure: install.secureCookies,
-    redirectUris: options.redirectUris, clock,
-  }) : null;
+  const cookie = connectCookieOf({ config, sessions, clock });
 
   const send = (res, location) => {
     res.writeHead(302, { Location: location, 'Cache-Control': 'no-store', 'Content-Length': 0 });
@@ -298,13 +337,13 @@ export function createDevicePages({ suite, clock = () => Date.now() }) {
     /**
      * `/` after the provider's sign-in, with a session and the cookie: back to the page with the
      * cookie's request, the cookie cleared. A bad cookie is cleared and `/` shows as it would.
+     * The callback itself goes there first (connectAfterSignIn): this is for one that didn't.
      */
     back(req, res, url) {
       if (!cookie || url.pathname !== '/' || !['GET', 'HEAD'].includes(req.method) || !cookie.present(req)) return false;
       if (!sessions.userFrom(req)) return false;
-      const request = cookie.read(req);
-      cookie.clear(res);
-      return request ? send(res, connectPath(request)) : false;
+      const location = takeRequest(cookie, req, res);
+      return location ? send(res, location) : false;
     },
   };
 }

@@ -610,10 +610,11 @@ Tracker keeps), for any app or host with `modules.devices`. The app opens it wit
 `?code_challenge&state&redirect_uri&name&platform`; a query that is not a request the core takes
 (the address exactly one of `devices.redirectUris`) goes to the bare page, which says the link
 can't connect a device. Signed out with local accounts, the page signs in in place (second step
-included); under a provider's sign-in the request waits in a signed cookie (`<app id>_connect`, ten
-minutes, HttpOnly, SameSite=Lax) while the browser goes to `/auth/login`, and `/` brings it back
-once the provider's callback lands there with a session (in a host, before `/` goes to the first
-module). Allow asks `POST /api/devices/codes` and goes back to the app with the code; Cancel goes
+included); under a provider's sign-in the request waits in a signed cookie (`<app id>_connect`, thirty
+minutes since v0.216.0, HttpOnly, SameSite=Lax) while the browser goes to `/auth/login`, and the
+provider's callback, once the session is open, sends it straight back to the page (v0.216.0,
+`connectAfterSignIn`: by `/` a service worker could show the home page instead); `/` still brings
+it back if it lands there with a session (in a host, before `/` goes to the first module). Allow asks `POST /api/devices/codes` and goes back to the app with the code; Cancel goes
 back with `error=access_denied`. In the product's name and colours, in the person's language.
 Signed in, the page names the account (its name and email) with **Use another account** (v0.126.0):
 the browser may still hold the session of an earlier connect, and an app that signed out had no
