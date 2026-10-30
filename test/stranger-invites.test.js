@@ -87,11 +87,11 @@ test('the email to a stranger: the inviter\'s language, a button to sign up, a l
   const [mail] = sent;
   assert.equal(mail.to, 'ana@ejemplo.com');
   assert.equal(mail.subject, 'Lucía García te ha invitado a la lista «Lanzamiento web»');
-  assert.match(mail.unsubscribe, /^https:\/\/work\.example\.com\/mail\/unsubscribe\?t=/);
+  assert.match(mail.unsubscribe, /^https:\/\/work\.example\.com\/api\/mail\/unsubscribe\?t=/);
   assert.match(mail.text, /Aún no tienes cuenta en Cronum Work\. Créala con esta misma dirección, ana@ejemplo\.com/);
   assert.match(mail.text, /Crear cuenta y aceptar: https:\/\/work\.example\.com\/auth\/login\?signup=1&return=%2Ftasks%2F/);
-  assert.match(mail.text, /Si no quieres recibir más invitaciones de Cronum Work, puedes bloquearlas: https:\/\/work\.example\.com\/mail\/unsubscribe/);
-  assert.match(mail.html, /<a class="link" href="https:\/\/work\.example\.com\/mail\/unsubscribe\?t=[^"]+"[^>]*>puedes bloquearlas<\/a>\./);
+  assert.match(mail.text, /Si no quieres recibir más invitaciones de Cronum Work, puedes bloquearlas: https:\/\/work\.example\.com\/api\/mail\/unsubscribe/);
+  assert.match(mail.html, /<a class="link" href="https:\/\/work\.example\.com\/api\/mail\/unsubscribe\?t=[^"]+"[^>]*>puedes bloquearlas<\/a>\./);
   assert.match(mail.html, /Proyectos, solo o en equipo\./);
   assert.equal(await send.stranger({ email: 'ana@ejemplo.com', inviter: lucia, kind: 'plan', name: 'Otra' }), false, 'never twice');
   assert.equal(sent.length, 1);
@@ -111,7 +111,7 @@ test('the email to a stranger: the inviter\'s language, a button to sign up, a l
 
 test('the message carries the one-click unsubscribe headers, and only for an http(s) address', () => {
   const message = buildMessage({ from: 'a@example.com', to: 'b@example.com', subject: 'Hi', text: 'Plain', unsubscribe: `${BASE}/api/mail/unsubscribe?t=abc` });
-  assert.match(message, /\r\nList-Unsubscribe: <https:\/\/work\.example\.com\/mail\/unsubscribe\?t=abc>\r\n/);
+  assert.match(message, /\r\nList-Unsubscribe: <https:\/\/work\.example\.com\/api\/mail\/unsubscribe\?t=abc>\r\n/);
   assert.match(message, /\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n/);
   assert.doesNotMatch(buildMessage({ from: 'a@example.com', to: 'b@example.com', subject: 'Hi', text: 'Plain' }), /List-Unsubscribe/);
   assert.throws(() => buildMessage({ from: 'a@example.com', to: 'b@example.com', subject: 'Hi', text: 'P', unsubscribe: 'mailto:x@example.com' }));
@@ -137,7 +137,7 @@ test('the page to stop them: GET asks, POST does it, in the language of whoever 
   const asked = await call('GET', `t=${token}`);
   assert.equal(asked.status, 200);
   assert.match(asked.body, /¿Bloquear las invitaciones\?/);
-  assert.match(asked.body, /<form method="post" action="https:\/\/work\.example\.com\/mail\/unsubscribe\?t=/);
+  assert.match(asked.body, /<form method="post" action="https:\/\/work\.example\.com\/api\/mail\/unsubscribe\?t=/);
   assert.equal(strangers.check('quiet@example.com', confirmed(2)), null, 'opening the link changes nothing');
   const done = await call('POST', `t=${token}`);
   assert.equal(done.status, 200);
