@@ -2040,7 +2040,7 @@ export function openSettings(options) {
 const BENEFITS = Object.freeze([
   ['lists.max', 'lists'], ['projects.max', 'projects'], ['notebooks.max', 'notebooks'],
   ['storage.mb', 'storage'], ['attachments', 'attachments'], ['files.per_note', 'filesPerNote'],
-  ['sharing', 'sharing'], ['assign', 'assign'], ['publish', 'publish'], ['templates', 'templates'], ['activity', 'activity'],
+  ['sharing', 'sharing'], ['assign', 'assign'], ['publish', 'publish'], ['embed', 'embed'], ['templates', 'templates'], ['activity', 'activity'],
   ['retention.days', 'retention'], ['history.days', 'history'], ['mcp', 'mcp'], ['mcp.calls_per_day', 'calls'],
   ['mcp.calls_per_week', 'callsWeek'],
 ]);
