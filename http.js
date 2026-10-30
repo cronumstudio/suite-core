@@ -365,7 +365,9 @@ export function serveStatic(root, urlPath, res) {
  *   than a script.
  * · Nobody may frame the app inside another site and trick whoever clicks.
  *   A host's module with a split view (host.js `split`) may be framed by its
- *   own site only: securityHeaders' `frames: 'self'`.
+ *   own site only: securityHeaders' `frames: 'self'`. A page that does nothing
+ *   but show, without a session (a project's public page), may be framed by any
+ *   site: `frames: 'any'`, the app's `embeds`.
  */
 export const DEFAULT_CSP = [
   "default-src 'self'",
@@ -389,13 +391,16 @@ export const DEFAULT_CSP = [
  * response without each place that answers remembering them.
  *
  * `frames: 'self'` lets pages of the same site frame this one (a host's split
- * view); by default no page may, of any site.
+ * view), and `frames: 'any'` pages of any site (a page made to be embedded,
+ * which X-Frame-Options can't say, so it goes without); by default no page may,
+ * of any site.
  */
 export function securityHeaders(res, { https = false, csp = DEFAULT_CSP, frames = 'none' } = {}) {
-  const framed = frames === 'self';
-  res.setHeader('Content-Security-Policy', framed ? csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'") : csp);
+  const ancestors = { self: "frame-ancestors 'self'", any: 'frame-ancestors *' }[frames];
+  res.setHeader('Content-Security-Policy', ancestors ? csp.replace("frame-ancestors 'none'", ancestors) : csp);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', framed ? 'SAMEORIGIN' : 'DENY');
+  if (frames === 'any') res.removeHeader('X-Frame-Options');
+  else res.setHeader('X-Frame-Options', frames === 'self' ? 'SAMEORIGIN' : 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Permissions-Policy',
     'geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()');

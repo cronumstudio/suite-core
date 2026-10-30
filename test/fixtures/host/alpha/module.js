@@ -34,6 +34,8 @@ export const suite = joinHost({
 export function createModule({ mount }) {
   return {
     publicDir: path.join(HERE, 'public'),
+    // A page any site may frame (app.js `embeds`), as Next's public page.
+    embeds: ['/shown.html'],
     version: '1.0.0',
     routes: (api) => {
       itemRoutes(api, { suite, table: 'alpha_items', mount, name: 'alpha' });

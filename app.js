@@ -688,11 +688,14 @@ export function clientTexts(flat) {
  * @param {'none'|'self'|Function} [options.frames]  who may frame its pages: nobody (default), or pages of
  *   the same site, a host's module in its split view (host.js `split`); or, by path, `(pathname) =>`
  *   either (a host's calendar, in a window of its own page)
+ * @param {string[]} [options.embeds]  the paths of its pages any site may frame, whatever `frames`
+ *   says: pages that only show, without a session, made to be embedded elsewhere (Next's
+ *   /shared.html, a project's public page). A host passes its module's, at the module's own paths
  */
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
-  sweep = null, offersMcp = null, frames = 'none',
+  sweep = null, offersMcp = null, frames = 'none', embeds = [],
   deviceActions = null, resolveDeviceAction = null, storage = null,
 }) {
   const {
@@ -942,7 +945,11 @@ export function createApp({
     let pathname = String(req.url || '');
 
     // Before anything else, so they reach every response.
-    securityHeaders(res, { https: install.https, frames: typeof frames === 'function' ? frames(pathname.split('?')[0]) : frames });
+    const requested = pathname.split('?')[0];
+    securityHeaders(res, {
+      https: install.https,
+      frames: embeds.includes(requested) ? 'any' : typeof frames === 'function' ? frames(requested) : frames,
+    });
 
     try {
       // Inside the try: a target or a Host no URL can be made of (`GET //`,

@@ -1032,6 +1032,23 @@ test('a host without a split view: nobody may frame its modules, and the rail of
   assert.equal(module.headers.get('x-frame-options'), 'DENY');
 });
 
+test('a module’s pages made to be embedded may be framed by any site, and only those', async (t) => {
+  for (const split of [null, '/split/']) {
+    const { call } = await startHost(t, { split });
+    const shown = await call('GET', '/alpha/shown.html');
+    assert.equal(shown.status, 200);
+    assert.match(shown.headers.get('content-security-policy'), /frame-ancestors \*(;|$)/);
+    assert.equal(shown.headers.get('x-frame-options'), null, 'which X-Frame-Options can’t say');
+    assert.match(shown.headers.get('content-security-policy'), /script-src 'self'/, 'the rest of the policy, as always');
+    const app = await call('GET', '/alpha/');
+    assert.match(app.headers.get('content-security-policy'), split ? /frame-ancestors 'self'/ : /frame-ancestors 'none'/);
+    // The same path in a module that doesn't name it, or under the host's root, is framed by nobody new.
+    for (const other of ['/beta/shown.html', '/shown.html', '/alpha/shown.html/']) {
+      assert.doesNotMatch((await call('GET', other)).headers.get('content-security-policy'), /frame-ancestors \*/, other);
+    }
+  }
+});
+
 test('a host with a calendar and pages of its own: those may frame the calendar’s page, and nothing else of the root', async (t) => {
   const dir = pageFolder(t);
   const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));

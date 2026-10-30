@@ -926,8 +926,9 @@ export async function createHost({
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
       portable: parts.portable ?? null, handleSignals: false, log,
-      // In the split view each module is a frame of the host's page.
-      frames: split ? 'self' : 'none',
+      // In the split view each module is a frame of the host's page; the pages it makes to be
+      // embedded, of any site's (app.js `embeds`).
+      frames: split ? 'self' : 'none', embeds: parts.embeds ?? [],
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
