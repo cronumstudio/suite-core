@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.218.0 — 2026-10-30
+
+- **Pages any site may embed** (Martin: a Next project's public page, in an `<iframe>` on someone's
+  own website). Every page answered `frame-ancestors 'none'` and `X-Frame-Options: DENY`, so the
+  browser showed nothing. New `embeds` option of `createApp`, a list of paths: those pages go
+  with `frame-ancestors *` and without `X-Frame-Options` (which can't say "any site"); the rest of
+  the policy stays. A host passes its module's `embeds` at the module's own paths, split view or
+  not. For pages that only show, without a session: nothing on them acts on anyone's behalf. New
+  `frames: 'any'` in `securityHeaders`.
+- **`embed.unbranded`**, a common feature: an embedded page without the Cronum Work mark under it.
+  Off in Free, on in Pro (cronum-work catalog); without `PLANS`, allowed.
+
 ## 0.217.0 — 2026-10-30
 
 - **One layout of Cronum Work's windows for every width** (Martin, the installed app on his PC:

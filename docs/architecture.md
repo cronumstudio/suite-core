@@ -1749,7 +1749,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
 
 Every app gets these from the suite and the conformance tests check them:
 
-- CSP without inline scripts or `eval`, `frame-ancestors 'none'`, `nosniff`, a strict referrer
+- CSP without inline scripts or `eval`, `frame-ancestors 'none'` (but the pages an app names in
+  `embeds`, which only show, without a session: `*`), `nosniff`, a strict referrer
   policy, a permissions policy that switches off what is not used, HSTS over HTTPS.
 - Passwords with scrypt in a self-describing format; session tokens stored as HMAC, API and OAuth
   tokens as hashes; nothing secret in URLs except where a client cannot send headers.
