@@ -78,10 +78,13 @@ const headingOf = (text) => {
  * @param {string} m.heading               the big line
  * @param {string} [m.lead]                what it is about (paragraphs split by a blank line)
  * @param {object} [m.card]                what is offered: { icon, title, meta }
- * @param {object} [m.button]              { label, href }: the one thing to do
+ * @param {object} [m.button]              { label, href, post? }: the one thing to do (`post`: a form's
+ *                                         button that posts to href, for a page, never an email)
  * @param {string} [m.note]                small print under the button
  * @param {object} [m.about]               { title, text }: what the product is, for whoever doesn't know it
  * @param {string} [m.footer]              under the sheet: why it came
+ * @param {object} [m.unsubscribe]         { text, label, href }: how to get no more, `{link}` in
+ *                                         the text standing where the link with `label` goes
  * @returns {{ html: string, text: string }}
  */
 export function renderMail(m) {
@@ -89,6 +92,7 @@ export function renderMail(m) {
   const accent = b.color;
   const onDark = b.colorOnDark || accent;
   const button = m.button && web(m.button.href) ? m.button : null;
+  const unsubscribe = m.unsubscribe && web(m.unsubscribe.href) ? m.unsubscribe : null;
   const pad = 'padding-left:40px;padding-right:40px';
 
   const eyebrow = m.eyebrow?.text ? `
@@ -119,7 +123,9 @@ export function renderMail(m) {
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btn"><tr>
               <td align="center" bgcolor="${accent}" style="border-radius:12px;background:${accent}">
                 <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${esc(button.href)}" style="height:48px;v-text-anchor:middle;width:260px" arcsize="25%" stroke="f" fillcolor="${accent}"><center style="color:${CREAM};font-family:'Segoe UI',Arial,sans-serif;font-size:16px;font-weight:bold">${esc(button.label)}</center></v:roundrect><![endif]-->
-                <!--[if !mso]><!--><a href="${esc(button.href)}" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:16px;line-height:20px;font-weight:600;color:${CREAM};text-decoration:none;border-radius:12px;background:${accent}">${esc(button.label)}</a><!--<![endif]-->
+                <!--[if !mso]><!-->${button.post
+    ? `<form method="post" action="${esc(button.href)}" style="margin:0"><button type="submit" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:16px;line-height:20px;font-weight:600;color:${CREAM};border:0;cursor:pointer;border-radius:12px;background:${accent}">${esc(button.label)}</button></form>`
+    : `<a href="${esc(button.href)}" style="display:inline-block;padding:14px 28px;font-family:${FONT};font-size:16px;line-height:20px;font-weight:600;color:${CREAM};text-decoration:none;border-radius:12px;background:${accent}">${esc(button.label)}</a>`}<!--<![endif]-->
               </td>
             </tr></table>
           </td></tr>` : '';
@@ -196,7 +202,9 @@ export function renderMail(m) {
         </table>
       </td></tr>
       <tr><td align="center" style="padding:22px 16px 0">
-        ${paragraphs(m.footer, `margin:0 0 6px;font-family:${FONT};font-size:12px;line-height:18px;color:${STONE};text-align:center`)}
+        ${paragraphs(m.footer, `margin:0 0 6px;font-family:${FONT};font-size:12px;line-height:18px;color:${STONE};text-align:center`)}${unsubscribe ? `
+        <p class="stone" style="margin:0 0 6px;font-family:${FONT};font-size:12px;line-height:18px;color:${STONE};text-align:center">${String(unsubscribe.text).split('{link}').map(esc)
+    .join(`<a class="link" href="${esc(unsubscribe.href)}" style="color:${accent};text-decoration:underline">${esc(unsubscribe.label)}</a>`)}</p>` : ''}
         <p class="stone" style="margin:8px 0 0;font-family:${FONT};font-size:12px;line-height:18px;color:${STONE};text-align:center">
           <a class="link" href="${esc(b.url)}" style="color:${accent};text-decoration:none;font-weight:600">${esc(b.name)}</a>${b.signature ? ` · ${esc(b.signature)}` : ''}
         </p>
@@ -216,6 +224,7 @@ export function renderMail(m) {
     m.note,
     m.about?.text ? `${m.about.title}\n${m.about.text}` : null,
     m.footer,
+    unsubscribe ? `${String(unsubscribe.text).replace('{link}', unsubscribe.label).replace(/\.$/, '')}: ${unsubscribe.href}` : null,
     [b.name, b.signature].filter(Boolean).join(' · '),
   ].filter((part) => part && String(part).trim()).map((part) => String(part).trim()).join('\n\n');
 

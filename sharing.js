@@ -31,7 +31,9 @@
  *
  * The notice of a new offer: an email always, and a push too if the person has a
  * device that takes it (`notify: { push, email }`, each the module's, with its
- * words; 0.212.0: the push no longer stands in for the email).
+ * words; 0.212.0: the push no longer stands in for the email). To an address
+ * without an account, `notify.stranger` (0.214.0), whose email decides itself
+ * whether it may go (stranger-invites.js); the answer is the same either way.
  *
  * Each kind brings its own rules as hooks (who may see it, what changes when it
  * is offered or left, what a route answers), so the routes keep the paths and the
@@ -62,7 +64,8 @@ export const PERMISSIONS = ['view', 'edit'];
  *   answer(info) → answer           what an offer answers (default: { share, invited });
  *   invitation: { select, join, where, owner, shape(row) }   its invitations not yet answered;
  *   path, routes: { segment, list, patch }   its routes (see routes()).
- * @param {object|Function} [options.notify]  { push(n), email(n) }, or one function for every notice.
+ * @param {object|Function} [options.notify]  { push(n), email(n), stranger?(n) }, or one function for every
+ *   notice to an account. `stranger` gets { kind, thing, name, actorId, email, permission }.
  *   n = { kind, thing, name, actorId, targetId, permission }.
  * @param {object} [options.push]  the suite's push service: who has a device (subscriptionsOf).
  * @param {Function} [options.hasPush]  (userId) → whether a push reaches them; overrides `push`.
@@ -250,6 +253,19 @@ export function createSharing({
     }
   }
 
+  /** Tells an address without an account (`notify.stranger`): its email keeps its own limits. */
+  function tellStranger(kind, thing, actorId, email, permission) {
+    const send = notify && typeof notify === 'object' ? notify.stranger : null;
+    if (!send) return;
+    const spec = specOf(kind);
+    const notice = { kind, thing, name: spec.name ? spec.name(thing) : thing?.name, actorId, email, permission };
+    try {
+      Promise.resolve(send(notice)).catch((err) => log(`[sharing] the email of a ${kind} offered to a new address was not sent: ${err?.message}`));
+    } catch (err) {
+      log(`[sharing] the email of a ${kind} offered to a new address was not sent: ${err?.message}`);
+    }
+  }
+
   /* -------------------------------- flows -------------------------------- */
 
   /**
@@ -292,7 +308,11 @@ export function createSharing({
     const who = target(userId, body);
     const permission = permissionOf(body.permission);
     const answer = spec.answer || defaultAnswer;
-    if (who.ghost) return answer({ kind, userId, thing, target: who, permission, invited: true, ctx });
+    if (who.ghost) {
+      const answered = answer({ kind, userId, thing, target: who, permission, invited: true, ctx });
+      tellStranger(kind, thing, userId, who.email, permission);
+      return answered;
+    }
     const row = shareRow(kind, thing.id, who.id);
     const invited = !row;
     // By email an offer not yet accepted counts every time, as an address without an account does:

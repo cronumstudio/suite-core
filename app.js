@@ -54,6 +54,7 @@ import { watchPasswordResets } from './workos-events.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
 import { mailBrand } from './mail-layout.js';
+import { createStrangerInvites, registerUnsubscribeApi } from './stranger-invites.js';
 import { createShareMail } from './share-mail.js';
 import { createAlerts } from './alerts.js';
 import { createAccountMail } from './account-mail.js';
@@ -459,6 +460,20 @@ export function createSuite({
   const alerts = createAlerts({
     to: install.alerts?.to ?? null, mailer, database, app: config.app, baseUrl: install.baseUrl, log,
   });
+  // Emails to addresses without an account, offered something (stranger-invites.js): only where one
+  // can be made —WorkOS, or sign-up open— and MAIL_STRANGERS_PER_DAY isn't 0. `signupUrl(back)`: where
+  // the email's button makes the account, then back at `back` (a module's path in a host).
+  const canSignUp = install.authProvider === 'workos' || (install.authProvider === 'local' && config.accounts.signup === 'open');
+  const strangers = createStrangerInvites({
+    database, baseUrl: install.baseUrl, enabled: canSignUp && install.mail.strangersPerDay > 0,
+    limits: { perDay: install.mail.strangersPerDay },
+    onInstallLimit: (limit) => { alerts.report('strangers', null, { count: limit }); },
+  });
+  const home = String(install.baseUrl).replace(/\/+$/, '');
+  const signupUrl = (back = '/') => {
+    if (!canSignUp) return null;
+    return install.authProvider === 'workos' ? `${home}/auth/login?signup=1&return=${encodeURIComponent(back)}` : `${home}${back}`;
+  };
   const accountMail = createAccountMail({
     database, accounts, mailer, texts, baseUrl: install.baseUrl, brand,
     appName: config.app.name, limiter, audit, signup: config.accounts.signup,
@@ -591,7 +606,8 @@ export function createSuite({
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     // The email of something offered (share-mail.js), in the app's own clothes.
-    shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, log }), mailBrand: brand,
+    shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log }),
+    mailBrand: brand, strangers, signupUrl,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
     /**
@@ -755,6 +771,8 @@ export function createApp({
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name });
+  // The link in an invitation to an address without an account, to get no more (stranger-invites.js).
+  if (suite.strangers) registerUnsubscribeApi(api, { strangers: suite.strangers, texts, brand: suite.mailBrand });
   if (config.modules.live) {
     /** The live channel of this tab: notices of what changed for this person (live.js). */
     api.get('/api/events', (ctx) => {

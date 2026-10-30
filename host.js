@@ -847,6 +847,8 @@ export async function createHost({
        */
       shareMail: createShareMail({
         mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
+        // To an address without an account: the host's limits, and back at the module once signed up.
+        strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
         module: {
           name: app.name, color: app.color || suite.mailBrand.color,
           icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,

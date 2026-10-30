@@ -1590,7 +1590,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `instructions` being the sentence for the assistant (`uploadLinkText`); `FILE_PARAMS` are its
   parameters, `file_url` and `file_name`, the same in every app.
 - **Mail** (**done**, v0.14.0): `mail.js` sends through SMTP (`MAIL_PROVIDER=smtp`, `MAIL_HOST`,
-  `MAIL_PORT`, `MAIL_SECURE` tls | starttls | none, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`) with a
+  `MAIL_PORT`, `MAIL_SECURE` tls | starttls | none, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM`,
+  `MAIL_STRANGERS_PER_DAY` for invitations to addresses without an account, v0.215.0) with a
   client of its own —no dependencies, STARTTLS required unless told otherwise, AUTH PLAIN or LOGIN,
   headers that can't be broken into— or, by default, writes the message in the server's log, so an
   install without a mail server can still pass a link on. `account-mail.js` carries what local

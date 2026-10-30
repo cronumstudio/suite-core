@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.215.0 — 2026-10-30
+
+- **An address without an account gets the invitation by email too** (Martin: "si se quiere
+  invitar a alguien que no tiene cuenta, ¿cómo se haría?"). Something offered by email already
+  waited under the address for whoever signs up with it; now that address is told, once. New
+  `stranger-invites.js` keeps it from looking like spam: only where an account can be made (WorkOS,
+  or sign-up open) and only from someone whose email is confirmed; once per address and person,
+  never sent again; at most 10 a day from one person, 3 in 30 days to one address and 100 a day
+  from the whole install (`MAIL_STRANGERS_PER_DAY`; reaching it sends the `strangers` alert to
+  `ALERT_EMAIL`, to raise it); never to an address that blocked them. `suite.shareMail.stranger({
+  email, inviter, kind, name, … })` writes it in the inviter's language: the same message, a line
+  saying to make an account with that same address, the button "Create account and accept" to
+  sign up and come back to the module, and a link to block invitations, with the one-click
+  `List-Unsubscribe` headers (RFC 8058; `mailer.send({ unsubscribe })`). `GET /api/mail/unsubscribe?t=…`
+  asks and a POST blocks them: by a random token, never the address in the link; the address
+  is never in the log either. `sharing.js` calls `notify.stranger` for an address without an
+  account, after answering the same as for one with it. Migration 29: `mail_stranger_invites`,
+  `mail_suppressions`. `renderMail` takes `unsubscribe: { text, label, href }` and a button that
+  posts (`button.post`, for pages).
+
 ## 0.214.0 — 2026-10-30
 
 - **The status bar in the page's ground** (Martin, Notes installed on an iPhone: a blank band at

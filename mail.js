@@ -29,6 +29,8 @@ export function mailConfigFromEnv(env = process.env) {
     secure: env.MAIL_SECURE || (port === 465 ? 'tls' : 'starttls'),
     user: env.MAIL_USER || '',
     password: env.MAIL_PASSWORD || '',
+    // The most invitations to addresses without an account a day, from the whole install (stranger-invites.js).
+    strangersPerDay: env.MAIL_STRANGERS_PER_DAY ? Number(env.MAIL_STRANGERS_PER_DAY) : 100,
   };
 }
 
@@ -36,6 +38,9 @@ export function mailConfigFromEnv(env = process.env) {
 export function mailConfigErrors(config) {
   const errors = [];
   if (!['log', 'smtp'].includes(config.provider)) errors.push(`MAIL_PROVIDER "${config.provider}": use smtp or log`);
+  if (config.strangersPerDay != null && !(Number.isInteger(config.strangersPerDay) && config.strangersPerDay >= 0)) {
+    errors.push('MAIL_STRANGERS_PER_DAY: a whole number, 0 or more (0: no invitations to new addresses)');
+  }
   if (config.provider !== 'smtp') return errors;
   if (!config.host) errors.push('MAIL_PROVIDER=smtp needs MAIL_HOST');
   if (!parseAddress(config.from)) errors.push('MAIL_PROVIDER=smtp needs MAIL_FROM, like "Next <next@example.com>"');
@@ -69,9 +74,11 @@ const base64Lines = (text) => Buffer.from(String(text), 'utf8').toString('base64
 
 /**
  * The message as it travels (RFC 5322 + MIME): UTF-8 text in base64, and a
- * multipart/alternative when there is an HTML part too.
+ * multipart/alternative when there is an HTML part too. `unsubscribe`, an
+ * https address that ends them with a POST, becomes the List-Unsubscribe
+ * headers that let a mail client do it in one click (RFC 2369, RFC 8058).
  */
-export function buildMessage({ from, to, subject, text, html = null, date = new Date(), domain = 'localhost' }) {
+export function buildMessage({ from, to, subject, text, html = null, unsubscribe = null, date = new Date(), domain = 'localhost' }) {
   const sender = parseAddress(from);
   const recipient = parseAddress(to);
   if (!sender || !recipient) throw new MailError('A sender and a recipient address are needed');
@@ -83,6 +90,11 @@ export function buildMessage({ from, to, subject, text, html = null, date = new 
     `Message-ID: <${crypto.randomUUID()}@${domain}>`,
     'MIME-Version: 1.0',
   ];
+  if (unsubscribe != null) {
+    const address = oneLine(unsubscribe);
+    if (!/^https?:\/\/[^\s<>"]+$/i.test(address)) throw new MailError('The unsubscribe address must be http(s)');
+    headers.push(`List-Unsubscribe: <${address}>`, 'List-Unsubscribe-Post: List-Unsubscribe=One-Click');
+  }
   if (!html) {
     return [...headers, 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '',
       base64Lines(text)].join('\r\n');
@@ -266,7 +278,7 @@ export async function sendSmtp(config, { from, to, message, timeoutMs = TIMEOUT_
 
 /**
  * @param {object} config   from mailConfigFromEnv()
- * @returns {{ provider, send({ to, subject, text, html? }) → Promise, verify() → Promise }}
+ * @returns {{ provider, send({ to, subject, text, html?, unsubscribe? }) → Promise, verify() → Promise }}
  */
 export function createMailer(config, { log = console.log, send = sendSmtp, check = checkSmtp } = {}) {
   const errors = mailConfigErrors(config);
@@ -274,13 +286,13 @@ export function createMailer(config, { log = console.log, send = sendSmtp, check
   const from = config.from || 'no-reply@localhost';
   const domain = parseAddress(from)?.address.split('@')[1] || 'localhost';
 
-  async function deliver({ to, subject, text, html = null }) {
+  async function deliver({ to, subject, text, html = null, unsubscribe = null }) {
     if (!parseAddress(to)) throw new MailError(`"${oneLine(to)}" is not an email address`);
     if (config.provider === 'log') {
       log(`[mail] to ${oneLine(to)}: ${oneLine(subject)}\n${text}`);
       return { logged: true };
     }
-    const message = buildMessage({ from, to, subject, text, html, domain });
+    const message = buildMessage({ from, to, subject, text, html, unsubscribe, domain });
     return send(config, { from, to, message, helo: domain });
   }
 
