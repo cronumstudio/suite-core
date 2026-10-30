@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.220.0 — 2026-10-31
+## 0.221.0 — 2026-10-31
 
 From the audit of 30/10 (billing-1, -3, -4, -5; sc-host-12; work-1, work-8).
 
