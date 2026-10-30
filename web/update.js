@@ -177,6 +177,38 @@ async function bringNewCode() {
   page.location.replace(url.pathname + url.search + url.hash);
 }
 
+/**
+ * Whether a newer service worker took this page over since it loaded: one installed because
+ * another tab or window reloaded, or a notice came, without applyUpdate() here. From then on what
+ * the page loads late (a module's first mount, Settings, any `import()`) comes from the new copy,
+ * and joined to the old code it already has under the same addresses it may not even load (a
+ * name the old base.js doesn't export). A page that lives for days (Cronum Work's shell) asks
+ * `stale()` before loading code late, and brings the new version instead (applyUpdate).
+ *
+ * A page that had no worker when it loaded got its code from the server: the first worker taking
+ * it over brings the same code.
+ *
+ * @param {object} [options]
+ * @param {Function} [options.onNew]  () → the page is stale now (show the notice of a new version)
+ * @param {object}   [options.sw]     navigator.serviceWorker, for tests
+ * @returns {{ stale: () => boolean }}
+ */
+export function watchNewCode({ onNew = null, sw = globalThis.navigator?.serviceWorker } = {}) {
+  let stale = false;
+  let controlled = Boolean(sw?.controller);
+  sw?.addEventListener?.('controllerchange', () => {
+    if (!controlled) {
+      controlled = true;
+      return;
+    }
+    // Asked for here (applyUpdate): the page reloads with it.
+    if (updating || stale) return;
+    stale = true;
+    onNew?.();
+  });
+  return { stale: () => stale };
+}
+
 /** Takes away the `fresh` parameter applyUpdate() left in the address. */
 export function tidyAddress() {
   const url = new URL(window.location.href);

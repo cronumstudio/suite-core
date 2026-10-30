@@ -172,6 +172,9 @@ function suiteWorker(options) {
     }
     return null;
   };
+  // A host's pages that hold every module (Cronum Work's shell, host.js `pages[].root`): a notice
+  // opens there, never in a module's page on its own.
+  var holds = modules.length && Array.isArray(options.holds) ? options.holds : [];
   // Code from the copy first: only where the version is the fingerprint of everything (a host's).
   var codeFirst = options.codeFirst === true;
   var hashes = options.hashes && typeof options.hashes === 'object' ? options.hashes : null;
@@ -354,7 +357,7 @@ function suiteWorker(options) {
     var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/?app', scope));
     if (modules.length) {
       event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-        .then(function (clients) { return suiteOpenModule(clients, target, data, moduleOf); }));
+        .then(function (clients) { return suiteOpenModule(clients, target, data, moduleOf, holds); }));
       return;
     }
     event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clients) {
@@ -386,11 +389,24 @@ function suiteAsAsked(cached) {
  * the notice and the focus (in a frame of the split view, the view gets the
  * focus); otherwise a page of the app open goes there, and without one a new
  * window opens it.
+ *
+ * With `holds`, the host's pages that hold every module (Work's shell at `/` and `/w/`): one of
+ * them open gets the address to open (`notification-open`, a type of its own: a module mounted
+ * in it listens for `notification`) and the focus, and without one a new window opens the first
+ * with `?open=`. Navigating it to the module would take every window away with it.
  */
-function suiteOpenModule(clients, target, data, moduleOf) {
+function suiteOpenModule(clients, target, data, moduleOf, holds) {
   var origin = self.location.origin;
   var mine = clients.filter(function (c) { return new URL(c.url).origin === origin; });
   var top = function (c) { return c.frameType !== 'nested'; };
+  if (holds && holds.length) {
+    var shell = mine.filter(function (c) { return top(c) && holds.indexOf(new URL(c.url).pathname) >= 0; })[0];
+    if (shell) {
+      shell.postMessage({ type: 'notification-open', url: target, data: data });
+      return shell.focus();
+    }
+    if (!mine.some(top)) return self.clients.openWindow(holds[0] + '?open=' + encodeURIComponent(target));
+  }
   var wanted = moduleOf(new URL(target, origin).pathname);
   var same = wanted ? mine.filter(function (c) { return moduleOf(new URL(c.url).pathname) === wanted; }) : [];
   var page = same.filter(top)[0];
