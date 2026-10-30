@@ -828,7 +828,7 @@ already counted. `better(user, feature)` is the next plan with more of a limit, 
 names them: `PLANS=cronum-work`. Each app reads only the features it declares, and a feature it
 declares that the catalog doesn't set stops the start, so a new barrier always comes with its
 value. The features every app names the same are there too (`COMMON_FEATURES`: `retention.days`,
-`storage.mb`, `assign`, `publish`, `templates`, `mcp`, `mcp.calls_per_day`, `mcp.calls_per_week`), for an app's
+`storage.mb`, `assign`, `publish`, `embed`, `templates`, `mcp`, `mcp.calls_per_day`, `mcp.calls_per_week`), for an app's
 `features` to take from. Plan ids are English: `free`, `pro`, `team`. Without PLANS, one plan with
 every default: a self-hosted copy has everything.
 

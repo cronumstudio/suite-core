@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.223.0 — 2026-10-31
+## 0.220.0 — 2026-10-31
 
 From the audit of 30/10 (service worker, the host, Work's shell):
 
@@ -43,6 +43,15 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   answering it: live channels stay open).
 - **A static file gone halfway cuts its response** instead of an uncaught error that stopped the
   process (sc-host-2, `pipeline`).
+
+## 0.219.0 — 2026-10-30
+
+- **Public pages free, embedding them Pro's** (Martin: Projects, Notes and Tasks get a public page
+  of their own, like Next's; its link for everyone, putting it in another website for Pro, and
+  then without the Cronum Work mark). `publish` goes on in Free in the cronum-work catalog. New
+  common feature `embed` (off in Free, on in Pro; without `PLANS`, allowed), named in the plan's
+  benefits. **Interface:** `embed.unbranded` (0.218.0) is gone: an app that declares it moves
+  to `embed`.
 
 ## 0.218.0 — 2026-10-30
 
