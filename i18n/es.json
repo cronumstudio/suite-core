@@ -720,6 +720,13 @@
   "kit.about.upToDate": "Estás al día",
   "kit.about.check": "Buscar actualizaciones",
   "kit.account.signOut": "Cerrar sesión",
+  "kit.account.unsent": {
+    "one": "Queda {n} cambio sin enviar",
+    "other": "Quedan {n} cambios sin enviar"
+  },
+  "kit.account.signOutAnyway": "Cerrar sesión igualmente",
+  "kit.account.unsentDetail": "Al cerrar sesión se borra lo guardado en este dispositivo, así que esos cambios se perderían.",
+  "kit.account.signOutOffline": "Sin conexión no se puede cerrar sesión: el servidor no se enteraría. Inténtalo cuando vuelva la señal.",
   "kit.update.available": "Hay una versión nueva de la aplicación.",
   "kit.twoFactor.title": "Verificación en dos pasos",
   "kit.twoFactor.statusOn": "Activada",

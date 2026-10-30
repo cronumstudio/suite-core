@@ -720,6 +720,13 @@
   "kit.about.upToDate": "You are up to date",
   "kit.about.check": "Check for updates",
   "kit.account.signOut": "Sign out",
+  "kit.account.unsent": {
+    "one": "{n} change hasn’t been sent yet",
+    "other": "{n} changes haven’t been sent yet"
+  },
+  "kit.account.signOutAnyway": "Sign out anyway",
+  "kit.account.unsentDetail": "Signing out deletes what is saved on this device, so those changes would be lost.",
+  "kit.account.signOutOffline": "You can’t sign out without a connection: the server wouldn’t know. Try again when the signal is back.",
   "kit.update.available": "A new version is available.",
   "kit.twoFactor.title": "Two-step verification",
   "kit.twoFactor.statusOn": "On",

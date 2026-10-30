@@ -720,6 +720,13 @@
   "kit.about.upToDate": "Vous êtes à jour",
   "kit.about.check": "Rechercher des mises à jour",
   "kit.account.signOut": "Se déconnecter",
+  "kit.account.unsent": {
+    "one": "Il reste {n} modification non envoyée",
+    "other": "Il reste {n} modifications non envoyées"
+  },
+  "kit.account.signOutAnyway": "Se déconnecter quand même",
+  "kit.account.unsentDetail": "Se déconnecter efface ce qui est enregistré sur cet appareil : ces modifications seraient donc perdues.",
+  "kit.account.signOutOffline": "Impossible de se déconnecter sans connexion : le serveur ne le saurait pas. Réessayez quand le réseau sera revenu.",
   "kit.update.available": "Une nouvelle version est disponible.",
   "kit.twoFactor.title": "Validation en deux étapes",
   "kit.twoFactor.statusOn": "Activée",
