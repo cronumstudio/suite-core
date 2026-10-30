@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.217.0 — 2026-10-30
+
+- **One layout of Cronum Work's windows for every width** (Martin, the installed app on his PC:
+  making the window narrower, Next alone became Tasks and Notes side by side, and a phone's single
+  window below that). `windows.js` kept a layout per screen class (`wide` ≥ 1280 px, `mid`
+  ≥ 768 px, `narrow`) and crossing from one to another brought back that class's, so the modules
+  in sight changed with the width. Now there is one, `work.layout` = `{ all }`: a narrower desk
+  squeezes it into the columns that fit, as it already did within a class, and a phone shows its
+  focused window. On a phone a tab (or a swipe) moves the focus within the layout, or brings the
+  module into the focused window's place, instead of making a one-window layout of its own: what
+  was beside it is there again when the window widens. Interface: `writeLayout(storage, layout)`
+  loses its `screen`; `readLayout(storage, screen, …)` keeps it only to read a layout kept per
+  class before (that screen's, else a wider one's), until the next change writes over it.
+
 ## 0.216.0 — 2026-10-30
 
 - **A phone's first sign-in goes back to the app** (Martin, Cronum Work's app on Android: signing in

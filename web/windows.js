@@ -38,8 +38,9 @@
  *   { hidden: true })`); at most four stay mounted, and beyond that the one used least recently is
  *   given back (`onEvict(module)`: the shell unmounts it and removes its window).
  * - A module the person turns off goes with `drop(module)`: its window and its tab, at once.
- * - The layout is kept on this device, one per screen class (`work.layout`: wide ≥ 1280 px, mid
- *   ≥ 768 px, narrow), because four columns don't fit on a tablet.
+ * - The layout is kept on this device, one for every width (`work.layout`): a narrower window
+ *   squeezes it into the columns that fit, a phone shows its focused window, and it comes back
+ *   as it was when the window widens. The same modules stay in sight whatever the width.
  *
  *   const windows = createWindows(desk, { windowOf, onPause, onShow, onEvict, modules, nameOf });
  *   windows.restore({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });
@@ -52,7 +53,7 @@ import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 
-/** Where the layouts are kept, by screen class (Cronum Work's own key: CONVENTIONS §9). */
+/** Where the layout is kept (Cronum Work's own key: CONVENTIONS §9). */
 export const KEY = 'work.layout';
 
 const PICK_PX = 6;          // pixels the pointer moves before a head picks its window up
@@ -99,7 +100,7 @@ const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditabl
 
 /* ---------------------------------- the model ---------------------------------- */
 
-/** The screen class a layout is kept for: four columns fit on a wide screen, not on a tablet. */
+/** The screen class: a phone (narrow) shows one window, the others as many columns as fit. */
 export const screenClass = (width) => (width >= 1280 ? 'wide' : width >= 768 ? 'mid' : 'narrow');
 
 /** How many columns of 320 px, with their bars, fit in `width` (unknown: all of them). */
@@ -429,10 +430,14 @@ export function lruEvict(order, keep, max = MAX_MOUNTED) {
   return out;
 }
 
-/** The layout kept for a screen class, or null (none, unreadable, or nothing in it may be shown). */
+/**
+ * The layout kept, or null (none, unreadable, or nothing in it may be shown). Before there was one
+ * for every width there was one per screen class: then `screen`'s, else a wider one's.
+ */
 export function readLayout(storage, screen, { modules } = {}) {
   try {
-    const kept = JSON.parse(storage?.getItem(KEY) || '{}')?.[screen];
+    const all = JSON.parse(storage?.getItem(KEY) || '{}');
+    const kept = all?.all || (screen !== 'narrow' && all?.[screen]) || all?.wide || all?.mid || all?.narrow;
     const layout = kept ? normalizeLayout(kept, { modules }) : null;
     return layout?.cols.length ? layout : null;
   } catch {
@@ -440,14 +445,10 @@ export function readLayout(storage, screen, { modules } = {}) {
   }
 }
 
-/** Keeps a screen class's layout, leaving the others' as they were. Only a convenience: it may fail. */
-export function writeLayout(storage, screen, layout) {
+/** Keeps the layout, for every width (the old ones per screen class go). Only a convenience: it may fail. */
+export function writeLayout(storage, layout) {
   try {
-    let all = null;
-    try { all = JSON.parse(storage?.getItem(KEY) || '{}'); } catch { /* unreadable: written over */ }
-    const next = all && typeof all === 'object' && !Array.isArray(all) ? all : {};
-    next[screen] = layout;
-    storage?.setItem(KEY, JSON.stringify(next));
+    storage?.setItem(KEY, JSON.stringify({ all: layout }));
   } catch { /* private mode, full, or something else's */ }
 }
 
@@ -663,7 +664,7 @@ export function createWindows(desk, {
     paintMaxed();
     if (save) {
       chosen = keep;
-      writeLayout(storage, screen, keep);
+      writeLayout(storage, keep);
     }
     announce();
   }
@@ -1363,7 +1364,7 @@ export function createWindows(desk, {
     if (next) relayout(next);
   }, { signal });
 
-  /** The window grew or shrank: another screen class has its own layout, and fewer columns may fit. */
+  /** The window grew or shrank: the layout as chosen, in the columns that fit now (on a phone, its focused window). */
   win.addEventListener?.('resize', () => {
     resizing ||= raf(() => {
       resizing = 0;
@@ -1373,9 +1374,8 @@ export function createWindows(desk, {
         gesture?.cancel();
         screen = now;
         desk.setAttribute('data-screen', now);
-        const want = (now === 'narrow' ? null : readLayout(storage, now, allowed())) ?? chosen;
-        layout = arrange(want);
-        apply({ keep: want });
+        layout = arrange(chosen);
+        apply({ keep: chosen });
       } else if (screen !== 'narrow') {
         // Squeezed into fewer columns, it is kept as it was chosen, and comes back when there is room again.
         const next = arrange(chosen);
@@ -1398,7 +1398,7 @@ export function createWindows(desk, {
     apply({ keep: want });
   }
 
-  /** The layout kept for this screen class, or `fallback` when there is none. */
+  /** The layout kept, or `fallback` when there is none. */
   function restore(fallback) {
     set(readLayout(storage, screen, allowed()) ?? fallback ?? { cols: [] });
   }
@@ -1421,17 +1421,25 @@ export function createWindows(desk, {
     gesture?.cancel();
     // It comes in under the maximized window: that one goes back to its place for it to be seen.
     if (maxed) maximize(null, { fade: false });
-    let next;
-    if (screen === 'narrow' || !layout.cols.length) {
-      next = { cols: [{ w: 1, wins: [module] }], focus: module };
-    } else {
-      next = copy(layout);
-      const spot = where(next, shown.has(instead) ? instead : next.focus) ?? { col: 0, row: 0 };
+    // The module in the place of `at`'s window (or the first), of a layout with any.
+    const into = (from, at) => {
+      if (!from.cols.length) return { cols: [{ w: 1, wins: [module] }], focus: module };
+      const next = copy(from);
+      const spot = where(next, at) ?? { col: 0, row: 0 };
       next.cols[spot.col].wins[spot.row] = module;
       next.focus = module;
-    }
+      return next;
+    };
     recent = lruTouch(recent, module);
-    layout = normalizeLayout(next);
+    if (screen === 'narrow') {
+      // A phone shows one window of the layout kept: a tab moves its focus, or brings the module
+      // into the focused window's place, and the rest of it is there when the window widens.
+      const want = normalizeLayout(where(chosen, module) ? { ...chosen, focus: module } : into(chosen, chosen.focus));
+      layout = arrange(want);
+      apply({ keep: want });
+      return;
+    }
+    layout = normalizeLayout(into(layout, shown.has(instead) ? instead : layout.focus));
     apply();
   }
 
@@ -1475,7 +1483,7 @@ export function createWindows(desk, {
     for (const m of shown) nodes.get(m).setAttribute('data-focus', String(m === module));
     drawTabs();
     chosen = where(chosen, module) ? { ...chosen, focus: module } : layout;
-    writeLayout(storage, screen, chosen);
+    writeLayout(storage, chosen);
     announce();
   }
 
