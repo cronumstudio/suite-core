@@ -3,6 +3,47 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.223.0 — 2026-10-31
+
+From the audit of 30/10 (service worker, the host, Work's shell):
+
+- **A scoped sheet is kept once per file** (sc-host-11). The host kept each module's sheet with
+  `@scope` (`scopedSheets`) under the address as asked, so `/tasks/css//styles.css?scope=work`,
+  `/tasks/c%73s/…` and any other spelling of the same file each kept a copy (some 43 KB) for good,
+  without a session: anyone could fill Work's memory. Now the key is the file's own address, which
+  also gives every spelling the same ETag and the same url()s; and at most 200 are kept.
+- **A newer worker taking a page over is said to the page** (sc-shell-3). New `watchNewCode()` in
+  `web/update.js`: `stale()` once a worker other than the page's first took it over without
+  `applyUpdate()` here (another window reloaded, a notice came). What such a page loads late comes
+  from the new copy, and joined to the old code it already runs it may not load at all (Settings
+  importing a name the old `base.js` doesn't export). A page that lives for days asks before
+  loading code late and brings the new version instead.
+- **A notice tapped with Work's shell open opens there** (sc-shell-4). The host's worker gets
+  `holds` (`['/', '/w/']` with a root page, `pages[].root`): one of those pages open gets
+  `{ type: 'notification-open', url }` and the focus, instead of being navigated to the module on
+  its own with every window in it; with none open, a new window opens `/?open=<the module's
+  address>`. Without a root page, as before.
+- **`framedModules`**, a host option: the modules' pages may be framed by the host's own pages
+  without a split view (Work's shell opens a module it can't mount in a frame). `split` still
+  implies it.
+- **`@keyframes` carry the module's name** in a scoped sheet (sc-host-1): `fade-in` in Tasks and
+  in Next were one name in the shell's one document, the last sheet loaded winning. A module's
+  own `@keyframes` become `<mount>--<name>`, with its `animation`s; the kit's sheets and the
+  kit's names (`kit-…`) stay. `SCOPE_FORMAT` 3.
+- **How the server rewrites the sheets is part of the version** (sc-host-8): a release that only
+  changes `scope-css.js` is a new worker, so installed copies don't keep the old sheets.
+- **A module's stop is waited for** when the host closes, three seconds at most (dead-dup-4): a
+  module's `start()` may return a stop that returns a promise (the notices it groups, sent now).
+- **Two modules' tables are compared before the second's migrations run** (sc-host-9): its
+  migrations are tried first on an empty database, and a table a module joined before declares
+  (`portable.tables`) stops the start without touching the real one. The check once every module is
+  in stays for the rest.
+- **A body over the limit closes the connection** (sc-host-3): after the 413 the server no longer
+  reads the rest for ever. `requestTimeout` is ten minutes instead of none (receiving a request, not
+  answering it: live channels stay open).
+- **A static file gone halfway cuts its response** instead of an uncaught error that stopped the
+  process (sc-host-2, `pipeline`).
+
 ## 0.218.0 — 2026-10-30
 
 - **Pages any site may embed** (Martin: a Next project's public page, in an `<iframe>` on someone's
