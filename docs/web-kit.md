@@ -54,6 +54,14 @@ and dark apart, so an app's own variables built on them follow. `applyLook(look)
 it and keeps `host.look` in `localStorage`; `theme.js` reads that before the first paint, and an app
 with its own pre-paint script adds the same line.
 
+**The status bar in the page's ground** (v0.214.0): an app installed on an iPhone's Home Screen
+takes `<meta name="apple-mobile-web-app-status-bar-style" content="default">`, an opaque bar; the
+see-through `black-translucent` with `viewport-fit=cover` makes iOS 26 show the app shorter than the
+screen by the status bar (WebKit 301108), a blank band at its foot. That bar has the colour of
+`theme-color`: mark the page's `theme-color` metas `data-kit-ground`, before `theme.js`, and it
+paints them in the page's ground (the body's background, as `rgb()`) once the page is there and
+whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is what shows meanwhile.
+
 ## The modules
 
 | File | What it gives |
