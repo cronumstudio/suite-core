@@ -244,31 +244,40 @@ test('LRU: the last used first; beyond four, the least recently used that doesn�
   assert.deepEqual(lruEvict(['a', 'b'], ['a', 'b'], 1), [], 'all showing: none');
 });
 
-test('kept by screen class, read back whatever shape it has, never failing', () => {
+test('kept once for every width, read back whatever shape it has, never failing', () => {
   const data = new Map();
   const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)) };
   assert.equal(readLayout(storage, 'wide'), null);
-  writeLayout(storage, 'wide', L('a', 'b'));
-  writeLayout(storage, 'mid', L('c'));
-  assert.deepEqual(JSON.parse(data.get(KEY)).wide.cols.length, 2, 'one key, a layout per class');
+  writeLayout(storage, L('a', 'b'));
+  assert.deepEqual(Object.keys(JSON.parse(data.get(KEY))), ['all'], 'one key, one layout');
   assert.deepEqual(readLayout(storage, 'wide'), L('a', 'b'));
-  assert.deepEqual(readLayout(storage, 'mid'), L('c'));
+  assert.deepEqual(readLayout(storage, 'mid'), L('a', 'b'), 'the same whatever the width');
+  assert.deepEqual(readLayout(storage, 'narrow'), L('a', 'b'));
   assert.deepEqual(readLayout(storage, 'wide', { modules: ['b'] }), L('b'), 'a module no longer there is left out');
   assert.equal(readLayout(storage, 'wide', { modules: ['z'] }), null, 'nothing left: none');
+  // Before, one per screen class: that screen's, else a wider one's, and a phone's only alone.
+  data.set(KEY, JSON.stringify({ wide: L('next'), mid: L('tasks', 'notes'), narrow: L('notes') }));
+  assert.deepEqual(readLayout(storage, 'wide'), L('next'));
+  assert.deepEqual(readLayout(storage, 'mid'), L('tasks', 'notes'));
+  assert.deepEqual(readLayout(storage, 'narrow'), L('next'), 'a phone’s one window was never a layout');
+  data.set(KEY, JSON.stringify({ narrow: L('notes') }));
+  assert.deepEqual(readLayout(storage, 'mid'), L('notes'));
+  writeLayout(storage, L('a'));
+  assert.deepEqual(JSON.parse(data.get(KEY)), { all: L('a') }, 'the old ones go');
   data.set(KEY, JSON.stringify({ wide: { slots: [{ module: 'next', w: 1 }], focus: 'next' } }));
   assert.deepEqual(readLayout(storage, 'wide'), L('next'), 'the prototype’s');
   data.set(KEY, '{not json');
   assert.equal(readLayout(storage, 'wide'), null);
-  writeLayout(storage, 'wide', L('a'));
+  writeLayout(storage, L('a'));
   assert.deepEqual(readLayout(storage, 'wide'), L('a'), 'what was unreadable is written over');
   data.set(KEY, '[1]');
-  writeLayout(storage, 'mid', L('b'));
+  writeLayout(storage, L('b'));
   assert.deepEqual(readLayout(storage, 'mid'), L('b'));
   const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('full'); } };
   assert.equal(readLayout(broken, 'wide'), null);
-  assert.doesNotThrow(() => writeLayout(broken, 'wide', L('a')));
+  assert.doesNotThrow(() => writeLayout(broken, L('a')));
   assert.equal(readLayout(null, 'wide'), null);
-  assert.doesNotThrow(() => writeLayout(null, 'wide', L('a')));
+  assert.doesNotThrow(() => writeLayout(null, L('a')));
 });
 
 /* ---------------------------------- the windows ---------------------------------- */
@@ -350,7 +359,7 @@ test('windows: placed by grid column only, the others hidden, inert and paused, 
   assert.equal(head.getAttribute('aria-label'), 'kit.windows.window');
   assert.equal(desk.querySelectorAll('.cw-bar').length, 1);
   assert.equal(desk.querySelector('.cw-bar').getAttribute('data-axis'), 'col');
-  assert.ok(JSON.parse(data.get(KEY)).wide, 'kept for a wide screen');
+  assert.ok(JSON.parse(data.get(KEY)).all, 'kept');
 
   told.length = 0;
   const notes = made.get('notes');
@@ -418,7 +427,7 @@ test('drop: a module turned off leaves the layout, the kept one and the phone’
   assert.deepEqual(told.filter(([what]) => what === 'evict'), [['evict', 'tasks']]);
   assert.equal(made.has('tasks'), false);
   assert.equal(windows.recent.includes('tasks'), false);
-  assert.equal(JSON.stringify(JSON.parse(data.get(KEY)).wide).includes('tasks'), false, 'gone from the layout kept');
+  assert.equal(JSON.stringify(JSON.parse(data.get(KEY)).all).includes('tasks'), false, 'gone from the layout kept');
   told.length = 0;
   windows.drop('tasks');
   assert.deepEqual(told, [], 'twice is nothing');
@@ -805,7 +814,7 @@ test('phones: what has a swipe of its own keeps it, and a sideways finger in any
   windows.destroy();
 });
 
-test('screen class: wider, the wide layout kept comes back; narrower, the focused window alone', () => {
+test('screen class: wider, the layout comes back; narrower, the focused window alone', () => {
   const { desk, win, windows } = setup();
   windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
   windows.focus('next');
@@ -822,6 +831,47 @@ test('screen class: wider, the wide layout kept comes back; narrower, the focuse
   windows.destroy();
 });
 
+test('screen class: the same windows at every width, whatever was kept per class before', () => {
+  const { desk, win, data, windows } = setup({ width: 1000 });
+  data.set(KEY, JSON.stringify({ wide: { cols: [{ wins: ['next'] }] }, mid: { cols: [{ wins: ['tasks'] }, { wins: ['notes'] }] } }));
+  windows.restore();
+  assert.equal(windows.screen, 'mid');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['tasks'], ['notes']], 'this width’s, the first time');
+  win.innerWidth = 1400;
+  desk.clientWidth = 1400;
+  win.dispatch('resize');
+  assert.equal(windows.screen, 'wide');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['tasks'], ['notes']], 'wider, the same two, not the wide one of before');
+  assert.deepEqual(JSON.parse(data.get(KEY)).all.cols.map((c) => c.wins), [['tasks'], ['notes']]);
+  windows.columns(1);
+  win.innerWidth = 1000;
+  desk.clientWidth = 1000;
+  win.dispatch('resize');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['tasks']], 'one chosen wide is one narrower too');
+  windows.destroy();
+});
+
+test('screen class: a phone’s tabs move the focus of the layout, which comes back whole when it widens', () => {
+  const { desk, win, data, windows } = setup();
+  windows.set({ cols: [{ wins: ['tasks'] }, { wins: ['notes'] }] });
+  windows.focus('notes');
+  win.innerWidth = 400;
+  desk.clientWidth = 400;
+  win.dispatch('resize');
+  assert.deepEqual(windows.layout, { cols: [{ w: 1, wins: ['notes'] }], focus: 'notes' }, 'the focused window: the last shown');
+  windows.show('tasks');
+  assert.deepEqual(windows.layout, { cols: [{ w: 1, wins: ['tasks'] }], focus: 'tasks' });
+  windows.show('next');
+  assert.deepEqual(windows.layout, { cols: [{ w: 1, wins: ['next'] }], focus: 'next' });
+  assert.deepEqual(JSON.parse(data.get(KEY)).all.cols.map((c) => c.wins), [['next'], ['notes']], 'in the focused window’s place');
+  win.innerWidth = 1400;
+  desk.clientWidth = 1400;
+  win.dispatch('resize');
+  assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['next'], ['notes']]);
+  assert.equal(windows.layout.focus, 'next');
+  windows.destroy();
+});
+
 test('screen class: a narrower window squeezes the columns, and the layout as chosen comes back when it widens', () => {
   const { desk, win, data, windows } = setup();
   windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }, { wins: ['tasks'] }, { wins: ['projects'] }] });
@@ -831,7 +881,7 @@ test('screen class: a narrower window squeezes the columns, and the layout as ch
   assert.equal(windows.screen, 'wide');
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes'], ['next'], ['tasks', 'projects']], 'three columns fit');
   windows.focus('next');
-  assert.equal(JSON.parse(data.get(KEY)).wide.cols.length, 4, 'a click keeps the focus, not the squeezed layout');
+  assert.equal(JSON.parse(data.get(KEY)).all.cols.length, 4, 'a click keeps the focus, not the squeezed layout');
   win.innerWidth = 1400;
   desk.clientWidth = 1400;
   win.dispatch('resize');
