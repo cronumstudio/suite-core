@@ -20,7 +20,7 @@
  * it is whether the address has an account (sharing.js), so it tells nothing about anyone.
  *
  * The link to stop them carries a random token of the email it came in (`token`), never the
- * address: GET /mail/unsubscribe?t=… asks, and a POST to the same address (the page's button,
+ * address: GET /api/mail/unsubscribe?t=… asks, and a POST to the same address (the page's button,
  * or the mail client's one click) does it.
  */
 import crypto from 'node:crypto';
@@ -84,7 +84,7 @@ export function createStrangerInvites({ database, baseUrl, enabled = true, limit
     return null;
   }
 
-  const unsubscribeUrl = (token) => `${home}/mail/unsubscribe?t=${encodeURIComponent(token)}`;
+  const unsubscribeUrl = (token) => `${home}/api/mail/unsubscribe?t=${encodeURIComponent(token)}`;
 
   /** Notes one as sent, before it goes (two at once can't both pass check()). → its link to stop them. */
   function record(email, inviterId, kind) {
@@ -109,7 +109,7 @@ export function createStrangerInvites({ database, baseUrl, enabled = true, limit
 }
 
 /**
- * GET /mail/unsubscribe?t=… asks (a link scanner opening it changes nothing), and a POST to the
+ * GET /api/mail/unsubscribe?t=… asks (a link scanner opening it changes nothing), and a POST to the
  * same address does it: the page's button, or a mail client's one click (List-Unsubscribe-Post),
  * which comes without a session and needs none. Both answer a page in the product's clothes, in
  * the language of whoever opens it; a token nobody has says the link isn't whole.
@@ -141,6 +141,6 @@ export function registerUnsubscribeApi(router, { strangers, texts, brand }) {
       button: { label: t('mail.unsubscribe.button', vars), href: strangers.unsubscribeUrl(token), post: true },
     });
   };
-  router.get('/mail/unsubscribe', (ctx) => answer(ctx, false));
-  router.post('/mail/unsubscribe', (ctx) => answer(ctx, true));
+  router.get('/api/mail/unsubscribe', (ctx) => answer(ctx, false));
+  router.post('/api/mail/unsubscribe', (ctx) => answer(ctx, true));
 }

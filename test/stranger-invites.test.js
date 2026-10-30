@@ -65,7 +65,7 @@ test('only from a confirmed email, and only where an account can be made', () =>
 test('the link to stop them: by a token, never the address; for good, whoever invites', () => {
   const { strangers } = setup();
   const { token, url } = strangers.record('quiet@example.com', 1, 'list');
-  assert.equal(url, `${BASE}/mail/unsubscribe?t=${token}`);
+  assert.equal(url, `${BASE}/api/mail/unsubscribe?t=${token}`);
   assert.doesNotMatch(url, /quiet/);
   assert.equal(strangers.suppress('not-a-token'), null);
   assert.equal(strangers.suppress(token), 'quiet@example.com');
@@ -110,7 +110,7 @@ test('the email to a stranger: the inviter\'s language, a button to sign up, a l
 });
 
 test('the message carries the one-click unsubscribe headers, and only for an http(s) address', () => {
-  const message = buildMessage({ from: 'a@example.com', to: 'b@example.com', subject: 'Hi', text: 'Plain', unsubscribe: `${BASE}/mail/unsubscribe?t=abc` });
+  const message = buildMessage({ from: 'a@example.com', to: 'b@example.com', subject: 'Hi', text: 'Plain', unsubscribe: `${BASE}/api/mail/unsubscribe?t=abc` });
   assert.match(message, /\r\nList-Unsubscribe: <https:\/\/work\.example\.com\/mail\/unsubscribe\?t=abc>\r\n/);
   assert.match(message, /\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n/);
   assert.doesNotMatch(buildMessage({ from: 'a@example.com', to: 'b@example.com', subject: 'Hi', text: 'Plain' }), /List-Unsubscribe/);
@@ -126,7 +126,7 @@ test('the page to stop them: GET asks, POST does it, in the language of whoever 
   registerUnsubscribeApi(router, { strangers, texts: createTexts(), brand });
   const { token } = strangers.record('quiet@example.com', 1, 'list');
   const call = async (method, query) => {
-    const found = router.match(method, '/mail/unsubscribe');
+    const found = router.match(method, '/api/mail/unsubscribe');
     let status = null;
     let body = '';
     const res = { writeHead: (s) => { status = s; }, end: (b) => { body = b ?? ''; } };

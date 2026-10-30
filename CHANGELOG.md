@@ -16,7 +16,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   email, inviter, kind, name, … })` writes it in the inviter's language: the same message, a line
   saying to make an account with that same address, the button "Create account and accept" to
   sign up and come back to the module, and a link to block invitations, with the one-click
-  `List-Unsubscribe` headers (RFC 8058; `mailer.send({ unsubscribe })`). `GET /mail/unsubscribe?t=…`
+  `List-Unsubscribe` headers (RFC 8058; `mailer.send({ unsubscribe })`). `GET /api/mail/unsubscribe?t=…`
   asks and a POST blocks them: by a random token, never the address in the link; the address
   is never in the log either. `sharing.js` calls `notify.stranger` for an address without an
   account, after answering the same as for one with it. Migration 29: `mail_stranger_invites`,
