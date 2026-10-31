@@ -3,6 +3,39 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.221.0 — 2026-10-31
+
+From the audit of 30/10 (billing-1, -3, -4, -5; sc-host-12; work-1, work-8).
+
+- **A customer the checkout didn't name is never linked, not even one nobody here has**
+  (billing-1). The fix of 0.128.0 kept another account's customer from going to whoever paid a
+  checkout made without one (`customerUnsigned`), but a customer linked to nobody here was linked
+  all the same: the same Paddle account sells Tracker, so someone paying with a Tracker buyer's
+  email could end up with their customer, and open their portal (invoices, address, the card's
+  last digits). Now that link isn't made either, and the audit says so
+  (`billing.customer_unvouched`); the plan is still theirs, since they paid. New
+  `errors.email_unverified`, for a provider that refuses a checkout without a verified email
+  (cronum-cloud's Paddle, so its checkouts always name the customer).
+- **Tests of what guards the payments** (billing-3): the `unsigned` and `customerUnsigned`
+  branches were only tested in cronum-cloud, pinned to an older suite-core. Now billing.test.js
+  covers them, so a change here that breaks them fails here.
+- **Checkout and portal braked per account** (billing-4): 10 in 15 minutes, `429
+  too_many_requests` past that. Each asks the payment provider, whose API quota other apps of the
+  same account share. New `limiter.allowFor(kind, userId)` and `limits.billing`;
+  `registerBillingApi` takes `limiter`.
+- **An account whose subscription never stopped renewing waits up to a week** (billing-5): when
+  the provider failed both when the person asked to go and on the day the account goes, it went
+  and the subscription went on charging. Now the account waits for the next sweep while
+  `billing.stillRenews(userId)` (new; also in `combinedBilling`) says so, a week at most past its
+  day; then it goes all the same, logged loud.
+- **`/health` without `uptime`, and only up when the database answers** (sc-host-12, work-8):
+  `{ ok: true, version: { app, version, built } }`, or `503 { ok: false }`. In a host it is the
+  host's own, with the fingerprint `/version` gives (it gave the root app's, which never matched).
+  New `healthOf(database, versionOf)` in app.js.
+- **CLA check pinned by commit** (work-1): the shared workflow at a commit of cronumstudio/.github
+  instead of `@main`, with the write permissions on its job alone; it now runs on GitHub's machines
+  and pins its action by commit.
+
 ## 0.220.0 — 2026-10-31
 
 From the audit of 30/10 (service worker, the host, Work's shell):

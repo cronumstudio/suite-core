@@ -163,7 +163,12 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.match((await call('GET', '/alpha/js/app-version.js')).data, /APP_NAME_VERSION = '1\.0\.0'/);
   assert.equal((await call('GET', '/beta/version')).data.app, '2.0.0');
   assert.equal((await call('GET', '/version')).data.app, '9.9.9', 'the host’s own at the root');
-  assert.equal((await call('GET', '/health')).data.ok, true);
+  const health = (await call('GET', '/health')).data;
+  assert.equal(health.ok, true);
+  assert.equal(health.uptime, undefined);
+  assert.deepEqual(Object.keys(health.version), ['app', 'version', 'built']);
+  assert.equal(health.version.version, (await call('GET', '/version')).data.version,
+    'the host’s fingerprint, the one /version gives, not the root app’s');
   assert.match((await call('GET', '/alpha/suite/base.js')).data, /export const BASE = baseOf\(import\.meta\.url\)/,
     'the kit at the module’s path: its base is the module’s');
   assert.equal((await call('GET', '/alpha/sw.js')).status, 200, 'the module’s service worker, scoped to its path');
