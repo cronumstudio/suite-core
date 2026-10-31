@@ -25,7 +25,7 @@
  */
 
 /** What changes what this returns for the same sheet: part of the host's ETag for it. */
-export const SCOPE_FORMAT = 2;
+export const SCOPE_FORMAT = 3;
 
 /** At-rules of the whole page: never inside @scope, where they would mean nothing. */
 const OUTSIDE = /^@(?:-webkit-|-moz-)?(?:charset|import|namespace|font-face|keyframes|property|counter-style|font-feature-values|font-palette-values|page|view-transition)\b/i;
@@ -297,10 +297,33 @@ const RANK = (rule) => (/^@charset/i.test(rule) ? 0 : /^@(?:import|namespace)/i.
  */
 export function scopeCss(css, module, sheetPath) {
   if (!MOUNT.test(String(module))) throw new TypeError(`scopeCss: "${module}" is not a module's mount`);
-  const { inside, outside } = place(withoutComments(String(css ?? '')), String(sheetPath || `/${module}/`));
+  const path = String(sheetPath || `/${module}/`);
+  const { inside, outside } = place(ownKeyframes(withoutComments(String(css ?? '')), module, path), path);
   const before = outside.map((rule, i) => [RANK(rule), i, rule]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , rule]) => rule);
   const scope = `[data-module="${module}"], [data-owner="${module}"]`;
   return `${before.length ? `${before.join('\n')}\n` : ''}@scope (${scope}) {\n${insets(inside.join('\n'))}\n}\n`;
+}
+
+/** A @keyframes' name as it is declared (`@keyframes fade-in`, `@-webkit-keyframes fade-in`). */
+const KEYFRAMES = /@((?:-webkit-|-moz-)?keyframes\s+)(-?[A-Za-z_][\w-]*)/g;
+/** An animation's declaration, its value up to where it ends. */
+const ANIMATION = /((?:^|[;{\s])(?:-webkit-|-moz-)?animation(?:-name)?\s*:)([^;{}]*)/gi;
+
+/**
+ * The sheet's own @keyframes with the module's name before theirs (`fade-in` → `tasks--fade-in`),
+ * and its animations with them: a keyframes' name is the whole page's, and two modules with the
+ * same one would take each other's. The kit's sheets, the same in every module, and the kit's names
+ * (`kit-`) used from a module's sheet stay as they are.
+ */
+function ownKeyframes(css, module, sheetPath) {
+  if (sheetPath.split('/')[2] === 'suite') return css;
+  const names = new Set([...css.matchAll(KEYFRAMES)].map((m) => m[2]).filter((name) => !name.startsWith('kit-')));
+  if (!names.size) return css;
+  const named = (name) => (names.has(name) ? `${module}--${name}` : name);
+  return css
+    .replace(KEYFRAMES, (whole, at, name) => `@${at}${named(name)}`)
+    .replace(ANIMATION, (whole, property, value) => property + value.replace(/(^|[\s,])(-?[A-Za-z_][\w-]*)(?=$|[\s,!])/g,
+      (token, lead, name) => lead + named(name)));
 }
 
 /**

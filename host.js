@@ -65,6 +65,8 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createSuite, createApp, healthOf, SuiteConfigError } from './app.js';
 import { resolveConfig } from './config.js';
 import { migrate } from './migrate.js';
+import { openDatabase } from './db.js';
+import { SUITE_MIGRATIONS } from './schema.js';
 import { createEntitlements } from './entitlements.js';
 import { createLive, subscribeAll } from './live.js';
 import { createUploads } from './uploads.js';
@@ -91,6 +93,8 @@ import {
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
+/** What a module still finishes when the host closes (its stop's promise), at most this long. */
+const STOP_MS = 3000;
 
 /**
  * Where a loading host waits for its module to join. On globalThis, under a
@@ -101,6 +105,9 @@ const MINUTE_BEFORE_SWEEP = 60 * 1000;
 const HOST = Symbol.for('suite-core.host');
 /** This copy of suite-core: a host and its modules must run one, or an HttpError of one isn't the other's. */
 const HERE = import.meta.url;
+/** How the server rewrites a module's sheets (scope-css.js), as it is in this copy of the suite. */
+const SCOPE_PRINT = crypto.createHash('sha1')
+  .update(`${SCOPE_FORMAT}:${fs.readFileSync(new URL('./scope-css.js', HERE))}`).digest('hex').slice(0, 12);
 
 /** A module's path: lowercase, like an app id. */
 const MOUNT = /^[a-z][a-z0-9-]{1,30}$/;
@@ -568,6 +575,9 @@ function moduleListErrors(modules) {
  * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
  *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
  *   framed by the host's own pages (never by another site's)
+ * @param {boolean} [options.framedModules]  the modules' pages may be framed by the host's own pages
+ *   (never by another site's) without a split view: a page holding several modules that opens one
+ *   in a frame when it can't mount it (Cronum Work's shell). `split` implies it.
  * @param {string} [options.calendar]   the host's page that shows what has a date in each module
  *   (`/calendar/`, in its publicDir; calendar.js): the rail offers it, `GET /api/calendar` answers
  *   it at the root and the host's MCP adds `<id>_calendar`, from the modules' `createModule().calendar`
@@ -613,7 +623,7 @@ function moduleListErrors(modules) {
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, calendar = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null,
   aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
 }) {
@@ -685,6 +695,8 @@ export async function createHost({
   /** The host's one worker (host-worker.js), or null: each module keeps its own, as before. */
   const hostWorker = worker ? (worker === true ? {} : worker) : null;
   if (listErrors.length) stop(listErrors);
+  /** The host's page that is the app's start (`pages[].root`), or null. */
+  const rootPage = pageList.find((page) => page.root) ?? null;
 
   suite = createSuite({
     config: product, migrations, env, log, exitOnError,
@@ -705,6 +717,32 @@ export async function createHost({
     stop(['modules: "devices" is the path of the host’s phone pages (devices.connectPage, devices.webSessions)']);
   }
   migrate(suite.database, HOST_MIGRATIONS, { scope: 'host', log });
+
+  /**
+   * The tables a module's migrations make, worked out on an empty database with the suite's and the
+   * host's: one that a module joined before keeps its data in is found before they run on the real
+   * database, where the second found the first's table there and went on, with no way back. Null
+   * when they can't run there (one that needs more than the database): the copies' tables are still
+   * compared, once every module is in. (A table two modules make and neither declares, such as the
+   * old `mcp_tokens` of Tasks and Projects, is no one's data: left as it is.)
+   */
+  function tablesMadeBy(list, scope) {
+    let scratch = null;
+    try {
+      scratch = openDatabase({ path: ':memory:' });
+      const tables = () => scratch.all("SELECT name FROM sqlite_master WHERE type = 'table'").map((r) => r.name);
+      migrate(scratch, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+      migrate(scratch, HOST_MIGRATIONS, { scope: 'host', log: () => {} });
+      const before = new Set(tables());
+      migrate(scratch, list, { scope, log: () => {} });
+      return tables().filter((name) => !before.has(name));
+    } catch (err) {
+      log(`${tag} ${scope}: its migrations can't be tried on an empty database (${err.message}); its tables are compared later`);
+      return null;
+    } finally {
+      scratch?.close();
+    }
+  }
 
   /**
    * The suite a module gets: the host's, with what is the module's own in place
@@ -783,6 +821,11 @@ export async function createHost({
     if (entitlements.errors.length) {
       throw new SuiteConfigError(entitlements.errors.map((e) => `${entry.mount}: the plan catalog (PLANS) has errors: ${e}`));
     }
+    // Two modules whose data lives in a table of the same name would write in each other's rows.
+    const made = tablesMadeBy(ownMigrations, app.id) ?? [];
+    const clashes = made.flatMap((table) => joined.filter((m) => Object.hasOwn(m.parts?.portable?.tables || {}, table))
+      .map((m) => `${entry.mount}: its table ${table} is /${m.mount}/'s too; one of them must rename it (suite-core CONVENTIONS.md §9)`));
+    if (clashes.length) throw new SuiteConfigError(clashes);
     // Only once nothing stands in the way: a migration applied has no way back.
     migrate(suite.database, ownMigrations, { scope: app.id, log });
     // Its own notices: another module's open tabs don't reload for them. An
@@ -926,9 +969,9 @@ export async function createHost({
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
       portable: parts.portable ?? null, handleSignals: false, log,
-      // In the split view each module is a frame of the host's page; the pages it makes to be
-      // embedded, of any site's (app.js `embeds`).
-      frames: split ? 'self' : 'none', embeds: parts.embeds ?? [],
+      // In the split view (or a page of the host's that frames a module, framedModules) each module
+      // is a frame of the host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
+      frames: split || framedModules ? 'self' : 'none', embeds: parts.embeds ?? [],
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
@@ -1278,7 +1321,10 @@ export async function createHost({
     // The worker serves code from its copy first.
     const more = [['kit-texts', fingerprint(KIT_TEXTS)],
       // The host's own pages (`pages`): a release that changes only them is a new version too.
-      ...pageList.map((page) => [`page${page.at}`, fingerprint(page.dir)])];
+      ...pageList.map((page) => [`page${page.at}`, fingerprint(page.dir)]),
+      // The scoped sheets are the server's rewrite, kept by the worker as code: a release that
+      // changes only how it rewrites them is a new version too.
+      ...(scopedSheets ? [['scope-css', { version: SCOPE_PRINT, built: null }]] : [])];
     const value = {
       app: version, name: config.app.name, ...combine([...prints, ...more]),
       modules: Object.fromEntries(joined.map((m, i) => [m.mount, { app: m.parts.version ?? '0.0.0', version: prints[i + 2][1].version }])),
@@ -1319,6 +1365,8 @@ export async function createHost({
       }),
       shell,
       optional,
+      // The app's start holds every module (`pages[].root`, Work's shell): a notice opens in it.
+      ...(rootPage ? { holds: ['/', rootPage.at] } : {}),
       push: {
         title: config.app.name, icon, ...(hostWorker.badge ? { badge: hostWorker.badge } : {}), url: '/',
         ...(Object.keys(icons).length ? { icons } : {}),
@@ -1396,8 +1444,13 @@ export async function createHost({
     return true;
   }
 
-  /** Each module's sheets scoped (scopedSheets), by address: kept while the whole app's fingerprint is the same. */
+  /**
+   * Each module's sheets scoped (scopedSheets), by the file's own address however it was asked
+   * for (`//`, `%73`): kept while the whole app's fingerprint is the same. The files are a few, so
+   * the cap only matters if that ever stops being so.
+   */
   const scoped = new Map();
+  const SCOPED_MAX = 200;
   /**
    * A module's sheet at `rest` (`/css/app.css`, `/suite/kit.css`), scoped to its windows: the same
    * file the module would serve there. Null when it has none, and the module answers as always.
@@ -1407,10 +1460,12 @@ export async function createHost({
     const dir = kit ? KIT_DIR : m.parts.publicDir;
     const found = dir ? staticFile(dir, kit ? rest.slice('/suite'.length) : rest) : null;
     if (!found) return null;
-    const address = `/${m.mount}${rest}`;
+    const own = path.relative(path.resolve(dir), found.file).split(path.sep).join('/');
+    const address = `/${m.mount}${kit ? '/suite' : ''}/${own}`;
     const print = hostVersion().version;
     const known = scoped.get(address);
     if (known?.print === print && known.file === found.file) return known;
+    if (!known && scoped.size >= SCOPED_MAX) scoped.delete(scoped.keys().next().value);
     const body = scopeCss(fs.readFileSync(found.file, 'utf8'), m.mount, address);
     const sheet = {
       print, file: found.file, body,
@@ -1422,6 +1477,18 @@ export async function createHost({
 
   /** The modules whose live channel the host's one for all of them (liveAll) carries. */
   const liveChannels = () => joined.filter((m) => m.config.modules?.live).map((m) => [m.mount, m.view.live]);
+
+  /** A body the host keeps in memory (`{ body, etag }`), revalidated by its ETag: 304 when the browser has it. */
+  function sendKept(req, res, type, { body, etag }) {
+    securityHeaders(res, { https: install.https });
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-cache', ETag: etag });
+    res.end(req.method === 'HEAD' ? undefined : body);
+  }
 
   /** The module a request is for, with the prefix taken off; anything else is the root's. */
   async function handle(req, res) {
@@ -1490,19 +1557,7 @@ export async function createHost({
     if (rest === '/manifest.webmanifest' && ['GET', 'HEAD'].includes(req.method)) {
       const manifest = manifestOf(m);
       if (manifest) {
-        securityHeaders(res, { https: install.https });
-        if (req.headers['if-none-match'] === manifest.etag) {
-          res.writeHead(304, { ETag: manifest.etag, 'Cache-Control': 'no-cache' });
-          res.end();
-          return undefined;
-        }
-        res.writeHead(200, {
-          'Content-Type': 'application/manifest+json; charset=utf-8',
-          'Content-Length': Buffer.byteLength(manifest.body),
-          'Cache-Control': 'no-cache',
-          ETag: manifest.etag,
-        });
-        res.end(req.method === 'HEAD' ? undefined : manifest.body);
+        sendKept(req, res, 'application/manifest+json; charset=utf-8', manifest);
         return undefined;
       }
     }
@@ -1510,19 +1565,7 @@ export async function createHost({
     if (scopedSheets && url.searchParams.get('scope') === 'work' && /\.css$/i.test(rest) && ['GET', 'HEAD'].includes(req.method)) {
       const sheet = scopedSheet(m, rest);
       if (sheet) {
-        securityHeaders(res, { https: install.https });
-        if (req.headers['if-none-match'] === sheet.etag) {
-          res.writeHead(304, { ETag: sheet.etag, 'Cache-Control': 'no-cache' });
-          res.end();
-          return undefined;
-        }
-        res.writeHead(200, {
-          'Content-Type': 'text/css; charset=utf-8',
-          'Content-Length': Buffer.byteLength(sheet.body),
-          'Cache-Control': 'no-cache',
-          ETag: sheet.etag,
-        });
-        res.end(req.method === 'HEAD' ? undefined : sheet.body);
+        sendKept(req, res, 'text/css; charset=utf-8', sheet);
         return undefined;
       }
     }
@@ -1550,7 +1593,8 @@ export async function createHost({
     });
   });
   server.headersTimeout = 65000;
-  server.requestTimeout = 0;   // live channels stay open
+  // Receiving the request, not answering it: a live channel stays open all the same.
+  server.requestTimeout = 600_000;
 
   /* ------------------------------ running -------------------------------- */
 
@@ -1662,15 +1706,28 @@ export async function createHost({
 
   function close() {
     for (const timer of timers) clearInterval(timer);
-    for (const stopIt of stops) safely('stop', stopIt)();
+    // A module's stop may still have something to finish (the notices it groups, sent now): waited
+    // for, a few seconds at most, before the native connections close and the process goes.
+    const stopping = stops.map((stopIt) => {
+      try {
+        return Promise.resolve(stopIt()).catch(failed('stop'));
+      } catch (err) {
+        failed('stop')(err);
+        return null;
+      }
+    });
+    const stopped = Promise.race([Promise.all(stopping), new Promise((resolve) => { setTimeout(resolve, STOP_MS).unref(); })]);
     // What the alerts held back since their last email, for the next one after a restart.
     suite.alerts.flush();
     // Open tabs would keep the server from closing.
     suite.live.close();
     for (const m of joined) m.view.live.close();
-    // The connections to Apple kept open for native notices (push.native).
-    suite.nativePush?.close();
-    return new Promise((resolve) => server.close(() => resolve()));
+    const serverClosed = new Promise((resolve) => server.close(() => resolve()));
+    // The connections to Apple kept open for native notices (push.native), once those are out.
+    return stopped.then(() => {
+      suite.nativePush?.close();
+      return serverClosed;
+    });
   }
 
   return {

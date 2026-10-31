@@ -669,6 +669,32 @@ test('update: the server\'s version number is kept for About', async () => {
   assert.equal(watcher.latest().app, '1.3.0');
 });
 
+test('new code: a newer worker taking over a page that had one marks it stale, once; the first worker of a page doesn’t', async () => {
+  const { watchNewCode } = await import('../web/update.js');
+  const worker = () => {
+    const sw = new EventTarget();
+    sw.change = () => sw.dispatchEvent(new Event('controllerchange'));
+    return sw;
+  };
+  const running = worker();
+  running.controller = { scriptURL: '/sw.js' };
+  let told = 0;
+  const watch = watchNewCode({ sw: running, onNew: () => { told += 1; } });
+  assert.equal(watch.stale(), false);
+  running.change();
+  assert.equal(watch.stale(), true, 'what it loads now is the new copy, not what it runs');
+  running.change();
+  assert.equal(told, 1, 'said once');
+
+  const first = worker();   // a first visit: the code came from the server
+  const firstWatch = watchNewCode({ sw: first });
+  first.change();
+  assert.equal(firstWatch.stale(), false, 'its first worker brings the same code');
+  first.change();
+  assert.equal(firstWatch.stale(), true, 'the next one is a new release');
+  assert.equal(watchNewCode({ sw: undefined }).stale(), false, 'without workers, never');
+});
+
 test('update: the button says at once that it is updating, and pressing again starts nothing new', async () => {
   const replaced = [];
   let asked = 0;
@@ -1154,6 +1180,33 @@ test('a host’s one worker serves every module’s paths as the module did, and
   host.self.clients.matchAll = async () => [];
   await host.fire('notificationclick', { notification: { close() {}, data: {} } });
   assert.deepEqual(host.opened, ['/'], 'without a page open, a new window');
+});
+
+test('a host whose start holds every module (Work’s shell): a notice opens in that page, never in the module on its own', async () => {
+  const host = await serviceWorker('https://work.example/', []);
+  host.self.suiteWorker({ version: 'work-new', modules: ['/tasks/', '/notes/'], shell: ['/'], holds: ['/', '/w/'], push: { title: 'Cronum Work', url: '/' } });
+  const page = (url, frameType = 'top-level') => ({
+    url, frameType, got: [], focused: 0, went: null,
+    postMessage(m) { this.got.push(m); }, focus() { this.focused += 1; return Promise.resolve(this); },
+    navigate(to) { this.went = to; return Promise.resolve(this); },
+  });
+  const shell = page('https://work.example/?w=notes:%23/n/55|tasks:list/12');
+  host.self.clients.matchAll = async () => [shell];
+  await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4', module: 'tasks' } } });
+  assert.equal(shell.went, null, 'the shell stays, with every window in it');
+  assert.equal(shell.focused, 1);
+  assert.deepEqual(shell.got.map((m) => [m.type, m.url]), [['notification-open', '/tasks/?list=4']], 'it opens the window itself');
+
+  const atW = page('https://work.example/w/');
+  const alone = page('https://work.example/tasks/');
+  host.self.clients.matchAll = async () => [alone, atW];
+  await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=5' } } });
+  assert.equal(atW.got.length, 1, 'the shell at /w/ too, before a module’s page of its own');
+  assert.equal(alone.got.length, 0);
+
+  host.self.clients.matchAll = async () => [];
+  await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=6' } } });
+  assert.deepEqual(host.opened, [`/?open=${encodeURIComponent('/tasks/?list=6')}`], 'a new window is the shell, with it open');
 });
 
 /**

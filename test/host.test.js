@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHost, joinHost, mountManifest, mountedPath, moduleSettings } from '../host.js';
 import { SuiteConfigError } from '../app.js';
+import { openDatabase } from '../db.js';
 
 const HOST = {
   app: { id: 'work', name: 'Work', color: '#3A4660', icon: '/icons/work.svg', languages: ['en', 'es'] },
@@ -858,6 +859,7 @@ test('a module’s jobs stop when the host closes', async () => {
   fs.rmSync(dir, { recursive: true, force: true });
   const alpha = await import(list[0].entry.href);
   assert.equal(alpha.events.stopped, 1);
+  assert.equal(alpha.events.flushed, 1, 'what its stop still had to do (the notices grouped), done before close() is');
 });
 
 test('what a host can’t run stops it, and says why', async () => {
@@ -898,6 +900,31 @@ test('what a host can’t run stops it, and says why', async () => {
     ], /two: its table things is \/one\/'s too; one of them must rename it/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('two modules with a table of the same name: the second’s migrations never run on the first’s', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' };
+  fresh += 1;
+  await assert.rejects(createHost({
+    config: HOST, env, handleSignals: false, exitOnError: false, log: () => {},
+    modules: [
+      { mount: 'one', entry: fixture('plain', `?id=uno&table=things&n=${fresh}`) },
+      { mount: 'two', entry: fixture('plain', `?id=dos&table=things&n=${fresh}`) },
+    ],
+  }), (err) => {
+    assert.ok(err instanceof SuiteConfigError, err.stack);
+    assert.match(err.errors.join('\n'), /two: its table things is \/one\/'s too; one of them must rename it/);
+    return true;
+  });
+  const database = openDatabase({ path: path.join(dir, 'work.db') });
+  try {
+    assert.deepEqual(database.all("SELECT scope FROM schema_migrations WHERE scope IN ('uno', 'dos') ORDER BY scope").map((r) => r.scope), ['uno'],
+      'nothing of the second one applied');
+  } finally {
+    database.close();
   }
 });
 
@@ -1023,6 +1050,15 @@ test('a host with a split view: the rail offers it, and only its own pages may f
   const root = await call('GET', '/api/modules');
   assert.match(root.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(root.headers.get('x-frame-options'), 'DENY');
+});
+
+test('framedModules without a split view: the host’s own pages may frame the modules (Work’s shell, a module without mount), and the rail offers no split view', async (t) => {
+  const { call } = await startHost(t, { framedModules: true });
+  assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
+  const module = await call('GET', '/alpha/api/auth/config');
+  assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+  assert.equal(module.headers.get('x-frame-options'), 'SAMEORIGIN');
+  assert.match((await call('GET', '/api/modules')).headers.get('content-security-policy'), /frame-ancestors 'none'/);
 });
 
 test('a host without a split view: nobody may frame its modules, and the rail offers none', async (t) => {
@@ -1333,6 +1369,19 @@ test('a page of the host’s own is in the one worker’s copy and in /version: 
   assert.equal(optionsOf((await call('GET', '/sw.js')).data).version.endsWith(after), true);
 });
 
+test('a root page holds every module: the one worker opens a notice there (holds), not in a module on its own', async (t) => {
+  const dir = pageFolder(t);
+  const optionsOf = (body) => {
+    let given = null;
+    new Function('importScripts', 'suiteWorker', body)(() => {}, (o) => { given = o; });
+    return given;
+  };
+  const { call } = await startHost(t, { pages: [{ at: '/w/', dir, root: { except: ['modules'] } }], worker: true });
+  assert.deepEqual(optionsOf((await call('GET', '/sw.js')).data).holds, ['/', '/w/']);
+  const { call: plain } = await startHost(t, { pages: [{ at: '/w/', dir }], worker: true });
+  assert.equal(optionsOf((await plain('GET', '/sw.js')).data).holds, undefined, 'a page that isn’t the root, as before');
+});
+
 test('without pages, a host answers their paths as before', async (t) => {
   pageFolder(t);
   const { call } = await startHost(t);
@@ -1415,6 +1464,18 @@ test('a module’s scoped sheets are in the one worker’s copy (0.202.3): a new
 
   const { call: plain } = await startHost(t, { worker: true });
   assert.ok(!optionsOf((await plain('GET', '/sw.js')).data).shell.some((url) => url.includes('?scope=')), 'without scopedSheets, none');
+});
+
+test('a scoped sheet asked for at another spelling of its path is the same sheet, kept once', async (t) => {
+  const { call } = await startHost(t, { scopedSheets: true });
+  const sheet = await call('GET', '/alpha/css/app.css?scope=work');
+  // Each spelling used to be kept apart, for good: anyone could fill the memory with one file.
+  for (const variant of ['/alpha/css//app.css', '/alpha/css///app.css', '/alpha/c%73s/app.css', '/alpha/css/%61pp.css']) {
+    const again = await call('GET', `${variant}?scope=work`);
+    assert.equal(again.status, 200, variant);
+    assert.equal(again.data, sheet.data, `${variant}: its url()s from the file's own path`);
+    assert.equal(again.headers.get('etag'), sheet.headers.get('etag'), variant);
+  }
 });
 
 test('without scopedSheets, ?scope=work is a query like any other', async (t) => {
@@ -1595,4 +1656,18 @@ test('a module’s share email: signed by the host, the module over the heading,
   assert.match(html, /Invitación · Alpha/);
   assert.match(html, /src="http:\/\/127\.0\.0\.1\/alpha\/icons\/apple-touch-180\.png"/, 'the module’s icon, at its address');
   assert.match(text, /Ver y aceptar: http:\/\/127\.0\.0\.1\/alpha\//);
+});
+
+test('a request has a while to arrive, its answer as long as it needs (a live channel stays open)', async (t) => {
+  const { host } = await startHost(t);
+  assert.ok(host.server.requestTimeout > 0, 'a POST sent a byte at a time doesn’t hold its socket for ever');
+  assert.ok(host.server.requestTimeout >= 300_000, 'a big upload on a slow line still arrives');
+});
+
+test('with scopedSheets, how the server rewrites the sheets is part of the version: a new scope-css.js reaches installed copies', async (t) => {
+  const { call: scopedCall } = await startHost(t, { scopedSheets: true, worker: true });
+  const { call: plainCall } = await startHost(t, { worker: true });
+  const scoped = (await scopedCall('GET', '/version')).data;
+  const plain = (await plainCall('GET', '/version')).data;
+  assert.notEqual(scoped.version, plain.version, 'the same files, one more thing the worker keeps as code');
 });

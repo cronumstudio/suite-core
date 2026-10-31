@@ -1137,7 +1137,8 @@ export function createApp({
     });
   });
   server.headersTimeout = 65000;
-  server.requestTimeout = 0;   // live channels stay open
+  // Receiving the request, not answering it: a live channel stays open all the same.
+  server.requestTimeout = 600_000;
 
   const timers = [];
 
