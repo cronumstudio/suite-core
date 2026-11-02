@@ -75,7 +75,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })`, `menu(anchor, items, { header, at, parent })` (items with `glyph`) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `setCurrent()` |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local })`, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
@@ -88,7 +88,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
-| `outbox.js` | `createOutbox({ local, … })`: changes made offline, sent once each; `tempId()`, `isTempId()` |
+| `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; `keepOnly(id)`; `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
 | `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
@@ -514,6 +514,10 @@ changes are pointed at the real id (`idOf(answer)`, by default `answer.id`). It 
 signal, with the session ended or the server failing, and waits; a 409 goes to `onConflict` (Notes
 saves a conflict copy), anything else that can't be fixed by retrying to `onDropped`. One tab sends
 at a time (a Web Lock). `signOut({ local })` wipes it all: one person's notes don't stay for the next.
+With `owner: () => id` (whoever the server said is signed in, null while it isn't known) each change
+keeps whose it is: nothing goes while the owner isn't known, and one of another account (a session
+that ended, then someone else on the same browser) leaves the queue unsent (`report.others`);
+`keepOnly(id)` lets go of them at once. A change kept before it had an owner goes as before.
 Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
 a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
 queued offline cost no read to add and one record each to send.

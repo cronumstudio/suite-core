@@ -220,3 +220,87 @@ test('the host’s answer of its modules is kept whoever asked it, for Settings 
   await hostModules({ fresh: true, fetch: server({}) });
   assert.deepEqual(JSON.parse(memory.get(HOST_MODULES_KEY)), answer);
 });
+
+test('a preference that reaches the server takes the one waiting for the same thing out of the queue (it came after and undid it)', async () => {
+  memory.clear();
+  const { save, queuedSettings, flushSettings } = await import('../web/settings-queue.js');
+  globalThis.fetch = noSignal;
+  try {
+    // Without a signal: Notes off, the dark theme and a week starting on Monday, kept.
+    assert.deepEqual(await save('PUT', '/api/me/modules', { active: ['tasks'] }, { root: true, user: 7 }), { queued: true });
+    assert.deepEqual(await save('PATCH', '/tasks/api/me', { theme: 'dark', prefs: { lang: 'es', week: 1 } }, { root: true, user: 7 }), { queued: true });
+    assert.equal(queuedSettings().length, 2);
+
+    // The signal is back: Notes on again, and the light theme from Notes' own Settings (one row in a host).
+    const sent = [];
+    globalThis.fetch = server({
+      'PUT /api/me/modules': (body) => { sent.push(['modules', body]); return { modules: [] }; },
+      'PATCH /notes/api/me': (body) => { sent.push(['notes', body]); return { user: { id: 7 } }; },
+      'PATCH /tasks/api/me': (body) => { sent.push(['tasks', body]); return { user: { id: 7 } }; },
+      'GET /api/auth/me': { user: { id: 7 } },
+    });
+    await save('PUT', '/api/me/modules', { active: ['tasks', 'notes'] }, { root: true, user: 7 });
+    await save('PATCH', '/notes/api/me', { theme: 'light', prefs: { lang: 'en' } }, { root: true, user: 7 });
+    assert.deepEqual(queuedSettings(), [{ method: 'PATCH', path: '/tasks/api/me', body: { prefs: { week: 1 } } }],
+      'only what the direct ones didn’t say still waits');
+
+    await flushSettings();
+    assert.deepEqual(sent, [
+      ['modules', { active: ['tasks', 'notes'] }],
+      ['notes', { theme: 'light', prefs: { lang: 'en' } }],
+      ['tasks', { prefs: { week: 1 } }],
+    ], 'the old choice never goes after the new one');
+    assert.deepEqual(queuedSettings(), []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('the queue’s sending: the server in trouble keeps a change, an old one goes unsent, and an ended session forgets nothing', async () => {
+  memory.clear();
+  const { queueSetting, queuedSettings, flushSettings } = await import('../web/settings-queue.js');
+  try {
+    queueSetting('PUT', '/api/me/look', { look: 'clean' }, 7);
+    for (const status of [503, 429]) {
+      globalThis.fetch = server({ 'GET /api/auth/me': { user: { id: 7 } }, 'PUT /api/me/look': { status, body: { error: 'busy' } } });
+      assert.equal(await flushSettings(), 0);
+      assert.equal(queuedSettings().length, 1, `${status}: it waits, it wasn’t refused`);
+    }
+    globalThis.fetch = server({ 'GET /api/auth/me': { status: 401, body: { error: 'unauthorized' } } });
+    assert.equal(await flushSettings(), 0);
+    assert.equal(queuedSettings().length, 1, 'kept with whose it is: the same person signing in again still has it');
+
+    // Kept a week ago: changed since, perhaps, on another device; it doesn't come back over that.
+    const kept = JSON.parse(memory.get(QUEUE));
+    kept.items[0].at = Date.now() - 7 * 24 * 3600 * 1000;
+    memory.set(QUEUE, JSON.stringify(kept));
+    const sent = [];
+    globalThis.fetch = server({ 'GET /api/auth/me': { user: { id: 7 } }, 'PUT /api/me/look': (body) => { sent.push(body); return {}; } });
+    assert.equal(await flushSettings(), 0);
+    assert.deepEqual(sent, []);
+    assert.deepEqual(queuedSettings(), []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a browser that keeps nothing in localStorage still sends from this page what it said it would', async () => {
+  memory.clear();
+  const { save, queuedSettings, flushSettings, forgetSettings } = await import('../web/settings-queue.js');
+  const real = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); }, removeItem: () => {} };
+  try {
+    globalThis.fetch = noSignal;
+    assert.deepEqual(await save('PATCH', '/tasks/api/me', { display_name: 'Ada' }, { root: true, user: 7 }), { queued: true });
+    assert.equal(queuedSettings().length, 1, 'kept on this page');
+    const sent = [];
+    globalThis.fetch = server({ 'GET /api/auth/me': { user: { id: 7 } }, 'PATCH /tasks/api/me': (body) => { sent.push(body); return {}; } });
+    assert.equal(await flushSettings(), 1);
+    assert.deepEqual(sent, [{ display_name: 'Ada' }]);
+    assert.deepEqual(queuedSettings(), []);
+    forgetSettings();
+  } finally {
+    globalThis.localStorage = real;
+    globalThis.fetch = realFetch;
+  }
+});
