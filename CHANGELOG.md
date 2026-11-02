@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.224.0 — 2026-11-02
+
+**No button for the person at the sidebar's foot: the app's icon opens Settings.** In an app on
+its own (Tasks, Projects, Next, Notes, Tracker at their site's root, or installed from Work on their
+own) the person's button at the sidebar's foot is gone, and with it `.kit-side__foot` and
+`.kit-account`. The app's icon and name at the sidebar's head are a button from the start, with
+Settings' icon in place of the arrow, that opens Settings; with `accountItems` (or without
+`onSettings`) it opens the account's menu instead. In a host nothing changes: the rail has Settings
+where the sidebar stays, and on a phone the same button's menu has the other modules and Settings.
+`setUser()` stays (the menu's Administration still asks who it is) and draws nothing. The
+sidebar's list keeps clear of the phone's bottom edge in every frame now, not only in a host's.
+
 ## 0.222.0 — 2026-11-02
 
 Changes made without a signal, on leaving and on another account signing in (audit of 30/10:

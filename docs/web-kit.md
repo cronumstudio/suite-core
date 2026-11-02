@@ -190,15 +190,17 @@ and what it uncovers with `slide()` → `{ moving, under, show(on) }`. On a phon
 edge and back over it, and opens or closes by how far the finger went. Opened by a finger or the mouse, the drawer takes the
 focus itself, with no ring drawn; opened with Enter or Space on ☰ (`openDrawer({ keyboard: true })`),
 the focus goes to the current entry. With `panes: 'single'` there is one view in
-`shell.list`. The person's button is at the sidebar's foot, with their name (in the drawer on a
-phone). It opens Settings
-(`onSettings`), where Sign out closes the profile.
+`shell.list`. There is no button for the person at the sidebar's foot (v0.224.0): on its own, the
+app's icon and name at the sidebar's head are a button, with Settings' icon in place of an arrow,
+that opens Settings (`onSettings`), where the account is and Sign out closes the profile.
 Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
-Settings, Administration (for admins, at `/admin`) and Sign out.
-As a module of a host (a page under `/<mount>/`, Cronum Work), the person's button gives way. From
+Settings, Administration (for admins, at `/admin`) and Sign out. `setUser()` keeps who is signed
+in for that menu.
+As a module of a host (a page under `/<mount>/`, Cronum Work), from
 640 px a rail at the sidebar's start has the host's mark (not a link, v0.104.0), the modules the person uses (one too) and
-Settings at its foot. On a phone the drawer has no rail: the app's icon and name at its head open a
-menu with the other modules and, last, what the person's button opened (Settings). So does a
+Settings at its foot, and the app's icon is only its mark. On a phone the drawer has no rail: the
+app's icon and name open a menu with the other modules and, last, Settings; with no other module
+(installed on its own) they open Settings, as in an app on its own. So does a
 computer's when the host couldn't be asked (offline), until it answers. The host's last answer is
 kept on the device (`host.modules`): the rail is drawn with the frame, and again when the host
 answers. From one module to another one page fades into the next (`@view-transition` in kit.css,
