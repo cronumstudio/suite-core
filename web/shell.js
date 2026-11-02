@@ -1,7 +1,8 @@
 /**
  * The frame of every app: a sidebar with the app's name and icon, the live
- * dot, the button that creates, the app's own entries and the person at its
- * foot; the banners; and the app's views beside it.
+ * dot, the button that creates and the app's own entries; the banners; and the
+ * app's views beside it. There is no button for the person: the app's icon and
+ * name at the sidebar's head open Settings (or, with more to offer, a menu).
  *
  * On a phone the sidebar is a drawer, and a list and what is open from it are
  * two screens (`showDetail()`, and back). On a tablet or a computer it stays
@@ -13,12 +14,11 @@
  * app's actions, with ☰ (or ←) and the button that creates in it wherever the
  * bar would have shown them. A pane showing one doesn't show the bar.
  *
- * As a module of a host (suite-core host.js, Cronum Work), the person's button
- * at the sidebar's foot gives way, and Settings is reached another way. Where
- * the sidebar stays (a tablet, a computer), a rail at its start has the host's
- * mark, the modules the person uses and Settings at its foot. On a phone the
- * drawer keeps its width without the rail: the app's icon and name at its head
- * are a button whose menu has the other modules and, last, Settings.
+ * As a module of a host (suite-core host.js, Cronum Work), where the sidebar
+ * stays (a tablet, a computer), a rail at its start has the host's mark, the
+ * modules the person uses and Settings at its foot, and the app's icon is only
+ * its mark. On a phone the drawer keeps its width without the rail: the app's
+ * icon and name are a button whose menu has the other modules and, last, Settings.
  *
  * A host with a split view (host.js `split`) has its views on the rail, over
  * Settings: this module alone, or two to four at once on the host's page. There
@@ -43,11 +43,11 @@
  *   shell.nav.append(navItem({ label: allLabel, iconName: 'notes', count: 24, current: true }));
  *   shell.list.append(…); shell.detail.append(…); shell.showDetail();
  */
-import { el, clear } from './dom.js';
+import { el } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules, installed, installedAlone } from './base.js';
-import { banner as bannerNode, menu, closeMenu, avatar, heldBack, slideHidden } from './ui.js';
+import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
 import { nativeReady } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
 import { flushSettings } from './settings-queue.js';
@@ -96,12 +96,9 @@ export function createShell({
   let user = null;
   const appIcon = (size) => el('img', { class: 'kit-appicon', src: at(app.icon || '/icons/favicon.svg'), alt: '', width: size, height: size });
   // The person opens Settings, where everything about the account is, signing out included; a
-  // menu only when the app has entries of its own for it or there is no Settings.
+  // menu only when the app has entries of its own for it or there is no Settings. There is no
+  // button for the person: the app's icon and name open Settings (the switcher), or the rail does.
   const direct = Boolean(onSettings) && !accountItems.length;
-  const account = direct
-    ? el('button', { type: 'button', class: 'kit-account', 'aria-label': t('kit.account.settings') })
-    : el('button', { type: 'button', class: 'kit-account', 'aria-haspopup': 'menu', 'aria-label': t('kit.account.menu') });
-  account.addEventListener('click', () => (direct ? onSettings() : openAccountMenu(account)), { signal });
 
   /* --------------------------------- pieces --------------------------------- */
 
@@ -117,7 +114,6 @@ export function createShell({
   // In Work's shell the window's head or the phone's tab already names the module, and the shell
   // shows the one live dot: the sidebar keeps only its button that folds it.
   const head = embedded ? el('div', { class: 'kit-side__head' }, fold) : el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
-  const foot = el('div', { class: 'kit-side__foot' }, account);
   // The module's search, the same in every module: the sidebar's first line.
   const searchField = search ? el('input', {
     type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || search.label,
@@ -145,9 +141,7 @@ export function createShell({
     create ? el('div', { class: 'kit-side__create' },
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
         icon('plus'), create.label)) : null,
-    nav,
-    // In Work's shell the person is the shell's: no button for them in each window.
-    embedded ? null : foot);
+    nav);
   const scrim = el('div', { class: 'kit-scrim', onClick: () => closeDrawer() });
 
   const title = el('span', { class: 'kit-bar__title' });
@@ -570,16 +564,6 @@ export function createShell({
 
   /* --------------------------------- account -------------------------------- */
 
-  function paintAccount() {
-    clear(account);
-    account.append(avatar(user?.display_name || user?.username || ''));
-    if (user) {
-      account.append(el('span', { class: 'kit-account__text' },
-        el('strong', { text: user.display_name || user.username }),
-        el('small', { text: user.email || user.username })));
-    }
-  }
-
   /** The account menu's entries; with Settings and nothing of the app's own, Settings alone. */
   function accountMenuItems() {
     const settings = onSettings ? { label: t('kit.account.settings'), iconName: 'sliders', onClick: () => { closeDrawer(); onSettings(); } } : null;
@@ -602,7 +586,7 @@ export function createShell({
     menu(anchor, items);
   }
 
-  // The button already shows the name and address, so its menu doesn't repeat them.
+  // Who is signed in is in Settings (the account's section), so the menu doesn't say it.
   const openAccountMenu = (anchor) => toggleMenu(anchor, accountMenuItems());
 
   /* --------------------------------- modules -------------------------------- */
@@ -611,17 +595,17 @@ export function createShell({
   const mount = /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(BASE)?.[1] || null;
   let rail = null;
   let switcher = null;
+  let switcherIcon = null;   // its arrow, or Settings' icon where it opens them
   let hosted = false;     // drawn as a host's module
   let answered = false;   // the host said (or failed to say) which modules: the rail is known
   let others = [];        // the other modules the person uses, for the switcher's menu
   let calendarPath = null;   // the host's calendar, for the switcher's menu too
   let modulePaths = new Set();   // where each of the host's modules is, for going between them
 
-  /** As a host's module (`on`) the person's button gives way; off, it is as in an app on its own. */
+  /** As a host's module (`on`), or off, as an app on its own. */
   function asModule(on) {
     hosted = on;
     element.toggleAttribute('data-module', on);
-    foot.hidden = on;
     syncSwitcher();
   }
 
@@ -644,34 +628,65 @@ export function createShell({
     window.location.replace(to.href);
   }, { capture: true, signal });
 
+  /** Nothing but Settings for the switcher (no other modules, nor the calendar): a tap opens them. */
+  const onlySettings = () => direct && !others.length && !calendarPath;
+
   /**
-   * The app's icon and name are the switcher where the rail doesn't show: on a phone, or where
-   * the host didn't answer with one (offline), so Settings is always one tap away. Beside the
-   * views it waits for the host's answer, so the rail doesn't come with a switcher that goes.
+   * The app's icon and name are the switcher wherever the rail doesn't show: an app on its own, a
+   * phone, or where the host didn't answer with one (offline), so Settings is always one tap away.
+   * With nothing else to offer it opens Settings, and shows their icon instead of the menu's arrow.
+   * Beside the views, under a module's path, it waits for the host's answer, so the rail doesn't
+   * come with a switcher that goes.
    */
   function syncSwitcher() {
     // In a frame of the host's split view there is no rail: the view says which module is in it.
-    const want = hosted && !embedded && (FRAMED || !(beside() && (rail || !answered)));
+    const known = answered || !mount;
+    const want = !embedded && Boolean(onSettings || accountItems.length || onSignOut)
+      && (FRAMED || !beside() || (known && !rail));
     if (want && !switcher) {
-      switcher = el('button', {
-        type: 'button', class: 'kit-side__app', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
-        'aria-label': t('kit.modules.switch', { name: app.name }),
-        onClick: () => toggleMenu(switcher, [
+      switcher = el('button', { type: 'button', class: 'kit-side__app' });
+      // With the frame's signal: on its own the app draws it with every frame, and destroy() frees it.
+      switcher.addEventListener('click', () => {
+        if (onlySettings()) {
+          closeDrawer();
+          onSettings();
+          return;
+        }
+        toggleMenu(switcher, [
           ...others.map((m) => ({ label: m.name, image: m.icon, href: m.path })),
           // The host's calendar, which the rail has where it shows.
           calendarPath ? { label: t('kit.calendar.title'), iconName: 'calendar', href: calendarPath } : null,
           others.length || calendarPath ? 'separator' : null,
           ...accountMenuItems(),
-        ].filter(Boolean)),
-      });
+        ].filter(Boolean));
+      }, { signal });
+      switcherIcon = icon('chevron-down');
       head.prepend(switcher);
-      switcher.append(headIcon, headName, icon('chevron-down'));
+      switcher.append(headIcon, headName, switcherIcon);
     } else if (!want && switcher) {
       if (switcher.getAttribute('aria-expanded') === 'true') closeMenu();
       head.prepend(headIcon, headName);
       switcher.remove();
       switcher = null;
+      switcherIcon = null;
     }
+    if (!switcher) return;
+    // The host's answer may bring other modules, or take them away: the button says what it opens.
+    const settings = onlySettings();
+    if (switcher.dataset.opens === (settings ? 'settings' : 'menu')) return;
+    if (switcher.getAttribute('aria-expanded') === 'true') closeMenu();
+    switcher.dataset.opens = settings ? 'settings' : 'menu';
+    switcher.setAttribute('aria-label', settings ? t('kit.account.settings') : t('kit.modules.switch', { name: app.name }));
+    if (settings) {
+      switcher.removeAttribute('aria-haspopup');
+      switcher.removeAttribute('aria-expanded');
+    } else {
+      switcher.setAttribute('aria-haspopup', 'menu');
+      switcher.setAttribute('aria-expanded', 'false');
+    }
+    const next = icon(settings ? 'sliders' : 'chevron-down');
+    switcherIcon.replaceWith(next);
+    switcherIcon = next;
   }
 
   /** The views of the host's split view (at `page`): this module alone, as now, or two to four at once. */
@@ -790,9 +805,11 @@ export function createShell({
   // In Work's shell a module of a host, and nothing more: the rail, the look, the founder's notice and
   // the modules turned on or off are the shell's, asked and drawn once for the page.
   if (embedded) asModule(true);
-  else if (mount) {
-    // Under a module's path it is a host's, almost surely: as one from the start, so the
-    // person's button doesn't show and go once the host answers.
+  // An app on its own, at its site's root: the app's icon opens Settings from the start.
+  else if (!mount) syncSwitcher();
+  else {
+    // Under a module's path it is a host's, almost surely: as one from the start, so a switcher
+    // beside the views doesn't show and go once the host answers with the rail.
     asModule(true);
     // The rail of last time at once, with the frame: coming from another module it is the same,
     // and drawn only once the host answered it came in late, pushing the sidebar aside. The
@@ -926,7 +943,7 @@ export function createShell({
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
-    setUser: (next) => { user = next; paintAccount(); },
+    setUser: (next) => { user = next; },
     setLive, showBanner, hideBanner, refreshModules, destroy,
   };
 }

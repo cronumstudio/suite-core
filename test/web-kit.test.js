@@ -790,11 +790,12 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
-test('one frame: the person\'s button only at the sidebar\'s foot, and no top bar with tabs', () => {
+test('one frame: no button for the person at the sidebar\'s foot, and no top bar with tabs', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.equal((shell.match(/class: 'kit-account'/g) || []).length, 2, 'one button, a direct one or a menu');
-  assert.match(shell, /el\('div', \{ class: 'kit-side__foot' \}, account\)/, 'at the sidebar\'s foot, in the drawer on a phone');
+  assert.doesNotMatch(shell, /kit-account|kit-side__foot|avatar\(/, 'the app\'s icon opens Settings instead (0.224.0)');
+  assert.doesNotMatch(css, /\.kit-account|\.kit-side__foot/);
+  assert.match(css, /\.kit-side__nav \{[^}]*padding: 0 8px calc\(10px \+ var\(--kit-safe-bottom\)\);/, 'what ends the sidebar keeps clear of the phone\'s bottom edge');
   assert.doesNotMatch(shell, /layout === 'top'|kit-bottom|kit-bar__tab/, 'the top layout was Next\'s, and Next has a sidebar now');
   assert.doesNotMatch(css, /data-layout="top"|\.kit-bottom|\.kit-bar__tab|\.kit-bar__brand/);
 });
@@ -804,12 +805,15 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   const icons = fs.readFileSync(new URL('../web/icons.js', import.meta.url), 'utf8');
   // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
-  assert.match(shell, /class: 'kit-side__app', 'aria-haspopup': 'menu'/);
+  assert.match(shell, /class: 'kit-side__app' }/);
+  assert.match(shell, /switcher\.setAttribute\('aria-haspopup', 'menu'\);/, 'a menu where it has more than Settings');
   assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
   // and always in a frame of the host's split view, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
-  assert.match(shell, /const want = hosted && !embedded && \(FRAMED \|\| !\(beside\(\) && \(rail \|\| !answered\)\)\);/);
+  // An app on its own (no module's path) has no host to wait for.
+  assert.match(shell, /const known = answered \|\| !mount;/);
+  assert.match(shell, /&& \(FRAMED \|\| !beside\(\) \|\| \(known && !rail\)\);/);
   assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*calendarPath = null;\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules or the calendar');
   // The split view's views on the rail, where the host has one, over Settings.
   assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
@@ -830,8 +834,7 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
-  assert.match(shell, /foot\.hidden = on;/, 'the person\'s button gives way in a host');
-  assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the person\'s button opened');
+  assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the app\'s icon opens on its own');
   assert.match(shell, /class: 'kit-rail__settings'/, 'Settings at the rail\'s foot');
   assert.match(icons, /'chevron-down': /);
   assert.match(icons, /\n  camera: '[^']+',\n/, 'the camera and the picture, for attaching (0.63.0)');
@@ -2218,8 +2221,10 @@ test('the frame’s destroy() takes away every listener it added, the menu it op
     assert.ok(page.listenerCount() >= before.document + 7, 'touches, drags and the like, on the document');
     assert.equal(page.body.children.length, 1);
 
-    // The account menu open, as it may be when an app draws its frame again: it lives in the body.
-    const account = shell.element.querySelector('.kit-account');
+    // The account menu open (the app's icon, with entries of the app's own), as it may be when an
+    // app draws its frame again: it lives in the body.
+    const account = shell.element.querySelector('.kit-side__app');
+    assert.equal(account.dataset.opens, 'menu');
     account.click();
     assert.equal(account.getAttribute('aria-expanded'), 'true');
     assert.equal(page.body.children.length, 2);
@@ -2234,6 +2239,29 @@ test('the frame’s destroy() takes away every listener it added, the menu it op
     // The menu's outside-click listener comes on the next turn, and not for a menu already closed.
     await new Promise((resolve) => setTimeout(resolve, 5));
     assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before);
+  } finally {
+    restore();
+  }
+});
+
+test('an app on its own: no button for the person, and the app\'s icon at the sidebar\'s head opens Settings', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    let opened = 0;
+    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; } });
+    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com' });
+    assert.equal(shell.element.querySelector('.kit-account'), null);
+    assert.equal(shell.element.querySelector('.kit-side__foot'), null);
+    const app = shell.element.querySelector('.kit-side__app');
+    assert.ok(app, 'the app\'s icon and name are a button from the start, with no host to wait for');
+    assert.equal(app.dataset.opens, 'settings');
+    assert.equal(app.getAttribute('aria-haspopup'), null, 'no menu: Settings alone');
+    assert.equal(app.getAttribute('aria-label'), 'kit.account.settings', 'named Settings');
+    app.click();
+    assert.equal(opened, 1, 'straight to Settings');
+    assert.equal(page.body.children.length, 1, 'no menu in the body');
+    shell.destroy();
   } finally {
     restore();
   }

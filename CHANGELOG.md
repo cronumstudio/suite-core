@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.223.0 — 2026-11-02
+## 0.225.0 — 2026-11-02
 
 - **A write whose answer is too big to keep replays a small JSON body** (audit of 30/10:
   projects-srv-7, projects-web-1). Over 256 KB the key was kept with an empty body: the same key
@@ -11,6 +11,18 @@ change an interface and a patch never does. Apps pin a version through the submo
   provisional one, and what came after it was dropped as `lost_creation`) and the client read
   `null`. Now it replays `{ id, replayed: true, reload: true }` (`id` when the answer named one at
   its top), and the route still runs once. Smaller answers replay whole, as before.
+
+## 0.224.0 — 2026-11-02
+
+**No button for the person at the sidebar's foot: the app's icon opens Settings.** In an app on
+its own (Tasks, Projects, Next, Notes, Tracker at their site's root, or installed from Work on their
+own) the person's button at the sidebar's foot is gone, and with it `.kit-side__foot` and
+`.kit-account`. The app's icon and name at the sidebar's head are a button from the start, with
+Settings' icon in place of the arrow, that opens Settings; with `accountItems` (or without
+`onSettings`) it opens the account's menu instead. In a host nothing changes: the rail has Settings
+where the sidebar stays, and on a phone the same button's menu has the other modules and Settings.
+`setUser()` stays (the menu's Administration still asks who it is) and draws nothing. The
+sidebar's list keeps clear of the phone's bottom edge in every frame now, not only in a host's.
 
 ## 0.222.0 — 2026-11-02
 
