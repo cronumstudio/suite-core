@@ -72,6 +72,9 @@ export function readDeletionTicket(sign, token, clock = Date.now) {
  * @param {object} [options.brand]   from mailBrand(): with it, the message also goes as HTML
  * @param {object} [options.audit]
  */
+/** How long past its day an account waits for its renewals to be stopped (sweep). */
+const RENEWING_WAIT_MS = 7 * 24 * 3600 * 1000;
+
 export function createAccountDeletion({
   accounts, sign, days = 30, atProviders = false, endSubscriptions = atProviders, shared = false, idp = null, billing = null, audit = null,
   mailer = null, texts = null, appName = '', baseUrl = '', brand = null, clock = () => Date.now(), log = console.log,
@@ -160,7 +163,10 @@ export function createAccountDeletion({
    * first: if it can't be reached the account waits for the next sweep, since
    * once gone here nothing would say whom to delete there. A subscription that
    * can't be ended is logged and left to lapse: it stopped renewing when the
-   * person asked. → how many went.
+   * person asked. One that didn't (the provider failed then too) would go on
+   * charging someone with no account here: the account waits for the next
+   * sweep, a week at most past its day, and then goes all the same, said
+   * loud. → how many went.
    */
   async function sweep() {
     let gone = 0;
@@ -171,6 +177,13 @@ export function createAccountDeletion({
             await subscriptions.endSubscriptions(user.id);
           } catch (err) {
             log(`[accounts] the subscriptions of account #${user.id} could not be ended: ${err.message}`);
+            if (subscriptions.stillRenews?.(user.id)) {
+              if (clock() - Date.parse(user.delete_after) < RENEWING_WAIT_MS) {
+                log(`[accounts] account #${user.id} pays a subscription that still renews: it waits for the next sweep`);
+                continue;
+              }
+              log(`[accounts] account #${user.id} goes, but a subscription of theirs may still renew: cancel it at the payment provider`);
+            }
           }
         }
         if (atProviders && idp?.deleteIdentity) await idp.deleteIdentity(user.id);

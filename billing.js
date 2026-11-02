@@ -404,13 +404,21 @@ export function createBilling({
    * the customer isn't the one its checkout named. Then a customer linked to
    * someone else stays theirs, and the audit says so (`billing.customer_conflict`):
    * anyone can open a checkout with another person's email, and the provider may
-   * hand it that person's customer, with its invoices and payment method.
+   * hand it that person's customer, with its invoices and payment method. A
+   * customer linked to nobody here is not linked then either
+   * (`billing.customer_unvouched`): the same provider's account may sell another
+   * product (Tracker), whose buyers' customers no account here has.
    */
   function linkCustomer(subject, customer, { takeOver = false, event = null } = {}) {
     if (!customer) return;
     const owner = subjectOfCustomer(customer);
     if (owner && owner.type === subject.type && owner.id === subject.id) return;
     const vouched = event?.unsigned !== true && event?.customerUnsigned !== true;
+    if (!owner && !vouched) {
+      log(`[billing] ${source} event ${event?.id}: customer ${customer} is nobody's here, and the event can't prove it is this one's: not linked`);
+      record('billing.customer_unvouched', subject, { provider: source, customer, ref: event?.ref ?? null });
+      return;
+    }
     if (owner && takeOver && !vouched && !isGone(owner)) {
       log(`[billing] ${source} event ${event?.id}: customer ${customer} is another account's, and the event can't prove it is this one's: the link stays`);
       record('billing.customer_conflict', subject, {
@@ -910,6 +918,19 @@ export function createBilling({
     return kept;
   }
 
+  /**
+   * Whether a subscription the person pays for themselves still renews as far as this install
+   * knows: live, and its stop never got to the provider (`requested` or `already`). The account
+   * deletion waits on it when the provider fails (account-deletion.js).
+   */
+  function stillRenews(userId) {
+    if (!canStop()) return false;
+    const stopped = new Set(personalStops(userId).filter((row) => ['requested', 'already'].includes(row.outcome))
+      .map((row) => row.event_id.slice(personalPrefix(userId).length)));
+    return database.all(`SELECT ref FROM billing_subscriptions WHERE provider = ? AND subject_type = 'user'
+      AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, userId).some(({ ref }) => !stopped.has(ref));
+  }
+
   async function endSubscriptions(userId) {
     const ended = await eachLiveSubscription(userId, (ref) => provider.cancelSubscription(ref, { now: true }));
     forgetPersonalStops(userId);
@@ -1230,7 +1251,7 @@ export function createBilling({
 
   return {
     enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
-    customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, forget,
+    customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
     markOrganizationStop, sendStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
   };
 }
@@ -1258,6 +1279,7 @@ export function combinedBilling(instances) {
   return {
     enabled: on.length > 0,
     stopRenewals: each('stopRenewals'), keepRenewals: each('keepRenewals'), endSubscriptions: each('endSubscriptions'),
+    stillRenews: (userId) => on.some((instance) => instance.stillRenews?.(userId) === true),
   };
 }
 
@@ -1338,9 +1360,15 @@ export function registerBillingOverviewApi(router, {
  * group they administer, and the provider's webhook (no cookie: its signature
  * is what counts).
  */
-export function registerBillingApi(router, { billing, organizations = null, baseUrl = '' }) {
+export function registerBillingApi(router, { billing, organizations = null, baseUrl = '', limiter = null }) {
   if (!billing?.enabled) return;
   const back = (path) => `${String(baseUrl).replace(/\/$/, '')}${path}`;
+  // Each checkout and portal link is a call to the provider (Paddle: up to three, and a new
+  // transaction), on an API quota other apps of the same account share: braked per account.
+  const brake = (ctx) => {
+    const allowed = limiter?.allowFor('billing', ctx.user.id) ?? { allowed: true };
+    if (!allowed.allowed) throw new HttpError(429, 'too_many_requests', { retry_after: allowed.retryAfter });
+  };
 
   async function subjectOf(ctx) {
     if (!ctx.user) throw unauthorized();
@@ -1365,6 +1393,7 @@ export function registerBillingApi(router, { billing, organizations = null, base
 
   router.post('/api/billing/checkout', async (ctx) => {
     const { subject, body } = await subjectOf(ctx);
+    brake(ctx);
     // Only an email that is theirs: the provider may file the purchase under it.
     const email = ctx.user.email && ctx.user.email_verified_at ? ctx.user.email : null;
     const url = await billing.checkoutUrl(subject, body.product, { email, user: ctx.user, returnUrl: back('/?billing=done') });
@@ -1374,6 +1403,7 @@ export function registerBillingApi(router, { billing, organizations = null, base
   // The provider's portal opens signed in from this link, valid for a short while: never kept.
   router.post('/api/billing/portal', answeredOnce(async (ctx) => {
     const { subject } = await subjectOf(ctx);
+    brake(ctx);
     sendJson(ctx.res, 200, { url: await billing.portalUrl(subject, { returnUrl: back('/') }) });
   }));
 

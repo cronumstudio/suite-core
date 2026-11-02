@@ -191,6 +191,8 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   const health = await call('GET', '/health');
   assert.equal(health.data.ok, true);
   assert.equal(health.data.version.app, '1.2.3');
+  assert.equal(health.data.uptime, undefined, 'when the process started is nobody’s business');
+  assert.equal(health.data.version.version, (await call('GET', '/version')).data.version, 'the fingerprint /version gives');
   assert.ok(health.headers.get('content-security-policy'));
   assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
   assert.match((await call('GET', '/js/app-version.js')).data, /export const APP_NAME_VERSION = '1\.2\.3'/);

@@ -692,6 +692,20 @@ export function clientTexts(flat) {
  *   says: pages that only show, without a session, made to be embedded elsewhere (Next's
  *   /shared.html, a project's public page). A host passes its module's, at the module's own paths
  */
+/**
+ * `/health`: 200 `{ ok: true, version }` while the database answers, 503 `{ ok: false }` when it
+ * doesn't. `version` is `{ app, version, built }`, the fingerprint `/version` gives.
+ */
+export function healthOf(database, versionOf) {
+  try {
+    database.get('SELECT 1 AS one');
+  } catch {
+    return [503, { ok: false }];
+  }
+  const { app, version, built } = versionOf();
+  return [200, { ok: true, version: { app, version, built } }];
+}
+
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
@@ -785,7 +799,7 @@ export function createApp({
       live.subscribe(ctx.req, ctx.res, ctx.user, { sessionToken: ctx.sessionToken ?? null });
     });
   }
-  if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl });
+  if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl, limiter });
   if (suite.stores?.enabled) {
     // Only the app on the phone buys in a store: with stores.devices, its device token is taken here.
     const storeDevices = config.stores.devices ? suite.devices : null;
@@ -966,8 +980,10 @@ export function createApp({
       // pages: another site can make a browser send the cookie, not the Origin.
       checkOrigin(req, { baseUrl: install.baseUrl, cookieName: sessions.cookieName });
 
+      // Up means the database answers too. No uptime: anyone may ask, and when the process last
+      // started is nobody's business.
       if (pathname === '/health') {
-        sendJson(res, 200, { ok: true, uptime: process.uptime(), version: frontVersion() });
+        sendJson(res, ...healthOf(suite.database, frontVersion));
         return;
       }
       // So the installed app knows there is something new and can offer to reload.
@@ -1121,7 +1137,8 @@ export function createApp({
     });
   });
   server.headersTimeout = 65000;
-  server.requestTimeout = 0;   // live channels stay open
+  // Receiving the request, not answering it: a live channel stays open all the same.
+  server.requestTimeout = 600_000;
 
   const timers = [];
 

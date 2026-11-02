@@ -9,7 +9,7 @@ import { joinHost } from '../../../../host.js';
 import { itemRoutes, itemTools, itemCards, itemCalendar, doneRoute } from '../items.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const events = { created: [], removed: [], started: 0, stopped: 0 };
+export const events = { created: [], removed: [], started: 0, stopped: 0, flushed: 0 };
 
 export const suite = joinHost({
   config: {
@@ -67,7 +67,11 @@ export function createModule({ mount }) {
     },
     start: () => {
       events.started += 1;
-      return () => { events.stopped += 1; };
+      // What it still has to send goes before the host closes: its stop's promise is waited for.
+      return () => {
+        events.stopped += 1;
+        return new Promise((resolve) => { setTimeout(() => { events.flushed += 1; resolve(); }, 50); });
+      };
     },
   };
 }

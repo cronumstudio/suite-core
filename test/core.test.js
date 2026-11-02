@@ -381,3 +381,45 @@ test('a real server: JSON bodies, errors as codes, static files and headers', as
   assert.equal((await fetch(`${base}/.env`)).status, 404, 'dotfiles are never served');
   assert.equal((await fetch(`${base}/%2e%2e/%2e%2e/etc/passwd`)).status, 404, 'nor anything outside the root');
 });
+
+test('a body over the limit: 413, and the connection closes instead of reading the rest for ever', async (t) => {
+  const server = http.createServer(async (req, res) => {
+    try {
+      await readJson(req);
+      res.end('read');
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const socket = net.connect(server.address().port, '127.0.0.1');
+  t.after(() => socket.destroy());
+  let answer = '';
+  socket.on('data', (chunk) => { answer += chunk; });
+  const closed = new Promise((resolve) => socket.on('close', () => resolve(true)));
+  socket.write('POST / HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 104857600\r\n\r\n');
+  socket.write('x'.repeat(2 * 1024 * 1024));   // a tenth of what it says, and never the rest
+  const waited = await Promise.race([closed, new Promise((resolve) => setTimeout(() => resolve(false), 1500))]);
+  assert.match(answer, /^HTTP\/1\.1 413/);
+  assert.match(answer, /connection: close/i);
+  assert.equal(waited, true, 'the server let go of the socket');
+});
+
+test('serveStatic: a file gone between the look and the read is a cut response, not an uncaught error', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-static-'));
+  const file = path.join(root, 'a.txt');
+  fs.writeFileSync(file, 'hello');
+  const uncaught = [];
+  const onUncaught = (err) => uncaught.push(err);
+  process.on('uncaughtException', onUncaught);
+  const server = http.createServer((req, res) => {
+    serveStatic(root, '/a.txt', res);
+    fs.rmSync(file);   // before the stream opens it
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => { server.close(); process.off('uncaughtException', onUncaught); fs.rmSync(root, { recursive: true, force: true }); });
+  await fetch(`http://127.0.0.1:${server.address().port}/a.txt`).then((res) => res.text()).catch(() => null);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(uncaught.map((err) => err.code), []);
+});

@@ -230,3 +230,47 @@ test('at the providers only where the install says so; one that can’t be reach
     ['end', 'identity', 'end', 'identity'], 'a subscription that can’t be ended doesn’t keep the account');
   database.close();
 });
+
+test('a subscription that never stopped renewing keeps the account a week while the provider fails, then it goes all the same', async () => {
+  const database = openDatabase({ path: ':memory:' });
+  usersSchema(database);
+  accountDeletionSchema(database);
+  let now = Date.parse('2026-10-09T10:00:00Z');
+  const accounts = createAccounts({ database, clock: () => now });
+  let down = true;
+  let stopped = false;
+  const calls = [];
+  const billing = {
+    enabled: true,
+    stopRenewals: async () => { calls.push('stop'); if (down) throw new Error('Paddle is down'); stopped = true; },
+    keepRenewals: async () => {},
+    endSubscriptions: async () => { calls.push('end'); if (down) throw new Error('Paddle is down'); },
+    stillRenews: () => !stopped,
+  };
+  const lines = [];
+  const deletion = createAccountDeletion({
+    accounts, sign: (v) => v.length.toString(36), days: 30, atProviders: false, billing, endSubscriptions: true,
+    clock: () => now, log: (l) => lines.push(l),
+  });
+  const gil = accounts.create({ username: 'gil', displayName: 'Gil' });
+  await deletion.request(gil);
+  now += 31 * DAY;
+  assert.equal(await deletion.sweep(), 0, 'it would go on charging an account no longer here');
+  assert.ok(accounts.byId(gil.id), 'kept for the next sweep');
+  assert.ok(lines.some((l) => l.includes(`#${gil.id}`) && l.includes('next sweep')));
+  now += 5 * DAY;
+  assert.equal(await deletion.sweep(), 0, 'still within the week past its day');
+  now += 2 * DAY;
+  assert.equal(await deletion.sweep(), 1, 'a week on, the deletion they asked for wins');
+  assert.equal(accounts.byId(gil.id), null);
+  assert.ok(lines.some((l) => l.includes(`#${gil.id}`) && l.includes('may still renew')), 'said loud');
+
+  // One whose renewals were stopped when asked goes at once even if the end fails: it only lapses.
+  down = false;
+  const hal = accounts.create({ username: 'hal', displayName: 'Hal' });
+  await deletion.request(hal);
+  down = true;
+  now += 31 * DAY;
+  assert.equal(await deletion.sweep(), 1);
+  assert.equal(accounts.byId(hal.id), null);
+});

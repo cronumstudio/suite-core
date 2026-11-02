@@ -144,17 +144,41 @@ test('what only means something for the whole page goes before the block, in the
     '@charset "utf-8";',
     '@import url("/notes/css/theme.css?scope=work") screen;',
     '@font-face { font-family: X; src: url(/notes/fonts/x.woff2?v=2#iefix) format("woff2"); }',
-    '@keyframes spin { from { transform: rotate(0) } to { transform: rotate(1turn) } }',
-    '@-webkit-keyframes spin { to { opacity: 0 } }',
+    '@keyframes notes--spin { from { transform: rotate(0) } to { transform: rotate(1turn) } }',
+    '@-webkit-keyframes notes--spin { to { opacity: 0 } }',
     '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }',
     '@view-transition { navigation: auto; }',
-    '@media (prefers-reduced-motion: no-preference) {\n@keyframes fade { to { opacity: 0 } }\n}',
+    '@media (prefers-reduced-motion: no-preference) {\n@keyframes notes--fade { to { opacity: 0 } }\n}',
   ].join('\n'), 'a group keeps its half of each side under its own condition');
-  assert.equal(inside(out), '.a { animation: spin 1s; }\n@media (prefers-reduced-motion: no-preference) {\n.b { animation: fade 1s }\n}');
+  assert.equal(inside(out), '.a { animation: notes--spin 1s; }\n@media (prefers-reduced-motion: no-preference) {\n.b { animation: notes--fade 1s }\n}');
   // An @import of another site's sheet, or of a page's, is left as it is.
   assert.equal(before(scoped('@import "https://example.com/a.css";\n@import "/fonts/b.css?v=1";')),
     '@import "https://example.com/a.css";\n@import "/fonts/b.css?v=1";');
   assert.equal(before(scoped('@import "parts/c.css";', '/notes/css/app.css?v=3')), '@import "/notes/css/parts/c.css?scope=work";');
+});
+
+test('a module’s @keyframes carry its name: two modules’ fade-in in one page are each its own', () => {
+  const css = [
+    '@keyframes fade-in { from { opacity: 0 } }',
+    '.a { animation: fade-in .2s ease-out; }',
+    '.b { animation-name: fade-in, kit-rise; }',
+    '.c { animation: 1s fade-in-out; transition: fade-in 1s; }',
+    '@media (min-width: 1px) { .d { animation: .1s FADE-IN, fade-in 2s; } }',
+  ].join('\n');
+  const tasks = scopeCss(css, 'tasks', '/tasks/css/styles.css');
+  const next = scopeCss(css, 'next', '/next/css/styles.css');
+  assert.match(tasks, /^@keyframes tasks--fade-in \{/);
+  assert.match(next, /^@keyframes next--fade-in \{/);
+  assert.ok(tasks.includes('.a { animation: tasks--fade-in .2s ease-out; }'));
+  assert.ok(tasks.includes('.b { animation-name: tasks--fade-in, kit-rise; }'), 'the kit’s own, as it is');
+  assert.ok(tasks.includes('.c { animation: 1s fade-in-out; transition: fade-in 1s; }'), 'another name, and not an animation');
+  assert.ok(tasks.includes('.d { animation: .1s FADE-IN, tasks--fade-in 2s; }'), 'names are case-sensitive; inside a group too');
+  // The kit’s are the same in every module: as they are.
+  const kit = scopeCss('@keyframes kit-spin { to { rotate: 1turn } }\n.k { animation: kit-spin 1s; }', 'tasks', '/tasks/suite/kit.css');
+  assert.match(kit, /@keyframes kit-spin/);
+  assert.match(kit, /animation: kit-spin 1s/);
+  const kitOwn = scopeCss('@keyframes spin { to { rotate: 1turn } }', 'tasks', '/tasks/suite/kit.css');
+  assert.match(kitOwn, /@keyframes spin/);
 });
 
 test('url()s are paths of the site: data:, another site’s, the site’s own and #fragments stay as they are', () => {

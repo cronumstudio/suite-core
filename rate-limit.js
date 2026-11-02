@@ -39,6 +39,9 @@ export const DEFAULT_LIMITS = Object.freeze({
   // A good web-session code refused because someone else is signed in (device-pages.js): how many
   // times per address it is written to the audit log. It brakes nothing; it only bounds the rows.
   devicesRefused: 10,
+  // Checkouts and portal links someone opens (billing.js), per account: each is a call to the
+  // payment provider, whose API quota other apps of the same account share.
+  billing: 10,
 });
 
 export function rateLimitSchema(d) {
@@ -50,7 +53,7 @@ export function rateLimitSchema(d) {
  * @param {object} options
  * @param {object} options.database  the suite's database handle
  * @param {string} [options.secret]  keys the bucket hashes (the session secret)
- * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code, importTo, devices }
+ * @param {object} [options.limits]  { account, ip, token, registration, mail, mailTo, signup, code, importTo, devices, billing }
  * @param {number} [options.windowMs]
  * @param {*} [options.trustProxy]   see proxyHops() in http.js
  */
@@ -168,6 +171,15 @@ export function createRateLimiter({
       return blocked(key(kind, ipOf(req)), max[kind] ?? 10) || { allowed: true };
     },
     noteFailure(kind, req) { add(key(kind, ipOf(req))); },
+
+    /** Something a signed-in person makes happen that costs an outside call, per account. Counted when allowed. */
+    allowFor(kind, userId) {
+      const bucket = key(kind, `user:${Number(userId)}`);
+      const refused = blocked(bucket, max[kind] ?? 10);
+      if (refused) return refused;
+      add(bucket);
+      return { allowed: true };
+    },
 
     /** The same per recipient ('mail' → mailTo): nobody can bury an inbox in links. */
     allowTo(kind, target) {

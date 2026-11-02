@@ -31,8 +31,8 @@ export const COMMON_FEATURES = Object.freeze({
   'storage.mb': { type: 'limit', default: null, label: 'storage for photos and files (MB)' },
   assign: { type: 'flag', default: true, label: 'assigning work to other people' },
   publish: { type: 'flag', default: true, label: 'public read-only links' },
-  // A public page embedded in another site without the Cronum Work mark under it (Next's).
-  'embed.unbranded': { type: 'flag', default: true, label: 'embedding without the Cronum Work mark' },
+  // A public page embedded in another site (an <iframe>), without the Cronum Work mark.
+  embed: { type: 'flag', default: true, label: 'embedding public pages in other websites' },
   templates: { type: 'flag', default: true, label: 'templates' },
   mcp: { type: 'flag', default: true, label: 'using the app from an assistant' },
   // Tool calls from assistants per person and day (UTC); listing tools and prompts doesn't count.
@@ -52,8 +52,10 @@ const FREE = {
   'retention.days': 90,
   'storage.mb': 50,
   assign: false,
-  publish: false,
-  'embed.unbranded': false,
+  // A public page of a project, a note or a list (Next, Projects, Notes, Tasks), with its own link;
+  // putting it in another website is Pro's.
+  publish: true,
+  embed: false,
   templates: false,
   mcp: true,
   'mcp.calls_per_day': 100,
@@ -77,7 +79,7 @@ const PRO = {
   'storage.mb': 5120,
   assign: true,
   publish: true,
-  'embed.unbranded': true,
+  embed: true,
   templates: true,
   'mcp.calls_per_day': 1000,
   'mcp.calls_per_week': 2000,

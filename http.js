@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
 
 /* --------------------------------- errors --------------------------------- */
 
@@ -85,7 +86,8 @@ export function readBody(req, { limit = MAX_BODY } = {}) {
         if (!tooLarge) {
           tooLarge = true;
           chunks.length = 0;
-          reject(new HttpError(413, 'body_too_large'));
+          // The rest is not read for ever: the answer closes the connection once it is sent.
+          reject(new HttpError(413, 'body_too_large', {}, { Connection: 'close' }));
           req.resume();
         }
         return;
@@ -347,7 +349,8 @@ export function serveStatic(root, urlPath, res) {
     'Cache-Control': cacheControl,
   });
   if (res.req?.method === 'HEAD') res.end();
-  else fs.createReadStream(file).pipe(res);
+  // A file gone or unreadable halfway cuts the response; it doesn't stop the process.
+  else pipeline(fs.createReadStream(file), res, () => {});
   return true;
 }
 

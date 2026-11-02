@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.222.0 — 2026-10-31
+## 0.222.0 — 2026-11-02
 
 Changes made without a signal, on leaving and on another account signing in (audit of 30/10:
 sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
@@ -32,6 +32,88 @@ sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
   server in trouble (5xx, 429) keeps the change, only a refusal (4xx) drops it; a change kept more
   than a day doesn't go; an ended session keeps the queue (it is kept with whose it is) instead of
   forgetting it; and without `localStorage` the queue is kept on the page instead of nowhere.
+## 0.221.0 — 2026-10-31
+
+From the audit of 30/10 (billing-1, -3, -4, -5; sc-host-12; work-1, work-8).
+
+- **A customer the checkout didn't name is never linked, not even one nobody here has**
+  (billing-1). The fix of 0.128.0 kept another account's customer from going to whoever paid a
+  checkout made without one (`customerUnsigned`), but a customer linked to nobody here was linked
+  all the same: the same Paddle account sells Tracker, so someone paying with a Tracker buyer's
+  email could end up with their customer, and open their portal (invoices, address, the card's
+  last digits). Now that link isn't made either, and the audit says so
+  (`billing.customer_unvouched`); the plan is still theirs, since they paid. New
+  `errors.email_unverified`, for a provider that refuses a checkout without a verified email
+  (cronum-cloud's Paddle, so its checkouts always name the customer).
+- **Tests of what guards the payments** (billing-3): the `unsigned` and `customerUnsigned`
+  branches were only tested in cronum-cloud, pinned to an older suite-core. Now billing.test.js
+  covers them, so a change here that breaks them fails here.
+- **Checkout and portal braked per account** (billing-4): 10 in 15 minutes, `429
+  too_many_requests` past that. Each asks the payment provider, whose API quota other apps of the
+  same account share. New `limiter.allowFor(kind, userId)` and `limits.billing`;
+  `registerBillingApi` takes `limiter`.
+- **An account whose subscription never stopped renewing waits up to a week** (billing-5): when
+  the provider failed both when the person asked to go and on the day the account goes, it went
+  and the subscription went on charging. Now the account waits for the next sweep while
+  `billing.stillRenews(userId)` (new; also in `combinedBilling`) says so, a week at most past its
+  day; then it goes all the same, logged loud.
+- **`/health` without `uptime`, and only up when the database answers** (sc-host-12, work-8):
+  `{ ok: true, version: { app, version, built } }`, or `503 { ok: false }`. In a host it is the
+  host's own, with the fingerprint `/version` gives (it gave the root app's, which never matched).
+  New `healthOf(database, versionOf)` in app.js.
+- **CLA check pinned by commit** (work-1): the shared workflow at a commit of cronumstudio/.github
+  instead of `@main`, with the write permissions on its job alone; it now runs on GitHub's machines
+  and pins its action by commit.
+
+## 0.220.0 — 2026-10-31
+
+From the audit of 30/10 (service worker, the host, Work's shell):
+
+- **A scoped sheet is kept once per file** (sc-host-11). The host kept each module's sheet with
+  `@scope` (`scopedSheets`) under the address as asked, so `/tasks/css//styles.css?scope=work`,
+  `/tasks/c%73s/…` and any other spelling of the same file each kept a copy (some 43 KB) for good,
+  without a session: anyone could fill Work's memory. Now the key is the file's own address, which
+  also gives every spelling the same ETag and the same url()s; and at most 200 are kept.
+- **A newer worker taking a page over is said to the page** (sc-shell-3). New `watchNewCode()` in
+  `web/update.js`: `stale()` once a worker other than the page's first took it over without
+  `applyUpdate()` here (another window reloaded, a notice came). What such a page loads late comes
+  from the new copy, and joined to the old code it already runs it may not load at all (Settings
+  importing a name the old `base.js` doesn't export). A page that lives for days asks before
+  loading code late and brings the new version instead.
+- **A notice tapped with Work's shell open opens there** (sc-shell-4). The host's worker gets
+  `holds` (`['/', '/w/']` with a root page, `pages[].root`): one of those pages open gets
+  `{ type: 'notification-open', url }` and the focus, instead of being navigated to the module on
+  its own with every window in it; with none open, a new window opens `/?open=<the module's
+  address>`. Without a root page, as before.
+- **`framedModules`**, a host option: the modules' pages may be framed by the host's own pages
+  without a split view (Work's shell opens a module it can't mount in a frame). `split` still
+  implies it.
+- **`@keyframes` carry the module's name** in a scoped sheet (sc-host-1): `fade-in` in Tasks and
+  in Next were one name in the shell's one document, the last sheet loaded winning. A module's
+  own `@keyframes` become `<mount>--<name>`, with its `animation`s; the kit's sheets and the
+  kit's names (`kit-…`) stay. `SCOPE_FORMAT` 3.
+- **How the server rewrites the sheets is part of the version** (sc-host-8): a release that only
+  changes `scope-css.js` is a new worker, so installed copies don't keep the old sheets.
+- **A module's stop is waited for** when the host closes, three seconds at most (dead-dup-4): a
+  module's `start()` may return a stop that returns a promise (the notices it groups, sent now).
+- **Two modules' tables are compared before the second's migrations run** (sc-host-9): its
+  migrations are tried first on an empty database, and a table a module joined before declares
+  (`portable.tables`) stops the start without touching the real one. The check once every module is
+  in stays for the rest.
+- **A body over the limit closes the connection** (sc-host-3): after the 413 the server no longer
+  reads the rest for ever. `requestTimeout` is ten minutes instead of none (receiving a request, not
+  answering it: live channels stay open).
+- **A static file gone halfway cuts its response** instead of an uncaught error that stopped the
+  process (sc-host-2, `pipeline`).
+
+## 0.219.0 — 2026-10-30
+
+- **Public pages free, embedding them Pro's** (Martin: Projects, Notes and Tasks get a public page
+  of their own, like Next's; its link for everyone, putting it in another website for Pro, and
+  then without the Cronum Work mark). `publish` goes on in Free in the cronum-work catalog. New
+  common feature `embed` (off in Free, on in Pro; without `PLANS`, allowed), named in the plan's
+  benefits. **Interface:** `embed.unbranded` (0.218.0) is gone: an app that declares it moves
+  to `embed`.
 
 ## 0.218.0 — 2026-10-30
 

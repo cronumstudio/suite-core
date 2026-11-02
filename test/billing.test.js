@@ -24,6 +24,8 @@ import {
 } from '../billing.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, SuiteConfigError } from '../app.js';
+import { createRateLimiter } from '../rate-limit.js';
+import { Readable } from 'node:stream';
 
 const DAY = 24 * 3600 * 1000;
 const SECRET = 'a-shared-secret-of-the-accounts-service';
@@ -651,4 +653,119 @@ test('whether a subscription renews or ends at its period’s end, kept from eac
   clock.now += 1000;
   sub('evt_3', { ending: true });
   assert.equal(ending(), true, 'cancelled for the period’s end');
+});
+
+/*
+ * What a signing provider (Paddle, in cronum-cloud) can't vouch for. These branches keep the
+ * founder's price from being forged in a browser and one person's customer from going to another;
+ * they live here so a change to billing.js that breaks them fails suite-core's own tests.
+ */
+test('unsigned: a subscription or purchase never heard of grants nothing and links nothing; one known goes on', (t) => {
+  const { database, entitlements, audit, clock, accounts } = setup(t);
+  const bea = accounts.create({ username: 'bea' });
+  const billing = createBilling({
+    database, entitlements, audit, provider: signedProvider({ id: 'paddle', secret: SECRET }), products: PRODUCTS,
+    clock: () => clock.now, log: () => {}, identities: { of: () => null, user: () => bea.id },
+  });
+  const event = (id, fields) => billing.apply({
+    id, type: 'subscription', ref: 'sub_u', identity: { provider: 'workos', subject: 'user_bea' }, customer: 'ctm_bea',
+    product: 'pro-monthly', status: 'active', periodEnd: '2026-06-01T10:00:00Z', occurredAt: new Date(clock.now).toISOString(), ...fields,
+  });
+  assert.equal(event('u1', { unsigned: true }), 'unsigned', 'made in a browser: Paddle.js opens a checkout for any price');
+  assert.equal(planOf(entitlements, bea), 'free');
+  assert.equal(billing.customerOf({ type: 'user', id: bea.id }), null, 'nothing linked');
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_subscriptions').n, 0);
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 0, 'nor kept for anyone');
+  assert.equal(billing.apply({ id: 'u2', type: 'purchase', ref: 'txn_u', identity: { provider: 'workos', subject: 'user_bea' }, product: 'pro-lifetime', unsigned: true }),
+    'unsigned', 'a one-off purchase too');
+  assert.equal(entitlements.grantsOf('user', bea.id).length, 0);
+
+  clock.now += 1000;
+  assert.equal(event('u3', {}), 'granted', 'the signed checkout');
+  clock.now += 31 * DAY;
+  assert.equal(event('u4', { unsigned: true, periodEnd: '2026-07-01T10:00:00Z', occurredAt: new Date(clock.now).toISOString() }), 'extended',
+    'a renewal Paddle sends without custom_data still renews what is known');
+});
+
+test('customerUnsigned: a customer the checkout didn\'t name is never linked, neither another account\'s nor nobody\'s', async (t) => {
+  const { database, entitlements, audit, clock, accounts, ada } = setup(t);
+  const eve = accounts.create({ username: 'eve' });
+  let who = ada.id;
+  const billing = createBilling({
+    database, entitlements, audit, provider: signedProvider({ id: 'paddle', secret: SECRET }), products: PRODUCTS,
+    clock: () => clock.now, log: () => {}, identities: { of: () => null, user: () => who },
+  });
+  const sale = (id, fields) => billing.apply({
+    id, type: 'subscription', ref: `sub_${id}`, identity: { provider: 'workos', subject: `user_${who}` },
+    product: 'pro-monthly', status: 'active', periodEnd: '2026-06-01T10:00:00Z', ...fields,
+  });
+  assert.equal(sale('c1', { customer: 'ctm_ada' }), 'granted');
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), 'ctm_ada');
+
+  // Eve pays a checkout made without a customer and types Ada's email: Paddle hands her Ada's.
+  who = eve.id;
+  assert.equal(sale('c2', { customer: 'ctm_ada', customerUnsigned: true }), 'granted', 'she paid: the plan is hers');
+  assert.equal(billing.customerOf({ type: 'user', id: ada.id }), 'ctm_ada', 'Ada\'s customer stays Ada\'s');
+  assert.equal(billing.customerOf({ type: 'user', id: eve.id }), null);
+  assert.deepEqual(audit.list({ action: 'billing.customer_conflict' }).map((e) => e.action), ['billing.customer_conflict']);
+
+  // The same with a customer nobody here has: a Tracker buyer's, or one a checkout made unpaid.
+  assert.equal(sale('c3', { customer: 'ctm_tracker_buyer', customerUnsigned: true }), 'granted');
+  assert.equal(billing.customerOf({ type: 'user', id: eve.id }), null, 'nobody\'s customer is not hers either');
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM billing_customers WHERE customer_id = 'ctm_tracker_buyer'").n, 0);
+  assert.deepEqual(audit.list({ action: 'billing.customer_unvouched' }).map((e) => e.action), ['billing.customer_unvouched']);
+  // Without a link there is no portal to open: not Ada's, not the Tracker buyer's.
+  await assert.rejects(() => billing.portalUrl({ type: 'user', id: eve.id }, { returnUrl: 'https://work.example/' }), { code: 'no_customer' });
+
+  // A customer the checkout named (signed) is linked as always.
+  assert.equal(sale('c4', { customer: 'ctm_eve' }), 'granted');
+  assert.equal(billing.customerOf({ type: 'user', id: eve.id }), 'ctm_eve');
+});
+
+test('checkout and portal are braked per account: each asks the provider, whose API quota other apps share', async (t) => {
+  const { database, billing, accounts, ada } = setup(t, { now: new Date().toISOString() });
+  const bob = accounts.create({ username: 'bob' });
+  const limiter = createRateLimiter({ database, limits: { billing: 3 } });
+  const router = createRouter();
+  registerBillingApi(router, { billing, baseUrl: 'https://app.example', limiter });
+  const ask = async (path, as) => {
+    const match = router.match('POST', path);
+    const req = Object.assign(Readable.from([Buffer.from('{"product":"pro-lifetime"}')]), { headers: { 'content-type': 'application/json' } });
+    let answer = null;
+    const res = { writeHead: (status, headers) => { answer = { status, headers }; }, setHeader() {}, end: (body) => { answer.body = JSON.parse(body); } };
+    try {
+      await match.handler({ req, res, params: {}, query: new URLSearchParams(), user: accounts.byId(as) });
+    } catch (err) {
+      return { status: err.status, error: err.code, retryAfter: err.extra?.retry_after };
+    }
+    return { status: answer.status };
+  };
+  for (let i = 0; i < 3; i += 1) assert.equal((await ask('/api/billing/checkout', ada.id)).status, 200);
+  const braked = await ask('/api/billing/checkout', ada.id);
+  assert.equal(braked.status, 429);
+  assert.equal(braked.error, 'too_many_requests');
+  assert.ok(braked.retryAfter > 0);
+  assert.equal((await ask('/api/billing/portal', ada.id)).status, 429, 'the portal shares the brake');
+  assert.equal((await ask('/api/billing/checkout', bob.id)).status, 200, 'per account: Bob is not Ada');
+});
+
+test('stillRenews: a live subscription whose stop never reached the provider', async (t) => {
+  let down = true;
+  const provider = {
+    ...signedProvider({ id: 'paddle', secret: SECRET }),
+    cancelSubscription: async () => { if (down) throw new Error('Paddle is down'); return { already: false }; },
+    keepSubscription: async () => {},
+  };
+  const { billing, clock, ada } = setup(t, { provider });
+  assert.equal(billing.stillRenews(ada.id), false, 'nothing to renew');
+  billing.apply({
+    id: 's1', type: 'subscription', ref: 'sub_s', subject: { type: 'user', id: ada.id }, product: 'pro-monthly',
+    status: 'active', periodEnd: '2026-06-01T10:00:00Z', occurredAt: new Date(clock.now).toISOString(),
+  });
+  assert.equal(billing.stillRenews(ada.id), true);
+  await assert.rejects(() => billing.stopRenewals(ada.id), /Paddle is down/);
+  assert.equal(billing.stillRenews(ada.id), true, 'the stop failed: it renews');
+  down = false;
+  await billing.stopRenewals(ada.id);
+  assert.equal(billing.stillRenews(ada.id), false, 'asked: it only lapses now');
 });
