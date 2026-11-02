@@ -9,6 +9,10 @@
  * Keys belong to one account: another person's key, even the same string,
  * is another key. A key used for a different method or path is a mistake of
  * the client and is refused rather than answered with something unrelated.
+ * An answer too big to keep whole (a project with all its tasks) keeps its key
+ * all the same, with a small body in its place: what it made (`id`, when the
+ * answer names one) and `reload: true`, so the client learns what it made and
+ * reads the rest again, never an empty answer.
  * Only successful answers are kept: a 409 or a 503 may well go another way
  * on the next try, and the client is right to try. Nor is an answer that
  * carries a secret shown once (`answeredOnce`): the table would hold in clear
@@ -19,8 +23,22 @@ import { HttpError, badRequest } from './http.js';
 const HOUR = 3600 * 1000;
 const KEY = /^[\w.:-]{8,128}$/;
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-/** An answer bigger than this is not kept: replaying it is not worth the database. */
+/** An answer bigger than this is not kept whole: replaying it is not worth the database. */
 const MAX_BODY = 256 * 1024;
+/** What is read of a bigger answer to find what it made; past this, nothing (a download, not an answer). */
+const MAX_READ = 16 * 1024 * 1024;
+
+/** What a replay of an answer too big to keep says: what it made, and to read the rest again. */
+function smallBody(body) {
+  let id;
+  try {
+    const answer = JSON.parse(body);
+    if (typeof answer?.id === 'number' || typeof answer?.id === 'string') id = answer.id;
+  } catch {
+    // Cut short or not an object: nothing to name.
+  }
+  return JSON.stringify({ ...(id === undefined ? {} : { id }), replayed: true, reload: true });
+}
 
 /**
  * Marks a route whose answer carries a secret shown once: a new token, a
@@ -96,12 +114,13 @@ export function createIdempotency({ database, hours = 24, now = Date.now }) {
     try {
       const result = await handler();
       const { status, body, json } = answer();
-      if (status >= 200 && status < 300 && json && body.length <= MAX_BODY) {
+      if (status >= 200 && status < 300 && json) {
+        const kept = Buffer.byteLength(body) <= MAX_BODY ? body : smallBody(body);
         database.run(
           `INSERT INTO idempotency_keys (user_id, key, method, path, status, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (user_id, key) DO UPDATE SET method = excluded.method, path = excluded.path,
              status = excluded.status, body = excluded.body, created_at = excluded.created_at`,
-          userId, key, method, path, status, body, now());
+          userId, key, method, path, status, kept, now());
       }
       return result;
     } finally {
@@ -125,10 +144,10 @@ function capture(res) {
   const chunks = [];
   let size = 0;
   const keep = (chunk) => {
-    if (chunk == null || typeof chunk === 'function' || size > MAX_BODY) return;
+    if (chunk == null || typeof chunk === 'function' || size > MAX_READ) return;
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
     size += buffer.length;
-    if (size <= MAX_BODY) chunks.push(buffer);
+    if (size <= MAX_READ) chunks.push(buffer);
   };
   // Headers handed to writeHead() as an object never reach getHeader(): read them on the way.
   let type = '';
@@ -148,6 +167,6 @@ function capture(res) {
   return () => ({
     status: res.statusCode,
     json: /application\/json/.test(type || String(res.getHeader('content-type') || '')),
-    body: size > MAX_BODY ? '' : Buffer.concat(chunks).toString('utf8'),
+    body: size > MAX_READ ? '{}' : Buffer.concat(chunks).toString('utf8'),
   });
 }
