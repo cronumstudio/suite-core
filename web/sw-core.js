@@ -48,7 +48,9 @@
  * each module's path to its copy, clears the copies of the modules' old workers
  * when it takes over, and a notice tapped opens the module it came from. Its
  * shell is installed file by file: one missing file mustn't leave every module
- * without its copy.
+ * without its copy. And a few at a time (SUITE_AT_ONCE): a new device asked for
+ * Work's 200-odd files at once, while its page loaded its modules, and some got a
+ * 429 on the way; a module whose code was one of them didn't open.
  *
  * A host's worker also says, with `codeFirst`, that its version is the fingerprint of every
  * file it serves (host-worker.js): then code is the copy first, without asking the network,
@@ -80,6 +82,24 @@ var SUITE_EXACT_NEVER = ['/version', '/health', '/devices/session', '/devices/co
 var SUITE_WAIT_MS = 4000;
 /** Where a copy notes the hash of each file it holds (`hashes`): a dotfile, never a path the server has. */
 var SUITE_HASHES = '.suite-hashes';
+/** How many files a host's worker installs at once: as fast as all at once, measured on Work (3/11). */
+var SUITE_AT_ONCE = 12;
+
+/**
+ * `fn` for each of `list`, at most `limit` at a time; done when all are. A failure is its item's
+ * alone: the others go on.
+ */
+function suiteInTurns(list, fn, limit) {
+  var next = 0;
+  var lane = function () {
+    if (next >= list.length) return Promise.resolve();
+    var item = list[next++];
+    return Promise.resolve().then(function () { return fn(item); }).catch(function () {}).then(lane);
+  };
+  var lanes = [];
+  for (var i = 0; i < Math.min(limit, list.length); i++) lanes.push(lane());
+  return Promise.all(lanes);
+}
 
 /** The worker's scope as a path: `/` for an app on its own, `/tasks/` for a module of a host. */
 function suiteScopeOf(registration) {
@@ -232,10 +252,11 @@ function suiteWorker(options) {
     event.waitUntil(caches.open(version)
       .then(function (cache) {
         var load = function (url) { return new Request(url, { cache: 'reload' }); };
-        // A host's: file by file, a missing one is left out rather than every module's copy.
+        // A host's: file by file, a missing one is left out rather than every module's copy, and a
+        // few at a time, so the page loading its modules meanwhile isn't refused on the way.
         var first = modules.length
           ? previous().then(function (old) {
-            return Promise.all(shell.map(function (url) { return bring(cache, old, url).catch(function () {}); }));
+            return suiteInTurns(shell, function (url) { return bring(cache, old, url); }, SUITE_AT_ONCE);
           }).then(function () {
             // What this copy holds, for the next one; written last, so a copy cut short notes nothing.
             if (!hashes) return undefined;
@@ -247,9 +268,8 @@ function suiteWorker(options) {
         return first
           .then(function () {
             // Nice to have offline, never a reason for the install to fail.
-            return Promise.all(optional.map(function (url) {
-              return cache.add(new Request(url, { cache: 'reload' })).catch(function () {});
-            }));
+            var add = function (url) { return cache.add(new Request(url, { cache: 'reload' })).catch(function () {}); };
+            return modules.length ? suiteInTurns(optional, add, SUITE_AT_ONCE) : Promise.all(optional.map(add));
           });
       })
       .then(function () { return self.skipWaiting(); })
