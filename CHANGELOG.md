@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.225.0 — 2026-11-02
+
+- **A write whose answer is too big to keep replays a small JSON body** (audit of 30/10:
+  projects-srv-7, projects-web-1). Over 256 KB the key was kept with an empty body: the same key
+  answered 200 with nothing in it, so a creation sent again never learnt its id (the outbox kept the
+  provisional one, and what came after it was dropped as `lost_creation`) and the client read
+  `null`. Now it replays `{ id, replayed: true, reload: true }` (`id` when the answer named one at
+  its top), and the route still runs once. Smaller answers replay whole, as before.
+
 ## 0.224.0 — 2026-11-02
 
 **No button for the person at the sidebar's foot: the app's icon opens Settings.** In an app on

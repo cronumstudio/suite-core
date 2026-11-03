@@ -37,6 +37,12 @@ async function start(t) {
         ctx.res.writeHead(201, { 'Content-Type': 'application/json' });
         ctx.res.end(JSON.stringify({ id: Number(lastInsertRowid) }));
       });
+      api.post('/api/big', async (ctx) => {
+        runs += 1;
+        const { lastInsertRowid } = suite.database.run('INSERT INTO notes (user_id, text) VALUES (?, ?)', ctx.user.id, 'big');
+        ctx.res.writeHead(200, { 'Content-Type': 'application/json' });
+        ctx.res.end(JSON.stringify({ id: Number(lastInsertRowid), tasks: 'x'.repeat(300 * 1024) }));
+      });
       api.post('/api/fails', (ctx) => {
         runs += 1;
         ctx.res.writeHead(409, { 'Content-Type': 'application/json' });
@@ -94,6 +100,20 @@ test('keys are per account, tied to their path, and failures are not kept', asyn
   assert.equal((await call(admin, 'POST', '/api/fails', 'retry-me-001')).status, 409);
   assert.equal((await call(admin, 'POST', '/api/fails', 'retry-me-001')).status, 409);
   assert.equal(runs(), before + 2, 'a 409 may go another way next time: it runs again');
+});
+
+test('an answer too big to keep still answers once: the key is kept with a small body', async (t) => {
+  const { session, call, runs } = await start(t);
+  const admin = await session('admin', 'root-password');
+  const first = await call(admin, 'POST', '/api/big', 'big-key-0001');
+  assert.equal(first.status, 200);
+  assert.ok(first.data.tasks.length > 256 * 1024);
+  const again = await call(admin, 'POST', '/api/big', 'big-key-0001');
+  assert.equal(runs(), 1, 'the route ran once');
+  assert.equal(again.status, 200);
+  assert.equal(again.replayed, 'true');
+  assert.deepEqual(again.data, { id: first.data.id, replayed: true, reload: true },
+    'what was made, and that the rest is to be read again');
 });
 
 test('answers older than a day are swept', () => {
