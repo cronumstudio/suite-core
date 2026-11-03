@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.226.1 — 2026-11-03
+
+- **Work's phone tabs come back where they belong when the keyboard goes down.** The field loses
+  the focus as the keyboard starts going down, while the app's web view is still short, and the
+  tabs came back then: for a moment over where the keyboard had been, then at the foot (Martin's
+  iPhone, 0.226.0). `watchKeyboard()` now tells the keyboard down only once the page has its room
+  back. A page still short a second after the focus left, with nothing typed in, isn't a
+  keyboard's, and the tabs come back then. `keyboardShortens()` takes `up`.
+
 ## 0.226.0 — 2026-11-03
 
 **Work's tabs on a phone step aside while typing, when the keyboard makes the page shorter.** In

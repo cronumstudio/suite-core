@@ -2043,12 +2043,14 @@ test('keyboard: one that makes the page shorter is told while typing, against th
   assert.ok(keyboardShortens({ tallest: 812, height: 476, typing: true }));
   assert.ok(!keyboardShortens({ tallest: 812, height: 740, typing: true }), 'the browser’s bars, not a keyboard');
   assert.ok(!keyboardShortens({ tallest: 812, height: 476, typing: false }), 'nothing to type in');
+  assert.ok(keyboardShortens({ tallest: 812, height: 476, typing: false, up: true }), 'up, it waits for the room');
+  assert.ok(!keyboardShortens({ tallest: 812, height: 812, typing: false, up: true }));
   const { FakeEventTarget } = await import('./fake-dom.js');
   const root = { clientHeight: 812 };
   const doc = Object.assign(new FakeEventTarget(), { documentElement: root, activeElement: null });
   const win = Object.assign(new FakeEventTarget(), { innerWidth: 375, document: doc });
   const told = [];
-  watchKeyboard((up) => told.push(up), { win });
+  watchKeyboard((up) => told.push(up), { win, leave: 20 });
   const field = { tagName: 'TEXTAREA' };
   doc.activeElement = field;
   doc.dispatch('focusin');
@@ -2067,15 +2069,36 @@ test('keyboard: one that makes the page shorter is told while typing, against th
   root.clientHeight = 200;
   win.dispatch('resize');
   assert.deepEqual(told, [true, false, true]);
-  // The focus leaves for the page while the room comes back later: the tabs come back at once.
+  // The focus leaves as the keyboard starts going down: down only once the page has its room back,
+  // or the tabs sat a moment over the keyboard going down (Martin's iPhone, 0.226.0).
   doc.activeElement = null;
   doc.dispatch('focusout');
   await new Promise((done) => setTimeout(done, 0));
-  assert.deepEqual(told, [true, false, true, false]);
+  assert.deepEqual(told, [true, false, true], 'the page still short');
+  root.clientHeight = 375;
+  win.dispatch('resize');
+  assert.deepEqual(told, [true, false, true, false], 'its room back');
+  await new Promise((done) => setTimeout(done, 40));
+  assert.deepEqual(told, [true, false, true, false], 'and nothing more when the wait would have ended');
+  // Another field while it goes down: still up.
+  doc.activeElement = field;
+  root.clientHeight = 200;
+  win.dispatch('resize');
+  doc.activeElement = null;
+  doc.dispatch('focusout');
+  doc.activeElement = field;
+  doc.dispatch('focusin');
+  await new Promise((done) => setTimeout(done, 40));
+  assert.deepEqual(told, [true, false, true, false, true], 'the focus came back to a field: up all along');
+  // Short a while with nothing typed in: not a keyboard's, down after the wait.
+  doc.activeElement = null;
+  doc.dispatch('focusout');
+  await new Promise((done) => setTimeout(done, 40));
+  assert.deepEqual(told, [true, false, true, false, true, false]);
   // A frame with the focus: what it types in can't be seen from here.
   doc.activeElement = { tagName: 'IFRAME' };
   doc.dispatch('focusin');
-  assert.deepEqual(told, [true, false, true, false, true]);
+  assert.deepEqual(told, [true, false, true, false, true, false, true]);
   // A page without a root to measure is left alone.
   assert.doesNotThrow(() => watchKeyboard(() => {}, { win: Object.assign(new FakeEventTarget(), { document: {} }) }));
 });
