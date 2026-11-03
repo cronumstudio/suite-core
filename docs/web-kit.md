@@ -97,7 +97,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
-| `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up |
+| `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter |
 | `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`. Nothing outside the app |
 
 ### Components in the sheet alone
@@ -284,6 +284,13 @@ browser doesn't slide the view and the frame only shrinks. Only where the caret'
 matter (an empty field to add to) or the app puts it at the finger: `focus(point)` does it and
 returns false to leave the tap to the browser (Notes: `posAtCoords`). A tap while already typing,
 a finger that moves, a long press and what `skip` matches (a checkbox, a link) are the browser's.
+
+An app's web view can stop above the keyboard instead (Work's iPhone app): then the page itself is
+shorter and what is fixed to its foot sits on the keyboard. `watchKeyboard(onChange, { signal })`
+tells `onChange(true)` while that is so and a field (or a frame) has the focus, measured on the
+root against its tallest height at that width, and `onChange(false)` when the room comes back or
+the focus leaves. Work's windows (windows.js) give the desk `data-keyboard` with it, and a phone's
+tabs step aside.
 
 ### Sign-in and settings
 

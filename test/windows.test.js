@@ -454,6 +454,24 @@ test('drop: on a phone its tab goes at once', () => {
   windows.destroy();
 });
 
+test('phone: the tabs step aside while a keyboard that made the page shorter is up', () => {
+  const win = new FakeWindow(390);
+  const root = { clientHeight: 800 };
+  win.document = Object.assign(new FakeEventTarget(), { documentElement: root, activeElement: null });
+  const { desk, windows } = setup({ width: 390, win });
+  windows.restore({ cols: [{ wins: ['tasks'] }] });
+  assert.equal(desk.hasAttribute('data-keyboard'), false);
+  win.document.activeElement = { tagName: 'INPUT', type: 'text' };
+  root.clientHeight = 460;
+  win.dispatch('resize');
+  assert.equal(desk.hasAttribute('data-keyboard'), true, 'windows.css hides the tabs');
+  assert.ok(desk.querySelector('.cw-tabs'), 'hidden, not taken away');
+  root.clientHeight = 800;
+  win.dispatch('resize');
+  assert.equal(desk.hasAttribute('data-keyboard'), false);
+  windows.destroy();
+});
+
 test('windows: the rail’s columns, and what doesn’t fit the desk stacks', () => {
   const { windows } = setup({ width: 1000 });
   windows.set({ cols: [{ wins: ['notes'] }] });

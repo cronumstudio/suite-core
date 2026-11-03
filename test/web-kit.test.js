@@ -2038,6 +2038,48 @@ test('keyboard: what brings it up, when it is up, and what a tap is', async () =
   assert.ok(!isTap(null, { x: 0, y: 0, at: 0 }));
 });
 
+test('keyboard: one that makes the page shorter is told while typing, against the tallest at each width', async () => {
+  const { keyboardShortens, watchKeyboard } = await import('../web/keyboard.js');
+  assert.ok(keyboardShortens({ tallest: 812, height: 476, typing: true }));
+  assert.ok(!keyboardShortens({ tallest: 812, height: 740, typing: true }), 'the browser’s bars, not a keyboard');
+  assert.ok(!keyboardShortens({ tallest: 812, height: 476, typing: false }), 'nothing to type in');
+  const { FakeEventTarget } = await import('./fake-dom.js');
+  const root = { clientHeight: 812 };
+  const doc = Object.assign(new FakeEventTarget(), { documentElement: root, activeElement: null });
+  const win = Object.assign(new FakeEventTarget(), { innerWidth: 375, document: doc });
+  const told = [];
+  watchKeyboard((up) => told.push(up), { win });
+  const field = { tagName: 'TEXTAREA' };
+  doc.activeElement = field;
+  doc.dispatch('focusin');
+  assert.deepEqual(told, [], 'focused, the page still its height');
+  root.clientHeight = 476;
+  win.dispatch('resize');
+  assert.deepEqual(told, [true], 'the web view stopped above the keyboard');
+  root.clientHeight = 812;
+  win.dispatch('resize');
+  assert.deepEqual(told, [true, false], 'the keyboard gone, the field still focused');
+  // Turned: the new width has a tallest of its own, so its shorter height isn't a keyboard.
+  win.innerWidth = 812;
+  root.clientHeight = 375;
+  win.dispatch('resize');
+  assert.deepEqual(told, [true, false]);
+  root.clientHeight = 200;
+  win.dispatch('resize');
+  assert.deepEqual(told, [true, false, true]);
+  // The focus leaves for the page while the room comes back later: the tabs come back at once.
+  doc.activeElement = null;
+  doc.dispatch('focusout');
+  await new Promise((done) => setTimeout(done, 0));
+  assert.deepEqual(told, [true, false, true, false]);
+  // A frame with the focus: what it types in can't be seen from here.
+  doc.activeElement = { tagName: 'IFRAME' };
+  doc.dispatch('focusin');
+  assert.deepEqual(told, [true, false, true, false, true]);
+  // A page without a root to measure is left alone.
+  assert.doesNotThrow(() => watchKeyboard(() => {}, { win: Object.assign(new FakeEventTarget(), { document: {} }) }));
+});
+
 test('keyboard: the page is fitted while it is up, the field kept in sight, and left alone without it', async () => {
   const { fitToKeyboard } = await import('../web/keyboard.js');
   const props = new Map();

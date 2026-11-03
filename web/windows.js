@@ -34,6 +34,8 @@
  *   rows: left deletes, right stars). The desk only pans vertically (kit: windows.css), so the
  *   page never scrolls sideways, and once a finger goes sideways the swipe keeps its moves from
  *   the browser, in any module's list.
+ *   While a keyboard that makes the page shorter is up (Work's apps), the desk has
+ *   `data-keyboard` and the tabs step aside, their room the module's.
  * - A window out of view is `hidden` and `inert` and its module paused (`onPause(module, true,
  *   { hidden: true })`); at most four stay mounted, and beyond that the one used least recently is
  *   given back (`onEvict(module)`: the shell unmounts it and removes its window).
@@ -52,6 +54,7 @@
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
+import { watchKeyboard } from './keyboard.js';
 
 /** Where the layout is kept (Cronum Work's own key: CONVENTIONS §9). */
 export const KEY = 'work.layout';
@@ -497,6 +500,8 @@ export function createWindows(desk, {
   let maxed = null;               // the module whose window has the whole desk
   let fades = 0;                  // maximize()'s view transitions, the last one's number
   desk.setAttribute('data-screen', screen);
+  // The tabs would sit on the keyboard, of no use while typing (windows.css hides them).
+  watchKeyboard((up) => (up ? desk.setAttribute('data-keyboard', '') : desk.removeAttribute('data-keyboard')), { win, signal });
 
   const available = () => (typeof modules === 'function' ? modules() : modules) || [];
   const allowed = () => (available().length ? { modules: [...new Set([...available(), ...nodes.keys()])] } : {});
