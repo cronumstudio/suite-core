@@ -139,6 +139,8 @@ html:has(.cw-desk[data-screen="narrow"]), html:has(.cw-desk[data-screen="narrow"
   /* Half the home bar's room: with all of it the icons and names sat high in the bar (iPhone). */
   padding-block-end: calc(var(--kit-safe-bottom) / 2);
 }
+/* A keyboard that made the page shorter (Work's apps): the tabs would sit on it while typing, and their room is the module's. */
+.cw-desk[data-screen="narrow"][data-keyboard] > .cw-tabs { display: none; }
 .cw-tabs__tab {
   flex: 1 1 0; min-width: 0; min-height: 52px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 2px; padding: 9px 2px 2px;

@@ -3,6 +3,18 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.226.0 — 2026-11-03
+
+**Work's tabs on a phone step aside while typing, when the keyboard makes the page shorter.** In
+Work's iPhone app the web view stops above the keyboard, so the bar of modules sat on it, taking
+room and of no use while typing (Martin, 3/11). keyboard.js has `watchKeyboard(onChange)` and
+`keyboardShortens()`: up while a field or a frame has the focus and the root is more than 120 px
+shorter than its tallest at that width (in Safari `innerHeight` shrinks with a keyboard that only
+covers the page, the root doesn't). windows.js gives the desk `data-keyboard` with it and
+windows.css hides `.cw-tabs` on a narrow desk; they come back when the keyboard goes or the focus
+leaves. In Safari and Chrome the keyboard only covers the page, the tabs already under it, and
+nothing changes.
+
 ## 0.225.0 — 2026-11-02
 
 - **A write whose answer is too big to keep replays a small JSON body** (audit of 30/10:

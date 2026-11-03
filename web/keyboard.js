@@ -17,6 +17,10 @@
  *
  * `focusOnTap()`: the tap that starts typing in a field focuses it without the
  * browser's slide, so the frame only has to shrink, smoothly.
+ *
+ * `watchKeyboard()`: when a keyboard does make the page shorter (an app's web
+ * view), what is fixed to its foot sits on the keyboard; Work's phone tabs
+ * step aside for it (windows.js).
  */
 
 /** Less than this is the browser's own bars coming and going, not a keyboard. */
@@ -49,6 +53,52 @@ export function keyboardFit({ full, top = 0, height, scale = 1, typing }) {
   if (!typing || scale >= 1.01) return null;
   const fit = { top: Math.round(top), height: Math.round(height) };
   return full - fit.height > KEYBOARD_MIN || fit.top > 0 ? fit : null;
+}
+
+/**
+ * Whether the keyboard has made the page itself shorter: `height` now, against the `tallest` the
+ * page has been at this width. An app's web view that stops above the keyboard (Work's iPhone
+ * app) and a browser that resizes the page for it do: what is fixed to the page's foot stays in
+ * sight, on the keyboard. Safari and Chrome only cover the page (keyboardFit), and what is at its
+ * foot is under the keyboard already.
+ */
+export function keyboardShortens({ tallest, height, typing }) {
+  return Boolean(typing) && tallest - height > KEYBOARD_MIN;
+}
+
+/**
+ * Tells `onChange(true)` when the keyboard makes the page shorter (keyboardShortens) and
+ * `onChange(false)` when it gives the room back or the focus leaves for something not typed in.
+ * The page's height is its root's (in Safari `innerHeight` shrinks with a keyboard that only
+ * covers it), and its tallest is kept for each width, so turning the phone isn't a keyboard. A
+ * frame with the focus counts as typing: what has it inside can't be seen from here.
+ *
+ * @param {(up: boolean) => void} onChange
+ * @param {object} [options]
+ * @param {Window} [options.win]
+ * @param {AbortSignal} [options.signal] stops listening
+ */
+export function watchKeyboard(onChange, { win = globalThis, signal } = {}) {
+  const doc = win.document ?? globalThis.document;
+  const root = doc?.documentElement;
+  if (!win.addEventListener || !root || typeof root.clientHeight !== 'number') return;
+  const tallest = new Map();
+  let up = false;
+  const check = () => {
+    const width = win.innerWidth;
+    const height = root.clientHeight;
+    const field = doc.activeElement;
+    const most = Math.max(tallest.get(width) ?? 0, height);
+    tallest.set(width, most);
+    const now = keyboardShortens({ tallest: most, height, typing: typesIn(field) || field?.tagName === 'IFRAME' });
+    if (now === up) return;
+    up = now;
+    onChange(now);
+  };
+  check();
+  win.addEventListener('resize', check, { signal });
+  doc.addEventListener('focusin', check, { signal });
+  doc.addEventListener('focusout', () => setTimeout(check, 0), { signal });
 }
 
 /** Whether a finger that went down at `start` and lifted at `end` ({ x, y, at }) tapped. */
