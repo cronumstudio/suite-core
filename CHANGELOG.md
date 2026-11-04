@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.229.0 — 2026-11-04
+
+**Whose it is, the same in every module** (Martin, 03/11; audit of 30/10, `compartir.md`). What
+someone shares stays theirs: whoever edits it can't destroy it or take it away. `ownership.js`:
+`requireOwner` / `requireOwnerOrAuthor` / `mayDelete` answer 403 `not_yours` with the owner's
+name ("This isn't yours: ask Ana to remove it or delete it", in the five languages), with
+`copy: true` on a move so a copy may be asked for instead; `givesTo` says whose something becomes
+when it goes into someone else's container ("It will be Ana's"); `tellGone` tells whoever used a
+shared container its owner deleted, by push and by email (`shareMail.gone`, new); `pickHeir`
+chooses who inherits what a leaving owner shared. In the page, `web/ownership.js`: `moving(send)`
+offers the copy and `confirmGive` asks before giving (in the worker's copy of the kit).
+mcp-kit's `describeErrorWith` adds the sentence of `<code>_<hint>` when an error carries a `hint`.
+Additive: nothing changes for a module that doesn't use them.
+
 ## 0.226.3 — 2026-11-04
 
 - **Work's phone tabs come back where they belong when the keyboard goes down.** The field loses
