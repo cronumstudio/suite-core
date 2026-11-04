@@ -162,6 +162,48 @@ test('a frame of the split view uses its parent’s bridge, on the same site onl
   assert.equal(postNative('ready', {}, elsewhere), false, 'no bridge of its own, none of another site’s');
 });
 
+/* --------------------------- a module's page alone --------------------------- */
+
+test('in the app, a host’s module page on its own goes to the host’s one-document page with itself in a window', () => {
+  const { hostShellAddress } = native;
+  const SHELL = { shell: true };
+  const at = (href, options = {}) => fakeWindow({ userAgent: IN_APP, href, ...options });
+  // What a notice tapped on the phone opens (host-worker.js hostedPush): the module's address, whole.
+  assert.equal(hostShellAddress(SHELL, at('https://work.example.com/projects/?project=5')),
+    `/?open=${encodeURIComponent('/projects/?project=5')}`);
+  assert.equal(hostShellAddress(SHELL, at('https://work.example.com/tasks/')), `/?open=${encodeURIComponent('/tasks/')}`);
+  assert.equal(hostShellAddress(SHELL, at('https://work.example.com/notes/#/n/55')), `/?open=${encodeURIComponent('/notes/#/n/55')}`);
+  assert.equal(hostShellAddress(SHELL, at('https://work.example.com/tasks/list/12?task=9')),
+    `/?open=${encodeURIComponent('/tasks/list/12?task=9')}`);
+  // Known from what the app injected too.
+  assert.ok(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, native: { v: 1 }, href: 'https://work.example.com/tasks/' })));
+
+  // It stays: in a browser, in a host without that page, outside a module's path, in the shell's frames.
+  assert.equal(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, href: 'https://work.example.com/tasks/' })), null, 'a browser');
+  assert.equal(hostShellAddress(SHELL, fakeWindow({ userAgent: ANDROID, href: 'https://work.example.com/tasks/' })), null, 'Android’s browser');
+  assert.equal(hostShellAddress({}, at('https://work.example.com/tasks/')), null, 'a host whose app is its modules');
+  assert.equal(hostShellAddress(null, at('https://work.example.com/tasks/')), null, 'no answer from the host');
+  assert.equal(hostShellAddress(undefined, at('https://work.example.com/tasks/')), null);
+  for (const path of ['/', '/?w=tasks:list/12', '/w/x', '/devices/session?code=x', '/auth/callback?code=1', '/tasks']) {
+    assert.equal(hostShellAddress(SHELL, at(`https://work.example.com${path}`)), null, path);
+  }
+  const top = at('https://work.example.com/');
+  const frame = at('https://work.example.com/projects/?project=5', { bridge: false });
+  frame.top = top;
+  assert.equal(hostShellAddress(SHELL, frame), null, 'a module framed in the shell');
+  assert.equal(hostShellAddress(SHELL, null), null);
+});
+
+test('createShell leaves for it under a module’s path only, never as a window of the shell, before it draws the rail', () => {
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  assert.match(shell, /const away = embedded \? null : hostShellAddress\(answer\?\.host\);/, 'never from a window of Work’s shell');
+  assert.match(shell, /window\.location\.replace\(away\);/, 'replaced: Back doesn’t come back to the module alone');
+  // From the host's answer of last time at once, before the rail and the question to the host…
+  assert.match(shell, /if \(!toHostShell\(last\)\) \{\n\s+if \(Array\.isArray\(last\?\.modules\)[^\n]+paintRail\(last\);\n\s+refreshModules\(\{ fresh: false \}\);/);
+  // …and from the one that comes, kept for the next page first.
+  assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\);[^\n]*\n\s+if \(toHostShell\(answer\)\) return null;/);
+});
+
 /* ------------------------------ what it sends ------------------------------ */
 
 test('every message is { v: 1, type, …payload }, its payload checked, and the payload never changes v or type', () => {
