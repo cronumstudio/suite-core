@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.226.2 — 2026-11-03
+
+**A host's worker installs its copy 12 files at a time, not all at once.** The first time
+someone signed in to Work on a device, its worker asked for Work's 200-odd files at the same time
+as the page loaded its modules, and some of them came back 429: a module whose code was one of them
+didn't open ("Importing a module script failed"), and only closing the app brought it (Martin,
+3/11). Measured on Work, 12 at a time installs as fast as all at once, or faster. A file that fails
+is still left out, and the rest still come. An app on its own installs as before.
+
 ## 0.226.0 — 2026-11-03
 
 **Work's tabs on a phone step aside while typing, when the keyboard makes the page shorter.** In
