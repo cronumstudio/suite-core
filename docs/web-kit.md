@@ -324,7 +324,11 @@ catalog, and choosing one goes there with `?settings=<id>`. A module opens its S
 section once it has started: `const asked = settingsAsked(); if (asked) settings(asked);`. In a
 frame of the split view, the view opens it in the frame that shows that module
 (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
-change.
+change. A host with a daily summary and push (`app.host.day`, v0.231.0, architecture §21.3.2) has
+its section in the host's group, «Daily summary» (`id: 'day'`): the morning's and the evening's
+notice, each a switch, a time in steps of five minutes and a link to its page (in Work's shell, a
+window of its own through the shell's `open`; from a module's page, `/?open=…`), saved as
+`prefs.day` with `PATCH /api/me` at the host's root.
 
 **Settings › Sharing** (`shared.js`, v0.94.0) is a section an app adds to `sections`: everything
 the person shares, each with who has it, whether they accepted and what they may do (view or

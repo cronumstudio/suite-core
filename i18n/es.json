@@ -1149,6 +1149,39 @@
   "kit.calendar.title": "Calendario",
   "kit.calendar.show": "Mostrar el calendario",
   "kit.calendar.showHint": "Su botón en la barra lateral (en el móvil, en la barra de arriba): lo que tiene fecha en cada módulo, día a día. Desactivado, la vista queda más sencilla.",
+  "kit.day.title": "Resumen diario",
+  "kit.day.hint": "Un aviso por la mañana y otro por la tarde",
+  "kit.day.intro": "{app} te dice cada mañana lo que tienes para hoy, con lo que quedó pendiente de antes, y cada tarde lo que has hecho. Un día sin nada que contar, no llega nada.",
+  "kit.day.morning": "Por la mañana",
+  "kit.day.morningHint": "Lo que tienes para hoy en cada módulo, y todo lo vencido.",
+  "kit.day.evening": "Por la tarde",
+  "kit.day.eveningHint": "Las tareas que completaste, los pasos que registraste y las notas que escribiste hoy.",
+  "kit.day.time": "Hora",
+  "kit.day.seeToday": "Ver el de hoy",
+  "kit.day.seeDone": "Ver lo hecho hoy",
+  "kit.day.devices": "Llegan a los dispositivos donde activaste los avisos (Avisos).",
+  "kit.day.notice.morningTitle": "☀️ Mira lo que tienes para hacer hoy",
+  "kit.day.notice.eveningTitle": "🌙 Lo que has hecho hoy",
+  "kit.day.notice.morningBody": "{counts}: {titles}",
+  "kit.day.notice.overdue": {
+    "one": "{n} vencida",
+    "other": "{n} vencidas"
+  },
+  "kit.day.notice.today": "{n} para hoy",
+  "kit.day.notice.quoted": "«{title}»",
+  "kit.day.notice.more": "{n} más",
+  "kit.day.notice.completed": {
+    "one": "{n} tarea",
+    "other": "{n} tareas"
+  },
+  "kit.day.notice.logged": {
+    "one": "{n} paso en {module}",
+    "other": "{n} pasos en {module}"
+  },
+  "kit.day.notice.written": {
+    "one": "{n} nota",
+    "other": "{n} notas"
+  },
   "kit.links.label": "Vinculado",
   "kit.links.add": "Vincular",
   "kit.links.addTo": "Añadir a {app}…",
@@ -1291,6 +1324,8 @@
   "fields.heard_from": "Cómo nos has conocido",
   "fields.has_channel": "Si tienes canal",
   "fields.channel": "Enlace del canal",
+  "fields.day": "Resumen diario",
+  "fields.date": "Fecha",
   "errors.not_yours": "Esto no es tuyo: pide a {owner} que lo quite o lo borre.",
   "errors.not_yours_copy": "Para llevarte una copia adonde querías (el original sigue donde está), vuelve a llamar a la misma herramienta con copy: true.",
   "kit.ownership.copyTitle": "¿Llevarte una copia?",

@@ -1149,6 +1149,39 @@
   "kit.calendar.title": "Kalender",
   "kit.calendar.show": "Kalender anzeigen",
   "kit.calendar.showHint": "Seine Schaltfläche in der Seitenleiste (auf dem Handy oben in der Leiste): alles mit Datum aus jedem Modul, Tag für Tag. Ausgeschaltet bleibt die Ansicht schlichter.",
+  "kit.day.title": "Tagesübersicht",
+  "kit.day.hint": "Eine Benachrichtigung am Morgen und eine am Abend",
+  "kit.day.intro": "{app} sagt dir jeden Morgen, was heute ansteht, mit allem, was von vorher noch offen ist, und jeden Abend, was du geschafft hast. An einem Tag ohne Neuigkeiten kommt nichts.",
+  "kit.day.morning": "Am Morgen",
+  "kit.day.morningHint": "Was heute in jedem Modul ansteht, und alles Überfällige.",
+  "kit.day.evening": "Am Abend",
+  "kit.day.eveningHint": "Die Aufgaben, die du heute erledigt, die Schritte, die du eingetragen, und die Notizen, die du geschrieben hast.",
+  "kit.day.time": "Uhrzeit",
+  "kit.day.seeToday": "Heute ansehen",
+  "kit.day.seeDone": "Ansehen, was du heute geschafft hast",
+  "kit.day.devices": "Sie kommen auf den Geräten an, auf denen du Benachrichtigungen aktiviert hast (Benachrichtigungen).",
+  "kit.day.notice.morningTitle": "☀️ Das steht heute für dich an",
+  "kit.day.notice.eveningTitle": "🌙 Das hast du heute geschafft",
+  "kit.day.notice.morningBody": "{counts}: {titles}",
+  "kit.day.notice.overdue": {
+    "one": "{n} überfällig",
+    "other": "{n} überfällig"
+  },
+  "kit.day.notice.today": "{n} für heute",
+  "kit.day.notice.quoted": "„{title}“",
+  "kit.day.notice.more": "{n} weitere",
+  "kit.day.notice.completed": {
+    "one": "{n} Aufgabe",
+    "other": "{n} Aufgaben"
+  },
+  "kit.day.notice.logged": {
+    "one": "{n} Schritt in {module}",
+    "other": "{n} Schritte in {module}"
+  },
+  "kit.day.notice.written": {
+    "one": "{n} Notiz",
+    "other": "{n} Notizen"
+  },
   "kit.links.label": "Verknüpft",
   "kit.links.add": "Verknüpfen",
   "kit.links.addTo": "Zu {app} hinzufügen…",
@@ -1291,6 +1324,8 @@
   "fields.heard_from": "Wie du uns gefunden hast",
   "fields.has_channel": "Ob du einen Kanal hast",
   "fields.channel": "Link zum Kanal",
+  "fields.day": "Tagesübersicht",
+  "fields.date": "Datum",
   "errors.not_yours": "Das gehört nicht dir: Bitte {owner}, es zu entfernen oder zu löschen.",
   "errors.not_yours_copy": "Um stattdessen eine Kopie dorthin mitzunehmen (das Original bleibt, wo es ist), rufe dasselbe Werkzeug noch einmal mit copy: true auf.",
   "kit.ownership.copyTitle": "Eine Kopie mitnehmen?",

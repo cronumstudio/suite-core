@@ -82,6 +82,7 @@ import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExte
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
+import { openInWork } from './links.js';
 import { leave } from './signin.js';
 import { celebratePrefs, setCelebratePref, celebrate } from './celebrate.js';
 import { connection, save, noSignal } from './settings-queue.js';
@@ -402,6 +403,9 @@ export function openSettings(options) {
   const hostSections = () => [
     ...common(),
     ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
+    // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
+    host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
+      hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
     admin(host.name),
     { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hostHint'), render: () => about() },
   ];
@@ -1527,6 +1531,77 @@ export function openSettings(options) {
     paint();
     return [block(null, hint(t('kit.notifications.intro', { app: app.name })), status, row(enable, test)),
       block(t('kit.notifications.devices'), box)];
+  }
+
+  /**
+   * The host's daily summary (host.js `day`, day.js): a notice in the morning with what someone has
+   * for today and one in the evening with what they did, each with its switch, its time (every five
+   * minutes) and a way to its page. Kept in their row at the host's root (`prefs.day`, PATCH
+   * /api/me there), which knows it: a module's /api/me keeps only its own keys.
+   */
+  function daySummary() {
+    const box = el('div', { class: 'kit-stack' });
+    const page = host.day;
+    /** HH:MM on a step of five minutes, down from what was typed (a field may take any minute); null for no time. */
+    const stepped = (value) => {
+      const parts = /^(\d{2}):(\d{2})/.exec(value || '');
+      if (!parts || Number(parts[1]) > 23 || Number(parts[2]) > 59) return null;
+      return `${parts[1]}:${String(Number(parts[2]) - (Number(parts[2]) % 5)).padStart(2, '0')}`;
+    };
+    const send = (kind, change) => keep('PATCH', '/api/me', { prefs: { day: { [kind]: change } } }, { root: true });
+    /**
+     * Its page: in Work's shell, in a window of its own (the shell's `open`), Settings closing over
+     * it; from a module's page, the host's app opening on it (`/?open=`), never the page alone.
+     */
+    const link = (url, text) => {
+      const shell = hostInfo.shell && !workRegistry();
+      return el('a', {
+        class: 'kit-link', text, href: shell ? `/?open=${encodeURIComponent(url)}` : url,
+        onClick: (ev) => { if (openInWork(ev)) close(); },
+      });
+    };
+    const notice = (kind, prefs) => {
+      let at = prefs.at;
+      const time = input({ type: 'time', step: '300', value: at, required: true });
+      time.addEventListener('change', async () => {
+        const chosen = stepped(time.value);
+        time.value = chosen || at;
+        if (!chosen || chosen === at) return;
+        const was = at;
+        at = chosen;
+        try {
+          await send(kind, { at: chosen });
+        } catch (err) {
+          at = was;
+          time.value = was;
+          fail(err);
+        }
+      });
+      const toggle = switchRow(t(`kit.day.${kind}`), {
+        checked: prefs.on,
+        hint: t(`kit.day.${kind}Hint`),
+        onChange: async (on) => {
+          try {
+            await send(kind, { on });
+          } catch (err) {
+            fail(err);
+            throw err;   // the switch goes back
+          }
+        },
+      });
+      const url = kind === 'morning' ? page : `${page}?v=done`;
+      return el('div', { class: 'kit-stack' }, toggle,
+        el('div', { class: 'kit-row kit-row--end' }, field(t('kit.day.time'), time), link(url, t(kind === 'morning' ? 'kit.day.seeToday' : 'kit.day.seeDone'))));
+    };
+    api.request('GET', '/api/me', undefined, { root: true })
+      .then(({ user } = {}) => {
+        if (closed) return;
+        const prefs = user?.prefs?.day || {};
+        clear(box).append(
+          notice('morning', { on: true, at: '08:00', ...prefs.morning }),
+          notice('evening', { on: true, at: '19:00', ...prefs.evening }));
+      }, fail);
+    return [block(null, hint(t('kit.day.intro', { app: hostInfo.name || host.name })), box, hint(t('kit.day.devices')))];
   }
 
   /**
