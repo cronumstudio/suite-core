@@ -98,7 +98,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter |
-| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.227.0). Nothing outside the app |
+| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app |
 
 ### Components in the sheet alone
 
@@ -507,7 +507,7 @@ place of the web's farewell notice (until when the account can be taken back), w
 still shows. The provider's own session is left to the app.
 
 A host's module page loaded on its own in the app, neither a frame nor a window of the host's
-one-document page, goes there with itself in a window (v0.227.0): `createShell()` replaces it with
+one-document page, goes there with itself in a window (v0.230.0): `createShell()` replaces it with
 `/?open=<its path>` (`hostShellAddress(host)`), once the host's answer of last time or of now says
 it has that page (`/api/modules`' `host.shell`). A notice tapped on the phone opens its module's
 address (`/projects/?project=5`), which the app's web view loaded as the module alone, with its

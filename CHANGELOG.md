@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.227.0 — 2026-11-04
+## 0.230.0 — 2026-11-04
 
 **In the app, a module's page on its own opens in Work's shell instead.** A notice tapped on the
 phone opens its module's address (`/projects/?project=5`, `/tasks/`: host-worker.js `hostedPush`),
@@ -15,6 +15,20 @@ rail is drawn), else from the one that comes. `hostShellAddress(host)` in native
 null to stay: outside the app, in a frame, as a window of the shell, in a host without a
 one-document page (`/api/modules`' `host.shell`) and anywhere but under a module's path. A browser,
 and a module installed alone, are as before. Nothing changes in the app, and no new build is needed.
+
+## 0.229.0 — 2026-11-04
+
+**Whose it is, the same in every module** (Martin, 03/11; audit of 30/10, `compartir.md`). What
+someone shares stays theirs: whoever edits it can't destroy it or take it away. `ownership.js`:
+`requireOwner` / `requireOwnerOrAuthor` / `mayDelete` answer 403 `not_yours` with the owner's
+name ("This isn't yours: ask Ana to remove it or delete it", in the five languages), with
+`copy: true` on a move so a copy may be asked for instead; `givesTo` says whose something becomes
+when it goes into someone else's container ("It will be Ana's"); `tellGone` tells whoever used a
+shared container its owner deleted, by push and by email (`shareMail.gone`, new); `pickHeir`
+chooses who inherits what a leaving owner shared. In the page, `web/ownership.js`: `moving(send)`
+offers the copy and `confirmGive` asks before giving (in the worker's copy of the kit).
+mcp-kit's `describeErrorWith` adds the sentence of `<code>_<hint>` when an error carries a `hint`.
+Additive: nothing changes for a module that doesn't use them.
 
 ## 0.226.3 — 2026-11-04
 
