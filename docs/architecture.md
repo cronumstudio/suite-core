@@ -95,6 +95,7 @@ suite-core/
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: new offers an hour, one notice per pair a day
+  ownership.js          done   whose it is: 403 not_yours, the author who may delete, giving it, the notice when shared things go, heirs
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
@@ -1612,6 +1613,30 @@ kit's), then Notes is built on it whole, then the others as they move to English
   says so in the log (`[mail] SMTP ready` or why not); a message that fails later is logged with
   its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
   changes.
+- **Whose it is** (**done**, v0.229.0, `ownership.js`, `web/ownership.js`; Martin, 03/11/2026,
+  `auditoria-2026-10-30/compartir.md`). sharing.js says who may see and edit something; this says
+  what only its owner may do. What someone shares stays theirs: whoever edits it may change it but
+  not destroy it or take it away. Deleting what isn't theirs, purging it, emptying the owner's
+  trash or moving it into something of their own answers **403 `not_yours`** with
+  `{ owner, owner_id }` (`requireOwner(userId, ownerId)`), which the kit's `errorMessage` says as
+  "This isn't yours: ask Ana to remove it or delete it". Where a module keeps who made something
+  (Tasks' `created_by`, an attachment's uploader) its maker may delete it too
+  (`requireOwnerOrAuthor(userId, { ownerId, authorId })`, `mayDelete`); where it doesn't (Notes,
+  Next) only the owner does. Moving it away answers the same with `copy: true` and `hint: 'copy'`:
+  the page's `moving(send)` asks "Take a copy?" and sends again with `{ copy: true }`, which makes
+  a copy that is theirs and leaves the original; an assistant reads `errors.not_yours` followed by
+  `errors.not_yours_copy` (mcp-kit's `describeErrorWith` adds the sentence of `<code>_<hint>`),
+  and every module's moving tool takes `copy: true`. Putting something of one's own into someone
+  else's container gives it to them (a task into a shared list, a note into a shared notebook, a
+  notebook into a shared group): `givesTo(userId, ownerId)` → `{ id, name }` or null says who it
+  will be, the page asks first with `confirmGive({ owner, thing })` ("It will be Ana's") and the
+  MCP answer says `ownership.given`. When the owner deletes a container they shared,
+  `tellGone({ kind, name, icon, actorId, audience })` tells whoever used it, by push where a device
+  takes one (`ownership.gone.*`) and by email (`suite.shareMail.gone`, `mail.gone.*`), with no copy
+  offered; never the owner, never throwing. When an owner's account goes, `pickHeir(candidates,
+  { prefer })` chooses who inherits what they shared: whoever gave it to them if they still use
+  it, else an editor before a viewer, the longest in it first (Tasks, Notes and Next; Projects will
+  take it up). The check is always the server's; the page only explains it.
 - **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
   runs the install hears of the server failing instead of finding it in the log: an uncaught
   exception (the process waits 4 s at most for the email, then exits with 1 as before), an
@@ -2108,7 +2133,7 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
 
 ### 21.3.2 The daily summary
 
-`day.js` (v0.228.0), with `createHost({ day: '/today/' })`: a page of the host's own (in its
+`day.js` (v0.231.0), with `createHost({ day: '/today/' })`: a page of the host's own (in its
 `publicDir`, as the calendar) with what someone has for today in every module they use, everything
 still open from before, and what they did; and two notices a day that lead to it. Without the
 option nothing of it is there. A module says what it has, next to its `calendar`:

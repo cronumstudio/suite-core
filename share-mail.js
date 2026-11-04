@@ -35,6 +35,7 @@ export const SHARE_KINDS = ['list', 'notebook', 'group', 'note', 'project', 'pla
  * @param {string} [options.signupUrl] where a new account is made, then back to the module
  * @returns {Function} send({ to, actor, kind, name, icon?, permission?, role?, url? }) → Promise<boolean>,
  *   with send.stranger({ email, inviter, kind, name, icon?, permission?, role? }) → Promise<boolean>
+ *   and send.gone({ to, actor, kind, name, icon? }) → Promise<boolean>: the owner deleted it (ownership.js)
  */
 export function createShareMail({ mailer, texts, brand, module = null, baseUrl, strangers = null, signupUrl = null, log = console.log }) {
   const home = `${String(baseUrl || '').replace(/\/+$/, '')}/`;
@@ -120,7 +121,44 @@ export function createShareMail({ mailer, texts, brand, module = null, baseUrl, 
     }
   }
 
+  /**
+   * The parts of the message that tells someone the owner deleted something they shared with
+   * them (ownership.js tellGone): nothing to answer and no copy offered, a button to the module.
+   */
+  function composeGone({ to, actor, kind, name, icon = null }) {
+    if (!SHARE_KINDS.includes(kind)) throw new TypeError(`shareMail: no kind "${kind}"`);
+    const { lang, t } = texts(null, to);
+    const thing = String(name ?? '').trim() || t('mail.share.untitled');
+    const vars = { name: actor, thing, module: part.name, app: brand.name };
+    const parts = {
+      lang,
+      brand,
+      eyebrow: { text: t('mail.gone.eyebrow', vars), color: part.color },
+      heading: t('mail.gone.heading', vars),
+      lead: t('mail.gone.lead', vars),
+      card: { icon: part.icon, title: icon ? `${icon} ${thing}` : thing, meta: t(`mail.share.${kind}.label`, vars) },
+      button: { label: t('mail.gone.button', vars), href: home },
+      footer: t('mail.gone.footer', vars),
+    };
+    return { subject: t(`mail.gone.${kind}.subject`, vars), ...renderMail(parts) };
+  }
+
+  /** Sends that notice (0.229.0). → whether it went; one that fails is said in the log. */
+  async function gone(notice) {
+    if (!mailer || !notice?.to?.email) return false;
+    const { subject, text, html } = composeGone(notice);
+    try {
+      await mailer.send({ to: notice.to.email, subject, text, html });
+      return true;
+    } catch (err) {
+      log(`[mail] to ${notice.to.email}: not sent (a ${notice.kind} deleted): ${err.message}`);
+      return false;
+    }
+  }
+
   send.compose = compose;
   send.stranger = stranger;
+  send.gone = gone;
+  send.gone.compose = composeGone;
   return send;
 }

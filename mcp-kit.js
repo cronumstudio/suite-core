@@ -80,7 +80,9 @@ export function describeErrorWith({ errorSentence = () => null } = {}) {
       const sentence = errorSentence(code, error.extra ?? {}, 'en') ?? String(code);
       // Which feature a plan leaves out, so that "doesn't include this" says what.
       const feature = /^plan_/.test(String(code)) && error.extra?.feature ? ` (feature: ${error.extra.feature})` : '';
-      return `${sentence}${feature}`;
+      // What else may be done instead (`hint`, ownership.js' copy): its own sentence after it.
+      const hint = error.extra?.hint ? errorSentence(`${code}_${error.extra.hint}`, error.extra, 'en') : null;
+      return `${sentence}${feature}${hint ? ` ${hint}` : ''}`;
     }
     return null;
   };
