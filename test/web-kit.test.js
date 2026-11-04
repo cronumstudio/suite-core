@@ -1214,12 +1214,15 @@ test('a host whose start holds every module (Work’s shell): a notice opens in 
 
 /**
  * sw-core.js in a sandbox with caches that keep what is put in them, and a server whose files
- * (`server`, `{ path: text }`) can change between two releases. → { worker(), fetched, store }
+ * (`server`, `{ path: text }`) can change between two releases. With `server.slow`, each answer
+ * takes a moment, and `flight.most` says how many were ever asked at once.
+ * → { worker(), fetched, store, flight }
  */
 async function deployedWorkers(scope, server) {
   const vm = await import('node:vm');
   const store = new Map();   // cache name → Map(path → response)
   const fetched = [];
+  const flight = { now: 0, most: 0 };
   // As the Cache API matches by default: the query counts.
   const pathOf = (input) => {
     const url = new URL(typeof input === 'string' ? input : input.url, scope);
@@ -1239,6 +1242,11 @@ async function deployedWorkers(scope, server) {
       fetched.push(pathname);
       // No signal (`server.offline = true`): the browser's fetch fails.
       if (server.offline) throw new TypeError('Failed to fetch');
+      if (server.slow) {
+        flight.most = Math.max(flight.most, ++flight.now);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        flight.now -= 1;
+      }
       if (!(pathname in server)) return new Response('', { status: 404 });
       const response = new Response(server[pathname]);
       response.url = new URL(pathname, scope).href;
@@ -1293,8 +1301,34 @@ async function deployedWorkers(scope, server) {
     };
     return { get };
   };
-  return { worker, fetched, store };
+  return { worker, fetched, store, flight };
 }
+
+test('a host’s worker installs a few files at a time, and every one of them', async () => {
+  // A new device asked for Work's 200-odd files at once while its page loaded its modules, and
+  // some got a 429: a module whose code was one of them didn't open (Martin, 3/11).
+  const server = { slow: true };
+  const shell = [];
+  for (let i = 0; i < 60; i++) {
+    shell.push(`/tasks/js/f${i}.js`);
+    server[`/tasks/js/f${i}.js`] = `file ${i}`;
+  }
+  for (const file of ['/suite/kit.css', '/suite/base.js']) server[file] = file;
+  server['/i18n/es.json'] = '{}';
+  const { worker, fetched, store, flight } = await deployedWorkers('https://work.example/', server);
+  await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, sharedKit: true, shell, optional: ['/i18n/es.json'] });
+  assert.ok(flight.most > 1 && flight.most <= 12, `at most 12 at once, not one by one: ${flight.most}`);
+  const copy = store.get('work-a');
+  for (const url of shell) assert.equal(copy.get(url)?.body, server[url], url);
+  assert.ok(copy.has('/i18n/es.json'), 'and the files only nice to have');
+  assert.ok(fetched.includes('/suite/kit.css'), 'the kit with them');
+
+  // One that fails is left out, and the rest still come.
+  delete server['/tasks/js/f7.js'];
+  await worker({ version: 'work-b', modules: ['/tasks/'], codeFirst: true, sharedKit: true, shell });
+  assert.equal(store.get('work-b').has('/tasks/js/f7.js'), false);
+  assert.equal(store.get('work-b').get('/tasks/js/f59.js')?.body, 'file 59');
+});
 
 test('a host’s worker serves code from its copy, keeps the kit once, and a release brings only what changed', async () => {
   const server = {
