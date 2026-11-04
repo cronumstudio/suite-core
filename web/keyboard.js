@@ -25,6 +25,8 @@
 
 /** Less than this is the browser's own bars coming and going, not a keyboard. */
 const KEYBOARD_MIN = 120;
+/** How long a page still short, with nothing typed in, waits for its room before it isn't a keyboard. */
+const LEAVE_MS = 1000;
 /** Frames without a change before it stops following the keyboard. */
 const SETTLE_FRAMES = 30;
 /** How far a finger may move, and for how long it may press, and still be a tap. */
@@ -60,15 +62,18 @@ export function keyboardFit({ full, top = 0, height, scale = 1, typing }) {
  * page has been at this width. An app's web view that stops above the keyboard (Work's iPhone
  * app) and a browser that resizes the page for it do: what is fixed to the page's foot stays in
  * sight, on the keyboard. Safari and Chrome only cover the page (keyboardFit), and what is at its
- * foot is under the keyboard already.
+ * foot is under the keyboard already. Once `up`, it stays up until the page has its room back: the
+ * focus leaves as the keyboard starts going down, while the page is still short.
  */
-export function keyboardShortens({ tallest, height, typing }) {
-  return Boolean(typing) && tallest - height > KEYBOARD_MIN;
+export function keyboardShortens({ tallest, height, typing, up = false }) {
+  return (Boolean(typing) || up) && tallest - height > KEYBOARD_MIN;
 }
 
 /**
  * Tells `onChange(true)` when the keyboard makes the page shorter (keyboardShortens) and
- * `onChange(false)` when it gives the room back or the focus leaves for something not typed in.
+ * `onChange(false)` when it gives the room back. Not when the focus leaves: that comes first, and
+ * what came back then sat a moment over the keyboard going down (Martin's iPhone, 0.226.0). A page
+ * still short a second after the focus left, with nothing typed in, isn't a keyboard's.
  * The page's height is its root's (in Safari `innerHeight` shrinks with a keyboard that only
  * covers it), and its tallest is kept for each width, so turning the phone isn't a keyboard. A
  * frame with the focus counts as typing: what has it inside can't be seen from here.
@@ -77,24 +82,37 @@ export function keyboardShortens({ tallest, height, typing }) {
  * @param {object} [options]
  * @param {Window} [options.win]
  * @param {AbortSignal} [options.signal] stops listening
+ * @param {number} [options.leave] how long a page still short waits once nothing is typed in (ms)
  */
-export function watchKeyboard(onChange, { win = globalThis, signal } = {}) {
+export function watchKeyboard(onChange, { win = globalThis, signal, leave = LEAVE_MS } = {}) {
   const doc = win.document ?? globalThis.document;
   const root = doc?.documentElement;
   if (!win.addEventListener || !root || typeof root.clientHeight !== 'number') return;
   const tallest = new Map();
   let up = false;
-  const check = () => {
-    const width = win.innerWidth;
-    const height = root.clientHeight;
-    const field = doc.activeElement;
-    const most = Math.max(tallest.get(width) ?? 0, height);
-    tallest.set(width, most);
-    const now = keyboardShortens({ tallest: most, height, typing: typesIn(field) || field?.tagName === 'IFRAME' });
+  let waiting = 0;
+  const typing = () => typesIn(doc.activeElement) || doc.activeElement?.tagName === 'IFRAME';
+  const tell = (now) => {
+    clearTimeout(waiting);
+    waiting = 0;
     if (now === up) return;
     up = now;
     onChange(now);
   };
+  const check = () => {
+    const width = win.innerWidth;
+    const height = root.clientHeight;
+    const most = Math.max(tallest.get(width) ?? 0, height);
+    tallest.set(width, most);
+    const now = keyboardShortens({ tallest: most, height, typing: typing(), up });
+    if (now && up && !typing()) {
+      // Up with nothing typed in: the keyboard going down, its room on its way; if it doesn't come, it wasn't one.
+      waiting ||= setTimeout(() => { waiting = 0; if (!typing()) tell(false); }, leave);
+      return;
+    }
+    tell(now);
+  };
+  signal?.addEventListener?.('abort', () => clearTimeout(waiting));
   check();
   win.addEventListener('resize', check, { signal });
   doc.addEventListener('focusin', check, { signal });
