@@ -288,8 +288,9 @@ a finger that moves, a long press and what `skip` matches (a checkbox, a link) a
 An app's web view can stop above the keyboard instead (Work's iPhone app): then the page itself is
 shorter and what is fixed to its foot sits on the keyboard. `watchKeyboard(onChange, { signal })`
 tells `onChange(true)` while that is so and a field (or a frame) has the focus, measured on the
-root against its tallest height at that width, and `onChange(false)` when the room comes back or
-the focus leaves. Work's windows (windows.js) give the desk `data-keyboard` with it, and a phone's
+root against its tallest height at that width, and `onChange(false)` when the room comes back
+(not when the focus leaves, which comes first, while the page is still short; a page still short a
+second after it, with nothing typed in, wasn't a keyboard's). Work's windows (windows.js) give the desk `data-keyboard` with it, and a phone's
 tabs step aside.
 
 ### Sign-in and settings
