@@ -175,6 +175,14 @@ test('in the app, a host’s module page on its own goes to the host’s one-doc
   assert.equal(hostShellAddress(SHELL, at('https://work.example.com/notes/#/n/55')), `/?open=${encodeURIComponent('/notes/#/n/55')}`);
   assert.equal(hostShellAddress(SHELL, at('https://work.example.com/tasks/list/12?task=9')),
     `/?open=${encodeURIComponent('/tasks/list/12?task=9')}`);
+  // What it was opened with, which the module took off its address before the host answered…
+  const read = at('https://work.example.com/projects/');
+  read.performance = { getEntriesByType: (type) => (type === 'navigation' ? [{ name: 'https://work.example.com/projects/?project=5' }] : []) };
+  assert.equal(hostShellAddress(SHELL, read), `/?open=${encodeURIComponent('/projects/?project=5')}`);
+  // …unless the page went to another path of its own since: where it is now.
+  const moved = at('https://work.example.com/tasks/list/12');
+  moved.performance = { getEntriesByType: () => [{ name: 'https://work.example.com/tasks/?list=3' }] };
+  assert.equal(hostShellAddress(SHELL, moved), `/?open=${encodeURIComponent('/tasks/list/12')}`);
   // Known from what the app injected too.
   assert.ok(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, native: { v: 1 }, href: 'https://work.example.com/tasks/' })));
 

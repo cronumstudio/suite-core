@@ -125,10 +125,22 @@ export function can(capability, win = globalThis.window) {
  */
 export function hostShellAddress(host, win = globalThis.window) {
   if (!host?.shell || !win?.location || !inApp(win) || framedIn(win)) return null;
-  let url;
-  try { url = new URL(String(win.location.href)); } catch { return null; }
-  if (!/^\/[a-z][a-z0-9-]{1,30}\//.test(url.pathname) || /^\/(devices|auth)\//.test(url.pathname)) return null;
+  const url = loadedAddress(win);
+  if (!url || !/^\/[a-z][a-z0-9-]{1,30}\//.test(url.pathname) || /^\/(devices|auth)\//.test(url.pathname)) return null;
   return `/?open=${encodeURIComponent(url.pathname + url.search + url.hash)}`;
+}
+
+/**
+ * The address a page was loaded at, from its navigation's entry: a module that reads what it was
+ * opened with (`?project=5`) takes it off its address at once, before the host answers. Once the
+ * page went to another path of its own, where it is now.
+ */
+function loadedAddress(win) {
+  let now;
+  try { now = new URL(String(win.location.href)); } catch { return null; }
+  let first = null;
+  try { first = new URL(String(win.performance?.getEntriesByType?.('navigation')?.[0]?.name ?? '')); } catch { /* none */ }
+  return first && first.origin === now.origin && first.pathname === now.pathname ? first : now;
 }
 
 /**
