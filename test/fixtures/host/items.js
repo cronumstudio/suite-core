@@ -21,6 +21,8 @@ export function itemRoutes(api, { suite, table, mount, name }) {
   api.get('/api/items/:id/broken', () => { throw new TypeError(`${name} broke`); });
   api.get('/api/where', (ctx) => sendJson(ctx.res, 200, {
     module: name, mount, baseUrl: ctx.baseUrl, install: suite.config.install.baseUrl, host: suite.config.host,
+    // Whether the host says the morning's summary (host.js `day`): a module leaves out its own then.
+    daySummary: suite.daySummary ?? null,
   }));
 }
 
@@ -84,6 +86,30 @@ export function itemCalendar({ suite, table }) {
       .map(({ row, day }) => ({
         type: 'item', id: row.id, title: day[2], start: day[1], end: day[1], state: row.done ? 'done' : 'open', where: 'Items', url: `?item=${row.id}`,
       })),
+  };
+}
+
+/**
+ * What a test module has for the host's daily summary (suite-core day.js): an open item whose text
+ * starts with a day on or before today ("2026-11-03 Dentist") is due then; one that starts with
+ * "My day " is planned for today without a date; one done counts as done on the day asked.
+ */
+export function itemDay({ suite, table }) {
+  const rows = (user) => suite.database.all(`SELECT * FROM ${table} WHERE user_id = ? ORDER BY id`, user.id);
+  return {
+    agenda: (user, { today }) => rows(user).filter((row) => !row.done).flatMap((row) => {
+      const dated = /^(\d{4}-\d{2}-\d{2}) (.*)$/.exec(row.text);
+      if (dated && dated[1] <= today) {
+        return [{ type: 'item', id: row.id, title: dated[2], date: dated[1], where: 'Items', url: `?item=${row.id}`, mine: true }];
+      }
+      if (row.text.startsWith('My day ')) {
+        return [{ type: 'item', id: row.id, title: row.text.slice(7), date: today, where: 'Items', url: `?item=${row.id}`, planned: true }];
+      }
+      return [];
+    }),
+    done: (user, { day }) => rows(user).filter((row) => row.done).map((row) => ({
+      type: 'item', id: row.id, title: row.text, at: `${day}T12:00:00.000Z`, where: 'Items', url: `?item=${row.id}`, kind: 'completed',
+    })),
   };
 }
 

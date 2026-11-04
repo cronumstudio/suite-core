@@ -82,6 +82,7 @@ import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { createCalendar, registerCalendarApi, calendarTools } from './calendar.js';
+import { createDay, registerDayApi, createDayNotices, dayNoticesSchema, DAY_PREFS } from './day.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
 import { combinePrefs } from './prefs.js';
@@ -193,6 +194,8 @@ export const HOST_MIGRATIONS = Object.freeze([
       chosen_at TEXT NOT NULL
     )`),
   },
+  // The daily summary's notices sent, one a person, notice and day (day.js), claimed before sending.
+  { version: 8, name: 'day-notices', up: dayNoticesSchema },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -581,6 +584,11 @@ function moduleListErrors(modules) {
  * @param {string} [options.calendar]   the host's page that shows what has a date in each module
  *   (`/calendar/`, in its publicDir; calendar.js): the rail offers it, `GET /api/calendar` answers
  *   it at the root and the host's MCP adds `<id>_calendar`, from the modules' `createModule().calendar`
+ * @param {string} [options.day]   the host's page of the daily summary (`/today/`, in its publicDir;
+ *   day.js): `GET /api/day` answers it at the root from the modules' `createModule().day`, every
+ *   person has `prefs.day` (two notices, morning and evening, each with its switch and time, in
+ *   Settings) and, with push, the host sends those notices; a module's suite says `daySummary: true`,
+ *   for it to leave out a morning notice of its own
  * @param {string} [options.aiInstruction]  the host's route that builds the prompt for an assistant, for the
  *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
  *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
@@ -623,7 +631,7 @@ function moduleListErrors(modules) {
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null, day = null,
   aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
 }) {
@@ -665,6 +673,12 @@ export async function createHost({
   if (calendar !== null && !(typeof calendar === 'string' && /^\/[a-z0-9-]+\/$/.test(calendar))) {
     listErrors.push(`calendar: "${calendar}" is not a page of the host (such as /calendar/)`);
   }
+  // And the daily summary's, a page of its own.
+  if (day !== null && !(typeof day === 'string' && /^\/[a-z0-9-]+\/$/.test(day))) {
+    listErrors.push(`day: "${day}" is not a page of the host (such as /today/)`);
+  } else if (day !== null && (day === calendar || day === split)) {
+    listErrors.push(`day: ${day} is the host's ${day === calendar ? 'calendar' : 'split view'} already`);
+  }
   // The prompt is one of the host's own routes, under /api/.
   if (aiInstruction !== null && !(typeof aiInstruction === 'string' && /^\/api\/[a-z0-9-]+$/.test(aiInstruction))) {
     listErrors.push(`aiInstruction: "${aiInstruction}" is not a route of the host (such as /api/ai-instruction)`);
@@ -678,7 +692,7 @@ export async function createHost({
   for (const [i, page] of pageList.entries()) {
     const at = page?.at;
     if (!(typeof at === 'string' && /^\/[a-z0-9-]+\/$/.test(at))) listErrors.push(`pages[${i}].at: "${at}" is not a path of the host (such as /w/)`);
-    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at || calendar === at) {
+    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at || calendar === at || day === at) {
       listErrors.push(`pages[${i}].at: ${at} is the host's already, or a module's`);
     } else if (pageList.findIndex((other) => other?.at === at) !== i) listErrors.push(`pages[${i}].at: ${at} twice`);
     if (!page?.dir || typeof page.dir !== 'string') listErrors.push(`pages[${i}].dir: the folder of its files is needed`);
@@ -803,6 +817,8 @@ export async function createHost({
         billing: Boolean(suite.billing?.enabled),
         // The host's one worker: the module's page registers it and retires its own (web/worker.js).
         ...(hostWorker ? { worker: '/sw.js' } : {}),
+        // The host's daily summary: its page, and Settings' section of it in every module.
+        ...(day ? { day } : {}),
       },
       errors: [],
       warnings: [],
@@ -930,6 +946,12 @@ export async function createHost({
       storage: createStorage({ entitlements, used: (userId) => storageUsed(userId) }),
       // A module's own count goes to the host by `createModule().storage`: here it changes nothing.
       countStorage: () => entry.view.storage,
+      /**
+       * Whether the host says each morning what everyone has for today, in every module (`day`,
+       * day.js): a module leaves out a morning notice of its own of the same (Projects' summary of
+       * due dates). On its own an app has none: `suite.daySummary` is undefined there.
+       */
+      daySummary: Boolean(day),
     };
     joined.push(entry);
     return entry.view;
@@ -1039,6 +1061,8 @@ export async function createHost({
         // module's page installed as an app is then that module on its own, never the host's app.
         ...(pageList.some((p) => p?.root) ? { shell: true } : {}),
         ...(aiInstruction ? { aiInstruction } : {}),
+        // The daily summary's page, for Settings' section of it and its links.
+        ...(day ? { day } : {}),
       },
       // Whether they have it on, where the host has a calendar: Settings › Modules offers the switch.
       ...(calendar ? { calendar_shown: calendarShown } : {}),
@@ -1086,6 +1110,11 @@ export async function createHost({
     modules: () => joined, uses, log, icon: (m) => mountedPath(m.mount, m.config.app.icon),
   }) : null;
 
+  // What each module has for today and what was done (day.js), for the host's page and its two notices.
+  const daily = day ? createDay({
+    modules: () => joined, uses, log, icon: (m) => mountedPath(m.mount, m.config.app.icon),
+  }) : null;
+
   // Tools reached on demand, when the host keeps some out of the list: each person may have them
   // all listed instead (Settings › Your AI). No row: on demand.
   const onDemand = mcpOptions?.onDemand && Object.values(mcpOptions.onDemand).some((names) => names?.length)
@@ -1124,10 +1153,13 @@ export async function createHost({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
     // The calendar's page may be framed by the host's own pages (Cronum Work opens it in a window
     // of its shell); every other page of the root, by nobody.
-    frames: calendar && pageList.length ? (pathname) => (pathname === calendar ? 'self' : 'none') : 'none',
+    // So may the daily summary's.
+    frames: (calendar || day) && pageList.length ? (pathname) => (pathname === calendar || pathname === day ? 'self' : 'none') : 'none',
     // The host's own /api/me (its pages, Settings at its root) with every module's preferences:
-    // each keeps its keys and none drops another's. Without any, none, as before.
-    prefs: combinePrefs(joined.map((m) => m.parts.prefs)),
+    // each keeps its keys and none drops another's. Without any, none, as before. With the daily
+    // summary, the host's own too (`prefs.day`): Settings saves it there, a module's /api/me keeps
+    // only its own keys.
+    prefs: combinePrefs([...joined.map((m) => m.parts.prefs), day ? DAY_PREFS : null]),
     routes: (api) => {
       api.get('/api/modules', async (ctx) => {
         const answer = modulesOf(ctx.user);
@@ -1150,6 +1182,7 @@ export async function createHost({
       }
       registerLinksApi(api, { links });
       if (agenda) registerCalendarApi(api, { calendar: agenda });
+      if (daily) registerDayApi(api, { day: daily });
       // Whether the calendar's button is on this person's rail: one choice for the whole host.
       if (calendar) {
         api.put('/api/me/calendar', async (ctx) => {
@@ -1648,6 +1681,15 @@ export async function createHost({
       const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));
       timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sendStops, HOUR).unref());
+    }
+    if (daily && suite.push) {
+      // The daily summary's two notices, each at the minute its person chose (day.js): asked every minute.
+      const notices = createDayNotices({
+        database: suite.database, push: suite.push, day: daily, texts: suite.texts, page: day, log,
+        userById: (id) => suite.accounts.byId(id), languages: config.app.languages,
+      });
+      const tell = () => notices.check().catch(failed('daily summary'));
+      timers.push(setInterval(tell, MINUTE_BEFORE_SWEEP).unref());
     }
     for (const m of joined) {
       // What a plan keeps for a while only: the module's sweep, as createApp runs it for the app alone.

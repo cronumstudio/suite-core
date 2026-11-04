@@ -14,6 +14,7 @@ import path from 'node:path';
 import { createHost, joinHost, mountManifest, mountedPath, moduleSettings } from '../host.js';
 import { SuiteConfigError } from '../app.js';
 import { openDatabase } from '../db.js';
+import { todayIn, SERVER_TIME_ZONE } from '../time.js';
 
 const HOST = {
   app: { id: 'work', name: 'Work', color: '#3A4660', icon: '/icons/work.svg', languages: ['en', 'es'] },
@@ -1155,6 +1156,112 @@ test('a calendar that isn’t a page of the host stops the start', async () => {
         (err) => err instanceof SuiteConfigError && /calendar: .* is not a page of the host/.test(err.errors.join('\n')),
       );
     }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a host with a daily summary: the root answers what each person has for today and did, and keeps their two notices', async (t) => {
+  const { call } = await startHost(t, { day: '/today/' });
+  assert.equal((await call('GET', '/api/day')).status, 401, 'signed out: nothing');
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal((await call('GET', '/api/modules')).data.host.day, '/today/', 'its page, for Settings and its links');
+  const where = (await call('GET', '/alpha/api/where')).data;
+  assert.equal(where.daySummary, true, 'a module learns that the host says the morning\'s summary');
+  assert.equal(where.host.day, '/today/', 'and its page, in the browser too (/api/auth/config)');
+
+  for (const text of ['2026-11-03 Dentist', '2026-11-04 Call Ana', 'My day Water plants', 'Later', '2026-11-05 Tomorrow']) {
+    await call('POST', '/alpha/api/items', { text });
+  }
+  await call('POST', '/alpha/api/items/4/done');
+  await call('POST', '/beta/api/items', { text: '2026-11-03 Beta has no summary' });
+  const item = (id, title, rest) => ({ module: 'alpha', type: 'item', id, title, where: 'Items', url: `/alpha/?item=${id}`, ...rest });
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, {
+    date: '2026-11-04',
+    modules: [{ mount: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1' }],
+    overdue: [item(1, 'Dentist', { date: '2026-11-03', mine: true })],
+    today: [item(2, 'Call Ana', { date: '2026-11-04', mine: true }), item(3, 'Water plants', { date: '2026-11-04', planned: true })],
+    done: [{ ...item(4, 'Later'), at: '2026-11-04T12:00:00.000Z', kind: 'completed' }],
+  }, 'alpha\'s, under its path; beta has no summary');
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-31')).data, { error: 'field_invalid', field: 'date' });
+  assert.equal((await call('GET', '/api/day')).data.date, todayIn(SERVER_TIME_ZONE), 'without a date, their today: the server\'s zone without one of theirs');
+
+  // Their two notices, kept at the host's root with the rest of their preferences.
+  assert.deepEqual((await call('GET', '/api/me')).data.user.prefs.day,
+    { morning: { on: true, at: '08:00' }, evening: { on: true, at: '19:00' } }, 'both on, at eight and at seven');
+  const changed = await call('PATCH', '/api/me', { prefs: { day: { evening: { at: '20:30' } } } });
+  assert.equal(changed.status, 200);
+  assert.deepEqual(changed.data.user.prefs.day, { morning: { on: true, at: '08:00' }, evening: { on: true, at: '20:30' } });
+  assert.deepEqual((await call('PATCH', '/api/me', { prefs: { day: { morning: { at: '8:00' } } } })).data, { error: 'field_invalid', field: 'day' });
+  await call('PATCH', '/api/me', { prefs: { day: { morning: { on: false } } } });
+  assert.deepEqual((await call('GET', '/api/me')).data.user.prefs.day,
+    { morning: { on: false, at: '08:00' }, evening: { on: true, at: '20:30' } }, 'kept, one change at a time');
+
+  // A module turned off leaves the summary too.
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, { date: '2026-11-04', modules: [], overdue: [], today: [], done: [] });
+});
+
+test('a host with a daily summary and push checks its notices every minute (day.js has the rest)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const host = await createHost({
+    config: { ...HOST, modules: { live: true, push: true } }, modules: modules(), day: '/today/',
+    env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' },
+    handleSignals: false, exitOnError: false, log: () => {},
+  });
+  await host.listen();
+  t.after(async () => {
+    t.mock.timers.reset();
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  // A notice of long ago: what a check forgets, so it shows that one ran.
+  host.suite.database.run("INSERT INTO host_day_notices (user_id, kind, day, claimed_at) VALUES (1, 'morning', '2020-01-01', '2020-01-01T07:00:00Z')");
+  t.mock.timers.tick(59_000);
+  assert.equal(host.suite.database.get('SELECT COUNT(*) AS n FROM host_day_notices').n, 1, 'not before a minute');
+  t.mock.timers.tick(1_000);
+  await new Promise((resolve) => { setImmediate(resolve); });
+  assert.equal(host.suite.database.get('SELECT COUNT(*) AS n FROM host_day_notices').n, 0, 'a minute later, checked');
+});
+
+test('a host without a daily summary has none of it, and its modules say their own morning notices', async (t) => {
+  const { call } = await startHost(t);
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal((await call('GET', '/api/modules')).data.host.day, undefined);
+  assert.equal((await call('GET', '/api/day')).status, 404, 'nor its route');
+  const where = (await call('GET', '/alpha/api/where')).data;
+  assert.equal(where.daySummary, false);
+  assert.equal(where.host.day, undefined);
+});
+
+test('a host with a daily summary and pages of its own: those may frame its page too', async (t) => {
+  const dir = pageFolder(t);
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-public-'));
+  t.after(() => fs.rmSync(publicDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(publicDir, 'today'));
+  fs.writeFileSync(path.join(publicDir, 'today', 'index.html'), '<!DOCTYPE html><title>Today</title>');
+  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Home</title>');
+  const { call } = await startHost(t, { publicDir, day: '/today/', pages: [{ at: '/w/', dir }] });
+  const page = await call('GET', '/today/');
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
+  assert.equal((await call('GET', '/')).headers.get('x-frame-options'), 'DENY', 'nothing else of the root');
+});
+
+test('a daily summary that isn’t a page of the host, or is another of its pages, stops the start', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  const start = (options) => createHost({
+    config: HOST, modules: modules(), env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }, handleSignals: false, exitOnError: false, log: () => {}, ...options,
+  });
+  const refused = (pattern) => (err) => err instanceof SuiteConfigError && pattern.test(err.errors.join('\n'));
+  try {
+    for (const day of ['https://elsewhere.example/today/', '/today', '//evil/', 42]) {
+      await assert.rejects(start({ day }), refused(/day: .* is not a page of the host/), String(day));
+    }
+    await assert.rejects(start({ day: '/calendar/', calendar: '/calendar/' }), refused(/day: \/calendar\/ is the host's calendar already/));
+    await assert.rejects(start({ day: '/w/', pages: [{ at: '/w/', dir }] }), refused(/pages\[0\]\.at: \/w\/ is the host's already/));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

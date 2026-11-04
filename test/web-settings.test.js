@@ -319,6 +319,82 @@ test('in a host, «every tool from the start» is kept at the host\'s own route,
   }
 });
 
+test('in a host with a daily summary, Settings has its two notices, each with its switch, its time and its page, saved at the host\'s root', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const realFetch = globalThis.fetch;
+  const modules = [{ mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: false } }];
+  const sent = [];
+  let day = { morning: { on: false, at: '08:00' }, evening: { on: true, at: '19:00' } };
+  globalThis.fetch = async (path, { method = 'GET', body } = {}) => {
+    const given = body ? JSON.parse(body) : undefined;
+    if (method !== 'GET') sent.push({ method, path, body: given });
+    if (method === 'PATCH' && path === '/api/me') {
+      for (const [kind, change] of Object.entries(given.prefs.day)) day = { ...day, [kind]: { ...day[kind], ...change } };
+    }
+    const data = path === '/api/modules' ? { host: { name: 'Cronum Work', shell: true, day: '/today/' }, modules }
+      : path === '/api/me' ? { user: { username: 'ada', prefs: { day } } } : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, headers: { get: () => null }, json: async () => data, text: async () => JSON.stringify(data) };
+  };
+  globalThis.window = { location: { origin: 'https://work.example', assign: () => {} } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  const host = (more) => ({ id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: true, plans: false, ...more });
+  const open = (config, start = null) => {
+    const root = document.createElement('div');
+    openSettings({ app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg' }, user: { username: 'ada', role: 'user' }, root, start, config });
+    return root;
+  };
+  try {
+    // Without the host's page, or without its notices, no section.
+    for (const without of [host(), host({ day: '/today/', push: false })]) {
+      const root = open({ app: { modules: { mcp: false }, host: without } });
+      await settle();
+      const labels = root.all().filter((node) => node.className === 'kit-settings__label').map((node) => node.textContent);
+      assert.ok(!labels.includes(t('kit.day.title')), JSON.stringify(without));
+    }
+
+    const root = open({ app: { modules: { mcp: false }, host: host({ day: '/today/' }) } }, 'day');
+    await settle();
+    const switches = root.all().filter((node) => node.className === 'kit-switch');
+    assert.deepEqual(switches.map((node) => [node.getAttribute('aria-label'), node.getAttribute('aria-checked')]),
+      [[t('kit.day.morning'), 'false'], [t('kit.day.evening'), 'true']], 'as the host keeps them');
+    const times = root.all().filter((node) => node.tagName === 'INPUT' && node.getAttribute('type') === 'time');
+    assert.deepEqual(times.map((node) => [node.value, node.getAttribute('step')]), [['08:00', '300'], ['19:00', '300']]);
+    const links = root.all().filter((node) => node.tagName === 'A' && node.className === 'kit-link');
+    assert.deepEqual(links.map((node) => [node.textContent, node.getAttribute('href')]), [
+      [t('kit.day.seeToday'), '/?open=%2Ftoday%2F'],
+      [t('kit.day.seeDone'), '/?open=%2Ftoday%2F%3Fv%3Ddone'],
+    ], 'from a module\'s page, the host\'s app opening on it');
+
+    switches[0].dispatch('click', {});
+    await settle();
+    times[1].value = '20:33';
+    times[1].dispatch('change', {});
+    await settle();
+    assert.equal(times[1].value, '20:30', 'on a step of five minutes');
+    times[0].value = '';
+    times[0].dispatch('change', {});
+    await settle();
+    assert.equal(times[0].value, '08:00', 'no time: the one it had');
+    assert.deepEqual(sent, [
+      { method: 'PATCH', path: '/api/me', body: { prefs: { day: { morning: { on: true } } } } },
+      { method: 'PATCH', path: '/api/me', body: { prefs: { day: { evening: { at: '20:30' } } } } },
+    ], 'one change at a time');
+    assert.deepEqual(day, { morning: { on: true, at: '08:00' }, evening: { on: true, at: '20:30' } });
+    // At the host's root, which knows them: a module's /api/me keeps only its own keys.
+    const source = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+    assert.match(source, /keep\('PATCH', '\/api\/me', \{ prefs: \{ day: \{ \[kind\]: change \} \} \}, \{ root: true \}\)/);
+    assert.match(source, /api\.request\('GET', '\/api\/me', undefined, \{ root: true \}\)/);
+  } finally {
+    document.body.all().filter((node) => node.className === 'kit-settings-page').forEach((node) => node.remove());
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
 test('Escape over Settings is the top dialog\'s alone: with one open over them, Settings stay', async () => {
   const { openSettings } = await import('../web/settings.js');
   const realFetch = globalThis.fetch;

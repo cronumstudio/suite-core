@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.228.0 — 2026-11-04
+
+**A host's daily summary: what everyone has for today, and what they did, in every module, with a
+notice in the morning and one in the evening** (Martin, 4/11). `createHost({ day: '/today/' })`
+(day.js, architecture §21.3.2): each module says what it has with `createModule().day`, `agenda(user,
+{ today })` (open things dated on or before today, overdue being before it, and what was planned
+for today without a date) and `done(user, { day })` (completed, logged or written that day), and the
+host's page asks `GET /api/day?date=` at the root → `{ date, modules, overdue, today, done, failed? }`,
+each module asked at once in the person's zone, 200 of each at most, a module that fails named and
+left out. Every person has two notices, `prefs.day = { morning: { on, at }, evening: { on, at } }`,
+on at 08:00 and 19:00 (the morning off for whoever had turned off Projects' summary of due dates,
+`prefs.notices.due === false`), saved with `PATCH /api/me` at the host's root and shown in Settings
+› Daily summary, in the host's group (switch, time every five minutes, a link to the page). With
+push, the host checks them every minute: from its time until three hours after it, on the person's
+day, claimed in the new `host_day_notices` (host migration 8) before anything is built or sent, and
+not sent when there is nothing to say: «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para
+hoy: «A», «B» y 3 más» at `/today/`; «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota»
+at `/today/?v=done`, in the person's language (`kit.day.*`, every catalog). A module's suite says
+`daySummary: true` (and `config.host.day` the page, in the browser too), for Projects to leave out
+its own 08:00 summary inside Work; `/api/modules` says `host.day`. The page may be framed by the
+host's own pages, as the calendar's. Without the option nothing changes, and an app on its own has
+none of it.
+
 ## 0.226.3 — 2026-11-04
 
 - **Work's phone tabs come back where they belong when the keyboard goes down.** The field loses

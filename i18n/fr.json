@@ -1149,6 +1149,39 @@
   "kit.calendar.title": "Calendrier",
   "kit.calendar.show": "Afficher le calendrier",
   "kit.calendar.showHint": "Son bouton dans la barre latérale (sur un téléphone, dans la barre du haut) : ce qui a une date dans chaque module, jour par jour. Désactivé, l’écran reste plus simple.",
+  "kit.day.title": "Résumé du jour",
+  "kit.day.hint": "Une notification le matin et une le soir",
+  "kit.day.intro": "{app} vous dit chaque matin ce que vous avez à faire aujourd’hui, avec ce qui reste d’avant, et chaque soir ce que vous avez fait. Un jour sans rien à dire, rien n’arrive.",
+  "kit.day.morning": "Le matin",
+  "kit.day.morningHint": "Ce que vous avez aujourd’hui dans chaque module, et tout ce qui est en retard.",
+  "kit.day.evening": "Le soir",
+  "kit.day.eveningHint": "Les tâches terminées, les étapes notées et les notes écrites aujourd’hui.",
+  "kit.day.time": "Heure",
+  "kit.day.seeToday": "Voir celui d’aujourd’hui",
+  "kit.day.seeDone": "Voir ce que vous avez fait aujourd’hui",
+  "kit.day.devices": "Elles arrivent sur les appareils où vous avez activé les notifications (Notifications).",
+  "kit.day.notice.morningTitle": "☀️ Voici ce que vous avez à faire aujourd’hui",
+  "kit.day.notice.eveningTitle": "🌙 Ce que vous avez fait aujourd’hui",
+  "kit.day.notice.morningBody": "{counts} : {titles}",
+  "kit.day.notice.overdue": {
+    "one": "{n} en retard",
+    "other": "{n} en retard"
+  },
+  "kit.day.notice.today": "{n} pour aujourd’hui",
+  "kit.day.notice.quoted": "« {title} »",
+  "kit.day.notice.more": "{n} de plus",
+  "kit.day.notice.completed": {
+    "one": "{n} tâche",
+    "other": "{n} tâches"
+  },
+  "kit.day.notice.logged": {
+    "one": "{n} étape dans {module}",
+    "other": "{n} étapes dans {module}"
+  },
+  "kit.day.notice.written": {
+    "one": "{n} note",
+    "other": "{n} notes"
+  },
   "kit.links.label": "Lié",
   "kit.links.add": "Lier",
   "kit.links.addTo": "Ajouter à {app}…",
@@ -1290,5 +1323,7 @@
   "admin.firstAnswers.channelNoLink": "Oui, sans lien",
   "fields.heard_from": "Comment vous nous avez connus",
   "fields.has_channel": "Si vous avez une chaîne",
-  "fields.channel": "Lien de la chaîne"
+  "fields.channel": "Lien de la chaîne",
+  "fields.day": "Résumé du jour",
+  "fields.date": "Date"
 }

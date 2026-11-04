@@ -1149,6 +1149,39 @@
   "kit.calendar.title": "Calendar",
   "kit.calendar.show": "Show the calendar",
   "kit.calendar.showHint": "Its button on the side rail (on a phone, in the top bar): what has a date in every module, by day. Off, the page stays simpler.",
+  "kit.day.title": "Daily summary",
+  "kit.day.hint": "A notice in the morning and one in the evening",
+  "kit.day.intro": "{app} tells you each morning what you have for today, with whatever is still pending from before, and each evening what you did. On a day with nothing to say, nothing comes.",
+  "kit.day.morning": "In the morning",
+  "kit.day.morningHint": "What you have for today in every module, and everything overdue.",
+  "kit.day.evening": "In the evening",
+  "kit.day.eveningHint": "The tasks you completed, the steps you logged and the notes you wrote today.",
+  "kit.day.time": "Time",
+  "kit.day.seeToday": "See today’s",
+  "kit.day.seeDone": "See what you did today",
+  "kit.day.devices": "They reach the devices where you turned on notifications (Notifications).",
+  "kit.day.notice.morningTitle": "☀️ Here’s what you have to do today",
+  "kit.day.notice.eveningTitle": "🌙 What you did today",
+  "kit.day.notice.morningBody": "{counts}: {titles}",
+  "kit.day.notice.overdue": {
+    "one": "{n} overdue",
+    "other": "{n} overdue"
+  },
+  "kit.day.notice.today": "{n} for today",
+  "kit.day.notice.quoted": "“{title}”",
+  "kit.day.notice.more": "{n} more",
+  "kit.day.notice.completed": {
+    "one": "{n} task",
+    "other": "{n} tasks"
+  },
+  "kit.day.notice.logged": {
+    "one": "{n} step in {module}",
+    "other": "{n} steps in {module}"
+  },
+  "kit.day.notice.written": {
+    "one": "{n} note",
+    "other": "{n} notes"
+  },
   "kit.links.label": "Linked",
   "kit.links.add": "Link",
   "kit.links.addTo": "Add to {app}…",
@@ -1290,5 +1323,7 @@
   "admin.firstAnswers.channelNoLink": "Yes, no link",
   "fields.heard_from": "How you heard of us",
   "fields.has_channel": "Whether you have a channel",
-  "fields.channel": "Channel link"
+  "fields.channel": "Channel link",
+  "fields.day": "Daily summary",
+  "fields.date": "Date"
 }

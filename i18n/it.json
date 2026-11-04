@@ -1149,6 +1149,39 @@
   "kit.calendar.title": "Calendario",
   "kit.calendar.show": "Mostra il calendario",
   "kit.calendar.showHint": "Il suo pulsante nella barra laterale (sul telefono, nella barra in alto): ciò che ha una data in ogni modulo, giorno per giorno. Spento, la schermata resta più semplice.",
+  "kit.day.title": "Riepilogo del giorno",
+  "kit.day.hint": "Una notifica al mattino e una la sera",
+  "kit.day.intro": "{app} ti dice ogni mattina cosa hai da fare oggi, con ciò che è rimasto in sospeso, e ogni sera cosa hai fatto. In un giorno senza niente da dire, non arriva nulla.",
+  "kit.day.morning": "Al mattino",
+  "kit.day.morningHint": "Cosa hai per oggi in ogni modulo, e tutto ciò che è scaduto.",
+  "kit.day.evening": "La sera",
+  "kit.day.eveningHint": "Le attività completate, i passi registrati e le note scritte oggi.",
+  "kit.day.time": "Ora",
+  "kit.day.seeToday": "Vedi quello di oggi",
+  "kit.day.seeDone": "Vedi cosa hai fatto oggi",
+  "kit.day.devices": "Arrivano sui dispositivi dove hai attivato le notifiche (Notifiche).",
+  "kit.day.notice.morningTitle": "☀️ Ecco cosa hai da fare oggi",
+  "kit.day.notice.eveningTitle": "🌙 Quello che hai fatto oggi",
+  "kit.day.notice.morningBody": "{counts}: {titles}",
+  "kit.day.notice.overdue": {
+    "one": "{n} scaduta",
+    "other": "{n} scadute"
+  },
+  "kit.day.notice.today": "{n} per oggi",
+  "kit.day.notice.quoted": "“{title}”",
+  "kit.day.notice.more": "altri {n}",
+  "kit.day.notice.completed": {
+    "one": "{n} attività",
+    "other": "{n} attività"
+  },
+  "kit.day.notice.logged": {
+    "one": "{n} passo in {module}",
+    "other": "{n} passi in {module}"
+  },
+  "kit.day.notice.written": {
+    "one": "{n} nota",
+    "other": "{n} note"
+  },
   "kit.links.label": "Collegati",
   "kit.links.add": "Collega",
   "kit.links.addTo": "Aggiungi a {app}…",
@@ -1290,5 +1323,7 @@
   "admin.firstAnswers.channelNoLink": "Sì, senza link",
   "fields.heard_from": "Come ci hai conosciuto",
   "fields.has_channel": "Se hai un canale",
-  "fields.channel": "Link del canale"
+  "fields.channel": "Link del canale",
+  "fields.day": "Riepilogo del giorno",
+  "fields.date": "Data"
 }

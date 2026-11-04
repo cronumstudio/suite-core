@@ -2106,6 +2106,66 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   answered as text by day, each thing with its `module:type:id` for the modules' tools and the
   links'. A thing that lasts several days is said once, on its first day in the span.
 
+### 21.3.2 The daily summary
+
+`day.js` (v0.228.0), with `createHost({ day: '/today/' })`: a page of the host's own (in its
+`publicDir`, as the calendar) with what someone has for today in every module they use, everything
+still open from before, and what they did; and two notices a day that lead to it. Without the
+option nothing of it is there. A module says what it has, next to its `calendar`:
+
+```js
+// server/module.js
+day: {
+  // The open things of `user` dated on or before `today` ('YYYY-MM-DD', already their zone: the
+  // host calls it inside inZoneOf); overdue is before it. What they planned for today without a
+  // date (Tasks' My Day) comes with `planned: true` and today's date. Only their own ("mine",
+  // as each module counts it), with the same permissions as the module's pages.
+  agenda: (user, { today }) => [item…],           // or a promise of them
+  // What `user` did on `day` (their zone): what they completed, logged or wrote.
+  done: (user, { day }) => [item…],
+},
+```
+
+An agenda item is `{ type, id, title, date, where, url, mine?, time?, planned? }`; a done one
+`{ type, id, title, at, where, url, kind }`, `at` an ISO instant and `kind` `completed` (a task
+finished), `logged` (a step logged in Next) or `written` (a note created or edited). `type`, `id`,
+`title`, `where` and `url` are the calendar's. Each module gives 200 of each at most (the oldest
+of what is open, the latest of what was done) and each thing once.
+
+- **`GET /api/day?date=`** at the root (401 signed out; 400 `field_invalid` naming `date` for one
+  that isn't a day; without it, the person's today in their zone) asks every module the person uses
+  that has a part of it, all at once, and answers `{ date, modules: [{ mount, name, color, icon }],
+  overdue, today, done, failed? }`: each item with its `module` and its url under the module's path.
+  `overdue` the oldest first, `today` by time of day (those with one first), `done` the latest first,
+  each then in the modules' order and each module's own. What can't be shown is left out (no type or
+  id, no day, a day after the one asked, no instant, a kind that isn't one). A module whose part
+  throws, or gives no list, is logged and named in `failed`, never a 500. The page may be framed by
+  the host's own pages (`pages`), as the calendar's.
+- **Each person's two notices** are a preference of the host's own, `prefs.day = { morning: { on,
+  at }, evening: { on, at } }`, `at` HH:MM in steps of five minutes: on at 08:00 and at 19:00 when
+  nothing is stored, and the morning off for whoever had turned off Projects' summary of due dates
+  (`prefs.notices.due === false`), read so and never migrated. The host's `/api/me` has them with
+  the modules' preferences (`DAY_PREFS`, prefs.js): `PATCH /api/me { prefs: { day: { evening: {
+  at: '20:30' } } } }` changes what it says and leaves the rest; a notice, switch or time that isn't
+  one is a 400 `field_invalid` naming `day`. A module's `/api/me` keeps only its own keys, so
+  Settings saves them at the root. Settings has their section, «Daily summary», in the host's group
+  (`kit.day.*`): each notice's switch and time, and a link to its page, for a host with push.
+- **The notices**, with push, are checked every minute: for each person with a device
+  (`push.subscriptionsOf`, phones with the app included), a notice is due from its time until three
+  hours after it on their day in their zone (`prefs.tz`), never past their midnight. It is claimed
+  first in `host_day_notices` (host migration 8: one row a person, notice and day, its `outcome`
+  `sent`, `empty` or `failed`, forgotten after 60 days), so two checks never both send it; then its
+  lists are asked of the modules and, with nothing in them, nothing is sent, the day counting as
+  done all the same. They go through the host's own push, in the person's language (their choice,
+  the device's, their browser's last one, their account's): `{ title, body, tag, url }`, the
+  morning's «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para hoy: «A», «B» y 3 más» at
+  `/today/`, the evening's «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota» at
+  `/today/?v=done`, with `tag` and push `topic` `day-morning` or `day-evening`.
+- **A module learns that the host says the morning's summary** from its suite: `suite.daySummary`
+  is `true` (and `suite.config.host.day` the page, in the browser too, `/api/auth/config`'s
+  `app.host.day`). Projects leaves out its own 08:00 summary of due dates there, and its Settings'
+  switch of it; on its own an app has no `daySummary` and nothing changes.
+
 
 ### 21.4 From one module to another
 
