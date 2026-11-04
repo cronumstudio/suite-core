@@ -43,7 +43,7 @@
  * In a frame of a host's split view (base.js FRAMED) the app's objects are its parent's, on the same
  * site: the bridge is the top window's.
  */
-import { FRAMED } from './base.js';
+import { FRAMED, framedIn } from './base.js';
 
 /** The event the app sends its messages with, on the window. */
 export const NATIVE_EVENT = 'cronum-native';
@@ -111,6 +111,36 @@ export function nativeInfo(win = globalThis.window) {
 /** Whether the app can do `capability` ('push', 'reminders', 'badge', 'purchase', 'biometrics', 'share'). */
 export function can(capability, win = globalThis.window) {
   return Boolean(nativeInfo(win)?.capabilities.includes(capability));
+}
+
+/**
+ * Where a host's module page loaded on its own goes in the app: the host's one-document page
+ * (`/api/modules`' `host.shell`, Cronum Work's shell at `/`) with this page in a window,
+ * `/?open=<its path>`, which the shell opens as a notice tapped on the web does (sw-core.js
+ * `holds`). A notice tapped on the phone opens its module's address (host-worker.js
+ * `hostedPush`), and the app's web view loaded it as a page of its own: the module alone, its
+ * switcher in the header and no tabs (Martin, 4/11). → that address, or null to stay where it is:
+ * outside the app, in a frame (the shell's own frames), in a host without that page, or anywhere
+ * but under a module's path.
+ */
+export function hostShellAddress(host, win = globalThis.window) {
+  if (!host?.shell || !win?.location || !inApp(win) || framedIn(win)) return null;
+  const url = loadedAddress(win);
+  if (!url || !/^\/[a-z][a-z0-9-]{1,30}\//.test(url.pathname) || /^\/(devices|auth)\//.test(url.pathname)) return null;
+  return `/?open=${encodeURIComponent(url.pathname + url.search + url.hash)}`;
+}
+
+/**
+ * The address a page was loaded at, from its navigation's entry: a module that reads what it was
+ * opened with (`?project=5`) takes it off its address at once, before the host answers. Once the
+ * page went to another path of its own, where it is now.
+ */
+function loadedAddress(win) {
+  let now;
+  try { now = new URL(String(win.location.href)); } catch { return null; }
+  let first = null;
+  try { first = new URL(String(win.performance?.getEntriesByType?.('navigation')?.[0]?.name ?? '')); } catch { /* none */ }
+  return first && first.origin === now.origin && first.pathname === now.pathname ? first : now;
 }
 
 /**

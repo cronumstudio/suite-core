@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.230.0 — 2026-11-04
+
+**In the app, a module's page on its own opens in Work's shell instead.** A notice tapped on the
+phone opens its module's address (`/projects/?project=5`, `/tasks/`: host-worker.js `hostedPush`),
+and the app's web view loaded it as a page of its own: the module alone, its switcher under the
+logo and none of Work's tabs at the foot (Martin, 4/11, the daily summary of Projects). Now
+`createShell()` replaces such a page with `/?open=<its path>`, which the shell opens in its window
+as it does for a notice tapped on the web: from the host's answer of last time at once (before the
+rail is drawn), else from the one that comes. `hostShellAddress(host)` in native.js says where, or
+null to stay: outside the app, in a frame, as a window of the shell, in a host without a
+one-document page (`/api/modules`' `host.shell`) and anywhere but under a module's path. A browser,
+and a module installed alone, are as before. Nothing changes in the app, and no new build is needed.
+
 ## 0.229.0 — 2026-11-04
 
 **Whose it is, the same in every module** (Martin, 03/11; audit of 30/10, `compartir.md`). What

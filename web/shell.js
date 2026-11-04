@@ -48,7 +48,7 @@ import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules, installed, installedAlone } from './base.js';
 import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
-import { nativeReady } from './native.js';
+import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
 import { flushSettings } from './settings-queue.js';
 
@@ -791,6 +791,7 @@ export function createShell({
       // A frame destroyed while the host was asked has no rail to paint, nor a module to remember.
       if (destroyed || !answer) return null;
       try { localStorage.setItem(RAIL_KEY, JSON.stringify(answer)); } catch { /* private mode, full */ }
+      if (toHostShell(answer)) return null;
       // The look the person chose, from any device: painted now and kept for the next page.
       if ('look' in answer) applyLook(answer.look);
       paintFounder(answer);
@@ -802,6 +803,22 @@ export function createShell({
       if (!destroyed) syncSwitcher();
     }
   }
+  /**
+   * In the app, a module's page on its own leaves for the host's one-document page with itself in
+   * a window (native.js hostShellAddress): what a notice tapped on the phone opens is the module's
+   * address. From the host's answer of last time at once, else from the one that comes. → whether
+   * it is leaving.
+   */
+  let leaving = false;
+  function toHostShell(answer) {
+    if (leaving) return true;
+    const away = embedded ? null : hostShellAddress(answer?.host);
+    if (!away) return false;
+    leaving = true;
+    window.location.replace(away);
+    return true;
+  }
+
   // In Work's shell a module of a host, and nothing more: the rail, the look, the founder's notice and
   // the modules turned on or off are the shell's, asked and drawn once for the page.
   if (embedded) asModule(true);
@@ -816,8 +833,10 @@ export function createShell({
     // answer, when it comes, draws it again.
     let last = null;
     try { last = JSON.parse(localStorage.getItem(RAIL_KEY) || 'null'); } catch { /* none, or not JSON */ }
-    if (Array.isArray(last?.modules) && last.modules.some((m) => m?.mount === mount)) paintRail(last);
-    refreshModules({ fresh: false });
+    if (!toHostShell(last)) {
+      if (Array.isArray(last?.modules) && last.modules.some((m) => m?.mount === mount)) paintRail(last);
+      refreshModules({ fresh: false });
+    }
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
     window.addEventListener('resize', syncSwitcher, { signal });
     // Back to the page, the host is asked again; in a frame of the split view the view has the rail, not the frame.
