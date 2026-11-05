@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp, SuiteConfigError } from '../app.js';
+import { fakeWorkos } from '../tools/test-kit.mjs';
 
 const PRODUCT = {
   app: { id: 'demo', name: 'Demo', port: 3999, languages: ['en', 'es'], color: '#3A4660' },
@@ -331,6 +332,29 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   // Signing out.
   assert.equal((await call('POST', '/api/auth/logout')).data.ok, true);
   assert.equal((await call('GET', '/api/auth/me')).data.user, null);
+});
+
+test('a sign-in through WorkOS is in the log with the address it came from', async (t) => {
+  const workos = await fakeWorkos({ accounts: { user_ana: { id: 'user_ana', email: 'ana@example.com', email_verified: true } } });
+  t.after(workos.close);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-app-'));
+  const suite = createSuite({
+    config: PRODUCT,
+    env: {
+      DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'workos', WORKOS_API_KEY: workos.apiKey,
+      WORKOS_CLIENT_ID: workos.clientId, WORKOS_AUTHKIT_DOMAIN: workos.url, WORKOS_API_URL: workos.url,
+    },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {} });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+  const ana = await workos.signIn(`http://127.0.0.1:${server.address().port}`, 'user_ana', { app: 'demo' });
+  assert.ok(ana.cookie, 'signed in');
+  const [entry] = suite.audit.list({ action: 'auth.login', exact: true });
+  assert.deepEqual(entry.meta, { provider: 'workos' });
+  assert.match(entry.ip, /127\.0\.0\.1/, 'where from, as a password’s sign-in says it');
 });
 
 test('an app without an MCP shows AI clients nothing to follow, nor its pages a connector; with one, all as before', async (t) => {

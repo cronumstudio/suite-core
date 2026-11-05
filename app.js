@@ -340,7 +340,8 @@ export function createSuite({
     sessions: {
       open: (res, userId, { workosSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId: workosSessionId });
-        audit.record({ action: 'auth.login', actor: userId, meta: { provider: 'workos' } });
+        // With the request, the log says where they came from, as a password's sign-in does.
+        audit.record({ action: 'auth.login', actor: userId, req, meta: { provider: 'workos' } });
       },
     },
     log,
@@ -358,7 +359,7 @@ export function createSuite({
     sessions: {
       open: (res, userId, { idpSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId });
-        audit.record({ action: 'auth.login', actor: userId, meta: { provider: 'oidc' } });
+        audit.record({ action: 'auth.login', actor: userId, req, meta: { provider: 'oidc' } });
       },
     },
     log,

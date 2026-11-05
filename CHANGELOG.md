@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.233.1 — 2026-11-05
+
+**A sign-in through WorkOS or OIDC is in the log with the address it came from** (Martin, 5/11).
+`auth.login` was recorded without the request when the provider brought someone back
+(`sessions.open` in createSuite), so Activity showed nothing under From for every sign-in in an
+install with WorkOS, while a password's sign-in, a failed one and a phone's connection had theirs.
+Now it goes with the request, its address read as every other entry's is (`TRUST_PROXY`).
+
 ## 0.233.0 — 2026-11-05
 
 **The admin panel finds one account: a search in Accounts, and Activity by account, by action and

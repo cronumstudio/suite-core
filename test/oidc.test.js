@@ -144,6 +144,11 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
   assert.equal(me.email, 'ada@example.com');
   const again = await signIn({ sub: 'u-ada', email: 'ada@example.com', email_verified: true });
   assert.equal((await api('GET', '/api/auth/me', again.session)).data.user.id, me.id, 'the same account every time');
+  // In the log with where it came from, as a password's sign-in is.
+  const logins = suite.audit.list({ actorId: me.id, action: 'auth.login', exact: true });
+  assert.equal(logins.length, 2);
+  assert.deepEqual(logins[0].meta, { provider: 'oidc' });
+  assert.match(logins[0].ip, /127\.0\.0\.1/);
 
   // Someone the admin had created before: linked by their verified email.
   const bob = suite.accounts.create({ username: 'bob', email: 'bob@example.com' });
