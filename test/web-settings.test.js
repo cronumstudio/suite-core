@@ -479,3 +479,16 @@ test('Escape over Settings is the top dialog\'s alone: with one open over them, 
     document.querySelector = realQuery;
   }
 });
+
+test('in the app, Notifications says when they are off and leads to the phone\'s settings; never asked, its button asks', async () => {
+  const { appNotificationsView } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  assert.deepEqual(appNotificationsView('denied'), { off: true, button: 'kit.notifications.goToSettings' });
+  assert.deepEqual(appNotificationsView('undetermined'), { off: false, button: 'kit.notifications.turnOn' });
+  assert.deepEqual(appNotificationsView('granted'), { off: false, button: 'kit.notifications.appSettings' });
+  // Before the app has said (or an app that doesn't notify): its settings, no notice.
+  assert.deepEqual(appNotificationsView(undefined), { off: false, button: 'kit.notifications.appSettings' });
+  assert.equal(t('kit.notifications.offTitle'), 'Notifications are turned off');
+  assert.equal(t('kit.notifications.offText', { app: 'Cronum Work' }), 'Turn them on in the Cronum Work app’s notification settings.');
+  assert.equal(t('kit.notifications.goToSettings'), 'Go to settings');
+});
