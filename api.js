@@ -757,8 +757,22 @@ export function registerAdminApi(router, {
 
   router.get('/api/admin/users', (ctx) => {
     requireAdmin(ctx);
-    sendJson(ctx.res, 200, { users: accounts.list().map(withPlan) });
+    // With phones connected (modules.devices), how many each account has that still work.
+    const connected = devices?.activeCounts();
+    sendJson(ctx.res, 200, {
+      users: accounts.list().map((user) => (connected ? { ...withPlan(user), devices: connected.get(user.id) ?? 0 } : withPlan(user))),
+    });
   });
+
+  if (devices) {
+    /** An account's devices that still work, last used first: what each is, its app, when it connected and was used. */
+    router.get('/api/admin/users/:id/devices', (ctx) => {
+      requireAdmin(ctx);
+      const id = idOf(ctx.params.id);
+      if (!accounts.byId(id)) throw notFound('user_not_found');
+      sendJson(ctx.res, 200, { devices: devices.list(id) });
+    });
+  }
 
   router.post('/api/admin/users', async (ctx) => {
     requireAdmin(ctx);

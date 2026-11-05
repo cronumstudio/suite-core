@@ -224,8 +224,9 @@ async function renderUsers(main) {
     el('div', { class: 'kit-toolbar' },
       field(t('admin.users.search'), search),
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: newUserDialog })),
-    table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'), t('admin.users.usage')],
-      rows.map(({ row }) => row)),
+    table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
+      hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
+    rows.map(({ row }) => row)),
     noMatch,
   );
   if (search.value) narrow();
@@ -256,8 +257,13 @@ function userRow(user) {
     el('td', {}, el('span', { class: `kit-badge${user.role === 'admin' ? ' kit-badge--accent' : ''}`, text: t(`admin.roles.${user.role}`) })),
     el('td', {}, ...planParts(user)),
     el('td', { text: user.last_login_at ? formatDateTime(user.last_login_at) : t('admin.users.never') }),
+    // How many it has connected that still work, never a device's number: the log's `device 14` is its id among all.
+    'devices' in user ? el('td', { 'data-devices': user.id, text: String(user.devices) }) : null,
     el('td', { class: 'kit-usage-cell', 'data-usage': user.id }, el('span', { class: 'kit-hint', text: '…' })));
 }
+
+/** Whether the install connects phones (modules.devices): its accounts then say how many they have. */
+const hasDevices = (users) => users.some((user) => 'devices' in user);
 
 /** Each account's nearest cap, in the list's last column, once they are counted. */
 async function paintPeaks(main) {
@@ -482,6 +488,11 @@ function userDialog(user) {
         }) : null));
   }
 
+  // The phones and computers connected, where the install connects them (modules.devices): how many, and each.
+  const devicesNow = el('small', { class: 'kit-fold__now', text: t('admin.users.devicesCount', { n: user.devices ?? 0 }) });
+  const devicesBox = el('div', { class: 'kit-contents' });
+  const devicesFold = 'devices' in user ? fold({ title: t('admin.users.devices'), now: devicesNow }, devicesBox) : null;
+
   // What they use, counted when the dialog opens: a host's only (usage.js).
   const usageNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
   const usageBox = el('div', { class: 'kit-contents' });
@@ -525,6 +536,8 @@ function userDialog(user) {
           try {
             const { closed } = await api.delete(`/api/admin/users/${user.id}/sessions`);
             toast(t('admin.users.signedOut', { n: closed }));
+            // Their phones went with the sessions.
+            if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
           } catch (err) { fail(err); }
         },
       }),
@@ -545,10 +558,11 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, usage, first, grants, passwordSection, signInBox), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, devicesFold, usage, first, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
+  if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
   paintFirstAnswers(firstBox, user, firstNow).catch(() => first.remove());
@@ -739,6 +753,24 @@ async function paintGrants(box, user, now) {
  * storage of all of them and the calls from assistants. `now` is the fold's summary: the cap they
  * are nearest to.
  */
+/** A platform as people write it: "Android", "iOS"; any other as the app named it. */
+const platformName = (platform) => ({ android: 'Android', ios: 'iOS', ipados: 'iPadOS', macos: 'macOS', windows: 'Windows', linux: 'Linux' }[
+  String(platform || '').toLowerCase()] || platform || '—');
+
+/** An account's devices that still work, last used first: what each is, its app, when it connected and was last used. */
+async function paintDevices(box, user, now) {
+  const { devices } = await api.get(`/api/admin/users/${user.id}/devices`);
+  now.textContent = t('admin.users.devicesCount', { n: devices.length });
+  append(clear(box),
+    el('p', { class: 'kit-hint', text: t('admin.users.devicesLead') }),
+    devices.length ? table([t('admin.users.device'), t('admin.users.deviceApp'), t('admin.users.deviceConnected'), t('admin.users.deviceUsed')],
+      devices.map((d) => el('tr', {},
+        el('td', {}, el('strong', { text: d.name || platformName(d.platform) }), d.name ? el('small', { text: platformName(d.platform) }) : null),
+        el('td', { class: 'kit-mono', text: d.app_version || '—' }),
+        el('td', { text: formatDateTime(d.created_at) }),
+        el('td', { text: d.last_used_at ? formatDateTime(d.last_used_at) : t('admin.users.never') })))) : null);
+}
+
 async function paintUsage(box, user, now) {
   const usage = await api.get(`/api/admin/users/${user.id}/usage`);
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
