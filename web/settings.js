@@ -1536,11 +1536,12 @@ export function openSettings(options) {
   /**
    * The host's daily summary (host.js `day`, day.js): a notice in the morning with what someone has
    * for today and one in the evening with what they did, each with its switch, its time (every five
-   * minutes) and a way to its page. Kept in their row at the host's root (`prefs.day`, PATCH
-   * /api/me there), which knows it: a module's /api/me keeps only its own keys.
+   * minutes), a switch for each module in use that gives it something (`/api/modules`' `day`), when
+   * there are two or more to choose from, and a button to its page. Kept in their row at the host's
+   * root (`prefs.day`, PATCH /api/me there), which knows it: a module's /api/me keeps only its own keys.
    */
   function daySummary() {
-    const box = el('div', { class: 'kit-stack' });
+    const box = el('div', { class: 'kit-day-list' });
     const page = host.day;
     /** HH:MM on a step of five minutes, down from what was typed (a field may take any minute); null for no time. */
     const stepped = (value) => {
@@ -1553,16 +1554,45 @@ export function openSettings(options) {
      * Its page: in Work's shell, in a window of its own (the shell's `open`), Settings closing over
      * it; from a module's page, the host's app opening on it (`/?open=`), never the page alone.
      */
-    const link = (url, text) => {
+    const link = (url, iconName, text) => {
       const shell = hostInfo.shell && !workRegistry();
       return el('a', {
-        class: 'kit-link', text, href: shell ? `/?open=${encodeURIComponent(url)}` : url,
+        class: 'kit-btn kit-btn--small kit-day__see', href: shell ? `/?open=${encodeURIComponent(url)}` : url,
         onClick: (ev) => { if (openInWork(ev)) close(); },
+      }, icon(iconName), el('span', { text }));
+    };
+    /** The modules in use that give this notice something, in the person's order. */
+    const sourcesOf = (kind) => inUse.filter((m) => m.active !== false && Array.isArray(m.day)
+      && m.day.includes(kind === 'morning' ? 'agenda' : 'done'));
+    /** Each module's switch in a notice: on unless taken out; the summary and its page leave it out. */
+    const included = (kind, prefs) => {
+      const sources = sourcesOf(kind);
+      if (sources.length < 2) return null;
+      const rows = sources.map((m) => {
+        const row = switchRow(m.name, {
+          checked: prefs.modules?.[m.mount] !== false,
+          onChange: async (on) => {
+            try {
+              await send(kind, { modules: { [m.mount]: on } });
+              prefs.modules = { ...prefs.modules, [m.mount]: on };
+            } catch (err) {
+              fail(err);
+              throw err;   // the switch goes back
+            }
+          },
+        });
+        row.className += ' kit-switch-row--swatch';
+        row.firstChild.prepend(m.icon
+          ? el('img', { class: 'kit-day__icon', src: m.icon, alt: '', width: 20, height: 20 })
+          : el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
+        return row;
       });
+      return el('div', { class: 'kit-day__modules', role: 'group', 'aria-label': t('kit.day.includes') },
+        el('span', { class: 'kit-day__label', text: t('kit.day.includes') }), ...rows);
     };
     const notice = (kind, prefs) => {
       let at = prefs.at;
-      const time = input({ type: 'time', step: '300', value: at, required: true });
+      const time = input({ type: 'time', step: '300', value: at, required: true, class: 'kit-input kit-day__clock', id: `kit-day-${kind}-time` });
       time.addEventListener('change', async () => {
         const chosen = stepped(time.value);
         time.value = chosen || at;
@@ -1571,6 +1601,7 @@ export function openSettings(options) {
         at = chosen;
         try {
           await send(kind, { at: chosen });
+          prefs.at = chosen;
         } catch (err) {
           at = was;
           time.value = was;
@@ -1583,23 +1614,36 @@ export function openSettings(options) {
         onChange: async (on) => {
           try {
             await send(kind, { on });
+            prefs.on = on;
           } catch (err) {
             fail(err);
             throw err;   // the switch goes back
           }
         },
       });
-      const url = kind === 'morning' ? page : `${page}?v=done`;
-      return el('div', { class: 'kit-stack' }, toggle,
-        el('div', { class: 'kit-row kit-row--end' }, field(t('kit.day.time'), time), link(url, t(kind === 'morning' ? 'kit.day.seeToday' : 'kit.day.seeDone'))));
+      const morning = kind === 'morning';
+      const url = morning ? page : `${page}?v=done`;
+      return el('section', { class: 'kit-day' }, toggle,
+        el('label', { class: 'kit-day__time', for: time.id }, el('span', { text: t('kit.day.time') }), time),
+        included(kind, prefs),
+        link(url, morning ? 'sun' : 'moon', t(morning ? 'kit.day.seeToday' : 'kit.day.seeDone')));
     };
+    // Drawn again when the modules in use come from the server (onModules): their switches with them.
+    let stored = null;
+    const paint = () => {
+      if (!stored || closed) return;
+      clear(box).append(notice('morning', stored.morning), notice('evening', stored.evening));
+    };
+    onModules.push(paint);
     api.request('GET', '/api/me', undefined, { root: true })
       .then(({ user } = {}) => {
         if (closed) return;
         const prefs = user?.prefs?.day || {};
-        clear(box).append(
-          notice('morning', { on: true, at: '08:00', ...prefs.morning }),
-          notice('evening', { on: true, at: '19:00', ...prefs.evening }));
+        stored = {
+          morning: { on: true, at: '08:00', modules: {}, ...prefs.morning },
+          evening: { on: true, at: '19:00', modules: {}, ...prefs.evening },
+        };
+        paint();
       }, fail);
     return [block(null, hint(t('kit.day.intro', { app: hostInfo.name || host.name })), box, hint(t('kit.day.devices')))];
   }

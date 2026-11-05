@@ -40,6 +40,12 @@ export const DAY_DEFAULTS = Object.freeze({
   morning: Object.freeze({ on: true, at: '08:00' }),
   evening: Object.freeze({ on: true, at: '19:00' }),
 });
+/** Which notice each part of the summary goes in: what is open in the morning's, what was done in the evening's. */
+export const DAY_PARTS = Object.freeze({ agenda: 'morning', done: 'evening' });
+/** A module's mount, as the host names them (host.js): the keys of a notice's `modules`. */
+const MOUNT = /^[a-z][a-z0-9-]{1,30}$/;
+/** The most modules a notice keeps a choice of. */
+const MODULES_MAX = 40;
 /** How long after its time a notice is still sent: a server down at eight still says it at nine. */
 export const DAY_WINDOW_MINUTES = 180;
 /** How long the notices sent are remembered: long past any day still being asked about. */
@@ -58,19 +64,25 @@ const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array
 /* ------------------------------ preferences ------------------------------ */
 
 /**
- * Someone's two notices, from what their row holds (`users.prefs`, text or read): each `{ on, at }`,
- * the default for what isn't stored or isn't one. Whoever had turned off Projects' morning
- * summary of due dates (`notices.due === false`) starts with this morning one off too: it is the
- * same notice, now for every module, and nothing has to be migrated for it.
+ * Someone's two notices, from what their row holds (`users.prefs`, text or read): each `{ on, at,
+ * modules }`, the default for what isn't stored or isn't one. `modules` names only the modules
+ * taken out of that notice (`{ notes: false }`): every other one is in it, one that comes later
+ * too. Whoever had turned off Projects' morning summary of due dates (`notices.due === false`)
+ * starts with this morning one off too: it is the same notice, now for every module, and nothing
+ * has to be migrated for it.
  */
 export function dayPrefsOf(raw) {
   const prefs = readPrefs(raw);
   const stored = isPlain(prefs.day) ? prefs.day : {};
   const one = (kind, on) => {
     const given = isPlain(stored[kind]) ? stored[kind] : {};
+    const out = isPlain(given.modules)
+      ? Object.entries(given.modules).filter(([mount, kept]) => MOUNT.test(mount) && kept === false).slice(0, MODULES_MAX)
+      : [];
     return {
       on: typeof given.on === 'boolean' ? given.on : on,
       at: typeof given.at === 'string' && STEP.test(given.at) ? given.at : DAY_DEFAULTS[kind].at,
+      modules: Object.fromEntries(out),
     };
   };
   return { morning: one('morning', prefs.notices?.due !== false), evening: one('evening', true) };
@@ -79,20 +91,25 @@ export function dayPrefsOf(raw) {
 /**
  * The host's own preference, among the modules' (prefs.js): `prefs.day`, saved with the rest at
  * the host's `/api/me` (`PATCH { prefs: { day: { evening: { at: '20:30' } } } }`). What comes is
- * what changes: one notice's switch leaves its time and the other notice as they were. A notice
- * that isn't one, a switch that isn't true or false and a time that isn't HH:MM in steps of five
- * minutes are refused (400 `field_invalid`, field `day`), not taken for the default. Once anything
- * is saved there, the row holds `day` whole, as it read: a morning that started off stays off.
+ * what changes: one notice's switch leaves its time and the other notice as they were, and one
+ * module's switch (`{ morning: { modules: { notes: false } } }`, true to bring it back) leaves the
+ * other modules as they were. A notice that isn't one, a switch that isn't true or false, a time
+ * that isn't HH:MM in steps of five minutes and a module that isn't a mount are refused (400
+ * `field_invalid`, field `day`), not taken for the default. Once anything is saved there, the row
+ * holds `day` whole, as it read: a morning that started off stays off.
  */
 export const DAY_PREFS = Object.freeze({
-  defaults: { day: { morning: { ...DAY_DEFAULTS.morning }, evening: { ...DAY_DEFAULTS.evening } } },
+  defaults: { day: { morning: { ...DAY_DEFAULTS.morning, modules: {} }, evening: { ...DAY_DEFAULTS.evening, modules: {} } } },
   normalize: (raw) => ({ day: dayPrefsOf(raw) }),
   merge: (current, changes) => {
     if (!('day' in changes)) return current;
     const sent = changes.day;
     const invalid = () => badRequest('field_invalid', { field: 'day' });
     if (!isPlain(sent)) throw invalid();
-    const day = { morning: { ...current.day.morning }, evening: { ...current.day.evening } };
+    const day = {
+      morning: { ...current.day.morning, modules: { ...current.day.morning.modules } },
+      evening: { ...current.day.evening, modules: { ...current.day.evening.modules } },
+    };
     for (const [kind, value] of Object.entries(sent)) {
       if (!DAY_NOTICES.includes(kind) || !isPlain(value)) throw invalid();
       if ('on' in value) {
@@ -102,6 +119,15 @@ export const DAY_PREFS = Object.freeze({
       if ('at' in value) {
         if (typeof value.at !== 'string' || !STEP.test(value.at)) throw invalid();
         day[kind].at = value.at;
+      }
+      if ('modules' in value) {
+        if (!isPlain(value.modules)) throw invalid();
+        for (const [mount, kept] of Object.entries(value.modules)) {
+          if (!MOUNT.test(mount) || typeof kept !== 'boolean') throw invalid();
+          if (kept) delete day[kind].modules[mount];
+          else day[kind].modules[mount] = false;
+        }
+        if (Object.keys(day[kind].modules).length > MODULES_MAX) throw invalid();
       }
     }
     return { day };
@@ -176,9 +202,14 @@ function once(items) {
  */
 export function createDay({ modules, uses = () => true, icon = (m) => m.config.app.icon, log = () => {} }) {
   const has = (m, part) => typeof m.parts?.day?.[part] === 'function';
-  /** The modules with a part of the summary that someone uses, in the host's order. */
+  /** Whether someone keeps a module in the notice of a part (Settings › Daily summary): yes unless they took it out. */
+  const kept = (user, part, m) => dayPrefsOf(user?.prefs)[DAY_PARTS[part]].modules[m.mount] !== false;
+  /**
+   * The modules with a part of the summary that someone uses, in the host's order; for one part,
+   * only those they keep in its notice, which is what its page shows too.
+   */
   const sourcesOf = (user, part = null) => modules()
-    .filter((m) => (part ? has(m, part) : has(m, 'agenda') || has(m, 'done')) && uses(user, m.mount));
+    .filter((m) => (part ? has(m, part) && kept(user, part, m) : has(m, 'agenda') || has(m, 'done')) && uses(user, m.mount));
 
   /** What each module gives for one part, in the person's zone: its items, or null where it failed. */
   async function ask(user, part, args, itemOf, order, max = DAY_MODULE_MAX) {

@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.232.0 — 2026-11-05
+
+**Settings › Daily summary: choose the modules of each notice, and a section that sits right on a
+phone** (Martin, 5/11). Each notice has a switch for every module in use that gives it something
+(«Includes»: Tasks and Projects in the morning; Tasks, Projects, Next and Notes in the evening),
+when there are two or more: `prefs.day.<notice>.modules` keeps the ones taken out (`{ notes: false
+}`), so a module that comes later is in, and one taken out is left out of that notice and of its
+part of the page (`agenda` or `done`, `DAY_PARTS`). `PATCH /api/me` changes one module at a time
+(400 `field_invalid` naming `day` for one that isn't a mount or a switch that isn't true or false).
+`/api/modules` says what each module gives the summary (`day`). The section was drawn with the
+kit's field, as wide as its box, and a plain link beside it: on an iPhone the time field ran under
+«See today's», which read as text. Now each notice is a block of its own: its switch, the time in a
+row of its own as wide as a time, the modules, and a button with a sun or a moon to its page.
+
 ## 0.231.0 — 2026-11-04
 
 **A host's daily summary: what everyone has for today, and what they did, in every module, with a

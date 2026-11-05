@@ -1166,6 +1166,8 @@ test('a host with a daily summary: the root answers what each person has for tod
   assert.equal((await call('GET', '/api/day')).status, 401, 'signed out: nothing');
   await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
   assert.equal((await call('GET', '/api/modules')).data.host.day, '/today/', 'its page, for Settings and its links');
+  assert.deepEqual((await call('GET', '/api/modules')).data.modules.map((m) => [m.mount, m.day]),
+    [['alpha', ['agenda', 'done']], ['beta', []]], 'what each gives the summary, for Settings\' switch of each module in each notice');
   const where = (await call('GET', '/alpha/api/where')).data;
   assert.equal(where.daySummary, true, 'a module learns that the host says the morning\'s summary');
   assert.equal(where.host.day, '/today/', 'and its page, in the browser too (/api/auth/config)');
@@ -1188,14 +1190,14 @@ test('a host with a daily summary: the root answers what each person has for tod
 
   // Their two notices, kept at the host's root with the rest of their preferences.
   assert.deepEqual((await call('GET', '/api/me')).data.user.prefs.day,
-    { morning: { on: true, at: '08:00' }, evening: { on: true, at: '19:00' } }, 'both on, at eight and at seven');
+    { morning: { on: true, at: '08:00', modules: {} }, evening: { on: true, at: '19:00', modules: {} } }, 'both on, at eight and at seven');
   const changed = await call('PATCH', '/api/me', { prefs: { day: { evening: { at: '20:30' } } } });
   assert.equal(changed.status, 200);
-  assert.deepEqual(changed.data.user.prefs.day, { morning: { on: true, at: '08:00' }, evening: { on: true, at: '20:30' } });
+  assert.deepEqual(changed.data.user.prefs.day, { morning: { on: true, at: '08:00', modules: {} }, evening: { on: true, at: '20:30', modules: {} } });
   assert.deepEqual((await call('PATCH', '/api/me', { prefs: { day: { morning: { at: '8:00' } } } })).data, { error: 'field_invalid', field: 'day' });
   await call('PATCH', '/api/me', { prefs: { day: { morning: { on: false } } } });
   assert.deepEqual((await call('GET', '/api/me')).data.user.prefs.day,
-    { morning: { on: false, at: '08:00' }, evening: { on: true, at: '20:30' } }, 'kept, one change at a time');
+    { morning: { on: false, at: '08:00', modules: {} }, evening: { on: true, at: '20:30', modules: {} } }, 'kept, one change at a time');
 
   // A module turned off leaves the summary too.
   await call('PUT', '/api/me/modules', { active: ['beta'] });
