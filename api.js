@@ -20,6 +20,13 @@ import { answeredOnce } from './idempotency.js';
 
 const idOf = (value, field = 'id') => int(value, { field, min: 1 });
 const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
+/** A moment of a query as the log writes them (ISO, in UTC), or null; 400 for what isn't one. */
+const momentOrNull = (value, field) => {
+  if (value == null || value === '') return null;
+  const at = Date.parse(value);
+  if (!Number.isFinite(at)) throw badRequest('field_invalid', { field });
+  return new Date(at).toISOString();
+};
 const hasPassword = (user) => Boolean(user.password_hash && user.password_hash !== '!');
 
 /**
@@ -912,15 +919,27 @@ export function registerAdminApi(router, {
   }
 
   if (audit) {
+    /**
+     * The log, newest first: `actor` (an account's id), `action` (what actions begin with, or with
+     * `exact=1` that one alone), `since` and `until` (ISO times, both included), and `before` an id
+     * to page with any of them.
+     */
     router.get('/api/admin/audit', (ctx) => {
       requireAdmin(ctx);
       const q = ctx.query || new URLSearchParams();
       sendJson(ctx.res, 200, {
         entries: audit.list({
           limit: q.get('limit') ?? 100, before: idOrNull(q.get('before'), 'before'),
-          actorId: idOrNull(q.get('actor'), 'actor'), action: q.get('action') || null,
+          actorId: idOrNull(q.get('actor'), 'actor'), action: q.get('action') || null, exact: q.get('exact') === '1',
+          since: momentOrNull(q.get('since'), 'since'), until: momentOrNull(q.get('until'), 'until'),
         }),
       });
+    });
+
+    /** The actions the log holds: what the panel offers to show. */
+    router.get('/api/admin/audit/actions', (ctx) => {
+      requireAdmin(ctx);
+      sendJson(ctx.res, 200, { actions: audit.actions() });
     });
   }
 }

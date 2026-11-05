@@ -35,13 +35,21 @@ export function createAudit({ database, trustProxy = process.env.TRUST_PROXY, cl
     targetId == null ? null : String(targetId), req ? clientIp(req, { trustProxy }) : null, JSON.stringify(meta || {}));
   }
 
-  /** The newest entries first, optionally before an id (paging), of an actor or an action. */
-  function list({ limit = 100, before = null, actorId = null, action = null } = {}) {
+  /**
+   * The newest entries first, optionally before an id (paging), of an actor, of an action and
+   * between two moments. `action` is a beginning (`auth.`, `account.deletion`), or with `exact`
+   * that action alone; `since` and `until` are ISO times, both included.
+   */
+  function list({ limit = 100, before = null, actorId = null, action = null, exact = false, since = null, until = null } = {}) {
     const where = [];
     const params = [];
     if (before) { where.push('a.id < ?'); params.push(before); }
     if (actorId) { where.push('a.actor_user_id = ?'); params.push(actorId); }
-    if (action) { where.push('a.action LIKE ?'); params.push(`${action}%`); }
+    if (action && exact) { where.push('a.action = ?'); params.push(action); }
+    // Its _ is a letter, not LIKE's any one (`auth.login_` would be `auth.loginX` too).
+    else if (action) { where.push("a.action LIKE ? ESCAPE '\\'"); params.push(`${action.replace(/[\\%_]/g, '\\$&')}%`); }
+    if (since) { where.push('a.at >= ?'); params.push(since); }
+    if (until) { where.push('a.at <= ?'); params.push(until); }
     return database.all(`SELECT a.*, u.username AS actor_username FROM audit_log a
       LEFT JOIN users u ON u.id = a.actor_user_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.id DESC LIMIT ?`,
@@ -49,9 +57,12 @@ export function createAudit({ database, trustProxy = process.env.TRUST_PROXY, cl
       .map((row) => ({ ...row, meta: JSON.parse(row.meta || '{}') }));
   }
 
+  /** The actions the log holds, by name: what there is to look for in it. */
+  const actions = () => database.all('SELECT DISTINCT action FROM audit_log ORDER BY action').map((row) => row.action);
+
   /** Forgets entries older than `days`. */
   const purge = (days = 365) => database.run('DELETE FROM audit_log WHERE at < ?',
     new Date(clock() - days * 24 * 3600 * 1000).toISOString()).changes;
 
-  return { record, list, purge };
+  return { record, list, actions, purge };
 }

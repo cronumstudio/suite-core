@@ -159,6 +159,7 @@ export class FakeElement {
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 
   get children() { return this.childNodes.filter((node) => node.nodeType === 1); }
+  get childElementCount() { return this.children.length; }
   get firstChild() { return this.childNodes[0] || null; }
   get textContent() { return this.childNodes.map((node) => node.textContent).join(''); }
   set textContent(text) {

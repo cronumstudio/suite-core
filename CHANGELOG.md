@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.233.0 — 2026-11-05
+
+**The admin panel finds one account: a search in Accounts, and Activity by account, by action and
+by days** (Martin, 5/11, to check that the Play testers, who share one account, signed in from
+Android). Accounts has a search that narrows the list as it is typed, by email, username or name,
+every word anywhere, without capitals or accents ("benjamin" finds Benjamín); Enter opens the one
+account left, and the search stays when the list is drawn again (an account saved). An account's
+dialog has «See their activity», which opens Activity at `#/audit?actor=<id>`. Activity has an
+account (typed by email or username, offered in a datalist, or its name pressed in a row: the
+email or username that is exactly one account's, else the only account the text is part of; with
+several or none it says so and asks nothing), what to show (each family of the actions the log
+holds, then each of its actions; Devices among them, which the list lacked), and two days, from
+the first moment of one to the last of the other in the browser's zone. The filters live in the
+address (`#/audit?actor=3&action=device.create&since=2026-11-01&until=2026-11-05`), «Older» pages
+with all of them on, an answer to a filter changed since is dropped, and «Clear filters» takes them
+off. `GET /api/admin/audit` takes `exact=1` (that action alone; without it `action` is still what
+actions begin with, now with `_` and `%` as themselves) and `since` and `until` (ISO times, both
+included; 400 `field_invalid` for what isn't one); `GET /api/admin/audit/actions` → `{ actions }`,
+the names the log holds (`audit.actions()`). No migration: the filters read the columns and
+indexes the log already has. And Enter on an account's row with the focus opens it again: it
+opened the dialog and, its default kept, the same key pressed the dialog's ×, which had the focus.
+
 ## 0.232.1 — 2026-11-05
 
 **The share dialog says an address with no account is invited too** (Martin, 5/11). Since 0.215.0

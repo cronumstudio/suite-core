@@ -169,6 +169,46 @@ test('the admin manages accounts, and every change is in the log', async (t) => 
   assert.deepEqual(page.body.entries.map((e) => e.action), ['admin.user.update', 'admin.user.update']);
 });
 
+test('the log, filtered: of an account, of one action or a family, between two moments, paged; and the actions it holds', async (t) => {
+  const { call, root, accounts, audit, database } = await start(t);
+  const ada = accounts.create({ username: 'ada' }).id;
+  const ben = accounts.create({ username: 'ben' }).id;
+  const at = (moment, entry) => {
+    audit.record(entry);
+    database.run('UPDATE audit_log SET at = ? WHERE id = (SELECT MAX(id) FROM audit_log)', moment);
+  };
+  at('2026-11-01T09:00:00.000Z', { action: 'auth.login', actor: ada });
+  at('2026-11-02T09:00:00.000Z', { action: 'auth.login_failed', actor: ada });
+  at('2026-11-03T09:00:00.000Z', { action: 'device.web_session', actor: ada });
+  at('2026-11-04T09:00:00.000Z', { action: 'device.web_session_failed', actor: ben });
+  at('2026-11-05T09:00:00.000Z', { action: 'device.create', actor: ada, meta: { platform: 'android' } });
+  at('2026-11-05T10:00:00.000Z', { action: 'auth.loginXfailed', actor: ben });
+  const actions = async (query) => (await call('GET', `/api/admin/audit?${query}`, { as: root })).body.entries.map((e) => e.action);
+
+  assert.deepEqual(await actions(`actor=${ada}&action=auth.`), ['auth.login_failed', 'auth.login'], 'one account, one family');
+  assert.deepEqual(await actions('action=device.web_session&exact=1'), ['device.web_session'], 'that action alone');
+  assert.deepEqual(await actions('action=device.web_session'), ['device.web_session_failed', 'device.web_session'], 'without exact, what begins so');
+  assert.deepEqual(await actions('action=auth.login_'), ['auth.login_failed'], 'an _ is an _, not any letter');
+  assert.deepEqual(await actions('since=2026-11-02T00:00:00.000Z&until=2026-11-04T09:00:00.000Z'),
+    ['device.web_session_failed', 'device.web_session', 'auth.login_failed'], 'both moments included');
+  assert.deepEqual(await actions(`actor=${ada}&since=2026-11-05`), ['device.create'], 'a day alone is its first moment, in UTC');
+
+  // Paging keeps the filters: the next page is of the same account.
+  const first = (await call('GET', `/api/admin/audit?actor=${ada}&limit=2`, { as: root })).body.entries;
+  assert.deepEqual(first.map((e) => e.action), ['device.create', 'device.web_session']);
+  assert.deepEqual(first[0].meta, { platform: 'android' });
+  assert.deepEqual(await actions(`actor=${ada}&limit=2&before=${first.at(-1).id}`), ['auth.login_failed', 'auth.login']);
+
+  const wrong = await call('GET', '/api/admin/audit?since=yesterday', { as: root });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.body.error, 'field_invalid');
+
+  // What the panel offers to show: each action once, by name.
+  assert.deepEqual((await call('GET', '/api/admin/audit/actions', { as: root })).body.actions,
+    ['auth.login', 'auth.loginXfailed', 'auth.login_failed', 'device.create', 'device.web_session', 'device.web_session_failed']);
+  assert.equal((await call('GET', '/api/admin/audit/actions', { as: ada })).status, 403);
+});
+
 test('plans and grants from the admin', async (t) => {
   const { call, root, accounts, entitlements } = await start(t);
   const ada = accounts.create({ username: 'ada' }).id;
