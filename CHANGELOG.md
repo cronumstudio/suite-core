@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.236.0 — 2026-11-05
+
+**In the suite's app, Settings › Notifications says when notifications are turned off** (Martin,
+5/11). Off on the phone, a notice says so and leads to the phone's settings: «Notifications are
+turned off», «Turn them on in the <app> app's notification settings», and the button «Go to
+settings». Never asked yet, the button is «Turn on notifications» and the app shows the system's
+prompt. On, it stays «Open the app's settings». The state is the app's `push-state`, as before,
+and the line «are turned off in the phone's settings» (`kit.notifications.appDenied`) is gone.
+
 ## 0.235.0 — 2026-11-05
 
 **Admin › Accounts says how many devices each account has connected, and its dialog which**

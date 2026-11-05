@@ -440,11 +440,20 @@ test('notifications in the app: the app’s own, never Web Push', async () => {
   const view = await settingsPage({ push: true }, { server, start: 'notifications' });
   assert.equal(view.buttons(t('kit.notifications.enable')).length, 0, 'no Web Push to turn on');
   assert.match(view.shown(), /the Demo app sends your notifications/);
-  assert.match(view.shown(), /turned off in the phone’s settings/, 'what the app said before Settings opened');
+  // Turned off, what the app said before Settings opened: a notice and the way to the phone's settings.
+  assert.match(view.shown(), /Notifications are turned off/);
+  assert.match(view.shown(), /Turn them on in the Demo app’s notification settings/);
+  click(view.buttons(t('kit.notifications.goToSettings'))[0]);
+  assert.deepEqual(page.sent, [{ v: 1, type: 'open-app-settings' }]);
+  // Never asked: the button asks (the app shows the system's prompt), with no notice.
+  page.tell({ v: 1, type: 'push-state', state: 'undetermined' });
+  assert.doesNotMatch(view.shown(), /turned off/);
+  assert.equal(view.buttons(t('kit.notifications.turnOn')).length, 1);
+  // On, and what it says while they are: the app's settings.
   page.tell({ v: 1, type: 'push-state', state: 'granted' });
   assert.doesNotMatch(view.shown(), /turned off/, 'and what it says while they are open');
   click(view.buttons(t('kit.notifications.appSettings'))[0]);
-  assert.deepEqual(page.sent, [{ v: 1, type: 'open-app-settings' }]);
+  assert.deepEqual(page.sent, [{ v: 1, type: 'open-app-settings' }, { v: 1, type: 'open-app-settings' }]);
   assert.equal(view.buttons(t('kit.notifications.test')).length, 1, 'the test, as anywhere');
   assert.match(view.shown(), /iOS/, 'the devices, as anywhere');
   view.settings.close();

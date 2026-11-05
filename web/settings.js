@@ -1657,11 +1657,13 @@ export function openSettings(options) {
   function appNotifications() {
     const product = host?.name || app.name;
     const pushing = can('push');
-    const status = hint('');
+    const off = el('div', { class: 'kit-notice', role: 'status', hidden: true },
+      el('strong', { text: t('kit.notifications.offTitle') }), el('p', { text: t('kit.notifications.offText', { app: product }) }));
+    const settings = pushing ? button('', () => openAppSettings(), 'primary') : null;
     const paintState = () => {
-      const state = lastNative('push-state')?.state;
-      status.textContent = pushing && state === 'denied' ? t('kit.notifications.appDenied', { app: product }) : '';
-      status.hidden = !status.textContent;
+      const view = appNotificationsView(pushing ? lastNative('push-state')?.state : null);
+      off.hidden = !view.off;
+      if (settings) settings.textContent = t(view.button);
     };
     paintState();
     if (pushing) {
@@ -1684,9 +1686,8 @@ export function openSettings(options) {
         toast(t(result.no_devices ? 'kit.notifications.none' : 'kit.notifications.testSent'));
       } catch (err) { fail(err); }
     });
-    const settings = pushing ? button(t('kit.notifications.appSettings'), () => openAppSettings(), 'primary') : null;
     paint();
-    return [block(null, hint(t(pushing ? 'kit.notifications.inApp' : 'kit.notifications.appUpdate', { app: product })), status, row(settings, test)),
+    return [block(null, off, hint(t(pushing ? 'kit.notifications.inApp' : 'kit.notifications.appUpdate', { app: product })), row(settings, test)),
       block(t('kit.notifications.devices'), box)];
   }
 
@@ -2205,6 +2206,17 @@ const numberText = (n) => new Intl.NumberFormat(currentLanguage(), { maximumFrac
 
 function fact(label, value, detail = '') {
   return el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value }), detail ? el('small', { text: detail }) : null);
+}
+
+/**
+ * What Settings › Notifications shows inside the suite's app for the phone's permission (the app's
+ * `push-state`): turned off, a notice and the way to the phone's settings; never asked, the button
+ * that asks (the app shows the system's prompt); on, or not told yet, the app's settings.
+ */
+export function appNotificationsView(state) {
+  if (state === 'denied') return { off: true, button: 'kit.notifications.goToSettings' };
+  if (state === 'undetermined') return { off: false, button: 'kit.notifications.turnOn' };
+  return { off: false, button: 'kit.notifications.appSettings' };
 }
 
 /** A browser and system from a user agent, short: "Chrome · Windows"; `unknown` without one. */
