@@ -327,6 +327,17 @@
   "admin.users.defaultPlan": "Revenir à la formule par défaut",
   "admin.users.signOut": "Déconnecter partout",
   "admin.users.activity": "Voir son activité",
+  "admin.users.devices": "Appareils",
+  "admin.users.devicesCount": {
+    "=0": "Aucun connecté",
+    "one": "Un connecté",
+    "other": "{n} connectés"
+  },
+  "admin.users.devicesLead": "Les applications mobiles et de bureau connectées à ce compte et qui fonctionnent encore. Le numéro après « device » dans Activité désigne une connexion parmi celles de tous les comptes : il ne dit pas combien en a celui-ci.",
+  "admin.users.device": "Appareil",
+  "admin.users.deviceApp": "Version de l’app",
+  "admin.users.deviceConnected": "Connecté",
+  "admin.users.deviceUsed": "Dernière utilisation",
   "admin.users.signedOut": {
     "=0": "Il n’y avait aucune session ouverte.",
     "one": "Une session fermée.",

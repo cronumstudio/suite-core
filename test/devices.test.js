@@ -258,6 +258,18 @@ test('revoked, unused for too long, of a disabled account, or past the limit: re
   assert.equal(code(() => connect(ana)), '400 too_many_devices');
 });
 
+test('how many devices each account has that still work, all at once for the admin’s list', (t) => {
+  const { devices, ana, bea, now, connect } = setup(t);
+  const phone = connect();
+  connect(ana, { name: 'Tablet', platform: 'android' });
+  connect(bea, { name: 'Bea’s phone' });
+  assert.deepEqual(Object.fromEntries(devices.activeCounts()), { [ana.id]: 2, [bea.id]: 1 });
+  devices.revoke(ana.id, phone.device.id);
+  assert.deepEqual(Object.fromEntries(devices.activeCounts()), { [ana.id]: 1, [bea.id]: 1 }, 'a revoked one is no longer counted');
+  now.ms += 91 * DAY;
+  assert.equal(devices.activeCounts().size, 0, 'nor one unused for longer than idleDays');
+});
+
 test('an account removed takes its devices and codes with it', (t) => {
   const { database, devices, accounts, ana, bea, connect } = setup(t);
   connect(ana);
@@ -334,6 +346,9 @@ test('module off: no routes, and nothing of it in the suite', async (t) => {
   assert.equal((await call('POST', '/api/devices/token', { code: 'x', code_verifier: 'y', redirect_uri: BACK })).status, 404);
   assert.equal((await web('GET', '/api/me/devices')).status, 404);
   assert.equal((await call('DELETE', '/api/devices/current', undefined, { Authorization: 'Bearer trackerdev_x' })).status, 404);
+  // The admin's list of accounts counts no devices where there are none to connect.
+  assert.equal((await web('GET', '/api/admin/users')).data.users.some((u) => 'devices' in u), false);
+  assert.equal((await web('GET', '/api/admin/users/1/devices')).status, 404);
 });
 
 test('a phone connects over HTTP: code from the session, token from the code, signed out with its own token', async (t) => {
@@ -456,6 +471,25 @@ test('the admin signing someone out everywhere, or setting their password, revok
   assert.ok(suite.devices.authenticate(next));
   assert.equal((await web('PATCH', `/api/admin/users/${ana.id}`, { password: 'new-password-456' })).status, 200);
   assert.equal(suite.devices.authenticate(next), null);
+});
+
+test('the admin sees how many devices each account has connected, and which, never their numbers among all', async (t) => {
+  const { suite, web } = await startApp(t, { product: DEVICES_ON });
+  const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana' });
+  const connect = (name, platform) => {
+    const pair = pkce();
+    const issued = suite.devices.issueCode(ana, { codeChallenge: pair.challenge, redirectUri: BACK, name, platform });
+    return suite.devices.exchange({ code: issued.code, verifier: pair.verifier, redirectUri: BACK, appVersion: '0.5.3' });
+  };
+  const old = connect('Old phone', 'ios');
+  connect('Pixel 8', 'android');
+  suite.devices.revoke(ana.id, old.device.id);
+
+  const { users } = (await web('GET', '/api/admin/users')).data;
+  assert.deepEqual(users.map((u) => [u.username, u.devices]), [['admin', 0], ['ana', 1]], 'the one that still works');
+  const listed = (await web('GET', `/api/admin/users/${ana.id}/devices`)).data.devices;
+  assert.deepEqual(listed.map((d) => [d.name, d.platform, d.app_version, Boolean(d.created_at)]), [['Pixel 8', 'android', '0.5.3', true]]);
+  assert.equal((await web('GET', '/api/admin/users/999/devices')).data.error, 'user_not_found');
 });
 
 test('the admin’s activity log names every device entry, in every language', () => {

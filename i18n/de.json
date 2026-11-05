@@ -327,6 +327,17 @@
   "admin.users.defaultPlan": "Zurück zum Standardtarif",
   "admin.users.signOut": "Überall abmelden",
   "admin.users.activity": "Aktivität ansehen",
+  "admin.users.devices": "Geräte",
+  "admin.users.devicesCount": {
+    "=0": "Keins verbunden",
+    "one": "Eins verbunden",
+    "other": "{n} verbunden"
+  },
+  "admin.users.devicesLead": "Die Handy- und Computer-Apps, die mit diesem Konto verbunden sind und noch funktionieren. Die Zahl nach „device“ in Aktivität bezeichnet eine Verbindung unter denen aller Konten: Sie sagt nicht, wie viele dieses hat.",
+  "admin.users.device": "Gerät",
+  "admin.users.deviceApp": "App-Version",
+  "admin.users.deviceConnected": "Verbunden",
+  "admin.users.deviceUsed": "Zuletzt benutzt",
   "admin.users.signedOut": {
     "=0": "Es gab keine offene Sitzung.",
     "one": "Eine Sitzung beendet.",

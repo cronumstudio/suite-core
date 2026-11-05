@@ -1,9 +1,9 @@
 /**
  * Finding one account in the admin panel (web/admin.js) on a fake page: Accounts narrowed as a
- * search is typed, an account's dialog opening its Activity, and Activity filtered by account, by
- * action and by days, the filters in the address and in every page asked for. The server is a
- * stand-in; the texts are the core's English catalog. A file of its own: admin.js starts the page
- * as it is imported.
+ * search is typed, how many devices each has and which, an account's dialog opening its Activity,
+ * and Activity filtered by account, by action and by days, the filters in the address and in every
+ * page asked for. The server is a stand-in; the texts are the core's English catalog. A file of its
+ * own: admin.js starts the page as it is imported.
  *
  *   npm test
  */
@@ -84,6 +84,7 @@ test('Accounts: narrowed by email, username or name as it is typed, without acce
   const rows = () => page.main().find('tbody')[0].find('tr');
   const shown = () => rows().filter((row) => !row.hidden).map((row) => row.find('small')[0].textContent);
   assert.deepEqual(shown(), ['@ada', '@ben', '@fiverr', '@eve'], 'everyone before a search');
+  assert.equal(main.find('th').some((th) => th.textContent === t('admin.users.devices')), false, 'no devices where none connect');
 
   const type = (text) => { search.value = text; search.dispatch('input'); };
   type('FIVERRTESTERS');
@@ -106,6 +107,36 @@ test('Accounts: narrowed by email, username or name as it is typed, without acce
   await page.go('#/users');
   assert.equal(page.main().find('input').find((node) => node.getAttribute('type') === 'search').value, 'fiverr');
   assert.deepEqual(shown(), ['@fiverr']);
+});
+
+test('Accounts: how many devices each account has connected, and in its dialog which, with their app and dates', async () => {
+  const page = await adminAt('#/users', {
+    'GET /api/admin/users': { users: USERS.map((u) => ({ ...u, devices: u.id === 3 ? 2 : 0 })) },
+    'GET /api/admin/users/3/devices': {
+      devices: [
+        { id: 14, name: 'Pixel 8', platform: 'android', app_version: '0.5.3', created_at: '2026-11-04T10:00:00.000Z', last_used_at: '2026-11-05T09:00:00.000Z' },
+        { id: 4, name: null, platform: 'ios', app_version: null, created_at: '2026-11-01T10:00:00.000Z', last_used_at: null },
+      ],
+    },
+  });
+  const main = page.main();
+  const heads = main.find('th').map((th) => th.textContent);
+  assert.equal(heads[heads.indexOf(t('admin.users.lastSignIn')) + 1], t('admin.users.devices'), 'after the last sign-in');
+  assert.deepEqual(main.find('td').filter((td) => td.getAttribute('data-devices')).map((td) => td.textContent), ['0', '0', '2', '0']);
+
+  main.find('tbody')[0].find('tr')[2].click();
+  await settle();
+  const dialog = document.body.find('dialog').find((d) => d.open);
+  const devices = dialog.find('details').find((d) => d.find('summary')[0].textContent.startsWith(t('admin.users.devices')));
+  assert.match(devices.find('summary')[0].textContent, new RegExp(english['admin.users.devicesCount'].other.replace('{n}', 2)));
+  assert.ok(devices.find('p').some((p) => p.textContent === t('admin.users.devicesLead')), 'what a number in Activity is, and isn’t');
+  const rows = devices.find('tbody')[0].find('tr').map((row) => row.find('td').map((td) => td.textContent));
+  assert.equal(rows[0][0], 'Pixel 8Android', 'its name, and its platform as people write it');
+  assert.equal(rows[0][1], '0.5.3');
+  assert.equal(rows[1][0], 'iOS', 'without a name, its platform');
+  assert.equal(rows[1][1], '—');
+  assert.equal(rows[1][3], t('admin.users.never'), 'not used since it connected');
+  dialog.close();
 });
 
 test('Accounts: Enter opens the one account left, and its dialog opens its activity', async () => {

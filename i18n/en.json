@@ -327,6 +327,17 @@
   "admin.users.defaultPlan": "Back to the default plan",
   "admin.users.signOut": "Sign out everywhere",
   "admin.users.activity": "See their activity",
+  "admin.users.devices": "Devices",
+  "admin.users.devicesCount": {
+    "=0": "None connected",
+    "one": "One connected",
+    "other": "{n} connected"
+  },
+  "admin.users.devicesLead": "The phone and computer apps connected to this account that still work. The number after “device” in Activity names one connection among every account’s: it doesn’t say how many this one has.",
+  "admin.users.device": "Device",
+  "admin.users.deviceApp": "App version",
+  "admin.users.deviceConnected": "Connected",
+  "admin.users.deviceUsed": "Last used",
   "admin.users.signedOut": {
     "=0": "There was no open session.",
     "one": "One session closed.",

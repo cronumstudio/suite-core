@@ -327,6 +327,17 @@
   "admin.users.defaultPlan": "Torna al piano predefinito",
   "admin.users.signOut": "Esci ovunque",
   "admin.users.activity": "Vedi la sua attività",
+  "admin.users.devices": "Dispositivi",
+  "admin.users.devicesCount": {
+    "=0": "Nessuno collegato",
+    "one": "Uno collegato",
+    "other": "{n} collegati"
+  },
+  "admin.users.devicesLead": "Le app per telefono e computer collegate a questo account che funzionano ancora. Il numero dopo “device” in Attività indica un collegamento tra quelli di tutti gli account: non dice quanti ne ha questo.",
+  "admin.users.device": "Dispositivo",
+  "admin.users.deviceApp": "Versione dell’app",
+  "admin.users.deviceConnected": "Collegato",
+  "admin.users.deviceUsed": "Ultimo uso",
   "admin.users.signedOut": {
     "=0": "Non c’era nessuna sessione aperta.",
     "one": "Una sessione chiusa.",

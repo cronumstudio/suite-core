@@ -376,6 +376,11 @@ export function createDevices({
     WHERE user_id = ? AND revoked_at IS NULL AND COALESCE(last_used_at, created_at) > ?
     ORDER BY COALESCE(last_used_at, created_at) DESC, id DESC`, userId, iso(clock() - idleMs)).map(view);
 
+  /** How many devices still work, by account id: the admin's list of accounts says each one's at a look. */
+  const activeCounts = () => new Map(database.all(`SELECT user_id, COUNT(*) AS n FROM device_tokens
+    WHERE revoked_at IS NULL AND COALESCE(last_used_at, created_at) > ? GROUP BY user_id`, iso(clock() - idleMs))
+    .map((row) => [row.user_id, Number(row.n)]));
+
   /**
    * Revokes one of a person's devices, and the sessions it opened on the web
    * with it. False if it isn't theirs or no longer works.
@@ -474,7 +479,7 @@ export function createDevices({
   }
 
   return {
-    prefix, idleDays, maxPerUser, issueCode, exchange, authenticate, isActive, list, revoke, revokeAllOf, purge,
+    prefix, idleDays, maxPerUser, issueCode, exchange, authenticate, isActive, list, activeCounts, revoke, revokeAllOf, purge,
     issueWebCode, takeWebCode, sessionAlive,
   };
 }

@@ -327,6 +327,17 @@
   "admin.users.defaultPlan": "Volver al plan por defecto",
   "admin.users.signOut": "Cerrar sus sesiones",
   "admin.users.activity": "Ver su actividad",
+  "admin.users.devices": "Dispositivos",
+  "admin.users.devicesCount": {
+    "=0": "Ninguno conectado",
+    "one": "Uno conectado",
+    "other": "{n} conectados"
+  },
+  "admin.users.devicesLead": "Las apps de móvil u ordenador conectadas a esta cuenta que siguen funcionando. El número que sigue a «device» en Actividad identifica una conexión entre todas las cuentas: no dice cuántas tiene esta.",
+  "admin.users.device": "Dispositivo",
+  "admin.users.deviceApp": "Versión de la app",
+  "admin.users.deviceConnected": "Conectado",
+  "admin.users.deviceUsed": "Último uso",
   "admin.users.signedOut": {
     "=0": "No había ninguna sesión abierta.",
     "one": "Una sesión cerrada.",

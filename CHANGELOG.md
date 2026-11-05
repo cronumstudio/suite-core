@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.235.0 — 2026-11-05
+
+**Admin › Accounts says how many devices each account has connected, and its dialog which**
+(Martin, 5/11: in Activity, «device 4» to «device 14» for the testers' shared account read as 14
+phones, while that number is the connection's id among every account's). With `modules.devices`,
+Accounts has a Devices column, after the last sign-in: the ones that still work, not revoked nor
+unused for longer than `idleDays` (`devices.activeCounts()`, one query for every account, and
+`devices` on each account of `GET /api/admin/users`). An account's dialog has a Devices fold: each
+one's name and platform, its app's version, when it connected and when it was last used, last used
+first (`GET /api/admin/users/:id/devices`, `devices.list()`), with a line that says the number in
+Activity names a connection and doesn't count them. It is drawn again after «Sign out
+everywhere», which takes the phones too. Without the module there is no column, no fold and no route.
+In the five languages.
+
 ## 0.233.1 — 2026-11-05
 
 **A sign-in through WorkOS or OIDC is in the log with the address it came from** (Martin, 5/11).
