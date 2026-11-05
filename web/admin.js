@@ -12,7 +12,8 @@ import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
 const root = $('#admin');
-const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false };
+// `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
+const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, usersQuery: '' };
 
 const TABS = [
   ['users', 'admin.tabs.users'],
@@ -76,6 +77,14 @@ const planParts = (user) => {
 };
 /** A date input's day as the end of that day, in ISO. */
 const endOfDay = (day) => (day ? new Date(`${day}T23:59:59`).toISOString() : null);
+/** Text as a search compares it: no capitals, no accents ("José" is found as "jose"). */
+const folded = (text) => String(text || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+/** What a search finds an account by: its email, its username and its name. */
+const accountText = (user) => folded([user.email, user.username, user.display_name].join(' '));
+/** Whether every word of a search is in a text that `folded` made. */
+const hasWords = (text, query) => folded(query).split(/\s+/).filter(Boolean).every((word) => text.includes(word));
+/** The filters a tab's address carries after its name (`#/audit?actor=12`): what a link opens it with. */
+const hashQuery = () => new URLSearchParams(window.location.hash.split('?')[1] || '');
 
 function fail(err) {
   if (err instanceof SessionExpired) {
@@ -184,33 +193,70 @@ function show() {
 
 async function renderUsers(main) {
   const { users } = await api.get('/api/admin/users');
+  // Narrowed as it is typed, by email, username or name; Enter opens the one account left.
+  const search = el('input', {
+    type: 'search', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false',
+    placeholder: t('admin.users.searchHint'), value: state.usersQuery,
+  });
+  const noMatch = el('p', { class: 'kit-empty', hidden: true });
+  const rows = users.map((user) => ({ user, text: accountText(user), row: userRow(user) }));
+  const narrow = () => {
+    state.usersQuery = search.value;
+    const shown = rows.filter(({ text, row }) => {
+      row.hidden = !hasWords(text, search.value);
+      return !row.hidden;
+    });
+    noMatch.hidden = shown.length > 0;
+    noMatch.textContent = shown.length ? '' : t('admin.users.noMatch', { query: search.value.trim() });
+    return shown;
+  };
+  search.addEventListener('input', narrow);
+  search.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    // Kept, or the same Enter presses the dialog's first button (its ×) once it has the focus.
+    ev.preventDefault();
+    const shown = narrow();
+    if (shown.length === 1) userDialog(shown[0].user);
+  });
   main.append(
     el('h2', { text: t('admin.users.title') }),
     el('p', { class: 'kit-lead', text: local() ? t('admin.users.leadLocal') : t('admin.users.leadIdp', { provider: state.config.name }) }),
     el('div', { class: 'kit-toolbar' },
+      field(t('admin.users.search'), search),
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: newUserDialog })),
     table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'), t('admin.users.usage')],
-      users.map((user) => el('tr', { 'data-open': true, tabindex: '0', onClick: () => userDialog(user), onKeydown: (ev) => { if (ev.key === 'Enter') userDialog(user); } },
-        el('td', {},
-          el('strong', { text: user.display_name }),
-          el('small', { text: `@${user.username}` }),
-          // Its owner asked to delete it: the day it goes. Enabling it takes the deletion back.
-          user.delete_after
-            ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.deletingBadge', { date: formatDate(user.delete_after) }) })
-            : user.disabled ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.disabledBadge') }) : null),
-        el('td', {},
-          user.email ? el('span', { text: user.email }) : el('span', { class: 'kit-hint', text: '—' }),
-          user.email && !user.email_verified ? el('small', { text: t('admin.users.unconfirmed') }) : null),
-        el('td', {}, el('span', { class: `kit-badge${user.role === 'admin' ? ' kit-badge--accent' : ''}`, text: t(`admin.roles.${user.role}`) })),
-        el('td', {}, ...planParts(user)),
-        el('td', { text: user.last_login_at ? formatDateTime(user.last_login_at) : t('admin.users.never') }),
-        el('td', { class: 'kit-usage-cell', 'data-usage': user.id }, el('span', { class: 'kit-hint', text: '…' })))),
-    ),
+      rows.map(({ row }) => row)),
+    noMatch,
   );
+  if (search.value) narrow();
   paintPeaks(main).catch(() => {
     // An app on its own has no Usage (a host's, usage.js): the column goes.
     for (const cell of [...[...main.querySelectorAll('th')].slice(-1), ...main.querySelectorAll('[data-usage]')]) cell.remove();
   });
+}
+
+/** An account's line in Accounts; it opens the account, with Enter too (kept, like the search's). */
+function userRow(user) {
+  const open = (ev) => {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    userDialog(user);
+  };
+  return el('tr', { 'data-open': true, tabindex: '0', onClick: () => userDialog(user), onKeydown: open },
+    el('td', {},
+      el('strong', { text: user.display_name }),
+      el('small', { text: `@${user.username}` }),
+      // Its owner asked to delete it: the day it goes. Enabling it takes the deletion back.
+      user.delete_after
+        ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.deletingBadge', { date: formatDate(user.delete_after) }) })
+        : user.disabled ? el('span', { class: 'kit-badge kit-badge--danger', text: t('admin.users.disabledBadge') }) : null),
+    el('td', {},
+      user.email ? el('span', { text: user.email }) : el('span', { class: 'kit-hint', text: '—' }),
+      user.email && !user.email_verified ? el('small', { text: t('admin.users.unconfirmed') }) : null),
+    el('td', {}, el('span', { class: `kit-badge${user.role === 'admin' ? ' kit-badge--accent' : ''}`, text: t(`admin.roles.${user.role}`) })),
+    el('td', {}, ...planParts(user)),
+    el('td', { text: user.last_login_at ? formatDateTime(user.last_login_at) : t('admin.users.never') }),
+    el('td', { class: 'kit-usage-cell', 'data-usage': user.id }, el('span', { class: 'kit-hint', text: '…' })));
 }
 
 /** Each account's nearest cap, in the list's last column, once they are counted. */
@@ -456,6 +502,11 @@ function userDialog(user) {
     twoFactorBox,
     local() && user.two_factor ? el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLead')}` }) : null,
     el('div', { class: 'kit-row' },
+      // What they did, in Activity: the address opens it with them chosen.
+      el('a', {
+        class: 'kit-btn kit-btn--small', href: `#/audit?actor=${user.id}`, text: t('admin.users.activity'),
+        onClick: () => dialog.close(),
+      }),
       local() && user.two_factor ? el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.twoFactorOff'),
         onClick: async () => {
@@ -1014,27 +1065,97 @@ function paintDone(box, done) {
 
 /* ---------------------------------- audit ---------------------------------- */
 
+/** A family of actions in words (`device`: "Devices"), or its name when there are none for it. */
+const kindText = (kind) => {
+  const key = `admin.audit.kinds.${kind}`;
+  const text = t(key);
+  return text === key ? kind : text;
+};
+/** An account as Activity's search names it: by its email, or by @username without one. */
+const accountName = (user) => user.email || `@${user.username}`;
+
+/**
+ * The log, newest first, 50 at a time: of one account (its email or username typed, or its name
+ * in a row pressed), of a family of actions or one of them, and between two days. The address
+ * keeps the filters (`#/audit?actor=12&action=device.create&since=2026-11-01`): an account's
+ * dialog opens Activity that way, and a reload leaves them as they were.
+ */
 async function renderAudit(main) {
-  const prefixes = ['', 'auth.', 'account.', 'admin.', 'token.', 'oauth.', 'mcp.', 'org.', 'billing.', 'data.'];
-  const filter = el('select', {}, prefixes.map((p) => el('option', { value: p, text: p ? t(`admin.audit.kinds.${p.slice(0, -1)}`) : t('admin.audit.all') })));
+  const asked = hashQuery();
+  // What there is to show: each family of the actions the log holds, and each action in it.
+  const actions = (await api.get('/api/admin/audit/actions').catch(() => null))?.actions || [];
+  const families = new Map();
+  for (const action of actions) {
+    const family = action.split('.')[0];
+    if (!families.has(family)) families.set(family, []);
+    families.get(family).push(action);
+  }
+  const kind = el('select', {},
+    el('option', { value: '', text: t('admin.audit.all') }),
+    [...families].map(([family, names]) => el('optgroup', { label: kindText(family) },
+      el('option', { value: `${family}.`, text: t('admin.audit.allOf', { kind: kindText(family) }) }),
+      names.map((name) => el('option', { value: name, text: actionText(name) })))));
+  kind.value = asked.get('action') || '';
+  const who = el('input', {
+    type: 'search', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false',
+    list: 'admin-audit-accounts', placeholder: t('admin.audit.accountHint'),
+  });
+  const suggestions = el('datalist', { id: 'admin-audit-accounts' });
+  const whoSaid = el('p', { class: 'kit-hint', 'aria-live': 'polite', hidden: true });
+  const since = el('input', { type: 'date', value: asked.get('since') });
+  const until = el('input', { type: 'date', value: asked.get('until') });
+  const reset = el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.audit.clear') });
   const body = el('tbody', {});
   const more = el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.audit.more') });
+  const askedActor = Number(asked.get('actor'));
+  let actor = Number.isInteger(askedActor) && askedActor > 0 ? askedActor : null;
+  let accounts = [];
   let before = null;
+  let asking = 0;
 
-  const load = async (reset) => {
-    if (reset) { clear(body); before = null; }
+  /** The filters as the address writes them. */
+  const filters = () => {
+    const query = new URLSearchParams();
+    if (actor) query.set('actor', String(actor));
+    if (kind.value) query.set('action', kind.value);
+    if (since.value) query.set('since', since.value);
+    if (until.value) query.set('until', until.value);
+    return query;
+  };
+
+  const load = async (fresh) => {
+    const ask = ++asking;
     const query = new URLSearchParams({ limit: '50' });
-    if (filter.value) query.set('action', filter.value);
-    if (before) query.set('before', String(before));
+    if (actor) query.set('actor', String(actor));
+    // A family ends in a dot (`device.`); anything else is that action alone.
+    if (kind.value) query.set('action', kind.value);
+    if (kind.value && !kind.value.endsWith('.')) query.set('exact', '1');
+    // The days as this browser lives them: from the first moment of one to the last of the other.
+    if (since.value) query.set('since', new Date(`${since.value}T00:00:00`).toISOString());
+    if (until.value) query.set('until', new Date(`${until.value}T23:59:59.999`).toISOString());
+    if (!fresh && before) query.set('before', String(before));
     const { entries } = await api.get(`/api/admin/audit?${query}`);
+    // Another filter was chosen meanwhile: its answer is the one to draw.
+    if (ask !== asking) return;
+    if (fresh) { clear(body); before = null; }
     for (const e of entries) {
       // The assistant someone acted through goes with them, not among the details.
       const { via, ...rest } = e.meta || {};
       const meta = Object.entries(rest).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ');
-      const who = e.actor_username ? `@${e.actor_username}` : '—';
+      const name = e.actor_username ? `@${e.actor_username}` : '—';
+      const whoText = via ? t('admin.audit.via', { who: name, via }) : name;
+      // Their name shows only what they did.
+      const byThem = e.actor_user_id && e.actor_user_id !== actor ? el('button', {
+        type: 'button', class: 'kit-link', title: t('admin.audit.onlyThem'), text: whoText,
+        onClick: () => {
+          const account = accounts.find((u) => u.id === e.actor_user_id);
+          who.value = account ? accountName(account) : name;
+          choose(e.actor_user_id);
+        },
+      }) : null;
       body.append(el('tr', {},
         el('td', { text: formatDateTime(e.at, { dateStyle: 'short', timeStyle: 'medium' }) }),
-        el('td', { text: via ? t('admin.audit.via', { who, via }) : who }),
+        byThem ? el('td', {}, byThem) : el('td', { text: whoText }),
         el('td', {}, el('span', { text: actionText(e.action) }), el('small', { class: 'kit-mono', text: e.action })),
         el('td', { text: e.target_type ? `${e.target_type} ${e.target_id ?? ''}`.trim() : '' }),
         el('td', { class: 'kit-mono', text: e.ip || '' }),
@@ -1042,15 +1163,80 @@ async function renderAudit(main) {
     }
     if (entries.length) before = entries.at(-1).id;
     more.hidden = entries.length < 50;
-    if (!body.childElementCount) body.append(el('tr', {}, el('td', { colspan: '6', class: 'kit-empty', text: t('admin.audit.none') })));
+    if (!body.childElementCount) {
+      body.append(el('tr', {}, el('td', { colspan: '6', class: 'kit-empty', text: t(filters().toString() ? 'admin.audit.noneFiltered' : 'admin.audit.none') })));
+    }
   };
-  filter.addEventListener('change', () => load(true).catch(fail));
+
+  /** The address with the filters, the list again from the newest, and a way to take them off. */
+  const changed = () => {
+    const query = filters().toString();
+    window.history?.replaceState(null, '', `#/audit${query ? `?${query}` : ''}`);
+    reset.hidden = !query;
+    load(true).catch(fail);
+  };
+  /** Whose activity it is, and what the typed text found when it wasn't one account. */
+  const paintWho = (found = null) => {
+    const account = actor ? accounts.find((u) => u.id === actor) : null;
+    const typed = who.value.trim();
+    const text = [
+      found === 0 ? t('admin.audit.noAccount', { query: typed }) : found > 1 ? t('admin.audit.manyAccounts', { n: found }) : '',
+      actor ? t('admin.audit.onlyOf', { name: account ? `${account.display_name} (@${account.username})` : `#${actor}` }) : '',
+    ].filter(Boolean).join(' ');
+    whoSaid.textContent = text;
+    whoSaid.hidden = !text;
+  };
+  const choose = (id) => {
+    if (id === actor) return paintWho();
+    actor = id;
+    paintWho();
+    return changed();
+  };
+  /** The account a text names: the one whose email or username it is, else the only one it is part of. */
+  const chooseFrom = (text) => {
+    const query = folded(text.trim().replace(/^@/, ''));
+    if (!query) return choose(null);
+    const exact = accounts.filter((u) => folded(u.email) === query || folded(u.username) === query);
+    const found = exact.length ? exact : accounts.filter((u) => hasWords(accountText(u), query));
+    return found.length === 1 ? choose(found[0].id) : paintWho(found.length);
+  };
+  let typing = null;
+  who.addEventListener('input', () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => chooseFrom(who.value), 300);
+  });
+  who.addEventListener('change', () => {
+    clearTimeout(typing);
+    chooseFrom(who.value);
+  });
+  for (const control of [kind, since, until]) control.addEventListener('change', changed);
+  reset.addEventListener('click', () => {
+    actor = null;
+    for (const control of [who, kind, since, until]) control.value = '';
+    paintWho();
+    changed();
+  });
+  reset.hidden = !filters().toString();
   more.addEventListener('click', () => load(false).catch(fail));
+  // The accounts to type, when they come; the list doesn't wait for them.
+  api.get('/api/admin/users').then(({ users }) => {
+    accounts = users;
+    append(clear(suggestions), users.map((u) => el('option', { value: accountName(u), label: `${u.display_name} (@${u.username})` })));
+    const chosen = accounts.find((u) => u.id === actor);
+    if (chosen && !who.value) who.value = accountName(chosen);
+    paintWho();
+  }).catch(() => paintWho()); // typed, nobody is found; a name in a row still shows their activity
 
   main.append(
     el('h2', { text: t('admin.audit.title') }),
     el('p', { class: 'kit-lead', text: t('admin.audit.lead') }),
-    el('div', { class: 'kit-toolbar' }, field(t('admin.audit.show'), filter)),
+    el('div', { class: 'kit-toolbar' },
+      field(t('admin.audit.account'), who), suggestions,
+      field(t('admin.audit.show'), kind),
+      field(t('admin.audit.since'), since),
+      field(t('admin.audit.until'), until),
+      reset),
+    whoSaid,
     el('div', { class: 'kit-table-wrap' }, el('table', { class: 'kit-table' },
       el('thead', {}, el('tr', {}, [t('admin.audit.when'), t('admin.audit.who'), t('admin.audit.what'), t('admin.audit.on'), t('admin.audit.from'), t('admin.audit.details')]
         .map((h) => el('th', { text: h })))),
