@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.237.0 — 2026-11-05
+
+**Signing in with WorkOS or OpenID Connect goes straight to the provider's page** (Martin, 5/11,
+from a Work user: the app's card with one button, then the provider's page of another colour, read
+as one redirection too many). With nothing to say first, `signIn()` sends the page to
+`/auth/login` (with `return=` as the button did) in place of the card, so Back from the provider's
+page doesn't land on it. The card still comes up after a failed return (`auth_error`), with the
+notice of an account just deleted, back from signing out here (`leave()` marks the tab with
+`suite.signedOut`), in a frame, inside the suite's app (its button hands off to the phone's
+browser) and a second time within a minute in the same tab, so a session that never takes or Back
+from the provider ends on the card instead of going round in circles (`straightToProvider()`).
+Without sessionStorage, the card as before. And the card's button says «Sign in» with WorkOS, not
+«Sign in with WorkOS», a name people don't know; an OpenID Connect provider keeps its name.
+
 ## 0.236.0 — 2026-11-05
 
 **In the suite's app, Settings › Notifications says when notifications are turned off** (Martin,
