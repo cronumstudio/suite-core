@@ -1038,6 +1038,8 @@ export async function createHost({
     links: Object.fromEntries(Object.entries(m.parts.cards || {}).map(([type, card]) => [type, { creates: typeof card.create === 'function' }])),
     // Its sections of Settings, for every other module's Settings to list them (settings.js).
     settings: moduleSettings(m.parts.settings, { data: Boolean(m.parts.portable) }),
+    // What it gives the daily summary (day.js): Settings › Daily summary offers it in those notices.
+    ...(day ? { day: ['agenda', 'done'].filter((part) => typeof m.parts.day?.[part] === 'function') } : {}),
   }));
 
   /**

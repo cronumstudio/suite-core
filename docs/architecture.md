@@ -2167,14 +2167,22 @@ of what is open, the latest of what was done) and each thing once.
   throws, or gives no list, is logged and named in `failed`, never a 500. The page may be framed by
   the host's own pages (`pages`), as the calendar's.
 - **Each person's two notices** are a preference of the host's own, `prefs.day = { morning: { on,
-  at }, evening: { on, at } }`, `at` HH:MM in steps of five minutes: on at 08:00 and at 19:00 when
-  nothing is stored, and the morning off for whoever had turned off Projects' summary of due dates
+  at, modules }, evening: { on, at, modules } }`, `at` HH:MM in steps of five minutes and `modules`
+  the modules taken out of that notice (`{ notes: false }`; v0.232.0), every other one being in it,
+  one mounted later too: on at 08:00 and at 19:00 with every module when nothing is stored, and the morning off for whoever had turned off Projects' summary of due dates
   (`prefs.notices.due === false`), read so and never migrated. The host's `/api/me` has them with
   the modules' preferences (`DAY_PREFS`, prefs.js): `PATCH /api/me { prefs: { day: { evening: {
   at: '20:30' } } } }` changes what it says and leaves the rest; a notice, switch or time that isn't
   one is a 400 `field_invalid` naming `day`. A module's `/api/me` keeps only its own keys, so
-  Settings saves them at the root. Settings has their section, «Daily summary», in the host's group
-  (`kit.day.*`): each notice's switch and time, and a link to its page, for a host with push.
+  Settings saves them at the root. A module taken out of a notice is left out of its part of the
+  page too (`agenda` for the morning, `done` for the evening: `DAY_PARTS`), and only of that part;
+  `PATCH { prefs: { day: { morning: { modules: { notes: false } } } } }` changes that module alone,
+  `true` bringing it back. `/api/modules` says what each module gives the summary (`day: ['agenda',
+  'done']`, a host with `day` only). Settings has their section, «Daily summary», in the host's group
+  (`kit.day.*`): each notice's switch and time, a switch for each module in use that gives that
+  notice something (when there are two or more), and a button to its page, for a host with push. A
+  module with nothing for a part leaves that function out of its `day` (Next and Notes have no
+  `agenda`), so it isn't offered there.
 - **The notices**, with push, are checked every minute: for each person with a device
   (`push.subscriptionsOf`, phones with the app included), a notice is due from its time until three
   hours after it on their day in their zone (`prefs.tz`), never past their midnight. It is claimed

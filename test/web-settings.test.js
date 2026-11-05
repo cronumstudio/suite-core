@@ -361,7 +361,7 @@ test('in a host with a daily summary, Settings has its two notices, each with it
       [[t('kit.day.morning'), 'false'], [t('kit.day.evening'), 'true']], 'as the host keeps them');
     const times = root.all().filter((node) => node.tagName === 'INPUT' && node.getAttribute('type') === 'time');
     assert.deepEqual(times.map((node) => [node.value, node.getAttribute('step')]), [['08:00', '300'], ['19:00', '300']]);
-    const links = root.all().filter((node) => node.tagName === 'A' && node.className === 'kit-link');
+    const links = root.all().filter((node) => node.tagName === 'A' && node.className.includes('kit-day__see'));
     assert.deepEqual(links.map((node) => [node.textContent, node.getAttribute('href')]), [
       [t('kit.day.seeToday'), '/?open=%2Ftoday%2F'],
       [t('kit.day.seeDone'), '/?open=%2Ftoday%2F%3Fv%3Ddone'],
@@ -386,6 +386,52 @@ test('in a host with a daily summary, Settings has its two notices, each with it
     const source = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
     assert.match(source, /keep\('PATCH', '\/api\/me', \{ prefs: \{ day: \{ \[kind\]: change \} \} \}, \{ root: true \}\)/);
     assert.match(source, /api\.request\('GET', '\/api\/me', undefined, \{ root: true \}\)/);
+  } finally {
+    document.body.all().filter((node) => node.className === 'kit-settings-page').forEach((node) => node.remove());
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
+test('each notice of the daily summary has a switch for each module that gives it something, saved one at a time', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const realFetch = globalThis.fetch;
+  const module = (mount, name, day) => ({ mount, path: `/${mount}/`, name, icon: `/${mount}/icons/favicon.svg`, active: true, day, settings: { sections: [], data: false, ai: false, about: false } });
+  const modules = [module('tasks', 'Tasks', ['agenda', 'done']), module('projects', 'Projects', ['agenda', 'done']), module('notes', 'Notes', ['done']),
+    { ...module('next', 'Next', ['done']), active: false }];
+  const sent = [];
+  globalThis.fetch = async (path, { method = 'GET', body } = {}) => {
+    if (method !== 'GET') sent.push({ method, path, body: JSON.parse(body) });
+    const day = { morning: { on: true, at: '08:00', modules: {} }, evening: { on: true, at: '19:00', modules: { notes: false } } };
+    const data = path === '/api/modules' ? { host: { name: 'Cronum Work', shell: true, day: '/today/' }, modules }
+      : path === '/api/me' ? { user: { username: 'ada', prefs: { day } } } : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, headers: { get: () => null }, json: async () => data, text: async () => JSON.stringify(data) };
+  };
+  globalThis.window = { location: { origin: 'https://work.example', assign: () => {} } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  try {
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg' }, user: { username: 'ada', role: 'user' }, root, start: 'day',
+      config: { app: { modules: { mcp: false }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: true, plans: false, day: '/today/' } } },
+    });
+    await settle();
+    const groups = root.all().filter((node) => node.className === 'kit-day__modules');
+    const states = groups.map((group) => group.all().filter((node) => node.className === 'kit-switch')
+      .map((node) => `${node.getAttribute('aria-label')}:${node.getAttribute('aria-checked')}`));
+    assert.deepEqual(states, [['Tasks:true', 'Projects:true'], ['Tasks:true', 'Projects:true', 'Notes:false']],
+      'the morning\'s from what has something open, the evening\'s from what has something done; a module not in use isn\'t offered');
+    assert.deepEqual(groups.map((group) => group.getAttribute('aria-label')), [t('kit.day.includes'), t('kit.day.includes')]);
+    const projects = groups[0].all().filter((node) => node.className === 'kit-switch')[1];
+    projects.dispatch('click', {});
+    await settle();
+    assert.deepEqual(sent, [{ method: 'PATCH', path: '/api/me', body: { prefs: { day: { morning: { modules: { projects: false } } } } } }],
+      'that module alone, in that notice alone');
+    assert.equal(projects.getAttribute('aria-checked'), 'false');
   } finally {
     document.body.all().filter((node) => node.className === 'kit-settings-page').forEach((node) => node.remove());
     globalThis.fetch = realFetch;

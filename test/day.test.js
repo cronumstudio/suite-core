@@ -176,11 +176,11 @@ test('one module that fails is left out and named, and the others still answer',
 
 test('the two notices as preferences: on at 08:00 and 19:00, the morning off for whoever had turned off Projects\' summary', () => {
   const prefs = definePrefs(combinePrefs([DAY_PREFS]), { languages: ['en', 'es'] });
-  const defaults = { morning: { on: true, at: '08:00' }, evening: { on: true, at: '19:00' } };
+  const defaults = { morning: { on: true, at: '08:00', modules: {} }, evening: { on: true, at: '19:00', modules: {} } };
   assert.deepEqual(prefs.view({ prefs: '{}' }).day, defaults);
   assert.deepEqual(prefs.defaults.day, defaults);
   assert.deepEqual(dayPrefsOf('{"notices":{"due":false,"assigned":true}}'),
-    { morning: { on: false, at: '08:00' }, evening: { on: true, at: '19:00' } }, 'notices.due === false: the morning starts off');
+    { morning: { on: false, at: '08:00', modules: {} }, evening: { on: true, at: '19:00', modules: {} } }, 'notices.due === false: the morning starts off');
   assert.deepEqual(dayPrefsOf('{"notices":{"due":true}}').morning.on, true);
   assert.deepEqual(dayPrefsOf({ notices: { due: false }, day: { morning: { on: true } } }).morning.on, true, 'what they chose since wins');
   assert.deepEqual(dayPrefsOf({ day: { morning: { at: '07:03' }, evening: 'x' } }), defaults, 'what isn\'t one is the default');
@@ -191,15 +191,47 @@ test('a change to one notice leaves the rest as it was, and what isn\'t one is r
   const prefs = definePrefs(combinePrefs([{ defaults: { notices: { due: true } } }, DAY_PREFS]), { languages: ['en', 'es'] });
   const stored = JSON.stringify({ notices: { due: false }, theirs: 7, lang: 'es' });
   const once = JSON.parse(prefs.next(stored, { day: { evening: { at: '20:30' } } }));
-  assert.deepEqual(once.day, { morning: { on: false, at: '08:00' }, evening: { on: true, at: '20:30' } });
+  assert.deepEqual(once.day, { morning: { on: false, at: '08:00', modules: {} }, evening: { on: true, at: '20:30', modules: {} } });
   assert.equal(once.theirs, 7, 'another module\'s key stays');
   assert.deepEqual(once.notices, { due: false });
   const twice = JSON.parse(prefs.next(JSON.stringify(once), { day: { morning: { on: true } } }));
-  assert.deepEqual(twice.day, { morning: { on: true, at: '08:00' }, evening: { on: true, at: '20:30' } });
+  assert.deepEqual(twice.day, { morning: { on: true, at: '08:00', modules: {} }, evening: { on: true, at: '20:30', modules: {} } });
   assert.deepEqual(JSON.parse(prefs.next(JSON.stringify(twice), { lang: 'en' })).day, twice.day, 'a change of something else keeps them');
   for (const day of [{ noon: { on: true } }, { morning: { on: 'yes' } }, { evening: { at: '20:31' } }, { evening: { at: '24:00' } }, { evening: 'off' }, 'off', null]) {
     assert.throws(() => prefs.next(stored, { day }), (err) => err instanceof HttpError && err.code === 'field_invalid' && err.extra?.field === 'day', JSON.stringify(day));
   }
+});
+
+test('a notice can leave modules out: each one\'s switch alone, true bringing it back', () => {
+  const prefs = definePrefs(combinePrefs([DAY_PREFS]), { languages: ['en', 'es'] });
+  const off = JSON.parse(prefs.next('{}', { day: { morning: { modules: { notes: false, next: false } } } }));
+  assert.deepEqual(off.day.morning, { on: true, at: '08:00', modules: { notes: false, next: false } });
+  assert.deepEqual(off.day.evening.modules, {}, 'the other notice keeps every module');
+  const back = JSON.parse(prefs.next(JSON.stringify(off), { day: { morning: { modules: { next: true } } } }));
+  assert.deepEqual(back.day.morning.modules, { notes: false }, 'only that one comes back');
+  assert.deepEqual(dayPrefsOf({ day: { evening: { modules: { tasks: true, Bad: false, notes: false, x: 'no' } } } }).evening.modules,
+    { notes: false }, 'what is kept is only who is left out, and only mounts');
+  for (const day of [{ morning: { modules: ['notes'] } }, { morning: { modules: { notes: 'off' } } }, { morning: { modules: { 'Not a mount': false } } }]) {
+    assert.throws(() => prefs.next('{}', { day }), (err) => err instanceof HttpError && err.code === 'field_invalid' && err.extra?.field === 'day', JSON.stringify(day));
+  }
+});
+
+test('a module left out of a notice is left out of its part of the page too, and only of that part', async () => {
+  const asked = [];
+  const tasks = moduleOf('tasks', 'Tasks', {
+    agenda: () => { asked.push('tasks agenda'); return [{ type: 'task', id: 1, title: 'Pay rent', date: '2026-11-04', url: '?task=1' }]; },
+    done: () => { asked.push('tasks done'); return [{ type: 'task', id: 2, title: 'Buy bread', at: '2026-11-04T08:00:00Z', url: '?task=2', kind: 'completed' }]; },
+  });
+  const notes = moduleOf('notes', 'Notes', {
+    done: () => { asked.push('notes done'); return [{ type: 'note', id: 3, title: 'Minutes', at: '2026-11-04T09:00:00Z', url: '#/n/3', kind: 'written' }]; },
+  });
+  const day = createDay({ modules: () => [tasks, notes] });
+  const user = { id: 1, prefs: JSON.stringify({ tz: 'Europe/Madrid', day: { morning: { modules: { tasks: false } }, evening: { modules: { notes: false } } } }) };
+  const answer = await day.summary(user, { date: '2026-11-04' });
+  assert.deepEqual(asked, ['tasks done'], 'Tasks only for the evening, Notes for neither');
+  assert.deepEqual(answer.today, [], 'Tasks out of the morning');
+  assert.deepEqual(answer.done.map((item) => item.title), ['Buy bread'], 'Notes out of the evening, Tasks still in it');
+  assert.deepEqual(answer.modules.map((m) => m.mount), ['tasks', 'notes'], 'the page still knows both, to draw them');
 });
 
 /* ------------------------------- the texts ------------------------------- */
