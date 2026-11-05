@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.232.1 — 2026-11-05
+
+**The share dialog says an address with no account is invited too** (Martin, 5/11). Since 0.215.0
+an email with no account gets an invitation to create one, with the offer waiting under the address
+(`stranger-invites.js`), but `kit.share.emailHint` still said "If that email has an account, they'll
+get the invitation". Now, in the five languages: "If they don't have an account yet, they'll get an
+email to create one, and the invitation will be waiting." It still says nothing about whether this
+address has one.
+
 ## 0.232.0 — 2026-11-05
 
 **Settings › Daily summary: choose the modules of each notice, and a section that sits right on a

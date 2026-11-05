@@ -1283,7 +1283,7 @@
   "kit.share.withAccess": "Qui y a accès",
   "kit.share.email": "Son e-mail",
   "kit.share.emailPlaceholder": "nom@exemple.com",
-  "kit.share.emailHint": "Si cet e-mail a un compte, la personne recevra l’invitation.",
+  "kit.share.emailHint": "Si la personne n’a pas encore de compte, elle recevra un e-mail pour en créer un, et l’invitation l’attendra.",
   "kit.share.invite": "Inviter",
   "kit.share.edit": "Peut modifier",
   "kit.share.view": "Lecture seule",
