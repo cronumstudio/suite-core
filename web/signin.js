@@ -7,7 +7,8 @@
  *   app when the account has a second step; a forgotten password (when the
  *   install sends mail), the link's new password (/?reset=…), an invitation's
  *   sign-up (/?signup=…) or open sign-up where the install allows it;
- * - WorkOS or OpenID Connect: the provider's page, from a button;
+ * - WorkOS or OpenID Connect: the provider's page, at once when there is
+ *   nothing to say first (`straightToProvider`), else from a button;
  * - an account its owner asked to delete, signed in to before it goes: the
  *   offer to take it back (`deletion_pending` from the password, or
  *   `/?account_deletion=…` from the provider's page).
@@ -48,6 +49,34 @@ function farewell() {
   return el('div', { class: 'kit-signin__notice', role: 'status' },
     el('strong', { text: date ? t('kit.signin.deleted.title', { date }) : t('kit.signin.deletion.titleSoon') }),
     el('p', { text: t('kit.signin.deleted.text') }));
+}
+
+const SIGNED_OUT = 'suite.signedOut';
+const STRAIGHT = 'suite.signInStraight';
+
+/**
+ * Whether the provider's sign-in can open at once, without this site's card and its button first
+ * (Martin, 5/11: a card of the app, then the provider's page of another colour, read as one
+ * redirection too many). Not in a frame (the host's split view signs the whole window in), not
+ * inside the suite's app (its button hands off to the phone's browser), not just after signing out
+ * here (`leave` leaves a mark: whoever left sees the card, not the provider's page), and not twice
+ * in a minute in this tab, so a session that never takes (cookies blocked) or Back from the
+ * provider's page ends on the card instead of going round in circles. Without sessionStorage
+ * (private mode), the card, as before.
+ */
+export function straightToProvider({ storage = globalThis.sessionStorage, now = Date.now(), framed = FRAMED, app = inApp() } = {}) {
+  if (framed || app) return false;
+  try {
+    if (storage.getItem(SIGNED_OUT)) {
+      storage.removeItem(SIGNED_OUT);
+      return false;
+    }
+    if (now - (Number(storage.getItem(STRAIGHT)) || 0) < 60_000) return false;
+    storage.setItem(STRAIGHT, String(now));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** A failed return from the provider (`?auth_error=…`), read once and taken away. */
@@ -119,11 +148,16 @@ export async function signIn({ app, config = null, root = document.body }) {
 
     // Said on the first card only: going back to it later, it is old news.
     let goodbye = farewell();
+    // Only the first card may be skipped: a later one is someone coming back to it.
+    let first = true;
     function main(message = '') {
       const notice = goodbye;
       goodbye = null;
+      const skippable = first && !message && !notice;
+      first = false;
       if (!local) {
-        const name = settings.name || '';
+        // WorkOS is who signs people in, not a name they know: its button just says "Sign in".
+        const name = settings.provider === 'workos' ? '' : settings.name || '';
         // Back to this page after the provider (a module installed on its own stays in its app).
         const login = (extra = '') => {
           let here = '/';
@@ -131,6 +165,11 @@ export async function signIn({ app, config = null, root = document.body }) {
           const query = [extra, here === '/' ? '' : `return=${encodeURIComponent(here)}`].filter(Boolean).join('&');
           return `/auth/login${query ? `?${query}` : ''}`;
         };
+        // Nothing to say first: the provider's page now, and Back from it skips this one.
+        if (skippable && straightToProvider()) {
+          window.location.replace(login());
+          return;
+        }
         show(
           notice,
           el('h2', { text: t('kit.signin.title') }),
@@ -420,6 +459,8 @@ export async function leave({ answer = null, local = null } = {}) {
   // Inside the suite's app on a phone, the app lets go of its device too (native.js); nothing elsewhere.
   // Sent before the page goes anywhere, so the app hears it from this page.
   nativeSignOut();
+  // Back on this site, the card and not the provider's page at once (straightToProvider).
+  try { sessionStorage.setItem(SIGNED_OUT, '1'); } catch { /* private mode */ }
   // From a frame of the host's split view the whole window signs out, not the frame alone.
   const page = FRAMED ? window.top : window;
   if (answer?.logout_url && !inApp()) page.location.href = answer.logout_url;
