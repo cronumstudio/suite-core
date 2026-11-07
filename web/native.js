@@ -27,11 +27,16 @@
  *   sign-out           {}                                       the person signed out here (signin.js)
  *   haptic             { style }                                light, medium, heavy, selection, success, warning, error
  *   open-app-settings  {}                                       the app's own settings (Settings › Notifications)
+ *   panel              { open }                                 one of the host's panels (Cronum Work's day, its
+ *                                                               calendar) opened or closed: while one is open, going
+ *                                                               back never leaves it (iOS's swipe off, Android's back
+ *                                                               is `back`). Sent with postNative, when it changes
  *
  * App → web: a `cronum-native` CustomEvent on the window, its `detail` `{ v: 1, type, ... }`:
  *
  *   purchase-result    { product, status }                      purchased | pending | canceled | failed
  *   push-state         { state }                                granted | denied | undetermined
+ *   back               {}                                       Android's back while a panel is open: the page closes it
  *
  * THE MESSAGES ARE ONLY EVER ADDED: never renamed, never given another meaning, never a payload
  * field taken away or changed. A build of the app lives for months on people's phones next to a

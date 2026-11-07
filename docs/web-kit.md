@@ -474,6 +474,7 @@ const stop = onNative('push-state', ({ state }) => paint(state));
 | `sign-out` | — | `nativeSignOut()`: the person signed out here (`signOut()` sends it, and Settings once the account is deleted, before the page goes anywhere); the app lets go of its device |
 | `haptic` | `{ style }` | `haptic(style)`: `light`, `medium`, `heavy`, `selection`, `success`, `warning`, `error` |
 | `open-app-settings` | — | `openAppSettings()`: Settings › Notifications in the app |
+| `panel` | `{ open }`, true or false | Cronum Work's shell, with `postNative`: one of its panels over the desk (the day's summary, the calendar) opened, or the last one closed; told when it changes, and a page that loads has none. While one is open, going back never leaves it: the app (0.5.11) turns iOS's swipe from the edge off, and sends Android's back to the page as `back` |
 
 `postNative(type, payload)` sends any message, for one the kit has no helper for yet; the payload
 never changes `v` or `type`.
@@ -487,6 +488,7 @@ loaded.
 | --- | --- | --- |
 | `purchase-result` | `{ product, status }`: `purchased`, `pending`, `canceled` or `failed` | `storePurchase()` says it in a notice; bought, it reads the plan again and sends it as `kit-plan` (`PLAN_EVENT`), which an open Settings repaints with |
 | `push-state` | `{ state }`: `granted`, `denied` or `undetermined` | Settings › Notifications says when the phone has them off |
+| `back` | — | Android's back while a `panel` is open, in place of going back: Cronum Work's shell closes the panel |
 
 **The messages are only ever added.** Never renamed, never given another meaning, never a payload
 field taken away or changed: a build of the app lives for months on people's phones next to a web

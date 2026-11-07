@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.237.1 — 2026-11-08
+
+**The app's bridge has two new messages, for Cronum Work's panels** (Martin, 7/11: in the iPhone
+app a swipe to the right in the daily summary took him to Notes, or to whatever module was open
+before it). `panel { open }`, from the web: one of the host's panels over the desk (the day's
+summary, the calendar) opened, or the last one closed. While one is open the app (0.5.11) keeps
+going back from leaving it: iOS's swipe from the edge is off, and Android's back comes to the page
+as `back {}`, which closes the panel. Cronum Work's shell sends `panel` with `postNative` and hears
+`back` with `onNative`; nothing in the kit changes, only native.js's header and docs/web-kit.md
+name them. An older app ignores `panel`, and a web that never sends it leaves going back as it was.
+
 ## 0.237.0 — 2026-11-05
 
 **Signing in with WorkOS or OpenID Connect goes straight to the provider's page** (Martin, 5/11,
