@@ -2251,6 +2251,21 @@ once for each worker, titled with that module's name. With it:
   `hashes` (`shellHashes`) gives each file's hash: a new worker takes from the old copy every
   file whose hash didn't change and fetches only the rest. Pages, manifests and
   `js/app-version.js` always travel again.
+- **Pages from the copy first** (0.237.2). With `codeFirst`, a navigation to a page the copy holds
+  at that path (`/`, `/w/`, `/tasks/`, whatever the query) is answered from it at once, without
+  the `Link` hints the install was given (`suiteKeptPage`): network first, a weak signal kept every
+  start blank for four seconds, and after a deploy the new page came with the old code. Where the
+  server answers another page at the same path the host says so, `serverQueries: { '/':
+  ['modules'] }` from the root page's `root.except`, and that address stays network first; what
+  the server reads first (`/auth/`, `/devices/session`, `/devices/connect`) never reaches the
+  worker. A page the copy lacks comes from the network as before, and one of the shell's is kept.
+- **A copy is whole or isn't installed** (0.237.2). A file of the shell the network didn't bring
+  (a failed fetch, a 408, a 429, a 5xx) is asked once more two seconds later; if it still doesn't
+  come, `install` fails: the worker before stays with its copy, and the browser tries again at its
+  next check (a navigation, the update notice's button, which no longer waits the whole handover
+  for a worker that turned redundant). A 404, or no room on the device, leaves that file out as
+  before. `.suite-hashes` is written only for a whole copy, and names only what it holds. An app on
+  its own installs as it always did.
 - **One version for the whole app**: `/version` and `/js/app-version.js` at the root are the
   host's version (`app`), its name and one fingerprint of the host's, the kit's and every module's
   files, the suite's texts and any module catalogs outside its public folder (each module's beside it, in `modules`). The worker's version is the same fingerprint, so a

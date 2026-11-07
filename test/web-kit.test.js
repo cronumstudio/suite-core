@@ -717,6 +717,32 @@ test('update: the button says at once that it is updating, and pressing again st
   delete globalThis.window;
 });
 
+test('update: a new worker whose install fails doesn’t keep the button waiting, and the page reloads on the one it has (pwa-1)', async () => {
+  // A host's worker now fails its install when the network leaves its copy short (sw-core.js):
+  // it never takes over, so there is nothing to wait for once it is redundant.
+  const { applyUpdate: applyAnother } = await import('../web/update.js?install-fails');
+  const replaced = [];
+  globalThis.window = { location: { href: 'https://work.example/?w=tasks:', replace: (to) => replaced.push(to) } };
+  const installing = { state: 'installing', heard: [], addEventListener(type, fn) { if (type === 'statechange') this.heard.push(fn); } };
+  const registration = {
+    installing: null, waiting: null,
+    update() {
+      this.installing = installing;
+      setTimeout(() => { installing.state = 'redundant'; for (const fn of installing.heard) fn(); }, 20);
+      return Promise.resolve(this);
+    },
+  };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+    serviceWorker: { getRegistrations: async () => [registration], addEventListener() {} },
+  } });
+  const started = Date.now();
+  await applyAnother();
+  assert.ok(Date.now() - started < 1000, `reloaded once the install failed, not after the whole wait: ${Date.now() - started} ms`);
+  assert.equal(replaced.length, 1, 'one reload, no more: the notice comes back at the next check');
+  assert.match(replaced[0], /^\/\?w=tasks%3A&fresh=\d+$/);
+  delete globalThis.window;
+});
+
 /* --------------------------------- dialogs -------------------------------- */
 
 test('a dialog without actions has no footer, and no "null" where it would have been', async () => {
@@ -1214,8 +1240,11 @@ test('a host whose start holds every module (Work’s shell): a notice opens in 
 
 /**
  * sw-core.js in a sandbox with caches that keep what is put in them, and a server whose files
- * (`server`, `{ path: text }`) can change between two releases. With `server.slow`, each answer
- * takes a moment, and `flight.most` says how many were ever asked at once.
+ * (`server`, `{ path: text }`, or `{ path: { body, headers } }`) can change between two releases.
+ * With `server.slow`, each answer takes a moment, and `flight.most` says how many were ever asked
+ * at once. `server.down(path)` is a signal that comes and goes: 'offline' (the fetch fails),
+ * 'hang' (it never answers) or a status, for that one answer. With `server.quick`, the worker's
+ * waits (the retry's pause, a navigation's four seconds) take a moment instead.
  * → { worker(), fetched, store, flight }
  */
 async function deployedWorkers(scope, server) {
@@ -1229,26 +1258,35 @@ async function deployedWorkers(scope, server) {
     return url.pathname + url.search;
   };
   class Response {
-    constructor(body, init = {}) { this.body = body; this.status = init.status ?? 200; this.ok = this.status < 400; this.url = ''; this.headers = init.headers || {}; }
+    constructor(body, init = {}) {
+      this.body = body; this.status = init.status ?? 200; this.statusText = init.statusText ?? ''; this.ok = this.status < 400;
+      this.url = ''; this.headers = new Headers(init.headers || {});
+    }
     clone() { const copy = new Response(this.body, this); copy.url = this.url; return copy; }
     async json() { return JSON.parse(this.body); }
     static error() { return { error: true }; }
   }
   const context = vm.createContext({
-    URL, Promise, setTimeout, clearTimeout, Response,
+    URL, Promise, clearTimeout, Response, Headers,
+    setTimeout: (fn, ms) => setTimeout(fn, server.quick ? Math.min(ms, 5) : ms),
     Request: class { constructor(url, init) { this.url = url; this.init = init; } },
     fetch: async (input) => {
       const pathname = pathOf(input);
       fetched.push(pathname);
       // No signal (`server.offline = true`): the browser's fetch fails.
       if (server.offline) throw new TypeError('Failed to fetch');
+      const down = server.down?.(pathname);
+      if (down === 'offline') throw new TypeError('Failed to fetch');
+      if (down === 'hang') return new Promise(() => {});
+      if (typeof down === 'number') return new Response('', { status: down });
       if (server.slow) {
         flight.most = Math.max(flight.most, ++flight.now);
         await new Promise((resolve) => setTimeout(resolve, 2));
         flight.now -= 1;
       }
       if (!(pathname in server)) return new Response('', { status: 404 });
-      const response = new Response(server[pathname]);
+      const file = server[pathname];
+      const response = file && typeof file === 'object' ? new Response(file.body, { headers: file.headers }) : new Response(file);
       response.url = new URL(pathname, scope).href;
       return response;
     },
@@ -1276,30 +1314,37 @@ async function deployedWorkers(scope, server) {
       return undefined;
     },
   };
-  /** A release of the worker: sw-core.js run afresh with these options, installed and active. */
+  /**
+   * A release of the worker: sw-core.js run afresh with these options, installed and, as a browser
+   * does, active only if its install didn't fail. → { get, installed, tookOver } (`tookOver`: it
+   * called skipWaiting).
+   */
   const worker = async (options) => {
     const listeners = {};
+    let tookOver = false;
     context.self = {
       registration: { scope },
       location: { origin: new URL(scope).origin },
       addEventListener: (type, fn) => { listeners[type] = fn; },
-      skipWaiting: () => Promise.resolve(),
+      skipWaiting: () => { tookOver = true; return Promise.resolve(); },
       clients: { claim: () => Promise.resolve(), matchAll: async () => [] },
     };
     vm.runInContext(fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8'), context);
     context.self.suiteWorker(options);
-    for (const type of ['install', 'activate']) {
+    const fire = (type) => {
       let waited = null;
       listeners[type]({ waitUntil: (p) => { waited = p; } });
-      await waited;
-    }
+      return waited;
+    };
+    const installed = await fire('install').then(() => true, () => false);
+    if (installed) await fire('activate');
     /** What a page gets for a GET of `url`: the worker's answer, or null when it leaves it to the browser. */
     const get = async (url, mode = 'cors') => {
       let answer = null;
       listeners.fetch({ request: { method: 'GET', url, mode }, respondWith: (p) => { answer = p; }, waitUntil: () => {} });
       return answer;
     };
-    return { get };
+    return { get, installed, tookOver };
   };
   return { worker, fetched, store, flight };
 }
@@ -1441,6 +1486,144 @@ test('a page asked for outside a navigation is the browser’s, so a failed fetc
   // And a file without a copy still is: an icon, the code.
   assert.equal((await one.get('https://work.example/js/home.js')).body, 'v1');
   assert.notEqual(await one.get('https://work.example/icons/a.png'), null);
+});
+
+test('a host’s worker opens a page it holds from its copy at once: a weak signal no longer keeps the start blank (pwa-5)', async () => {
+  // Martin, 8/11: Work stayed blank on a phone with weak coverage. Every start waited four seconds
+  // for the network before the 2.5 KB page the copy already had, and after a deploy it gave the
+  // new page with the copy's old code.
+  const server = {
+    quick: true, '/': 'shell v1', '/index.html': 'home', '/w/': 'shell v1', '/tasks/index.html': 'tasks index',
+    '/tasks/': { body: 'tasks page', headers: { 'Content-Type': 'text/html', Link: '</tasks/api/lists>; rel=preload; as=fetch' } },
+    '/?modules': 'the home asked by name',
+  };
+  const { worker, fetched } = await deployedWorkers('https://work.example/', server);
+  const one = await worker({
+    version: 'work-a', modules: ['/tasks/'], codeFirst: true, kit: false, serverQueries: { '/': ['modules'] },
+    shell: ['/', '/index.html', '/w/', '/tasks/', '/tasks/index.html'],
+  });
+  // A deploy, and a signal that never answers.
+  server['/'] = 'shell v2';
+  server.down = (path) => (path.startsWith('/?modules') ? undefined : 'hang');
+  fetched.length = 0;
+  const pages = {
+    '/': 'shell v1', '/?w=tasks:list/3': 'shell v1', '/?open=%2Ftasks%2F%3Flist%3D4': 'shell v1', '/?auth_error=failed': 'shell v1',
+    '/?fresh=1731000000000': 'shell v1', '/w/': 'shell v1', '/index.html': 'home', '/tasks/?list=4': 'tasks page',
+  };
+  for (const [page, body] of Object.entries(pages)) {
+    assert.equal((await one.get(`https://work.example${page}`, 'navigate')).body, body, `${page}: the copy's, with the copy's code`);
+  }
+  assert.deepEqual(fetched, [], 'not a word to the network');
+
+  // Its hints were the install's, for whoever was signed in then: the page goes without them.
+  const tasks = await one.get('https://work.example/tasks/', 'navigate');
+  assert.equal(tasks.headers.get('link'), null);
+  assert.equal(tasks.headers.get('content-type'), 'text/html');
+
+  // Another page at the same path (host.js root.except): the server's, as before.
+  assert.equal((await one.get('https://work.example/?modules', 'navigate')).body, 'the home asked by name');
+  assert.deepEqual(fetched, ['/?modules']);
+  // What the server reads first is never the worker's: sign-in, the phone's pages.
+  for (const page of ['/auth/callback?code=c&state=s', '/auth/login?return=%2F', '/devices/connect?code_challenge=c', '/devices/session?code=c&next=%2F']) {
+    assert.equal(await one.get(`https://work.example${page}`, 'navigate'), null, page);
+  }
+  // A route without a page of its own in the copy: network first, as before, and its module's index after the wait.
+  assert.equal((await one.get('https://work.example/tasks/list/12', 'navigate')).body, 'tasks index');
+  assert.ok(fetched.includes('/tasks/list/12'));
+
+  // An app on its own keeps its pages network first.
+  const own = { '/': 'tasks v1' };
+  const alone = await deployedWorkers('https://tasks.example/', own);
+  const app = await alone.worker({ version: 'tasks-v1', shell: ['/'], kit: false });
+  own['/'] = 'tasks v2';
+  alone.fetched.length = 0;
+  assert.equal((await app.get('https://tasks.example/', 'navigate')).body, 'tasks v2');
+  assert.deepEqual(alone.fetched, ['/']);
+});
+
+test('a host’s release that loses the signal half way isn’t installed: the worker before keeps its whole copy (pwa-1)', async () => {
+  // The audit of 6/11 (pwa-1): the 32 files that always travel failed together, the install went
+  // on, took over, and its activation erased the full copy; the app no longer opened offline.
+  const server = {
+    quick: true, '/': 'shell v1', '/w/': 'shell v1', '/tasks/': 'tasks v1', '/tasks/js/main.js': 'main v1', '/js/app-version.js': 'v1',
+  };
+  const shell = ['/', '/w/', '/tasks/', '/tasks/js/main.js', '/js/app-version.js'];
+  const hashes = { '/tasks/js/main.js': 'm1' };
+  const { worker, fetched, store } = await deployedWorkers('https://work.example/', server);
+  const release = (version) => worker({ version, modules: ['/tasks/'], codeFirst: true, kit: false, hashes, shell });
+  const one = await release('work-a');
+  assert.equal(one.installed, true);
+
+  // The next release starts installing; the signal goes. What has the same hash comes from the old
+  // copy, what always travels doesn't come, and isn't there when it is asked again a moment later.
+  server['/'] = 'shell v2';
+  server['/js/app-version.js'] = 'v2';
+  server.down = () => 'offline';
+  fetched.length = 0;
+  const two = await release('work-b');
+  assert.equal(two.installed, false, 'the install fails');
+  assert.equal(two.tookOver, false, 'and never takes over');
+  assert.deepEqual(fetched.filter((p) => p === '/').length, 2, 'each one asked twice: once more after a moment');
+  assert.equal(fetched.includes('/tasks/js/main.js'), false, 'what has the same hash never travels');
+  assert.ok(store.get('work-a')?.has('/tasks/'), 'the worker before keeps its whole copy');
+  assert.equal(store.get('work-b')?.has('/.suite-hashes'), false, 'a copy cut short notes nothing');
+  server.offline = true;
+  for (const [page, body] of [['/', 'shell v1'], ['/w/', 'shell v1'], ['/tasks/', 'tasks v1']]) {
+    assert.equal((await one.get(`https://work.example${page}`, 'navigate')).body, body, `${page} still opens offline`);
+  }
+
+  // The signal comes back and the browser tries again: this time the release is whole, and the old copy goes.
+  server.offline = false;
+  delete server.down;
+  const again = await release('work-b');
+  assert.equal(again.installed, true);
+  assert.equal(again.tookOver, true);
+  assert.deepEqual([...store.keys()], ['work-b']);
+  assert.equal(store.get('work-b').get('/').body, 'shell v2');
+  assert.equal(store.get('work-b').get('/tasks/js/main.js').body, 'main v1');
+  assert.ok(store.get('work-b').has('/.suite-hashes'));
+});
+
+test('a host’s install asks once more for what the network refused, leaves out only what the server hasn’t, and a navigation fills the hole (pwa-1)', async () => {
+  const server = {
+    quick: true, '/': 'shell', '/tasks/': 'tasks', '/tasks/js/main.js': 'main', '/tasks/js/list.js': 'list', '/js/app-version.js': 'v1',
+  };
+  const shell = ['/', '/w/', '/tasks/', '/tasks/js/main.js', '/tasks/js/list.js', '/tasks/js/gone.js', '/js/app-version.js'];
+  const hashes = { '/tasks/js/main.js': 'm1', '/tasks/js/list.js': 'l1', '/tasks/js/gone.js': 'g1' };
+  // A 429 while the page loads its modules, the server in trouble, a signal that drops for a moment: once each.
+  const once = { '/tasks/js/main.js': 429, '/tasks/js/list.js': 503, '/': 'offline', '/tasks/': 408 };
+  server.down = (path) => {
+    const verdict = once[path];
+    delete once[path];
+    return verdict;
+  };
+  const { worker, fetched, store } = await deployedWorkers('https://work.example/', server);
+  const one = await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, kit: false, hashes, shell });
+  assert.equal(one.installed, true, 'what the network refused came the second time');
+  const copy = store.get('work-a');
+  for (const path of ['/', '/tasks/', '/tasks/js/main.js', '/tasks/js/list.js']) assert.equal(copy.get(path)?.body, server[path], path);
+  assert.equal(fetched.filter((p) => p === '/tasks/js/gone.js').length, 1, 'a 404 isn’t asked again');
+  assert.equal(copy.has('/w/'), false, 'and is left out, as before');
+  assert.deepEqual(JSON.parse(copy.get('/.suite-hashes').body), { '/tasks/js/main.js': 'm1', '/tasks/js/list.js': 'l1' },
+    'the note of what it holds doesn’t name what it left out');
+
+  // The page it had to leave out, once the server has it: a navigation brings it and the copy keeps it.
+  server['/w/'] = 'shell at /w/';
+  assert.equal((await one.get('https://work.example/w/', 'navigate')).body, 'shell at /w/');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  server.offline = true;
+  assert.equal((await one.get('https://work.example/w/', 'navigate')).body, 'shell at /w/', 'offline too, now');
+  server.offline = false;
+  // Only the shell's pages, at their path: never a route of a module, nor another page at the same path.
+  server['/tasks/list/12'] = 'tasks at a route';
+  assert.equal((await one.get('https://work.example/tasks/list/12', 'navigate')).body, 'tasks at a route');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(store.get('work-a').has('/tasks/list/12'), false);
+  server['/?modules'] = 'the home asked by name';
+  const host = await worker({ version: 'work-b', modules: ['/tasks/'], codeFirst: true, kit: false, serverQueries: { '/': ['modules'] }, shell: ['/'] });
+  assert.equal((await host.get('https://work.example/?modules', 'navigate')).body, 'the home asked by name');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(store.get('work-b').get('/').body, 'shell', 'the copy’s / is still the shell');
 });
 
 /* ------------------------------ texts in code ----------------------------- */
