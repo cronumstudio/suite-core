@@ -610,7 +610,8 @@ function moduleListErrors(modules) {
  *   caching of the host's own files; a file `dir` hasn't is a 404, never a module's or the host's
  *   page. Cronum Work's one-document shell, at /w/ (architecture §21.6). `root: true` (one page at
  *   most) answers `/` with its index too, the app's start; `root: { except: ['modules'] }` leaves
- *   `/` to the host's own home when the address has one of those query names. Without it, nothing changes
+ *   `/` to the host's own home when the address has one of those query names (the one worker
+ *   asks the server for those, `serverQueries`, and opens `/` from its copy). Without it, nothing changes
  * @param {boolean} [options.scopedSheets]  a module's own stylesheet scoped to its windows in a page
  *   that shows several modules (scope-css.js): `GET /<mount>/…/x.css?scope=work` answers the file
  *   the host would serve there wrapped in `@scope`, revalidated against the whole app's
@@ -1402,6 +1403,9 @@ export async function createHost({
       optional,
       // The app's start holds every module (`pages[].root`, Work's shell): a notice opens in it.
       ...(rootPage ? { holds: ['/', rootPage.at] } : {}),
+      // The worker opens a page it holds from its copy, without the network (codeFirst); `/` with
+      // a name of `root.except` (`/?modules`) is the host's home, not the page the copy keeps at `/`.
+      ...(rootPage?.root?.except?.length ? { serverQueries: { '/': [...rootPage.root.except] } } : {}),
       push: {
         title: config.app.name, icon, ...(hostWorker.badge ? { badge: hostWorker.badge } : {}), url: '/',
         ...(Object.keys(icons).length ? { icons } : {}),

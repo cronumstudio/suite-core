@@ -3,6 +3,33 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.237.2 — 2026-11-08
+
+- **A host's worker opens the pages it holds from its copy, at once** (audit of 6/11, pwa-5; Martin,
+  8/11: Work stayed blank on a phone with weak coverage). Since `codeFirst` the copy is the
+  release, its pages too, yet a navigation still went to the network first and only fell back to
+  the copy after four seconds: with a weak signal, four blank seconds on every start of Work and of
+  every module installed on its own, and after a deploy the new page with the copy's old code. Now
+  a page the copy holds at that path (`/`, `/w/`, `/tasks/`, with any query: `?w=`, `?open=`,
+  `?auth_error=` are read by the page's code) is the copy's, without the `Link` hints the install
+  was given, which named someone's answers for whoever was signed in then. The host's worker says
+  where the server answers another page at the same path, `serverQueries: { '/': ['modules'] }`
+  from the root page's `root.except`: `/?modules` stays network first. `/auth/`, `/devices/session`
+  and `/devices/connect` never reach the worker, as before. A page the copy lacks comes from the
+  network as before, and one of the shell's is kept. New releases come as before, with a new worker.
+- **A host's release that loses the signal half way isn't installed** (audit of 6/11, pwa-1). The
+  install swallowed each file that failed, noted `.suite-hashes` anyway and took over, and its
+  activation erased the whole copy before it: the pages that always travel (`/`, `/w/`, each
+  module's, the manifests, the scoped sheets, `js/app-version.js`) failed together and Work no
+  longer opened offline until the next release, with nothing saying so. Now a file the network
+  didn't bring (a failed fetch, a 408, a 429, a 5xx) is asked once more two seconds later; if it
+  still doesn't come the install fails, so the worker before stays with its whole copy and the
+  browser tries again at its next check. A 404, or no room on the device, still leaves that file
+  out, and `.suite-hashes` is written only for a whole copy, without what it left out. The update
+  notice's button no longer waits the whole handover (20 s in a host) for a worker that turned
+  redundant: the page reloads on the one it has, and the notice comes back at its next check. An
+  app on its own installs as it always did.
+
 ## 0.237.1 — 2026-11-08
 
 **The app's bridge has two new messages, for Cronum Work's panels** (Martin, 7/11: in the iPhone

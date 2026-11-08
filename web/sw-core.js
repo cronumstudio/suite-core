@@ -28,8 +28,9 @@
  *   /devices/session and /devices/connect.
  *   /version above all: served from a cache, the app would never learn that
  *   there is a new version, which is what it exists for.
- * - Pages: network first, with the cached shell offline. A page asked for
- *   outside a navigation (the browser's checks before installing) is left to it.
+ * - Pages: network first, with the cached shell offline (a host's: the copy
+ *   first, below). A page asked for outside a navigation (the browser's checks
+ *   before installing) is left to it.
  * - Other files (icons): the copy at once, refreshed behind the scenes.
  *
  * Every path above is the app's, read from the worker's scope: an app on its
@@ -59,6 +60,16 @@
  * the rest travels again. With `sharedKit` (a host and its modules run one suite-core), the
  * kit is kept once, at /suite/, and `/tasks/suite/x` is answered from it: same bytes, one
  * copy instead of one per module.
+ *
+ * With `codeFirst` a page the copy holds is the copy's too, at once: with a weak signal every
+ * start waited four seconds for the network before the page it already had, and after a deploy
+ * the network's page came with the copy's code. `serverQueries` (`{ '/': ['modules'] }`) names
+ * the addresses where the server answers another page at the same path (host.js
+ * `pages[].root.except`): those stay network first. And a host's copy is whole or it isn't
+ * installed: a file the network didn't bring (no signal, a 408, a 429, a 5xx) is asked once
+ * more, and if it still doesn't come the install fails, so the worker before stays with its
+ * copy and the browser tries again at its next check. A file the server hasn't (a 404) is left
+ * out, as before, and a page of the shell that a navigation brings fills the hole.
  */
 
 var SUITE_KIT_FILES = [
@@ -84,6 +95,19 @@ var SUITE_WAIT_MS = 4000;
 var SUITE_HASHES = '.suite-hashes';
 /** How many files a host's worker installs at once: as fast as all at once, measured on Work (3/11). */
 var SUITE_AT_ONCE = 12;
+/**
+ * How long a host's worker waits before asking again for the files the network didn't bring: a
+ * signal that comes and goes, or the burst of a page loading its modules meanwhile (the 429s of 3/11).
+ */
+var SUITE_RETRY_MS = 2000;
+
+/**
+ * Whether a file that didn't come is the network's doing, and may come if asked again: no answer,
+ * a 408, a 429, the server in trouble. A 404 is a file the server hasn't; asking again won't bring it.
+ */
+function suiteNetworkFailed(status) {
+  return !status || status === 408 || status === 429 || status >= 500;
+}
 
 /**
  * `fn` for each of `list`, at most `limit` at a time; done when all are. A failure is its item's
@@ -197,6 +221,17 @@ function suiteWorker(options) {
   var holds = modules.length && Array.isArray(options.holds) ? options.holds : [];
   // Code from the copy first: only where the version is the fingerprint of everything (a host's).
   var codeFirst = options.codeFirst === true;
+  // The query names that make the server answer a page of the copy with another page at the same
+  // path (`{ '/': ['modules'] }`: `/?modules` is the home that chooses modules, `/` Work's shell).
+  var serverQueries = options.serverQueries && typeof options.serverQueries === 'object' ? options.serverQueries : {};
+  var askedOfServer = function (url) {
+    var names = Object.prototype.hasOwnProperty.call(serverQueries, url.pathname) ? serverQueries[url.pathname] : null;
+    return Array.isArray(names) && names.some(function (name) { return url.searchParams.has(name); });
+  };
+  // The pages of the shell, by path: one the copy lacks is kept when a navigation brings it.
+  var shellPages = function () {
+    return shell.filter(function (url) { return typeof url === 'string' && url.indexOf('?') < 0 && suiteIsPage(url); });
+  };
   var hashes = options.hashes && typeof options.hashes === 'object' ? options.hashes : null;
   var sharedKit = options.sharedKit === true && modules.length > 0;
   if (!sharedKit) {
@@ -240,12 +275,57 @@ function suiteWorker(options) {
     }).catch(function () { return null; });
   };
 
-  /** A file of the shell into the new copy: from the old one when its hash didn't change, else from the server. */
+  /**
+   * A file of the shell into the new copy: from the old one when its hash didn't change, else from
+   * the server. → 'kept'; 'left' when the server has no such file (a 404) or there is no room for
+   * it, as it always was; 'lost' when the network didn't bring it (suiteNetworkFailed).
+   */
   var bring = function (cache, old, url) {
-    var load = function () { return cache.add(new Request(url, { cache: 'reload' })); };
+    // No room is the device's, not the network's: that file is left out, as before, rather than a
+    // full phone that never installs a release again.
+    var keep = function (key, response) {
+      return cache.put(key, response).then(function () { return 'kept'; }, function () { return 'left'; });
+    };
+    var load = function () {
+      var request = new Request(url, { cache: 'reload' });
+      return fetch(request).then(function (response) {
+        if (response && response.ok) return keep(request, response);
+        return suiteNetworkFailed(response && response.status) ? 'lost' : 'left';
+      }, function () { return 'lost'; });
+    };
     var same = old && hashes && hashes[url] && old.hashes[url] === hashes[url];
     if (!same) return load();
-    return old.cache.match(url).then(function (found) { return found ? cache.put(url, found) : load(); });
+    return old.cache.match(url).then(function (found) { return found ? keep(url, found) : load(); });
+  };
+
+  /**
+   * A host's shell into its copy, file by file and a few at a time; what the network didn't bring
+   * is asked once more, a moment later. Rejects with `suiteShort` when something still didn't
+   * come: the install fails then. → the files left out (a 404), when it doesn't.
+   */
+  var bringAll = function (cache, old) {
+    var left = [];
+    var lost = [];
+    var take = function (url) {
+      return bring(cache, old, url).then(null, function () { return 'left'; }).then(function (verdict) {
+        if (verdict === 'lost') lost.push(url);
+        else if (verdict === 'left') left.push(url);
+      });
+    };
+    return suiteInTurns(shell, take, SUITE_AT_ONCE)
+      .then(function () {
+        if (!lost.length) return undefined;
+        var again = lost;
+        lost = [];
+        return new Promise(function (resolve) { setTimeout(resolve, SUITE_RETRY_MS); })
+          .then(function () { return suiteInTurns(again, take, SUITE_AT_ONCE); });
+      })
+      .then(function () {
+        if (!lost.length) return left;
+        var short = new Error('shell cut short: ' + lost.join(' '));
+        short.suiteShort = true;
+        throw short;
+      });
   };
 
   self.addEventListener('install', function (event) {
@@ -255,12 +335,13 @@ function suiteWorker(options) {
         // A host's: file by file, a missing one is left out rather than every module's copy, and a
         // few at a time, so the page loading its modules meanwhile isn't refused on the way.
         var first = modules.length
-          ? previous().then(function (old) {
-            return suiteInTurns(shell, function (url) { return bring(cache, old, url); }, SUITE_AT_ONCE);
-          }).then(function () {
-            // What this copy holds, for the next one; written last, so a copy cut short notes nothing.
+          ? previous().then(function (old) { return bringAll(cache, old); }).then(function (left) {
+            // What this copy holds, for the next one; written last, and only once the copy is whole,
+            // so a copy cut short notes nothing and a file left out isn't taken for one it holds.
             if (!hashes) return undefined;
-            return cache.put(suiteAt('/' + SUITE_HASHES, scope), new Response(JSON.stringify(hashes), {
+            var held = {};
+            Object.keys(hashes).forEach(function (url) { if (left.indexOf(url) < 0) held[url] = hashes[url]; });
+            return cache.put(suiteAt('/' + SUITE_HASHES, scope), new Response(JSON.stringify(held), {
               headers: { 'Content-Type': 'application/json' },
             }));
           })
@@ -273,7 +354,14 @@ function suiteWorker(options) {
           });
       })
       .then(function () { return self.skipWaiting(); })
-      .catch(function () { return self.skipWaiting(); }));
+      .catch(function (err) {
+        // A host's copy the network left short: the install fails, so the worker before stays,
+        // with the whole copy it has, and the browser tries this one again at its next check (a
+        // navigation, the update notice's button). Taking over anyway erased the offline start
+        // until the next release. Anything else, as it always was.
+        if (err && err.suiteShort) throw err;
+        return self.skipWaiting();
+      }));
   });
 
   self.addEventListener('activate', function (event) {
@@ -297,7 +385,7 @@ function suiteWorker(options) {
     if (local === null || skipped(url.pathname) || suiteNeverCached(local)) return;
 
     if (request.mode === 'navigate') {
-      event.respondWith(suiteNetworkFirst(fetch(request), function () {
+      var fromCopy = function () {
         // The page at its own path first, as the copy kept it: a host whose start is a page of its
         // own (Cronum Work's shell at /, host.js `pages[].root`) keeps that one at /, and its
         // /index.html is the home that chooses modules, which offline opened instead of the shell.
@@ -308,7 +396,27 @@ function suiteWorker(options) {
           .then(function (found) { return found || (page ? caches.match(page) : null); })
           .then(function (found) { return found || caches.match(suiteAt('/index.html', base)); })
           .then(function (found) { return found || caches.match(base); });
-      }, wait));
+      };
+      if (codeFirst && !askedOfServer(url)) {
+        // The copy is this release's, its pages too: a page it holds opens from it at once, with
+        // the code it came with. Network first, a weak signal kept every start blank for four
+        // seconds before this same page, and after a deploy gave the new page with the old code.
+        // Whatever is read from the address (`?w=`, `?open=`, `?auth_error=`) is the page's own
+        // code's; what the server reads first never gets here (/auth/, /devices/session…).
+        event.respondWith(caches.open(version)
+          .then(function (cache) { return cache.match(url.pathname); })
+          .then(function (kept) {
+            if (kept) return suiteKeptPage(kept);
+            // A page the copy lacks: the network's, and kept if it is one of the shell's, so a file
+            // an install had to leave out doesn't leave the app without it offline until the next.
+            var network = fetch(request).then(function (response) {
+              return shellPages().indexOf(url.pathname) >= 0 ? store(request, response, url.pathname) : response;
+            });
+            return suiteNetworkFirst(network, fromCopy, wait);
+          }));
+        return;
+      }
+      event.respondWith(suiteNetworkFirst(fetch(request), fromCopy, wait));
       return;
     }
 
@@ -405,6 +513,19 @@ function suiteAsAsked(cached) {
 }
 
 /**
+ * A page of a host's copy as the answer to a navigation: a response of its own, so nothing it came
+ * by (a redirect) makes the browser refuse it, and without its `Link` hints (page-hints.js). Those
+ * were said to the install, for whoever was signed in then: to a tab with no session now they
+ * would preload someone's answers as 401s, which a page that signs in without reloading would
+ * read instead of asking again.
+ */
+function suiteKeptPage(kept) {
+  var headers = new Headers(kept.headers);
+  headers.delete('Link');
+  return new Response(kept.body, { status: kept.status, statusText: kept.statusText, headers: headers });
+}
+
+/**
  * A host's notice tapped: the module it came from. Its page already open gets
  * the notice and the focus (in a frame of the split view, the view gets the
  * focus); otherwise a page of the app open goes there, and without one a new
@@ -451,6 +572,7 @@ function suiteOpenModule(clients, target, data, moduleOf, holds) {
 self.suiteWorker = suiteWorker;
 self.suiteOpenModule = suiteOpenModule;
 self.suiteAsAsked = suiteAsAsked;
+self.suiteKeptPage = suiteKeptPage;
 self.suiteScopeOf = suiteScopeOf;
 self.suiteLocal = suiteLocal;
 self.suiteAt = suiteAt;

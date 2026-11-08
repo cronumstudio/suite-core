@@ -1491,6 +1491,26 @@ test('a root page holds every module: the one worker opens a notice there (holds
   assert.equal(optionsOf((await plain('GET', '/sw.js')).data).holds, undefined, 'a page that isn’t the root, as before');
 });
 
+test('the one worker opens the root page from its copy, but leaves the home asked by name to the server (serverQueries, pwa-5)', async (t) => {
+  const dir = pageFolder(t);
+  const optionsOf = (body) => {
+    let given = null;
+    new Function('importScripts', 'suiteWorker', body)(() => {}, (o) => { given = o; });
+    return given;
+  };
+  const { call } = await startHost(t, { pages: [{ at: '/w/', dir, root: { except: ['modules'] } }], worker: true });
+  const options = optionsOf((await call('GET', '/sw.js')).data);
+  assert.equal(options.codeFirst, true, 'a page the copy holds is the copy’s');
+  assert.deepEqual(options.serverQueries, { '/': ['modules'] }, '/?modules is another page at /: the server’s');
+  // As the server answers them: what the worker leaves to the network isn't the page it keeps at /.
+  assert.match((await call('GET', '/')).data, /<title>Desk<\/title>/);
+  assert.doesNotMatch(String((await call('GET', '/?modules')).data), /<title>Desk<\/title>/);
+  const { call: every } = await startHost(t, { pages: [{ at: '/w/', dir, root: true }], worker: true });
+  assert.equal(optionsOf((await every('GET', '/sw.js')).data).serverQueries, undefined, 'root: true takes every /');
+  const { call: plain } = await startHost(t, { pages: [{ at: '/w/', dir }], worker: true });
+  assert.equal(optionsOf((await plain('GET', '/sw.js')).data).serverQueries, undefined, 'without a root page, as before');
+});
+
 test('without pages, a host answers their paths as before', async (t) => {
   pageFolder(t);
   const { call } = await startHost(t);

@@ -162,12 +162,18 @@ async function bringNewCode() {
     if (sw) {
       const registrations = await sw.getRegistrations();
       const wait = wholeApp ? HOST_HANDOVER_MS : HANDOVER_MS;
+      let timer = null;
       const handover = new Promise((done) => {
         sw.addEventListener('controllerchange', done, { once: true });
-        setTimeout(done, wait);
+        timer = setTimeout(done, wait);
       });
       await Promise.all(registrations.map((r) => r.update().catch(() => {})));
-      if (registrations.some((r) => r.installing || r.waiting)) await handover;
+      const coming = registrations.map((r) => r.installing || r.waiting).filter(Boolean);
+      // A worker whose install fails won't take over (a host's copy the network left short,
+      // sw-core.js): the page reloads on the worker it has without the whole wait, and the notice
+      // comes back at its next check, while the browser tries the new worker again.
+      if (coming.length) await Promise.race([handover, Promise.all(coming.map(givenUp))]);
+      clearTimeout(timer);
     }
   } catch { /* a plain reload is usually enough */ }
   // From a frame of the host's split view, the view is what reloads, with every frame in it.
@@ -175,6 +181,14 @@ async function bringNewCode() {
   const url = new URL(page.location.href);
   url.searchParams.set('fresh', String(Date.now()));
   page.location.replace(url.pathname + url.search + url.hash);
+}
+
+/** Resolves once `worker` can no longer take over: it turned redundant. */
+function givenUp(worker) {
+  return new Promise((done) => {
+    if (worker.state === 'redundant') done();
+    worker.addEventListener?.('statechange', () => { if (worker.state === 'redundant') done(); });
+  });
 }
 
 /**
