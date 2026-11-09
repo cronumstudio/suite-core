@@ -57,6 +57,7 @@
   "errors.field_too_short": "{field}: troppo corto (minimo {min}).",
   "errors.forbidden": "Non hai il permesso di farlo.",
   "errors.grant_not_found": "Questa assegnazione non esiste più o è già stata revocata.",
+  "errors.early_access_off": "Questa installazione non ha un accesso anticipato.",
   "errors.internal": "Errore del server. Riprova tra un momento.",
   "errors.invalid_event": "Non è stato possibile capire la notifica.",
   "errors.invalid_json": "Non è stato possibile leggere la richiesta.",
@@ -423,6 +424,29 @@
   "admin.plans.no": "No",
   "admin.plans.noLimit": "Nessun limite",
   "admin.plans.nothingToLimit": "Questa app non ha niente che un piano possa limitare.",
+  "admin.early.title": "Alla fine dell’accesso anticipato",
+  "admin.early.lead": "Gli account senza assegnazione perdono {plan} appena finisce l’accesso anticipato, e con esso ciò che Gratis non conserva. Questo dà a ogni account creato prima un’assegnazione fino alla data scelta, e quei giorni contano da lì. Premerlo due volte non ne dà una seconda a nessuno, e raggiunge chi è arrivato dopo. Da fare prima di cambiare EARLY_ACCESS_UNTIL.",
+  "admin.early.count": {
+    "one": "{kept} account su {n} creato prima del {date} ha la sua assegnazione.",
+    "other": "{kept} account su {n} creati prima del {date} hanno la loro assegnazione."
+  },
+  "admin.early.until": "Mantenerlo fino al",
+  "admin.early.give": {
+    "=0": "Cambia la data di tutti",
+    "one": "Dallo a {n} account che manca",
+    "other": "Dallo ai {n} account che mancano"
+  },
+  "admin.early.pickDate": "Scegli fino a quale data.",
+  "admin.early.confirm": {
+    "=0": "Spostare la fine al {date} per tutti gli account che hanno l’assegnazione?",
+    "one": "Dare {plan} fino al {date} a {n} account? Chi ce l’ha già passa a quella data.",
+    "other": "Dare {plan} fino al {date} a {n} account? Chi ce l’ha già passa a quella data."
+  },
+  "admin.early.done": {
+    "=0": "Fatto. Non mancava nessun account.",
+    "one": "Dato a {n} account.",
+    "other": "Dato a {n} account."
+  },
   "features.retention.days": "Giorni in cui si conserva ciò che è fatto o eliminato",
   "features.storage.mb": "Spazio per foto e file (MB)",
   "features.assign": "Assegnare lavoro ad altre persone",
@@ -1093,6 +1117,7 @@
   "kit.data.confirmWord": "ELIMINA",
   "kit.data.typeWord": "Per confermare, scrivi {word}",
   "kit.data.downloadFirst": "Prima, se vuoi:",
+  "kit.data.downloadEach": "Prima, se vuoi, scarica ogni modulo: ognuno è uno .zip a sé.",
   "kit.data.eraseTitle": "Cancella i miei dati",
   "kit.data.eraseHint": "Viene cancellato tutto ciò che hai in {app}, ma il tuo account resta. Ciò che altri condividono con te non viene toccato.",
   "kit.data.eraseButton": "Cancella i miei dati…",

@@ -57,6 +57,7 @@
   "errors.field_too_short": "{field}: too short (at least {min}).",
   "errors.forbidden": "You are not allowed to do this.",
   "errors.grant_not_found": "That grant no longer exists or was already revoked.",
+  "errors.early_access_off": "This installation has no early access.",
   "errors.internal": "Server error. Try again in a moment.",
   "errors.invalid_event": "The notification could not be understood.",
   "errors.invalid_json": "The request could not be read.",
@@ -423,6 +424,29 @@
   "admin.plans.no": "No",
   "admin.plans.noLimit": "No limit",
   "admin.plans.nothingToLimit": "This app has nothing a plan can limit.",
+  "admin.early.title": "When the early access ends",
+  "admin.early.lead": "Accounts without a grant lose {plan} the moment the early access ends, and what Free doesn’t keep goes with it. This gives every account made before then a grant until the date you pick, so those days count from there. Pressing it twice gives nobody a second one, and it reaches whoever joined since. Do it before moving EARLY_ACCESS_UNTIL.",
+  "admin.early.count": {
+    "one": "{kept} of {n} account made before {date} has its grant.",
+    "other": "{kept} of {n} accounts made before {date} have their grant."
+  },
+  "admin.early.until": "Keep it until",
+  "admin.early.give": {
+    "=0": "Change the date of them all",
+    "one": "Give it to the {n} account left",
+    "other": "Give it to the {n} accounts left"
+  },
+  "admin.early.pickDate": "Pick the date it lasts until.",
+  "admin.early.confirm": {
+    "=0": "Move the end to {date} for every account that has the grant?",
+    "one": "Give {plan} until {date} to {n} account? Those that have it already move to that date.",
+    "other": "Give {plan} until {date} to {n} accounts? Those that have it already move to that date."
+  },
+  "admin.early.done": {
+    "=0": "Done. No account was missing it.",
+    "one": "Given to {n} account.",
+    "other": "Given to {n} accounts."
+  },
   "features.retention.days": "Days what is done or deleted is kept",
   "features.storage.mb": "Storage for photos and files (MB)",
   "features.assign": "Assigning work to other people",
@@ -1093,6 +1117,7 @@
   "kit.data.confirmWord": "DELETE",
   "kit.data.typeWord": "To confirm, type {word}",
   "kit.data.downloadFirst": "Before that, if you like:",
+  "kit.data.downloadEach": "Before that, if you like, download each module: every one is a .zip of its own.",
   "kit.data.eraseTitle": "Erase my data",
   "kit.data.eraseHint": "Everything you have in {app} goes, and your account stays. What others share with you is left alone.",
   "kit.data.eraseButton": "Erase my data…",

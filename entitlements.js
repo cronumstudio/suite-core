@@ -68,6 +68,9 @@ export const weekStart = (day) => addDays(day, -((new Date(`${day}T00:00:00Z`).g
  */
 const OLD_PLAN_IDS = Object.freeze({ gratis: 'free' });
 
+/** The `external_ref` of the grants keepEarlyAccess() gives: what makes them one per person. */
+const EARLY_ACCESS_REF = 'early-access';
+
 export function entitlementsSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS entitlement_grants (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -670,6 +673,50 @@ export function createEntitlements({
     });
   }
 
+  /** The accounts an early access was for: made before it ends, without the instance admin, whom nothing limits. */
+  const earlyAccounts = (users) => users.filter((user) => !isUnlimited(user) && Date.parse(user.created_at) < earlyUntil);
+
+  /** Who has had a grant from keepEarlyAccess(), whatever became of it: the admin's revoking one stands. */
+  const earlyKept = () => new Set(database.all(`SELECT subject_id FROM entitlement_grants
+    WHERE subject_type = 'user' AND source = 'admin' AND external_ref = ?`, EARLY_ACCESS_REF).map((row) => row.subject_id));
+
+  /**
+   * How the early access stands for the admin panel, given every account:
+   * `{ plan, until, over, accounts, kept, left }`, the last three counting the accounts made before
+   * it ends. Null in an install without one.
+   */
+  function earlyAccessState(users) {
+    if (earlyUntil === null) return null;
+    const accounts = earlyAccounts(users);
+    const had = earlyKept();
+    const kept = accounts.filter((user) => had.has(user.id)).length;
+    return { plan: earlyAccess.plan, until: iso(earlyUntil), over: clock() >= earlyUntil, accounts: accounts.length, kept, left: accounts.length - kept };
+  }
+
+  /**
+   * The early access's plan kept past its end for whoever was in it, given every account: one
+   * grant each until `endsAt`, so what the plan keeps counts its days from there (`cutoff()`) and
+   * nothing goes when the early access ends. To be done before its date passes: the default plan
+   * leaves no grant behind to count from.
+   *
+   * Asking again gives nobody a second one, and never one to an account made after the early
+   * access, so it can be repeated to reach whoever joined since. A different `endsAt` moves the
+   * end of those still standing. → `{ added, moved }`.
+   */
+  function keepEarlyAccess(users, { endsAt, note = null }) {
+    if (earlyUntil === null) throw new HttpError(404, 'early_access_off');
+    const ends = Date.parse(endsAt);
+    if (Number.isNaN(ends) || ends <= Math.max(clock(), earlyUntil)) throw new HttpError(400, 'field_invalid', { field: 'ends_at' });
+    return database.tx(() => {
+      const had = earlyKept();
+      const missing = earlyAccounts(users).filter((user) => !had.has(user.id));
+      for (const user of missing) grant({ subjectId: user.id, plan: earlyAccess.plan, externalRef: EARLY_ACCESS_REF, endsAt, note });
+      const { changes: moved } = database.run(`UPDATE entitlement_grants SET ends_at = ? WHERE subject_type = 'user' AND source = 'admin'
+        AND external_ref = ? AND revoked_at IS NULL AND ends_at IS NOT ?`, iso(ends), EARLY_ACCESS_REF, iso(ends));
+      return { added: missing.length, moved };
+    });
+  }
+
   /**
    * The seats of an organization: the largest quantity among its active grants
    * (a subscription bought per seat), or null when none sets one.
@@ -700,7 +747,7 @@ export function createEntitlements({
 
   return {
     errors, ignored, knows, of, ofMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, better, countDaily, countWeekly, dailyUsage, usedToday, usedThisWeek,
-    grant, revoke, setPlan, seatsOf, grantsOf, describe,
+    grant, revoke, setPlan, earlyAccessState, keepEarlyAccess, seatsOf, grantsOf, describe,
   };
 }
 

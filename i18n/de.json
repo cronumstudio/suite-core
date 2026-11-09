@@ -57,6 +57,7 @@
   "errors.field_too_short": "{field}: zu kurz (mindestens {min}).",
   "errors.forbidden": "Das darfst du nicht.",
   "errors.grant_not_found": "Diese Freigabe gibt es nicht mehr oder sie wurde schon widerrufen.",
+  "errors.early_access_off": "Diese Installation hat keinen frühen Zugang.",
   "errors.internal": "Serverfehler. Versuch es gleich noch einmal.",
   "errors.invalid_event": "Die Benachrichtigung konnte nicht verstanden werden.",
   "errors.invalid_json": "Die Anfrage konnte nicht gelesen werden.",
@@ -423,6 +424,29 @@
   "admin.plans.no": "Nein",
   "admin.plans.noLimit": "Ohne Grenze",
   "admin.plans.nothingToLimit": "Diese App hat nichts, was ein Tarif begrenzen kann.",
+  "admin.early.title": "Wenn der frühe Zugang endet",
+  "admin.early.lead": "Konten ohne Freigabe verlieren {plan}, sobald der frühe Zugang endet, und damit auch, was Free nicht behält. Das gibt jedem davor erstellten Konto eine Freigabe bis zum gewählten Datum, und die Tage zählen von dort an. Zweimal drücken gibt niemandem eine zweite, und es erreicht alle, die seitdem dazugekommen sind. Vor dem Ändern von EARLY_ACCESS_UNTIL ausführen.",
+  "admin.early.count": {
+    "one": "{kept} von {n} Konto, erstellt vor dem {date}, hat die Freigabe.",
+    "other": "{kept} von {n} Konten, erstellt vor dem {date}, haben die Freigabe."
+  },
+  "admin.early.until": "Behalten bis",
+  "admin.early.give": {
+    "=0": "Datum aller ändern",
+    "one": "Dem {n} fehlenden Konto geben",
+    "other": "Den {n} fehlenden Konten geben"
+  },
+  "admin.early.pickDate": "Wähle das Enddatum.",
+  "admin.early.confirm": {
+    "=0": "Ende für alle Konten mit Freigabe auf den {date} verschieben?",
+    "one": "{plan} bis zum {date} an {n} Konto geben? Wer es schon hat, wechselt auf dieses Datum.",
+    "other": "{plan} bis zum {date} an {n} Konten geben? Wer es schon hat, wechselt auf dieses Datum."
+  },
+  "admin.early.done": {
+    "=0": "Erledigt. Es fehlte kein Konto.",
+    "one": "An {n} Konto gegeben.",
+    "other": "An {n} Konten gegeben."
+  },
   "features.retention.days": "Aufbewahrung von Erledigtem und Gelöschtem (Tage)",
   "features.storage.mb": "Speicher für Fotos und Dateien (MB)",
   "features.assign": "Arbeit anderen zuweisen",
@@ -1093,6 +1117,7 @@
   "kit.data.confirmWord": "LÖSCHEN",
   "kit.data.typeWord": "Zur Bestätigung tippe {word}",
   "kit.data.downloadFirst": "Vorher, wenn du möchtest:",
+  "kit.data.downloadEach": "Vorher kannst du jedes Modul herunterladen: Jedes ist eine eigene .zip-Datei.",
   "kit.data.eraseTitle": "Meine Daten löschen",
   "kit.data.eraseHint": "Alles, was du in {app} hast, wird gelöscht, und dein Konto bleibt. Was andere mit dir teilen, bleibt unberührt.",
   "kit.data.eraseButton": "Meine Daten löschen…",

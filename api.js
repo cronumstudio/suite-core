@@ -893,6 +893,24 @@ export function registerAdminApi(router, {
       sendJson(ctx.res, 200, withPlan(accounts.byId(id)));
     });
 
+    /** How the early access stands: how many of its accounts keep its plan past the end, and how many don't yet. */
+    router.get('/api/admin/early-access', (ctx) => {
+      requireAdmin(ctx);
+      const state = entitlements.earlyAccessState(accounts.list());
+      if (!state) throw notFound('early_access_off');
+      sendJson(ctx.res, 200, state);
+    });
+
+    /** The early access's plan kept until `ends_at` for every account made during it, once each (entitlements.js). */
+    router.post('/api/admin/early-access/keep', async (ctx) => {
+      requireAdmin(ctx);
+      const body = await readJson(ctx.req);
+      const note = noteOf(body.note);
+      const done = entitlements.keepEarlyAccess(accounts.list(), { endsAt: body.ends_at, note });
+      record(ctx, 'admin.early_access.keep', 'plan', null, { ...done, ends_at: body.ends_at, ...(note ? { note } : {}) });
+      sendJson(ctx.res, 200, { ...done, ...entitlements.earlyAccessState(accounts.list()) });
+    });
+
     router.get('/api/admin/users/:id/grants', (ctx) => {
       requireAdmin(ctx);
       sendJson(ctx.res, 200, { grants: entitlements.grantsOf('user', idOf(ctx.params.id)) });

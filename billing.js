@@ -286,10 +286,14 @@ export function founderPriceOpen(dates, now = Date.now()) {
   return !dates.founderOfferUntil || now < Date.parse(dates.founderOfferUntil);
 }
 
-/** Whether an account made at `joined` was made during the early access (before EARLY_ACCESS_UNTIL). */
+/**
+ * Whether an account made at `joined` was made in time for a founder's price: during the early
+ * access (before EARLY_ACCESS_UNTIL), or before FOUNDER_JOIN_UNTIL where the install gives more time.
+ */
 export function joinedEarly(dates, joined) {
   const at = Date.parse(joined);
-  return Boolean(dates?.earlyAccessUntil) && !Number.isNaN(at) && at < Date.parse(dates.earlyAccessUntil);
+  const until = dates?.earlyAccessUntil ? dates.founderJoinUntil ?? dates.earlyAccessUntil : null;
+  return Boolean(until) && !Number.isNaN(at) && at < Date.parse(until);
 }
 
 /**

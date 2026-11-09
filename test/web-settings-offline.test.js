@@ -106,6 +106,36 @@ test('offline in a host: the host’s list still, a notice where only the server
   }
 });
 
+test('deleting the account in a host offers every module’s copy, those turned off too', async () => {
+  memory.clear();
+  const { openSettings, settingsConfig } = await import('../web/settings.js');
+  settingsConfig({ app: { modules: { data: true }, host: HOST }, deletion_days: 30 });
+  const modules = [...MODULES, { mount: 'projects', path: '/projects/', name: 'Projects', active: false }, { mount: 'next', path: '/next/', name: 'Next', active: true }];
+  memory.set('host.modules', JSON.stringify({ host: { name: 'Cronum Work' }, modules }));
+  globalThis.fetch = noSignal;
+  globalThis.window = { location: { origin: 'https://work.example', href: 'https://work.example/tasks/' } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const root = document.createElement('div');
+  const settings = openSettings({ app: { id: 'tasks', name: 'Tasks' }, user: { id: 7, username: 'ada', role: 'user' }, config: {}, root, start: 'account' });
+  try {
+    await settle();
+    root.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.deleteButton')).click();
+    await settle();
+    const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
+    const links = dialog.all().filter((node) => node.tagName === 'A');
+    assert.deepEqual(links.map((node) => [node.textContent, node.getAttribute('href')]), [
+      ['Tasks', '/tasks/api/me/export'], ['Notes', '/notes/api/me/export'], ['Projects', '/projects/api/me/export'], ['Next', '/next/api/me/export'],
+    ]);
+    assert.ok(dialog.textContent.includes(t('kit.data.downloadEach')));
+  } finally {
+    settings.close();
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
 test('offline, a preference is applied here and kept: the theme and the modules in use', async () => {
   memory.clear();
   const { openSettings } = await import('../web/settings.js');

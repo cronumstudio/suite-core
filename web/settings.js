@@ -1952,6 +1952,12 @@ export function openSettings(options) {
     const downloadFirst = () => (modules.data
       ? el('p', {}, t('kit.data.downloadFirst'), ' ', el('a', { class: 'kit-link', href: at('/api/me/export'), download: '', text: t('kit.data.export') }))
       : null);
+    // Deleting the account takes every module of a host, and each module's copy is its own: one
+    // link for each, also for the ones this person has turned off, which keep what they had.
+    const downloadEach = () => (host && inUse.length
+      ? el('p', {}, t('kit.data.downloadEach'), ' ', ...inUse.flatMap((m, i) => [i ? ' · ' : '',
+        el('a', { class: 'kit-link', href: `/${m.mount}/api/me/export`, download: '', text: m.name })]))
+      : downloadFirst());
 
     // Erasing is not deleting the account: said, with where that is (in a host its own section of
     // Settings; an app on its own has it under this one).
@@ -1978,7 +1984,7 @@ export function openSettings(options) {
         title: t('kit.data.deleteAsk'),
         lines: [
           t('kit.data.deleteText', { app: product, n: deletionDays }), sharedOnDelete,
-          modules.billing ? t('kit.data.deleteBilling') : null, identity?.node, downloadFirst(),
+          modules.billing ? t('kit.data.deleteBilling') : null, identity?.node, downloadEach(),
         ],
         confirm: t('kit.data.deleteConfirm'),
         run: async (given) => {

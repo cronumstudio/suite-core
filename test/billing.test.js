@@ -609,6 +609,11 @@ test('who is a founder, by the dates: joined before the early access ended, and 
   assert.equal(joinedEarly(DATES, '2026-12-31T00:00:00Z'), false, 'its date is the first day after it');
   assert.equal(joinedEarly(DATES, 'not a date'), false);
   assert.equal(joinedEarly({}, '2026-10-22T09:00:00Z'), false, 'without the date nobody is');
+  // More time to join at that price, past the end of the early access (a launch offer).
+  const offer = { ...DATES, founderJoinUntil: '2027-01-05T00:00:00.000Z' };
+  assert.equal(joinedEarly(offer, '2027-01-04T23:59:59Z'), true);
+  assert.equal(joinedEarly(offer, '2027-01-05T00:00:00Z'), false, 'its date is the first day without');
+  assert.equal(joinedEarly({ founderJoinUntil: offer.founderJoinUntil }, '2026-10-22T09:00:00Z'), false, 'it means nothing without the early access');
   assert.equal(founderPriceOpen(DATES, Date.parse('2027-01-31T23:59:59Z')), true);
   assert.equal(founderPriceOpen(DATES, Date.parse('2027-02-01T00:00:00Z')), false);
   assert.equal(founderPriceOpen({ earlyAccessUntil: DATES.earlyAccessUntil }, Date.parse('2030-01-01T00:00:00Z')), true, 'without an end, as before');
@@ -636,6 +641,15 @@ test('amounts are checked, and the dates read from the environment', (t) => {
   assert.match(config({ EARLY_ACCESS_UNTIL: '2026-12-31', FOUNDER_OFFER_UNTIL: 'soon' }).errors.join(), /is not a date/);
   assert.match(config({ EARLY_ACCESS_PLAN: 'pro' }).errors.join(), /EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL/);
   assert.match(config({ FOUNDER_OFFER_UNTIL: '2027-02-01' }).warnings.join(), /FOUNDER_OFFER_UNTIL does nothing without/);
+
+  const blackFriday = { EARLY_ACCESS_UNTIL: '2026-11-27', FOUNDER_OFFER_UNTIL: '2027-02-01' };
+  assert.equal(config({ ...blackFriday, FOUNDER_JOIN_UNTIL: '2026-12-01' }).install.billing.founderJoinUntil, '2026-12-01T00:00:00.000Z');
+  assert.equal(config(blackFriday).install.billing.founderJoinUntil, undefined, 'without it, the early access decides');
+  assert.deepEqual(config({ ...blackFriday, FOUNDER_JOIN_UNTIL: '2027-02-01' }).errors, [], 'it may end with the offer');
+  assert.match(config({ ...blackFriday, FOUNDER_JOIN_UNTIL: '2026-11-27' }).errors.join(), /must come after EARLY_ACCESS_UNTIL/);
+  assert.match(config({ ...blackFriday, FOUNDER_JOIN_UNTIL: '2027-03-01' }).errors.join(), /can't come after FOUNDER_OFFER_UNTIL/);
+  assert.match(config({ ...blackFriday, FOUNDER_JOIN_UNTIL: 'soon' }).errors.join(), /FOUNDER_JOIN_UNTIL "soon" is not a date/);
+  assert.match(config({ FOUNDER_JOIN_UNTIL: '2026-12-01' }).warnings.join(), /FOUNDER_JOIN_UNTIL does nothing without/);
 });
 
 test('whether a subscription renews or ends at its period’s end, kept from each event', (t) => {

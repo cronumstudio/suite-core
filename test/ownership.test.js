@@ -109,6 +109,27 @@ test('tellGone: push and email to whoever used it, in their language, never to t
   assert.equal(ana.subject, 'Ben ha borrado la libreta «Ideas»');
 });
 
+test('a word about something of one’s own: the module’s words, the suite’s clothes, a button to where it is', async () => {
+  const sent = [];
+  const logged = [];
+  const mailer = { send: async (m) => { if (m.to === 'off@example.com') throw new Error('smtp'); sent.push(m); } };
+  const shareMail = createShareMail({
+    mailer, texts: () => ({ lang: 'es', t: (key) => key }), log: (line) => logged.push(line),
+    brand: { name: 'Cronum Work', color: '#123456' }, module: { name: 'Projects', color: '#654321' }, baseUrl: 'https://work.example.com/projects',
+  });
+  const word = {
+    subject: 'Se borrará Boda', eyebrow: 'Tu proyecto', heading: 'Se borrará el 3 de abril', lead: 'Gratis guarda esos proyectos 90 días.',
+    name: 'Boda', icon: '💍', label: 'Proyecto', button: 'Abrir el proyecto', path: '?project=7', footer: 'Es sobre tu proyecto.',
+  };
+  assert.equal(await shareMail.notice({ ...word, to: { email: 'ana@example.com' } }), true);
+  assert.equal(sent[0].subject, 'Se borrará Boda');
+  assert.match(sent[0].text, /Gratis guarda esos proyectos 90 días/);
+  assert.match(sent[0].html, /href="https:\/\/work\.example\.com\/projects\/\?project=7"/);
+  assert.equal(await shareMail.notice({ ...word, to: {} }), false, 'nobody to send it to');
+  assert.equal(await shareMail.notice({ ...word, to: { email: 'off@example.com' } }), false);
+  assert.match(logged.join(), /not sent \(a notice\): smtp/);
+});
+
 test('tellGone never throws: a push or an email that fails is logged, the rest still goes', async () => {
   const logged = [];
   const ownership = createOwnership({

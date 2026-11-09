@@ -114,6 +114,7 @@ names are the same in every app:
 | `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install: a JSON, or the suite's catalog by name (`cronum-work`, or `cronum-focus` for Focus and `cronum-tracker` for Tracker; suite-core `plans.js`) |
 | `BILLING_PROVIDER`, `STRIPE_*`, `EARLY_ACCESS_UNTIL` | Billing (`stripe`, `remote`, or one registered from outside the repository, with variables of its own); off when empty. Until that date, the founder's price |
 | `FOUNDER_OFFER_UNTIL` | With `EARLY_ACCESS_UNTIL`: from this date nobody gets the founder's price; until it, founders are told so once the early access is over |
+| `FOUNDER_JOIN_UNTIL` | With `EARLY_ACCESS_UNTIL`: accounts made before this date, past the end of the early access, are founders too |
 | `EARLY_ACCESS_PLAN` | The plan everyone has until `EARLY_ACCESS_UNTIL` (nothing is sold meanwhile); the default plan from then on |
 | `STORE_BILLING` | Purchases in the App Store and Google Play through a store provider registered from outside the repository (the hosted suite's RevenueCat), with variables of its own, next to the web's; off when empty |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |

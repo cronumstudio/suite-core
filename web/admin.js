@@ -867,6 +867,47 @@ async function renderInvitations(main) {
 
 /* ---------------------------------- plans ---------------------------------- */
 
+/**
+ * The early access's plan kept past its end for the accounts made during it (entitlements.js
+ * keepEarlyAccess): how many have it, and the button for the rest. Nothing in an install without one.
+ */
+async function earlyAccessBox() {
+  const state = await api.get('/api/admin/early-access').catch(() => null);
+  if (!state) return null;
+  const box = el('section', { class: 'kit-stack' });
+  const planOf = () => planName(state.plan);
+  const until = el('input', { type: 'date' });
+  const count = el('p', { class: 'kit-hint' });
+  const give = el('button', {
+    type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary',
+    onClick: async () => {
+      const ends = endOfDay(until.value);
+      if (!ends) { toast(t('admin.early.pickDate'), { error: true }); return; }
+      if (!(await confirmDialog(t('admin.early.confirm', { n: state.left, plan: planOf(), date: formatDate(ends) })))) return;
+      give.disabled = true;
+      try {
+        const done = await api.post('/api/admin/early-access/keep', { ends_at: ends });
+        Object.assign(state, done);
+        toast(t('admin.early.done', { n: done.added }));
+        paint();
+      } catch (err) { fail(err); paint(); }
+    },
+  });
+  function paint() {
+    count.textContent = t('admin.early.count', { n: state.accounts, kept: state.kept, date: formatDate(state.until) });
+    give.textContent = t('admin.early.give', { n: state.left });
+    // With none left it still moves the date of them all.
+    give.disabled = state.accounts === 0;
+  }
+  paint();
+  return append(box,
+    el('h3', { text: t('admin.early.title') }),
+    el('p', { class: 'kit-hint', text: t('admin.early.lead', { plan: planOf() }) }),
+    count,
+    el('div', { class: 'kit-grid kit-grid--3' }, field(t('admin.early.until'), until)),
+    el('div', { class: 'kit-row' }, give));
+}
+
 async function renderPlans(main) {
   const catalog = state.catalog;
   // A host's modules limit what is theirs (lists, notebooks, storage…) with the same plans; an app
@@ -882,6 +923,7 @@ async function renderPlans(main) {
   append(main,
     el('h2', { text: t('admin.plans.title') }),
     el('p', { class: 'kit-lead', text: t('admin.plans.lead') }),
+    await earlyAccessBox(),
     // The host's own (its one MCP) under its name when modules follow; alone, as it always was.
     own && modules.length ? el('h3', { text: state.config.app?.name || '' }) : null,
     own ? plansTable(catalog) : null,
