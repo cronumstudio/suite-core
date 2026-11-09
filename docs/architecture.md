@@ -257,7 +257,7 @@ Environment variables configure the install, never the product (`config.js` read
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
 `BILLING_PROVIDER` (`remote`, `stripe` or one registered from outside) with `BILLING_*`, `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
-`FOUNDER_OFFER_UNTIL` and `EARLY_ACCESS_PLAN`,
+`FOUNDER_OFFER_UNTIL`, `FOUNDER_JOIN_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
@@ -915,7 +915,8 @@ renewal that still says an old id can't reach whoever has it after the move (aud
 chooses it for whoever `isFounder` says —in `createSuite`, whoever joined before
 `EARLY_ACCESS_UNTIL`: their WorkOS account's date, the same for every app, or else the account's
 here—, never because the browser asks. Without that date nobody pays it, and with
-`FOUNDER_OFFER_UNTIL` nobody does from that date on (`founderPriceOpen`, `joinedEarly`). `GET
+`FOUNDER_OFFER_UNTIL` nobody does from that date on (`founderPriceOpen`, `joinedEarly`);
+`FOUNDER_JOIN_UNTIL` gives more time to join at that price, past the end of the early access. `GET
 /api/billing/products` says `founder: true|false` for the person asking, `founder_price` per
 product, `founder_until` (the founder's price's last moment, once the early access is over, for a
 founder who doesn't pay yet) and `on_sale`/`opens_at`, never the price ids. A product may also say
@@ -927,6 +928,11 @@ with nothing to change by hand; meanwhile nothing is sold (the checkout answers 
 Between `EARLY_ACCESS_UNTIL` and `FOUNDER_OFFER_UNTIL` a host's `GET /api/modules` carries
 `founder_offer: { until }` for a founder who doesn't pay yet, and every module's frame shows a
 notice they can close (web/shell.js).
+
+That plan is the default one, with no grant behind it, so `cutoff()` has no end to count from: what
+the default plan doesn't keep goes at the first sweep past the date. Before it, Admin › Plans gives
+every account made during the early access a grant of its plan until a date
+(`keepEarlyAccess`, `POST /api/admin/early-access/keep`), once each however many times it is pressed.
 
 - A subscription that is `active` or `trialing` holds its plan until the end of the paid period
   plus `graceDays` (3), so a failed renewal lapses on its own; a renewal moves that end on the same

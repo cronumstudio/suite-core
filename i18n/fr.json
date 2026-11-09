@@ -57,6 +57,7 @@
   "errors.field_too_short": "{field} : trop court (au moins {min}).",
   "errors.forbidden": "Vous n’avez pas le droit de faire cela.",
   "errors.grant_not_found": "Cet avantage n’existe plus ou a déjà été révoqué.",
+  "errors.early_access_off": "Cette installation n’a pas d’accès anticipé.",
   "errors.internal": "Erreur du serveur. Réessayez dans un instant.",
   "errors.invalid_event": "La notification n’a pas pu être comprise.",
   "errors.invalid_json": "La requête n’a pas pu être lue.",
@@ -423,6 +424,29 @@
   "admin.plans.no": "Non",
   "admin.plans.noLimit": "Sans limite",
   "admin.plans.nothingToLimit": "Cette application n’a rien qu’une formule puisse limiter.",
+  "admin.early.title": "À la fin de l’accès anticipé",
+  "admin.early.lead": "Les comptes sans avantage perdent {plan} dès la fin de l’accès anticipé, et avec lui ce que la formule Gratuit ne garde pas. Ceci donne à chaque compte créé avant un avantage jusqu’à la date choisie, et ces jours comptent à partir de là. Appuyer deux fois n’en donne pas un second à personne, et atteint ceux qui sont arrivés depuis. À faire avant de changer EARLY_ACCESS_UNTIL.",
+  "admin.early.count": {
+    "one": "{kept} compte sur {n} créé avant le {date} a son avantage.",
+    "other": "{kept} comptes sur {n} créés avant le {date} ont leur avantage."
+  },
+  "admin.early.until": "Le garder jusqu’au",
+  "admin.early.give": {
+    "=0": "Changer la date de tous",
+    "one": "Le donner au {n} compte restant",
+    "other": "Le donner aux {n} comptes restants"
+  },
+  "admin.early.pickDate": "Choisissez jusqu’à quelle date.",
+  "admin.early.confirm": {
+    "=0": "Reporter la fin au {date} pour tous les comptes qui ont l’avantage ?",
+    "one": "Donner {plan} jusqu’au {date} à {n} compte ? Ceux qui l’ont déjà passent à cette date.",
+    "other": "Donner {plan} jusqu’au {date} à {n} comptes ? Ceux qui l’ont déjà passent à cette date."
+  },
+  "admin.early.done": {
+    "=0": "C’est fait. Il n’en manquait aucun.",
+    "one": "Donné à {n} compte.",
+    "other": "Donné à {n} comptes."
+  },
   "features.retention.days": "Jours de conservation de ce qui est fait ou supprimé",
   "features.storage.mb": "Stockage des photos et fichiers (Mo)",
   "features.assign": "Attribuer du travail à d’autres personnes",
@@ -1092,6 +1116,7 @@
   "kit.data.confirmWord": "SUPPRIMER",
   "kit.data.typeWord": "Pour confirmer, tapez {word}",
   "kit.data.downloadFirst": "Avant, si vous le souhaitez :",
+  "kit.data.downloadEach": "Avant, si vous le souhaitez, téléchargez chaque module : chacun est un .zip à part.",
   "kit.data.eraseTitle": "Effacer mes données",
   "kit.data.eraseHint": "Tout ce que vous avez dans {app} est effacé, et votre compte reste. Ce que d’autres partagent avec vous n’est pas touché.",
   "kit.data.eraseButton": "Effacer mes données…",

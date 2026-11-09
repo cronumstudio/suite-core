@@ -673,3 +673,68 @@ test('the early access: its plan for everyone until its date, the default from t
   });
   assert.match(wrong.errors.join(), /EARLY_ACCESS_PLAN: the plan "gold" is not in the catalog/);
 });
+
+test('the early access kept past its end: one grant each, never twice, and what Free drops counts from there', (t) => {
+  const database = setup(t);
+  const clock = { now: Date.parse('2026-11-26T10:00:00Z') };
+  const features = { 'retention.days': { type: 'limit', default: null } };
+  const plans = { free: { name: 'Free', features: { 'retention.days': 90 } }, pro: { name: 'Pro', features: { 'retention.days': null } } };
+  const e = createEntitlements({
+    database, appId: 'tasks', features, plans, plansJson: null, defaultPlanOverride: null,
+    earlyAccess: { plan: 'pro', until: '2026-11-27T00:00:00.000Z' }, clock: () => clock.now,
+  });
+  const person = (id, created_at, role = 'user') => ({ id, role, created_at });
+  const ada = person(1, '2026-10-01T09:00:00.000Z');
+  const eve = person(3, '2026-11-20T09:00:00.000Z');
+  const root = person(2, '2026-01-01T09:00:00.000Z', 'admin');
+  const everyone = [ada, root, eve];
+  const END = '2026-12-31T22:59:59.000Z';
+
+  assert.deepEqual(e.earlyAccessState(everyone), { plan: 'pro', until: '2026-11-27T00:00:00.000Z', over: false, accounts: 2, kept: 0, left: 2 });
+  assert.deepEqual(e.keepEarlyAccess(everyone, { endsAt: END, note: 'beta' }), { added: 2, moved: 0 });
+  assert.deepEqual(e.grantsOf('user', root.id), [], 'the instance admin needs none');
+  const [given] = e.grantsOf('user', ada.id);
+  assert.deepEqual([given.plan, given.source, given.ends_at, given.note], ['pro', 'admin', END, 'beta']);
+  assert.equal(e.earlyAccessState(everyone).left, 0);
+
+  assert.deepEqual(e.keepEarlyAccess(everyone, { endsAt: END }), { added: 0, moved: 0 }, 'again: nothing');
+  assert.equal(e.grantsOf('user', ada.id).length, 1);
+
+  // An account taken off by hand stays off; one that joined since gets it, the next time.
+  e.revoke({ id: e.grantsOf('user', eve.id)[0].id });
+  const late = person(4, '2026-11-26T23:00:00.000Z');
+  assert.deepEqual(e.keepEarlyAccess([...everyone, late], { endsAt: END }), { added: 1, moved: 0 });
+  assert.equal(e.grantsOf('user', eve.id).length, 1, 'never a second one');
+
+  // Another date moves those still standing, and only them.
+  assert.deepEqual(e.keepEarlyAccess([...everyone, late], { endsAt: '2027-01-15T22:59:59.000Z' }), { added: 0, moved: 2 });
+  assert.equal(e.grantsOf('user', eve.id)[0].ends_at, END, 'not the one taken off');
+  assert.deepEqual(e.keepEarlyAccess([...everyone, late], { endsAt: END }), { added: 0, moved: 2 });
+
+  // Never an end that doesn't reach past the early access.
+  assert.throws(() => e.keepEarlyAccess(everyone, { endsAt: '2026-11-26T23:00:00.000Z' }), (err) => err.code === 'field_invalid' && err.extra?.field === 'ends_at');
+  assert.throws(() => e.keepEarlyAccess(everyone, { endsAt: 'soon' }), (err) => err.code === 'field_invalid');
+
+  // The early access over: whoever has the grant keeps the plan, whoever joins after it is on Free and is never given one.
+  clock.now = Date.parse('2026-11-27T10:00:00Z');
+  const fresh = person(5, '2026-11-27T09:00:00.000Z');
+  assert.equal(e.of(ada).plan.id, 'pro');
+  assert.equal(e.of(fresh).plan.id, 'free');
+  assert.deepEqual(e.keepEarlyAccess([...everyone, late, fresh], { endsAt: END }), { added: 0, moved: 0 });
+  assert.deepEqual(e.grantsOf('user', fresh.id), []);
+  assert.equal(e.earlyAccessState(everyone).over, true);
+
+  // The grant over: nothing goes for those 90 days; after them, what is older.
+  assert.equal(e.cutoff(ada, 'retention.days'), null, 'Pro: nothing goes');
+  clock.now = Date.parse('2027-01-01T00:00:00Z');
+  assert.equal(e.of(ada).plan.id, 'free');
+  assert.equal(e.cutoff(ada, 'retention.days'), null, 'the first day on Free');
+  clock.now = Date.parse('2027-03-31T22:00:00Z');
+  assert.equal(e.cutoff(ada, 'retention.days'), null, 'the last day of the 90');
+  clock.now = Date.parse('2027-04-01T00:00:00Z');
+  assert.equal(e.cutoff(ada, 'retention.days'), new Date(clock.now - 90 * DAY).toISOString());
+
+  const none = createEntitlements({ database, appId: 'tasks', features, plans, plansJson: null, defaultPlanOverride: null });
+  assert.equal(none.earlyAccessState(everyone), null);
+  assert.throws(() => none.keepEarlyAccess(everyone, { endsAt: END }), (err) => err.status === 404);
+});

@@ -409,6 +409,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     }
     // Who joined before this date pays the founder's price of the products that have one; with
     // FOUNDER_OFFER_UNTIL, only until that date, and after it the regular price, founders too.
+    // FOUNDER_JOIN_UNTIL gives more time to join at that price, past the end of the early access.
     if (billing && env.EARLY_ACCESS_UNTIL) {
       const until = Date.parse(env.EARLY_ACCESS_UNTIL);
       if (Number.isNaN(until)) errors.push(`EARLY_ACCESS_UNTIL "${env.EARLY_ACCESS_UNTIL}" is not a date (2026-12-01)`);
@@ -420,11 +421,18 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
           else if (offerUntil <= until) errors.push(`FOUNDER_OFFER_UNTIL (${env.FOUNDER_OFFER_UNTIL}) must come after EARLY_ACCESS_UNTIL (${env.EARLY_ACCESS_UNTIL})`);
           else billing.founderOfferUntil = new Date(offerUntil).toISOString();
         }
+        if (env.FOUNDER_JOIN_UNTIL) {
+          const joinUntil = Date.parse(env.FOUNDER_JOIN_UNTIL);
+          if (Number.isNaN(joinUntil)) errors.push(`FOUNDER_JOIN_UNTIL "${env.FOUNDER_JOIN_UNTIL}" is not a date (2026-12-01)`);
+          else if (joinUntil <= until) errors.push(`FOUNDER_JOIN_UNTIL (${env.FOUNDER_JOIN_UNTIL}) must come after EARLY_ACCESS_UNTIL (${env.EARLY_ACCESS_UNTIL})`);
+          else if (billing.founderOfferUntil && joinUntil > Date.parse(billing.founderOfferUntil)) errors.push(`FOUNDER_JOIN_UNTIL (${env.FOUNDER_JOIN_UNTIL}) can't come after FOUNDER_OFFER_UNTIL (${env.FOUNDER_OFFER_UNTIL})`);
+          else billing.founderJoinUntil = new Date(joinUntil).toISOString();
+        }
       }
     }
   }
-  if (env.FOUNDER_OFFER_UNTIL && !billing?.earlyAccessUntil) {
-    warnings.push('FOUNDER_OFFER_UNTIL does nothing without BILLING_PROVIDER and EARLY_ACCESS_UNTIL');
+  for (const name of ['FOUNDER_OFFER_UNTIL', 'FOUNDER_JOIN_UNTIL']) {
+    if (env[name] && !billing?.earlyAccessUntil) warnings.push(`${name} does nothing without BILLING_PROVIDER and EARLY_ACCESS_UNTIL`);
   }
   // The plan everyone has while the early access lasts, whatever the default plan is: from
   // EARLY_ACCESS_UNTIL on, the default plan again, and only then is anything sold.

@@ -22,7 +22,7 @@ import { createAudit } from '../audit.js';
 import { registerAdminApi, registerOrganizationsApi, registerProfileApi } from '../api.js';
 import { createTokens } from '../tokens.js';
 
-async function start(t) {
+async function start(t, { earlyAccess = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-api-'));
   const database = openDatabase({ dataDir: dir, name: 'test' });
   migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
@@ -34,7 +34,7 @@ async function start(t) {
     database, appId: 'test',
     features: { 'lists.max': { type: 'limit', default: null }, sharing: { type: 'flag', default: true } },
     plans: { free: { name: 'Free', features: { 'lists.max': 3, sharing: false } }, pro: { name: 'Pro', features: {} } },
-    plansJson: null, defaultPlanOverride: null,
+    plansJson: null, defaultPlanOverride: null, earlyAccess,
     organizationsOf: (user) => organizations.organizationsOf(user),
   });
   organizations = createOrganizations({ database, seatsOf: entitlements.seatsOf });
@@ -395,4 +395,37 @@ test('the AI clients the identity provider authorized are listed and disconnecte
   assert.deepEqual((await call('GET', '/api/me/apps', { as: ada })).body.grants.map((g) => g.id), [1]);
   const [entry] = audit.list({ actorId: ada, action: 'oauth.connection.' });
   assert.deepEqual([entry.action, entry.meta], ['oauth.connection.revoke', { provider: 'workos', client: 'Claude' }]);
+});
+
+test('the early access kept past its end: only an admin, for whoever was in it, once', async (t) => {
+  const until = '2099-01-01T00:00:00.000Z';
+  const ends = '2099-12-31T22:59:59.000Z';
+  const { call, root, accounts, entitlements, audit } = await start(t, { earlyAccess: { plan: 'pro', until } });
+  const ada = accounts.create({ username: 'ada' }).id;
+  const eve = accounts.create({ username: 'eve' }).id;
+
+  assert.equal((await call('GET', '/api/admin/early-access', { as: ada })).status, 403);
+  assert.equal((await call('POST', '/api/admin/early-access/keep', { as: ada, body: { ends_at: ends } })).status, 403);
+  assert.deepEqual((await call('GET', '/api/admin/early-access', { as: root })).body,
+    { plan: 'pro', until, over: false, accounts: 2, kept: 0, left: 2 });
+
+  const first = await call('POST', '/api/admin/early-access/keep', { as: root, body: { ends_at: ends, note: '  beta  ' } });
+  assert.deepEqual(first.body, { added: 2, moved: 0, plan: 'pro', until, over: false, accounts: 2, kept: 2, left: 0 });
+  assert.deepEqual(audit.list()[0].meta, { added: 2, moved: 0, ends_at: ends, note: 'beta' });
+  assert.equal(entitlements.grantsOf('user', ada)[0].note, 'beta');
+  assert.deepEqual((await call('GET', '/api/admin/users', { as: root })).body.users.find((u) => u.id === eve).plan_source,
+    { kind: 'admin', ends, note: 'beta' }, 'the panel shows it as any other gift');
+
+  const again = await call('POST', '/api/admin/early-access/keep', { as: root, body: { ends_at: ends } });
+  assert.deepEqual([again.body.added, again.body.moved, again.body.left], [0, 0, 0]);
+  assert.equal(entitlements.grantsOf('user', ada).length, 1);
+
+  assert.equal((await call('POST', '/api/admin/early-access/keep', { as: root, body: { ends_at: '2098-01-01T00:00:00Z' } })).body.error, 'field_invalid');
+  assert.equal((await call('POST', '/api/admin/early-access/keep', { as: root, body: {} })).body.error, 'field_invalid');
+});
+
+test('without an early access there is nothing to keep', async (t) => {
+  const { call, root } = await start(t);
+  assert.equal((await call('GET', '/api/admin/early-access', { as: root })).body.error, 'early_access_off');
+  assert.equal((await call('POST', '/api/admin/early-access/keep', { as: root, body: { ends_at: '2099-01-01T00:00:00Z' } })).status, 404);
 });

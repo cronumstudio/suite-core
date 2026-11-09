@@ -3,6 +3,27 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.239.0 — 2026-11-09
+
+- **The early access's plan, kept past its end for whoever was in it** (audit of 6/11, billing-1 and
+  claims-notes-2; Martin, 9/11). The plan of an early access is the default one, with no grant
+  behind it, so when its date passed what Free doesn't keep went in the next sweep: `cutoff()` had
+  no end to count from. `entitlements.keepEarlyAccess(users, { endsAt })`, and Admin › Plans with
+  `GET /api/admin/early-access` and `POST /api/admin/early-access/keep`, give each account made
+  before the early access ends one grant of its plan until that date, marked `external_ref:
+  'early-access'`. Pressed again it gives nobody a second one, nor one to an account the admin took
+  it off, and never one to an account made after the early access; a different date moves the end
+  of those still standing. To be done before `EARLY_ACCESS_UNTIL` passes.
+- **`FOUNDER_JOIN_UNTIL`: more time to join at a founder's price** (Martin, 9/11: Black Friday).
+  Accounts made before it, past the end of the early access, are founders too; nothing else moves.
+  It can't come before `EARLY_ACCESS_UNTIL` nor after `FOUNDER_OFFER_UNTIL`.
+- **Deleting the account in a host offers every module's copy** (audit of 6/11, portable-2): the
+  dialog offered only the module Settings was opened from, and whoever pressed it in Tasks believed
+  they had everything. Now a link for each module, those turned off too.
+- **`shareMail.notice`: a word by email about something of the person's own**, in the module's
+  words and the suite's clothes, for what a push alone doesn't reach (Projects' warning before a
+  finished project goes).
+
 ## 0.237.2 — 2026-11-08
 
 - **A host's worker opens the pages it holds from its copy, at once** (audit of 6/11, pwa-5; Martin,

@@ -35,7 +35,9 @@ export const SHARE_KINDS = ['list', 'notebook', 'group', 'note', 'project', 'pla
  * @param {string} [options.signupUrl] where a new account is made, then back to the module
  * @returns {Function} send({ to, actor, kind, name, icon?, permission?, role?, url? }) → Promise<boolean>,
  *   with send.stranger({ email, inviter, kind, name, icon?, permission?, role? }) → Promise<boolean>
- *   and send.gone({ to, actor, kind, name, icon? }) → Promise<boolean>: the owner deleted it (ownership.js)
+ *   send.gone({ to, actor, kind, name, icon? }) → Promise<boolean>: the owner deleted it (ownership.js)
+ *   and send.notice({ to, subject, eyebrow, heading, lead, name, icon?, label?, button, path?, footer }) →
+ *   Promise<boolean>: a word about something of their own, all in the module's words and their language
  */
 export function createShareMail({ mailer, texts, brand, module = null, baseUrl, strangers = null, signupUrl = null, log = console.log }) {
   const home = `${String(baseUrl || '').replace(/\/+$/, '')}/`;
@@ -156,9 +158,46 @@ export function createShareMail({ mailer, texts, brand, module = null, baseUrl, 
     }
   }
 
+  /**
+   * The parts of a word about something of the person's own (a project about to go, say), in the
+   * module's words and already in their language: only its clothes are the suite's. The button goes
+   * to `path` under the module's address (`?project=7`).
+   */
+  function composeNotice({ to, subject, eyebrow, heading, lead, name, icon = null, label = null, button, path = '', footer }) {
+    const { lang } = texts(null, to);
+    return {
+      subject,
+      ...renderMail({
+        lang,
+        brand,
+        eyebrow: { text: eyebrow, color: part.color },
+        heading,
+        lead,
+        card: { icon: part.icon, title: icon ? `${icon} ${name}` : name, meta: label },
+        button: { label: button, href: new URL(path, home).href },
+        footer,
+      }),
+    };
+  }
+
+  /** Sends that word. → whether it went; one that fails is said in the log. */
+  async function notice(message) {
+    if (!mailer || !message?.to?.email) return false;
+    const { subject, text, html } = composeNotice(message);
+    try {
+      await mailer.send({ to: message.to.email, subject, text, html });
+      return true;
+    } catch (err) {
+      log(`[mail] to ${message.to.email}: not sent (a notice): ${err.message}`);
+      return false;
+    }
+  }
+
   send.compose = compose;
   send.stranger = stranger;
   send.gone = gone;
   send.gone.compose = composeGone;
+  send.notice = notice;
+  send.notice.compose = composeNotice;
   return send;
 }

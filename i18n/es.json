@@ -57,6 +57,7 @@
   "errors.field_too_short": "{field}: demasiado corto (mínimo {min}).",
   "errors.forbidden": "No tienes permiso para hacer esto.",
   "errors.grant_not_found": "Esa concesión ya no existe o ya estaba revocada.",
+  "errors.early_access_off": "Esta instalación no tiene acceso anticipado.",
   "errors.internal": "Error del servidor. Inténtalo dentro de un momento.",
   "errors.invalid_event": "No se ha podido entender el aviso.",
   "errors.invalid_json": "No se ha podido leer la petición.",
@@ -423,6 +424,29 @@
   "admin.plans.no": "No",
   "admin.plans.noLimit": "Sin límite",
   "admin.plans.nothingToLimit": "Esta app no tiene nada que un plan pueda limitar.",
+  "admin.early.title": "Al acabar el acceso anticipado",
+  "admin.early.lead": "Las cuentas sin concesión pierden {plan} en cuanto acaba el acceso anticipado, y con él lo que Gratis no guarda. Esto da una concesión hasta la fecha que elijas a cada cuenta creada antes, y esos días cuentan desde ahí. Si lo pulsas dos veces no se repite, y llega a quien se haya unido después. Hazlo antes de mover EARLY_ACCESS_UNTIL.",
+  "admin.early.count": {
+    "one": "{kept} de {n} cuenta creada antes del {date} tiene su concesión.",
+    "other": "{kept} de {n} cuentas creadas antes del {date} tienen su concesión."
+  },
+  "admin.early.until": "Mantenerlo hasta",
+  "admin.early.give": {
+    "=0": "Cambiar la fecha de todas",
+    "one": "Dársela a la {n} cuenta que falta",
+    "other": "Dársela a las {n} cuentas que faltan"
+  },
+  "admin.early.pickDate": "Elige hasta qué fecha.",
+  "admin.early.confirm": {
+    "=0": "¿Pasar el final al {date} en todas las cuentas que tienen la concesión?",
+    "one": "¿Dar {plan} hasta el {date} a {n} cuenta? Las que ya lo tienen pasan a esa fecha.",
+    "other": "¿Dar {plan} hasta el {date} a {n} cuentas? Las que ya lo tienen pasan a esa fecha."
+  },
+  "admin.early.done": {
+    "=0": "Hecho. No faltaba ninguna cuenta.",
+    "one": "Dada a {n} cuenta.",
+    "other": "Dada a {n} cuentas."
+  },
   "features.retention.days": "Días que se guarda lo hecho o borrado",
   "features.storage.mb": "Almacenamiento de fotos y archivos (MB)",
   "features.assign": "Asignar trabajo a otras personas",
@@ -1092,6 +1116,7 @@
   "kit.data.confirmWord": "BORRAR",
   "kit.data.typeWord": "Para confirmar, escribe {word}",
   "kit.data.downloadFirst": "Antes, si quieres:",
+  "kit.data.downloadEach": "Antes, si quieres, descarga cada módulo: cada uno es un .zip aparte.",
   "kit.data.eraseTitle": "Borrar mis datos",
   "kit.data.eraseHint": "Se borra todo lo que tienes en {app} y tu cuenta sigue. Lo que otros comparten contigo no se toca.",
   "kit.data.eraseButton": "Borrar mis datos…",
