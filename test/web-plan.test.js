@@ -854,4 +854,163 @@ test('yearlySaving: a year against twelve months, rounded down, and nothing it c
   assert.equal(yearlySaving(year, [month, year], 46.8), null, 'twelve months\' price: no saving');
   assert.equal(yearlySaving({ ...year, amount: 50 }, [{ ...month, amount: 5 }, year]), 16, 'exactly 16.66…%');
   assert.equal(yearlySaving({ ...year, amount: 45 }, [{ ...month, amount: 5 }, year]), 25, 'a whole percent stays whole');
+
+/* ---------------------- the founder's offer, on starting --------------------- */
+
+const { founderNoticeDue, founderProduct, offerFounder, lastDay, FOUNDER_NOTICE_EVERY_MS } = await import('../web/plan.js');
+
+const UNTIL = '2026-12-01T00:00:00.000Z';
+const DURING = Date.parse('2026-11-12T10:00:00.000Z');
+const ON_SALE = { ...PRODUCTS, on_sale: true, founder_until: UNTIL };
+const GIFT = { ...PRO, ends: '2026-12-31T22:59:59.000Z' };
+const FOR_GOOD = { ...PRO, ends: null };
+const NOBODY = { sources: [] };
+const NEVER = { id: 1, prefs: { founder_notice_at: null } };
+const openNotices = () => document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open);
+const closeNotices = () => { for (const dialog of openNotices()) dialog.close(); };
+const footerOf = (dialog) => dialog.find('footer')[0].find('button');
+
+/** A start with what the stand-in answers; → whether the offer came up. */
+function starting(answers = {}, options = {}) {
+  closeNotices();
+  asked = [];
+  routes = {
+    'GET /api/billing/products': { data: ON_SALE },
+    'GET /api/me/entitlements': { data: FREE },
+    'GET /api/billing/overview': { data: NOBODY },
+    'PATCH /api/me': { data: { user: {} } },
+    ...answers,
+  };
+  return offerFounder({ user: NEVER, now: DURING, ...options });
+}
+
+test('the founder’s offer: at most once a week, by the account’s date', () => {
+  assert.equal(FOUNDER_NOTICE_EVERY_MS, 7 * 86400000);
+  const shown = (ms) => ({ prefs: { founder_notice_at: new Date(DURING - ms).toISOString() } });
+  assert.equal(founderNoticeDue(NEVER, DURING), true, 'never shown');
+  assert.equal(founderNoticeDue(shown(FOUNDER_NOTICE_EVERY_MS - 1), DURING), false, 'a moment less than a week');
+  assert.equal(founderNoticeDue(shown(FOUNDER_NOTICE_EVERY_MS), DURING), true, 'a week');
+  assert.equal(founderNoticeDue(shown(-3600000), DURING), false, 'a device whose clock is behind the server’s');
+  assert.equal(founderNoticeDue({ prefs: {} }, DURING), false, 'a server that keeps no date: it would come up at every start');
+  assert.equal(founderNoticeDue(null, DURING), false);
+});
+
+test('the founder’s offer: to whom', () => {
+  const offered = (over = {}) => founderProduct({ offer: ON_SALE, answer: FREE, overview: NOBODY, ...over }, DURING)?.key ?? null;
+  assert.equal(offered(), 'pro-yearly', 'on Free');
+  assert.equal(offered({ answer: GIFT }), 'pro-yearly', 'Pro by a grant that ends');
+  assert.equal(offered({ answer: FOR_GOOD }), null, 'Pro with no end');
+  assert.equal(offered({ answer: { ...FREE, unlimited: true } }), null, 'without limits');
+  assert.equal(offered({ overview: { sources: [{ kind: 'organization', plan: 'pro', name: 'Acme', ends: null }] } }), null, 'covered by a group');
+  assert.equal(offered({ answer: GIFT, overview: { sources: [{ kind: 'organization', plan: 'pro', name: 'Acme', ends: GIFT.ends }] } }), null, 'by a group, until a date');
+  assert.equal(offered({ overview: { sources: [{ kind: 'web', status: 'active', plan: 'pro' }] } }), null, 'paying on the web');
+  assert.equal(offered({ overview: { sources: [{ kind: 'store', status: 'active', plan: 'pro', store: 'apple' }] } }), null, 'paying in a store');
+  assert.equal(offered({ overview: { sources: [{ kind: 'admin', plan: 'pro', ends: GIFT.ends }, { kind: 'extra', feature: 'x', ends: null }] }, answer: GIFT }), 'pro-yearly', 'a gift and an extra change nothing');
+  assert.equal(offered({ overview: null }), null, 'nothing without the whole picture');
+  assert.equal(offered({ answer: null }), null);
+  assert.equal(offered({ offer: null }), null);
+  assert.equal(offered({ offer: { ...ON_SALE, on_sale: false } }), null, 'not on sale');
+  assert.equal(offered({ offer: { ...ON_SALE, founder: false } }), null, 'not a founder');
+  assert.equal(offered({ offer: { ...ON_SALE, founder_until: null } }), null, 'outside the dates, or paying already');
+  assert.equal(offered({ offer: { ...ON_SALE, founder_until: '2026-11-12T09:00:00.000Z' } }), null, 'an answer from before it ended');
+  assert.equal(offered({ offer: { ...ON_SALE, products: ON_SALE.products.map((p) => ({ ...p, founder_amount: null })) } }), null, 'no amount to say');
+  assert.equal(offered({ offer: { ...ON_SALE, products: ON_SALE.products.map((p) => ({ ...p, founder_price: false })) } }), null, 'nothing at that price');
+});
+
+test('the founder’s offer: nothing inside the suite’s app, not a question to the server', async () => {
+  globalThis.window.CronumNative = { v: 1, platform: 'android', version: '0.5.12', capabilities: ['push'] };
+  try {
+    assert.equal(await starting(), false);
+    assert.deepEqual(asked, []);
+    assert.equal(openNotices().length, 0);
+  } finally { delete globalThis.window.CronumNative; }
+  globalThis.window.navigator = { userAgent: 'Mozilla/5.0 (iPhone) CronumWorkApp/0.5.12' };
+  try {
+    assert.equal(await starting(), false, 'known from the user agent alone');
+    assert.deepEqual(asked, []);
+  } finally { delete globalThis.window.navigator; }
+});
+
+test('the founder’s offer: not without a signal, nor without the whole picture, nor over something else', async () => {
+  const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { onLine: false, userAgent: 'test' }, configurable: true });
+  try {
+    assert.equal(await starting(), false, 'offline');
+    assert.deepEqual(asked, []);
+  } finally { Object.defineProperty(globalThis, 'navigator', real); }
+
+  assert.equal(await starting({}, { user: { id: 1, prefs: { founder_notice_at: new Date(DURING - 1000).toISOString() } } }), false, 'not due');
+  assert.deepEqual(asked, [], 'and nothing asked');
+
+  assert.equal(await starting({ 'GET /api/billing/overview': { status: 500, data: { error: 'generic' } } }), false, 'a question that fails');
+  assert.equal(await starting({ 'GET /api/billing/products': { status: 404, data: { error: 'not_found' } } }), false, 'a server that doesn’t sell');
+  assert.equal(await starting({}, { busy: () => true }), false, 'something else has the screen');
+  assert.equal(openNotices().length, 0);
+  assert.equal(asked.includes('PATCH /api/me'), false, 'not shown, not noted');
+});
+
+test('the founder’s offer: its words are the server’s amounts and date, and once shown it is noted', async () => {
+  let noted = null;
+  assert.equal(await starting({ 'PATCH /api/me': (body) => { noted = body; return { data: { user: {} } }; } }), true);
+  const [dialog] = openNotices();
+  assert.equal(dialog.find('h2')[0].textContent, 'Black Friday: Pro for €19 a year instead of €35');
+  assert.equal(dialog.find('p')[0].textContent, 'Subscribe by November 30 and the founder’s price is yours for good: €19 every year, for as long as you stay subscribed.');
+  assert.deepEqual(footerOf(dialog).map(textOf), ['Not now', 'Buy']);
+  assert.deepEqual(noted, { prefs: { founder_notice_seen: true } }, 'the server stamps it, for every device');
+  closeNotices();
+
+  await starting({ 'GET /api/billing/products': { data: { ...ON_SALE, founder_until: '2027-03-01T00:00:00.000Z', products: ON_SALE.products.map((p) => ({ ...p, amount: p.amount && 40, founder_amount: p.founder_amount && 24.5 })) } } });
+  const [other] = openNotices();
+  assert.match(textOf(other.find('h2')[0]), /€24\.50 a year instead of €40/);
+  assert.match(textOf(other.find('p')[0]), /^Subscribe by February 28 and/, 'its last day: the date is the first day without');
+  closeNotices();
+});
+
+test('the founder’s offer: a date in each language, without the year', async () => {
+  const expected = { es: '30 de noviembre', en: 'November 30', de: '30. November', fr: '30 novembre', it: '30 novembre' };
+  try {
+    for (const [lang, date] of Object.entries(expected)) {
+      await loadLanguage(lang, { remember: false });
+      assert.equal(lastDay(UNTIL, { year: false }), date, lang);
+    }
+  } finally { await loadLanguage('en', { remember: false }); }
+  assert.equal(lastDay(UNTIL), 'November 30, 2026', 'with the year, as ever');
+  for (const lang of ['es', 'en', 'de', 'fr', 'it']) {
+    const catalog = JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
+    for (const [key, words] of [['kit.founder.offerTitle', ['{plan}', '{price}', '{regular}']], ['kit.founder.offerText', ['{date}', '{price}']], ['kit.founder.buy', []], ['kit.founder.later', []]]) {
+      for (const word of words) assert.ok(catalog[key]?.includes(word), `${lang} ${key} ${word}`);
+      assert.ok(catalog[key], `${lang} ${key}`);
+    }
+  }
+});
+
+test('the founder’s offer: Buy is Settings’ checkout, and Not now just closes', async () => {
+  await starting({ 'POST /api/billing/checkout': (body) => { assert.deepEqual(body, { product: 'pro-yearly' }); return { data: { url: 'https://pay.example/founder' } }; } });
+  followed.length = 0;
+  click(footerOf(openNotices()[0])[1]);
+  await settle();
+  await settle();
+  assert.deepEqual(followed, ['https://pay.example/founder']);
+  assert.equal(openNotices().length, 0);
+
+  await starting();
+  followed.length = 0;
+  click(footerOf(openNotices()[0])[0]);
+  await settle();
+  assert.equal(openNotices().length, 0);
+  assert.deepEqual(followed, []);
+  assert.equal(asked.includes('POST /api/billing/checkout'), false);
+
+  await starting({ 'POST /api/billing/checkout': { status: 409, data: { error: 'already_subscribed' } } });
+  click(footerOf(openNotices()[0])[1]);
+  await settle();
+  await settle();
+  assert.equal(openNotices().length, 0, 'paid already: nothing more to offer');
+
+  await starting({ 'POST /api/billing/checkout': { status: 502, data: { error: 'billing_failed' } } });
+  click(footerOf(openNotices()[0])[1]);
+  await settle();
+  await settle();
+  assert.equal(openNotices().length, 1, 'anything else: it stays, to be tried again');
+  closeNotices();
 });

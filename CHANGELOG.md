@@ -3,12 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.241.2 — 2026-11-09
+## 0.242.1 — 2026-11-09
 
 - **Settings › Plan says how much a year saves.** A yearly product's row has a badge with how much
   less it costs than twelve months of the same plan's monthly product, rounded down: "25% off", or
   "59% off" with a founder's price. `yearlySaving()` in `web/plan.js`. Only where the web sells, so
   never in the app on a phone.
+
+## 0.242.0 — 2026-11-09
+
+- **The founder's offer comes up on starting a host's shell** (audit of 6/11, billing-15; Martin,
+  9/11). `offerFounder({ user, busy })` (web/plan.js): a dialog with the price, the regular one and
+  the last day, all from the server, with Buy, the same checkout as Settings' Upgrade, and Not now.
+  At most once a week for the account: `founder_notice_at` in `users.prefs` (billing.js
+  `FOUNDER_NOTICE_PREFS`, a part of a host's preferences when it has payments), stamped by the server
+  when the browser says `founder_notice_seen`. Only to someone `founder_until` is said to, and who
+  could buy: not to whoever has the plan for good or from a group, and never inside the suite's app.
+- `lastDay(iso, { year: false })`: only the day and the month.
 
 ## 0.241.1 — 2026-11-09
 
