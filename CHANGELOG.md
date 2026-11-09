@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.242.0 — 2026-11-09
+## 0.243.0 — 2026-11-09
 
 The medium findings of the audit of 6/11 that were still open:
 
@@ -25,6 +25,15 @@ The medium findings of the audit of 6/11 that were still open:
 - **The MCP door opens only for what it lists** (`mcp.js`, sc-mcp-1): it ran any tool, so a tool the client had
   blocked could be run through it. A tool with `destructiveHint` is never kept behind it, and it no longer calls
   itself destructive.
+
+## 0.241.1 — 2026-11-09
+
+- **Settings › Daily summary: each notice's time is an hour and its minutes, every five** (Martin,
+  9/11). The time field took any minute on an iPhone (its wheel has no steps), and the server keeps
+  only steps of five: 16:37 was kept as 16:35 with nothing said. Now there are two lists side by
+  side, the hours as the language writes them (`08`, `08 AM`) and the minutes `00`, `05` … `55`.
+  Either one changed saves the time they make together; refused, both go back. New texts
+  `kit.day.hour` and `kit.day.minute`, in the five languages.
 
 ## 0.241.0 — 2026-11-09
 
