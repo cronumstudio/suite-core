@@ -179,11 +179,11 @@ export function workosConnections(database, { provider = 'workos', clock = () =>
         provider, String(subject))) out[row.client_id] = { last_used_at: row.last_used_at, revoked_at: row.revoked_at };
       return out;
     },
-    /** Disconnected here now: the tokens issued until now, and those of its consent, are refused. */
-    revoke(subject, clientId) {
+    /** Disconnected here now (or as of `at`): the tokens issued until then, and those of its consent, are refused. */
+    revoke(subject, clientId, at = null) {
       database.run(`INSERT INTO idp_connections (provider, subject, client_id, revoked_at) VALUES (?, ?, ?, ?)
         ON CONFLICT (provider, subject, client_id) DO UPDATE SET revoked_at = excluded.revoked_at, revoked_sid = sid`,
-      provider, String(subject), String(clientId), iso(clock()));
+      provider, String(subject), String(clientId), at || iso(clock()));
     },
     /** Whether a token of that client is refused: issued before it was disconnected, or of the consent disconnected. */
     refuses(subject, clientId, { iat = 0, sid = null } = {}) {

@@ -59,6 +59,7 @@
   "errors.grant_not_found": "Questa assegnazione non esiste più o è già stata revocata.",
   "errors.early_access_off": "Questa installazione non ha un accesso anticipato.",
   "errors.internal": "Errore del server. Riprova tra un momento.",
+  "errors.identity_not_here": "L’accesso di una persona si può eliminare solo dall’app che lo gestisce.",
   "errors.invalid_event": "Non è stato possibile capire la notifica.",
   "errors.invalid_json": "Non è stato possibile leggere la richiesta.",
   "errors.invitation_expired": "Quell’invito è scaduto. Chiedine uno nuovo.",

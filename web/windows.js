@@ -678,6 +678,9 @@ export function createWindows(desk, {
     shown.delete(module);
     const node = nodes.get(module);
     if (!node) return;
+    // A modal dialog stays modal out of sight, the page behind it inert: nothing would answer a
+    // tap (a notice tapped, or Back, with Tasks' Configure list open). It goes with its window.
+    for (const dialog of node.querySelectorAll('dialog[open]')) dialog.close();
     node.hidden = true;
     node.inert = true;
     if (!asleep.has(module)) {

@@ -59,6 +59,7 @@
   "errors.grant_not_found": "That grant no longer exists or was already revoked.",
   "errors.early_access_off": "This installation has no early access.",
   "errors.internal": "Server error. Try again in a moment.",
+  "errors.identity_not_here": "Someone’s login can only be deleted from the app that manages it.",
   "errors.invalid_event": "The notification could not be understood.",
   "errors.invalid_json": "The request could not be read.",
   "errors.invitation_expired": "That invitation has expired. Ask for a new one.",

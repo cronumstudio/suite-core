@@ -214,24 +214,26 @@ export function createSessions({
   /**
    * Closes every session of a person, except the one of `exceptToken`: what a
    * password change wants — out with whoever had the old one, without signing
-   * out the browser where it was just typed.
+   * out the browser where it was just typed. `before` (an ISO date): only those
+   * opened until then.
    */
-  function closeAllOf(userId, { exceptToken = null } = {}) {
-    const closed = exceptToken
-      ? database.run('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?', userId, hashOf(exceptToken)).changes
-      : database.run('DELETE FROM sessions WHERE user_id = ?', userId).changes;
+  function closeAllOf(userId, { exceptToken = null, before = null } = {}) {
+    const closed = database.run(`DELETE FROM sessions WHERE user_id = ?${exceptToken ? ' AND token_hash != ?' : ''}${before ? ' AND created_at < ?' : ''}`,
+      userId, ...(exceptToken ? [hashOf(exceptToken)] : []), ...(before ? [before] : [])).changes;
     if (closed) closedFor(userId);
     return closed;
   }
 
   /**
    * The identity provider's sessions behind some of a person's sessions here
-   * (all, all but `exceptToken`'s, or the one of `key`): closing ours alone
-   * leaves that browser signed in at the provider, back in with one click.
+   * (all, all but `exceptToken`'s, or the one of `key`; with `before`, of those
+   * opened until then): closing ours alone leaves that browser signed in at the
+   * provider, back in with one click.
    */
-  function idpSessionsOf(userId, { key = null, exceptToken = null } = {}) {
-    const rows = database.all('SELECT token_hash, idp_session_id FROM sessions WHERE user_id = ? AND idp_session_id IS NOT NULL', userId);
+  function idpSessionsOf(userId, { key = null, exceptToken = null, before = null } = {}) {
+    const rows = database.all('SELECT token_hash, idp_session_id, created_at FROM sessions WHERE user_id = ? AND idp_session_id IS NOT NULL', userId);
     return rows
+      .filter((r) => !before || r.created_at < before)
       .filter((r) => (key ? r.token_hash.slice(0, 16) === key : !exceptToken || r.token_hash !== hashOf(exceptToken)))
       .map((r) => r.idp_session_id);
   }
