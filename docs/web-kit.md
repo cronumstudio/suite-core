@@ -488,7 +488,7 @@ loaded.
 
 | `type` | Detail | What the kit does |
 | --- | --- | --- |
-| `purchase-result` | `{ product, status }`: `purchased`, `pending`, `canceled` or `failed` | `storePurchase()` says it in a notice; bought, it reads the plan again and sends it as `kit-plan` (`PLAN_EVENT`), which an open Settings repaints with |
+| `purchase-result` | `{ product, status }`: `purchased`, `pending`, `canceled`, `failed` or `closed` (the app's own screen left, nothing tried: nothing is said) | `storePurchase()` says it in a notice; bought, it reads the plan again and sends it as `kit-plan` (`PLAN_EVENT`), which an open Settings repaints with |
 | `push-state` | `{ state }`: `granted`, `denied` or `undetermined` | Settings › Notifications says when the phone has them off |
 | `back` | — | Android's back while a `panel` is open, in place of going back: Cronum Work's shell closes the panel |
 
