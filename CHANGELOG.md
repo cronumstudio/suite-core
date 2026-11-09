@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.240.0 — 2026-11-09
+
+- **About says the version of the app on the phone** (Martin, 9/11: on iPhone and Android it only
+  named Cronum Work's, which is the page the app shows). Inside the app, a line «iOS app» or
+  «Android app» under the version in use, with the number the app tells the page
+  (`nativeInfo().version`). Nothing new in the bridge, so the builds already on people's phones
+  show it too.
+
 ## 0.239.0 — 2026-11-09
 
 - **The early access's plan, kept past its end for whoever was in it** (audit of 6/11, billing-1 and
