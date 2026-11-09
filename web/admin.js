@@ -896,7 +896,8 @@ async function earlyAccessBox() {
   function paint() {
     count.textContent = t('admin.early.count', { n: state.accounts, kept: state.kept, date: formatDate(state.until) });
     give.textContent = t('admin.early.give', { n: state.left });
-    give.disabled = state.left === 0;
+    // With none left it still moves the date of them all.
+    give.disabled = state.accounts === 0;
   }
   paint();
   return append(box,
