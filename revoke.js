@@ -55,33 +55,37 @@ export function createRevoker({
    * @param {object} [options]
    * @param {{ sessionToken: string } | null} [options.keep]  the session (and its tab) that stays: the one
    *   where the person just changed their password
+   * @param {string|null} [options.before]  an ISO date: only what existed then, for something noticed
+   *   later (a reset at WorkOS, up to a minute after it): what was opened since is the person's, with
+   *   the new password
    * @param {boolean} [options.provider]  also withdraw the AI clients at the identity provider
    * @param {string} [options.reason]     for the audit log: password, reset, admin_password, sign_out_everywhere…
    * @param {object|number|null} [options.actor]  who did it, for the audit log (the person by default)
    * @param {object} [options.req]
    * @returns {{ closed: number, tokens: number, grants: number, devices: number, push: number, ai_clients: number }}
    */
-  function revokeEverything(userId, { keep = null, provider = true, reason = null, actor = undefined, req = null } = {}) {
+  function revokeEverything(userId, { keep = null, before = null, provider = true, reason = null, actor = undefined, req = null } = {}) {
     const id = Number(userId);
     const exceptToken = keep?.sessionToken || null;
     // 1. Read before they close: the provider's sessions behind the ones here.
-    const atProvider = sessions?.idpSessionsOf?.(id, { exceptToken }) || [];
+    const atProvider = sessions?.idpSessionsOf?.(id, { exceptToken, before }) || [];
     const subject = workosPeople?.workosIdOf?.(id) || null;
 
     const counts = database.tx(() => {
       // 2. The sessions here.
-      const closed = sessions ? sessions.closeAllOf(id, { exceptToken }) : 0;
+      const closed = sessions ? sessions.closeAllOf(id, { exceptToken, before }) : 0;
       // 3. The API tokens.
-      const revoked = tokens?.revokeAllOf(id) ?? 0;
+      const revoked = tokens?.revokeAllOf(id, { before }) ?? 0;
       // 4. The suite's own OAuth grants and their tokens.
       const grants = oauth && hasTable('oauth_grants')
         ? Number(database.get('SELECT COUNT(*) AS n FROM oauth_grants WHERE user_id = ?', id).n) : 0;
       oauth?.forgetUser(id);
       // 5. The phones: their tokens, the web sessions they opened, their native push tokens.
       if (hasTable('device_push_tokens')) {
-        database.run('DELETE FROM device_push_tokens WHERE device_id IN (SELECT id FROM device_tokens WHERE user_id = ?)', id);
+        database.run(`DELETE FROM device_push_tokens WHERE device_id IN (SELECT id FROM device_tokens WHERE user_id = ?${before ? ' AND created_at < ?' : ''})`,
+          id, ...(before ? [before] : []));
       }
-      const phones = devices ? devices.revokeAllOf(id) : 0;
+      const phones = devices ? devices.revokeAllOf(id, { before }) : 0;
       // 6. The browsers that get notices.
       const subscriptions = push ? push.unsubscribe(id)
         : hasTable('push_subscriptions') ? database.run('DELETE FROM push_subscriptions WHERE user_id = ?', id).changes : 0;
@@ -89,7 +93,7 @@ export function createRevoker({
       let aiClients = 0;
       if (subject && connections && hasTable('idp_connections')) {
         for (const row of database.all("SELECT client_id FROM idp_connections WHERE provider = 'workos' AND subject = ?", String(subject))) {
-          connections.revoke(subject, row.client_id);
+          connections.revoke(subject, row.client_id, before);
           aiClients += 1;
         }
       }

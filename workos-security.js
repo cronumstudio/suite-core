@@ -294,7 +294,7 @@ export function registerWorkosSecurityApi(router, {
 
   // Changing someone's WorkOS identity changes it in every product: only the install that owns
   // the identities does it, and only with the admin's own password (and code) again.
-  if (!adminIdentity) return;
+  if (!adminIdentity) return {};
 
   /**
    * Whoever lost the phone: their second step off. They sign in with the password alone until
@@ -332,4 +332,6 @@ export function registerWorkosSecurityApi(router, {
     record(ctx, 'admin.user.update', 'user', user.id, { fields: [], password: true, provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });
   }));
+
+  return { confirmAdmin: (ctx, body) => route(() => confirmAdmin(ctx, body))(ctx) };
 }

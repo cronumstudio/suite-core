@@ -379,33 +379,9 @@ function userDialog(user) {
     const answer = await api.get(`/api/admin/users/${user.id}/sign-in`);
     // An install that doesn't own the identities (accounts.adminIdentity) only shows them.
     const manage = answer.manage !== false;
-    /**
-     * The admin's own password (and code) again, as the server asks (`reauth`): the fields, and
-     * what they add to the request. With `session` there is nothing to type: a recent sign-in.
-     */
-    const reauthFields = () => {
-      const own = answer.reauth === 'password' || answer.reauth === 'password_code'
-        ? el('input', { type: 'password', autocomplete: 'current-password' }) : null;
-      const code = answer.reauth === 'password_code'
-        ? el('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6' }) : null;
-      return {
-        nodes: [own ? field(t('admin.users.yourPassword'), own) : null, code ? field(t('admin.users.yourCode'), code) : null],
-        body: () => ({ ...(own ? { admin_password: own.value } : {}), ...(code ? { admin_code: code.value } : {}) }),
-        reset: () => { if (own) own.value = ''; if (code) code.value = ''; },
-      };
-    };
-    /** A recent sign-in is what the server wants: to the sign-in, and back here. */
-    const failed = (err) => {
-      if (err?.code === 'reauth_required') {
-        toast(t('errors.reauth_required'), { error: true });
-        window.location.href = '/auth/login';
-        return;
-      }
-      fail(err);
-    };
     if (answer.password && manage) {
       const next = el('input', { type: 'password', autocomplete: 'new-password' });
-      const again = reauthFields();
+      const again = reauthFields(answer.reauth);
       clear(signInBox).append(fold({ title: t('admin.users.password') },
         el('p', { class: 'kit-hint', text: t('admin.users.passwordLeadWorkos') }),
         el('div', { class: 'kit-row kit-row--end' },
@@ -419,14 +395,14 @@ function userDialog(user) {
                 next.value = '';
                 again.reset();
                 toast(t('admin.users.passwordSet'));
-              } catch (err) { failed(err); }
+              } catch (err) { reauthFailed(err); }
             },
           }))));
     } else if (answer.method) {
       clear(signInBox).append(el('p', { class: 'kit-hint', text: t('admin.users.signsInWith', { method: methodName(answer.method) }) }));
     }
     if (!answer.two_factor?.enabled || !manage) return;
-    const again = reauthFields();
+    const again = reauthFields(answer.reauth);
     append(clear(twoFactorBox),
       el('p', { class: 'kit-hint', text: `${t('admin.users.twoFactor')} ${t('admin.users.twoFactorLeadWorkos')}` }),
       again.nodes.some(Boolean) ? el('div', { class: 'kit-row kit-row--end' }, ...again.nodes) : null,
@@ -547,11 +523,12 @@ function userDialog(user) {
           const identity = state.config?.deletion_identity ? await identityChoice(user) : null;
           if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name }), { more: identity?.node }))) return;
           try {
-            await api.delete(`/api/admin/users/${user.id}${identity?.box.checked ? '?identity=1' : ''}`);
+            if (identity?.box.checked) await api.delete(`/api/admin/users/${user.id}?identity=1`, identity.body());
+            else await api.delete(`/api/admin/users/${user.id}`);
             toast(t('admin.users.deleted'));
             dialog.close();
             refresh();
-          } catch (err) { fail(err); }
+          } catch (err) { reauthFailed(err); }
         },
       })));
 
@@ -570,23 +547,56 @@ function userDialog(user) {
 }
 
 /**
+ * The admin's own password (and code) again, as the server asks (`reauth`): the fields, and
+ * what they add to the request. With `session` there is nothing to type: a recent sign-in.
+ */
+function reauthFields(reauth) {
+  const own = reauth === 'password' || reauth === 'password_code'
+    ? el('input', { type: 'password', autocomplete: 'current-password' }) : null;
+  const code = reauth === 'password_code'
+    ? el('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6' }) : null;
+  return {
+    nodes: [own ? field(t('admin.users.yourPassword'), own) : null, code ? field(t('admin.users.yourCode'), code) : null],
+    body: () => ({ ...(own ? { admin_password: own.value } : {}), ...(code ? { admin_code: code.value } : {}) }),
+    reset: () => { if (own) own.value = ''; if (code) code.value = ''; },
+  };
+}
+
+/** A recent sign-in is what the server wants: to the sign-in, and back here. */
+function reauthFailed(err) {
+  if (err?.code === 'reauth_required') {
+    toast(t('errors.reauth_required'), { error: true });
+    window.location.href = '/auth/login';
+    return;
+  }
+  fail(err);
+}
+
+/**
  * Whether deleting someone takes their login too, where it is shared with other apps: unticked,
  * only the account here goes. Says which other apps they use with it, when the provider can tell.
- * → { node, box }
+ * Only an install that owns the identities offers it, and ticked it asks for the admin's own
+ * password again. → { node, box, body } or null
  */
 async function identityChoice(user) {
+  const signIn = await api.get(`/api/admin/users/${user.id}/sign-in`).catch(() => null);
+  if (signIn?.manage !== true) return null;
   let others = null;
   try {
     others = (await api.get(`/api/admin/users/${user.id}/other-apps`)).other_apps;
   } catch { /* said as not known */ }
+  const again = reauthFields(signIn.reauth);
   const box = el('input', { type: 'checkbox', id: 'admin-delete-identity' });
+  const asked = el('div', { class: 'kit-row kit-row--end', hidden: true }, ...again.nodes);
+  box.addEventListener('change', () => { asked.hidden = !box.checked; });
   const said = others == null ? t('admin.users.identityUnknown')
     : others.length ? t('admin.users.identityUsed', { apps: listFormat({ type: 'conjunction' }).format(others) })
       : t('admin.users.identityAlone');
   const node = el('div', { class: 'kit-stack' },
     el('label', { class: 'kit-check' }, box, el('span', { text: t('admin.users.identityGoes', { provider: state.config?.name || '' }) })),
-    el('p', { class: 'kit-hint', text: said }));
-  return { node, box };
+    el('p', { class: 'kit-hint', text: said }),
+    asked);
+  return { node, box, body: again.body };
 }
 
 /** How someone signs in, as people say it: "Google", "a password"… */

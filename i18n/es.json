@@ -59,6 +59,7 @@
   "errors.grant_not_found": "Esa concesión ya no existe o ya estaba revocada.",
   "errors.early_access_off": "Esta instalación no tiene acceso anticipado.",
   "errors.internal": "Error del servidor. Inténtalo dentro de un momento.",
+  "errors.identity_not_here": "El inicio de sesión de una persona solo se puede borrar desde la app que lo gestiona.",
   "errors.invalid_event": "No se ha podido entender el aviso.",
   "errors.invalid_json": "No se ha podido leer la petición.",
   "errors.invitation_expired": "Esa invitación ha caducado. Pide una nueva.",
