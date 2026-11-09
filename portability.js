@@ -147,8 +147,14 @@ export function dataImportsSchema(d) {
  *     users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
  *              prefs(prefs, { ids, current, created }) { … } },
  *     check({ user, counts, replaced, organizations }) { … },   // limits of the plan, for someone's own import
- *     handOver(userId) { … },        // before someone's own data is erased: what others share passes on
+ *     handOver(userId) { … },        // before someone's own data is erased or replaced: what others share passes on
+ *     shared(userId) { … },          // what handOver would pass on, by name: said before "replace"
+ *     after({ ids, rows, mode, user }) { … },  // every row in, inside the transaction: what only the app reads
  *   }
+ *
+ * `after` is for what no reference can say, a text that names another row's id: `ids(table, old)` is
+ * the id here of the row the copy called `old` (null if it didn't come), and `rows(table)` the ids
+ * here of the rows this import brought.
  *
  * `clean(values, { mode, organizations })` may change a row as it comes in. With organizations,
  * `organizations` is { created, mapped }: Sets of the ids here of the groups this import made and
@@ -1502,7 +1508,11 @@ export function createPortability({
     };
     const choices = decide(archive, { mode, user, decisions, replace });
     if (mode === 'account') {
-      const plan = { mode, copy: summary, account: archive.users[0].username, replace: countsOf(ownedBy(user.id)) };
+      const plan = {
+        mode, copy: summary, account: archive.users[0].username, replace: countsOf(ownedBy(user.id)),
+        // What "replace" passes on to the people using it, by the names they know it by.
+        shared: declaration.shared?.(user.id) ?? [],
+      };
       if (groups) {
         // With "replace", the groups they share are handed over first, and are no longer theirs to go into.
         const shared = sharedGroups(user.id);
@@ -1681,6 +1691,10 @@ export function createPortability({
           // Again, inside: nothing may have changed since the check before the attachments were read.
           if (confirmHandOver) checkHandOver(choice.userId, handOver);
           if (groups) handedOver.push(...handOverGroups(choice.userId).map((g) => ({ ...g, user_id: choice.userId })));
+          // Someone's own copy doesn't take what they share from the people using it: it passes on,
+          // as when they erase their data, and the copy comes back as theirs alone. A whole install's
+          // copy brings the shares back with both ends, so there nothing passes on.
+          if (mode === 'account') declaration.handOver?.(choice.userId);
           for (const [name, n] of Object.entries(emptyAccount(choice.userId, replacedFiles))) {
             replaced[name] = (replaced[name] || 0) + n;
           }
@@ -1839,8 +1853,10 @@ export function createPortability({
           if (to != null) database.run(`UPDATE ${quote(table.name)} SET ${quote(ref.column)} = ? WHERE id = ?`, to, id);
         }
 
-        // Profiles: the preferences of the copy; who each account is stays as it is here.
         const ids = (table, old) => newIds.get(table)?.get(Number(old)) ?? null;
+        declaration.after?.({ ids, rows: (table) => [...(newIds.get(table)?.values() ?? [])], mode, user });
+
+        // Profiles: the preferences of the copy; who each account is stays as it is here.
         for (const [sourceId, userId] of userMap) {
           const source = sources.get(sourceId);
           const isNew = created.includes(userId);
@@ -2005,6 +2021,10 @@ export function createPortability({
       const shared = groups && (result.imported.organizations.mapped > 0 || result.handed_over.length > 0);
       live?.publish({ audience: mode === 'account' && !Object.keys(result.replaced).length && !shared ? [user.id] : null, event: 'resync', data: {} });
       for (const { user_id: id } of result.accounts) accounts.changed?.(id);
+      // What was emptied leaves nothing elsewhere either (a host's links), as when it is erased.
+      if (mode === 'account' && Object.keys(result.replaced).length) {
+        try { onErased?.(user); } catch (error) { log(`[${app.id}] after replacing user ${user.id}: ${error?.stack || error}`); }
+      }
       return result;
     } catch (err) {
       cleanStaging();
