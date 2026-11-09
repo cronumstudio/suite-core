@@ -12,6 +12,7 @@
  *   billingReturn({ onPlan: refresh, open: () => openPlan() });         // once, at the start
  *   catch (err) { if (!offerPlan(err, { open: () => openPlan() })) fail(err); }
  *   storePurchase();                                                     // inside the suite's app: its store
+ *   offerFounder({ user, busy });                                        // a host's shell, as it starts
  *
  * The browser only names a product: the price, a founder's included, is the server's to choose,
  * and the provider's page charges it. The amounts shown beside each product are the catalog's
@@ -22,7 +23,7 @@ import { t, formatDateTime, currentLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { toast, openDialog } from './ui.js';
 import { FRAMED } from './base.js';
-import { nativePurchase, onNative } from './native.js';
+import { nativePurchase, onNative, inApp } from './native.js';
 
 /** What `billingReturn` tells the page each time it reads the plan again: an open Settings repaints. */
 export const PLAN_EVENT = 'kit-plan';
@@ -107,6 +108,21 @@ function follow(url) {
   (FRAMED ? globalThis.top : globalThis).location.assign(url);
 }
 
+/**
+ * To the provider's checkout for a product, the one way there (Settings' Upgrade, the founder's
+ * notice): the plan from before is kept for the way back, and the price is the server's to choose.
+ */
+async function goToCheckout(product, answer) {
+  remember(answer);
+  try {
+    const { url } = await api.post('/api/billing/checkout', { product: product.key });
+    follow(url);
+  } catch (err) {
+    recall();
+    throw err;
+  }
+}
+
 /** A subscription's period from the suite's product keys (`pro-monthly`, `pro-yearly`), or null. */
 export function periodOf(product) {
   if (product?.kind !== 'subscription') return null;
@@ -128,10 +144,12 @@ export function moneyText(amount, currency) {
 /**
  * The last day of something that ends at `iso` (the moment it no longer holds, as the server's
  * dates are: FOUNDER_OFFER_UNTIL=2027-02-01 is its first day without), in the server's calendar.
+ * With `year: false`, only its day and month.
  */
-export const lastDay = (iso) => {
+export const lastDay = (iso, { year = true } = {}) => {
   const at = Date.parse(iso);
-  return Number.isNaN(at) ? '' : formatDateTime(new Date(at - 1).toISOString(), { dateStyle: 'long', timeZone: 'UTC' });
+  const format = year ? { dateStyle: 'long' } : { day: 'numeric', month: 'long' };
+  return Number.isNaN(at) ? '' : formatDateTime(new Date(at - 1).toISOString(), { ...format, timeZone: 'UTC' });
 };
 
 const longDate = (iso) => formatDateTime(iso, { dateStyle: 'long' });
@@ -267,13 +285,10 @@ export function planPayments({
 
   async function upgrade(product, answer, target) {
     target.disabled = true;
-    remember(answer);
     try {
-      const { url } = await api.post('/api/billing/checkout', { product: product.key });
-      follow(url);
+      await goToCheckout(product, answer);
       setTimeout(() => { target.disabled = false; }, 8000);
     } catch (err) {
-      recall();
       target.disabled = false;
       if (err?.code === 'already_subscribed') {
         // Paid already (in another tab, or the webhook came first): plans change in the portal.
@@ -410,6 +425,87 @@ export function storePurchase(product = null) {
     pendingPurchase = finish;
     if (!nativePurchase(product)) finish(null);
   });
+}
+
+/* ---------------------- the founder's offer, on starting --------------------- */
+
+/** The founder's offer comes up at most this often for an account, on any of its devices. */
+export const FOUNDER_NOTICE_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Whoever pays for their plan here or in a store, or has it from a group: nothing to buy from a notice. */
+const NOT_THEIRS_TO_BUY = new Set(['web', 'store', 'organization']);
+
+/**
+ * Whether the account is due the founder's offer: never shown it, or shown it a week ago, by the
+ * date the server keeps for the account (billing.js FOUNDER_NOTICE_PREFS). A server that keeps no
+ * date: not due, or it would come up at every start.
+ */
+export function founderNoticeDue(user, now = Date.now()) {
+  const last = user?.prefs?.founder_notice_at;
+  if (last === undefined) return false;
+  return last === null || !(now - Date.parse(last) < FOUNDER_NOTICE_EVERY_MS);
+}
+
+/**
+ * What the founder's notice offers someone, or null. From what Settings' plan section reads: the
+ * server's word that this person still gets the founder's price and pays nothing yet, here or in a
+ * store (`founder_until`, null for anyone else and outside the offer's dates), a product at that
+ * price whose amounts it knows, and `offerFor`'s rule of who is offered what, which leaves out
+ * whoever has the plan for good. Nothing to anyone a group covers.
+ */
+export function founderProduct({ offer, answer, overview }, now = Date.now()) {
+  if (offer?.on_sale !== true || offer.founder !== true || !(Date.parse(offer.founder_until) > now)) return null;
+  if (!Array.isArray(overview?.sources) || overview.sources.some((s) => NOT_THEIRS_TO_BUY.has(s.kind))) return null;
+  // `founder_until` has said that no subscription is live: what `offerFor` asks to know.
+  return offerFor(answer, Array.isArray(offer.products) ? offer.products : [], []).find((product) => product.founder_price
+    && moneyText(product.amount, product.currency) && moneyText(product.founder_amount, product.currency)) ?? null;
+}
+
+/**
+ * The founder's offer as a host's shell starts: a dialog with its price and its last day, Buy (the
+ * same checkout as Settings' Upgrade) and Not now. Not inside the suite's app, where the stores'
+ * rules keep a web payment's links and prices out, not without a signal, and at most once a week
+ * for the account: shown is shown, whatever is pressed, and the server keeps the date for all its
+ * devices. Nothing is shown without the whole picture, or while `busy()` says something else is
+ * on the screen. → whether it was shown.
+ */
+export async function offerFounder({ user, busy = () => false, now = Date.now() } = {}) {
+  if (inApp() || globalThis.navigator?.onLine === false || !founderNoticeDue(user, now)) return false;
+  let offer;
+  let answer;
+  let overview;
+  try {
+    [offer, answer, overview] = await Promise.all([
+      api.get('/api/billing/products'), api.get('/api/me/entitlements'), api.get('/api/billing/overview'),
+    ]);
+  } catch { return false; }
+  const product = founderProduct({ offer, answer, overview }, now);
+  if (!product || busy()) return false;
+  const price = moneyText(product.founder_amount, product.currency);
+  openDialog({
+    title: t('kit.founder.offerTitle', { plan: productText(product, answer.plans || []).name, price, regular: moneyText(product.amount, product.currency) }),
+    content: el('p', { text: t('kit.founder.offerText', { date: lastDay(offer.founder_until, { year: false }), price }) }),
+    width: '440px',
+    actions: [
+      { label: t('kit.founder.later') },
+      {
+        label: t('kit.founder.buy'),
+        primary: true,
+        onClick: async () => {
+          try {
+            await goToCheckout(product, answer);
+            return true;
+          } catch (err) {
+            toast(errorMessage(err), { error: true });
+            // Paid already (in another tab): nothing more to offer. Anything else may be tried again.
+            return err?.code === 'already_subscribed';
+          }
+        },
+      },
+    ],
+  });
+  api.patch('/api/me', { prefs: { founder_notice_seen: true } }).catch(() => { /* not kept: it comes up at the next start */ });
+  return true;
 }
 
 /* --------------------------- anywhere in an app --------------------------- */

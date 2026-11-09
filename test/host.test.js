@@ -1393,6 +1393,15 @@ test('payments are the host\'s in every module: its routes at a module that sell
   assert.equal(products.data.on_sale, true);
   assert.equal((await call('GET', '/alpha/api/billing/overview')).status, 200);
   assert.deepEqual((await call('GET', '/api/modules')).data.founder_offer, { until: '2099-01-01T00:00:00.000Z' }, 'the notice every frame shows');
+
+  // When the founder's offer last came up on starting: one date for the account, the server's.
+  assert.equal((await call('GET', '/api/auth/me')).data.user.prefs.founder_notice_at, null);
+  assert.equal((await call('PATCH', '/api/me', { prefs: { founder_notice_at: '2000-01-01T00:00:00.000Z' } })).data.user.prefs.founder_notice_at, null, 'the date can’t be sent');
+  const before = Date.now();
+  const noted = (await call('PATCH', '/api/me', { prefs: { founder_notice_seen: true } })).data.user.prefs.founder_notice_at;
+  assert.ok(Date.parse(noted) >= before - 1000 && Date.parse(noted) <= Date.now() + 1000, noted);
+  assert.equal((await call('PATCH', '/api/me', { prefs: { lang: 'en' } })).data.user.prefs.founder_notice_at, noted, 'another preference leaves it');
+  assert.equal((await call('GET', '/api/auth/me')).data.user.prefs.founder_notice_at, noted);
 });
 
 /* ------------------- a page that shows several modules ------------------- */
