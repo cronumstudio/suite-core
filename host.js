@@ -1709,7 +1709,8 @@ export async function createHost({
       }
       // Its own timers (reminders, clean-ups): what the app's index.js starts on its own.
       if (typeof m.parts.start === 'function') {
-        const stopIt = m.parts.start();
+        // What a module's timers may need of the whole host: the day's work and who uses what.
+        const stopIt = m.parts.start({ day: daily, uses });
         if (typeof stopIt === 'function') stops.push(stopIt);
       }
     }

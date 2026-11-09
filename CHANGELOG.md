@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.240.1 — 2026-11-09
+## 0.241.1 — 2026-11-09
 
 - **Settings › Daily summary: each notice's time is an hour and its minutes, every five** (Martin,
   9/11). The time field took any minute on an iPhone (its wheel has no steps), and the server keeps
@@ -11,6 +11,13 @@ change an interface and a patch never does. Apps pin a version through the submo
   side, the hours as the language writes them (`08`, `08 AM`) and the minutes `00`, `05` … `55`.
   Either one changed saves the time they make together; refused, both go back. New texts
   `kit.day.hour` and `kit.day.minute`, in the five languages.
+
+## 0.241.0 — 2026-11-09
+
+- **A module's `start()` is told the host's day and who uses what** (`start({ day, uses })`, for
+  Cronum Work's Croc, whose keys come from what was done today). `day.done(user, { day, every: true })`
+  also counts the modules someone took out of the evening's notice. A module that takes no argument
+  is as before.
 
 ## 0.240.0 — 2026-11-09
 

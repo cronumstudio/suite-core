@@ -208,12 +208,12 @@ export function createDay({ modules, uses = () => true, icon = (m) => m.config.a
    * The modules with a part of the summary that someone uses, in the host's order; for one part,
    * only those they keep in its notice, which is what its page shows too.
    */
-  const sourcesOf = (user, part = null) => modules()
-    .filter((m) => (part ? has(m, part) && kept(user, part, m) : has(m, 'agenda') || has(m, 'done')) && uses(user, m.mount));
+  const sourcesOf = (user, part = null, every = false) => modules()
+    .filter((m) => (part ? has(m, part) && (every || kept(user, part, m)) : has(m, 'agenda') || has(m, 'done')) && uses(user, m.mount));
 
   /** What each module gives for one part, in the person's zone: its items, or null where it failed. */
-  async function ask(user, part, args, itemOf, order, max = DAY_MODULE_MAX) {
-    const sources = sourcesOf(user, part);
+  async function ask(user, part, args, itemOf, order, max = DAY_MODULE_MAX, every = false) {
+    const sources = sourcesOf(user, part, every);
     const answers = await Promise.all(sources.map(async (m) => {
       try {
         const given = await inZoneOf(user, () => m.parts.day[part](user, { ...args }));
@@ -248,9 +248,13 @@ export function createDay({ modules, uses = () => true, icon = (m) => m.config.a
     };
   }
 
-  /** What someone did on `day`: `{ done, failed }`, the latest first, then in the modules' order. */
-  async function done(user, { day }) {
-    const asked = await ask(user, 'done', { day }, doneItemOf, byLatest);
+  /**
+   * What someone did on `day`: `{ done, failed }`, the latest first, then in the modules' order.
+   * `every` counts the modules they took out of the evening's notice too: for a module that asks
+   * what was done, for its own ends, and not to write that notice.
+   */
+  async function done(user, { day, every = false }) {
+    const asked = await ask(user, 'done', { day }, doneItemOf, byLatest, DAY_MODULE_MAX, every);
     return { done: asked.items.sort((a, b) => byLatest(a, b) || asked.rank(a) - asked.rank(b)), failed: asked.failed };
   }
 
