@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.242.0 — 2026-11-09
+## 0.244.0 — 2026-11-09
 
 For selling Cronum Work Pro in the App Store and Google Play. Nothing changes without `STORE_BILLING`.
 
@@ -17,6 +17,17 @@ For selling Cronum Work Pro in the App Store and Google Play. Nothing changes wi
   (`modules.stores`, `app.host.stores`), shows too for a plan that ends on a date (the early
   access's gift, which paying carries on), and goes for whoever pays already or before sales open.
 - A store's "Open the App Store" button goes through the bridge's `open-external` in the app.
+
+## 0.242.0 — 2026-11-09
+
+- **The founder's offer comes up on starting a host's shell** (audit of 6/11, billing-15; Martin,
+  9/11). `offerFounder({ user, busy })` (web/plan.js): a dialog with the price, the regular one and
+  the last day, all from the server, with Buy, the same checkout as Settings' Upgrade, and Not now.
+  At most once a week for the account: `founder_notice_at` in `users.prefs` (billing.js
+  `FOUNDER_NOTICE_PREFS`, a part of a host's preferences when it has payments), stamped by the server
+  when the browser says `founder_notice_seen`. Only to someone `founder_until` is said to, and who
+  could buy: not to whoever has the plan for good or from a group, and never inside the suite's app.
+- `lastDay(iso, { year: false })`: only the day and the month.
 
 ## 0.241.1 — 2026-11-09
 

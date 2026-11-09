@@ -86,6 +86,7 @@ import { createDay, registerDayApi, createDayNotices, dayNoticesSchema, DAY_PREF
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
 import { combinePrefs } from './prefs.js';
+import { FOUNDER_NOTICE_PREFS } from './billing.js';
 import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
@@ -1164,7 +1165,8 @@ export async function createHost({
     // each keeps its keys and none drops another's. Without any, none, as before. With the daily
     // summary, the host's own too (`prefs.day`): Settings saves it there, a module's /api/me keeps
     // only its own keys.
-    prefs: combinePrefs([...joined.map((m) => m.parts.prefs), day ? DAY_PREFS : null]),
+    // With payments, when the founder's offer last came up on starting (billing.js).
+    prefs: combinePrefs([...joined.map((m) => m.parts.prefs), day ? DAY_PREFS : null, suite.billing?.enabled ? FOUNDER_NOTICE_PREFS : null]),
     routes: (api) => {
       api.get('/api/modules', async (ctx) => {
         const answer = modulesOf(ctx.user);
