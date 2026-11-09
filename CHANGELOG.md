@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.241.0 — 2026-11-09
+
+- **A module's `start()` is told the host's day and who uses what** (`start({ day, uses })`, for
+  Cronum Work's Croc, whose keys come from what was done today). `day.done(user, { day, every: true })`
+  also counts the modules someone took out of the evening's notice. A module that takes no argument
+  is as before.
+
 ## 0.240.0 — 2026-11-09
 
 - **About says the version of the app on the phone** (Martin, 9/11: on iPhone and Android it only

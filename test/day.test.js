@@ -433,3 +433,11 @@ test('the notices sent are forgotten after 60 days', async () => {
   await check({ now: new Date('2026-11-04T03:00:00Z') });
   assert.deepEqual(setup.database.all('SELECT day FROM host_day_notices').map((r) => r.day), [addDays('2026-11-04', -DAY_LOG_DAYS)]);
 });
+
+test('every: what was done counts the modules taken out of the evening notice too', async () => {
+  const item = { type: 'task', id: 1, title: 'Invoice', at: '2026-11-04T10:00:00.000Z', where: 'Work', url: '?task=1', kind: 'completed' };
+  const day = createDay({ modules: () => [moduleOf('tasks', 'Tasks', { done: () => [item] })] });
+  const ana = { id: 1, prefs: JSON.stringify({ day: { evening: { modules: { tasks: false } } } }) };
+  assert.deepEqual((await day.done(ana, { day: '2026-11-04' })).done, [], 'as the notice says');
+  assert.equal((await day.done(ana, { day: '2026-11-04', every: true })).done.length, 1, 'and for whoever asks for all of it');
+});
