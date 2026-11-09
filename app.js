@@ -597,10 +597,10 @@ export function createSuite({
    * app says its data is. createApp makes it when it is given `portable`; a
    * script of the app (its command line) makes it the same way.
    */
-  const portabilityFor = (declaration, { version = null, limits = {} } = {}) => createPortability({
+  const portabilityFor = (declaration, { version = null, limits = {}, onErased = null } = {}) => createPortability({
     database, accounts, uploads, entitlements, live, audit,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
-    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
+    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits, onErased,
     // For a declaration whose copies carry organizations (portability.js); null with the module off.
     organizations,
   });

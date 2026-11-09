@@ -24,6 +24,28 @@ change an interface and a patch never does. Apps pin a version through the submo
   words and the suite's clothes, for what a push alone doesn't reach (Projects' warning before a
   finished project goes).
 
+## 0.238.0 — 2026-11-09
+
+- **In Cronum Work there is one way out** (audit of 6/11, work-web-1 and sc-shell-1). A module's
+  Settings › Sign out called the kit's `signOut` on its own: no question, and every module's queue
+  on the device gone without a word (the shell's `leave()`, which asks and saves first, ran only
+  from the account's Settings with no module in the window). Now `signOut()` is the shell's when
+  there is one (the registry's `signOut`; also from a frame of the shell), and `signOutHere()` the
+  kit's own; the module's `local` and `before` go along, and `before` still runs only once the
+  server has heard. New in the registry: `signOut`.
+- **"Replace" no longer takes away what someone shares** (audit of 6/11, portable-3). Importing
+  one's own copy with "Replace" emptied the account, and with it what other people were using,
+  without a word. Now it hands it over first (`declaration.handOver`, as erasing does): the people
+  using it keep it with what they wrote since, and the person gets their copy, theirs alone. Only
+  for someone's own copy: a whole install's brings the shares back with both ends. A declaration's
+  `shared(userId)` names what will pass on; the plan says it (`shared`) and the question before
+  replacing too (`kit.data.sharedPassesOn`, five languages). A replace now tells `onErased` too, so
+  a host's links forget what went.
+- **`after`, a new hook of the declaration** (audit of 6/11, notes-srv-1): with every row in and
+  inside the transaction, `after({ ids, rows, mode, user })` lets the app rewrite what no reference
+  can say, a text that names another row's id. Its failure undoes the import.
+  `portabilityFor` takes `onErased`.
+
 ## 0.237.2 — 2026-11-08
 
 - **A host's worker opens the pages it holds from its copy, at once** (audit of 6/11, pwa-5; Martin,

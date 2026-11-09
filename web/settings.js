@@ -1907,9 +1907,12 @@ export function openSettings(options) {
       const shown = answer.hand_over || [];
       const leaving = shown.map((o) => o.name);
       const handOver = leaving.length ? t('kit.data.handOver', { names: listFormat({ type: 'conjunction' }).format(leaving) }) : '';
+      // What they share with other people passes to them: said too, by the names they know it by.
+      const sharedNames = answer.shared || [];
+      const passesOn = sharedNames.length ? t('kit.data.sharedPassesOn', { names: listFormat({ type: 'conjunction' }).format(sharedNames) }) : '';
       const replace = el('input', { type: 'checkbox', id: 'kit-data-replace' });
       const apply = button(t('kit.data.apply'), async () => {
-        const text = [t('kit.data.replaceText', { what: describe(has) }), handOver].filter(Boolean).join(' ');
+        const text = [t('kit.data.replaceText', { what: describe(has) }), handOver, passesOn].filter(Boolean).join(' ');
         if (replace.checked && !(await confirmDialog(text, {
           title: t('kit.data.replaceTitle'), confirm: t('kit.data.replaceButton'),
         }))) return;

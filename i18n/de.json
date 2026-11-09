@@ -770,6 +770,7 @@
   "kit.data.replaceText": "Was du jetzt hast ({what}), wird gelöscht, bevor die Kopie kommt.",
   "kit.data.replaceButton": "Ersetzen und importieren",
   "kit.data.handOver": "Du verlässt damit auch {names}; sie bleiben bei ihren anderen Mitgliedern, mit allem, was darin ist.",
+  "kit.data.sharedPassesOn": "Was du mit anderen teilst ({names}), geht mit allem Inhalt an sie über; dir bleibt, was die Kopie mitbringt, ohne Freigabe.",
   "kit.data.apply": "Importieren",
   "kit.data.discard": "Verwerfen",
   "kit.data.done": "Importiert: {what}.",

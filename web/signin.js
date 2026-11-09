@@ -24,7 +24,7 @@ import { api, errorMessage, Offline, SessionExpired } from './api.js';
 import { at, FRAMED } from './base.js';
 import { signature, toast, confirmDialog } from './ui.js';
 import { inApp, nativeSignOut } from './native.js';
-import { markOwned } from './mount.js';
+import { markOwned, workRegistry } from './mount.js';
 import { forgetSettings, queuedSettings } from './settings-queue.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
@@ -468,6 +468,27 @@ export async function leave({ answer = null, local = null } = {}) {
 }
 
 /**
+ * Signing out, from wherever it is asked. Cronum Work's one-document shell has one way out for all
+ * its modules (the registry's `signOut`): each window saves first, every module's queue is counted,
+ * and what the shell keeps goes with the rest. A module's Settings used to sign out on its own and
+ * delete the others' queues without a word (audit of 6/11, work-web-1). `local` and `before` are
+ * the module's, and `before` still runs only once the server has heard. A module in a frame of the
+ * shell goes the same way; on any other page, `signOutHere`.
+ */
+export function signOut(options = {}) {
+  const leaveShell = shellRegistry()?.signOut;
+  return leaveShell ? leaveShell(options) : signOutHere(options);
+}
+
+function shellRegistry() {
+  try {
+    return workRegistry() || (FRAMED ? workRegistry(window.top.document) : null);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Signs out here (and at the provider, which then comes back to the app), with this browser's
  * notices: the server forgets where they come to, so whoever uses it next doesn't get them.
  *
@@ -479,7 +500,7 @@ export async function leave({ answer = null, local = null } = {}) {
  * once the server has heard, before the device lets go (its own copies, its live channel).
  * → true when it left, false when it stayed.
  */
-export async function signOut({ local = null, ask = false, before = null } = {}) {
+export async function signOutHere({ local = null, ask = false, before = null } = {}) {
   if (ask) {
     const waiting = await pendingChanges().catch(() => 0);
     const confirm = typeof ask === 'function' ? ask : (n) => confirmDialog(t('kit.account.unsent', { n }), {

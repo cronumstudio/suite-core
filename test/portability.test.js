@@ -377,6 +377,112 @@ test('“replace” deletes what the account had first —and its files—, neve
   assert.deepEqual(target.db.all('SELECT name FROM groups WHERE user_id = ?', me.id).map((g) => g.name), ['Home']);
 });
 
+/** The app's rule, as Tasks has it: a shared list passes to whoever it is shared with. */
+const passingLists = (box, handedOver = []) => ({
+  ...DATA,
+  shared: (userId) => box.db.all(`SELECT name FROM lists l WHERE owner_id = ?
+    AND EXISTS (SELECT 1 FROM shares s WHERE s.list_id = l.id)`, userId).map((l) => l.name),
+  handOver: (userId) => {
+    for (const list of box.db.all('SELECT id FROM lists WHERE owner_id = ?', userId)) {
+      const heir = box.db.get('SELECT user_id FROM shares WHERE list_id = ? ORDER BY id LIMIT 1', list.id);
+      if (!heir) continue;
+      box.db.run('UPDATE lists SET owner_id = ? WHERE id = ?', heir.user_id, list.id);
+      box.db.run('DELETE FROM shares WHERE list_id = ? AND user_id = ?', list.id, heir.user_id);
+      handedOver.push(list.id);
+    }
+  },
+});
+
+test('“replace” passes on what the person shares, says so first, and their copy comes back as theirs alone (audit 6/11, portable-3)', async (t) => {
+  const box = install(t);
+  const s = seedSource(box);
+  const file = path.join(box.dir, 'ana.zip');
+  await exportTo(box, file, { scope: 'account', userId: s.ana.id });
+  // What the team wrote after the copy was made.
+  box.db.run("INSERT INTO tasks (list_id, title, created_at) VALUES (?, 'After the copy', '2026-06-01T00:00:00Z')", s.l1);
+  const handedOver = [];
+  const erasedFor = [];
+  const portability = box.suite.portabilityFor(passingLists(box, handedOver), { version: '1.0.0', onErased: (user) => erasedFor.push(user.id) });
+
+  const plan = await portability.planFile(file, { mode: 'account', user: s.ana });
+  assert.deepEqual(plan.shared, ['Shopping'], 'the plan names what will pass on');
+  assert.deepEqual(handedOver, [], 'and a plan moves nothing');
+
+  box.events.length = 0;
+  const result = await portability.applyFile(file, { mode: 'account', user: s.ana, replace: true });
+  assert.deepEqual(handedOver, [s.l1], 'Shopping is Ben’s now, before anything is emptied');
+  assert.equal(box.db.get('SELECT owner_id FROM lists WHERE id = ?', s.l1).owner_id, s.ben.id);
+  assert.ok(box.db.get("SELECT 1 AS here FROM tasks WHERE list_id = ? AND title = 'After the copy'", s.l1), 'with what the team wrote since');
+  assert.ok(fs.existsSync(box.suite.uploads.resolve(s.photo)), 'and its photo');
+  const hers = box.db.all('SELECT id, name FROM lists WHERE owner_id = ?', s.ana.id);
+  assert.deepEqual(hers.map((l) => l.name), ['Shopping'], 'she gets her copy');
+  assert.notEqual(hers[0].id, s.l1);
+  assert.equal(box.db.get('SELECT COUNT(*) AS n FROM shares WHERE list_id = ?', hers[0].id).n, 0, 'not shared with anyone');
+  assert.equal(result.replaced.lists, undefined, 'nothing of hers was left to empty but the group');
+  assert.deepEqual(box.events.filter((e) => e.event === 'resync').map((e) => e.audience), [null], 'everyone resyncs: a list has a new owner');
+  assert.deepEqual(erasedFor, [s.ana.id], 'what keeps something of it elsewhere (a host’s links) is told');
+});
+
+test('a whole install’s copy brought back passes nothing on: the shares come with both ends', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const file = path.join(source.dir, 'install.zip');
+  await exportTo(source, file, { scope: 'install' });
+  const target = install(t);
+  const handedOver = [];
+  const portability = target.suite.portabilityFor(passingLists(target, handedOver), { version: '1.0.0' });
+  const ana = target.suite.accounts.create({ username: 'ana', displayName: 'Ana', email: 'ana@example.com' }, { quiet: true });
+  const ben = target.suite.accounts.create({ username: 'ben', displayName: 'Ben', email: 'ben@example.com' }, { quiet: true });
+  target.db.run('UPDATE users SET email = NULL WHERE id = ?', ben.id);
+  const list = target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Old')", ana.id).lastInsertRowid;
+  target.db.run('INSERT INTO shares (list_id, user_id) VALUES (?, ?)', list, ben.id);
+  const decisions = [{ source: s.ana.id, action: 'map', user_id: ana.id, replace: true }];
+  await portability.applyFile(file, { mode: 'install', decisions });
+  assert.deepEqual(handedOver, []);
+});
+
+test('`after`: with every row in, inside the transaction, the app learns the new ids (audit 6/11, notes-srv-1)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const oldTask = source.db.get("SELECT id FROM tasks WHERE title = 'Milk'").id;
+  source.db.run("INSERT INTO entries (branch_id, text) SELECT id, ? FROM branches WHERE name = 'main'", `see task ${oldTask}`);
+  const file = path.join(source.dir, 'ana.zip');
+  await exportTo(source, file, { scope: 'account', userId: s.ana.id });
+
+  const target = install(t);
+  // Ids here that aren't the copy's.
+  const other = target.suite.accounts.create({ username: 'other', displayName: 'Other' }, { quiet: true });
+  const filler = target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Filler')", other.id).lastInsertRowid;
+  for (let n = 0; n < 7; n++) target.db.run("INSERT INTO tasks (list_id, title, created_at) VALUES (?, 'x', '2026-01-01T00:00:00Z')", filler);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' }, { quiet: true });
+  const seen = {};
+  const portability = target.suite.portabilityFor({
+    ...DATA,
+    after({ ids, rows, mode, user }) {
+      seen.mode = mode;
+      seen.user = user.id;
+      seen.brought = rows('entries').length;
+      const update = target.db.db.prepare('UPDATE entries SET text = ? WHERE id = ?');
+      for (const id of rows('entries')) {
+        const { text } = target.db.get('SELECT text FROM entries WHERE id = ?', id);
+        update.run(text.replace(/task (\d+)/, (_, old) => `task ${ids('tasks', old)}`), id);
+      }
+      seen.missing = ids('tasks', 999999);
+    },
+  }, { version: '1.0.0' });
+  await portability.applyFile(file, { mode: 'account', user: me });
+  const here = target.db.get("SELECT id FROM tasks WHERE title = 'Milk'");
+  assert.notEqual(here.id, oldTask, 'a new id, or this proves nothing');
+  assert.ok(target.db.get('SELECT 1 AS here FROM entries WHERE text = ?', `see task ${here.id}`));
+  assert.deepEqual(seen, { mode: 'account', user: me.id, brought: 4, missing: null });
+
+  // A hook that fails undoes the import: it runs before the commit.
+  const failing = target.suite.portabilityFor({ ...DATA, after() { throw new Error('no'); } }, { version: '1.0.0' });
+  const next = target.suite.accounts.create({ username: 'next', displayName: 'Next' }, { quiet: true });
+  await assert.rejects(failing.applyFile(file, { mode: 'account', user: next }), /no/);
+  assert.equal(target.db.get('SELECT COUNT(*) AS n FROM lists WHERE owner_id = ?', next.id).n, 0);
+});
+
 test('erasing one’s data: what others share passes on first, then goes what the copy would take, files too', (t) => {
   const box = install(t);
   const s = seedSource(box);
