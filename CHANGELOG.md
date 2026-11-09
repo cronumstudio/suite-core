@@ -26,6 +26,17 @@ The medium findings of the audit of 6/11 that were still open:
   blocked could be run through it. A tool with `destructiveHint` is never kept behind it, and it no longer calls
   itself destructive.
 
+## 0.242.0 — 2026-11-09
+
+- **The founder's offer comes up on starting a host's shell** (audit of 6/11, billing-15; Martin,
+  9/11). `offerFounder({ user, busy })` (web/plan.js): a dialog with the price, the regular one and
+  the last day, all from the server, with Buy, the same checkout as Settings' Upgrade, and Not now.
+  At most once a week for the account: `founder_notice_at` in `users.prefs` (billing.js
+  `FOUNDER_NOTICE_PREFS`, a part of a host's preferences when it has payments), stamped by the server
+  when the browser says `founder_notice_seen`. Only to someone `founder_until` is said to, and who
+  could buy: not to whoever has the plan for good or from a group, and never inside the suite's app.
+- `lastDay(iso, { year: false })`: only the day and the month.
+
 ## 0.241.1 — 2026-11-09
 
 - **Settings › Daily summary: each notice's time is an hour and its minutes, every five** (Martin,
