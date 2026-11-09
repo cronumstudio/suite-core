@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.243.1 — 2026-11-09
+
+- **The same words and the same margin in every module** (audit of 6/11, ux-textos-1 and -4,
+  ui-medidas-9). Settings › Usage says notebooks in Spanish («Libretas», it said «Cuadernos») and
+  steps in every language for what Next counts, where it said entries. «Borrar» for the two texts
+  of the kit that still said «eliminar». `--look-gutter` is 16 px in the Cronum look, as a token:
+  each module fell back on its own number (26, 24, 16 or 14).
+
 ## 0.243.0 — 2026-11-09
 
 The medium findings of the audit of 6/11 that were still open:
