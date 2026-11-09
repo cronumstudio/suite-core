@@ -1217,6 +1217,8 @@
   "kit.day.evening": "La sera",
   "kit.day.eveningHint": "Le attività completate, i passi registrati e le note scritte oggi.",
   "kit.day.time": "Ora",
+  "kit.day.hour": "Ora",
+  "kit.day.minute": "Minuti",
   "kit.day.seeToday": "Vedi quello di oggi",
   "kit.day.seeDone": "Vedi cosa hai fatto oggi",
   "kit.day.includes": "Include",

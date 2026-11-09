@@ -1217,6 +1217,8 @@
   "kit.day.evening": "Am Abend",
   "kit.day.eveningHint": "Die Aufgaben, die du heute erledigt, die Schritte, die du eingetragen, und die Notizen, die du geschrieben hast.",
   "kit.day.time": "Uhrzeit",
+  "kit.day.hour": "Stunde",
+  "kit.day.minute": "Minuten",
   "kit.day.seeToday": "Heute ansehen",
   "kit.day.seeDone": "Ansehen, was du heute geschafft hast",
   "kit.day.includes": "Enthält",

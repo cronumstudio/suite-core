@@ -70,7 +70,7 @@
  * your data, deleting the account) is turned off until it comes back.
  */
 import { el, clear, append } from './dom.js';
-import { t, formatDateTime, currentLanguage, listFormat, shareLanguage } from './i18n.js';
+import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateFormat } from './i18n.js';
 import { api, errorMessage, Offline } from './api.js';
 import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
 import { icon } from './icons.js';
@@ -1535,19 +1535,28 @@ export function openSettings(options) {
 
   /**
    * The host's daily summary (host.js `day`, day.js): a notice in the morning with what someone has
-   * for today and one in the evening with what they did, each with its switch, its time (every five
-   * minutes), a switch for each module in use that gives it something (`/api/modules`' `day`), when
-   * there are two or more to choose from, and a button to its page. Kept in their row at the host's
-   * root (`prefs.day`, PATCH /api/me there), which knows it: a module's /api/me keeps only its own keys.
+   * for today and one in the evening with what they did, each with its switch, its time, a switch
+   * for each module in use that gives it something (`/api/modules`' `day`), when there are two or
+   * more to choose from, and a button to its page. Kept in their row at the host's root
+   * (`prefs.day`, PATCH /api/me there), which knows it: a module's /api/me keeps only its own keys.
+   * The time is two lists, its hour and its minutes every five, the steps the server keeps: a time
+   * field took any minute on an iPhone (its wheel has no steps), and 16:37 was kept as 16:35.
    */
   function daySummary() {
     const box = el('div', { class: 'kit-day-list' });
     const page = host.day;
-    /** HH:MM on a step of five minutes, down from what was typed (a field may take any minute); null for no time. */
-    const stepped = (value) => {
-      const parts = /^(\d{2}):(\d{2})/.exec(value || '');
-      if (!parts || Number(parts[1]) > 23 || Number(parts[2]) > 59) return null;
-      return `${parts[1]}:${String(Number(parts[2]) - (Number(parts[2]) % 5)).padStart(2, '0')}`;
+    const two = (n) => String(n).padStart(2, '0');
+    /** The hours as the language writes them ("08", "08 AM"), each with its HH; the minutes every five. */
+    const hours = () => Array.from({ length: 24 }, (_, h) => [two(h), dateFormat({ hour: '2-digit', timeZone: 'UTC' }).format(Date.UTC(2000, 0, 1, h))]);
+    const MINUTES = Array.from({ length: 12 }, (_, i) => [two(i * 5), two(i * 5)]);
+    const DAY_TIMES = { morning: '08:00', evening: '19:00' };
+    /** A list of HH or MM, on `value`, or on the step of five under it (a time kept before the steps). */
+    const list = (options, value, label) => {
+      const kept = options.some(([v]) => v === value) ? value : two(Number(value) - (Number(value) % 5));
+      const node = el('select', { class: 'kit-input kit-day__part', 'aria-label': label },
+        options.map(([v, text]) => el('option', { value: v, text, selected: v === kept })));
+      node.value = kept;
+      return node;
     };
     const send = (kind, change) => keep('PATCH', '/api/me', { prefs: { day: { [kind]: change } } }, { root: true });
     /**
@@ -1591,12 +1600,18 @@ export function openSettings(options) {
         el('span', { class: 'kit-day__label', text: t('kit.day.includes') }), ...rows);
     };
     const notice = (kind, prefs) => {
-      let at = prefs.at;
-      const time = input({ type: 'time', step: '300', value: at, required: true, class: 'kit-input kit-day__clock', id: `kit-day-${kind}-time` });
-      time.addEventListener('change', async () => {
-        const chosen = stepped(time.value);
-        time.value = chosen || at;
-        if (!chosen || chosen === at) return;
+      let at = /^\d{2}:\d{2}$/.test(prefs.at || '') ? prefs.at : DAY_TIMES[kind];
+      const hour = list(hours(), at.slice(0, 2), t('kit.day.hour'));
+      const minute = list(MINUTES, at.slice(3, 5), t('kit.day.minute'));
+      hour.id = `kit-day-${kind}-time`;
+      const show = (value) => {
+        hour.value = value.slice(0, 2);
+        minute.value = value.slice(3, 5);
+      };
+      // Either list changed: the time they make together, kept; refused, back to the one before.
+      const changed = async () => {
+        const chosen = `${hour.value}:${minute.value}`;
+        if (chosen === at) return;
         const was = at;
         at = chosen;
         try {
@@ -1604,10 +1619,14 @@ export function openSettings(options) {
           prefs.at = chosen;
         } catch (err) {
           at = was;
-          time.value = was;
+          show(was);
           fail(err);
         }
-      });
+      };
+      hour.addEventListener('change', changed);
+      minute.addEventListener('change', changed);
+      const time = el('span', { class: 'kit-day__clock', role: 'group', 'aria-label': t('kit.day.time') },
+        hour, el('span', { class: 'kit-day__colon', 'aria-hidden': 'true', text: ':' }), minute);
       const toggle = switchRow(t(`kit.day.${kind}`), {
         checked: prefs.on,
         hint: t(`kit.day.${kind}Hint`),
@@ -1624,7 +1643,7 @@ export function openSettings(options) {
       const morning = kind === 'morning';
       const url = morning ? page : `${page}?v=done`;
       return el('section', { class: 'kit-day' }, toggle,
-        el('label', { class: 'kit-day__time', for: time.id }, el('span', { text: t('kit.day.time') }), time),
+        el('label', { class: 'kit-day__time', for: hour.id }, el('span', { text: t('kit.day.time') }), time),
         included(kind, prefs),
         link(url, morning ? 'sun' : 'moon', t(morning ? 'kit.day.seeToday' : 'kit.day.seeDone')));
     };
