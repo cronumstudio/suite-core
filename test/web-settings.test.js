@@ -170,6 +170,42 @@ test('in Work’s shell a module passes no watcher: About shows the whole app’
   }
 });
 
+test('in the phone’s app About says the app’s own version under Work’s; in a browser there is no such line', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path) => {
+    const data = path === '/api/modules' ? { host: { name: 'Cronum Work', icon: '/icons/favicon.svg' }, modules: [] } : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, json: async () => data };
+  };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  const loaded = { app: '0.75.0', name: 'Cronum Work', version: 'abc' };
+  const factsIn = async (native) => {
+    globalThis.window = { location: { origin: 'https://work.example', assign: () => {} }, ...(native && { CronumNative: { v: 1, capabilities: [], ...native } }) };
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'tasks', name: 'Tasks', icon: '/icons/favicon.svg' }, user: { username: 'ada', role: 'user' }, root, start: 'about',
+      config: { app: { modules: {}, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: false, plans: false } } },
+      updates: { check: async () => false, loaded: () => loaded, latest: () => loaded }, applyUpdate: () => {},
+    });
+    await settle();
+    return root.all().filter((node) => node.className === 'kit-fact').map((fact) => [fact.find('span')[0].textContent, fact.find('strong')[0]?.textContent]);
+  };
+  try {
+    const iPhone = await factsIn({ platform: 'ios', version: '0.5.12' });
+    assert.deepEqual(iPhone.slice(0, 2), [[t('kit.about.version'), 'Cronum Work v0.75.0'], ['iOS app', 'v0.5.12']]);
+    assert.deepEqual((await factsIn({ platform: 'android', version: '0.5.12' }))[1], ['Android app', 'v0.5.12']);
+    const browser = await factsIn(null);
+    assert.deepEqual(browser.slice(0, 2).map(([label]) => label), [t('kit.about.version'), t('kit.about.live')], 'a browser has no app to name');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete globalThis.window;
+    delete document.addEventListener;
+    delete document.removeEventListener;
+  }
+});
+
 test('in a host with one prompt, Your AI has a chip for each agent with its steps, the prompt for the modules ticked and what each module adds', async () => {
   const { openSettings } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');

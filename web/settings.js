@@ -2097,8 +2097,12 @@ export function openSettings(options) {
     };
     // In a host, the host's: its source, its icon, its name. A module's own are its card's below.
     const source = host ? hostInfo.source || `https://github.com/cronumstudio/${host.id}` : app.source || `https://github.com/cronumstudio/${app.id}`;
+    // Inside the app from the store, its own number: updating the page doesn't move it (native.js).
+    const native = nativeInfo();
+    const nativeName = { ios: 'iOS', android: 'Android' }[native?.platform];
     const facts = el('div', { class: 'kit-facts' },
       running,
+      native?.version && nativeName ? fact(t('kit.about.nativeApp', { platform: nativeName }), `v${native.version}`) : null,
       liveFact,
       el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.latest') }), serverLine, button(t('kit.about.check'), check)),
       // The AGPL asks modified versions to offer their source.

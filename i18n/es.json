@@ -1159,6 +1159,7 @@
   "kit.about.title": "Acerca de {app}",
   "kit.about.hint": "Versión, novedades y qué es {app}",
   "kit.about.version": "Versión que usas",
+  "kit.about.nativeApp": "App de {platform}",
   "kit.about.live": "Cambios en directo",
   "kit.about.latest": "Última versión",
   "kit.about.newVersion": "Hay una versión nueva.",
