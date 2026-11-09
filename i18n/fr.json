@@ -968,6 +968,7 @@
   "kit.plan.upgrade": "Choisir",
   "kit.plan.upgradeTo": "Choisir : {product} ({detail})",
   "kit.plan.founder": "Prix fondateur",
+  "kit.plan.saving": "-{percent} %",
   "kit.plan.kind.monthly": "Abonnement mensuel",
   "kit.plan.kind.yearly": "Abonnement annuel",
   "kit.plan.kind.subscription": "Abonnement",

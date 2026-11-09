@@ -968,6 +968,7 @@
   "kit.plan.upgrade": "Mejorar",
   "kit.plan.upgradeTo": "Mejorar: {product} ({detail})",
   "kit.plan.founder": "Precio de fundador",
+  "kit.plan.saving": "{percent} % dto.",
   "kit.plan.kind.monthly": "Suscripción mensual",
   "kit.plan.kind.yearly": "Suscripción anual",
   "kit.plan.kind.subscription": "Suscripción",

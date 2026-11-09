@@ -968,6 +968,7 @@
   "kit.plan.upgrade": "Passa al piano superiore",
   "kit.plan.upgradeTo": "Passa a: {product} ({detail})",
   "kit.plan.founder": "Prezzo da fondatore",
+  "kit.plan.saving": "{percent}% di sconto",
   "kit.plan.kind.monthly": "Abbonamento mensile",
   "kit.plan.kind.yearly": "Abbonamento annuale",
   "kit.plan.kind.subscription": "Abbonamento",

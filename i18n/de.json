@@ -968,6 +968,7 @@
   "kit.plan.upgrade": "Upgraden",
   "kit.plan.upgradeTo": "Upgraden: {product} ({detail})",
   "kit.plan.founder": "Gründerpreis",
+  "kit.plan.saving": "{percent} % Rabatt",
   "kit.plan.kind.monthly": "Monatsabo",
   "kit.plan.kind.yearly": "Jahresabo",
   "kit.plan.kind.subscription": "Abo",
