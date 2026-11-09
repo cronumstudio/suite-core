@@ -1221,6 +1221,8 @@
   "kit.day.evening": "In the evening",
   "kit.day.eveningHint": "The tasks you completed, the steps you logged and the notes you wrote today.",
   "kit.day.time": "Time",
+  "kit.day.hour": "Hour",
+  "kit.day.minute": "Minutes",
   "kit.day.seeToday": "See today’s",
   "kit.day.seeDone": "See what you did today",
   "kit.day.includes": "Includes",
