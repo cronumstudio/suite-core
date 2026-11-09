@@ -1218,6 +1218,8 @@
   "kit.day.evening": "Le soir",
   "kit.day.eveningHint": "Les tâches terminées, les étapes notées et les notes écrites aujourd’hui.",
   "kit.day.time": "Heure",
+  "kit.day.hour": "Heure",
+  "kit.day.minute": "Minutes",
   "kit.day.seeToday": "Voir celui d’aujourd’hui",
   "kit.day.seeDone": "Voir ce que vous avez fait aujourd’hui",
   "kit.day.includes": "Comprend",

@@ -304,8 +304,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-day { display: grid; gap: 14px; min-width: 0; }
 .kit-day + .kit-day { border-top: 1px solid var(--kit-border); padding-top: 18px; }
 .kit-day__time { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--kit-text); }
-/* The kit's fields are as wide as their box: this one as wide as a time, never over its neighbours. */
-.kit-day__time .kit-day__clock { width: 7.5em; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
+/* Its hour and its minutes, two lists as wide as what they say (the kit's fields are as wide as
+   their box), never over their neighbours. */
+.kit-day__time .kit-day__clock { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.kit-day__clock .kit-day__part { width: auto; min-width: 4.2em; padding-inline: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+.kit-day__colon { font-weight: 600; color: var(--kit-muted); }
 .kit-day__modules { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--look-r-md, 9px); background: var(--kit-hover); }
 .kit-day__label { font-size: var(--look-footnote, 12.5px); font-weight: 600; color: var(--kit-muted); }
 .kit-day__icon { width: 20px; height: 20px; border-radius: var(--look-r-xs, 5px); flex: none; }

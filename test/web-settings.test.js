@@ -395,8 +395,17 @@ test('in a host with a daily summary, Settings has its two notices, each with it
     const switches = root.all().filter((node) => node.className === 'kit-switch');
     assert.deepEqual(switches.map((node) => [node.getAttribute('aria-label'), node.getAttribute('aria-checked')]),
       [[t('kit.day.morning'), 'false'], [t('kit.day.evening'), 'true']], 'as the host keeps them');
-    const times = root.all().filter((node) => node.tagName === 'INPUT' && node.getAttribute('type') === 'time');
-    assert.deepEqual(times.map((node) => [node.value, node.getAttribute('step')]), [['08:00', '300'], ['19:00', '300']]);
+    // Each notice's time: its hour and its minutes, every five (an iPhone's time field took any minute).
+    assert.ok(!root.all().some((node) => node.tagName === 'INPUT' && node.getAttribute('type') === 'time'), 'no time field');
+    const times = root.all().filter((node) => node.tagName === 'SELECT' && node.className.includes('kit-day__part'));
+    assert.deepEqual(times.map((node) => [node.value, node.getAttribute('aria-label')]),
+      [['08', t('kit.day.hour')], ['00', t('kit.day.minute')], ['19', t('kit.day.hour')], ['00', t('kit.day.minute')]]);
+    const values = (node) => node.find('option').map((option) => option.getAttribute('value'));
+    assert.deepEqual(values(times[0]), Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')));
+    assert.deepEqual(values(times[1]), ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']);
+    assert.ok(times[2].find('option').find((option) => option.getAttribute('value') === '19').hasAttribute('selected'), 'the hour kept, chosen');
+    const clocks = root.all().filter((node) => node.className === 'kit-day__clock');
+    assert.deepEqual(clocks.map((node) => [node.getAttribute('role'), node.getAttribute('aria-label')]), [['group', t('kit.day.time')], ['group', t('kit.day.time')]]);
     const links = root.all().filter((node) => node.tagName === 'A' && node.className.includes('kit-day__see'));
     assert.deepEqual(links.map((node) => [node.textContent, node.getAttribute('href')]), [
       [t('kit.day.seeToday'), '/?open=%2Ftoday%2F'],
@@ -405,18 +414,20 @@ test('in a host with a daily summary, Settings has its two notices, each with it
 
     switches[0].dispatch('click', {});
     await settle();
-    times[1].value = '20:33';
-    times[1].dispatch('change', {});
+    times[2].value = '20';
+    times[2].dispatch('change', {});
     await settle();
-    assert.equal(times[1].value, '20:30', 'on a step of five minutes');
-    times[0].value = '';
+    times[3].value = '30';
+    times[3].dispatch('change', {});
+    await settle();
+    // The same hour chosen again: nothing to send.
     times[0].dispatch('change', {});
     await settle();
-    assert.equal(times[0].value, '08:00', 'no time: the one it had');
     assert.deepEqual(sent, [
       { method: 'PATCH', path: '/api/me', body: { prefs: { day: { morning: { on: true } } } } },
+      { method: 'PATCH', path: '/api/me', body: { prefs: { day: { evening: { at: '20:00' } } } } },
       { method: 'PATCH', path: '/api/me', body: { prefs: { day: { evening: { at: '20:30' } } } } },
-    ], 'one change at a time');
+    ], 'one change at a time, the hour and the minutes together');
     assert.deepEqual(day, { morning: { on: true, at: '08:00' }, evening: { on: true, at: '20:30' } });
     // At the host's root, which knows them: a module's /api/me keeps only its own keys.
     const source = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
