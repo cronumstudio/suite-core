@@ -854,6 +854,7 @@ test('yearlySaving: a year against twelve months, rounded down, and nothing it c
   assert.equal(yearlySaving(year, [month, year], 46.8), null, 'twelve months\' price: no saving');
   assert.equal(yearlySaving({ ...year, amount: 50 }, [{ ...month, amount: 5 }, year]), 16, 'exactly 16.66…%');
   assert.equal(yearlySaving({ ...year, amount: 45 }, [{ ...month, amount: 5 }, year]), 25, 'a whole percent stays whole');
+});
 
 /* ---------------------- the founder's offer, on starting --------------------- */
 
