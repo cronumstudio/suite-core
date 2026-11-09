@@ -1932,7 +1932,7 @@ export function createModule() {
 // server/index.js
 const parts = createModule();
 const app = createApp({ suite, ...parts, mcp });
-const stop = parts.start?.();
+const stop = parts.start?.({ day, uses });   // in a host: its daily summary (or null) and who uses each module
 await app.listen();
 ```
 
