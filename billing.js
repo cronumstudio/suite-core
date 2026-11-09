@@ -278,6 +278,17 @@ const STOP_ID = /^stop:organization:(\d+):(.+)$/;
 const stopId = (organizationId, ref) => `stop:organization:${organizationId}:${ref}`;
 
 /**
+ * When the account was last shown the founder's offer on starting a host's shell (web/plan.js
+ * offerFounder), one date for all its devices (a part of `users.prefs`, prefs.js). The browser only
+ * says it was shown (`founder_notice_seen: true`); the date is the server's clock, and can't be sent.
+ */
+export const FOUNDER_NOTICE_PREFS = Object.freeze({
+  defaults: { founder_notice_at: null },
+  normalize: (raw) => ({ founder_notice_at: typeof raw.founder_notice_at === 'string' ? raw.founder_notice_at : null }),
+  merge: (current, changes) => (changes.founder_notice_seen === true ? { founder_notice_at: new Date().toISOString() } : current),
+});
+
+/**
  * Whether anyone gets a founder's price now, by the install's dates (config.js `billing`): only
  * with EARLY_ACCESS_UNTIL, and with FOUNDER_OFFER_UNTIL only before it.
  */

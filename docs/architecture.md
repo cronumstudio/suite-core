@@ -927,7 +927,10 @@ founder who doesn't pay yet) and `on_sale`/`opens_at`, never the price ids. A pr
 with nothing to change by hand; meanwhile nothing is sold (the checkout answers 409 `not_on_sale`).
 Between `EARLY_ACCESS_UNTIL` and `FOUNDER_OFFER_UNTIL` a host's `GET /api/modules` carries
 `founder_offer: { until }` for a founder who doesn't pay yet, and every module's frame shows a
-notice they can close (web/shell.js).
+notice they can close (web/shell.js). A host's own shell may also put the offer before them as it
+starts (web/plan.js `offerFounder`): at most once a week for the account, by the date a host with
+payments keeps in `users.prefs` (`founder_notice_at`, billing.js `FOUNDER_NOTICE_PREFS`, which the
+browser can only ask the server to stamp), and never inside the suite's app.
 
 That plan is the default one, with no grant behind it, so `cutoff()` has no end to count from: what
 the default plan doesn't keep goes at the first sweep past the date. Before it, Admin › Plans gives
