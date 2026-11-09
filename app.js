@@ -805,7 +805,7 @@ export function createApp({
     // Only the app on the phone buys in a store: with stores.devices, its device token is taken here.
     const storeDevices = config.stores.devices ? suite.devices : null;
     const principal = (ctx) => ctx.user || (storeDevices ? storeDevices.authenticate(ctx.req) : null);
-    registerStoreApi(api, { stores: suite.stores, principal });
+    registerStoreApi(api, { stores: suite.stores, principal, web: billing });
     registerBillingOverviewApi(api, { instances: [billing, suite.stores], entitlements, organizations, principal });
   } else if (billing?.enabled) {
     // What holds the plan and how to change or cancel it, for Settings › Plan, with the web's alone too.

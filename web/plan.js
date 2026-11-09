@@ -22,7 +22,7 @@ import { t, formatDateTime, currentLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { toast, openDialog } from './ui.js';
 import { FRAMED } from './base.js';
-import { nativePurchase, onNative } from './native.js';
+import { nativePurchase, onNative, openExternal } from './native.js';
 
 /** What `billingReturn` tells the page each time it reads the plan again: an open Settings repaints. */
 export const PLAN_EVENT = 'kit-plan';
@@ -186,9 +186,10 @@ export function planStatus(answer, overview, { products = null, benefit = () => 
  * the early access).
  *
  * `paint(answer)` draws them for /api/me/entitlements' answer, and fills `status` (a node for the
- * card: when the plan renews or ends, a gift's end, the extras). It resolves to `{ holds, noted }`
- * —whether a live subscription holds the plan shown, and whether `status` says until when, so the
- * card's own "Until" goes— or to nothing when a later paint took its place.
+ * card: when the plan renews or ends, a gift's end, the extras). It resolves to `{ holds, noted, sells }`
+ * —whether a live subscription holds the plan shown, whether `status` says until when, so the
+ * card's own "Until" goes, and whether this person can buy now, here or in the app's store, or
+ * nothing said when the server didn't answer— or to nothing when a later paint took its place.
  */
 export function planPayments({
   hideCheckout = false, fail = (err) => toast(errorMessage(err), { error: true }), refresh = () => {},
@@ -351,7 +352,8 @@ export function planPayments({
       || !(subscriptions.length || products.some((p) => p.kind === 'once'));
 
     // Someone who pays already, here or in a store, changes the plan there: a second checkout would charge twice.
-    const offered = hideCheckout || offer.on_sale === false || paid.length ? [] : offerFor(answer, products, known);
+    const sellable = offer.on_sale === false || paid.length ? [] : offerFor(answer, products, known);
+    const offered = hideCheckout ? [] : sellable;
     // A founder's price first: it is the one that won't come back.
     const ordered = offer.founder ? [...offered.filter((p) => p.founder_price), ...offered.filter((p) => !p.founder_price)] : offered;
     clear(offerList).append(...ordered.map((product, i) => offerRow(product, offer, answer, plans, i === 0)));
@@ -359,6 +361,7 @@ export function planPayments({
     return {
       holds: live.some((s) => productOf(s.product)?.plan === (answer?.plan?.id ?? null)),
       noted: said.lines.length > 0,
+      sells: sellable.length > 0,
     };
   }
 
@@ -367,7 +370,7 @@ export function planPayments({
 
 /** A store's page, outside the app and this page: a new tab, or the system's browser in the suite's app. */
 function openOutside(url) {
-  if (!/^https:\/\//i.test(String(url || ''))) return;
+  if (!/^https:\/\//i.test(String(url || '')) || openExternal(url)) return;
   globalThis.open?.(url, '_blank', 'noopener');
 }
 

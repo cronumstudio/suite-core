@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.242.0 — 2026-11-09
+
+For selling Cronum Work Pro in the App Store and Google Play. Nothing changes without `STORE_BILLING`.
+
+- **`GET /api/billing/stores/offer`**: what the app on a phone may sell an account now, asked before
+  it opens its store: `{ blocked, customer, products }`. Whoever pays already, on the web or in a
+  store, is `already_subscribed`, since neither store can be told to refuse a second subscription.
+  Takes the phone's device token with `stores.devices`.
+- **`stores.products.<key>.founderOf`**: a founder's product of its own in the stores, sold in place
+  of the one it names to whoever the web gives the founder's price to.
+- **Settings › Plan in the app**: "See plans" needs the install to sell in the stores
+  (`modules.stores`, `app.host.stores`), shows too for a plan that ends on a date (the early
+  access's gift, which paying carries on), and goes for whoever pays already or before sales open.
+- A store's "Open the App Store" button goes through the bridge's `open-external` in the app.
+
 ## 0.241.1 — 2026-11-09
 
 - **Settings › Daily summary: each notice's time is an hour and its minutes, every five** (Martin,

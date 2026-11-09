@@ -72,7 +72,7 @@ const oneOf = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} o
 /** suite.config.js `stores`: what the app on a phone sells in the App Store and Google Play (stores.js). */
 const STORE_KEYS = new Set(['products', 'devices']);
 /** What a store product may say; anything else is a typo that would sell nothing. */
-const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', ...Object.keys(STORE_FIELDS)]);
+const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', 'founderOf', ...Object.keys(STORE_FIELDS)]);
 
 /** suite.config.js `push`: notices beyond Web Push (native-push.js). */
 const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
@@ -508,6 +508,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
  * Each product is a plan of the catalog, as a web product is (checked when STORE_BILLING is on), and
  * names its id in each store (Google's as `subscription:base-plan`); a store id belongs to one
  * product, and a key is not also a web product's. People buy for themselves: no `for`.
+ * `founderOf`: a store has no founder's price of a product, so a founder's is a product of its own,
+ * sold in place of the one it names (of the same plan) to whoever the web gives that price to.
  * `devices`: the store routes and the overview also take this app's device tokens (modules.devices),
  * since only the app on the phone buys in a store.
  */
@@ -552,6 +554,13 @@ function storesFor(given, webProducts, modules, errors) {
       const id = `${store}:${spec[field]}`;
       if (owner[id]) errors.push(`stores.products.${key}.${field}: "${spec[field]}" is already stores.products.${owner[id]}'s`);
       else owner[id] = key;
+    }
+  }
+  for (const [key, spec] of Object.entries(given.products || {})) {
+    if (spec?.founderOf == null) continue;
+    const regular = Object.hasOwn(given.products, spec.founderOf) ? given.products[spec.founderOf] : null;
+    if (spec.founderOf === key || !isObject(regular) || regular.founderOf != null || regular.plan !== spec.plan) {
+      errors.push(`stores.products.${key}.founderOf: "${String(spec.founderOf).slice(0, 100)}" is not another product of the same plan, without a founderOf of its own`);
     }
   }
   stores.products = { ...(given.products || {}) };

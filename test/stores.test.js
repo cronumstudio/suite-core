@@ -85,7 +85,7 @@ async function setup(t, { now = '2026-11-01T10:00:00Z', sandbox = true, ignoreUn
 
   const router = createRouter();
   registerBillingApi(router, { billing: web, organizations, baseUrl: 'https://app.example.com' });
-  registerStoreApi(router, { stores });
+  registerStoreApi(router, { stores, web });
   registerBillingOverviewApi(router, { instances: [web, stores], entitlements, organizations, clock: time });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -648,8 +648,12 @@ test('createSuite with STORE_BILLING: the store\'s routes beside the web\'s unch
   const issued = suite.devices.issueCode(dee, { codeChallenge: sha256(verifier), redirectUri: 'com.example.demo:/auth', name: 'Phone' });
   const { token } = suite.devices.exchange({ code: issued.code, verifier, redirectUri: 'com.example.demo:/auth' });
   assert.equal((await call('GET', '/api/billing/stores/customer')).status, 401);
+  assert.equal((await call('GET', '/api/billing/stores/offer')).status, 401);
   const { customer } = (await call('GET', '/api/billing/stores/customer', { token })).body;
   assert.match(customer, UUID);
+  const offered = (await call('GET', '/api/billing/stores/offer', { token })).body;
+  assert.equal(offered.blocked, null, 'the phone\'s token is enough to ask');
+  assert.equal(offered.customer, customer);
   shop.customer(customer).subscriptions[MONTHLY] = subscription({ purchased: Date.now(), expires: Date.now() + 30 * DAY });
   const unsigned = webhook({ type: 'purchased', customer, product: MONTHLY });
   assert.equal((await call('POST', `/api/billing/${PROVIDER}/webhook`, { body: unsigned.body, headers: unsigned.headers })).status, 400,
@@ -660,6 +664,8 @@ test('createSuite with STORE_BILLING: the store\'s routes beside the web\'s unch
   assert.equal(shop.calls[0].key, KEY, 'the adapter made from the install\'s own variables');
   assert.equal(suite.entitlements.of(suite.accounts.byId(dee.id)).plan.id, 'pro');
   assert.deepEqual((await call('POST', '/api/billing/stores/sync', { token })).body.outcomes, ['unchanged']);
+  assert.deepEqual((await call('GET', '/api/billing/stores/offer', { token })).body, { blocked: 'already_subscribed', customer: null, products: [] },
+    'bought in a store: the app sells no second one');
   const overview = (await call('GET', '/api/billing/overview', { token })).body;
   assert.deepEqual(overview.sources.map((source) => [source.kind, source.product, source.manage.via]), [['store', 'pro-monthly', 'store']]);
   await assert.rejects(suite.billing.checkoutUrl({ type: 'user', id: dee.id }, 'pro-web-yearly', { returnUrl: 'http://127.0.0.1/' }),
@@ -692,7 +698,7 @@ test('without STORE_BILLING nothing changes: no store routes, the web’s overvi
   t.after(async () => { await server.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${listening.address().port}`;
   assert.equal(suite.stores, null);
-  for (const [method, pathname] of [['POST', `/api/billing/${PROVIDER}/webhook`], ['GET', '/api/billing/stores/customer'],
+  for (const [method, pathname] of [['POST', `/api/billing/${PROVIDER}/webhook`], ['GET', '/api/billing/stores/customer'], ['GET', '/api/billing/stores/offer'],
     ['POST', '/api/billing/stores/sync']]) {
     assert.equal((await fetch(base + pathname, { method })).status, 404, pathname);
   }
@@ -735,7 +741,7 @@ test('the configuration: STORE_BILLING and stores, off by default, every mistake
   assert.deepEqual(stores({ devices: true }), ['stores.devices needs modules.devices: the device tokens it takes']);
   assert.deepEqual(stores({ devices: 'yes' }), ['stores.devices must be true or false']);
   assert.deepEqual(stores({ products: { p: { plan: 'pro', kind: 'subscription', appstore: 'com.example.p' } } }), [
-    'stores.products.p.appstore is not a setting (plan, kind, days, name, appStore, playStore)',
+    'stores.products.p.appstore is not a setting (plan, kind, days, name, founderOf, appStore, playStore)',
     'stores.products.p: its id in a store is needed (appStore or playStore)',
   ]);
   assert.deepEqual(stores({ products: { p: { plan: 'pro', kind: 'subscription', appStore: 'com.example.p', for: 'organization' } } }),
@@ -750,6 +756,17 @@ test('the configuration: STORE_BILLING and stores, off by default, every mistake
     products: { a: { plan: 'pro', kind: 'subscription', playStore: 'app_pro:monthly' }, b: { plan: 'pro', kind: 'subscription', playStore: 'app_pro:monthly' } },
   }), ['stores.products.b.playStore: "app_pro:monthly" is already stores.products.a\'s']);
 
+  const founders = (founderOf, plan = 'pro') => stores({ products: {
+    year: { plan: 'pro', kind: 'subscription', appStore: 'com.example.year' },
+    old: { plan: 'free', kind: 'subscription', appStore: 'com.example.old' },
+    founder: { plan, kind: 'subscription', appStore: 'com.example.founder', founderOf },
+  } });
+  assert.deepEqual(founders('year'), []);
+  assert.match(founders('nope').join(), /stores\.products\.founder\.founderOf: "nope" is not another product of the same plan/);
+  assert.match(founders('founder').join(), /founderOf: "founder" is not another product/, 'not itself');
+  assert.match(founders('old').join(), /founderOf: "old" is not another product of the same plan/);
+  assert.match(founders('__proto__').join(), /founderOf: "__proto__" is not another product/);
+
   assert.deepEqual(errorsOf({ app, billing: { forgetOnRemove: 'yes' } }, {}), ['billing.forgetOnRemove must be true or false']);
   assert.equal(resolveConfig({ app, billing: { forgetOnRemove: true } }, {}).billing.forgetOnRemove, true);
 
@@ -760,4 +777,59 @@ test('the configuration: STORE_BILLING and stores, off by default, every mistake
     config: product({ stores: { products: { gold: { plan: 'gold', kind: 'subscription', appStore: 'com.example.gold' } } } }),
     env: env({ DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }), log: () => {}, exitOnError: false,
   }), (err) => err instanceof SuiteConfigError && err.errors.some((e) => /The store products \(stores\.products\) have errors: Product "gold": plan "gold" is not in the catalog/.test(e)));
+});
+
+test('what the app may sell: a live subscription anywhere stops it, a founder\'s product replaces the regular one, and why nothing', async (t) => {
+  const s = await setup(t);
+  const offer = async (user) => (await s.call('GET', '/api/billing/stores/offer', { as: user.id })).body;
+  assert.equal((await s.call('GET', '/api/billing/stores/offer')).status, 401);
+  const first = await offer(s.ada);
+  assert.equal(first.blocked, null);
+  assert.match(first.customer, UUID);
+  assert.equal(first.customer, await s.customerOf(s.ada), 'the account\'s customer, the one it buys with');
+  assert.deepEqual(first.products.map((product) => product.key), Object.keys(PRODUCTS));
+  assert.deepEqual(first.products[0], {
+    key: 'pro-monthly', plan: 'pro', kind: 'subscription', founder: false, app_store: MONTHLY, play_store: PRODUCTS['pro-monthly'].playStore,
+  });
+
+  // Paying on the web: nothing in the store, even with the subscription about to end.
+  const paid = await s.web.apply({
+    id: 'evt_1', type: 'subscription', occurredAt: iso(s.clock.now), ref: 'sub_1', subject: { type: 'user', id: s.bob.id }, customer: 'cus_1',
+    product: 'pro-web-yearly', status: 'active', periodEnd: iso(s.clock.now + 30 * DAY), ending: true,
+  });
+  assert.equal(paid, 'granted');
+  assert.deepEqual(await offer(s.bob), { blocked: 'already_subscribed', customer: null, products: [] });
+  await s.web.apply({
+    id: 'evt_2', type: 'subscription', occurredAt: iso(s.clock.now + 1000), ref: 'sub_1', subject: { type: 'user', id: s.bob.id }, customer: 'cus_1',
+    product: 'pro-web-yearly', status: 'ended', periodEnd: iso(s.clock.now + 500),
+  });
+  s.clock.now += DAY;
+  assert.equal((await offer(s.bob)).blocked, null, 'once it ended, on sale again');
+
+  // A gift that ends on a date can be carried on by paying; one for good has nothing to sell.
+  s.entitlements.grant({ subjectId: s.ada.id, plan: 'pro', source: 'admin', endsAt: iso(s.clock.now + 40 * DAY) });
+  assert.equal((await offer(s.ada)).blocked, null);
+  const carol = s.accounts.create({ username: 'carol', email: 'carol@example.com' });
+  s.entitlements.grant({ subjectId: carol.id, plan: 'pro', source: 'admin' });
+  assert.deepEqual(await offer(carol), { blocked: 'included', customer: null, products: [] });
+});
+
+test('a founder\'s product: in place of the regular one for whoever gets that price, and for nobody else', async (t) => {
+  const s = await setup(t);
+  const products = {
+    month: { plan: 'pro', kind: 'subscription', appStore: 'com.example.month', playStore: 'app_pro:monthly' },
+    year: { plan: 'pro', kind: 'subscription', appStore: 'com.example.year', playStore: 'app_pro:yearly' },
+    founder: { plan: 'pro', kind: 'subscription', founderOf: 'year', appStore: 'com.example.founder', playStore: 'app_pro:founder' },
+  };
+  const stores = createStoreBilling({
+    database: s.database, entitlements: s.entitlements, products, audit: s.audit, log: () => {},
+    provider: storeAdapter({ auth: AUTH, key: KEY, products, api: s.api, clock: () => s.clock.now, sandbox: true }),
+  });
+  assert.deepEqual(stores.errors, []);
+  const web = (founder, onSale = true) => ({ enabled: true, subscriptionsOf: () => [], founder: async () => founder, onSale: () => onSale });
+  const keys = async (founder) => (await stores.salesFor(s.ada, { web: web(founder) })).products.map((product) => [product.key, product.founder]);
+  assert.deepEqual(await keys(true), [['month', false], ['founder', true]]);
+  assert.deepEqual(await keys(false), [['month', false], ['year', false]]);
+  assert.deepEqual(await stores.salesFor(s.ada, { web: web(true, false) }), { blocked: 'not_on_sale', customer: null, products: [] }, 'not before sales open');
+  assert.deepEqual((await stores.salesFor(s.ada)).products.map((product) => product.key), ['month', 'year'], 'no web to say who is a founder: nobody is');
 });
