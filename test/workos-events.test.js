@@ -39,11 +39,11 @@ function fakeEvents() {
   let down = null;
   return {
     held, asked,
-    add: (event, userId) => {
+    add: (event, userId, at = null) => {
       n += 1;
       held.push({ object: 'event', id: `event_${String(n).padStart(4, '0')}`, event,
         data: { object: 'password_reset', id: `password_reset_${n}`, user_id: userId, email: 'x@example.com' },
-        created_at: new Date(Date.UTC(2026, 9, 23, 10, 0, n)).toISOString() });
+        created_at: at || new Date(Date.now() + 60_000 + n * 1000).toISOString() });
     },
     fail: (err) => { down = err; },
     listEvents: async (q) => {
@@ -120,7 +120,7 @@ test('a reset at WorkOS revokes everything of that person here, nothing kept; ot
   const result = await resets.poll();
   assert.equal(result.revoked, 1);
   assert.equal(workos.asked.at(-1).order, 'asc');
-  assert.deepEqual(reasons, [[ada.id, { keep: null, reason: 'workos_password_reset' }]]);
+  assert.deepEqual(reasons, [[ada.id, { keep: null, before: workos.held[0].created_at, reason: 'workos_password_reset' }]]);
   assert.equal(suite.sessions.alive(a.session), null);
   assert.equal(suite.tokens.authenticate(a.token, { scope: 'mcp' }), null);
   assert.ok(suite.sessions.alive(b.session));
@@ -133,6 +133,23 @@ test('a reset at WorkOS revokes everything of that person here, nothing kept; ot
   assert.equal((await resets.poll()).revoked, 0);
   assert.equal(workos.asked.at(-1).after, 'event_0002');
   assert.equal(reasons.length, 1);
+});
+
+test('heard a minute later, a reset leaves what was opened after it, and ends what was there before', async (t) => {
+  const { suite, ada, workos, resets, armed } = setUp(t);
+  await resets.poll();
+  const old = armed(ada);
+  const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+  suite.database.run('UPDATE sessions SET created_at = ?', anHourAgo);
+  suite.database.run('UPDATE api_tokens SET created_at = ?', anHourAgo);
+  // The new sign-in, between the reset and the moment it is heard of.
+  const fresh = armed(ada);
+  workos.add(PASSWORD_RESET, 'user_ada', new Date(Date.now() - 30_000).toISOString());
+  assert.equal((await resets.poll()).revoked, 1);
+  assert.equal(suite.sessions.alive(old.session), null, 'the one from before ended');
+  assert.equal(suite.tokens.authenticate(old.token, { scope: 'mcp' }), null);
+  assert.ok(suite.sessions.alive(fresh.session), 'the one from after stays');
+  assert.ok(suite.tokens.authenticate(fresh.token, { scope: 'mcp' }));
 });
 
 test('more than a page of resets: every page, oldest first', async (t) => {

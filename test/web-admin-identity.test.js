@@ -28,17 +28,20 @@ test('deleting someone whose login other apps share: they are named, and the log
   globalThis.window = { location: { hash: '#/users' }, addEventListener: () => {}, matchMedia: () => ({ matches: false }) };
   const sent = [];
   let others = ['Focus'];
+  let lastBody = null;
   const server = {
     'GET /api/auth/config': { provider: 'workos', name: 'WorkOS', deletion_identity: true, app: { name: 'Work', languages: ['en'], modules: {} } },
     'GET /api/auth/me': { user: { username: 'root', display_name: 'Root', role: 'admin' } },
     'GET /api/admin/users': { users: [ADA] },
     'GET /api/admin/users/1/other-apps': () => ({ other_apps: others }),
+    'GET /api/admin/users/1/sign-in': { method: 'google', password: false, two_factor: { enabled: false }, manage: true, reauth: 'password' },
     'DELETE /api/admin/users/1': { ok: true },
     'DELETE /api/admin/users/1?identity=1': { ok: true },
   };
   globalThis.fetch = async (path, { method = 'GET', body } = {}) => {
     if (String(path).startsWith('/i18n/')) return { ok: true, status: 200, json: async () => english };
     sent.push(`${method} ${path}`);
+    if (method === 'DELETE') lastBody = body;
     const route = server[`${method} ${path}`];
     const answer = typeof route === 'function' ? route(body) : route;
     return { ok: answer !== undefined, status: answer === undefined ? 404 : 200, json: async () => answer ?? { error: 'not_found' } };
@@ -56,7 +59,11 @@ test('deleting someone whose login other apps share: they are named, and the log
     const confirm = newest();
     const said = confirm.textContent;
     const box = confirm.find('input').find((node) => node.getAttribute('type') === 'checkbox');
-    if (tick) box.checked = true;
+    if (tick) {
+      box.checked = true;
+      box.dispatch('change');
+      confirm.find('input').find((node) => node.getAttribute('type') === 'password').value = 'admin-password';
+    }
     sent.length = 0;
     confirm.find('button').find((node) => node.className.split(' ').includes('kit-btn--danger')).dispatch('click');
     for (let turn = 0; turn < 20; turn++) await settle();
@@ -73,4 +80,5 @@ test('deleting someone whose login other apps share: they are named, and the log
   const gone = await deleteAda(true);
   assert.ok(gone.said.includes(t('admin.users.identityAlone')));
   assert.equal(gone.deleted, 'DELETE /api/admin/users/1?identity=1', 'ticked: the login too');
+  assert.deepEqual(JSON.parse(lastBody), { admin_password: 'admin-password' }, 'with the admin\'s own password');
 });

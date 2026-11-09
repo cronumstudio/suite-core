@@ -59,6 +59,7 @@
   "errors.grant_not_found": "Diese Freigabe gibt es nicht mehr oder sie wurde schon widerrufen.",
   "errors.early_access_off": "Diese Installation hat keinen frühen Zugang.",
   "errors.internal": "Serverfehler. Versuch es gleich noch einmal.",
+  "errors.identity_not_here": "Die Anmeldung einer Person kann nur in der App gelöscht werden, die sie verwaltet.",
   "errors.invalid_event": "Die Benachrichtigung konnte nicht verstanden werden.",
   "errors.invalid_json": "Die Anfrage konnte nicht gelesen werden.",
   "errors.invitation_expired": "Diese Einladung ist abgelaufen. Bitte um eine neue.",
