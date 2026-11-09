@@ -50,6 +50,9 @@
   --kit-font-mono: var(--cr-font-mono);
   --kit-safe-top: env(safe-area-inset-top, 0px);
   --kit-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* What a view's content keeps from the edges of its pane, the title of its head included: one
+     margin for every module. The Clean look has its own, below. */
+  --look-gutter: 16px;
 }
 
 /*

@@ -1057,8 +1057,8 @@
     "other": "{n} projects"
   },
   "kit.usage.counted.entries": {
-    "one": "{n} entry",
-    "other": "{n} entries"
+    "one": "{n} step",
+    "other": "{n} steps"
   },
   "kit.usage.counted.files": {
     "one": "{n} file",
@@ -1084,7 +1084,7 @@
   "kit.usage.items.notebooks": "Notebooks",
   "kit.usage.items.notes": "Notes",
   "kit.usage.items.projects": "Projects",
-  "kit.usage.items.entries": "Entries",
+  "kit.usage.items.entries": "Steps",
   "kit.usage.items.files": "Files",
   "kit.usage.ofLimit": "{count} of {limit}",
   "kit.usage.storage": "Storage",

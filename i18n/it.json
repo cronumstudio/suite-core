@@ -1057,8 +1057,8 @@
     "other": "{n} progetti"
   },
   "kit.usage.counted.entries": {
-    "one": "{n} voce",
-    "other": "{n} voci"
+    "one": "{n} passo",
+    "other": "{n} passi"
   },
   "kit.usage.counted.files": {
     "one": "{n} file",
@@ -1084,7 +1084,7 @@
   "kit.usage.items.notebooks": "Taccuini",
   "kit.usage.items.notes": "Note",
   "kit.usage.items.projects": "Progetti",
-  "kit.usage.items.entries": "Voci",
+  "kit.usage.items.entries": "Passi",
   "kit.usage.items.files": "File",
   "kit.usage.ofLimit": "{count} di {limit}",
   "kit.usage.storage": "Spazio",
