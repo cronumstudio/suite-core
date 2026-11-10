@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.246.1 — 2026-11-10
+
+- **Pro for good reads for good in Settings › Plan** (`planStatus` in `web/plan.js`; Martin, 10/11).
+  With two gifts of the plan shown, the card took the newest: the early access's Pro until 31/12,
+  given after a Pro for good, made it read "Given to you until December 31, 2026". It takes the one
+  that lasts longest now, no end before any date, as `entitlements.js` shows the plan.
+
 ## 0.246.0 — 2026-11-10
 
 - **Deleting and asking, the same in every module** (`web/ui.js`, audit of 6/11, consistency; Martin,
