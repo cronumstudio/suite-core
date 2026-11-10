@@ -21,7 +21,7 @@ const { showModal, close } = FakeElement.prototype;
 FakeElement.prototype.showModal = function showOpen() { showModal.call(this); this.setAttribute('open', ''); };
 FakeElement.prototype.close = function closeOpen() { this.removeAttribute('open'); close.call(this); };
 
-const { openDialog, formDialog, confirmDialog, menu, closeMenu } = await import('../web/ui.js');
+const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, QUESTION_WIDTH, menu, closeMenu } = await import('../web/ui.js');
 const { el } = await import('../web/dom.js');
 
 const buttonsOf = (node) => node.find('button').filter((b) => (b.getAttribute('class') || '').includes('kit-btn'));
@@ -251,6 +251,27 @@ test('confirmDialog: its second line, its labels, and the answer once it is clos
   again.dispatch('pointerdown', { target: again });
   again.dispatch('click', { target: again });
   assert.equal(await second, false, 'closed any other way is a no');
+});
+
+test('deleteDialog and undoToast: the question with its name and a red button, a question\'s width, the notice with Undo', async () => {
+  const asked = deleteDialog('Kitchen', { detail: 'Its tasks go too.' });
+  const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open).at(-1);
+  assert.equal(dialog.getAttribute('aria-label'), 'kit.deleteAsk', 'the title asks, naming it (kit.deleteAsk)');
+  assert.equal(dialog.getAttribute('style'), `--kit-dialog-width: ${QUESTION_WIDTH}`, 'narrower than a form');
+  assert.deepEqual(dialog.find('p').map((p) => p.textContent), ['Its tasks go too.'], 'no empty line where the text would be');
+  const [, yes] = buttonsOf(dialog);
+  assert.match(yes.className, /kit-btn--danger/, 'red');
+  assert.equal(yes.textContent, 'kit.delete');
+  await press(yes);
+  assert.equal(await asked, true);
+
+  const undone = [];
+  undoToast('Moved to the trash', () => undone.push(true));
+  const note = document.body.all().filter((node) => (node.getAttribute?.('class') || '').split(/\s+/).includes('kit-toast')).at(-1);
+  const undo = note.find('button')[0];
+  assert.equal(undo.textContent, 'kit.undo');
+  await press(undo);
+  assert.deepEqual(undone, [true]);
 });
 
 /* ---------------------------------- menus --------------------------------- */

@@ -57,7 +57,8 @@ const fail = (err) => {
  * @param {Function} [options.fixed]  (share) → true for a row whoever manages can't change or take
  *   back (a manager's, for another manager); one's own row always is.
  * @param {Function} [options.confirmRemove]  (share) → the question to ask before taking it back,
- *   or nothing to take it back at once.
+ *   or nothing to take it back at once. By default someone who accepted it is asked about
+ *   («¿Quitárselo a X?»), and an invitation not answered yet goes at once (Martin, 10/11).
  * @param {Element} [options.parent]  where the dialog and its questions hang, as openDialog's (a
  *   module that keeps its dialogs in its own place, its window in Cronum Work).
  * @param {Function} [options.load]  () → Promise<{ role, owner, shares, manage? }>.
@@ -75,6 +76,7 @@ export async function shareDialog({
   permissions = null, invitePermission = null, fixed = null, confirmRemove = null, parent = null,
 } = {}) {
   const w = (key, vars) => t(words(key), vars);
+  confirmRemove ||= (share) => (share.accepted ? w('removeAsk', { name: share.user.name }) : null);
   const kinds = permissions?.length ? permissions : [{ value: 'edit', label: w('edit') }, { value: 'view', label: w('view') }];
   // What may be given here: a role with `offered: false` is said on the rows that have it, never chosen.
   const offered = kinds.filter((k) => k.offered !== false);

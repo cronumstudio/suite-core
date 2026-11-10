@@ -103,6 +103,12 @@ test('its owner sees who has it, invites by email and by chips, changes and take
   const takeBack = dialog.all().find((n) => n.tagName === 'BUTTON' && n.getAttribute('aria-label') === t('kit.share.remove', { name: 'Ben' }));
   takeBack.dispatch('click');
   await settle();
+  // Ben had accepted it: asked first, by default.
+  const question = openDialogs().at(-1);
+  assert.match(question.textContent, new RegExp(t('kit.share.removeAsk', { name: 'Ben' }).replace(/[?]/g, '\\$&')));
+  assert.equal(calls.find(([m]) => m === 'DELETE'), undefined, 'nothing taken back before the answer');
+  button(question, t('kit.share.takeBack')).dispatch('click', { currentTarget: button(question, t('kit.share.takeBack')) });
+  await settle();
   assert.deepEqual(calls.find(([m]) => m === 'DELETE'), ['DELETE', '/api/boards/10/shares/2', undefined]);
   assert.doesNotMatch(dialog.textContent, /ben@example\.com/);
   closeAll();

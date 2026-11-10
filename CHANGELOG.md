@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.246.0 — 2026-11-10
+
+- **Deleting and asking, the same in every module** (`web/ui.js`, audit of 6/11, consistency; Martin,
+  9 and 10/11). What goes to a trash is deleted at once and leaves an Undo; what can't come back asks
+  first, «¿Borrar «X»?» in red:
+  - `deleteDialog(name, { text, detail, title, confirm, parent })`: that question, with `kit.deleteAsk`
+    and `kit.delete` (a red Borrar).
+  - `undoToast(text, onUndo)`: the notice with `kit.undo` («Deshacer»), 8 s, as `toast`'s action.
+  - `confirmDialog` is 420 px wide on a computer (`QUESTION_WIDTH`) unless given a `width`: a question
+    is narrower than a form (560 px). Without `text` the title alone asks.
+- **Taking something back from someone in the share dialog asks first** when they had accepted it
+  (`kit.share.removeAsk`, «¿Quitárselo a X?»); an invitation not answered yet still goes at once. An
+  app's `confirmRemove` replaces it (Projects).
+
 ## 0.245.0 — 2026-11-10
 
 - **The share dialog for an app with roles of its own** (`web/share.js`, audit of 6/11, consistency):
