@@ -34,7 +34,8 @@
  *
  * App → web: a `cronum-native` CustomEvent on the window, its `detail` `{ v: 1, type, ... }`:
  *
- *   purchase-result    { product, status }                      purchased | pending | canceled | failed
+ *   purchase-result    { product, status }                      purchased | pending | canceled | failed |
+ *                                                               closed (the app's screen left, nothing tried)
  *   push-state         { state }                                granted | denied | undetermined
  *   back               {}                                       Android's back while a panel is open: the page closes it
  *

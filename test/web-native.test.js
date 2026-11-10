@@ -92,7 +92,7 @@ const PRODUCTS = {
   provider: 'remote', founder: true,
   products: [{ key: 'pro-monthly', plan: 'pro', kind: 'subscription', days: null, for: 'user', name: null, founder_price: true }],
 };
-const BILLING_ON = { app: { id: 'demo', modules: { billing: true, mcp: true } } };
+const BILLING_ON = { app: { id: 'demo', modules: { billing: true, mcp: true, stores: true } } };
 
 const settle = async () => { for (let i = 0; i < 4; i++) await new Promise((done) => setTimeout(done, 0)); };
 const toasts = () => document.body.all().filter((node) => /\bkit-toast\b/.test(node.className) && node.parentNode);
@@ -386,10 +386,66 @@ test('in the app: never the web’s checkout, whatever the module passed; its st
 
 test('in a host, the app’s store comes with the host’s plan, without the module asking', async () => {
   asApp(['purchase']);
-  const config = { app: { id: 'tasks', modules: { billing: true, mcp: false }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', plans: true } } };
+  const config = { app: { id: 'tasks', modules: { billing: true, mcp: false }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', plans: true, stores: true } } };
   routes = { 'GET /api/modules': { data: { modules: [] } } };
   const view = await settingsPage({}, { config, server: { ...planServer(), 'GET /api/modules': { data: { modules: [] } } }, start: 'plan' });
   assert.equal(view.buttons(t('kit.plan.see')).length, 1);
+  view.settings.close();
+});
+
+test('in the app, the store’s way to buy: for a plan that ends on a date, and for nobody who pays already or before sales open', async () => {
+  asApp(['purchase']);
+  const gift = { ...PRO, ends: '2026-12-31T00:00:00.000Z' };
+  const see = (view) => view.buttons(t('kit.plan.see')).length;
+  const given = await settingsPage({ plan: { billing: true } }, { server: { ...planServer(), 'GET /api/me/entitlements': { data: gift } }, start: 'plan' });
+  assert.equal(see(given), 1, 'a gift until a date can be carried on by paying');
+  given.settings.close();
+
+  const store = {
+    kind: 'store', provider: 'revenuecat', store: 'app_store', product: 'store-pro-monthly', plan: 'pro', plan_name: 'Pro', status: 'active',
+    period_end: '2027-01-12T00:00:00.000Z', ending: false, manage: { via: 'store', store: 'app_store', url: 'https://apps.apple.com/account/subscriptions' },
+  };
+  const paying = await settingsPage({ plan: { billing: true } }, {
+    server: {
+      ...planServer(), 'GET /api/me/entitlements': { data: gift },
+      'GET /api/billing/overview': { data: { plan: { id: 'pro', name: 'Pro', ends: gift.ends }, sources: [store] } },
+    },
+    start: 'plan',
+  });
+  assert.equal(see(paying), 0, 'paying in a store: nothing to buy again');
+  // Cancelling is the store's, opened outside the app through the bridge.
+  page.sent.length = 0;
+  click(paying.buttons('Change or cancel plan')[0]);
+  await settle();
+  const dialog = globalThis.document.body.all().filter((n) => n.tagName === 'DIALOG' && n.open && n.parentNode).at(-1);
+  click(dialog.all().find((n) => n.tagName === 'BUTTON' && n.textContent === english['kit.plan.openStore.app_store']));
+  dialog.close();
+  assert.deepEqual(page.sent, [{ v: 1, type: 'open-external', url: 'https://apps.apple.com/account/subscriptions' }]);
+  paying.settings.close();
+
+  const web = { ...store, kind: 'web', provider: 'remote', store: undefined, manage: { via: 'portal' } };
+  const onTheWeb = await settingsPage({ plan: { billing: true } }, {
+    server: {
+      ...planServer(), 'GET /api/me/entitlements': { data: gift },
+      'GET /api/billing/overview': { data: { plan: { id: 'pro', name: 'Pro', ends: gift.ends }, sources: [web] } },
+    },
+    start: 'plan',
+  });
+  assert.equal(see(onTheWeb), 0, 'paying on the web: nothing to buy in the store');
+  onTheWeb.settings.close();
+
+  const closed = await settingsPage({ plan: { billing: true } }, {
+    server: { ...planServer(), 'GET /api/billing/products': { data: { ...PRODUCTS, on_sale: false } } },
+    start: 'plan',
+  });
+  assert.equal(see(closed), 0, 'not before sales open');
+  closed.settings.close();
+});
+
+test('in an app that can sell, on an install that doesn’t (no STORE_BILLING): no way to buy', async () => {
+  asApp(['purchase']);
+  const view = await settingsPage({ plan: { billing: true } }, { config: { app: { id: 'demo', modules: { billing: true, mcp: true } } }, server: planServer(), start: 'plan' });
+  assert.equal(view.buttons(t('kit.plan.see')).length, 0);
   view.settings.close();
 });
 

@@ -1072,11 +1072,18 @@ stores: {
   products: {                       // plans of the catalog, as the web's; keys of their own
     'pro-monthly': { plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.monthly', playStore: 'app_pro:monthly' },
     'pro-yearly':  { plan: 'pro', kind: 'subscription', appStore: 'com.example.app.pro.yearly',  playStore: 'app_pro:yearly' },
+    // A store has no founder's price: its own product, sold in place of `founderOf` to whoever gets it.
+    'pro-founder': { plan: 'pro', kind: 'subscription', founderOf: 'pro-yearly', appStore: 'com.example.app.pro.founder', playStore: 'app_pro:founder' },
   },
   devices: true,                    // the store routes also take the app's device tokens (modules.devices)
 },
 ```
 
+- **What the app may sell**: `GET /api/billing/stores/offer` → `{ blocked, customer, products }`,
+  read before it opens its store, since neither store can be told to refuse. `blocked` is null, or
+  `already_subscribed` (a live subscription on the web or in a store: a second one would charge
+  twice), `not_on_sale` (the web's sale isn't open) or `included` (nothing above what they have).
+  A founder's product takes the place of the one it names for whoever the web gives that price to.
 - **Who buys** is an opaque id the install gives each account, a random UUID kept in
   `billing_customers` (`GET /api/billing/stores/customer` → `{ provider, customer }`): the app hands
   it to the store's SDK as RevenueCat's App User ID. Never the WorkOS id, an email or the account's

@@ -817,6 +817,8 @@ export async function createHost({
         push: Boolean(config.modules.push), plans: Boolean(suite.entitlements?.describe?.().several),
         // Whether the host sells (BILLING_PROVIDER): Settings › Plan offers its products in every module.
         billing: Boolean(suite.billing?.enabled),
+        // Whether the host sells in the app on a phone (STORE_BILLING): its store's way to buy, in every module.
+        ...(suite.stores?.enabled ? { stores: true } : {}),
         // The host's one worker: the module's page registers it and retires its own (web/worker.js).
         ...(hostWorker ? { worker: '/sw.js' } : {}),
         // The host's daily summary: its page, and Settings' section of it in every module.

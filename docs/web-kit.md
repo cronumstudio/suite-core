@@ -396,10 +396,12 @@ it also sells, from the suite's routes (`billing.js`), with nothing of one app o
 - **A 402 met in Settings** offers a way to buy: `plan.open()` when the app gives one (a native
   app's store), or else the plan section; under `hideCheckout` without `open`, only the reason.
 - **Inside the suite's app on a phone** (`native.js`, v0.106.0) Settings do this by themselves,
-  whatever the module passes: always `hideCheckout`; where the app sells (`can('purchase')`) and
-  the section is there (`plan`, or the host's `app.host.plans`), `plan.open` is the app's store
+  whatever the module passes: always `hideCheckout`; where the app sells (`can('purchase')`), the
+  install does too (`modules.stores` or the host's `app.host.stores`, with STORE_BILLING) and the
+  section is there (`plan`, or the host's `app.host.plans`), `plan.open` is the app's store
   (`storePurchase()`: the `purchase` message) and the section adds "See plans" to it, for whoever
-  has a plan above theirs; where it doesn't, a 402 says only why.
+  has a plan above theirs or theirs ending on a date, and pays for nothing yet; where it doesn't,
+  a 402 says only why.
 - **A group's products** (`for: 'organization'`) are not offered: buying for a group needs its
   seats in the checkout and the group's subscriptions, which the routes don't give the browser yet
   (`GET /api/billing/subscriptions` lists the person's). An app that sells to groups keeps its own
@@ -486,7 +488,7 @@ loaded.
 
 | `type` | Detail | What the kit does |
 | --- | --- | --- |
-| `purchase-result` | `{ product, status }`: `purchased`, `pending`, `canceled` or `failed` | `storePurchase()` says it in a notice; bought, it reads the plan again and sends it as `kit-plan` (`PLAN_EVENT`), which an open Settings repaints with |
+| `purchase-result` | `{ product, status }`: `purchased`, `pending`, `canceled`, `failed` or `closed` (the app's own screen left, nothing tried: nothing is said) | `storePurchase()` says it in a notice; bought, it reads the plan again and sends it as `kit-plan` (`PLAN_EVENT`), which an open Settings repaints with |
 | `push-state` | `{ state }`: `granted`, `denied` or `undetermined` | Settings › Notifications says when the phone has them off |
 | `back` | — | Android's back while a `panel` is open, in place of going back: Cronum Work's shell closes the panel |
 

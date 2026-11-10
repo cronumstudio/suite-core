@@ -242,8 +242,9 @@ export function openSettings(options) {
   // Inside the suite's app the web's checkout never shows (the stores' rules), whatever the module passed.
   const inTheApp = inApp();
   const hideCheckout = planOptions.hideCheckout === true || inTheApp;
-  // The app's own store, where the app sells and so does this install: its way to buy here.
-  const store = inTheApp && can('purchase') && Boolean(options.plan || host?.plans) && modules.billing !== false;
+  // The app's own store, where the app sells and so does this install (STORE_BILLING): its way to buy here.
+  const store = inTheApp && can('purchase') && (modules.stores === true || host?.stores === true)
+    && Boolean(options.plan || host?.plans) && modules.billing !== false;
   // Where it sells, a plan's barrier met here offers a way to buy: the app's own (`plan.open`, a native
   // app's store) when it gives one, else the plan section, unless that sells nothing here (hideCheckout).
   // Inside the suite's app, its store, or only the reason. Elsewhere a notice, as always.
@@ -1736,7 +1737,9 @@ export function openSettings(options) {
       if (options.plan?.render) box.append(options.plan.render(answer));
       if (storeBlock) {
         const order = (answer.plans || []).map((p) => p.id);
-        storeBlock.hidden = Boolean(answer.unlimited) || (order.length > 0 && order.at(-1) === (answer.plan?.id ?? null));
+        // The top plan too while it ends on a date (a gift): it can be carried on by paying.
+        const top = order.length > 0 && order.at(-1) === (answer.plan?.id ?? null);
+        storeBlock.hidden = Boolean(answer.unlimited) || (top && !answer.ends);
         usage?.sync();
       }
       if (!payments) return;
@@ -1744,6 +1747,8 @@ export function openSettings(options) {
       if (until) until.hidden = true;
       payments.paint(answer).then((state) => {
         if (state && until) until.hidden = state.holds || state.noted;
+        // Who pays already, here or in a store, or before sales open: nothing to buy in the store either.
+        if (storeBlock && state?.sells === false) storeBlock.hidden = true;
         usage?.sync();
       });
     };
