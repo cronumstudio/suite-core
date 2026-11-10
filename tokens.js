@@ -86,7 +86,8 @@ export function createTokens({
 
   const revoke = (userId, id) => database.run('DELETE FROM api_tokens WHERE id = ? AND user_id = ?', id, userId).changes > 0;
 
-  const revokeAllOf = (userId) => database.run('DELETE FROM api_tokens WHERE user_id = ?', userId).changes;
+  const revokeAllOf = (userId, { before = null } = {}) => database.run(`DELETE FROM api_tokens WHERE user_id = ?${before ? ' AND created_at < ?' : ''}`,
+    userId, ...(before ? [before] : [])).changes;
 
   /**
    * The account of a token, or null: unknown, expired, without the scope, or

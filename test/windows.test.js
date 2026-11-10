@@ -343,6 +343,20 @@ function setup({ width = 1400, modules = ['next', 'notes', 'tasks', 'projects', 
   return { desk, win, data, told, made, windows, lay, head, press };
 }
 
+test('windows: one that goes out of view closes the dialogs open in it, or the page stays inert under them', () => {
+  const { made, windows } = setup();
+  windows.restore({ cols: [{ w: 1, wins: ['notes'] }] });
+  const dialog = document.createElement('dialog');
+  dialog.setAttribute('open', '');
+  let closed = 0;
+  dialog.close = () => { closed += 1; dialog.removeAttribute('open'); };
+  made.get('notes').append(dialog);
+  windows.show('tasks');
+  assert.equal(made.get('notes').hidden, true);
+  assert.equal(closed, 1);
+  assert.equal(made.get('notes').querySelectorAll('dialog[open]').length, 0);
+});
+
 test('windows: placed by grid column only, the others hidden, inert and paused, the layout kept', () => {
   const { desk, told, made, windows, data } = setup();
   windows.restore({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });

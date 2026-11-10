@@ -54,10 +54,10 @@ async function fakeWorkos(t) {
   return { url: `http://127.0.0.1:${server.address().port}`, users, calls, add, setDown: (value) => { down = value; } };
 }
 
-async function serve(t, workos, { sharedIdentity = true } = {}) {
+async function serve(t, workos, { sharedIdentity = true, adminIdentity = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-shared-identity-'));
   const suite = createSuite({
-    config: { app: { id: 'demo', name: 'Démo', port: 3999, languages: ['en'] }, accounts: { minPasswordLength: 8, sharedIdentity } },
+    config: { app: { id: 'demo', name: 'Démo', port: 3999, languages: ['en'] }, accounts: { minPasswordLength: 8, sharedIdentity, adminIdentity } },
     env: {
       DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'sk_test',
       WORKOS_CLIENT_ID: 'client', WORKOS_AUTHKIT_DOMAIN: workos.url, WORKOS_API_URL: workos.url,
@@ -146,9 +146,36 @@ test('a shared login: noted at WorkOS, asked about when the person uses another 
   assert.ok(suite.accounts.byId(eve.user.id));
   assert.deepEqual((await admin.call('GET', `/api/admin/users/${eve.user.id}/other-apps`)).data, { other_apps: null }, 'not known');
   workos.setDown(false);
+  // A stolen cookie is not enough: the admin's own password again, or nothing goes.
+  const wrong = await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`, { admin_password: 'not-it' });
+  assert.equal(wrong.status, 403);
+  assert.equal(wrong.data.error, 'wrong_password');
+  assert.ok(workos.users.has('user_eve') && suite.accounts.byId(eve.user.id), 'nothing went');
+  // Who signs in elsewhere (Google…) has no password here: a recent sign-in instead.
+  suite.accounts.usedIdentity('workos', 'user_root', { method: 'google' });
+  const fresh = suite.database.get('SELECT created_at FROM sessions WHERE user_id = ?', admin.user.id).created_at;
+  suite.database.run('UPDATE sessions SET created_at = ? WHERE user_id = ?', new Date(Date.now() - DAY).toISOString(), admin.user.id);
+  const stale = await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`);
+  assert.equal(stale.status, 401);
+  assert.equal(stale.data.error, 'reauth_required');
+  assert.ok(workos.users.has('user_eve') && suite.accounts.byId(eve.user.id), 'nothing went');
+  suite.database.run('UPDATE sessions SET created_at = ? WHERE user_id = ?', fresh, admin.user.id);
   assert.equal((await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`)).status, 200);
   assert.equal(workos.users.has('user_eve'), false);
   assert.equal(suite.accounts.byId(eve.user.id), null);
+});
+
+test('an install that does not own the identities cannot delete someone\'s login', async (t) => {
+  const workos = await fakeWorkos(t);
+  workos.add('user_root');
+  workos.add('user_eve');
+  const { suite, person } = await serve(t, workos, { adminIdentity: false });
+  const admin = person('root', 'user_root', 'admin');
+  const eve = person('eve', 'user_eve');
+  const refused = await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`);
+  assert.equal(refused.status, 403);
+  assert.equal(refused.data.error, 'identity_not_here');
+  assert.ok(workos.users.has('user_eve') && suite.accounts.byId(eve.user.id), 'nothing went');
 });
 
 test('without sharedIdentity nothing of this: no notes at WorkOS, no question, no route', async (t) => {
