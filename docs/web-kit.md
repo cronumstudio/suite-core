@@ -10,7 +10,7 @@ Tasks' lists— and takes everything else from here.
 
 | Question | Answer |
 | --- | --- |
-| Structure | One frame: a **sidebar** with the app's views, what it creates and the person at its foot, in every app (Tasks, Notes, Projects, Next). It folds away on a tablet or a computer for more room. A top bar with tabs for apps with a few views was dropped in v0.41.0, when Next, the only one that used it, moved to the sidebar |
+| Structure | One frame: a **sidebar** with the app's views and collections, and at its foot what makes a collection and the trash, in every app (Tasks, Notes, Projects, Next); an item is created with the floating button over the list. The person has no button of their own: the app's icon opens Settings (v0.224.0). It folds away on a tablet or a computer for more room. A top bar with tabs for apps with a few views was dropped in v0.41.0, when Next, the only one that used it, moved to the sidebar |
 | Sign-in | The **product's colour large**, the form beside it; stacked on a phone; "by Cronum Studio" under it |
 | Settings | A **list of sections**; on a phone each section is a screen of its own |
 | Dialogs on a phone | A **sheet that rises from the bottom**; centred on a computer |
@@ -21,6 +21,22 @@ of that hue; **yolk marks "now" and nothing else**; touch targets of 44 px on a 
 icons with round ends instead of emoji; short notices at the bottom (with *Undo* or *Retry*),
 banners under the header for a state that lasts (offline, a new version), and the state of a save
 next to what is saved.
+
+## Same in every module
+
+Martin's rules for the sidebar and the heads (v0.247.0), so that going from one module to the next
+in Cronum Work nothing moves:
+
+1. **An item is never created from the sidebar.** A note, a step: the floating + button over the
+   list, at every width, a computer's too (`createShell({ create })`). A module with an add bar of
+   its own (Tasks, Projects) passes no `create`.
+2. **A collection is created from the sidebar's foot**: a + at its start, the trash at its end
+   (`createShell({ foot })`).
+3. **Groups look and behave the same** (`navGroup()`): the group's name opens its menu, where a new
+   collection in it is too; the chevron folds it. A group stays open while the collection open is in
+   it. Collections with no group sit loose under their section's label.
+4. **A view's head holds only «…»** (`moreButton()`), besides the kit's own ☰ and ←: every action
+   of the view is in that one menu.
 
 ## A page
 
@@ -72,9 +88,9 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
-| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent })` (items with `glyph`) |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent })` (items with `glyph`; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
-| `shell.js` | `createShell()`: the frame; `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `setCurrent()` |
+| `shell.js` | `createShell()`: the frame, with `create` (the floating button) and `foot` (the sidebar's foot); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
@@ -155,6 +171,7 @@ const local = openLocal('notes', ['notes', 'notebooks']);
 const shell = createShell({
   panes: 'split', app,
   create: { label: t('notes.new'), onClick: newNote },
+  foot: { create: { items: () => [newNotebookItem, newGroupItem] }, trash: { href: '#/trash' } },
   onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
     onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
   onSignOut: () => signOut({ local }),
@@ -177,7 +194,8 @@ const outbox = createOutbox({ local, onCount: (n) => …, onConflict: keepConfli
 `createShell()` builds the frame into `document.body`: `shell.nav` (the sidebar's content),
 `shell.list` and `shell.detail` (a list and what is open from it: side by side from 960 px, two
 screens below), `shell.actions` (buttons in the bar), `shell.banners`. The sidebar has the app's
-name and icon, the live dot, the `create` button and the person at its foot. On a phone, `showDetail()`
+name and icon, the live dot, the module's search, its entries and, with `foot`, a foot that makes
+collections and has the trash; `create` is the floating button over the list. On a phone, `showDetail()`
 moves to the detail and the bar's back button returns (`onBack`, or `showList()`); the sidebar is a
 drawer behind ☰. A swipe from the screen's start edge does what the button there does (opens the
 drawer, or goes back from a detail) instead of Safari's back in the history, and one from the end
@@ -234,8 +252,8 @@ nothing. Without it, each old frame kept its listeners: a tap within 20 px of th
 on once per frame ever made (the drawer opened and closed at once), and none of them was freed.
 
 From 640 px the sidebar sits beside the views and can be **folded away**: the button at its head
-folds it, the bar comes back with ☰ to unfold it (a swipe from the edge does too) and the `create`
-button moves into the bar. The device remembers it per app, under `<app.id>.sidebar`
+folds it, the bar comes back with ☰ to unfold it (a swipe from the edge does too), and the floating
+button stays where it was. The device remembers it per app, under `<app.id>.sidebar`
 (`'collapsed'` or `'visible'`). `onFold(folded)` says the views' width changed, for whatever is drawn
 to it (a Gantt, a timeline); `shell.folded` says how it is. Something picked up while it is folded
 brings it over the views as a drawer, as on a phone. An app that lays out its own columns from
@@ -243,15 +261,66 @@ brings it over the views as a drawer, as on a phone. An app that lays out its ow
 applies, whatever was chosen on a computer.
 
 **A view's head** (`shell.head({ pane, title, lead, actions, below })`) is the same in every
-app: the view's title and the app's own actions, and, wherever the sidebar isn't beside the views
-(a phone, or folded away), ☰ at its start and the button that creates at its end; over a phone's
-detail (`pane: 'detail'`), ← instead. It returns `{ element, setTitle }`; the app puts `element`
+app: the view's title and, at its end, the view's «…» (`actions: moreButton(items)`), and,
+wherever the sidebar isn't beside the views (a phone, or folded away), ☰ at its start; over a
+phone's detail (`pane: 'detail'`), ← instead. Nothing in it creates (v0.247.0): that is the
+floating button. It returns `{ element, setTitle }`; the app puts `element`
 at the top of its view (it sticks there while the view scrolls) and makes a new one when it draws
 the view again. A pane showing a head takes the bar's place: one line less, and the same layout in
 every app and on any screen. `lead` goes before the title (a list's icon, a note's notebook),
-`below` under its line, inside the head (a search, chips, a toolbar). In a narrow head (a list
-beside its detail) the create button keeps its + and loses its words. An app that shows no head
+`below` under its line, inside the head (a search, chips, a toolbar). An app that shows no head
 in a pane keeps the bar there, as before.
+
+**«…»** (`moreButton(items, { label })`, ui.js) is a `kit-icon-btn` with the kit's «…» icon, named
+«Más opciones» (`kit.more`) unless `label` says otherwise, `aria-haspopup="menu"`. A press opens
+`menu()` under it with `items`, or with what `items()` returns then, so the menu says what is
+possible at that moment; a second press closes it, and the press goes no further (a row doesn't
+open, the drawer doesn't close). `menu()` leaves out a falsy item and a separator with nothing to
+separate (first, last or after another), so a module writes `canShare ? shareItem : null`.
+
+**What creates an item** (`create: { label, onClick }`) is the floating + at every width: on a
+phone over the list, as before, and hidden on the detail that covers it; beside the views at the
+bottom end corner of the pane that holds the list (`panes: 'split'`: the list's, never over the
+detail beside it; `panes: 'single'`: the view's), folded or not. It is placed in the frame's grid,
+not on the screen, so in Cronum Work it stays inside the module's window. Its `label` is its
+accessible name and the words a pointer resting on it shows. What it covers at the end of a list is
+the module's to leave room for (a bottom padding of about 88 px in the list).
+
+**The sidebar's foot** (`foot: { create, trash }`, each optional) makes collections (a list, a
+notebook, a group of them) and keeps the trash: a + at its start (`kit-side__add`, «Crear»,
+`kit.side.create`, unless `create.label`) and the trash at its end (`kit-side__trash`, «Papelera»,
+`kit.side.trash`). `create` is `{ onClick }`, or `{ items }` (an array, or a function that returns
+one) for a menu that opens over the drawer; each choice, and the trash, closes the drawer as an
+entry does. `trash` is `{ onClick }` (a dialog: Tasks, Projects) or `{ href, current }` (a view of
+its own: Notes' `#/trash`). The foot never scrolls away: the nav scrolls above it, on a phone and
+beside the views, and the room over the phone's bottom edge (`--kit-safe-bottom`) is under the
+foot; in a window of Work there is none. It goes with the sidebar when that is folded.
+`shell.foot` is `{ element, create, trash }` (null without a foot), and `setCurrent(shell.nav,
+shell.foot.trash)` marks the trash as the place open, as it marks an entry.
+
+**A group of collections** (`navGroup()`) is the same in every module: a head in the group's
+colour (a 3 px border at its start, a tint behind, its name halfway between that colour and the
+text's; plain rows in the Clean look) and its collections a step in under it.
+
+```js
+nav.append(navGroup({
+  name: group.name, color: group.color, icon: group.icon,     // an emoji or a node; iconName: the kit's
+  count: notesIn(group), open: !folded.has(group.id), keep: openIsIn(group),
+  onToggle: (open) => remember(group.id, open),                // folding is the module's to keep
+  onName: (event, name) => menu(name, groupItems(group)),      // its menu: rename, new notebook here…
+  extra: group.shared ? sharedBadge() : null,                  // after the name
+  empty: t('groups.empty'), children: notebooks.map(notebookItem),
+  data: { group: group.id }, headData: { groupDrop: group.id }, bodyData: { notebooksOf: group.id },
+}));
+```
+
+The chevron (`kit-nav-group__toggle`, «Plegar X» / «Desplegar X») folds it, sliding as `navFold`
+does, and tells `onToggle(open)`; folded, the head shows `count`. The name (`kit-nav-group__name`)
+opens the group's menu through `onName(event, name)`, anchored on it; without `onName` it folds the
+group too. It is a `span` with `role="button"`, pressed with Enter or Space, so the group can still
+be picked up by its head (drag.js starts on no `<button>`). Neither closes the drawer. `keep` opens
+it whatever `open` says: the collection open is in it. `data`, `headData` and `bodyData` become
+data-* attributes of the group, its head and its body, for the module's own drags.
 
 ### The phone's keyboard
 
