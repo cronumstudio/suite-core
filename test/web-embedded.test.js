@@ -100,9 +100,10 @@ test('a module\'s frame in Work\'s shell: its sidebar and fold, no rail, no pers
   assert.ok(frame.hasAttribute('data-module'), 'laid out as a host\'s module');
   assert.ok(frame.querySelector('.kit-side__fold'), 'its sidebar folds as ever');
   assert.ok(frame.querySelector('.kit-side__nav'));
-  for (const piece of ['.kit-rail', '.kit-account', '.kit-side__foot', '.kit-side__app']) {
+  for (const piece of ['.kit-rail', '.kit-account', '.kit-side__app']) {
     assert.equal(frame.querySelector(piece), null, `${piece}: Work's shell has it, once`);
   }
+  assert.equal(frame.querySelector('.kit-side__foot'), null, 'no foot unless the module gives one: never the person');
   assert.equal(await shell.refreshModules(), null);
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(asked, [], 'neither the modules nor the plan: the shell asks');
@@ -112,6 +113,21 @@ test('a module\'s frame in Work\'s shell: its sidebar and fold, no rail, no pers
   assert.deepEqual(counts(page, win), before);
   assert.equal(root.children.length, 0);
   storage.clear();
+});
+
+test('a module\'s foot and floating button are its window\'s: in its sidebar and its frame, with no room for the screen\'s edge', async () => {
+  const { createShell } = await notes('shell.js');
+  const root = page.createElement('div');
+  page.body.append(root);
+  const shell = createShell({ ...options({ foot: { create: { items: [{ label: 'New notebook' }] }, trash: { href: '#/trash' } } }), root, embedded: true });
+  const side = shell.element.querySelector('.kit-side');
+  assert.equal(side.children.at(-1), shell.foot.element, 'its sidebar\'s foot, after the nav');
+  assert.ok(shell.element.contains(shell.element.querySelector('.kit-fab')), 'the floating button inside the window\'s frame');
+  // The foot keeps the screen's bottom edge clear with --kit-safe-bottom, which a window sets to none.
+  assert.match(fs.readFileSync(new URL('windows.css', WEB), 'utf8'), /\.cw-win__body \{[^}]*--kit-safe-bottom: 0px;/);
+  shell.destroy();
+  assert.equal(root.children.length, 0);
+  root.remove();
 });
 
 test('Work asks a window for its module\'s Settings on the window\'s body, naming the section or not', async () => {

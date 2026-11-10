@@ -3,6 +3,31 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.247.0 — 2026-11-10
+
+- **The sidebar and the heads, the same in every module** (`web/shell.js`, `web/ui.js`, `web/kit.css`,
+  audit of 6/11, consistency; Martin's four rules, docs/web-kit.md «Same in every module»):
+  - `createShell({ create })` is the floating + at every width: beside the views it sits at the bottom
+    end corner of the list's pane (never over the detail beside it; the view's with `panes: 'single'`),
+    inside the frame, so in Cronum Work inside the module's window. The sidebar's button that created
+    (`.kit-side__create`) and the one that came to the bar and to a list's head while folded
+    (`.kit-bar__create`, `.kit-bar__create-label`) are gone. Its label is its title too.
+  - `createShell({ foot: { create, trash } })`: the sidebar's foot, pinned under the nav that scrolls,
+    with the room over a phone's bottom edge under it. A + that makes a collection at its start
+    (`{ onClick }`, or `{ items }` for a menu over the drawer), the trash at its end (`{ onClick }`, or
+    `{ href, current }` for a view of its own); each closes the drawer as an entry does. Their words are
+    `kit.side.create` («Crear») and `kit.side.trash` («Papelera») unless given. `shell.foot` is
+    `{ element, create, trash }`, and `setCurrent()` marks the trash too.
+  - `navGroup({ name, color, icon, iconName, count, open, keep, onToggle, onName, empty, extra, data,
+    headData, bodyData, children })`: a group of collections with one look (`.kit-nav-group`: its
+    colour's border, tint and text, plain in the Clean look). The chevron folds it (`kit.side.groupFold`,
+    `kit.side.groupUnfold`); the name opens its menu (`onName`, `kit.side.groupOptions`). It replaces
+    Tasks' `.list-group-*` and Notes' `.nav-group__*`, whose own + goes into the group's menu.
+  - `moreButton(items, { label })`: «…», `kit.more` («Más opciones»), the one button of a view's head.
+    `shell.head()` no longer ends a list's head with anything that creates.
+  - `menu()` leaves out falsy items and separators with nothing to separate, so a module writes
+    `cond ? item : null`.
+
 ## 0.246.0 — 2026-11-10
 
 - **Deleting and asking, the same in every module** (`web/ui.js`, audit of 6/11, consistency; Martin,

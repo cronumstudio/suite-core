@@ -2,7 +2,8 @@
  * What every screen of the suite needs: notices that come and go (with an
  * undo or a retry), banners for a state that lasts, dialogs and form dialogs
  * (the browser's own <dialog>, which traps focus and closes with Escape; a
- * sheet from the bottom on a phone), menus, labelled fields, switches and the signature.
+ * sheet from the bottom on a phone), menus and the «…» that opens one, labelled fields,
+ * switches and the signature.
  *
  * In Cronum Work's shell, where every module's kit shares one page, what this
  * copy hangs on the page's body (a notice, a dialog, a menu, a banner) says
@@ -632,10 +633,25 @@ export function undoToast(text, onUndo) {
 let openMenuNode = null;
 
 /**
+ * A menu's items as they are drawn: none of those left out (`cond ? item : null`), and no
+ * separator first, last or after another, which is what leaving some out leaves behind.
+ */
+function tidy(items) {
+  const kept = [];
+  for (const item of items || []) {
+    if (!item || (item === 'separator' && (!kept.length || kept.at(-1) === 'separator'))) continue;
+    kept.push(item);
+  }
+  if (kept.at(-1) === 'separator') kept.pop();
+  return kept;
+}
+
+/**
  * A menu under (or above) `anchor`: items are { label, iconName, image, glyph,
  * onClick, href, external, danger, current }, or 'separator' (`image`, a
  * picture's address in place of an icon: a module's own; `glyph`, a character
- * in its place, an emoji; `current`, the one in use now, with a tick); `header`
+ * in its place, an emoji; `current`, the one in use now, with a tick); a falsy
+ * one is left out, and so is a separator with nothing to separate. `header`
  * is a node on top (what the menu is about). `at` ({ x, y }, a pointer's place)
  * puts it there instead of under the anchor; `parent` is where it hangs (the
  * page's body by default; inside a modal dialog, always that dialog). Arrows
@@ -643,7 +659,7 @@ let openMenuNode = null;
  */
 export function menu(anchor, items, { header = null, at = null, parent = null } = {}) {
   closeMenu();
-  const entries = items.map((item) => {
+  const entries = tidy(items).map((item) => {
     if (item === 'separator') return el('div', { class: 'kit-menu__sep', role: 'separator' });
     const props = {
       class: `kit-menu__item${item.danger ? ' kit-menu__item--danger' : ''}`, role: 'menuitem', tabindex: '-1',
@@ -733,4 +749,24 @@ export function closeMenu() {
   openMenuNode.cleanUp?.();
   openMenuNode.remove();
   openMenuNode = null;
+}
+
+/**
+ * «…», the same in every module: the one button of a view's head (shell.js head), which holds
+ * all of the view's actions, or a row's. `items` are menu()'s, or a function that returns them,
+ * asked each time it opens (what is possible now). `label` names it, «Más opciones» (`kit.more`)
+ * unless given. A second press closes the menu; what it sits in (a row that opens, the drawer
+ * that closes) doesn't take the press: opening a menu isn't choosing it. → the button.
+ */
+export function moreButton(items, { label = null } = {}) {
+  const words = label || t('kit.more');
+  const button = el('button', {
+    type: 'button', class: 'kit-icon-btn', title: words, 'aria-label': words, 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+    onClick: (ev) => {
+      ev.stopPropagation?.();
+      if (button.getAttribute('aria-expanded') === 'true') closeMenu();
+      else menu(button, typeof items === 'function' ? items() : items);
+    },
+  }, icon('more'));
+  return button;
 }
