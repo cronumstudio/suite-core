@@ -23,7 +23,7 @@ import { t, formatDateTime, currentLanguage } from './i18n.js';
 import { api, errorMessage } from './api.js';
 import { toast, openDialog } from './ui.js';
 import { FRAMED } from './base.js';
-import { nativePurchase, onNative, inApp } from './native.js';
+import { nativePurchase, onNative, openExternal, inApp } from './native.js';
 
 /** What `billingReturn` tells the page each time it reads the plan again: an open Settings repaints. */
 export const PLAN_EVENT = 'kit-plan';
@@ -130,6 +130,21 @@ export function periodOf(product) {
   return /-(?:monthly|month)$/.test(key) ? 'monthly' : /-(?:yearly|annual|year)$/.test(key) ? 'yearly' : null;
 }
 
+/**
+ * How much less a year of `product` costs than twelve months of the same plan's monthly product, in
+ * whole percent and rounded down, so it never says more than is true. `amount` is what this person
+ * pays for the year (a founder's price, when it is theirs). → the percent, or null for anything but
+ * a yearly subscription, without a monthly one to compare with in the same currency, or not cheaper.
+ */
+export function yearlySaving(product, products = [], amount = product?.amount) {
+  if (periodOf(product) !== 'yearly' || typeof amount !== 'number') return null;
+  const monthly = products.find((p) => p.plan === product.plan && p.for === product.for && periodOf(p) === 'monthly');
+  if (typeof monthly?.amount !== 'number' || monthly.amount <= 0 || monthly.currency !== product.currency) return null;
+  // In cents, so that a price like 3.9 × 12 can't land a hair under a whole percent.
+  const percent = Math.floor((1 - Math.round(amount * 100) / Math.round(monthly.amount * 1200)) * 100 + 1e-9);
+  return percent > 0 ? percent : null;
+}
+
 /** An amount as people read it in their language: "3,90 €", and "35 €" without cents when it has none. */
 export function moneyText(amount, currency) {
   if (typeof amount !== 'number' || !currency) return '';
@@ -194,7 +209,8 @@ export function planStatus(answer, overview, { products = null, benefit = () => 
 /**
  * The blocks Settings' plan section adds when the app sells (`plan.billing`, or in a host the
  * host's payments), under the plan's card: a word when a payment failed, what can be bought with
- * "Upgrade" (its price, and a founder's struck through beside the regular one), "Change or cancel
+ * "Upgrade" (its price, a founder's struck through beside the regular one, and for a year how much
+ * less it costs than paying monthly), "Change or cancel
  * plan" for whoever pays now, and last, quietly, the way to past payments and invoices for whoever
  * has no subscription now. "Change or cancel plan" opens its own dialog: the provider's portal
  * and what can be done there for a subscription of the web; for one of a store, how to cancel it
@@ -204,9 +220,10 @@ export function planStatus(answer, overview, { products = null, benefit = () => 
  * the early access).
  *
  * `paint(answer)` draws them for /api/me/entitlements' answer, and fills `status` (a node for the
- * card: when the plan renews or ends, a gift's end, the extras). It resolves to `{ holds, noted }`
- * —whether a live subscription holds the plan shown, and whether `status` says until when, so the
- * card's own "Until" goes— or to nothing when a later paint took its place.
+ * card: when the plan renews or ends, a gift's end, the extras). It resolves to `{ holds, noted, sells }`
+ * —whether a live subscription holds the plan shown, whether `status` says until when, so the
+ * card's own "Until" goes, and whether this person can buy now, here or in the app's store, or
+ * nothing said when the server didn't answer— or to nothing when a later paint took its place.
  */
 export function planPayments({
   hideCheckout = false, fail = (err) => toast(errorMessage(err), { error: true }), refresh = () => {},
@@ -312,12 +329,14 @@ export function planPayments({
       special && regular ? el('s', { text: regular, 'aria-label': t('kit.plan.regularPrice', { price: regular }) }) : null,
       el('strong', { text: special || regular }),
       per ? el('small', { text: t(`kit.plan.per.${per}`) }) : null) : null;
+    const saving = yearlySaving(product, offer.products, founder ? product.founder_amount : product.amount);
     const note = founder
       ? [t('kit.plan.founderNote'), offer.founder_until ? t('kit.plan.founderUntil', { date: lastDay(offer.founder_until) }) : ''].filter(Boolean).join(' ')
       : '';
     return el('div', { class: 'kit-list__row' },
       el('span', { class: 'kit-list__text' }, el('strong', { text: text.name }),
         founder ? el('span', { class: 'kit-badge kit-badge--accent', text: t('kit.plan.founder') }) : null,
+        saving ? el('span', { class: 'kit-badge kit-badge--on', text: t('kit.plan.saving', { percent: saving }) }) : null,
         el('small', { text: text.detail }),
         note ? el('small', { class: 'kit-plan__note', text: note }) : null),
       price, go);
@@ -366,7 +385,8 @@ export function planPayments({
       || !(subscriptions.length || products.some((p) => p.kind === 'once'));
 
     // Someone who pays already, here or in a store, changes the plan there: a second checkout would charge twice.
-    const offered = hideCheckout || offer.on_sale === false || paid.length ? [] : offerFor(answer, products, known);
+    const sellable = offer.on_sale === false || paid.length ? [] : offerFor(answer, products, known);
+    const offered = hideCheckout ? [] : sellable;
     // A founder's price first: it is the one that won't come back.
     const ordered = offer.founder ? [...offered.filter((p) => p.founder_price), ...offered.filter((p) => !p.founder_price)] : offered;
     clear(offerList).append(...ordered.map((product, i) => offerRow(product, offer, answer, plans, i === 0)));
@@ -374,6 +394,7 @@ export function planPayments({
     return {
       holds: live.some((s) => productOf(s.product)?.plan === (answer?.plan?.id ?? null)),
       noted: said.lines.length > 0,
+      sells: sellable.length > 0,
     };
   }
 
@@ -382,7 +403,7 @@ export function planPayments({
 
 /** A store's page, outside the app and this page: a new tab, or the system's browser in the suite's app. */
 function openOutside(url) {
-  if (!/^https:\/\//i.test(String(url || ''))) return;
+  if (!/^https:\/\//i.test(String(url || '')) || openExternal(url)) return;
   globalThis.open?.(url, '_blank', 'noopener');
 }
 

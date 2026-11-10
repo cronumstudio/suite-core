@@ -41,9 +41,10 @@
  * so reading again and again grows no table.
  *
  * The server can't refuse a store's sale: before it sells in the store, the app reads
- * `GET /api/billing/overview`, where a web subscription that already gives the plan is listed. The
- * other way round, the web's checkout answers 409 `already_subscribed` to a person with a live
- * store subscription (billing.js's `otherProviders`).
+ * `GET /api/billing/stores/offer` (`salesFor`), which says what this account may buy now, or why
+ * nothing: a live subscription on the web or in a store, a plan that doesn't end, sales not open
+ * yet. The other way round, the web's checkout answers 409 `already_subscribed` to a person with a
+ * live store subscription (billing.js's `otherProviders`).
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody } from './http.js';
@@ -61,7 +62,7 @@ const DELIVERY_ID = /^[A-Za-z0-9._-]{1,100}$/;
  * @param {object} options.database
  * @param {object} options.entitlements
  * @param {object} [options.provider]   a store adapter; without one, store purchases are off
- * @param {object} [options.products]   stores.products: { key: { plan, kind, appStore?, playStore? } }
+ * @param {object} [options.products]   stores.products: { key: { plan, kind, appStore?, playStore?, founderOf? } }
  * @param {boolean} [options.ignoreUnknownProducts]   as billing.js's
  * @param {number} [options.syncGapMs]  the least time between two syncs of one account
  */
@@ -96,6 +97,45 @@ export function createStoreBilling({
       billing.linkCustomer(subject, crypto.randomUUID());
       return billing.customerOf(subject);
     });
+  }
+
+  /**
+   * What the app on a phone may sell this account now, asked before it opens its store, since
+   * neither store can be told to refuse and a second subscription would charge twice. Whoever pays
+   * already, on the web or in a store, gets nothing; everyone else what the web would offer them
+   * (web/plan.js `offerFor`): a plan above theirs, or theirs again when it ends on a date. A product
+   * with `founderOf` is sold in place of the one it names to whoever gets the founder's price, which
+   * is the web's to say (`web.founder`), and to nobody else.
+   * → { blocked: null, customer, products: [{ key, plan, kind, founder, app_store, play_store }] },
+   * or { blocked: 'already_subscribed' | 'not_on_sale' | 'included', customer: null, products: [] }.
+   */
+  async function salesFor(user, { web = null } = {}) {
+    mustBeOn();
+    const nothing = (blocked) => ({ blocked, customer: null, products: [] });
+    const subject = { type: 'user', id: user.id };
+    const paying = [web, billing].filter((one) => one?.enabled).flatMap((one) => one.subscriptionsOf(subject));
+    if (paying.some((row) => LIVE.includes(row.status))) return nothing('already_subscribed');
+    if (web?.onSale && !web.onSale()) return nothing('not_on_sale');
+    const held = entitlements.of(user);
+    if (held.unlimited) return nothing('included');
+    const order = entitlements.describe().plans.map((plan) => plan.id);
+    const worthBuying = (plan) => {
+      if (plan === held.plan.id) return Boolean(held.ends);
+      const [wanted, now] = [order.indexOf(plan), order.indexOf(held.plan.id)];
+      return wanted < 0 || now < 0 || wanted > now;
+    };
+    const founder = Boolean(await web?.founder?.(user));
+    const replaced = new Set(founder ? Object.values(products).map((spec) => spec.founderOf).filter(Boolean) : []);
+    const sold = Object.entries(products)
+      .filter(([key, spec]) => worthBuying(spec.plan) && !replaced.has(key) && (founder || !spec.founderOf));
+    if (!sold.length) return nothing('included');
+    return {
+      blocked: null,
+      customer: customerFor(user.id),
+      products: sold.map(([key, spec]) => ({
+        key, plan: spec.plan, kind: spec.kind, founder: Boolean(spec.founderOf), app_store: spec.appStore ?? null, play_store: spec.playStore ?? null,
+      })),
+    };
   }
 
   /**
@@ -208,7 +248,7 @@ export function createStoreBilling({
   }
 
   return {
-    enabled, errors, provider: source, kind: 'store', customerFor, sync, handleWebhook, apply: billing.apply,
+    enabled, errors, provider: source, kind: 'store', customerFor, salesFor, sync, handleWebhook, apply: billing.apply,
     offer: billing.offer, customerOf: billing.customerOf, subscriptionsOf: billing.subscriptionsOf, forget: billing.forget,
     stopRenewals: billing.stopRenewals, keepRenewals: billing.keepRenewals, endSubscriptions: billing.endSubscriptions,
     manage: (ref) => provider?.manage?.(ref) ?? null,
@@ -217,11 +257,12 @@ export function createStoreBilling({
 
 /**
  * The stores' routes: the adapter's webhook (`/api/billing/<adapter id>/webhook`, no cookie: what
- * the adapter checks is what counts), and for the phone's app the account's customer and a sync
- * after a purchase. `principal(ctx)`: who asks (the session's account, or with `stores.devices` the
- * phone's device token).
+ * the adapter checks is what counts), and for the phone's app the account's customer, what it may
+ * sell them, and a sync after a purchase. `principal(ctx)`: who asks (the session's account, or with
+ * `stores.devices` the phone's device token). `web`: the web's billing, whose subscriptions and
+ * founder's price count too.
  */
-export function registerStoreApi(router, { stores, principal = (ctx) => ctx.user }) {
+export function registerStoreApi(router, { stores, principal = (ctx) => ctx.user, web = null }) {
   if (!stores?.enabled) return;
   const who = (ctx) => {
     const user = principal(ctx);
@@ -232,6 +273,9 @@ export function registerStoreApi(router, { stores, principal = (ctx) => ctx.user
   router.get('/api/billing/stores/customer', (ctx) => {
     const user = who(ctx);
     sendJson(ctx.res, 200, { provider: stores.provider, customer: stores.customerFor(user.id) });
+  });
+  router.get('/api/billing/stores/offer', async (ctx) => {
+    sendJson(ctx.res, 200, await stores.salesFor(who(ctx), { web }));
   });
   router.post('/api/billing/stores/sync', async (ctx) => {
     const user = who(ctx);
