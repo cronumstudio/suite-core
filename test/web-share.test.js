@@ -164,6 +164,69 @@ test('whoever it was shared with sees who has it and may leave it', async () => 
   assert.equal(await outcome, 'left');
 });
 
+test('roles of an app\'s own and a manager who doesn\'t own it: a list, rows kept as they are, a question before taking back', async () => {
+  const calls = [];
+  const outcome = shareDialog({
+    name: 'Launch', me: 2, invitePermission: 'member',
+    permissions: [
+      { value: 'manager', label: 'Manages', offered: false },
+      { value: 'member', label: 'Can edit' },
+      { value: 'viewer', label: 'Read only' },
+    ],
+    load: async () => ({
+      role: 'manager', manage: true, owner: { id: 1, name: 'Ana' },
+      shares: [
+        { user: { id: 2, name: 'Ben' }, permission: 'manager', accepted: true },
+        { user: { id: 3, name: 'Cris' }, permission: 'manager', accepted: true },
+        { user: { id: 4, name: 'Dani' }, permission: 'member', accepted: true },
+        { user: { id: -7, name: 'eve@example.com', email: 'eve@example.com' }, permission: 'viewer', accepted: false },
+      ],
+    }),
+    fixed: (share) => share.permission === 'manager',
+    confirmRemove: (share) => (share.accepted ? `Take ${share.user.name} out?` : null),
+    offer: async (target, permission) => { calls.push(['offer', target.email, permission]); return { share: null, invited: true }; },
+    setPermission: async (share, permission) => { calls.push(['set', share.user.id, permission]); },
+    remove: async (share) => { calls.push(['remove', share.user.id]); },
+    leave: async () => {},
+  });
+  await settle();
+  const [dialog] = openDialogs();
+  assert.equal(dialog.getAttribute('aria-label'), t('kit.share.title', { name: 'Launch' }), 'a manager shares as its owner does');
+  assert.deepEqual(byClass(dialog, 'kit-share__role').map((n) => n.textContent), ['Manages', 'Manages'],
+    'one\'s own row and another manager\'s say what they may do, with nothing to change');
+  const takeBacks = () => dialog.all().filter((n) => n.tagName === 'BUTTON' && /^Take it back|^Quit/.test(n.getAttribute('aria-label') || ''));
+  assert.equal(takeBacks().length, 2, 'Dani and the address, not Ben nor Cris');
+
+  const choice = byClass(dialog, 'kit-share__choice')[0];
+  assert.ok(choice, 'three roles: a list beside Invite');
+  assert.deepEqual(choice.find('option').map((o) => o.textContent), ['Can edit', 'Read only'], 'a role only its owner gives is never offered');
+  assert.equal(byClass(dialog, 'kit-segmented').length, 0);
+  choice.value = 'viewer';
+  choice.dispatch('change');
+  const email = dialog.all().find((n) => n.tagName === 'INPUT' && n.getAttribute('type') === 'email');
+  email.value = 'fay@example.com';
+  email.dispatch('input');
+  byClass(dialog, 'kit-share__invite')[0].dispatch('submit', { preventDefault() {} });
+  await settle();
+  assert.deepEqual(calls.find(([what]) => what === 'offer'), ['offer', 'fay@example.com', 'viewer']);
+
+  // An invitation not answered goes at once; someone in it, after the question.
+  const remove = (name) => dialog.all().find((n) => n.tagName === 'BUTTON' && n.getAttribute('aria-label') === t('kit.share.remove', { name }));
+  remove('eve@example.com').dispatch('click');
+  await settle();
+  assert.deepEqual(calls.at(-1), ['remove', -7]);
+  remove('Dani').dispatch('click');
+  await settle();
+  const question = openDialogs().at(-1);
+  assert.match(question.textContent, /Take Dani out\?/);
+  button(question, t('kit.share.takeBack')).dispatch('click', { currentTarget: button(question, t('kit.share.takeBack')) });
+  await settle();
+  assert.deepEqual(calls.at(-1), ['remove', 4]);
+  assert.ok(button(dialog, t('kit.share.leave')), 'a manager who doesn\'t own it may still leave it');
+  closeAll();
+  assert.equal(await outcome, null);
+});
+
 test('a load that fails says so and opens nothing', async () => {
   const before = openDialogs().length;
   const outcome = await shareDialog({ name: 'X', load: async () => { throw Object.assign(new Error('x'), { code: 'not_found' }); } });

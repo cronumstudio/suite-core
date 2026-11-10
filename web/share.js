@@ -18,6 +18,11 @@
  * Its words are the kit's (`kit.share.*`); an app that has its own passes
  * `words(key) → catalog key` and keeps them. A share is
  * `{ user: { id, name, email? }, permission, accepted }`, as sharing.js answers.
+ *
+ * What one may do with it is "can edit" or "read only", unless the app has roles
+ * of its own (`permissions`, Projects: manages, can edit, read only). Its owner
+ * manages who has it, and so does whoever `load` answers `manage: true` for
+ * (Projects' managers): the same dialog, minus the rows `fixed` keeps as they are.
  */
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
@@ -45,7 +50,17 @@ const fail = (err) => {
  * @param {Function} [options.avatar]  (person) → node; default the kit's initials.
  * @param {Function} [options.detail]  (share, owner) → the line under a name (default: the email
  *   the owner typed, else what they may do).
- * @param {Function} [options.load]  () → Promise<{ role, owner, shares }>.
+ * @param {Array} [options.permissions]  what one may be given, `[{ value, label, offered? }]`, broadest
+ *   first (default: can edit, read only). With more than two, a list to choose from instead of buttons.
+ *   `offered: false`: said on the rows that have it, never given here (a role only the owner gives).
+ * @param {string} [options.invitePermission]  what an invitation gives unless changed (default the first).
+ * @param {Function} [options.fixed]  (share) → true for a row whoever manages can't change or take
+ *   back (a manager's, for another manager); one's own row always is.
+ * @param {Function} [options.confirmRemove]  (share) → the question to ask before taking it back,
+ *   or nothing to take it back at once.
+ * @param {Element} [options.parent]  where the dialog and its questions hang, as openDialog's (a
+ *   module that keeps its dialogs in its own place, its window in Cronum Work).
+ * @param {Function} [options.load]  () → Promise<{ role, owner, shares, manage? }>.
  * @param {Function} [options.offer]  (target { id?, email?, name }, permission) → Promise<{ share?, invited }>;
  *   a share without an id (an offer by email) makes the dialog load who has it again.
  * @param {Function} [options.setPermission]  (share, permission) → Promise<share?>.
@@ -57,8 +72,12 @@ export async function shareDialog({
   name, base = null, me = null, words = (key) => `kit.share.${key}`, people = null, email: byEmail = true,
   hint = null, empty = null, avatar = (person) => kitAvatar(person?.name), detail = null,
   load = null, offer: offerOne = null, setPermission = null, remove = null, leave = null,
+  permissions = null, invitePermission = null, fixed = null, confirmRemove = null, parent = null,
 } = {}) {
   const w = (key, vars) => t(words(key), vars);
+  const kinds = permissions?.length ? permissions : [{ value: 'edit', label: w('edit') }, { value: 'view', label: w('view') }];
+  // What may be given here: a role with `offered: false` is said on the rows that have it, never chosen.
+  const offered = kinds.filter((k) => k.offered !== false);
   load ||= () => api.get(`${base}/shares`);
   offerOne ||= (target, permission) => api.post(`${base}/shares`, target.id != null ? { user_id: target.id, permission } : { email: target.email, permission });
   setPermission ||= (share, permission) => api.patch(`${base}/shares/${share.user.id}`, { permission });
@@ -77,19 +96,22 @@ export async function shareDialog({
     return null;
   }
   const owner = data.role === 'owner';
-  const contacts = owner ? await contactsAsked : [];
+  const manages = owner || data.manage === true;
+  const contacts = manages ? await contactsAsked : [];
   return new Promise((resolve) => {
     let result = null;
     const list = el('div', { class: 'kit-list kit-share__people' });
-    const can = (permission) => w(permission === 'view' ? 'view' : 'edit');
-    // The owner's chips, drawn again with the list: whoever has it now leaves them.
+    const can = (permission) => kinds.find((k) => k.value === permission)?.label ?? w(permission === 'view' ? 'view' : 'edit');
+    // The chips of whoever manages, drawn again with the list: whoever has it now leaves them.
     let paintChips = () => {};
 
     const lineUnder = (share) => {
-      if (detail) return detail(share, owner);
-      if (!owner) return can(share.permission);
+      if (detail) return detail(share, manages);
+      if (!manages) return can(share.permission);
       return share.user.email && share.user.email !== share.user.name ? share.user.email : null;
     };
+    // A row whoever manages leaves as it is: their own, and those the app keeps (another manager's).
+    const locked = (share) => !manages || (share.user.id != null && share.user.id === me) || Boolean(fixed?.(share));
 
     const paint = () => {
       clear(list);
@@ -100,7 +122,7 @@ export async function shareDialog({
           el('small', { text: w(mine ? 'ownerYou' : 'owner') }))));
       for (const share of data.shares) {
         const permission = el('select', { class: 'kit-input kit-share__permission', 'aria-label': w('permission') },
-          ...['edit', 'view'].map((p) => el('option', { value: p, text: can(p), selected: share.permission === p })));
+          ...offered.map((k) => el('option', { value: k.value, text: k.label, selected: share.permission === k.value })));
         permission.addEventListener('change', async () => {
           try {
             const changed = await setPermission(share, permission.value);
@@ -113,6 +135,8 @@ export async function shareDialog({
         const takeBack = el('button', {
           type: 'button', class: 'kit-icon-btn', 'aria-label': w('remove', { name: share.user.name }), title: w('remove', { name: share.user.name }),
           onClick: async () => {
+            const question = confirmRemove?.(share);
+            if (question && !await confirmDialog(question, { confirm: w('takeBack'), parent })) return;
             try {
               await remove(share);
               data.shares = data.shares.filter((s) => s !== share);
@@ -123,27 +147,37 @@ export async function shareDialog({
           },
         }, icon('x'));
         const under = lineUnder(share);
+        const keep = locked(share);
         list.append(el('div', { class: 'kit-list__row' }, avatar(share.user),
           el('span', { class: 'kit-list__text' },
             // The whole name in its title: on a phone it keeps one line, cut with "…" (kit.css).
             el('span', { class: 'kit-share__name', title: share.user.name, text: share.user.id != null && share.user.id === me ? w('you', { name: share.user.name }) : share.user.name }),
             under ? el('small', { text: under }) : null,
-            owner && !share.accepted ? el('small', { class: 'kit-share__pending', text: w('pending') }) : null),
-          owner ? permission : null,
-          owner ? takeBack : null));
+            manages && !share.accepted ? el('small', { class: 'kit-share__pending', text: w('pending') }) : null),
+          // A row kept as it is says what they may do where the others let it be changed.
+          manages && keep ? el('span', { class: 'kit-share__role', text: can(share.permission) }) : null,
+          manages && !keep ? permission : null,
+          manages && !keep ? takeBack : null));
       }
       paintChips();
     };
     paint();
 
     let form = null;
-    if (owner) {
+    if (manages) {
       const email = byEmail ? el('input', {
         type: 'email', class: 'kit-input', placeholder: w('emailPlaceholder'), autocomplete: 'off',
         autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'send', 'aria-label': w('email'),
       }) : null;
-      let permission = 'edit';
-      const choice = segmented([{ value: 'edit', label: w('edit') }, { value: 'view', label: w('view') }], permission, (value) => { permission = value; });
+      let permission = offered.some((k) => k.value === invitePermission) ? invitePermission : offered[0].value;
+      // Two choices fit as buttons beside Invite; an app with more roles, on a phone, only as a list
+      // (for whoever may give fewer of them too: the dialog looks the same for its owner and its managers).
+      const asList = kinds.length > 2;
+      const choice = asList
+        ? el('select', { class: 'kit-input kit-share__permission kit-share__choice', 'aria-label': w('permission') },
+          ...offered.map((k) => el('option', { value: k.value, text: k.label, selected: k.value === permission })))
+        : segmented(offered, permission, (value) => { permission = value; });
+      if (asList) choice.addEventListener('change', () => { permission = choice.value; });
       const invite = el('button', { type: 'submit', class: 'kit-btn kit-btn--primary', text: w('invite') });
       const typed = () => (email ? email.value.trim() : '');
       // Nothing to share until there is an email or a chip chosen.
@@ -213,14 +247,14 @@ export async function shareDialog({
     }
 
     openDialog({
-      title: owner ? w('title', { name }) : w('people'),
+      title: manages ? w('title', { name }) : w('people'),
       content: el('div', { class: 'kit-stack' }, form,
-        owner ? el('h3', { class: 'kit-share__heading', text: w('withAccess') }) : null, list),
+        manages ? el('h3', { class: 'kit-share__heading', text: w('withAccess') }) : null, list),
       // Someone who reaches it some other way (a notebook through its group) has nothing here to leave.
       actions: owner || !data.shares.some((s) => s.user.id === me) ? [{ label: t('kit.close') }] : [{
         label: w('leave'), danger: true,
         onClick: async () => {
-          if (!await confirmDialog(w('leaveConfirm', { name }), { confirm: w('leave') })) return false;
+          if (!await confirmDialog(w('leaveConfirm', { name }), { confirm: w('leave'), parent })) return false;
           try {
             await leave();
             result = 'left';
@@ -230,6 +264,7 @@ export async function shareDialog({
           }
         },
       }, { label: t('kit.close'), primary: true }],
+      parent,
       onClose: () => resolve(result),
     });
   });

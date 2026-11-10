@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.245.0 — 2026-11-10
+
+- **The share dialog for an app with roles of its own** (`web/share.js`, audit of 6/11, consistency):
+  Projects shares with it instead of a dialog of its own. New options, all optional, so every app that
+  shares today stays as it is:
+  - `permissions`: `[{ value, label, offered? }]` instead of can edit and read only; with more than two,
+    the invitation chooses from a list, which fits a phone beside Invite. `offered: false` is said on
+    the rows that have it and never given (a role only the owner gives).
+  - `invitePermission`: what an invitation gives unless changed.
+  - `load` answering `manage: true`: whoever manages without owning it (a project's manager) invites,
+    changes and takes back as its owner does, and may still leave it.
+  - `fixed(share)`: rows whoever manages keeps as they are, with what they may do instead of the list.
+    One's own row always is.
+  - `confirmRemove(share)`: the question asked before taking it back, with `kit.share.takeBack` as its
+    button (Projects: their tasks are left without whoever does them).
+  - `parent`: where the dialog and its questions hang, as `openDialog`'s (Projects keeps its dialogs
+    in its window in Cronum Work).
+
 ## 0.244.0 — 2026-11-10
 
 For selling Cronum Work Pro in the App Store and Google Play. Nothing changes without `STORE_BILLING`.

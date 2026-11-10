@@ -1361,6 +1361,7 @@
   "kit.share.you": "{name} (tú)",
   "kit.share.pending": "Invitación sin responder",
   "kit.share.remove": "Quitárselo a {name}",
+  "kit.share.takeBack": "Quitar",
   "kit.share.invited": "Invitación enviada a {name}.",
   "kit.share.changed": "Ha cambiado lo que puede hacer {name}.",
   "kit.share.leave": "Dejar",
