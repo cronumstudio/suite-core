@@ -771,6 +771,14 @@ test('the card: when a subscription renews or ends, a store’s, a gift’s end,
     ['Renews on January 12, 2027', 'Paid through Google Play']);
   assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'admin', plan: 'pro', ends: '2027-03-01T00:00:00.000Z' }] }).lines, ['Given to you until March 1, 2027']);
   assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'admin', plan: 'pro', ends: null }] }).lines, ['Given to you, with no end date']);
+  // The overview lists gifts newest first: the early access's Pro until a date, then Pro for good.
+  const earlyAccess = { kind: 'admin', plan: 'pro', ends: '2026-12-31T00:00:00.000Z' };
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [earlyAccess, { kind: 'admin', plan: 'pro', ends: null }] }).lines,
+    ['Given to you, with no end date'], 'for good wins over a date');
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [earlyAccess, { kind: 'admin', plan: 'pro', ends: '2027-03-01T00:00:00.000Z' }] }).lines,
+    ['Given to you until March 1, 2027'], 'the later date');
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'admin', plan: 'free', ends: null }, earlyAccess] }).lines,
+    ['Given to you until December 31, 2026'], 'only a gift of the plan shown');
   assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'organization', plan: 'pro', name: 'Fleet A' }] }).lines, ['Included in Fleet A']);
   assert.deepEqual(planStatus(FREE, { sources: [] }).lines, [], 'the default plan: nothing to say');
   const extras = planStatus(FREE, { sources: [{ kind: 'extra', feature: 'tasks.lists.max', value: 100, ends: '2027-03-01T00:00:00.000Z' }] },

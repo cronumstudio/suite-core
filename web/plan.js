@@ -191,7 +191,10 @@ export function planStatus(answer, overview, { products = null, benefit = () => 
     if (s.kind === 'store' && s.store) lines.push(t(`kit.plan.via.${s.store}`));
   }
   if (!lines.length) {
-    const gift = sources.find((s) => s.kind === 'admin' && s.plan === current);
+    // Of two gifts of the plan, the one that lasts longest, as entitlements.js shows the plan: Pro for
+    // good reads for good, though the early access's Pro until a date came after it (newest first).
+    const lasting = (s) => (s.ends ? Date.parse(s.ends) : Infinity);
+    const gift = sources.filter((s) => s.kind === 'admin' && s.plan === current).sort((a, b) => lasting(b) - lasting(a))[0];
     const group = sources.find((s) => s.kind === 'organization' && s.plan === current);
     if (gift) lines.push(gift.ends ? t('kit.plan.given', { date: longDate(gift.ends) }) : t('kit.plan.givenForGood'));
     else if (group) lines.push(t('kit.plan.coveredBy', { group: group.name }));
