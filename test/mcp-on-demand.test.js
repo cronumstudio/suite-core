@@ -16,7 +16,7 @@ import { createHost, prefixNames } from '../host.js';
 const text = (value) => ({ content: [{ type: 'text', text: value }] });
 const ADA = { id: 1, name: 'ada', plan: 'free' };
 
-function server(options = {}) {
+function server({ extra = [], ...options } = {}) {
   const calls = [];
   const changes = [];
   const mcp = createMcpServer({
@@ -46,6 +46,7 @@ function server(options = {}) {
         inputSchema: { type: 'object', properties: {} },
         handler: () => ({ isError: true, content: [{ type: 'text', text: 'Nothing here.' }] }),
       },
+      ...extra,
     ],
     authenticate: () => ADA,
     challenge: () => 'Bearer',
@@ -58,6 +59,24 @@ function server(options = {}) {
 }
 const names = (list) => list.map((tool) => tool.name);
 const said = (result) => result.content.map((part) => part.text).join('\n');
+
+test('the door opens only for what it lists, and what deletes or shares stays in the list', async () => {
+  const { mcp, calls } = server({ onDemand: (principal, tool) => tool.name === 'add_subtask' || tool.name === 'delete_all', door: 'work', extra: [{
+    name: 'delete_all', title: 'Delete', description: 'Deletes it all.', inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    handler: () => { calls.push(['delete_all']); return text('Gone.'); },
+  }] });
+  const list = mcp.listTools(ADA);
+  assert.ok(names(list).includes('delete_all'), 'destructive: in the list, whatever onDemand says');
+  assert.match(list.find((tool) => tool.name === 'work_more_tools').description, /: add_subtask\. When/);
+  assert.equal(list.find((tool) => tool.name === 'work_use_tool').annotations.destructiveHint, false);
+  const before = calls.length;
+  const refused = await mcp.callTool(ADA, 'work_use_tool', { name: 'delete_all' });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /delete_all is in your list/);
+  assert.equal((await mcp.callTool(ADA, 'work_use_tool', { name: 'no_such_tool' })).isError, true);
+  assert.equal(calls.length, before, 'neither ran');
+});
 
 test('without onDemand every tool is listed, as before, and there is no door', async () => {
   const { mcp } = server();
@@ -75,7 +94,7 @@ test('tools kept on demand: out of the list, named by the door, read and run thr
   const more = list.find((t) => t.name === 'work_more_tools');
   assert.match(more.description, /: add_subtask, share_list\. When the user asks/, 'the door names what is behind it');
   assert.deepEqual(more.annotations, { title: 'More tools', readOnlyHint: true, openWorldHint: false });
-  assert.equal(list.find((t) => t.name === 'work_use_tool').annotations.destructiveHint, true, 'a client may ask first');
+  assert.equal(list.find((t) => t.name === 'work_use_tool').annotations.destructiveHint, false, 'nothing destructive goes through it');
 
   // A line each, then what one named does and takes.
   const lines = said(await mcp.callTool(ADA, 'work_more_tools', {}));

@@ -59,6 +59,7 @@
   "errors.grant_not_found": "Esa concesión ya no existe o ya estaba revocada.",
   "errors.early_access_off": "Esta instalación no tiene acceso anticipado.",
   "errors.internal": "Error del servidor. Inténtalo dentro de un momento.",
+  "errors.identity_not_here": "El inicio de sesión de una persona solo se puede borrar desde la app que lo gestiona.",
   "errors.invalid_event": "No se ha podido entender el aviso.",
   "errors.invalid_json": "No se ha podido leer la petición.",
   "errors.invitation_expired": "Esa invitación ha caducado. Pide una nueva.",
@@ -593,7 +594,7 @@
   "admin.actions.org_member_role": "Cambió el papel de un miembro",
   "admin.actions.org_member_remove": "Quitó a un miembro",
   "admin.actions.org_invitation_revoke": "Retiró una invitación de grupo",
-  "admin.actions.org_delete": "Se eliminó un grupo",
+  "admin.actions.org_delete": "Se borró un grupo",
   "admin.actions.auth_two_factor_enable": "Activó la verificación en dos pasos",
   "admin.actions.auth_two_factor_disable": "Desactivó la verificación en dos pasos",
   "admin.actions.auth_two_factor_recovery_codes": "Generó códigos de recuperación nuevos",
@@ -968,6 +969,7 @@
   "kit.plan.upgrade": "Mejorar",
   "kit.plan.upgradeTo": "Mejorar: {product} ({detail})",
   "kit.plan.founder": "Precio de fundador",
+  "kit.plan.saving": "{percent} % dto.",
   "kit.plan.kind.monthly": "Suscripción mensual",
   "kit.plan.kind.yearly": "Suscripción anual",
   "kit.plan.kind.subscription": "Suscripción",
@@ -1045,8 +1047,8 @@
     "other": "{n} subtareas"
   },
   "kit.usage.counted.notebooks": {
-    "one": "{n} cuaderno",
-    "other": "{n} cuadernos"
+    "one": "{n} libreta",
+    "other": "{n} libretas"
   },
   "kit.usage.counted.notes": {
     "one": "{n} nota",
@@ -1057,8 +1059,8 @@
     "other": "{n} proyectos"
   },
   "kit.usage.counted.entries": {
-    "one": "{n} entrada",
-    "other": "{n} entradas"
+    "one": "{n} paso",
+    "other": "{n} pasos"
   },
   "kit.usage.counted.files": {
     "one": "{n} archivo",
@@ -1081,10 +1083,10 @@
   "kit.usage.items.lists": "Listas",
   "kit.usage.items.tasks": "Tareas",
   "kit.usage.items.subtasks": "Subtareas",
-  "kit.usage.items.notebooks": "Cuadernos",
+  "kit.usage.items.notebooks": "Libretas",
   "kit.usage.items.notes": "Notas",
   "kit.usage.items.projects": "Proyectos",
-  "kit.usage.items.entries": "Entradas",
+  "kit.usage.items.entries": "Pasos",
   "kit.usage.items.files": "Archivos",
   "kit.usage.ofLimit": "{count} de {limit}",
   "kit.usage.storage": "Espacio",
@@ -1134,8 +1136,8 @@
   "kit.data.erased": "Tus datos se han borrado.",
   "kit.data.deleteTitle": "Borrar mi cuenta",
   "kit.data.deleteHint": {
-    "one": "Si borras tu cuenta, quedará desactivada durante {n} día y después se eliminará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba.",
-    "other": "Si borras tu cuenta, quedará desactivada durante {n} días y después se eliminará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba."
+    "one": "Si borras tu cuenta, quedará desactivada durante {n} día y después se borrará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba.",
+    "other": "Si borras tu cuenta, quedará desactivada durante {n} días y después se borrará automáticamente con todo lo que tienes en {app}. Si cambias de idea antes, entra en tu cuenta y podrás recuperarla tal como estaba."
   },
   "kit.data.deleteShared": "Lo que compartes con otras personas se queda con ellas, salvo que dejes de compartirlo antes de borrar tu cuenta.",
   "kit.data.deleteButton": "Borrar mi cuenta…",

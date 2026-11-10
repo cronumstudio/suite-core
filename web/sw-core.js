@@ -196,6 +196,26 @@ function suiteNetworkFirst(network, fallback, wait) {
   });
 }
 
+/**
+ * A page from the network, unless the server is in trouble (a deploy's 502, Cloudflare's 52x): then
+ * the copy, when there is one. An installed app has no reload button for an error page.
+ */
+function suitePageOrCopy(network, fallback) {
+  return network.then(function (response) {
+    if (!response || response.status < 500) return response;
+    return fallback().then(function (copy) { return copy || response; });
+  });
+}
+
+/**
+ * The page in the copy that a module's own path is (`/tasks/list/12` → `/tasks/index.html`), as
+ * the server answers one without an extension (app.js), or null.
+ */
+function suiteModulePage(pathname, module) {
+  if (!module || pathname === module || pathname.indexOf(module) !== 0) return null;
+  return pathname.slice(pathname.lastIndexOf('/') + 1).indexOf('.') < 0 ? module + 'index.html' : null;
+}
+
 function suiteWorker(options) {
   var scope = options.scope || SUITE_SCOPE;
   var version = suiteCacheName(options.version, scope);
@@ -403,8 +423,13 @@ function suiteWorker(options) {
         // seconds before this same page, and after a deploy gave the new page with the old code.
         // Whatever is read from the address (`?w=`, `?open=`, `?auth_error=`) is the page's own
         // code's; what the server reads first never gets here (/auth/, /devices/session…).
+        // A module's own path (`/tasks/list/12`) is that module's page: from the copy too, not
+        // after the four seconds of a weak signal.
+        var modulePage = suiteModulePage(url.pathname, moduleOf(url.pathname));
         event.respondWith(caches.open(version)
-          .then(function (cache) { return cache.match(url.pathname); })
+          .then(function (cache) {
+            return cache.match(url.pathname).then(function (kept) { return kept || (modulePage ? cache.match(modulePage) : null); });
+          })
           .then(function (kept) {
             if (kept) return suiteKeptPage(kept);
             // A page the copy lacks: the network's, and kept if it is one of the shell's, so a file
@@ -412,11 +437,11 @@ function suiteWorker(options) {
             var network = fetch(request).then(function (response) {
               return shellPages().indexOf(url.pathname) >= 0 ? store(request, response, url.pathname) : response;
             });
-            return suiteNetworkFirst(network, fromCopy, wait);
+            return suiteNetworkFirst(suitePageOrCopy(network, fromCopy), fromCopy, wait);
           }));
         return;
       }
-      event.respondWith(suiteNetworkFirst(fetch(request), fromCopy, wait));
+      event.respondWith(suiteNetworkFirst(suitePageOrCopy(fetch(request), fromCopy), fromCopy, wait));
       return;
     }
 

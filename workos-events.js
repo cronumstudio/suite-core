@@ -55,12 +55,16 @@ export function watchPasswordResets({ workos, users, database, revokeEverything,
     return { revoked: 0, started: true };
   }
 
-  /** One reset: everything that lets that person in here, ended. → 1 if they have an account here. */
+  /**
+   * One reset: everything that lets that person in here until then, ended. Heard up to a minute later:
+   * what they opened since, with the new password, stays. → 1 if they have an account here.
+   */
   function reset(event) {
     const subject = event.data?.user_id;
     const user = subject ? users.byWorkosId(String(subject)) : null;
     if (!user) return 0;
-    revokeEverything(user.id, { keep: null, reason: 'workos_password_reset' });
+    const happened = Date.parse(event.created_at);
+    revokeEverything(user.id, { keep: null, before: Number.isFinite(happened) ? new Date(happened).toISOString() : null, reason: 'workos_password_reset' });
     log(`[auth] user #${user.id} reset their password at WorkOS: their sessions, tokens, phones and AI clients here were revoked`);
     return 1;
   }

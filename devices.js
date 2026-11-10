@@ -392,10 +392,10 @@ export function createDevices({
     return done;
   });
 
-  /** Revokes all of a person's devices (the admin's "sign out everywhere"), their web sessions too: how many were. */
-  const revokeAllOf = (userId) => database.tx(() => {
+  /** Revokes all of a person's devices (the admin's "sign out everywhere"; with `before`, those connected until then), their web sessions too: how many were. */
+  const revokeAllOf = (userId, { before = null } = {}) => database.tx(() => {
     const count = database.run(`UPDATE device_tokens SET revoked_at = ?
-      WHERE user_id = ? AND revoked_at IS NULL`, iso(clock()), userId).changes;
+      WHERE user_id = ? AND revoked_at IS NULL${before ? ' AND created_at < ?' : ''}`, iso(clock()), userId, ...(before ? [before] : [])).changes;
     endSessions('user_id = ? AND revoked_at IS NOT NULL', userId);
     return count;
   });

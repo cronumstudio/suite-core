@@ -59,6 +59,7 @@
   "errors.grant_not_found": "Cet avantage n’existe plus ou a déjà été révoqué.",
   "errors.early_access_off": "Cette installation n’a pas d’accès anticipé.",
   "errors.internal": "Erreur du serveur. Réessayez dans un instant.",
+  "errors.identity_not_here": "La connexion d’une personne ne peut être supprimée que depuis l’application qui la gère.",
   "errors.invalid_event": "La notification n’a pas pu être comprise.",
   "errors.invalid_json": "La requête n’a pas pu être lue.",
   "errors.invitation_expired": "Cette invitation a expiré. Demandez-en une nouvelle.",
@@ -968,6 +969,7 @@
   "kit.plan.upgrade": "Choisir",
   "kit.plan.upgradeTo": "Choisir : {product} ({detail})",
   "kit.plan.founder": "Prix fondateur",
+  "kit.plan.saving": "-{percent} %",
   "kit.plan.kind.monthly": "Abonnement mensuel",
   "kit.plan.kind.yearly": "Abonnement annuel",
   "kit.plan.kind.subscription": "Abonnement",
@@ -1057,8 +1059,8 @@
     "other": "{n} projets"
   },
   "kit.usage.counted.entries": {
-    "one": "{n} entrée",
-    "other": "{n} entrées"
+    "one": "{n} étape",
+    "other": "{n} étapes"
   },
   "kit.usage.counted.files": {
     "one": "{n} fichier",
@@ -1084,7 +1086,7 @@
   "kit.usage.items.notebooks": "Carnets",
   "kit.usage.items.notes": "Notes",
   "kit.usage.items.projects": "Projets",
-  "kit.usage.items.entries": "Entrées",
+  "kit.usage.items.entries": "Étapes",
   "kit.usage.items.files": "Fichiers",
   "kit.usage.ofLimit": "{count} sur {limit}",
   "kit.usage.storage": "Stockage",

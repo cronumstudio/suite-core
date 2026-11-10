@@ -704,6 +704,7 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
   tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null, sharedLogin = null,
+  confirmAdmin = null,
 }) {
   // The identity provider, where its login is shared with other apps (config.accounts.sharedIdentity) and it can say who else uses it.
   const sharedIdentity = Boolean(sharedLogin?.otherApps && sharedLogin?.deleteIdentity && sharedLogin?.unmark);
@@ -813,8 +814,10 @@ export function registerAdminApi(router, {
 
   /**
    * Deleting an account, at once. Where its login is shared with other apps (`sharedIdentity`),
-   * `?identity=1` deletes it there too (first: if the provider can't, nothing goes); otherwise
-   * it stays, no longer naming this app.
+   * `?identity=1` deletes it there too (first: if the provider can't, nothing goes), only where
+   * this install owns the identities and with the admin's own password (and code) again: their
+   * login in every product goes for good, and a stolen cookie alone isn't enough for that
+   * (workos-security.js). Otherwise it stays, no longer naming this app.
    */
   router.delete('/api/admin/users/:id', async (ctx) => {
     requireAdmin(ctx);
@@ -823,6 +826,8 @@ export function registerAdminApi(router, {
     if (!accounts.byId(id)) throw notFound('user_not_found');
     const withIdentity = Boolean(sharedIdentity && ctx.query?.get('identity') === '1');
     if (withIdentity) {
+      if (!confirmAdmin) throw forbidden('identity_not_here');
+      await confirmAdmin(ctx, await readJson(ctx.req));
       try {
         await sharedLogin.deleteIdentity(id);
       } catch (err) {

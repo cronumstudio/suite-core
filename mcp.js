@@ -393,7 +393,9 @@ export function createMcpServer({
     const kept = [];
     for (const tool of tools) {
       if (!visible(principal, tool)) continue;
-      (doors && onDemand(principal, tool) ? kept : shown).push(tool);
+      // What may delete, or give someone else access, stays in the list: a client asks before each
+      // of those, and behind the door the one question would be the door's.
+      (doors && tool.annotations?.destructiveHint !== true && onDemand(principal, tool) ? kept : shown).push(tool);
     }
     return { shown, kept };
   }
@@ -424,7 +426,7 @@ export function createMcpServer({
       required: ['name'],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }];
 
   /** What the tools behind the door do: a line each, or what each one named does and takes. */
@@ -469,7 +471,11 @@ export function createMcpServer({
     if (doors && name === doors.more) return moreTools(principal, args?.names);
     if (doors && name === doors.use) {
       const inner = String(args?.name ?? '');
-      if (!inner || inner === doors.more || inner === doors.use) return textResult(`Give the name of a tool ${doors.more} lists.`, true);
+      // Only what it lists: anything else has a permission of its own, which the door would go round.
+      if (!listOf(principal).kept.some((tool) => tool.name === inner)) {
+        const listed = byName.get(inner) && visible(principal, byName.get(inner));
+        return textResult(listed ? `${inner} is in your list: call it by its name.` : `Give the name of a tool ${doors.more} lists.`, true);
+      }
       let innerArgs = args?.arguments ?? {};
       // Some assistants send an object's JSON as a text.
       if (typeof innerArgs === 'string') { try { innerArgs = JSON.parse(innerArgs || '{}'); } catch { /* refused below */ } }

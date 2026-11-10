@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.244.0 — 2026-11-09
+## 0.244.0 — 2026-11-10
 
 For selling Cronum Work Pro in the App Store and Google Play. Nothing changes without `STORE_BILLING`.
 
@@ -17,6 +17,44 @@ For selling Cronum Work Pro in the App Store and Google Play. Nothing changes wi
   (`modules.stores`, `app.host.stores`), shows too for a plan that ends on a date (the early
   access's gift, which paying carries on), and goes for whoever pays already or before sales open.
 - A store's "Open the App Store" button goes through the bridge's `open-external` in the app.
+
+## 0.243.2 — 2026-11-10
+
+- **Settings › Plan says how much a year saves.** A yearly product's row has a badge with how much
+  less it costs than twelve months of the same plan's monthly product, rounded down: "25% off", or
+  "59% off" with a founder's price. `yearlySaving()` in `web/plan.js`. Only where the web sells, so
+  never in the app on a phone.
+
+## 0.243.1 — 2026-11-09
+
+- **The same words and the same margin in every module** (audit of 6/11, ux-textos-1 and -4,
+  ui-medidas-9). Settings › Usage says notebooks in Spanish («Libretas», it said «Cuadernos») and
+  steps in every language for what Next counts, where it said entries. «Borrar» for the two texts
+  of the kit that still said «eliminar». `--look-gutter` is 16 px in the Cronum look, as a token:
+  each module fell back on its own number (26, 24, 16 or 14).
+
+## 0.243.0 — 2026-11-09
+
+The medium findings of the audit of 6/11 that were still open:
+
+- **A window out of view takes its dialogs with it** (`windows.js`, ui-movil-1): a modal dialog stays modal
+  when its window is hidden, and the page behind it inert. A notice tapped or Back with Tasks' Configure list
+  open left all of Work on screen and answering nothing.
+- **The worker gives the copy instead of the server's error page** (`sw-core.js`, sc-shell-6): a navigation
+  answered with a 5xx (a deploy's 502, Cloudflare's 52x) gets the copy when there is one.
+- **A module's own path opens from the copy at once** (`sw-core.js`, `codeFirst`): `/tasks/list/12` is what
+  the server answers for any path without an extension, the module's page, so it no longer waits up to 4 s
+  for the network on a weak signal.
+- **A reset at WorkOS leaves what was opened after it** (`workos-events.js`, `revokeEverything({ before })`,
+  sc-auth-1): heard up to a minute later, it closed the session the person had just opened with the new
+  password. Sessions, API tokens, phones and AI clients are ended as of the event's time.
+- **Deleting someone's login with the account asks for the admin again** (`DELETE /api/admin/users/:id?identity=1`,
+  sc-auth-2): the admin's password (and code), or a recent sign-in, as for changing a password or taking off the
+  second step, and only where the install owns the identities (`accounts.adminIdentity`; elsewhere 403
+  `identity_not_here`, and the panel doesn't offer it). `registerWorkosSecurityApi` answers `{ confirmAdmin }`.
+- **The MCP door opens only for what it lists** (`mcp.js`, sc-mcp-1): it ran any tool, so a tool the client had
+  blocked could be run through it. A tool with `destructiveHint` is never kept behind it, and it no longer calls
+  itself destructive.
 
 ## 0.242.0 — 2026-11-09
 

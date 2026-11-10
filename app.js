@@ -776,8 +776,9 @@ export function createApp({
     localPasswords, alsoAt: profile.alsoAt || {},
   });
   // With WorkOS, the password and the second step from Settings too.
+  let workosSecurity = null;
   if (install.authProvider === 'workos') {
-    registerWorkosSecurityApi(api, {
+    workosSecurity = registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
       adminIdentity: config.accounts.adminIdentity === true,
@@ -787,6 +788,7 @@ export function createApp({
     registerAdminApi(api, {
       accounts, entitlements, organizations, sessions, audit, twoFactor, revokeEverything: suite.revokeEverything,
       devices: suite.devices, sharedLogin: config.accounts.sharedIdentity ? suite.idp : null,
+      confirmAdmin: workosSecurity?.confirmAdmin ?? null,
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });

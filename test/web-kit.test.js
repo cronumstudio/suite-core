@@ -1238,6 +1238,31 @@ test('a host whose start holds every module (Work’s shell): a notice opens in 
   assert.deepEqual(host.opened, [`/?open=${encodeURIComponent('/tasks/?list=6')}`], 'a new window is the shell, with it open');
 });
 
+test('a module\'s own path opens from the copy, without waiting for the network', async () => {
+  const server = { '/': 'shell', '/tasks/': 'tasks page', '/tasks/index.html': 'tasks index', '/tasks/shared.html': 'public page' };
+  const { worker, fetched } = await deployedWorkers('https://work.example/', server);
+  const one = await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, kit: false, shell: ['/', '/tasks/', '/tasks/index.html'] });
+  server.down = (path) => (path === '/tasks/list/12' || path === '/tasks/list/12/' ? 'hang' : undefined);
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/tasks/list/12', 'navigate')).body, 'tasks index', 'at once, on a signal that never answers');
+  assert.equal((await one.get('https://work.example/tasks/list/12/', 'navigate')).body, 'tasks index');
+  assert.deepEqual(fetched, []);
+  // A file of the module's own is the server's: a public page is never in the copy.
+  assert.equal((await one.get('https://work.example/tasks/shared.html?p=abc', 'navigate')).status, 404, 'asked of the server');
+  assert.deepEqual(fetched, ['/tasks/shared.html?p=abc']);
+});
+
+test('a page the server answers with a 5xx is the copy, when there is one', async () => {
+  const server = { '/': 'shell', '/index.html': 'shell', '/tasks/': 'tasks page', '/tasks/index.html': 'tasks index', quick: true };
+  const { worker } = await deployedWorkers('https://work.example/', server);
+  const app = await worker({ version: 'tasks-a', kit: false, shell: ['/', '/index.html'] });
+  server.down = () => 502;
+  assert.equal((await app.get('https://work.example/', 'navigate')).body, 'shell', 'a deploy\'s 502');
+  assert.equal((await app.get('https://work.example/list/4', 'navigate')).body, 'shell');
+  server.down = () => 404;
+  assert.equal((await app.get('https://work.example/list/4', 'navigate')).status, 404, 'what the server says of a page is not trouble');
+});
+
 /**
  * sw-core.js in a sandbox with caches that keep what is put in them, and a server whose files
  * (`server`, `{ path: text }`, or `{ path: { body, headers } }`) can change between two releases.
@@ -1527,9 +1552,10 @@ test('a host’s worker opens a page it holds from its copy at once: a weak sign
   for (const page of ['/auth/callback?code=c&state=s', '/auth/login?return=%2F', '/devices/connect?code_challenge=c', '/devices/session?code=c&next=%2F']) {
     assert.equal(await one.get(`https://work.example${page}`, 'navigate'), null, page);
   }
-  // A route without a page of its own in the copy: network first, as before, and its module's index after the wait.
+  // A module's own route: its page, from the copy too.
+  fetched.length = 0;
   assert.equal((await one.get('https://work.example/tasks/list/12', 'navigate')).body, 'tasks index');
-  assert.ok(fetched.includes('/tasks/list/12'));
+  assert.deepEqual(fetched, []);
 
   // An app on its own keeps its pages network first.
   const own = { '/': 'tasks v1' };
