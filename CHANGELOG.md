@@ -15,7 +15,8 @@ change an interface and a patch never does. Apps pin a version through the submo
     is narrower than a form (560 px). Without `text` the title alone asks.
 - **Taking something back from someone in the share dialog asks first** when they had accepted it
   (`kit.share.removeAsk`, «¿Quitárselo a X?»); an invitation not answered yet still goes at once. An
-  app's `confirmRemove` replaces it (Projects).
+  app's `confirmRemove` replaces it (Projects). Leaving it asks with the question as the title
+  (`kit.share.leaveAsk`, «¿Dejar «X»?»), as every question does now.
 
 ## 0.245.0 — 2026-11-10
 

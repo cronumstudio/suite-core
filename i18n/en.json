@@ -1370,6 +1370,7 @@
   "kit.share.changed": "What {name} may do has changed.",
   "kit.share.leave": "Leave",
   "kit.share.leaveConfirm": "You’ll no longer have “{name}”. Whoever shared it with you can share it again.",
+  "kit.share.leaveAsk": "Leave “{name}”?",
   "kit.people.label": "People you share with",
   "kit.people.sharedOne": "Shared with {name}.",
   "kit.people.sharedMany": "Shared with {count} people.",

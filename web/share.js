@@ -256,7 +256,7 @@ export async function shareDialog({
       actions: owner || !data.shares.some((s) => s.user.id === me) ? [{ label: t('kit.close') }] : [{
         label: w('leave'), danger: true,
         onClick: async () => {
-          if (!await confirmDialog(w('leaveConfirm', { name }), { confirm: w('leave'), parent })) return false;
+          if (!await confirmDialog(w('leaveConfirm', { name }), { title: w('leaveAsk', { name }), confirm: w('leave'), parent })) return false;
           try {
             await leave();
             result = 'left';
