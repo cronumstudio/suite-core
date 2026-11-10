@@ -1,8 +1,10 @@
 /**
  * The frame of every app: a sidebar with the app's name and icon, the live
- * dot, the button that creates and the app's own entries; the banners; and the
- * app's views beside it. There is no button for the person: the app's icon and
- * name at the sidebar's head open Settings (or, with more to offer, a menu).
+ * dot and the app's own entries, and at its foot what makes a collection (a
+ * list, a notebook) and the trash; the banners; and the app's views beside it,
+ * with the floating button that creates an item over the list. There is no
+ * button for the person: the app's icon and name at the sidebar's head open
+ * Settings (or, with more to offer, a menu).
  *
  * On a phone the sidebar is a drawer, and a list and what is open from it are
  * two screens (`showDetail()`, and back). On a tablet or a computer it stays
@@ -11,8 +13,8 @@
  * is remembered on the device. kit.css lays it out by the frame's own width.
  *
  * Each view can start with the kit's head (`shell.head()`): its title and the
- * app's actions, with ☰ (or ←) and the button that creates in it wherever the
- * bar would have shown them. A pane showing one doesn't show the bar.
+ * app's «…», with ☰ (or ←) in it wherever the bar would have shown it. A pane
+ * showing one doesn't show the bar.
  *
  * As a module of a host (suite-core host.js, Cronum Work), where the sidebar
  * stays (a tablet, a computer), a rail at its start has the host's mark, the
@@ -37,6 +39,7 @@
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
+ *     foot: { create: { items: [newNotebookItem, newGroupItem] }, trash: { onClick: openTrash } },
  *     search: { label: searchLabel, onInput: (text) => findNotes(text) },
  *     onSettings: openSettings, onSignOut: signOut,
  *   });
@@ -65,8 +68,14 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers
- * @param {object} [options.create]          { label, onClick }: the button that creates (the
- *   sidebar's, beside the views; on a phone the floating one)
+ * @param {object} [options.create]          { label, onClick }: the floating button that creates an
+ *   item (a note, a step), at every width: over the list on a phone, at the foot of the list's pane
+ *   beside the views. Never in the sidebar, which makes collections only (`foot`).
+ * @param {object} [options.foot]            { create, trash }, each optional: the sidebar's foot, which
+ *   never scrolls away. `create` ({ label?, onClick } or { label?, items }, an array or a function
+ *   that returns one, for a menu) makes a collection, a + at its start; `trash` ({ label?, onClick }
+ *   or { label?, href, current? }) at its end. Their words are the kit's unless given.
+ *   `shell.foot` is { element, create, trash }, the trash a place `setCurrent()` marks too.
  * @param {object} [options.search]          { label, placeholder?, onInput(text), onSubmit?(text) }: the
  *   module's search, at the top of its sidebar; Escape empties it, Enter in the drawer closes it
  *   so the results show. `shell.search` is its field.
@@ -79,7 +88,7 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  */
 export function createShell({
-  panes = 'split', app, create = null, search = null, onSettings = null, onSignOut = null,
+  panes = 'split', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
   embedded = false,
 }) {
@@ -135,13 +144,40 @@ export function createShell({
     }, { signal });
   }
   const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null;
+  // The sidebar's foot, the same in every module: what makes a collection (a list, a notebook; an
+  // item is the floating button's) at its start, the trash at its end. The + with a menu opens it
+  // over the drawer, and each choice closes the drawer as an entry would; the trash closes it too.
+  const addLabel = foot?.create ? foot.create.label || t('kit.side.create') : null;
+  const add = foot?.create ? el('button', {
+    type: 'button', class: 'kit-icon-btn kit-side__add', title: addLabel, 'aria-label': addLabel,
+    ...(foot.create.items ? { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } : {}),
+    onClick: () => {
+      const { items, onClick } = foot.create;
+      if (!items) {
+        closeDrawer();
+        onClick?.();
+        return;
+      }
+      toggleMenu(add, (typeof items === 'function' ? items() : items).map((item) => (item && item !== 'separator'
+        ? { ...item, onClick: () => { closeDrawer(); item.onClick?.(); } } : item)));
+    },
+  }, icon('plus')) : null;
+  const trashLabel = foot?.trash ? foot.trash.label || t('kit.side.trash') : null;
+  // A view of its own (Notes' `#/trash`) is a link, and the place open while it shows (setCurrent).
+  const trash = foot?.trash ? el(foot.trash.href ? 'a' : 'button', {
+    ...(foot.trash.href ? { href: foot.trash.href } : { type: 'button' }),
+    class: 'kit-icon-btn kit-side__trash', title: trashLabel, 'aria-label': trashLabel,
+    'aria-current': foot.trash.current ? 'page' : null,
+    onClick: () => {
+      closeDrawer();
+      foot.trash.onClick?.();
+    },
+  }, icon('trash')) : null;
+  const footer = add || trash ? el('div', { class: 'kit-side__foot' }, add, trash) : null;
   // In Work's shell, with a search, the button that folds shares its line instead of one of its own.
   const side = el('aside', { class: 'kit-side' },
     embedded && searchBox ? el('div', { class: 'kit-side__top' }, searchBox, fold) : [head, searchBox],
-    create ? el('div', { class: 'kit-side__create' },
-      el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--block', onClick: create.onClick },
-        icon('plus'), create.label)) : null,
-    nav);
+    nav, footer);
   const scrim = el('div', { class: 'kit-scrim', onClick: () => closeDrawer() });
 
   const title = el('span', { class: 'kit-bar__title' });
@@ -165,17 +201,16 @@ export function createShell({
   const backToggle = () => el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
   }, icon('back'));
-  // With the sidebar folded away, its button that creates comes to the bar (or to the head).
-  const createButton = () => (create ? el('button', {
-    type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small kit-bar__create', 'aria-label': create.label,
-    onClick: create.onClick,
-  }, icon('plus'), el('span', { class: 'kit-bar__create-label', text: create.label })) : null);
   const menuButton = menuToggle();
-  const bar = el('header', { class: 'kit-bar' }, menuButton, backToggle(), title, actions, createButton());
+  const bar = el('header', { class: 'kit-bar' }, menuButton, backToggle(), title, actions);
   const banners = el('div', { class: 'kit-banners' });
   const list = el('section', { class: 'kit-pane kit-pane--list' });
   const detail = el('section', { class: 'kit-pane kit-pane--detail' });
-  const fab = create ? el('button', { type: 'button', class: 'kit-fab', 'aria-label': create.label, onClick: create.onClick }, icon('plus')) : null;
+  // What creates an item, the same at every width and folded or not: kit.css puts it at the foot of
+  // the pane that holds the list, inside the frame. Its words show to a pointer that rests on it.
+  const fab = create ? el('button', {
+    type: 'button', class: 'kit-fab', 'aria-label': create.label, title: create.label, onClick: create.onClick,
+  }, icon('plus')) : null;
 
   // While something is carried on a phone, a tab at each edge: the start one opens the drawer
   // when held, the end one, beside the open drawer, closes it, without letting go (drag.js).
@@ -924,17 +959,18 @@ export function createShell({
   /* ---------------------------------- heads --------------------------------- */
 
   /**
-   * A view's head, the same in every app: its title and the app's own actions, and, wherever the
-   * sidebar isn't beside the views (a phone, or folded away), ☰ at its start and the button that
-   * creates at its end; over a phone's detail, ← instead of ☰. A pane showing one takes the bar's
-   * place (kit.css): one line less, and each view laid out alike in every app and on any screen.
-   * The app puts it at the top of its view, and makes a new one when it draws the view again.
+   * A view's head, the same in every app: its title and, at its end, the app's «…» (ui.js
+   * moreButton), which holds every action of the view; wherever the sidebar isn't beside the views
+   * (a phone, or folded away), ☰ at its start, and over a phone's detail ← instead. Nothing that
+   * creates: that is the floating button, at every width. A pane showing one takes the bar's place
+   * (kit.css): one line less, and each view laid out alike in every app and on any screen. The app
+   * puts it at the top of its view, and makes a new one when it draws the view again.
    *
    * @param {object} [options]
-   * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ and create over a list, ← over a detail
+   * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ over a list, ← over a detail
    * @param {string|null} [options.title]   null: none, where the view says it itself (a note's first line)
    * @param {Node|Node[]} [options.lead]      before the title (a list's icon, a note's notebook)
-   * @param {Node|Node[]} [options.actions]   after it, at the end (⋯, a pin)
+   * @param {Node|Node[]} [options.actions]   after it, at the end: the view's «…»
    * @param {Node} [options.below]            under the line, in the head (a search, chips, a toolbar)
    */
   function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null } = {}) {
@@ -946,8 +982,7 @@ export function createShell({
       titleMenu(start);
     }
     const node = el('header', { class: 'kit-head', 'data-pane': pane },
-      el('div', { class: 'kit-head__row' },
-        start, lead, heading, el('div', { class: 'kit-head__actions' }, own), pane === 'list' ? createButton() : null),
+      el('div', { class: 'kit-head__row' }, start, lead, heading, el('div', { class: 'kit-head__actions' }, own)),
       below);
     return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
   }
@@ -958,6 +993,7 @@ export function createShell({
 
   return {
     element, nav, list, detail, actions, banners, head: viewHead, search: searchField,
+    foot: footer ? { element: footer, create: add, trash } : null,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
     get folded() { return folded(); },
@@ -996,6 +1032,78 @@ export function navFold({ label, key, open = false, keep = false, children = [] 
   return el('div', { class: 'kit-nav__group' }, heading, body);
 }
 
+/** `{ drop: '', notebookId: 7 }` as data-* attributes: `data-drop`, `data-notebook-id`. */
+const dataAttributes = (data) => Object.fromEntries(Object.entries(data || {})
+  .map(([key, value]) => [`data-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`, value]));
+
+/**
+ * A group of the sidebar's collections (Tasks' lists, Notes' notebooks), the same in every module:
+ * a head in the group's `color`, and under it its collections (`children`) a step in, or `empty`
+ * saying there are none. The chevron folds it, sliding, and tells `onToggle(open)`: the module keeps
+ * the choice its own way. `keep` opens it whatever `open` says (the collection open is in it);
+ * folded, the head shows `count`. The name opens the group's menu, `onName(event, name)`, where a
+ * new collection in the group is too; without it, the name folds the group as the chevron does.
+ * Neither closes the drawer: folding or opening a menu isn't going anywhere. `icon` (an emoji, or a
+ * node) or `iconName` (the kit's) go before the name, `extra` after it (a badge: shared). `data`,
+ * `headData` and `bodyData` become data-* attributes of the group, its head and its body, for the
+ * module's drags (drag.js): what picks it up, what takes a collection dropped on it. → the group.
+ */
+export function navGroup({
+  name, color = null, icon: glyph = null, iconName = null, count = null, open = true, keep = false,
+  onToggle = null, onName = null, empty = '', extra = null, data = null, headData = null, bodyData = null,
+  children = [],
+}) {
+  const unfolded = keep || open;
+  const kept = [children].flat(Infinity).filter(Boolean);
+  const body = el('div', { class: 'kit-nav-group__body', hidden: !unfolded, ...dataAttributes(bodyData) },
+    kept.length ? kept : empty ? el('div', { class: 'kit-nav-group__empty', text: empty }) : null);
+  const total = count ? el('span', { class: 'kit-nav__count', text: String(count), hidden: unfolded }) : null;
+  const toggle = el('button', {
+    type: 'button', class: 'kit-nav-group__toggle',
+    onClick: (ev) => {
+      ev.stopPropagation();
+      fold();
+    },
+  }, icon('chevron'));
+  /** The chevron says what it does next: fold the group, or unfold it. */
+  const paint = (now) => {
+    const words = t(now ? 'kit.side.groupFold' : 'kit.side.groupUnfold', { name });
+    toggle.setAttribute('aria-expanded', String(now));
+    toggle.setAttribute('aria-label', words);
+    toggle.setAttribute('title', words);
+  };
+  paint(unfolded);
+  const fold = () => {
+    const now = toggle.getAttribute('aria-expanded') !== 'true';
+    paint(now);
+    slideHidden(body, !now);
+    total?.toggleAttribute('hidden', now);
+    onToggle?.(now);
+  };
+  const press = (ev) => (onName ? onName(ev, label) : fold());
+  // Not a <button>: the group is picked up by its head (drag.js starts on no button), and the name
+  // is most of it. Enter and Space press it, as they would a button.
+  const label = el('span', {
+    class: 'kit-nav-group__name', role: 'button', tabindex: '0',
+    ...(onName ? { 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: t('kit.side.groupOptions', { name }) } : {}),
+    onClick: (ev) => {
+      ev.stopPropagation();
+      press(ev);
+    },
+    onKeydown: (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      ev.preventDefault();
+      press(ev);
+    },
+  },
+  iconName || glyph ? el('span', { class: 'kit-nav-group__icon', 'aria-hidden': 'true' }, iconName ? icon(iconName) : glyph) : null,
+  el('span', { class: 'kit-nav-group__label', text: name }),
+  extra);
+  return el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
+    el('div', { class: 'kit-nav-group__head', ...dataAttributes(headData) }, toggle, label, total),
+    body);
+}
+
 /**
  * An entry of the sidebar: `iconName` or `color` (a swatch for a list or a
  * notebook), a `count` on the right; `now` paints it yolk (today, my day).
@@ -1007,10 +1115,8 @@ export function navItem({ label, iconName = null, color = null, count = null, cu
     class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}`,
     'aria-current': current ? 'page' : null,
     onClick,
+    ...dataAttributes(data),
   };
-  for (const [key, value] of Object.entries(data || {})) {
-    props[`data-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`] = value;
-  }
   const children = [
     color ? el('span', { class: 'kit-nav__swatch', style: `background:${color}` }) : iconName ? icon(iconName) : null,
     el('span', { class: 'kit-nav__label', text: label }),
@@ -1019,9 +1125,13 @@ export function navItem({ label, iconName = null, color = null, count = null, cu
   return href ? el('a', { ...props, href }, children) : el('button', { ...props, type: 'button' }, children);
 }
 
-/** Marks one entry of the sidebar as the current one. */
+/**
+ * Marks one entry of the sidebar as the current one: one of `nav`'s, or the trash at its foot
+ * (`shell.foot.trash`, a view of its own in Notes). Null marks none.
+ */
 export function setCurrent(nav, item) {
-  for (const node of nav.querySelectorAll('.kit-nav__item')) {
+  const side = nav.closest?.('.kit-side') || nav;
+  for (const node of side.querySelectorAll('.kit-nav__item, .kit-side__trash')) {
     if (node === item) node.setAttribute('aria-current', 'page');
     else node.removeAttribute('aria-current');
   }

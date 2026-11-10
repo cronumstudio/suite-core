@@ -695,7 +695,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .kit-bar__actions { display: flex; align-items: center; gap: 2px; flex: none; }
-.kit-bar__create { display: none; margin-inline-start: 6px; }
 .kit-app:not([data-screen="detail"]) .kit-bar__back,
 .kit-app[data-screen="detail"] .kit-bar__menu { display: none; }
 
@@ -732,9 +731,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-side__fold { display: none; width: 32px; height: 32px; margin-inline-end: -6px; }
 /* In Work's shell the head holds only that button: none in the drawer, at the end beside the views. */
 .kit-app[data-embedded] .kit-side__head { display: none; justify-content: flex-end; padding: 8px 12px 4px; }
-.kit-side__create { padding: 4px 12px 10px; }
-/* On a phone the floating button creates (.kit-fab): the sidebar's own would be a second one. */
-.kit-app:has(.kit-fab) .kit-side__create { display: none; }
 /* The module's search, the sidebar's first line: as far from its top as from its sides. */
 .kit-side__search {
   display: flex; align-items: center; gap: 8px; margin: 12px 12px 6px; padding: 0 12px; min-height: 42px;
@@ -756,6 +752,20 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   font: inherit; font-size: max(16px, var(--look-body, 15px));
 }
 .kit-side__nav { flex: 1; overflow-y: auto; padding: 0 8px calc(10px + var(--kit-safe-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px; }
+/*
+ * The sidebar's foot (shell.js `foot`): the + that makes a collection at its start, the trash at
+ * its end. It never scrolls away, in the drawer or beside the views: the nav scrolls above it, and
+ * the room over the phone's bottom edge is the foot's, not left at the end of the nav.
+ */
+.kit-side__nav:has(+ .kit-side__foot) { padding-bottom: 10px; }
+.kit-side__foot {
+  flex: none; display: flex; align-items: center; gap: 4px; margin-inline: 8px;
+  padding: 4px 0 calc(6px + var(--kit-safe-bottom)); border-top: 1px solid var(--kit-border);
+}
+.kit-side__trash { margin-inline-start: auto; }
+.kit-side__foot .kit-icon-btn[aria-expanded="true"] { background: var(--kit-hover); color: var(--kit-text); }
+/* Notes' trash is a view: open, it is marked as an entry of the sidebar is. */
+.kit-side__trash[aria-current="page"] { background: var(--kit-accent-soft); color: var(--kit-accent); }
 
 .kit-nav__section { font: 600 var(--look-footnote, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); padding: 16px 8px 6px; }
 /* A heading that folds its group (shell.js navFold): the same words, a button with a chevron. */
@@ -788,8 +798,46 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-nav__count { font: 400 var(--look-footnote, 12px) var(--kit-font-mono); color: var(--kit-muted); font-variant-numeric: tabular-nums; }
 .kit-nav__swatch { width: 10px; height: 10px; border-radius: var(--look-r-xs, 3px); flex: none; margin-inline: 3px; }
 
+/*
+ * A group of collections (shell.js navGroup), the same in every module: its head in the group's
+ * colour (a border at its start, a tint behind, its name between the colour and the text's), its
+ * collections a step in under it. Mixed with the kit's own colours, so light and dark both follow.
+ */
+.kit-nav-group { display: grid; grid-template-columns: minmax(0, 1fr); margin-block: 6px 2px; }
+.kit-nav-group__head {
+  display: flex; align-items: center; gap: 2px; min-height: 36px; padding-inline: 2px 4px; margin-block-end: 2px;
+  border-radius: var(--look-r-sm, 8px); border-inline-start: 3px solid var(--group-color, var(--kit-muted));
+  background: color-mix(in oklab, var(--group-color, var(--kit-muted)) 12%, transparent);
+  color: color-mix(in oklab, var(--group-color, var(--kit-muted)) 50%, var(--kit-text));
+}
+:root[data-theme="dark"] .kit-nav-group__head { background: color-mix(in oklab, var(--group-color, var(--kit-muted)) 18%, transparent); }
+.kit-nav-group__toggle, .kit-nav-group__name {
+  display: inline-flex; align-items: center; min-height: 32px; border: 0; border-radius: var(--look-r-sm, 6px);
+  background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.kit-nav-group__toggle { justify-content: center; width: 28px; flex: none; padding: 0; }
+.kit-nav-group__toggle .kit-icon { width: 14px; height: 14px; transition: transform .3s ease; }
+.kit-nav-group__toggle[aria-expanded="true"] .kit-icon { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .kit-nav-group__toggle .kit-icon { transition: none; } }
+.kit-nav-group__name { flex: 1; min-width: 0; gap: 6px; padding-inline: 4px; font-weight: 650; font-size: var(--look-callout, 15px); text-align: start; }
+.kit-nav-group__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-nav-group__icon { display: inline-grid; place-items: center; width: 20px; flex: none; font-size: var(--look-callout, 16px); line-height: 1; }
+.kit-nav-group__icon .kit-icon { width: 16px; height: 16px; }
+.kit-nav-group__head :is(.kit-nav-group__toggle, .kit-nav-group__name):hover,
+.kit-nav-group__name[aria-expanded="true"] { background: color-mix(in oklab, var(--group-color, var(--kit-muted)) 14%, transparent); }
+.kit-nav-group__head :is(.kit-nav-group__toggle, .kit-nav-group__name):focus-visible { outline-offset: -2px; }
+.kit-nav-group__head .kit-nav__count { padding-inline: 4px; }
+.kit-nav-group__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; padding-inline-start: 12px; }
+.kit-nav-group__empty { padding: 4px 10px 6px; font-size: var(--look-footnote, 12.5px); color: var(--kit-muted); }
+
+/*
+ * What creates an item (shell.js `create`), at every width: at the bottom end corner of the pane
+ * that holds the list, its grid area being its box. So it stays inside the module's frame (its
+ * window in Cronum Work), over the list and never over a detail beside it. Not on a phone's
+ * detail, which covers the list.
+ */
 .kit-fab {
-  position: absolute; inset-inline-end: 16px; bottom: calc(16px + var(--kit-safe-bottom)); z-index: 10;
+  position: absolute; grid-area: main; inset-inline-end: 16px; bottom: calc(16px + var(--kit-safe-bottom)); z-index: 10;
   width: 56px; height: 56px; border-radius: var(--look-r-xl, 18px); border: 0; background: var(--kit-accent); color: var(--kit-on-accent);
   display: grid; place-items: center; box-shadow: var(--kit-shadow-high); cursor: pointer;
 }
@@ -811,10 +859,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   .kit-side__fold { display: inline-grid; }
   .kit-app[data-embedded][data-layout="side"] .kit-side__head { display: flex; }
   .kit-app[data-embedded][data-layout="side"] .kit-side__search { margin-top: 0; }
-  /* Beside the views the floating button is gone: the sidebar's creates. */
-  .kit-app:has(.kit-fab) .kit-side__create { display: block; }
-  /* With the sidebar in view, its own button creates; the floating one is for phones. */
-  .kit-app .kit-fab { display: none; }
 }
 
 /* A computer: the list and its detail side by side. */
@@ -831,6 +875,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   .kit-app[data-layout="side"] .kit-bar { display: none; }
   .kit-app[data-panes="split"] .kit-pane--list { grid-area: list; display: block; border-inline-end: 1px solid var(--kit-border); }
   .kit-app[data-panes="split"] .kit-pane--detail { grid-area: detail; display: block; }
+  /* Beside its detail the list stays in sight, and so does what creates: over the list, never the detail. */
+  .kit-app[data-panes="split"] .kit-fab { grid-area: list; display: grid; }
 }
 
 /*
@@ -847,7 +893,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   }
   .kit-app[data-layout="side"][data-folded] .kit-bar { display: flex; }
   .kit-app[data-layout="side"][data-folded] .kit-bar__menu { display: inline-grid; }
-  .kit-app[data-layout="side"][data-folded] .kit-bar__create { display: inline-flex; }
   .kit-app[data-layout="side"][data-folded] .kit-side { display: none; }
   .kit-app[data-layout="side"][data-folded] .kit-scrim { display: block; }
   .kit-app[data-layout="side"][data-folded][data-drawer] .kit-side {
@@ -960,9 +1005,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* ------------------------------- view heads ------------------------------- */
 /*
  * shell.head(): a view's head, the same in every app. The title and the app's
- * actions; ☰ (← over a phone's detail) and the button that creates follow the
- * bar's own rules above, by their classes. A pane showing a head takes the
- * bar's place: the bar gives way, and the head keeps the clock's gap it kept.
+ * «…»; ☰ (← over a phone's detail) follows the bar's own rules above, by its
+ * class. A pane showing a head takes the bar's place: the bar gives way, and
+ * the head keeps the clock's gap it kept.
  */
 .kit-head {
   container: kit-head / inline-size; position: sticky; inset-block-start: 0; z-index: 4;
@@ -977,12 +1022,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-head__actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .kit-head__actions:empty { display: none; }
-.kit-head .kit-bar__create { margin-inline-start: 4px; }
-/* A narrow head (a list beside its detail) keeps the button's + and loses its words. */
-@container kit-head (max-width: 419px) {
-  .kit-head .kit-bar__create { padding-inline: 8px; }
-  .kit-head .kit-bar__create-label { display: none; }
-}
 
 .kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head) .kit-bar,
 .kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head) .kit-bar { display: none; }
@@ -998,7 +1037,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head):has(.kit-banners > *) .kit-head,
 .kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head):has(.kit-banners > *) .kit-head { padding-top: 8px; }
 @container kit-app (min-width: 960px) {
-  /* The list and its detail side by side: the list's head has ☰ and create, and nothing goes back. */
+  /* The list and its detail side by side: the list's head has ☰, and nothing goes back. */
   .kit-app[data-panes="split"]:has(.kit-pane--list .kit-head) .kit-bar { display: none; }
   .kit-app[data-panes="split"] .kit-head .kit-bar__back { display: none; }
 }
@@ -1154,7 +1193,7 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .kit-settings__fold { transition: none; } }
 /* While a fold slides (ui.js move), the rows passing under a pointer that stays still don't light
    up one after another: it read as the list blinking. */
-:root[data-kit-folding] :is(.kit-settings__group, .kit-settings__item, .kit-nav__item):not([aria-current]):hover { background: none; }
+:root[data-kit-folding] :is(.kit-settings__group, .kit-settings__item, .kit-nav__item, .kit-nav-group__toggle, .kit-nav-group__name):not([aria-current]):hover { background: none; }
 :root[data-kit-folding] :is(.kit-settings__group:not([aria-expanded="true"]):not([aria-current]), .kit-nav__fold):hover { color: var(--kit-muted); }
 .kit-settings__item {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: var(--look-row-y, 9px) 10px; border-radius: var(--look-r-md, 10px);
@@ -1414,12 +1453,19 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 :root[data-look="clean"] .kit-nav__item { min-height: 40px; padding-block: 8px; font-size: var(--look-callout, 15px); }
 :root[data-look="clean"] .kit-nav__item[aria-current="page"] { font-weight: 500; }
 :root[data-look="clean"] :is(.kit-nav__section, .kit-settings__group) { letter-spacing: .02em; }
+/* The sidebar's groups as plain rows the size of their collections: the colour stays in the collections' own marks. */
+:root[data-look="clean"] .kit-nav-group__head {
+  min-height: 40px; padding-inline-start: 5px; border-inline-start: 0; background: transparent; color: var(--kit-text);
+}
+:root[data-look="clean"] .kit-nav-group__name { font-weight: 600; }
+:root[data-look="clean"] :is(.kit-nav-group__toggle, .kit-nav-group__name):hover,
+:root[data-look="clean"] .kit-nav-group__name[aria-expanded="true"] { background: var(--kit-hover); }
 /* A list's narrow head, as on an iPhone: ☰, ← and the actions on the bar, the large title (with what
    leads it) on its own line under them. A detail's head keeps one line. */
 @container kit-head (max-width: 639px) {
   :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__row { flex-wrap: wrap; row-gap: 2px; }
   :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__row::before { content: ""; order: 1; flex-basis: 100%; }
-  :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__row > :not(.kit-bar__menu, .kit-bar__back, .kit-icon-btn, .kit-head__actions, .kit-bar__create) { order: 2; }
+  :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__row > :not(.kit-bar__menu, .kit-bar__back, .kit-icon-btn, .kit-head__actions) { order: 2; }
   :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__actions { margin-inline-start: auto; }
   :root[data-look="clean"] .kit-head[data-pane="list"] .kit-head__title:empty { display: none; }
 }

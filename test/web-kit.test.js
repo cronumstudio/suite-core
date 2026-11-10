@@ -819,9 +819,15 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
 test('one frame: no button for the person at the sidebar\'s foot, and no top bar with tabs', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(shell, /kit-account|kit-side__foot|avatar\(/, 'the app\'s icon opens Settings instead (0.224.0)');
-  assert.doesNotMatch(css, /\.kit-account|\.kit-side__foot/);
+  assert.doesNotMatch(shell, /kit-account|avatar\(/, 'the app\'s icon opens Settings instead (0.224.0)');
+  assert.doesNotMatch(css, /\.kit-account/);
+  // The foot is back (0.247.0) for what makes a collection and the trash, and for nothing else.
+  assert.match(shell, /const footer = add \|\| trash \? el\('div', \{ class: 'kit-side__foot' \}, add, trash\) : null;/);
+  const footRules = [...css.matchAll(/^[^\n]*\.kit-side__foot[^{]*\{[^}]*\}/gm)].map((m) => m[0]).join('\n');
+  assert.doesNotMatch(footRules, /avatar|account|user/);
   assert.match(css, /\.kit-side__nav \{[^}]*padding: 0 8px calc\(10px \+ var\(--kit-safe-bottom\)\);/, 'what ends the sidebar keeps clear of the phone\'s bottom edge');
+  assert.match(css, /\.kit-side__nav:has\(\+ \.kit-side__foot\) \{ padding-bottom: 10px; \}/, 'with a foot, the foot does');
+  assert.match(css, /\.kit-side__foot \{[^}]*padding: 4px 0 calc\(6px \+ var\(--kit-safe-bottom\)\);/);
   assert.doesNotMatch(shell, /layout === 'top'|kit-bottom|kit-bar__tab/, 'the top layout was Next\'s, and Next has a sidebar now');
   assert.doesNotMatch(css, /data-layout="top"|\.kit-bottom|\.kit-bar__tab|\.kit-bar__brand/);
 });
@@ -931,7 +937,7 @@ test('the sidebar folds only where it sits beside the views, and the device reme
   const outside = css.replace(/@container kit-app \(min-width: (?:640|960)px\) \{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
   assert.doesNotMatch(outside, /\[data-folded\]/);
   assert.match(css, /\[data-folded\] \.kit-bar__menu \{ display: inline-grid; \}/, '☰ brings it back');
-  assert.match(css, /\[data-folded\] \.kit-bar__create \{ display: inline-flex; \}/, 'what creates goes to the bar');
+  assert.doesNotMatch(`${css}\n${shell}`, /kit-bar__create/, 'what creates stays the floating button, folded or not (0.247.0)');
 });
 
 test('every file the service worker caches for the kit exists', () => {
@@ -2468,7 +2474,9 @@ test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, actions: own = \[\], below = null \} = \{\}\)/);
   assert.match(shell, /if \(pane === 'detail'\) start = backToggle\(\);/, '← over a detail, ☰ over a list');
-  assert.match(shell, /pane === 'list' \? createButton\(\) : null/, 'the button that creates at the end of a list\'s head');
+  // Its line ends with the app's «…»: what creates is the floating button, at every width (0.247.0).
+  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, heading, el\('div', \{ class: 'kit-head__actions' \}, own\)\),/);
+  assert.doesNotMatch(shell, /createButton/);
   assert.match(shell, /element, nav, list, detail, actions, banners, head: viewHead,/, 'the shell gives it');
   assert.match(shell, /if \(showing\('\.kit-bar__back'\)\) return/, 'a swipe from the edge finds the button that shows, in the bar or a head');
   assert.match(css, /\.kit-app:not\(\[data-screen="detail"\]\):has\(\.kit-pane--list \.kit-head\) \.kit-bar,\s*\.kit-app\[data-screen="detail"\]:has\(\.kit-pane--detail \.kit-head\) \.kit-bar \{ display: none; \}/);
@@ -2853,10 +2861,110 @@ test('in Work’s shell the button that folds shares the search’s line; on its
   }
 });
 
-test('on a phone the floating button creates, and the sidebar’s own only beside the views', () => {
+test('the floating button creates at every width, over the list\'s pane and never its detail; nothing else creates an item', async () => {
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(css, /\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: none; \}/);
-  assert.match(css, /@container kit-app \(min-width: 640px\) \{[^}]*\}[\s\S]*?\.kit-app:has\(\.kit-fab\) \.kit-side__create \{ display: block; \}/);
+  // Its grid area is its box: inside the frame (a window of Work), at the list's bottom end corner.
+  assert.match(css, /\.kit-fab \{\s*position: absolute; grid-area: main; inset-inline-end: 16px; bottom: calc\(16px \+ var\(--kit-safe-bottom\)\);/);
+  const computer = /@container kit-app \(min-width: 960px\) \{\s*\.kit-app\[data-layout="side"\]\[data-panes="split"\] \.kit-shell \{[\s\S]*?\n\}/.exec(css)[0];
+  assert.match(computer, /\.kit-app\[data-panes="split"\] \.kit-fab \{ grid-area: list; display: grid; \}/, 'beside its detail, over the list');
+  assert.match(css, /\.kit-app\[data-screen="detail"\] \.kit-fab \{ display: none; \}/, 'not over a phone\'s detail');
+  assert.doesNotMatch(css, /\.kit-app \.kit-fab \{ display: none; \}/, 'not hidden beside the views any more');
+  assert.doesNotMatch(css, /kit-side__create|kit-bar__create/);
+
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const made = [];
+    const shell = createShell({ ...frameOptions(), create: { label: 'New note', onClick: () => made.push('note') } });
+    const fab = shell.element.querySelector('.kit-fab');
+    assert.equal(fab.getAttribute('aria-label'), 'New note');
+    assert.equal(fab.getAttribute('title'), 'New note', 'its words for a pointer that rests on it');
+    fab.click();
+    assert.deepEqual(made, ['note']);
+    assert.equal(shell.element.querySelector('.kit-side').querySelector('.kit-btn--primary'), null, 'nothing in the sidebar');
+    const head = shell.head({ pane: 'list', title: 'All notes' }).element;
+    const row = head.querySelector('.kit-head__row');
+    assert.deepEqual(row.children.map((node) => node.getAttribute('class')), ['kit-icon-btn kit-bar__menu', 'kit-head__title', 'kit-head__actions'], '☰, the title and the «…»');
+    assert.equal(shell.element.querySelector('.kit-bar').querySelectorAll('.kit-btn').length, 0, 'nor in the bar, folded or not');
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('the sidebar\'s foot: a + that makes a collection, its menu over the drawer, and the trash, each choice closing the drawer', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell, navItem, setCurrent } = await import('../web/shell.js');
+    const done = [];
+    const shell = createShell({
+      ...frameOptions(),
+      foot: {
+        create: { items: () => [
+          { label: 'New notebook', onClick: () => done.push('notebook') },
+          null,
+          'separator',
+          { label: 'New group', onClick: () => done.push('group') },
+        ] },
+        trash: { onClick: () => done.push('trash') },
+      },
+    });
+    const side = shell.element.querySelector('.kit-side');
+    assert.equal(side.children.at(-1), shell.foot.element, 'after the nav: the nav scrolls above it');
+    assert.equal(shell.foot.element.getAttribute('class'), 'kit-side__foot');
+    const { create: add, trash } = shell.foot;
+    assert.deepEqual(shell.foot.element.children, [add, trash], 'the + at its start, the trash at its end');
+    assert.equal(add.getAttribute('aria-label'), 'kit.side.create', 'the kit\'s words unless given');
+    assert.equal(add.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(trash.getAttribute('aria-label'), 'kit.side.trash');
+
+    shell.openDrawer();
+    add.click();
+    const menu = page.body.children.find((node) => node.getAttribute('role') === 'menu');
+    assert.ok(menu, 'its menu, asked for as it opens');
+    assert.ok(shell.element.hasAttribute('data-drawer'), 'over the drawer, still open');
+    assert.equal(add.getAttribute('aria-expanded'), 'true');
+    assert.deepEqual(menu.children.map((node) => node.getAttribute('role')), ['menuitem', 'separator', 'menuitem'], 'what was left out, left out');
+    menu.querySelectorAll('[role="menuitem"]')[1].click();
+    assert.deepEqual(done, ['group']);
+    assert.ok(!shell.element.hasAttribute('data-drawer'), 'a choice closes the drawer');
+    add.click();
+    add.click();
+    assert.equal(add.getAttribute('aria-expanded'), 'false', 'a second press closes the menu');
+
+    shell.openDrawer();
+    trash.click();
+    assert.deepEqual(done, ['group', 'trash']);
+    assert.ok(!shell.element.hasAttribute('data-drawer'), 'the trash closes it as an entry does');
+    shell.destroy();
+
+    // Notes' trash is a view of its own: a link, marked while it shows, as an entry of the sidebar.
+    const notes = createShell({ ...frameOptions(), foot: { create: { label: 'New notebook', onClick: () => done.push('one') }, trash: { label: 'Trash', href: '#/trash', current: true } } });
+    const link = notes.foot.trash;
+    assert.equal(link.tagName, 'A');
+    assert.equal(link.getAttribute('href'), '#/trash');
+    assert.equal(link.getAttribute('aria-current'), 'page');
+    assert.equal(notes.foot.create.getAttribute('aria-haspopup'), null, 'no menu: it makes one at once');
+    notes.openDrawer();
+    notes.foot.create.click();
+    assert.equal(done.at(-1), 'one');
+    assert.ok(!notes.element.hasAttribute('data-drawer'));
+    const all = notes.nav.appendChild(navItem({ label: 'All notes' }));
+    setCurrent(notes.nav, all);
+    assert.equal(link.getAttribute('aria-current'), null, 'another place open: not the trash');
+    assert.equal(all.getAttribute('aria-current'), 'page');
+    setCurrent(notes.nav, link);
+    assert.equal(link.getAttribute('aria-current'), 'page');
+    assert.equal(all.getAttribute('aria-current'), null);
+    notes.destroy();
+
+    const bare = createShell(frameOptions());
+    assert.equal(bare.foot, null, 'no foot without one');
+    assert.equal(bare.element.querySelector('.kit-side__foot'), null);
+    bare.destroy();
+  } finally {
+    restore();
+  }
 });
 
 test('a group of the sidebar folds under its heading: closed until opened, remembered, open with the entry in sight', async () => {
@@ -2881,4 +2989,90 @@ test('a group of the sidebar folds under its heading: closed until opened, remem
   } finally {
     globalThis.localStorage = before;
   }
+});
+
+test('a group of collections is the same in every module: its colour, the chevron that folds it, the name that opens its menu', async () => {
+  const { navGroup, navItem } = await import('../web/shell.js');
+  const toggled = [];
+  const named = [];
+  const notebook = navItem({ label: 'Recipes' });
+  const badge = document.createElement('span');
+  const group = navGroup({
+    name: 'Home', color: '#C8372D', icon: '🏠', count: 12, open: true,
+    onToggle: (open) => toggled.push(open), onName: (event, name) => named.push([event.key || 'click', name]),
+    extra: badge, data: { group: 7 }, headData: { groupDrop: 7 }, bodyData: { notebooksOf: 7 }, children: [notebook],
+  });
+  assert.equal(group.getAttribute('class'), 'kit-nav-group');
+  assert.equal(group.getAttribute('style'), '--group-color: #C8372D');
+  // The module's own data-* on each part, for its drags: what is picked up, what takes a drop.
+  const [head, body] = group.children;
+  assert.equal(group.getAttribute('data-group'), '7');
+  assert.equal(head.getAttribute('data-group-drop'), '7');
+  assert.equal(body.getAttribute('data-notebooks-of'), '7');
+  assert.deepEqual(body.children, [notebook]);
+  const [toggle, name, count] = head.children;
+  assert.equal(toggle.tagName, 'BUTTON');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(toggle.getAttribute('aria-label'), 'kit.side.groupFold', 'it says what it does next');
+  // The name isn't a <button>, or the group couldn't be picked up by it (drag.js).
+  assert.equal(name.tagName, 'SPAN');
+  assert.equal(name.getAttribute('role'), 'button');
+  assert.equal(name.getAttribute('tabindex'), '0');
+  assert.equal(name.getAttribute('aria-haspopup'), 'menu');
+  assert.equal(name.querySelector('.kit-nav-group__icon').textContent, '🏠');
+  assert.equal(name.querySelector('.kit-nav-group__label').textContent, 'Home');
+  assert.equal(name.children.at(-1), badge, 'a badge after the name');
+  assert.equal(count.textContent, '12');
+  assert.ok(count.hasAttribute('hidden'), 'how many, only while folded');
+
+  let stopped = 0;
+  const click = { stopPropagation: () => { stopped += 1; } };
+  for (const fn of toggle.listeners.click) fn(click);
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(toggle.getAttribute('aria-label'), 'kit.side.groupUnfold');
+  assert.ok(body.hasAttribute('hidden'));
+  assert.ok(!count.hasAttribute('hidden'));
+  assert.deepEqual(toggled, [false], 'the module keeps it its own way');
+  for (const fn of toggle.listeners.click) fn(click);
+  assert.deepEqual(toggled, [false, true]);
+  assert.ok(!body.hasAttribute('hidden'));
+
+  for (const fn of name.listeners.click) fn(click);
+  let prevented = 0;
+  for (const key of ['Enter', ' ', 'a']) {
+    for (const fn of name.listeners.keydown) fn({ key, preventDefault: () => { prevented += 1; } });
+  }
+  assert.deepEqual(named, [['click', name], ['Enter', name], [' ', name]], 'its menu, anchored on the name; Enter and Space press it');
+  assert.equal(prevented, 2);
+  assert.equal(stopped, 3, 'neither closes the drawer');
+  assert.deepEqual(toggled, [false, true], 'the name doesn\'t fold it');
+});
+
+test('a group folded stays open with the collection open in it; without a menu its name folds it; empty, it says so', async () => {
+  const { navGroup } = await import('../web/shell.js');
+  const kept = navGroup({ name: 'Work', open: false, keep: true, count: 3 });
+  assert.ok(!kept.children[1].hasAttribute('hidden'), 'the collection open stays in sight');
+  assert.ok(kept.querySelector('.kit-nav__count').hasAttribute('hidden'));
+  const folded = navGroup({ name: 'Work', open: false, count: 0, empty: 'No notebooks yet', iconName: 'folder' });
+  const [head, body] = folded.children;
+  assert.ok(body.hasAttribute('hidden'));
+  assert.equal(body.querySelector('.kit-nav-group__empty').textContent, 'No notebooks yet');
+  assert.equal(head.querySelector('.kit-nav__count'), null, 'nothing to count');
+  assert.equal(folded.getAttribute('style'), null, 'the kit\'s muted colour unless given');
+  const name = head.querySelector('.kit-nav-group__name');
+  assert.equal(name.getAttribute('aria-haspopup'), null);
+  assert.ok(name.querySelector('.kit-nav-group__icon').querySelector('svg'), 'the kit\'s icon');
+  for (const fn of name.listeners.click) fn({ stopPropagation: () => {} });
+  assert.ok(!body.hasAttribute('hidden'), 'its name folds and unfolds it, as the chevron does');
+  assert.equal(head.querySelector('.kit-nav-group__toggle').getAttribute('aria-expanded'), 'true');
+
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  // One look: 36 px (40 in Clean), the colour's border, tint and text, the name at 650, the chevron turned, a step in.
+  assert.match(css, /\.kit-nav-group__head \{[^}]*min-height: 36px;[^}]*border-inline-start: 3px solid var\(--group-color, var\(--kit-muted\)\);[^}]*background: color-mix\(in oklab, var\(--group-color, var\(--kit-muted\)\) 12%, transparent\);[^}]*color: color-mix\(in oklab, var\(--group-color, var\(--kit-muted\)\) 50%, var\(--kit-text\)\);/);
+  assert.match(css, /:root\[data-theme="dark"\] \.kit-nav-group__head \{ background: color-mix\(in oklab, var\(--group-color, var\(--kit-muted\)\) 18%, transparent\); \}/);
+  assert.match(css, /\.kit-nav-group__name \{[^}]*font-weight: 650;/);
+  assert.match(css, /\.kit-nav-group__toggle \.kit-icon \{ width: 14px; height: 14px;/);
+  assert.match(css, /\.kit-nav-group__toggle\[aria-expanded="true"\] \.kit-icon \{ transform: rotate\(90deg\); \}/);
+  assert.match(css, /\.kit-nav-group__body \{[^}]*padding-inline-start: 12px; \}/);
+  assert.match(css, /:root\[data-look="clean"\] \.kit-nav-group__head \{\s*min-height: 40px;[^}]*border-inline-start: 0; background: transparent; color: var\(--kit-text\);/);
 });

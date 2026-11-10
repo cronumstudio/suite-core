@@ -3,7 +3,8 @@
  * use (its error inside, one send at a time, Ctrl/Cmd+Enter, actions that change), one action at a
  * time in every dialog, Escape for the top dialog only (and for a menu open in it before the
  * dialog), and what the modules need to drop their own copies: a width, a place to hang, a body
- * and foot of their own, a confirmation's second line, a menu at a pointer's place with emoji.
+ * and foot of their own, a confirmation's second line, a menu at a pointer's place with emoji,
+ * one whose items may be left out, and the «…» that opens one.
  *
  *   npm test
  */
@@ -21,7 +22,7 @@ const { showModal, close } = FakeElement.prototype;
 FakeElement.prototype.showModal = function showOpen() { showModal.call(this); this.setAttribute('open', ''); };
 FakeElement.prototype.close = function closeOpen() { this.removeAttribute('open'); close.call(this); };
 
-const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, QUESTION_WIDTH, menu, closeMenu } = await import('../web/ui.js');
+const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, QUESTION_WIDTH, menu, closeMenu, moreButton } = await import('../web/ui.js');
 const { el } = await import('../web/dom.js');
 
 const buttonsOf = (node) => node.find('button').filter((b) => (b.getAttribute('class') || '').includes('kit-btn'));
@@ -295,6 +296,60 @@ test('menu: at a pointer\'s place, in a module\'s own place, with emoji in place
   assert.equal(root.children.length, 0, 'a choice closes it');
   closeMenu();
   root.remove();
+  await settle();
+});
+
+test('menu: what is left out (`cond ? item : null`) leaves no gap, nor a separator with nothing to separate', async () => {
+  const node = menu(null, [
+    null, 'separator', { label: 'Rename' }, false, 'separator', undefined, 'separator',
+    { label: 'Share' }, 'separator', null,
+  ]);
+  assert.deepEqual(node.children.map((child) => child.getAttribute('role')), ['menuitem', 'separator', 'menuitem']);
+  assert.deepEqual(node.querySelectorAll('[role="menuitem"]').map((item) => item.textContent), ['Rename', 'Share']);
+  closeMenu();
+  assert.equal(menu(null, [null, 'separator']).children.length, 0, 'nothing at all');
+  closeMenu();
+  await settle();
+});
+
+test('moreButton: «…» with its name, a menu of what is possible when it opens, closed by a second press', async () => {
+  let shared = false;
+  const button = moreButton(() => [
+    { label: 'Rename', onClick: () => {} },
+    shared ? { label: 'Stop sharing', onClick: () => {} } : null,
+    'separator',
+    { label: 'Delete', danger: true, onClick: () => {} },
+  ]);
+  document.body.append(button);
+  assert.equal(button.getAttribute('class'), 'kit-icon-btn');
+  assert.equal(button.getAttribute('aria-label'), 'kit.more', '«Más opciones», the kit\'s');
+  assert.equal(button.getAttribute('title'), 'kit.more');
+  assert.equal(button.getAttribute('aria-haspopup'), 'menu');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.ok(button.querySelector('svg'), 'the kit\'s «…» icon');
+
+  let stopped = 0;
+  const pressMore = () => { for (const fn of button.listeners.click) fn({ currentTarget: button, stopPropagation: () => { stopped += 1; } }); };
+  const labels = () => document.body.all().find((node) => node.getAttribute('role') === 'menu')
+    ?.querySelectorAll('[role="menuitem"]').map((item) => item.textContent);
+  pressMore();
+  assert.deepEqual(labels(), ['Rename', 'Delete']);
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  pressMore();
+  assert.equal(labels(), undefined, 'a second press closes it');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  shared = true;
+  pressMore();
+  assert.deepEqual(labels(), ['Rename', 'Stop sharing', 'Delete'], 'asked again each time it opens');
+  assert.equal(stopped, 3, 'what it sits in doesn\'t take the press');
+  closeMenu();
+  button.remove();
+
+  const named = moreButton([{ label: 'Export' }], { label: 'List options' });
+  assert.equal(named.getAttribute('aria-label'), 'List options');
+  for (const fn of named.listeners.click) fn({});
+  assert.deepEqual(labels(), ['Export'], 'a list of items as it is, and an event without a way to stop it');
+  closeMenu();
   await settle();
 });
 
