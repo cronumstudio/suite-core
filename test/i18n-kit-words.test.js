@@ -54,7 +54,7 @@ test('kitDuplicates: a copy of a word of the kit, and a suite key repeated as it
 test('kitDuplicates: overrides, deeper kit groups, other wording and the suite\'s groups are left alone', () => {
   const differs = { ...kit('kit.cancel'), es: 'Anular' };
   const { root, dir } = app({
-    'common.undo': kit('kit.links.undo'),
+    'common.link': kit('kit.links.add'),
     'common.cancel': differs,
     'kit.cancel': differs,
     'fields.start_date': kit('fields.starts_at'),
