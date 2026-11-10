@@ -1360,6 +1360,7 @@
   "kit.share.you": "{name} (du)",
   "kit.share.pending": "Eingeladen, noch keine Antwort",
   "kit.share.remove": "{name} den Zugriff entziehen",
+  "kit.share.takeBack": "Entfernen",
   "kit.share.invited": "Einladung an {name} gesendet.",
   "kit.share.changed": "Was {name} darf, hat sich geändert.",
   "kit.share.leave": "Verlassen",
