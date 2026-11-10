@@ -52,7 +52,7 @@ globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
 const { loadLanguage, t } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
 const { openSettings } = await import('../web/settings.js');
-const { productText, offerFor, isLive, offerPlan, isPlanError, billingReturn, planStatus, PLAN_EVENT } = await import('../web/plan.js');
+const { productText, yearlySaving, offerFor, isLive, offerPlan, isPlanError, billingReturn, planStatus, PLAN_EVENT } = await import('../web/plan.js');
 const { ApiError } = await import('../web/api.js');
 
 const PLANS = [{ id: 'free', name: 'Free' }, { id: 'pro', name: 'Pro' }];
@@ -301,6 +301,8 @@ test('Upgrade: the products with their names and prices, the founder’s first w
   assert.deepEqual(rows.map((row) => row.find('strong')[0].textContent), ['Pro', 'Pro']);
   assert.deepEqual(rows.map((row) => row.find('small')[0].textContent), ['Yearly subscription', 'Monthly subscription'], 'the founder’s price first');
   assert.deepEqual(rows.map((row) => row.all().some((n) => n.textContent === 'Founder’s price' && /kit-badge/.test(n.className))), [true, false]);
+  assert.deepEqual(rows.map((row) => row.all().filter((n) => n.className === 'kit-badge kit-badge--on').map(textOf)), [['59% off'], []],
+    'the founder’s year against twelve months of the monthly one, and nothing on the monthly');
   const prices = rows.map((row) => row.all().find((n) => n.className === 'kit-plan__price'));
   assert.deepEqual(prices.map((n) => [n.find('s')[0]?.textContent ?? null, n.find('strong')[0].textContent, n.find('small')[0].textContent]),
     [['€35', '€19', '/year'], [null, '€3.90', '/month']], 'the founder’s beside the regular one, struck; cents only where there are');
@@ -470,7 +472,7 @@ test('without a subscription now: past payments and invoices, last and quiet, wh
   assert.doesNotMatch(payments.className, /kit-btn--primary/, 'quiet: Upgrade is the one');
   const shown = view.blocks();
   assert.ok(shown.indexOf(payments.parentNode.parentNode) > shown.findIndex((b) => /Upgrade/.test(b.textContent)), 'after what can be bought');
-  assert.equal(view.page.all().filter((n) => /kit-badge/.test(n.className) && view.visible(n)).length, 0, 'no founder’s price for whoever isn’t one');
+  assert.equal(view.page.all().filter((n) => /kit-badge--accent/.test(n.className) && view.visible(n)).length, 0, 'no founder’s price for whoever isn’t one');
   followed.length = 0;
   click(payments);
   await settle();
@@ -838,6 +840,20 @@ test('every module’s frame in a host: the founder’s notice from the host, cl
   assert.match(shell, /localStorage\.setItem\(FOUNDER_KEY, offer\.until\)/, 'closed on this device, for that date');
   assert.match(shell, /if \(ev\.key === FOUNDER_KEY\) hideBanner\('founder-offer'\)/, 'and in the other tabs and frames');
   assert.match(shell, /if \(mount && !FRAMED && !embedded\) billingReturn\(\{ open: onSettings \? \(\) => onSettings\('plan'\) : null \}\)/);
+});
+
+test('yearlySaving: a year against twelve months, rounded down, and nothing it can\'t say', () => {
+  const month = { key: 'pro-monthly', plan: 'pro', kind: 'subscription', for: 'user', amount: 3.9, currency: 'EUR' };
+  const year = { key: 'pro-yearly', plan: 'pro', kind: 'subscription', for: 'user', amount: 35, currency: 'EUR' };
+  assert.equal(yearlySaving(year, [month, year]), 25);
+  assert.equal(yearlySaving(year, [month, year], 19), 59);
+  assert.equal(yearlySaving(month, [month, year]), null, 'only a year');
+  assert.equal(yearlySaving(year, [year]), null, 'no monthly to compare with');
+  assert.equal(yearlySaving(year, [{ ...month, currency: 'USD' }, year]), null, 'another currency');
+  assert.equal(yearlySaving(year, [{ ...month, for: 'organization' }, year]), null, 'a group\'s is another product');
+  assert.equal(yearlySaving(year, [month, year], 46.8), null, 'twelve months\' price: no saving');
+  assert.equal(yearlySaving({ ...year, amount: 50 }, [{ ...month, amount: 5 }, year]), 16, 'exactly 16.66…%');
+  assert.equal(yearlySaving({ ...year, amount: 45 }, [{ ...month, amount: 5 }, year]), 25, 'a whole percent stays whole');
 });
 
 /* ---------------------- the founder's offer, on starting --------------------- */

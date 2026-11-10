@@ -3,6 +3,13 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.243.2 — 2026-11-10
+
+- **Settings › Plan says how much a year saves.** A yearly product's row has a badge with how much
+  less it costs than twelve months of the same plan's monthly product, rounded down: "25% off", or
+  "59% off" with a founder's price. `yearlySaving()` in `web/plan.js`. Only where the web sells, so
+  never in the app on a phone.
+
 ## 0.243.1 — 2026-11-09
 
 - **The same words and the same margin in every module** (audit of 6/11, ux-textos-1 and -4,
