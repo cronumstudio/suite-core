@@ -575,9 +575,16 @@ export function formDialog({
 }
 
 /**
+ * How wide a question is (confirmDialog), on a computer: narrower than a form (560 px, kit.css),
+ * the same in every module (audit of 6/11). A phone's sheet still takes the whole width.
+ */
+export const QUESTION_WIDTH = '420px';
+
+/**
  * Asks before something that can't be undone. Resolves true or false.
  * `detail` is a second, quieter line; `more`, a node after it (a choice that
- * goes with the answer); `width` and `parent` as openDialog's.
+ * goes with the answer); `width` (a question's, QUESTION_WIDTH, by default) and
+ * `parent` as openDialog's. Without `text` the title alone asks.
  */
 export function confirmDialog(text, {
   title = t('kit.areYouSure'), confirm = t('kit.confirm'), cancel = t('kit.cancel'), danger = true,
@@ -587,9 +594,9 @@ export function confirmDialog(text, {
     let answer = false;
     openDialog({
       title,
-      width,
+      width: width || QUESTION_WIDTH,
       parent,
-      content: [el('p', { text }), detail ? el('p', { class: 'kit-hint', text: detail }) : null, more],
+      content: [text ? el('p', { text }) : null, detail ? el('p', { class: 'kit-hint', text: detail }) : null, more],
       actions: [
         { label: cancel },
         { label: confirm, primary: !danger, danger, onClick: () => { answer = true; } },
@@ -597,6 +604,27 @@ export function confirmDialog(text, {
       onClose: () => resolve(answer),
     });
   });
+}
+
+/**
+ * Before deleting what can't come back (it has no trash, or this empties it): «¿Borrar «X»?» as
+ * the title, what it takes with it as `text`, and a red Borrar, the same in every module (audit of
+ * 6/11; Martin, 9/11). What goes to a trash is deleted at once with an Undo instead (undoToast).
+ * `confirm` names the button when Borrar isn't the word ("Vaciar"), `title` the question when there
+ * is no one thing to name. Resolves true or false.
+ */
+export function deleteDialog(name, { text = null, detail = null, title = null, confirm = null, parent = null } = {}) {
+  return confirmDialog(text, {
+    title: title || t('kit.deleteAsk', { name }), confirm: confirm || t('kit.delete'), danger: true, detail, parent,
+  });
+}
+
+/**
+ * Something just went to a trash (or was taken out and can be put back): the notice with Undo,
+ * the same words and time in every module. `onUndo` puts it back. Returns a function that closes it.
+ */
+export function undoToast(text, onUndo) {
+  return toast(text, { action: { label: t('kit.undo'), onClick: onUndo } });
 }
 
 /* ---------------------------------- menus --------------------------------- */
