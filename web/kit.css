@@ -785,9 +785,12 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-side__top .kit-side__fold { margin-inline-end: -4px; }
 .kit-side__search-input {
   flex: 1; min-width: 0; padding: 9px 0; border: 0; background: none; outline: none; color: var(--kit-text);
-  /* 16px or more: below it an iPhone zooms the page in on tapping it. */
-  font: inherit; font-size: max(16px, var(--look-body, 15px));
+  /* 16px or more: below it an iPhone zooms the page in on tapping it. Its own line height, not the
+     page's: Notes' 1.5 made its box a pixel taller than the other modules', its magnifier lower. */
+  font: inherit; font-size: max(16px, var(--look-body, 15px)); line-height: 1.45;
 }
+/* The kit's word in it («Buscar») in the kit's faint colour, light or dark: not the browser's grey. */
+.kit-side__search-input::placeholder { color: var(--kit-faint); opacity: 1; }
 .kit-side__nav { flex: 1; overflow-y: auto; padding: 0 8px calc(10px + var(--kit-safe-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px; }
 /*
  * The sidebar's foot (shell.js `foot`): the + that makes a collection at its start, the trash at
