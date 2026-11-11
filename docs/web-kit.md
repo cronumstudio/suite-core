@@ -118,7 +118,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `svg(tag, props, …children)`, `$`, `$$`, `append`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings; `style` and `dataset` may be objects, children may come in nested arrays |
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
-| `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words |
+| `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent })` (items with `glyph`; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
@@ -136,7 +136,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
-| `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; `keepOnly(id)`; `tempId()`, `isTempId()` |
+| `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
 | `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
@@ -578,6 +578,14 @@ openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, op
   "See plans" running `open` (Settings at its plan section, or a native app's own way to buy);
   false for anything else, which stays the app's. Inside a Settings that sells, every section
   does this by itself.
+- Anywhere else in a host's module made with `createShell({ onSettings })` it comes on its own (0.254.0):
+  a 402 met by any call of the kit's `api` is kept for ten seconds by its sentence, and the first
+  error notice that says it (`toast(errorMessage(err), { error: true })`, as every module says its
+  errors) gets "See plans", which closes a dialog still open (the form that met it, 0.256.1) and opens
+  Settings at Plan. Once, and only for those words: any other
+  notice is left as it is. `setPlanOpener(open)` is what the shell gives (`null` when it goes); a
+  page without a shell can give its own. `plan_limit` says what it limits, as Usage counts it:
+  «Tu plan (Free) permite 20 listas y ya tienes 20.», «… 50 MB de espacio …».
 - `billingReturn({ onPlan, open })` → false unless the address has `?billing=done` or
   `?billing=canceled`. Then it takes the mark out of the address (not again on a reload). Back from
   paying, it thanks the person (with "See plans" when there is `open`) and reads the plan again a

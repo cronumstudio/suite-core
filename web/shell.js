@@ -54,6 +54,7 @@ import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, ho
 import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
 import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan.js';
+import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
@@ -1009,6 +1010,11 @@ export function createShell({
   // Back from the host's checkout (Settings › Plan in a module): thanks, and the plan read again
   // until it arrives. Only a host's module comes back to its own path with `?billing=`.
   if (mount && !FRAMED && !embedded) billingReturn({ open: onSettings ? () => onSettings('plan') : null });
+  // A plan's barrier met anywhere in the app (a list too many, a photo without room): its notice
+  // opens the plan in Settings (api.js planAction, ui.js toast). Only in a host's module: its
+  // Settings has the plan (the host's `plans`); an app on its own would open them at Profile.
+  const openPlan = onSettings && mount ? () => onSettings('plan') : null;
+  if (openPlan) setPlanOpener(openPlan);
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
@@ -1030,6 +1036,7 @@ export function createShell({
     if (destroyed) return;
     destroyed = true;
     listening.abort();
+    if (openPlan) setPlanOpener(null, { replacing: openPlan });
     for (const swallow of swallowing) document.removeEventListener('click', swallow, { capture: true });
     swallowing.clear();
     swipe = null;

@@ -502,6 +502,24 @@ function suiteWorker(options) {
     }));
   });
 
+  // The browser (or its push service) renewed the subscription: the server is told the new one,
+  // or the notices stopped with nobody knowing (audit of 6/11, pwa-3). The session's cookie goes
+  // with it; without one the server refuses and the next start of a page renews it.
+  self.addEventListener('pushsubscriptionchange', function (event) {
+    var old = event.oldSubscription;
+    var made = event.newSubscription
+      ? Promise.resolve(event.newSubscription)
+      : old && old.options ? self.registration.pushManager.subscribe(old.options) : Promise.resolve(null);
+    event.waitUntil(made.then(function (subscription) {
+      if (!subscription) return null;
+      var json = subscription.toJSON();
+      return fetch(suiteAt('/api/push/subscribe', scope), {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys, label: String(self.navigator && self.navigator.userAgent || '').slice(0, 120) }),
+      });
+    }).catch(function () {}));
+  });
+
   self.addEventListener('notificationclick', function (event) {
     event.notification.close();
     var data = event.notification.data || {};

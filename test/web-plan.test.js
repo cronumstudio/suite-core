@@ -571,7 +571,7 @@ test('a 402 anywhere: why, in words, with a button to the plan; anything else is
 
   let opened = 0;
   assert.equal(offerPlan(new ApiError(402, 'plan_limit', { feature: 'lists.max', limit: 3, current: 3, plan: 'free', plan_name: 'Free' }), { open: () => opened++ }), true);
-  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) allows 3, and you already have 3.');
+  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) allows 3 lists, and you already have 3.');
   const action = lastToast().find('button')[0];
   assert.equal(action.textContent, 'See plans');
   click(action);
@@ -1022,4 +1022,79 @@ test('the founder’s offer: Buy is Settings’ checkout, and Not now just close
   await settle();
   assert.equal(openNotices().length, 1, 'anything else: it stays, to be tried again');
   closeNotices();
+});
+
+test('a 402 met by any call: the notice that says it, from any module, carries «See plans» (audit of 6/11, billing-6)', async () => {
+  const { api, errorMessage, setPlanOpener } = await import('../web/api.js');
+  const { toast } = await import('../web/ui.js');
+  const refused = (data) => async () => ({ status: 402, data: { error: 'plan_limit', plan: 'free', plan_name: 'Free', ...data } });
+  // As a module says its errors: toast(errorMessage(err), { error: true }).
+  const said = async (path) => {
+    try { await api.post(path, {}); } catch (err) { toast(errorMessage(err), { error: true }); return err; }
+    return null;
+  };
+  routes['POST /api/lists'] = refused({ feature: 'lists.max', limit: 20, current: 20 });
+  routes['POST /api/files'] = refused({ feature: 'storage.mb', limit: '50 MB', current: '51 MB' });
+  routes['POST /api/other'] = { status: 400, data: { error: 'field_required', field: 'name' } };
+
+  // Without a shell that opens the plans: the words alone, naming what is limited.
+  await said('/api/lists');
+  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) allows 20 lists, and you already have 20.');
+  assert.equal(lastToast().find('button').length, 0);
+
+  let opened = 0;
+  const open = () => { opened += 1; };
+  setPlanOpener(open);
+  await said('/api/files');
+  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) allows 50 MB of storage, and you already have 51 MB.');
+  const button = lastToast().find('button')[0];
+  assert.equal(button?.textContent, 'See plans');
+  click(button);
+  assert.equal(opened, 1, 'it opens the plans');
+
+  // Only the notice of that barrier, once: the same words again, or another error, have none.
+  toast(t('errors.plan_limit', { plan_name: 'Free', limit: '50 MB of storage', current: '51 MB' }), { error: true });
+  assert.equal(lastToast().find('button').length, 0, 'said once');
+  await said('/api/lists');
+  await said('/api/other');
+  assert.equal(lastToast().find('button').length, 0, 'another error after it: none');
+  await api.post('/api/lists', {}).catch(() => {});
+  toast('Something else went wrong.', { error: true });
+  assert.equal(lastToast().find('button').length, 0, 'other words: none');
+  toast(errorMessage({ code: 'plan_limit', data: { feature: 'lists.max', limit: 20, current: 20, plan_name: 'Free' } }), { error: true });
+  assert.ok(lastToast().find('button')[0], 'the module may say it a moment later');
+
+  // A shell let go takes its opener with it, never another's.
+  const other = () => {};
+  setPlanOpener(other);
+  setPlanOpener(null, { replacing: open });
+  await said('/api/lists');
+  assert.ok(lastToast().find('button')[0], 'the newer shell\'s stays');
+  setPlanOpener(null, { replacing: other });
+  await said('/api/lists');
+  assert.equal(lastToast().find('button').length, 0);
+});
+
+test('«See plans» from a form that met the barrier closes the form first: Settings would open behind it', async () => {
+  const { api, errorMessage, setPlanOpener } = await import('../web/api.js');
+  const { toast } = await import('../web/ui.js');
+  routes['POST /api/notebooks'] = { status: 402, data: { error: 'plan_limit', feature: 'notebooks.max', limit: 1, current: 1, plan_name: 'Free' } };
+  // The page's dialogs, as a browser finds them.
+  document.querySelectorAll = (selector) => document.body.querySelectorAll(selector);
+  const form = document.createElement('dialog');
+  document.body.append(form);
+  form.showModal();
+  let closed = 0;
+  form.addEventListener('close', () => { closed += 1; });
+  const order = [];
+  const open = () => order.push(form.open ? 'over the form' : 'with the form closed');
+  setPlanOpener(open);
+  try { await api.post('/api/notebooks', { name: 'One more' }); } catch (err) { toast(errorMessage(err), { error: true }); }
+  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) allows 1 notebook, and you already have 1.');
+  click(lastToast().find('button')[0]);
+  assert.equal(closed, 1);
+  assert.deepEqual(order, ['with the form closed']);
+  setPlanOpener(null, { replacing: open });
+  form.remove();
+  delete document.querySelectorAll;
 });

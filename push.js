@@ -77,6 +77,10 @@ export function pushSchema(d) {
   )`);
   // The device's language, for the app to write each notice in it.
   ensureColumn(d, 'push_subscriptions', 'lang', 'lang TEXT');
+  // The session it was turned on in (sessions.js keyOf: the first 16 of its hash): closed from
+  // another device, or ended, its notices end with it (audit of 6/11, pwa-2). Null for a row from
+  // before, or one made without a session (a device token): those stay until Settings removes them.
+  ensureColumn(d, 'push_subscriptions', 'session_key', 'session_key TEXT');
   d.exec('CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)');
 }
 
@@ -483,16 +487,17 @@ export function createPush({
    * Registers (or updates) the device that just gave permission.
    * → how many devices the person has now.
    */
-  function subscribe(userId, { endpoint, p256dh, auth, label = null, lang = null }) {
+  function subscribe(userId, { endpoint, p256dh, auth, label = null, lang = null, sessionKey = null }) {
     checkEndpoint(endpoint);
     const keys = checkKeys(p256dh, auth);
     database.tx(() => {
-      database.run(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, label, lang)
-        VALUES (?, ?, ?, ?, ?, ?)
+      database.run(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, label, lang, session_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh,
-          auth = excluded.auth, label = excluded.label, lang = excluded.lang, failures = 0,
-          created_at = datetime('now')`,
-      userId, endpoint, keys.p256dh, keys.auth, label ? String(label).slice(0, 80) : null, lang ? String(lang).slice(0, 12) : null);
+          auth = excluded.auth, label = excluded.label, lang = excluded.lang, session_key = excluded.session_key,
+          failures = 0, created_at = datetime('now')`,
+      userId, endpoint, keys.p256dh, keys.auth, label ? String(label).slice(0, 80) : null, lang ? String(lang).slice(0, 12) : null,
+      typeof sessionKey === 'string' && sessionKey ? sessionKey.slice(0, 16) : null);
       // A person has a few devices, not thousands: past the ceiling the ones that have gone
       // longest without being used go (subscribing again counts as use), never the one that just said yes.
       database.run(`DELETE FROM push_subscriptions WHERE user_id = ? AND id NOT IN (
@@ -508,6 +513,24 @@ export function createPush({
     return endpoint
       ? database.run('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?', userId, endpoint).changes
       : database.run('DELETE FROM push_subscriptions WHERE user_id = ?', userId).changes;
+  }
+
+  /** One device of a person, by its id (Settings' «Remove»). → whether there was one. */
+  const removeDevice = (userId, id) => database.run('DELETE FROM push_subscriptions WHERE user_id = ? AND id = ?', userId, Number(id)).changes > 0;
+
+  /** The devices turned on in one session of a person, that session closed (sessions.js keyOf). → how many. */
+  const forgetSession = (userId, key) => (typeof key === 'string' && key
+    ? database.run('DELETE FROM push_subscriptions WHERE user_id = ? AND session_key = ?', userId, key.slice(0, 16)).changes
+    : 0);
+
+  /**
+   * The devices whose session is gone (ended, or closed somewhere that didn't say): on the suite's
+   * timers, after the sessions' own clean-up. Only where the install keeps its sessions here.
+   */
+  function purgeSessions() {
+    if (!database.columnsOf('sessions').length) return 0;
+    return database.run(`DELETE FROM push_subscriptions WHERE session_key IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM sessions s WHERE s.user_id = push_subscriptions.user_id AND substr(s.token_hash, 1, 16) = push_subscriptions.session_key)`).changes;
   }
 
   /** A person's devices, for Settings: never the keys. */
@@ -540,7 +563,7 @@ export function createPush({
 
   return {
     publicKey: vapid.publicKey,
-    send, deliver, subscriptionsOf, subscribe, unsubscribe, devices,
+    send, deliver, subscriptionsOf, subscribe, unsubscribe, devices, removeDevice, forgetSession, purgeSessions,
     /** Sends to every device of some people. */
     sendTo: (userIds, payload, options) => deliver(subscriptionsOf(userIds), payload, options),
     checkSubscription, sendToSubscription,
