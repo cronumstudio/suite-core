@@ -69,6 +69,7 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
       return thing;
     },
     offered: (info) => events.push(['offered', info.targetId, info.permission, info.invited]),
+    changed: (info) => events.push(['changed', info.targetId, info.permission]),
     removed: (info) => events.push(['removed', info.targetId]),
     ...extra,
   });
@@ -312,6 +313,39 @@ test('every notice a removal sends is for a share an offer made: the brake bound
   assert.equal(codeOf(() => sharing.share('list', 1, 30, { email: 'ben@example.com' })), '429 share_limit');
   sharing.remove('list', 1, 30, 2);
   assert.equal(events.filter(([what]) => what === 'removed').length, 3, 'one per offer, none past the brake');
+});
+
+test('an offer or a change to someone who hasn\'t accepted counts each time, by id as by email; a member\'s doesn\'t (audit sc-data-6)', () => {
+  const brake = createShareBrake({ clock: () => 0, offersPerHour: 3 });
+  const { db, sharing, events } = setup({ brake });
+  // Ben offered Ana something: she may name him by id. Hers is the only count that matters here.
+  sharing.share('board', 2, 20, { email: 'ana@example.com' });
+  events.length = 0;
+  sharing.share('board', 1, 10, { user_id: 2 });
+  sharing.share('board', 1, 10, { user_id: 2, permission: 'view' });
+  sharing.setPermission('board', 1, 10, 2, 'edit');
+  // Each told Ben, who never accepted anything of Ana's: offered again by id, or its permission
+  // changed, again and again, made his tabs reload as often as she liked.
+  assert.equal(codeOf(() => sharing.share('board', 1, 10, { user_id: 2, permission: 'view' })), '429 share_limit');
+  assert.equal(codeOf(() => sharing.setPermission('board', 1, 10, 2, 'view')), '429 share_limit');
+  assert.equal(db.get('SELECT permission FROM board_shares WHERE board_id = 10 AND user_id = 2').permission, 'edit', 'a refused change changes nothing');
+  assert.deepEqual(events, [['offered', 2, 'edit', true], ['offered', 2, 'view', false], ['changed', 2, 'edit']], 'no notice past the limit');
+
+  // Accepted, what Ben may do is a member's to change, as often as she likes.
+  sharing.accept('board', 2, 10);
+  assert.equal(sharing.setPermission('board', 1, 10, 2, 'view').permission, 'view');
+  assert.equal(sharing.share('board', 1, 10, { user_id: 2, permission: 'edit' }).invited, false);
+  assert.equal(sharing.share('board', 1, 10, { email: 'ben@example.com', permission: 'view' }).invited, false);
+
+  // A module that changes an offer by address counts it itself, before anything changes, whether an
+  // account waits behind it or none (countOffer); setPermission by address doesn't count it again.
+  const tight = setup({ brake: createShareBrake({ clock: () => 0, offersPerHour: 2 }), addresses: true });
+  tight.sharing.share('board', 1, 10, { email: 'eve@example.com' });
+  tight.sharing.countOffer(1);
+  tight.sharing.setPermission('board', 1, 10, 5, 'view', { byAddress: true });
+  assert.equal(tight.db.get('SELECT permission FROM board_shares WHERE board_id = 10 AND user_id = 5').permission, 'view');
+  assert.equal(codeOf(() => tight.sharing.countOffer(1)), '429 share_limit');
+  assert.equal(codeOf(() => tight.sharing.countOffer(2)), 'ok', 'others are not held back');
 });
 
 test('a kind without invited_by and with created_at by default; its own answers', () => {

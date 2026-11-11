@@ -92,10 +92,28 @@ export function createStrangerInvites({ database, baseUrl, enabled = true, limit
   const unsubscribeUrl = (token) => `${home}/api/mail/unsubscribe?t=${encodeURIComponent(token)}`;
 
   /**
-   * The address a text reaches, in lower case, as the mail would take it out of it: what a row
-   * says, also one written before check() took bare addresses only.
+   * The address a text reaches, as the mail takes it out of it and a mail server delivers it: no
+   * name around it, nothing invisible, no letter as a variant of itself, no dot at its end, in
+   * lower case. What a row says, also one written before check() took bare addresses only.
    */
-  const addressOf = (text) => parseAddress(text)?.address.toLowerCase() ?? String(text ?? '').trim().toLowerCase();
+  const addressOf = (text) => (parseAddress(text)?.address ?? String(text ?? '').trim())
+    .normalize('NFKC').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '').replace(/\.+$/, '').toLowerCase();
+
+  // Rows written before check() took bare addresses only may say an address another way
+  // (`"x" <someone@…>`, a dot at its end; audit sc-data-7). What they block and count is the
+  // address the mail reached: each is read as that once, here, so check() finds it by the address.
+  // Only rows with a bracket, a dot at the end or anything but plain ASCII are looked at.
+  const odd = "email LIKE '%<%' OR email LIKE '%.' OR email GLOB '*[^ -~]*'";
+  for (const row of database.all(`SELECT email, created_at FROM mail_suppressions WHERE ${odd}`)) {
+    const address = addressOf(row.email);
+    if (address && address !== row.email) {
+      database.run('INSERT OR IGNORE INTO mail_suppressions (email, created_at) VALUES (?, ?)', address, row.created_at);
+    }
+  }
+  for (const row of database.all(`SELECT id, email FROM mail_stranger_invites WHERE ${odd}`)) {
+    const address = addressOf(row.email);
+    if (address && address !== row.email) database.run('UPDATE mail_stranger_invites SET email = ? WHERE id = ?', address, row.id);
+  }
 
   /** Notes one as sent, before it goes (two at once can't both pass check()). → its link to stop them. */
   function record(email, inviterId, kind) {

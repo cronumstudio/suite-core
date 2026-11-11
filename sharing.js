@@ -38,8 +38,12 @@
  * is named by the offer, never by its id, here too.
  *
  * The brake (share-brake.js, or the module's own with the same two methods):
- * every new offer and every address without an account counts towards a limit
- * per hour (429 share_limit), and each pair of people is told once a day.
+ * every address without an account, and every offer to someone who hasn't
+ * accepted it —a new one, one made again, a change of what they may do— counts
+ * towards a limit per hour (429 share_limit), and each pair of people is told
+ * once a day. Each of those tells someone who never accepted anything of the
+ * person's, so none goes past the limit (audit sc-data-6); what a member
+ * accepted changes freely.
  *
  * The notice of a new offer: an email always, and a push too if the person has a
  * device that takes it (`notify: { push, email }`, each the module's, with its
@@ -113,7 +117,10 @@ export function createSharing({
 
   /* ------------------------------- people ------------------------------- */
 
-  /** Someone as the sharing screens show them: the owner also sees the emails they typed. */
+  /**
+   * Someone as the sharing screens show them; with `email`, their account's email too, which only
+   * the owner of a kind without `addresses` is shown (sharesOf).
+   */
   function personOf(userId, { email = false } = {}) {
     const user = get('SELECT id, display_name, username, email FROM users WHERE id = ?', userId);
     if (!user) return null;
@@ -222,6 +229,12 @@ export function createSharing({
 
   /* ------------------------------- target ------------------------------- */
 
+  /**
+   * One offer of the person's towards the brake: past its limit, 429 share_limit. The engine's
+   * own, and `countOffer` for a module that changes an offer by address itself
+   * (setPermission's `byAddress`): it counts it before it changes anything, the same whether an
+   * account waits behind the offer or none, or the limit would tell them apart.
+   */
   const count = (userId) => {
     const allowed = brake.offer(userId);
     if (!allowed.allowed) throw new HttpError(429, 'share_limit', { retry_after: allowed.retryAfter });
@@ -387,9 +400,11 @@ export function createSharing({
     }
     const row = shareRow(kind, thing.id, who.id);
     const invited = !row;
-    // By email an offer not yet accepted counts every time, as an address without an account does:
-    // otherwise offering it again and again would find the limit only for addresses nobody has.
-    if (invited || (who.email && !row.accepted)) count(userId);
+    // An offer not yet accepted counts every time, by email as by id: each one tells them
+    // (`offered`), and one counted offer by id, made again and again, made their tabs reload
+    // without limit (audit sc-data-6). By email it also finds the limit as soon as an address
+    // without an account does, which counts every time.
+    if (invited || !row.accepted) count(userId);
     offerRow(kind, thing.id, userId, who.id, permission);
     spec.offered?.({ userId, thing, targetId: who.id, permission, invited, ctx });
     if (invited) tell(kind, thing, userId, who.id, permission);
@@ -405,7 +420,9 @@ export function createSharing({
   /**
    * Changes what someone it was offered to may do. Only its owner. → their share.
    * Someone waiting behind an offer by address answers as a share that isn't there
-   * (behindAddress), unless the module changes that offer (`byAddress`).
+   * (behindAddress), unless the module changes that offer (`byAddress`). Not
+   * accepted yet, the change counts as an offer made again: it tells them as one
+   * does (`changed`). By address the module counted it already (countOffer).
    */
   function setPermission(kind, userId, id, targetId, permission, { byAddress = false } = {}) {
     const spec = specOf(kind);
@@ -413,7 +430,10 @@ export function createSharing({
     const perm = permissionOf(permission);
     const { table, key } = spec;
     if (!byAddress && behindAddress(spec, thing.id, targetId)) throw notFound();
-    if (!run(`UPDATE ${table} SET permission = ? WHERE ${key} = ? AND user_id = ?`, perm, thing.id, targetId).changes) throw notFound();
+    const row = shareRow(kind, thing.id, targetId);
+    if (!row) throw notFound();
+    if (!row.accepted && !byAddress) count(userId);
+    run(`UPDATE ${table} SET permission = ? WHERE ${key} = ? AND user_id = ?`, perm, thing.id, targetId);
     spec.changed?.({ userId, thing, targetId, permission: perm });
     return sharesOf(kind, thing.id, { owner: true }).find((s) => s.user.id === targetId);
   }
@@ -543,7 +563,7 @@ export function createSharing({
 
   return {
     kinds: Object.keys(KINDS),
-    personOf, sharesOf, peopleOf, knownTo, target, shareRow, emailAnswer,
+    personOf, sharesOf, peopleOf, knownTo, target, shareRow, emailAnswer, countOffer: count,
     share, list, setPermission, remove, accept, pending, routes,
   };
 }

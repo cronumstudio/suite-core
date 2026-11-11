@@ -22,6 +22,13 @@ test('addresses and messages: encoded where needed, never broken into', () => {
     'ana @example.com', 'ana@example', '', null, `${'a'.repeat(250)}@example.com`]) {
     assert.equal(bareAddress(text), null, String(text));
   }
+  // Nor ana@example.com spelt another way that a mail server delivers to it all the same: to the
+  // blocks and the limits per address, those were other addresses.
+  for (const text of ['ana@example.com.', 'ana@example..com', 'ana@.example.com', 'an​a@example.com',
+    'ana@exam­ple.com', 'ana@exam⁠ple.com', 'ana@ｅxample.com']) {
+    assert.equal(bareAddress(text), null, JSON.stringify(text));
+  }
+  for (const text of ['ana.maria+tasks@example.co.uk', 'josé@españa.es', 'a@b.c']) assert.equal(bareAddress(text), text, text);
 
   const message = buildMessage({
     from: 'Próximo <next@example.com>', to: 'ana@example.com', subject: 'Contraseña\r\nBcc: someone@evil.example',

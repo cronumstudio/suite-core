@@ -16,10 +16,17 @@ change an interface and a patch never does. Apps pin a version through the submo
     (a table with an `email` column). Then `sharesOf` for its owner shows every account by its name,
     never its email, and leaves out an account still waiting behind one of those offers, which the
     module lists; picking someone's chip told the owner their email, also once they accepted (next-1,
-    sc-data-9, next-srv-1). Such an account answers 404 by its id to `setPermission` and `remove`,
-    as a share that isn't there, unless the module changes its offer (`setPermission(…, { byAddress:
-    true })`; `remove` after the module dropped the offer). Its own decline and leave are as before.
-    Without `addresses`, nothing changes.
+    sc-data-9, next-srv-1). By its id, such an account is a share that isn't there: `setPermission`
+    answers 404, and so does `remove`, or done with `strictRemove: false`, changing nothing; unless
+    the module changes its offer (`setPermission(…, { byAddress: true })`; `remove` after the module
+    dropped the offer). Its own decline and leave are as before. Without `addresses`, nothing changes.
+  - The brake counts every offer to someone who hasn't accepted it, by id as by email: a new one, one
+    made again and, in `setPermission`, a change of what they may do. Each of those tells them (the
+    kind's `offered` or `changed`), and one counted offer by id, made again and again, made their tabs
+    reload without limit (sc-data-6, sc-data-2). What a member accepted changes as freely as before.
+    `countOffer(userId)`, new, counts one for a module that changes an offer by address itself: it
+    counts it before it changes anything, whether an account waits behind the offer or none, and
+    `setPermission(…, { byAddress: true })` doesn't count it again.
   - `remove()` of a share that isn't there runs no hook: with `strictRemove: false` it still answers
     done, and nobody is told. Its `removed` told whoever the id named, and Tasks' tabs reload on that,
     so anyone could make anyone's reload without limit (sc-data-6, sc-data-2); every notice a removal
@@ -27,9 +34,13 @@ change an interface and a patch never does. Apps pin a version through the submo
   - An offer by email takes a bare address only (`mail.js` `bareAddress()`): anything else is 400
     `field_invalid` (`email`), before anything is looked for or counted. `"x" <someone@…>` matched no
     account, went on as an address without one, and was delivered to someone@… under that name, past
-    their blocking invitations and the limits per address (sc-data-7, sc-data-3). `check()` of
-    stranger-invites.js answers `nobody` to anything but a bare address, and a row written before
-    with a name around the address is read, and blocked, as the address it reached.
+    their blocking invitations and the limits per address (sc-data-7, sc-data-3). Nor the same address
+    spelt another way a mail server delivers all the same: a dot at the end of the domain or an empty
+    label in it, an invisible character (`\p{Cf}`, default ignorables), a letter NFKC changes.
+    `check()` of stranger-invites.js answers `nobody` to anything but a bare address. Rows written
+    before that say the address another way (a name around it, a dot at its end) are read as the
+    address they reached: when `createStrangerInvites()` starts, a block is added for that address and
+    a sent invitation is written as it, so an old «stop» still stops it and old sends still count.
   - The share dialog says one person invited by the name it showed (the chip's, or the address
     typed), never by another the answer brings (ui-dialogos-15).
 
