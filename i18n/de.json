@@ -586,6 +586,7 @@
   "admin.actions.billing_revoked": "Zahlung: Tarif beendet",
   "admin.actions.billing_organization_stop": "Zahlung: Verlängerung einer Gruppe gestoppt",
   "admin.actions.billing_organization_keep": "Zahlung: Verlängerung einer Gruppe fortgesetzt",
+  "admin.actions.billing_refund_stop": "Zahlung: erstattetes Abo beendet",
   "admin.actions.org_create": "Hat eine Gruppe erstellt",
   "admin.actions.org_update": "Hat eine Gruppe geändert",
   "admin.actions.org_invite": "Hat in eine Gruppe eingeladen",

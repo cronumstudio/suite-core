@@ -586,6 +586,7 @@
   "admin.actions.billing_revoked": "Paiement : formule terminée",
   "admin.actions.billing_organization_stop": "Paiement : renouvellement d’un groupe arrêté",
   "admin.actions.billing_organization_keep": "Paiement : renouvellement d’un groupe repris",
+  "admin.actions.billing_refund_stop": "Paiement : abonnement remboursé, arrêté",
   "admin.actions.org_create": "A créé un groupe",
   "admin.actions.org_update": "A modifié un groupe",
   "admin.actions.org_invite": "A invité dans un groupe",

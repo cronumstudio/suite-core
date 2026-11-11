@@ -745,9 +745,16 @@ export function createEntitlements({
   /** Whether a PLANS key is one of this app's features, by its name or an alias. */
   const knows = (key) => key in declared || key in aliasOf;
 
+  /**
+   * An account that goes takes what its limits counted with it (accounts.whenRemoved, createSuite):
+   * those rows name a person by id alone, no key holds them to the account, and only that person's
+   * next use of the feature would have cleared them. → how many went
+   */
+  const forgetUsage = (userId) => database.run('DELETE FROM entitlement_usage WHERE user_id = ?', userId).changes;
+
   return {
     errors, ignored, knows, of, ofMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, better, countDaily, countWeekly, dailyUsage, usedToday, usedThisWeek,
-    grant, revoke, setPlan, earlyAccessState, keepEarlyAccess, seatsOf, grantsOf, describe,
+    grant, revoke, setPlan, earlyAccessState, keepEarlyAccess, seatsOf, grantsOf, describe, forgetUsage,
   };
 }
 
