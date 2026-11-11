@@ -2472,15 +2472,19 @@ test('the drawer opened by a finger takes the focus itself, with no ring on the 
 test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing one doesn\'t show the bar', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, actions: own = \[\], below = null \} = \{\}\)/);
+  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, actions: own = \[\], below = null, close = true \} = \{\}\)/);
   assert.match(shell, /if \(pane === 'detail'\) start = backToggle\(\);/, '← over a detail, ☰ over a list');
-  // Its line ends with the app's «…»: what creates is the floating button, at every width (0.247.0).
-  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, heading, el\('div', \{ class: 'kit-head__actions' \}, own\)\),/);
+  // Its line ends with the app's «…», and a detail's with its × (0.248.0): what creates is the
+  // floating button, at every width (0.247.0).
+  assert.match(shell, /const end = pane === 'detail' && close \? closeToggle\(\) : null;/, 'a detail\'s ×, unless it must not close');
+  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, heading, el\('div', \{ class: 'kit-head__actions' \}, own\), end\),/);
   assert.doesNotMatch(shell, /createButton/);
   assert.match(shell, /element, nav, list, detail, actions, banners, head: viewHead,/, 'the shell gives it');
   assert.match(shell, /if \(showing\('\.kit-bar__back'\)\) return/, 'a swipe from the edge finds the button that shows, in the bar or a head');
   assert.match(css, /\.kit-app:not\(\[data-screen="detail"\]\):has\(\.kit-pane--list \.kit-head\) \.kit-bar,\s*\.kit-app\[data-screen="detail"\]:has\(\.kit-pane--detail \.kit-head\) \.kit-bar \{ display: none; \}/);
   assert.match(css, /\.kit-app\[data-panes="split"\] \.kit-head \.kit-bar__back \{ display: none; \}/, 'side by side, nothing goes back');
+  assert.match(css, /\.kit-head__close \{ display: none; \}/, 'the × only where ← doesn\'t show');
+  assert.match(css, /\.kit-app\[data-panes="split"\] \.kit-head \.kit-head__close \{ display: inline-grid; \}/, 'side by side, × closes the detail');
 });
 
 test('the drawer follows the finger on a phone, and opens or closes by how far it went', () => {
@@ -2724,6 +2728,134 @@ test('going back from a phone’s detail, the detail follows the finger over its
     shell.destroy();
   } finally {
     globalThis.getComputedStyle = realStyle;
+    restore();
+  }
+});
+
+test('a detail’s head closes it by ← or, beside its list, by its ×, the same way; `close: false` has no ×', async () => {
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  const computer = /@container kit-app \(min-width: 960px\) \{\s*\/\* The list and its detail side by side[\s\S]*?\n\}/.exec(css)[0];
+  assert.match(computer, /\.kit-app\[data-panes="split"\] \.kit-head \.kit-bar__back \{ display: none; \}\s*\.kit-app\[data-panes="split"\] \.kit-head \.kit-head__close \{ display: inline-grid; \}/,
+    'where ← hides, side by side, folded or not, × shows');
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const closed = [];
+    const shell = createShell({ ...frameOptions(), onBack: () => closed.push('closed') });
+    const more = page.createElement('button');
+    const row = shell.head({ pane: 'detail', title: null, actions: more }).element.querySelector('.kit-head__row');
+    assert.deepEqual(row.children.map((node) => node.getAttribute('class')),
+      ['kit-icon-btn kit-bar__back', 'kit-head__title', 'kit-head__actions', 'kit-icon-btn kit-head__close'], '←, the title, the item\'s «…», and × last');
+    const close = row.querySelector('.kit-head__close');
+    assert.equal(close.getAttribute('aria-label'), 'kit.close');
+    assert.equal(close.getAttribute('title'), 'kit.close', 'its words for a pointer that rests on it');
+    row.querySelector('.kit-bar__back').click();
+    close.click();
+    assert.deepEqual(closed, ['closed', 'closed'], 'the same way out');
+    assert.equal(shell.head({ pane: 'detail', title: 'Note', close: false }).element.querySelector('.kit-head__close'), null, 'one that must not close');
+    assert.equal(shell.head({ pane: 'list', title: 'All' }).element.querySelector('.kit-head__close'), null, 'a list has none');
+    shell.destroy();
+
+    // Without onBack, × goes back to the list, as ← does.
+    const plain = createShell(frameOptions());
+    plain.showDetail();
+    plain.head({ pane: 'detail', title: 'Task' }).element.querySelector('.kit-head__close').click();
+    assert.equal(plain.screen, 'list');
+    plain.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('Escape closes the detail open as ← and × do; not from a field, under a dialog, a menu or the drawer, nor once answered', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const closed = [];
+    const shell = createShell({ ...frameOptions(), onBack: () => { closed.push('closed'); shell.showList(); } });
+    shell.detail.append(shell.head({ pane: 'detail', title: 'Task' }).element);
+    const field = shell.detail.appendChild(page.createElement('textarea'));
+    const editor = shell.detail.appendChild(page.createElement('div'));
+    editor.setAttribute('contenteditable', 'true');
+    const button = shell.detail.appendChild(page.createElement('button'));
+    let answered = false;
+    const escape = (target, extra = {}) => {
+      answered = false;
+      page.dispatch('keydown', { key: 'Escape', target, preventDefault: () => { answered = true; }, ...extra });
+    };
+
+    escape(page.body);
+    assert.deepEqual(closed, [], 'no detail open: nothing');
+    shell.showDetail();
+    escape(page.body, { key: 'Enter' });
+    assert.deepEqual(closed, []);
+    escape(page.body);
+    assert.deepEqual(closed, ['closed'], 'with the focus nowhere, on its own page');
+    assert.ok(answered, 'and it says the key was taken');
+    shell.showDetail();
+    escape(field);
+    escape(editor);
+    assert.deepEqual(closed, ['closed'], 'from a field or an editor Escape keeps its job: nothing typed is lost');
+    escape(button);
+    assert.deepEqual(closed, ['closed', 'closed'], 'from a button in it');
+
+    shell.showDetail();
+    escape(page.body, { defaultPrevented: true });
+    assert.deepEqual(closed.length, 2, 'a module\'s own layer answered it');
+    const realQuery = page.querySelector;
+    for (const layer of ['dialog[open]', '.kit-menu', '.kit-settings-page']) {
+      page.querySelector = (selector) => (selector.includes(layer) ? {} : null);
+      escape(page.body);
+      assert.equal(closed.length, 2, `over ${layer}, the key is that one's`);
+    }
+    page.querySelector = realQuery;
+    shell.openDrawer();
+    escape(page.body);
+    assert.equal(closed.length, 2, 'the drawer open: it closes first (the frame\'s own Escape)');
+    shell.closeDrawer();
+    page.documentElement.setAttribute('data-kit-dragging', '');
+    escape(page.body);
+    page.documentElement.removeAttribute('data-kit-dragging');
+    assert.equal(closed.length, 2, 'a drag takes Escape to put back what it carries');
+    const elsewhere = page.body.appendChild(page.createElement('button'));
+    escape(elsewhere);
+    assert.equal(closed.length, 2, 'the focus in something else of the page');
+
+    // Beside its list with no × (`close: false`): nothing shows to close it, and Escape leaves it.
+    shell.detail.textContent = '';
+    shell.detail.append(shell.head({ pane: 'detail', title: 'Note', close: false }).element);
+    for (const back of shell.element.querySelectorAll('.kit-bar__back')) back.offsetParent = null;
+    escape(page.body);
+    assert.equal(closed.length, 2, 'a detail that must not close');
+    shell.detail.append(shell.head({ pane: 'detail', title: 'Task' }).element);
+    for (const back of shell.element.querySelectorAll('.kit-bar__back')) back.offsetParent = null;
+    escape(page.body);
+    assert.equal(closed.length, 3, 'with its × showing, as the × would');
+    shell.showDetail();
+    shell.destroy();
+    escape(page.body);
+    assert.equal(closed.length, 3, 'a frame taken down hears nothing');
+
+    // In a window of Work's shell, with the focus nowhere: only the window that has the keyboard.
+    let front = false;
+    const inWork = createShell({ ...frameOptions(), embedded: true, active: () => front, onBack: () => { closed.push('work'); } });
+    inWork.showDetail();
+    inWork.detail.append(inWork.head({ pane: 'detail', title: 'Step' }).element);
+    escape(page.body);
+    assert.equal(closed.length, 3, 'another window has it');
+    front = true;
+    escape(page.body);
+    assert.deepEqual(closed.slice(3), ['work']);
+    inWork.destroy();
+    const asked = createShell({ ...frameOptions(), embedded: true, onBack: () => { closed.push('inside'); } });
+    asked.showDetail();
+    const inside = asked.detail.appendChild(page.createElement('button'));
+    escape(page.body);
+    assert.equal(closed.length, 4, 'told nothing, a window acts only on a focus inside it');
+    escape(inside);
+    assert.deepEqual(closed.slice(4), ['inside']);
+    asked.destroy();
+  } finally {
     restore();
   }
 });

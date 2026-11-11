@@ -14,7 +14,8 @@
  *
  * Each view can start with the kit's head (`shell.head()`): its title and the
  * app's «…», with ☰ (or ←) in it wherever the bar would have shown it. A pane
- * showing one doesn't show the bar.
+ * showing one doesn't show the bar. A detail's ends with × where its list is
+ * beside it, and Escape closes it as ← and × do (`onBack`).
  *
  * As a module of a host (suite-core host.js, Cronum Work), where the sidebar
  * stays (a tablet, a computer), a rail at its start has the host's mark, the
@@ -81,16 +82,19 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   so the results show. `shell.search` is its field.
  * @param {Function} [options.onSettings]
  * @param {Function} [options.onSignOut]
- * @param {Function} [options.onBack]        the detail's back button (default: showList)
+ * @param {Function} [options.onBack]        what closes the detail: its ←, its × and Escape (default: showList)
  * @param {Function} [options.onFold]        (folded) the sidebar folded or came back: the views' width changed
  * @param {Array}  [options.accountItems]    the app's own entries of the account menu
  * @param {Node}   [options.root]
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
+ * @param {Function} [options.active]       () → whether this frame has the keyboard when the focus is on no
+ *   element (the page's body): Escape then closes its detail. In Work's shell `ctx.active`; by default
+ *   yes on a page of its own, and in a window only from a focus inside it
  */
 export function createShell({
   panes = 'split', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
-  embedded = false,
+  embedded = false, active = null,
 }) {
   // Every listener the frame adds goes with destroy(), through this one signal (all but the
   // click swallowed after a drag of the drawer, see `swallowing`). An app that draws its frame
@@ -201,6 +205,11 @@ export function createShell({
   const backToggle = () => el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
   }, icon('back'));
+  // A detail's × where ← doesn't show (beside its list, kit.css): the same way out.
+  const closeToggle = () => el('button', {
+    type: 'button', class: 'kit-icon-btn kit-head__close', title: t('kit.close'), 'aria-label': t('kit.close'),
+    onClick: () => (onBack || showList)(),
+  }, icon('x'));
   const menuButton = menuToggle();
   const bar = el('header', { class: 'kit-bar' }, menuButton, backToggle(), title, actions);
   const banners = el('div', { class: 'kit-banners' });
@@ -597,6 +606,38 @@ export function createShell({
     setTimeout(settle, 80);
   }
 
+  /* --------------------------------- Escape --------------------------------- */
+  /*
+   * Escape closes the detail open, as its ← or its × would (rule 5 of docs/web-kit.md): whichever
+   * shows, so a detail with no × beside its list (`close: false`) stays. Not when something over it
+   * had the key as it was pressed (a dialog, a menu, Settings, the drawer, a drag), looked at before
+   * anyone answers it (the capture), as each of those closes itself with it; not once something on
+   * the way answered it (`preventDefault`: a module's own layer, on itself or capturing); and not
+   * from a field or an editor, where Escape keeps its own job and nothing typed is lost. With the
+   * focus on no element, only the frame that has the keyboard (`active`: in Work's shell, the
+   * window in front); else the one the focus is in. On the document: in Work's shell the window
+   * is the page's, and a frame adds nothing to it.
+   */
+  const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
+  const hasKeyboard = active || (() => !embedded);
+  let covered = false;
+  const coveredNow = () => element.hasAttribute('data-drawer')
+    || document.documentElement.hasAttribute('data-kit-dragging')
+    || Boolean(document.querySelector('dialog[open], .kit-menu, .kit-settings-page'));
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') covered = coveredNow(); }, { capture: true, signal });
+  document.addEventListener('keydown', (ev) => {
+    const over = covered;
+    covered = false;
+    if (ev.key !== 'Escape' || over || ev.defaultPrevented || ev.isComposing || element.dataset.screen !== 'detail') return;
+    const focus = ev.target?.closest ? ev.target : null;
+    if (focus?.closest(EDITABLE)) return;
+    const nowhere = !focus || focus === document.body || focus === document.documentElement;
+    if (nowhere ? !hasKeyboard() : !element.contains(focus)) return;
+    if (!showing('.kit-bar__back, .kit-head__close')) return;
+    ev.preventDefault?.();
+    (onBack || showList)();
+  }, { signal });
+
   /* --------------------------------- account -------------------------------- */
 
   /** The account menu's entries; with Settings and nothing of the app's own, Settings alone. */
@@ -961,19 +1002,22 @@ export function createShell({
   /**
    * A view's head, the same in every app: its title and, at its end, the app's «…» (ui.js
    * moreButton), which holds every action of the view; wherever the sidebar isn't beside the views
-   * (a phone, or folded away), ☰ at its start, and over a phone's detail ← instead. Nothing that
+   * (a phone, or folded away), ☰ at its start, and over a phone's detail ← instead. A detail's head
+   * (rule 5 of docs/web-kit.md) has ← where its list is a screen of its own and, last, × where the
+   * list is beside it (kit.css): both, and Escape, close it the same way (`onBack`). Nothing that
    * creates: that is the floating button, at every width. A pane showing one takes the bar's place
    * (kit.css): one line less, and each view laid out alike in every app and on any screen. The app
    * puts it at the top of its view, and makes a new one when it draws the view again.
    *
    * @param {object} [options]
-   * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ over a list, ← over a detail
+   * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ over a list, ← (and ×) over a detail
    * @param {string|null} [options.title]   null: none, where the view says it itself (a note's first line)
    * @param {Node|Node[]} [options.lead]      before the title (a list's icon, a note's notebook)
-   * @param {Node|Node[]} [options.actions]   after it, at the end: the view's «…»
+   * @param {Node|Node[]} [options.actions]   after it, at the end: the item's toggles (Notes' pin) and «…»
    * @param {Node} [options.below]            under the line, in the head (a search, chips, a toolbar)
+   * @param {boolean} [options.close]         false: a detail with no ×, one that must not close beside its list
    */
-  function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null } = {}) {
+  function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null, close = true } = {}) {
     const heading = text === null ? el('span', { class: 'kit-head__title' }) : el('h1', { class: 'kit-head__title', text });
     let start = null;
     if (pane === 'detail') start = backToggle();
@@ -981,8 +1025,9 @@ export function createShell({
       start = menuToggle();
       titleMenu(start);
     }
+    const end = pane === 'detail' && close ? closeToggle() : null;
     const node = el('header', { class: 'kit-head', 'data-pane': pane },
-      el('div', { class: 'kit-head__row' }, start, lead, heading, el('div', { class: 'kit-head__actions' }, own)),
+      el('div', { class: 'kit-head__row' }, start, lead, heading, el('div', { class: 'kit-head__actions' }, own), end),
       below);
     return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
   }

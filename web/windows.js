@@ -30,10 +30,10 @@
  * - Phones (< 768 px): one window at a time filling the desk, a bar of tabs at the bottom
  *   (`.cw-tabs`, one per module) and a sideways swipe to the module beside it among the mounted
  *   ones, unless it began on something that slides sideways itself (Next's line, the Gantt) or
- *   on something with a sideways gesture of its own that says so with `data-own-swipe` (Tasks'
- *   rows: left deletes, right stars). The desk only pans vertically (kit: windows.css), so the
- *   page never scrolls sideways, and once a finger goes sideways the swipe keeps its moves from
- *   the browser, in any module's list.
+ *   on something with a sideways gesture of its own that says so with `data-own-swipe` (a row of
+ *   a module's list, swipe.js: left to the trash, right its toggle). The desk only pans
+ *   vertically (kit: windows.css), so the page never scrolls sideways, and once a finger goes
+ *   sideways the swipe keeps its moves from the browser, in any module's list.
  *   While a keyboard that makes the page shorter is up (Work's apps), the desk has
  *   `data-keyboard` and the tabs step aside, their room the module's.
  * - A window out of view is `hidden` and `inert` and its module paused (`onPause(module, true,
@@ -94,7 +94,7 @@ const SWIPE_HOLD_MS = 350;  // held still that long first, it is a finger pickin
 const SWIPE_EDGE = 32;      // the screen's edges are the module's drawer's and the system's (shell.js)
 const SWIPE_FLICK = 0.5;    // px/ms: a quick flick is enough, whatever its length
 const SWIPE_TAKE = 3;       // pixels, more across than down, before the swipe keeps the finger from the browser
-/** What has a sideways gesture of its own (Tasks' rows): a finger that starts there is never the windows' swipe. */
+/** What has a sideways gesture of its own (a list's rows, swipe.js): a finger that starts there is never the windows' swipe. */
 export const OWN_SWIPE = '[data-own-swipe]';
 
 // Inside a head these keep their own job.

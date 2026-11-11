@@ -47,8 +47,9 @@
  * `redrawInPlace(container, draw)`: it keeps how far its box was scrolled
  * (emptied, a box goes back to the top, so a long sidebar jumped on every drop
  * and again with the live notice that follows it), and while something is
- * carried it doesn't draw at all (the rows and the gap under the pointer would
- * go, and the drag with them): it draws once, when it is let go.
+ * carried, or a row swiped (swipe.js), it doesn't draw at all (the rows and the
+ * gap under the pointer would go, and the gesture with them): it draws once,
+ * when it is let go.
  *
  *   export function renderNav() {
  *     redrawInPlace(shell.nav, () => { clear(shell.nav); … });
@@ -59,8 +60,9 @@ import { icon } from './icons.js';
 import { markOwned } from './mount.js';
 
 const THRESHOLD = 6;      // pixels the mouse moves before it is a drag and not a click
-const HOLD_MS = 380;      // how long a finger holds still before it picks up
-const SLOP = 10;          // pixels a finger may wander while holding: more is a scroll
+// A row's swipe (swipe.js) reads these two too: a finger held still that long is this one's.
+export const HOLD_MS = 380;   // how long a finger holds still before it picks up
+export const SLOP = 10;       // pixels a finger may wander while holding: more is a scroll
 const SPRING_MS = 550;    // how long over ☰ before the drawer opens
 const SETTLE_MS = 320;    // the drawer's slide (--kit-slide-time, kit.css), and a little more: then look again
 const EDGE = 56;          // the strip at each end of a scrolling box that scrolls it
@@ -171,23 +173,27 @@ const waiting = new Map();
  * Draws `container` again with `draw()` without moving what is on the screen.
  * The box that scrolls it (itself, or the nearest one above it) keeps how far
  * it was scrolled. While something is carried (`data-kit-dragging` on the page)
- * nothing is drawn: it waits for `kit-dragend` and draws then, once, with the
- * last `draw` it was given, however many times it was asked during the drag.
+ * or a row is swiped (`data-kit-swiping`, swipe.js) nothing is drawn: it waits
+ * for `kit-dragend` or `kit-swipeend` and draws then, once, with the last
+ * `draw` it was given, however many times it was asked meanwhile.
  *
  * @param {Element} container
  * @param {Function} draw    empties and fills the container (or whatever inside the box)
- * @returns {boolean}        true if it was drawn now, false if it waits for the drag to end
+ * @returns {boolean}        true if it was drawn now, false if it waits for the gesture to end
  */
 export function redrawInPlace(container, draw) {
-  if (document.documentElement.hasAttribute('data-kit-dragging')) {
+  const page = document.documentElement;
+  if (page.hasAttribute('data-kit-dragging') || page.hasAttribute('data-kit-swiping')) {
     if (!waiting.has(container)) {
       const then = () => {
         document.removeEventListener('kit-dragend', then);
+        document.removeEventListener('kit-swipeend', then);
         const last = waiting.get(container);
         waiting.delete(container);
         redrawInPlace(container, last);
       };
       document.addEventListener('kit-dragend', then);
+      document.addEventListener('kit-swipeend', then);
     }
     waiting.set(container, draw);
     return false;
