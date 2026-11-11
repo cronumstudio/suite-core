@@ -6,9 +6,11 @@
  * phone or send them an email with a name of the sender's choosing, as often as
  * they liked. Two limits:
  *
- *   · offers: how many new offers one person may make in an hour (a new offer,
- *     or an address that turns out not to be known: both count, or the refusal
- *     would tell them apart), then 429 share_limit;
+ *   · offers: how many offers one person may make in an hour (a new offer, or
+ *     an address that turns out not to be known: both count, or the refusal
+ *     would tell them apart; and, since 0.254.0, an offer made again or a change
+ *     of permission to someone who hasn't accepted, each of which tells them:
+ *     sharing.js decides what counts), then 429 share_limit;
  *   · notices: one notice (push or email) per sender and recipient every 24
  *     hours, however often the offer is withdrawn and made again, for anything.
  *
