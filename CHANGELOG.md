@@ -62,6 +62,38 @@ change an interface and a patch never does. Apps pin a version through the submo
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
     signs in by `prompt=login`.
 
+## 0.250.0 — 2026-11-11
+
+- **Nothing made without a signal is lost to a busy server** (`web/outbox.js`, `web/api.js`; audit of 6/11,
+  sc-shell-11): a 429 (and a 408 or 425) dropped the change it answered as a refusal, and the next one
+  got the same and went too; with the signal back the page, the new worker and the queue start at once,
+  and something before the server answers such a burst with 429. Now it waits like a 5xx, and a queue
+  that listens tries again once, after the server's `Retry-After` (read into the error as
+  `retryAfter`, in ms; `retryAfterMs(value)` reads seconds or a date) or half a minute, never more
+  than five; a 503 only when it says when. A queue an app stopped to send itself (Tasks) gets no timer of its own. `waits(error)` is
+  the outbox's own test, exported.
+- **The first change kept asks for the storage to be kept** (`web/outbox.js`, pwa-10): the browser may
+  clear a site's data when the disk fills up, and Safari after a week unused in a tab, and a queued
+  change is the only copy of itself. `navigator.storage.persist()` once per page, unless already kept.
+- **`sendWhileAway({ local, owner, send, idOf, onCreated, skip, lockName })`** (`web/outbox.js`,
+  sc-shell-3): what an app left in its queue, sent while the app isn't on the page, for Cronum Work's
+  modules not on screen (each one's `fresh.js`): ticks made on a phone in Tasks and then left for
+  Notes waited until Tasks was opened again on that phone. Only what goes through cleanly, oldest
+  first; a creation swaps its provisional id in the stored queue and `onCreated` hears it. The first
+  change that isn't a plain yes stops it and stays, with the rest, for the app's own queue to settle
+  with the person in front: no signal, a busy or failing server, a conflict, a refusal, another
+  account's change, a provisional id with no creation, or one `skip(op)` keeps for the app. Under the
+  outbox's lock. → `{ sent, left, stopped }`.
+- **What is written in a form isn't thrown away by a tap outside or Escape** (`web/ui.js`,
+  ux-acciones-5): a tap above a phone's sheet is how one puts the keyboard away, and it closed Next's
+  sheet with its three fields. Once a field of a `formDialog` (or an `openDialog` with
+  `keepTyped: true`) holds something other than what it had when it first took the focus, a tap on the
+  backdrop only takes the focus off it and Escape asks «¿Descartar lo escrito?» (`kit.dialog.*`). The
+  ×, Cancel and the app's own close are a choice and close at once. `keepTyped: false` for a form
+  whose fields save themselves; `openDialog` keeps its old way unless asked. A read-only or disabled field
+  never counts. `onDiscard` is told when the person says yes to throwing it away (a draft the
+  module keeps goes too).
+
 ## 0.249.0 — 2026-11-11
 
 - **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;
