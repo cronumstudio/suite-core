@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.255.0 — 2026-11-11
+
+- **A device's notices go with the session they were turned on in** (`push.js`, `sessions.js`, `api.js`,
+  `app.js`, `web/settings.js`; audit of 6/11, pwa-2): closing a session from Settings › Where you're signed in
+  left that browser getting task titles and list names on its locked screen, and so did a session that ended
+  on its own. `push_subscriptions` keeps the session it was turned on in (`session_key`, the public key of
+  sessions.js, new column; null for rows from before or made with a device token) and loses the row when that
+  session is revoked (`DELETE /api/me/sessions/:key`), signed out of (also without `push_endpoints`) or ended
+  (the suite's clean-up, `push.purgeSessions()` after `sessions.purge()`). `POST /api/push/subscribe` says
+  `user_id`. Settings › Notifications removes any one device (`DELETE /api/push/devices/:id`, a person's own
+  only, «Quitar» on each row, `kit.notifications.remove`), this browser's marked «Este dispositivo» and letting go
+  of its subscription too. `createPush` adds `removeDevice`, `forgetSession` and `purgeSessions`;
+  `registerPushApi` takes `sessionKeyOf`; `registerProfileApi` takes `push`; `sessions.keyFor(token)`.
+- **Signing out and in again keeps the notices true** (`web/signin.js`, `web/push.js`, `web/settings.js`,
+  `web/worker.js`, `web/sw-core.js`; pwa-3): the server forgot the device and the browser kept its
+  subscription, so Tasks said «This device receives notifications» and nothing came. `signOutHere({ forgetPush:
+  true })` lets go of the browser's subscriptions once the server has heard (a host's, where nobody shares
+  them; Cronum Work's shell passes it). Who turned notices on in this browser is kept per person
+  (`markNoticesOn(userId)`, `markNoticesOff`, `noticesOnHere`; `kit.push.on` in localStorage), set by the kit's
+  `subscribePush` and the worker's carry; `renewNotices({ userId })` turns them on again at the start of a
+  session, without a question while the permission stands, only for that person. The worker tells the server a
+  subscription the browser renewed (`pushsubscriptionchange`).
+
 ## 0.254.0 — 2026-11-11
 
 - **A refund ends the subscription too** (`billing.js`; audit of 6/11, billing-5). A full refund or a

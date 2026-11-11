@@ -931,6 +931,7 @@
   "kit.notifications.devices": "Geräte",
   "kit.notifications.none": "Noch kein Gerät hat Benachrichtigungen aktiviert.",
   "kit.notifications.since": "seit {when}",
+  "kit.notifications.remove": "Entfernen",
   "kit.notifications.inApp": "Auf diesem Telefon bekommst du Benachrichtigungen über die App {app}. Schalte sie in den Einstellungen der App ein oder aus.",
   "kit.notifications.appUpdate": "Benachrichtigungen auf diesem Telefon kommen mit einem Update der App {app}.",
   "kit.notifications.offTitle": "Benachrichtigungen sind ausgeschaltet",

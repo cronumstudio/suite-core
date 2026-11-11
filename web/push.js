@@ -58,6 +58,34 @@ function appleTab() {
 }
 
 /**
+ * Who turned notices on in this browser (their user ids), kept here: signing out in a host lets go
+ * of the browser's subscription (signin.js `forgetPush`), and coming back the same person gets
+ * them again without a tap (settings.js renewNotices); someone else signing in here doesn't. It
+ * used to keep the subscription and the server forgot it: Tasks said «This device receives
+ * notifications» and nothing came (audit of 6/11, pwa-3).
+ */
+const ON_KEY = 'kit.push.on';
+const onHere = () => {
+  try {
+    const kept = JSON.parse(globalThis.localStorage?.getItem(ON_KEY) || '[]');
+    return Array.isArray(kept) ? kept.map(String) : [];
+  } catch { return []; }
+};
+const keepOn = (ids) => {
+  try { globalThis.localStorage?.setItem(ON_KEY, JSON.stringify([...new Set(ids)].slice(-8))); } catch { /* private mode */ }
+};
+/** Whether this person turned notices on in this browser. */
+export const noticesOnHere = (userId) => userId != null && onHere().includes(String(userId));
+/** They did (the server took the subscription: its answer's `user_id`). */
+export function markNoticesOn(userId) {
+  if (userId != null && !noticesOnHere(userId)) keepOn([...onHere(), String(userId)]);
+}
+/** They turned them off here, or removed this device. */
+export function markNoticesOff(userId) {
+  if (userId != null) keepOn(onHere().filter((id) => id !== String(userId)));
+}
+
+/**
  * Whether this browser can get notices, before asking anything:
  *   'granted'      allowed already: devicePushSubscription() won't ask
  *   'prompt'       it can be asked (from a tap)

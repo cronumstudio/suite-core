@@ -80,6 +80,7 @@ import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
+import { devicePushSubscription, pushSupport, noticesOnHere, markNoticesOn, markNoticesOff } from './push.js';
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
 import { openInWork } from './links.js';
@@ -1502,10 +1503,8 @@ export function openSettings(options) {
     const paint = async () => {
       let devices = [];
       try { devices = await (await pushApi()).get('/api/push/devices'); } catch (err) { fail(err); }
-      clear(box).append(...(devices.length ? devices.map((d) => el('div', { class: 'kit-list__row' },
-        icon(/mobile|android|iphone/i.test(d.label || '') ? 'phone' : 'device'),
-        el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(d.label, t('kit.security.unknownDevice')) }),
-          el('small', { text: t('kit.notifications.since', { when: formatDateTime(d.created_at) }) }))))
+      const mine = await ownEndpoint();
+      clear(box).append(...(devices.length ? devices.map((d) => noticeDeviceRow(d, { mine, userId: state.user?.id, onGone: paint, fail }))
         : [el('div', { class: 'kit-list__row' }, hint(t('kit.notifications.none')))]));
       status.textContent = !supported ? t('kit.notifications.unsupported')
         : Notification.permission === 'denied' ? t('kit.notifications.denied')
@@ -1694,10 +1693,8 @@ export function openSettings(options) {
     const paint = async () => {
       let devices = [];
       try { devices = await (await pushApi()).get('/api/push/devices'); } catch (err) { fail(err); }
-      clear(box).append(...(devices.length ? devices.map((d) => el('div', { class: 'kit-list__row' },
-        icon(/mobile|android|iphone/i.test(d.label || '') ? 'phone' : 'device'),
-        el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(d.label, t('kit.security.unknownDevice')) }),
-          el('small', { text: t('kit.notifications.since', { when: formatDateTime(d.created_at) }) }))))
+      const mine = await ownEndpoint();
+      clear(box).append(...(devices.length ? devices.map((d) => noticeDeviceRow(d, { mine, userId: state.user?.id, onGone: paint, fail }))
         : [el('div', { class: 'kit-list__row' }, hint(t('kit.notifications.none')))]));
     };
     const test = button(t('kit.notifications.test'), async () => {
@@ -2303,9 +2300,63 @@ export async function subscribePush() {
     userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
   });
   const json = subscription.toJSON();
-  await push.post('/api/push/subscribe', {
+  const answer = await push.post('/api/push/subscribe', {
     endpoint: json.endpoint, keys: json.keys, label: navigator.userAgent.slice(0, 120), lang: currentLanguage(),
   });
+  markNoticesOn(answer?.user_id);
   noticesRenewed();
   return subscription;
+}
+
+/**
+ * Notices on again for whoever turned them on in this browser, at the start of a session: signing
+ * out in a host let go of the browser's subscription (signin.js `forgetPush`), the server may have
+ * forgotten it (closed from another device, a push service's 410), or the browser renewed it. With
+ * the permission still given nothing is asked; someone who never turned them on here gets nothing
+ * (audit of 6/11, pwa-3). → true when the server has this device now.
+ */
+export async function renewNotices({ userId } = {}) {
+  if (inApp() || !noticesOnHere(userId) || pushSupport() !== 'granted') return false;
+  const push = await pushApi();
+  const { public_key: key } = await push.get('/api/push/config');
+  const json = await devicePushSubscription(key, { ask: false });
+  const answer = await push.post('/api/push/subscribe', {
+    endpoint: json.endpoint, keys: json.keys, label: navigator.userAgent.slice(0, 120), lang: currentLanguage(),
+  });
+  if (String(answer?.user_id) !== String(userId)) return false;
+  noticesRenewed();
+  return true;
+}
+
+/** This browser's own subscription's address, to know its row among the devices; null without one. */
+async function ownEndpoint() {
+  try {
+    const registration = await workerRegistration();
+    return (await registration?.pushManager?.getSubscription())?.endpoint || null;
+  } catch { return null; }
+}
+
+/**
+ * A row of Settings' devices with notices, each removable: a phone lost, a computer left, where
+ * closing the session didn't reach (rows from before, pwa-2). This browser's own also lets go of its
+ * subscription, so nothing here says it still gets them.
+ */
+function noticeDeviceRow(device, { mine, userId, onGone, fail }) {
+  const own = Boolean(mine && device.endpoint_hint && mine.startsWith(device.endpoint_hint));
+  return el('div', { class: 'kit-list__row' },
+    icon(/mobile|android|iphone/i.test(device.label || '') ? 'phone' : 'device'),
+    el('span', { class: 'kit-list__text' }, el('strong', { text: deviceName(device.label, t('kit.security.unknownDevice')) }),
+      el('small', { text: t('kit.notifications.since', { when: formatDateTime(device.created_at) }) })),
+    own ? el('span', { class: 'kit-badge kit-badge--accent', text: t('kit.security.thisDevice') }) : null,
+    button(t('kit.notifications.remove'), async () => {
+      try {
+        await (await pushApi()).delete(`/api/push/devices/${encodeURIComponent(device.id)}`);
+        if (own) {
+          markNoticesOff(userId);
+          const registration = await workerRegistration().catch(() => null);
+          await (await registration?.pushManager?.getSubscription())?.unsubscribe().catch(() => {});
+        }
+        onGone();
+      } catch (err) { fail(err); }
+    }, 'quiet'));
 }
