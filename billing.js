@@ -58,6 +58,9 @@
  *     checkoutUrl({ subject, identity, customer, product, price, kind, email, returnUrl, app? }) → Promise<url>,
  *     portalUrl({ customer, returnUrl }) → Promise<url>,
  *     parseWebhook({ headers, body }) → Promise<event | event[] | null>   (throws on a bad signature)
+ *     dashboardUrl?({ ref, customer }) → url | null   (the provider's own dashboard for a subscription,
+ *                                                      where the install's staff refund or cancel it:
+ *                                                      the admin panel's «Manage charges»; no call made)
  *   }
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
@@ -127,7 +130,7 @@
  * `sendStops()`. The provider's own `canceled` then ends the subscription's row, as any other.
  */
 import crypto from 'node:crypto';
-import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
+import { HttpError, badRequest, forbidden, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
 import { ensureColumn } from './migrate.js';
 import { answeredOnce } from './idempotency.js';
 
@@ -854,6 +857,23 @@ export function createBilling({
     return provider.portalUrl({ customer, returnUrl });
   }
 
+  /**
+   * Where the install's own staff manage what a subscription charged (refund, cancel, see its
+   * payments): the provider's dashboard, for the admin panel, never for the payer. The adapter's
+   * `dashboardUrl` says it; without one, or with an answer that isn't an https address, null.
+   */
+  function dashboardUrl(subject, ref) {
+    if (typeof provider?.dashboardUrl !== 'function') return null;
+    let url;
+    try {
+      url = provider.dashboardUrl({ ref, customer: customerOf(subject) });
+    } catch (err) {
+      log(`[billing] ${source}: no dashboard link for ${ref}: ${err?.message || err}`);
+      return null;
+    }
+    return typeof url === 'string' && /^https:\/\/[^/\s]+\/\S*$/.test(url) ? url : null;
+  }
+
   /** The webhook: raw body, the provider's signature, then each event applied once. */
   async function handleWebhook(req, res) {
     mustBeOn();
@@ -1374,7 +1394,7 @@ export function createBilling({
   }
 
   return {
-    enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
+    enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, dashboardUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
     markOrganizationStop, sendStops, sendRefundStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
     // Whether the provider can stop or end a subscription from here (the remote one can't): the
@@ -1481,6 +1501,55 @@ export function registerBillingOverviewApi(router, {
     const user = principal(ctx);
     if (!user) throw unauthorized();
     sendJson(ctx.res, 200, billingOverview(user, { instances, entitlements, organizations, clock }));
+  });
+}
+
+/**
+ * What an account pays, or paid, for the admin panel: every subscription of the person's, and of
+ * the groups they own or administer, in the web and in the stores, live or over (a refund often
+ * comes after the end), newest first. Each with `dashboard_url`, the provider's own page where the
+ * install's staff refund or cancel it (`dashboardUrl`), or null when the adapter has none: what the
+ * admin's «Manage charges» opens. Unlike billingOverview, which the payer reads, it names the ref:
+ * what to search for in that dashboard when there is no link.
+ */
+export function billingForAdmin(user, { instances, entitlements = null, organizations = null }) {
+  const groups = organizations ? organizations.ofUser(user.id).filter((group) => ['owner', 'admin'].includes(group.role)) : [];
+  const subjects = [{ type: 'user', id: user.id }, ...groups.map((group) => ({ type: 'organization', id: group.id, name: group.name }))];
+  const plans = entitlements ? Object.fromEntries(entitlements.describe().plans.map((plan) => [plan.id, plan.name])) : {};
+  const payments = [];
+  for (const instance of instances.filter((one) => one?.enabled)) {
+    const planOf = Object.fromEntries(instance.offer().map((product) => [product.key, product.plan]));
+    const kind = instance.kind === 'store' ? 'store' : 'web';
+    for (const subject of subjects) {
+      for (const row of instance.subscriptionsOf(subject)) {
+        const store = kind === 'store' ? instance.manage?.(row.ref) ?? null : null;
+        const plan = planOf[row.product] ?? null;
+        payments.push({
+          kind, provider: instance.provider, ref: row.ref,
+          ...(subject.type === 'organization' ? { organization_id: subject.id, organization_name: subject.name } : {}),
+          product: row.product, plan, plan_name: plan ? plans[plan] ?? plan : null,
+          status: row.status, live: LIVE.has(row.status), period_end: row.period_end, ending: row.ending, updated_at: row.updated_at,
+          ...(store ? { store: store.store, sandbox: store.sandbox === true } : {}),
+          dashboard_url: instance.dashboardUrl?.(subject, row.ref) ?? null,
+        });
+      }
+    }
+  }
+  return payments.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+}
+
+/**
+ * `GET /api/admin/users/:id/payments`: billingForAdmin() of an account, for the instance admin only.
+ * Registered where some payments are on, so its absence (404) is what tells the panel there are none.
+ */
+export function registerBillingAdminApi(router, { instances, entitlements = null, organizations = null, accounts }) {
+  router.get('/api/admin/users/:id/payments', (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    if (ctx.user.role !== 'admin') throw forbidden('admin_only');
+    const id = Number(ctx.params.id);
+    const user = Number.isInteger(id) && id > 0 ? accounts.byId(id) : null;
+    if (!user) throw notFound('user_not_found');
+    sendJson(ctx.res, 200, { payments: billingForAdmin(user, { instances, entitlements, organizations }) });
   });
 }
 

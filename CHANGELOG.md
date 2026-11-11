@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.258.0 — 2026-11-11
+## 0.261.0 — 2026-11-11
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
   `account-deletion.js`, `billing.js`, `web/admin.js`; audit of 6/11, billing-2).
@@ -27,7 +27,8 @@ change an interface and a patch never does. Apps pin a version through the submo
     `subscriptions_ended`, and the answer is 503 `subscription_ended_account_kept`, which says so.
   - `GET /api/admin/users/:id/subscriptions`, with billing or the stores on: each live subscription
     the person pays for themselves, the web's and the stores', as the overview has them, with `ends`,
-    whether deleting the account cancels it. Never a ref.
+    whether deleting the account cancels it. Never a ref: the staff's `/payments` (0.259.0), which
+    the account's Payments fold shows with refs and their groups' too, stays as it was.
   - The panel's question says it first: the web's is cancelled now (`admin.users.deleteCancels`, or
     `deleteKeeps` where the install keeps them), and a store's goes on, since Apple and Google let
     no server cancel one: only the person can, in the store (`admin.users.deleteStore.*`, as a
@@ -61,6 +62,48 @@ change an interface and a patch never does. Apps pin a version through the submo
     recent session was enough.
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
     signs in by `prompt=login`.
+
+## 0.259.0 — 2026-11-11
+
+- **Admin › Users › an account › Payments, with «Manage charges»** (`billing.js`, `stores.js`,
+  `stripe.js`, `app.js`, `web/admin.js`, `i18n/*.json`): what the account pays or paid, and the
+  provider's own page to refund or cancel it, without knowing where it was bought.
+  - A provider adapter, web or store, may give `dashboardUrl({ ref, customer })`: its dashboard for a
+    subscription, for the install's staff. No call is made, and an answer that isn't https is none.
+    Stripe's gives the subscription's page (a one-off's payment, else the customer's), in test mode
+    with a test key. The hosted suite's Paddle and RevenueCat adapters give theirs from cronum-cloud.
+  - `billing.dashboardUrl(subject, ref)` and the stores' alike; `billingForAdmin(user, { instances })`
+    and `GET /api/admin/users/:id/payments` (instance admin only, registered whenever the web's or the
+    stores' payments are on): every subscription of the account's and of the groups it owns or
+    administers, in both instances, live or over, newest first, with `ref`, `store`, `sandbox`,
+    `live` and `dashboard_url`. Unlike `/api/billing/overview`, which the payer reads, it names the ref.
+  - The account's dialog has a fold «Payments» («Pagos») right after its plan: how many are live;
+    a row each (the kit's list, so on a phone its button stays in sight down to 320 px) with its plan
+    and where (the store bought in, or the provider; «test» for a sandbox), its group, product, state
+    and date, and «Manage charges» («Administrar cargos») at its end, which opens the provider's page
+    apart. One without a link says where to look and its ref. An install without payments has no
+    such fold.
+
+## 0.256.1 — 2026-11-11
+
+- **«Ver planes» from a form, and only where there is a plan** (`web/api.js`, `web/shell.js`; audit of 6/11,
+  billing-6, checked in a local Cronum Work after 0.254.0). The form that met the plan's limit («Libreta
+  nueva», «Lista nueva») is modal, so Settings opened behind it, out of sight, until it was closed: «Ver
+  planes» now closes it first (what it held couldn't be saved anyway) and Settings › Plan is in front. And
+  the button is offered only in a host's module (`createShell` with a `mount`), where Settings has the
+  plan: an app on its own under `/` opened Settings at Profile.
+
+## 0.256.0 — 2026-11-11
+
+- **Whoever only sees something can't change its links** (`links.js`, `web/links.js`; audit of 6/11, sc-feat-2):
+  a link is written on both its sides, but its permissions asked only to see one. With a list shared to view,
+  someone removed its owner's links, turned «done together» on so that the owner's tick completed a project
+  task they can't open, and hung chips of their own on the owner's tasks. A module's `cards` may say
+  `editable(user, id)` (they may change it, not only see it): linking and «done together» need it on both
+  sides, adding something new from a side that side, unlinking to have made the link or to change one of its
+  sides; otherwise 403 `forbidden`. `GET /api/links` says `can_link` and each link's `can_change`, worked out
+  from what is read already, and the row offers «+ Vincular», «A la vez» and «Quitar» only then. A module
+  without `editable` keeps seeing as enough. `links.canLink(user, ref)`.
 
 ## 0.255.0 — 2026-11-11
 

@@ -625,7 +625,7 @@ the page signs in in place; under a provider's sign-in the server sends the brow
 `/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
 sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
 `/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
-was; besides the connect page, only the admin panel asks for it (v0.258.0, with `return=/admin`),
+was; besides the connect page, only the admin panel asks for it (v0.261.0, with `return=/admin`),
 when an admin with no password to give (Google, Apple, a company's sign-in) must sign in again to
 change who someone is: their session counts only if AuthKit's access token says they actively
 signed in (`auth_time`) after the server asked them, in the ten minutes since
@@ -885,8 +885,20 @@ and the customer portal and reports through a signed webhook. A provider adapter
   checkoutUrl({ subject, identity, customer, product, price, email, returnUrl }),  // hosted checkout page
   portalUrl({ customer, returnUrl }),                                    // manage or cancel
   parseWebhook({ headers, body }),       // verify the signature → normalized events
+  dashboardUrl?({ ref, customer }),      // optional: the provider's own dashboard for a subscription
 }
 ```
+
+`dashboardUrl` is for the install's staff, never the payer: where a subscription is refunded,
+cancelled and its payments seen (Stripe's: the subscription's page, test mode with a test key; the
+hosted suite's Paddle and RevenueCat adapters give theirs). No call is made; an answer that isn't an
+https address counts as none. `GET /api/admin/users/:id/payments` (instance admin only; there
+whenever the web's or the stores' payments are on, a 404 otherwise) lists every subscription of
+the account's and of the groups it owns or administers, in both instances, live or over (a refund
+often comes after the end), newest first, each with its `ref` and `dashboard_url`
+(`billingForAdmin`). Admin › Users › an account › Payments shows them, with «Manage charges»
+opening that page apart (`target=_blank`, `noopener noreferrer`); one without a link names its ref,
+to search for in the provider's dashboard.
 
 Whatever the provider calls them, events arrive normalized as
 `{ id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?, subject?, customer?, ref,
@@ -1778,7 +1790,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
   `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
-  first too, where the install ends them (v0.258.0, `deletion.endSubscriptionsOf`): if the provider
+  first too, where the install ends them (v0.261.0, `deletion.endSubscriptionsOf`): if the provider
   can't end one that still renews, nothing is deleted (503 `subscription_not_ended`), to try
   again, and the log keeps how many ended. One the person cancelled already (in the portal, or by
   asking to go) renews no more and lapses at its period's end when the provider won't end it now,

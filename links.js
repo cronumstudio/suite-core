@@ -24,6 +24,9 @@
  *       create(user, data)    → id                      (optional: "Add to Tasks…", by the module's rules)
  *       places(user)          → [{ id, name }]          (optional: where create() may put it: lists, notebooks…)
  *       complete(user, id, done)                        (optional: what "done together" does here)
+ *       editable(user, id)    → boolean                 (optional: whether this person may change it, not
+ *                                                      only see it: edit its list, project, notebook.
+ *                                                      Without it, seeing it is enough, as before)
  *       audience(id)          → [userId…]               (optional: who sees it, for live notices)
  *     },
  *   }
@@ -38,6 +41,13 @@
  * sees what they could already see, and a link to something they can't open shows as such, with
  * no title. A link shows only while the person uses both modules. "Done together" is per link:
  * completing one side completes the other in the same transaction.
+ *
+ * A link is written on both its sides: whoever only sees one of them didn't put it there and can't
+ * change it (audit of 6/11, sc-feat-2: someone with a list shared to view removed its owner's links,
+ * turned «done together» on so that a tick of the owner's completed a project task they can't even
+ * open, and hung chips of their own on the owner's tasks). Linking, and «done together», need to be
+ * able to change both sides; adding something new from a side, that side; unlinking, to have made
+ * the link or to be able to change one of its sides.
  */
 import { HttpError, badRequest, notFound, forbidden, unauthorized, sendJson, readJson } from './http.js';
 
@@ -169,6 +179,20 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
   const visible = (user, ref, using = (mount) => uses(user, mount)) => using(ref.module)
     && !['hidden', 'gone'].includes(cardOf(user, ref).state);
 
+  /**
+   * Someone may change it, not only see it: its module's `editable`, asked only of something they
+   * can see. A module without it, as before: seeing it is enough. Its trouble is a no.
+   */
+  const editable = (user, ref, using) => visible(user, ref, using) && mayChange(user, ref);
+  /** The module's word alone, for something already known to be visible: no card read again. */
+  const mayChange = (user, ref) => {
+    const provider = providerOf(ref);
+    if (typeof provider?.editable !== 'function') return true;
+    try { return Boolean(provider.editable(user, ref.id)); } catch { return false; }
+  };
+  /** Whether someone may unlink, or change, a link they can see: they made it, or may change one of its sides. */
+  const changes = (user, row, using) => row.created_by === user.id || sidesOf(row).some((side) => editable(user, side, using));
+
   const rowsOf = (ref) => database.all(
     `SELECT * FROM host_links WHERE (a_module = ? AND a_type = ? AND a_id = ?) OR (b_module = ? AND b_type = ? AND b_id = ?)
      ORDER BY id`, ref.module, ref.type, String(ref.id), ref.module, ref.type, String(ref.id));
@@ -183,12 +207,13 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
   };
 
   /** A link as someone sees it from one of its sides (`card`: the other side's, when it was read already). */
-  function present(user, row, from, card = cardOf(user, otherSide(row, from))) {
+  function present(user, row, from, card = cardOf(user, otherSide(row, from)), canChange = changes(user, row)) {
     const side = otherSide(row, from);
     // Gone: its last title only to who linked it, who could see it then; nobody else learns it from here.
     if (card.state === 'gone' && side.title && row.created_by === user.id) card.title = side.title;
     if (card.state === 'hidden') delete card.title;
-    return { id: row.id, together: Boolean(row.together), item: card };
+    // Whether this person may unlink it or change «together» (the page shows those only then).
+    return { id: row.id, together: Boolean(row.together), item: card, can_change: canChange };
   }
 
   /** The links of something this person can see, to the modules they use. */
@@ -199,7 +224,20 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     const rows = rowsOf(ref).filter((row) => using(otherSide(row, ref).module));
     // Every other side at once: a readMany for each kind of thing, not a read for each link.
     const cards = cardsOf(user, rows.map((row) => otherSide(row, ref)));
-    return rows.map((row, i) => present(user, row, ref, cards[i]));
+    // Who may change each link, from what is read already: this side is visible, the other's card is here.
+    const here = mayChange(user, ref);
+    return rows.map((row, i) => {
+      const other = otherSide(row, ref);
+      const canChange = row.created_by === user.id || here
+        || (!['hidden', 'gone'].includes(cards[i].state) && mayChange(user, other));
+      return present(user, row, ref, cards[i], canChange);
+    });
+  }
+
+  /** Whether someone may link something to this, or add something new from it: they can change it. */
+  function canLink(user, value) {
+    const ref = refOf(value);
+    return editable(user, ref, usesOnce(user));
   }
 
   /** What the host itself reads of some sides (no person: their titles, whether they are gone), in order. */
@@ -238,6 +276,8 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     if (sameRef(from, to)) throw badRequest('field_invalid', { field: 'to' });
     if (!visible(user, from)) throw notFound();
     if (!visible(user, to)) throw notFound();
+    // Written on both: only by whoever may change both (sc-feat-2).
+    if (!editable(user, from) || !editable(user, to)) throw forbidden('forbidden');
     const [a, b] = ordered(from, to);
     const existing = database.get(`SELECT * FROM host_links WHERE a_module = ? AND a_type = ? AND a_id = ?
       AND b_module = ? AND b_type = ? AND b_id = ?`, a.module, a.type, String(a.id), b.module, b.type, String(b.id));
@@ -263,6 +303,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     if (typeof provider.create !== 'function') throw badRequest('field_invalid', { field: 'type' });
     if (!uses(user, target.module)) throw forbidden('module_off');
     if (!visible(user, from)) throw notFound();
+    if (!editable(user, from)) throw forbidden('forbidden');
     const source = cardOf(user, from);
     return database.tx(() => {
       const id = provider.create(user, { ...data, title: data.title ?? source.title, from: source });
@@ -283,6 +324,10 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
 
   function update(user, id, { together }) {
     const row = own(user, id);
+    // «Done together» completes the other side with the rights of whoever ticks this one: only by
+    // whoever may change both.
+    const using = usesOnce(user);
+    if (!sidesOf(row).every((side) => editable(user, side, using))) throw forbidden('forbidden');
     database.run('UPDATE host_links SET together = ? WHERE id = ?', together ? 1 : 0, row.id);
     announce(row);
     return database.get('SELECT * FROM host_links WHERE id = ?', row.id);
@@ -290,6 +335,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
 
   function remove(user, id) {
     const row = own(user, id);
+    if (!changes(user, row, usesOnce(user))) throw forbidden('forbidden');
     database.run('DELETE FROM host_links WHERE id = ?', row.id);
     announce(row);
   }
@@ -387,7 +433,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     return { forgotten, removed };
   }
 
-  return { of, link, create, update, remove, search, changed, done, prune, cardOf, cardsOf, parseRef, formatRef };
+  return { of, canLink, link, create, update, remove, search, changed, done, prune, cardOf, cardsOf, parseRef, formatRef };
 }
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -398,7 +444,12 @@ export function registerLinksApi(api, { links }) {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
   };
-  api.get('/api/links', (ctx) => sendJson(ctx.res, 200, { links: links.of(who(ctx), ctx.query.get('ref')) }));
+  api.get('/api/links', (ctx) => {
+    const user = who(ctx);
+    const ref = ctx.query.get('ref');
+    // `can_link`: whether this person may link from it (or add something new); the page offers it only then.
+    sendJson(ctx.res, 200, { links: links.of(user, ref), can_link: links.canLink(user, ref) });
+  });
   api.get('/api/links/search', (ctx) => sendJson(ctx.res, 200,
     links.search(who(ctx), ctx.query.get('module'), ctx.query.get('type'), ctx.query.get('q'))));
   api.post('/api/links', async (ctx) => {

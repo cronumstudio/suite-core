@@ -122,6 +122,19 @@ test('Checkout: a subscription or a payment, saying who pays and for what', asyn
   assert.equal(logs.length, 0);
 });
 
+test('the dashboard for the admin: a subscription\'s page, a payment\'s, else the customer\'s; test mode with a test key; nothing asked of Stripe', async (t) => {
+  const { billing, provider, stripe, ada } = setup(t);
+  assert.equal(provider.dashboardUrl({ ref: 'sub_1Abc', customer: 'cus_ada' }), 'https://dashboard.stripe.com/test/subscriptions/sub_1Abc');
+  assert.equal(provider.dashboardUrl({ ref: 'pi_9Xy' }), 'https://dashboard.stripe.com/test/payments/pi_9Xy');
+  assert.equal(provider.dashboardUrl({ ref: 'cs_odd', customer: 'cus_ada' }), 'https://dashboard.stripe.com/test/customers/cus_ada');
+  assert.equal(provider.dashboardUrl({ ref: 'sub_1/../../x', customer: 'cus_a b' }), null, 'never an address made of anything else');
+  const live = stripeProvider({ secretKey: 'sk_live_123', webhookSecret: WEBHOOK_SECRET, fetch: stripe.fetch });
+  assert.equal(live.dashboardUrl({ ref: 'sub_1Abc' }), 'https://dashboard.stripe.com/subscriptions/sub_1Abc');
+  // Through billing: the person's customer goes with the ref, and nothing is called.
+  assert.equal(billing.dashboardUrl({ type: 'user', id: ada.id }, 'cs_odd'), null, 'no customer of theirs yet');
+  assert.equal(stripe.calls.length, 0);
+});
+
 test('Checkout: what Stripe refuses goes to the log, not to the person paying', async (t) => {
   const stripe = fakeStripe({ status: 400, answer: { error: { message: 'No such price: price_pro_m' } } });
   const { billing, ada, logs } = setup(t, { stripe });
