@@ -3,6 +3,36 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.250.0 — 2026-11-11
+
+- **Invitations tell nobody's email, nor who has an account** (`sharing.js`, `stranger-invites.js`,
+  `mail.js`, `web/share.js`; the audit's card «Invitaciones», 30/10 and 6/11):
+  - By id (`user_id`) one names only one's people: whoever accepted something of theirs, offered them
+    something, or has what they accepted (`knownTo(userId)`, a Set, now exported), or someone this
+    thing was already offered to by id. An account only offered something by email is no longer one
+    of them: after an offer by email, trying ids told whether the address had an account, and its id
+    (sc-data-1). `peopleOf` is those people, by name and without emails, as the modules' chips were.
+  - A kind that keeps its offers by email under their address says where: `addresses: { table, key }`
+    (a table with an `email` column). Then `sharesOf` for its owner shows every account by its name,
+    never its email, and leaves out an account still waiting behind one of those offers, which the
+    module lists; picking someone's chip told the owner their email, also once they accepted (next-1,
+    sc-data-9, next-srv-1). Such an account answers 404 by its id to `setPermission` and `remove`,
+    as a share that isn't there, unless the module changes its offer (`setPermission(…, { byAddress:
+    true })`; `remove` after the module dropped the offer). Its own decline and leave are as before.
+    Without `addresses`, nothing changes.
+  - `remove()` of a share that isn't there runs no hook: with `strictRemove: false` it still answers
+    done, and nobody is told. Its `removed` told whoever the id named, and Tasks' tabs reload on that,
+    so anyone could make anyone's reload without limit (sc-data-6, sc-data-2); every notice a removal
+    sends now needs a share, and every share an offer the brake counted.
+  - An offer by email takes a bare address only (`mail.js` `bareAddress()`): anything else is 400
+    `field_invalid` (`email`), before anything is looked for or counted. `"x" <someone@…>` matched no
+    account, went on as an address without one, and was delivered to someone@… under that name, past
+    their blocking invitations and the limits per address (sc-data-7, sc-data-3). `check()` of
+    stranger-invites.js answers `nobody` to anything but a bare address, and a row written before
+    with a name around the address is read, and blocked, as the address it reached.
+  - The share dialog says one person invited by the name it showed (the chip's, or the address
+    typed), never by another the answer brings (ui-dialogos-15).
+
 ## 0.249.0 — 2026-11-11
 
 - **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;

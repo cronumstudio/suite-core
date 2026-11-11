@@ -17,13 +17,25 @@
  *   sharing.routes(api, { user: requireUser, id: idParam });
  *
  * Who it is offered to (`target`):
- *   · by email, anyone with an account, never oneself. An address answers the
- *     same whether an account has it or not (A3): for one without, nothing is
- *     created and nobody is told;
- *   · by id (`user_id`), only one of the person's people (`peopleOf`): an id of
- *     anyone else answers 404 like an id nobody has, so ids can't be probed;
+ *   · by email, a bare address (`field_invalid` otherwise), anyone with an account,
+ *     never oneself. An address answers the same whether an account has it or not
+ *     (A3): for one without, the engine makes no share, the module keeps the offer
+ *     under the address, and `notify.stranger` may tell it;
+ *   · by id (`user_id`), only one of the person's people (`peopleOf`: whoever
+ *     accepted something of theirs, offered them something or has what they
+ *     accepted), or someone this thing was already offered to by id: an id of
+ *     anyone else answers 404 like an id nobody has, so ids can't be probed. Not
+ *     whoever they only offered something to by email, or naming them by id would
+ *     tell the address has an account (audit sc-data-1);
  *   · by username, only with `byUsername` (an install whose directory is open,
  *     where everyone sees everyone anyway).
+ *
+ * A kind that keeps its offers by email under their address (the module's
+ * `*_address_offers`) says where (`addresses`). Then its owner sees an address
+ * only while an offer waits under it, as the module lists it, and every account by
+ * the name it gave itself, never its email: picking someone's chip told the owner
+ * their email (audit next-1). An account still waiting behind one of those offers
+ * is named by the offer, never by its id, here too.
  *
  * The brake (share-brake.js, or the module's own with the same two methods):
  * every new offer and every address without an account counts towards a limit
@@ -41,6 +53,7 @@
  */
 import { HttpError, badRequest, notFound, str, oneOf, readJson, sendJson } from './http.js';
 import { createShareBrake } from './share-brake.js';
+import { bareAddress } from './mail.js';
 
 export const PERMISSIONS = ['view', 'edit'];
 
@@ -63,6 +76,10 @@ export const PERMISSIONS = ['view', 'edit'];
  *   accepted({ userId, thing, body, ctx }) → answer   what accepting answers;
  *   answer(info) → answer           what an offer answers (default: { share, invited });
  *   invitation: { select, join, where, owner, shape(row) }   its invitations not yet answered;
+ *   addresses: { table, key }   where its offers by email wait under their address (a table with
+ *                         an `email` column, `key` naming the thing), when the module keeps
+ *                         them and lists them to the owner itself (see the top of the file);
+ *   strictRemove: false   taking back a share that isn't there answers done, not 404;
  *   path, routes: { segment, list, patch }   its routes (see routes()).
  * @param {object|Function} [options.notify]  { push(n), email(n), stranger?(n) }, or one function for every
  *   notice to an account. `stranger` gets { kind, thing, name, actorId, email, permission }.
@@ -106,51 +123,101 @@ export function createSharing({
   /** Until they accept, the owner sees the address the offer went to, not the name the account gave itself. */
   const pendingMask = (person, accepted) => (person && !accepted && person.email ? { ...person, name: person.email } : person);
 
-  /**
-   * Whoever something was offered to; only its owner (`owner`) sees the
-   * invitations not yet answered and the emails. → [{ user, permission, accepted, created_at }].
-   */
-  function sharesOf(kind, id, { owner = false } = {}) {
-    const { table, key, createdAt } = specOf(kind);
-    const created = createdAt ? createdAt : 'NULL';
-    return all(`SELECT user_id, permission, accepted, ${created} AS created_at FROM ${table}
-      WHERE ${key} = ? ${owner ? '' : 'AND accepted = 1'} ORDER BY accepted DESC, ${createdAt ? `${createdAt}, ` : ''}user_id`, id)
-      .map((s) => ({
-        user: pendingMask(personOf(s.user_id, { email: owner }), s.accepted),
-        permission: s.permission,
-        accepted: Boolean(s.accepted),
-        created_at: s.created_at,
-      }));
+  /** The addresses a thing's offers by email wait under (its kind's `addresses`), in lower case; null without. */
+  function addressesOf(spec, id) {
+    if (!spec.addresses) return null;
+    const { table, key } = spec.addresses;
+    return new Set(all(`SELECT email FROM ${table} WHERE ${key} = ?`, id).map((row) => String(row.email).toLowerCase()));
   }
 
   /**
-   * The person's people: everyone they share anything with or who shares
-   * anything with them, of every kind, accepted or not, and whoever else has
-   * something they accepted. Never themselves, each once, by name; the email
-   * only of those they offered something to (they typed it), and only the email
-   * for whoever they know only by offers not yet accepted: the name an account
-   * gave itself is for it to show by accepting (#693). → [{ id, name, email? }].
+   * Whether someone's share of a thing waits behind an offer by address: not accepted, and their
+   * account's email is an address one of its offers waits under. Its owner sees that offer in its
+   * place, and names it by the offer, never by this id: by the id, they would learn that the
+   * address they typed has an account, and which (audit sc-data-1).
    */
-  function peopleOf(userId) {
+  function behindAddress(spec, id, targetId) {
+    if (!spec.addresses) return false;
+    const { table, key } = spec.addresses;
+    return Boolean(get(`SELECT 1 AS x FROM ${spec.table} s JOIN users u ON u.id = s.user_id
+      JOIN ${table} a ON a.${key} = s.${spec.key} AND a.email = u.email COLLATE NOCASE
+      WHERE s.${spec.key} = ? AND s.user_id = ? AND s.accepted = 0`, id, targetId));
+  }
+
+  /**
+   * Whoever something was offered to; only its owner (`owner`) sees the
+   * invitations not yet answered. Of a kind with `addresses`, the owner sees each
+   * account by its name, and none waiting behind an offer by address (the module
+   * lists the offer); of any other, the emails too, and the address an invitation
+   * went to in place of the name. → [{ user, permission, accepted, created_at }].
+   */
+  function sharesOf(kind, id, { owner = false } = {}) {
+    const spec = specOf(kind);
+    const { table, key, createdAt } = spec;
+    const created = createdAt ? createdAt : 'NULL';
+    const typed = owner ? addressesOf(spec, id) : null;
+    return all(`SELECT user_id, permission, accepted, ${created} AS created_at FROM ${table}
+      WHERE ${key} = ? ${owner ? '' : 'AND accepted = 1'} ORDER BY accepted DESC, ${createdAt ? `${createdAt}, ` : ''}user_id`, id)
+      .flatMap((s) => {
+        const share = { permission: s.permission, accepted: Boolean(s.accepted), created_at: s.created_at };
+        if (!typed) return [{ user: pendingMask(personOf(s.user_id, { email: owner }), s.accepted), ...share }];
+        const person = personOf(s.user_id, { email: true });
+        // Waiting behind an offer by address: the module lists that offer in its place.
+        if (!s.accepted && person?.email && typed.has(person.email.toLowerCase())) return [];
+        // Picked by id, or accepted: by the name the owner already knew, or they showed by
+        // accepting. Their email stays theirs.
+        return [{ user: person && { id: person.id, name: person.name }, ...share }];
+      });
+  }
+
+  /**
+   * Who the person may name by id (`user_id`): whoever accepted something of
+   * theirs, whoever offered them something (its invitation shows them by name),
+   * and whoever else has what they accepted, of every kind; never themselves. Not
+   * whoever they only offered something to: an offer by email makes a share for an
+   * account and none for an address without one, so naming that account by its id
+   * told which addresses have one (audit sc-data-1). → a Set of ids.
+   */
+  function knownTo(userId) {
     const parts = [];
     const params = [];
     for (const { table, key, owner } of Object.values(KINDS)) {
       if (!owner) continue;
       parts.push(
-        // Whoever they offered something of theirs to, known by name once they accepted.
-        `SELECT s.user_id AS id, 1 AS offered, s.accepted AS known FROM ${table} s ${owner.join} WHERE ${owner.column} = ?`,
+        // Whoever accepted something of theirs.
+        `SELECT s.user_id AS id FROM ${table} s ${owner.join} WHERE ${owner.column} = ? AND s.accepted = 1`,
         // Whoever offered them something.
-        `SELECT ${owner.column}, 0, 1 FROM ${table} s ${owner.join} WHERE s.user_id = ?`,
+        `SELECT ${owner.column} FROM ${table} s ${owner.join} WHERE s.user_id = ?`,
         // Whoever else has what they accepted (as the dialog shows them).
-        `SELECT o.user_id, 0, 1 FROM ${table} s JOIN ${table} o ON o.${key} = s.${key} WHERE s.user_id = ? AND s.accepted = 1 AND o.accepted = 1`,
+        `SELECT o.user_id FROM ${table} s JOIN ${table} o ON o.${key} = s.${key} WHERE s.user_id = ? AND s.accepted = 1 AND o.accepted = 1`,
       );
       params.push(userId, userId, userId);
     }
-    if (!parts.length) return [];
-    return all(`SELECT id, MAX(offered) AS offered, MAX(known) AS known FROM (${parts.join(' UNION ALL ')}) WHERE id <> ? GROUP BY id`, ...params, userId)
-      .map((row) => pendingMask(personOf(row.id, { email: Boolean(row.offered) }), Boolean(row.known)))
-      .filter(Boolean)
+    if (!parts.length) return new Set();
+    return new Set(all(`SELECT DISTINCT id FROM (${parts.join(' UNION ALL ')}) WHERE id <> ?`, ...params, userId).map((row) => row.id));
+  }
+
+  /**
+   * The person's people, for the share dialog's chips: those they may name by id
+   * (knownTo), each once, by name, never by email. Whoever they only offered
+   * something to is none of them, as in Projects: the name an account gave itself
+   * is for it to show by accepting (#693). → [{ id, name }].
+   */
+  function peopleOf(userId) {
+    return [...knownTo(userId)].map((id) => personOf(id)).filter(Boolean)
       .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' }) || a.id - b.id);
+  }
+
+  /**
+   * Whether a thing waits for someone by an offer made by picking them (by id): a share not
+   * accepted that no offer by address hides. Only a kind with `addresses` can tell: without them,
+   * an offer by email to an account leaves the very same share.
+   */
+  function offeredById(kind, id, targetId) {
+    const spec = specOf(kind);
+    if (!spec.addresses) return false;
+    const row = shareRow(kind, id, targetId);
+    return Boolean(row) && !row.accepted && !behindAddress(spec, id, targetId);
   }
 
   /* ------------------------------- target ------------------------------- */
@@ -161,16 +228,18 @@ export function createSharing({
   };
 
   /**
-   * Whoever the owner offers something to (see the top of the file).
+   * Whoever the owner offers something to (see the top of the file); `kind` and
+   * `thing`, when given, let an id it was already offered to by id be named again.
    * → { id, email? } for someone with an account, `{ ghost: true, email }` for
    * an address without one (already counted by the brake).
    */
-  function target(userId, { email, user_id: targetId, username } = {}) {
+  function target(userId, { email, user_id: targetId, username } = {}, { kind = null, thing = null } = {}) {
     requirePlan?.(userId);
     const hasEmail = email != null && email !== '';
     if (!hasEmail && targetId != null) {
       const id = Number(targetId);
-      if (!Number.isInteger(id) || !peopleOf(userId).some((p) => p.id === id)) throw notFound(UNKNOWN);
+      const named = Number.isInteger(id) && (knownTo(userId).has(id) || Boolean(kind && thing && offeredById(kind, thing.id, id)));
+      if (!named) throw notFound(UNKNOWN);
       return { id };
     }
     if (!hasEmail && byUsername) {
@@ -180,7 +249,10 @@ export function createSharing({
       return { id: row.id };
     }
     if (!hasEmail && NO_TARGET) throw badRequest(NO_TARGET);
-    const address = str(email, { field: 'email', min: 3, max: 200 }).toLowerCase();
+    // Only a bare address: `"x" <someone@…>` is nobody's, and went on to that address as one
+    // without an account, under a name of the sender's choosing (mail.js bareAddress).
+    const address = bareAddress(str(email, { field: 'email', min: 3, max: 200 }));
+    if (!address) throw badRequest('field_invalid', { field: 'email' });
     const row = get('SELECT id FROM users WHERE email = ? COLLATE NOCASE', address);
     if (row?.id === userId) throw badRequest('share_with_self');
     if (!row) {
@@ -305,7 +377,7 @@ export function createSharing({
     const thing = spec.own(userId, id);
     // What can't be offered at all (Notes' Inbox) says so before anyone is looked for or counted.
     spec.offering?.(userId, thing);
-    const who = target(userId, body);
+    const who = target(userId, body, { kind, thing });
     const permission = permissionOf(body.permission);
     const answer = spec.answer || defaultAnswer;
     if (who.ghost) {
@@ -330,12 +402,17 @@ export function createSharing({
     return { role, owner: personOf(ownerId), shares: sharesOf(kind, thing.id, { owner: role === 'owner' }) };
   }
 
-  /** Changes what someone it was offered to may do. Only its owner. → their share. */
-  function setPermission(kind, userId, id, targetId, permission) {
+  /**
+   * Changes what someone it was offered to may do. Only its owner. → their share.
+   * Someone waiting behind an offer by address answers as a share that isn't there
+   * (behindAddress), unless the module changes that offer (`byAddress`).
+   */
+  function setPermission(kind, userId, id, targetId, permission, { byAddress = false } = {}) {
     const spec = specOf(kind);
     const thing = spec.own(userId, id);
     const perm = permissionOf(permission);
     const { table, key } = spec;
+    if (!byAddress && behindAddress(spec, thing.id, targetId)) throw notFound();
     if (!run(`UPDATE ${table} SET permission = ? WHERE ${key} = ? AND user_id = ?`, perm, thing.id, targetId).changes) throw notFound();
     spec.changed?.({ userId, thing, targetId, permission: perm });
     return sharesOf(kind, thing.id, { owner: true }).find((s) => s.user.id === targetId);
@@ -345,12 +422,23 @@ export function createSharing({
    * Ends someone's access: its owner takes it back from anyone; anyone else,
    * only from themselves (declining an invitation, or leaving what they had
    * accepted). With `strictRemove: false` a share that isn't there is not a 404.
+   * A share that isn't there runs no hook either: nothing changed, so nobody is
+   * told. It used to tell whoever the id named, and Tasks' tabs reload on that,
+   * so anyone could make anyone's reload, as often as they liked (audit
+   * sc-data-6); now every notice a removal sends is for a share an offer made,
+   * and offers are what the brake counts.
    */
   function remove(kind, userId, id, targetId) {
     const spec = specOf(kind);
     const { thing, ownerId } = spec.leaving(userId, id, targetId);
-    const row = shareRow(kind, thing.id, targetId);
-    if (!row && spec.strictRemove !== false) throw notFound();
+    let row = shareRow(kind, thing.id, targetId);
+    // Its owner takes back someone waiting behind an offer by address by that offer, which the
+    // module drops before it comes here: by the id it is a share that isn't there (behindAddress).
+    if (row && Number(targetId) !== Number(userId) && behindAddress(spec, thing.id, targetId)) row = null;
+    if (!row) {
+      if (spec.strictRemove !== false) throw notFound();
+      return;
+    }
     const info = { userId, thing, ownerId, targetId, row };
     // Told while they still have it: afterwards their tabs would not hear of it.
     spec.removing?.(info);
@@ -455,7 +543,7 @@ export function createSharing({
 
   return {
     kinds: Object.keys(KINDS),
-    personOf, sharesOf, peopleOf, target, shareRow, emailAnswer,
+    personOf, sharesOf, peopleOf, knownTo, target, shareRow, emailAnswer,
     share, list, setPermission, remove, accept, pending, routes,
   };
 }

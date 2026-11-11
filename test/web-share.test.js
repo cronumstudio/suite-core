@@ -149,6 +149,27 @@ test('an app\'s own functions and words, without an email field: chips only, or 
   closeAll();
 });
 
+test('one chip invited is said by the chip\'s name, whatever the answer calls them (audit ui-dialogos-15)', async () => {
+  // As Notes' and Next's answered a chip until they showed accounts by name: with the email in its place.
+  const options = {
+    name: 'Plans', me: 1, email: false, people: [{ id: 3, name: 'Cris' }],
+    load: async () => ({ role: 'owner', owner: { id: 1, name: 'Ana' }, shares: [] }),
+    offer: async (target, permission) => ({
+      share: { user: { id: target.id, name: 'cris.private@example.com', email: 'cris.private@example.com' }, permission, accepted: false },
+      invited: true,
+    }),
+  };
+  shareDialog(options);
+  await settle();
+  const [dialog] = openDialogs();
+  byClass(dialog, 'kit-people__chip')[0].dispatch('click');
+  byClass(dialog, 'kit-share__invite')[0].dispatch('submit', { preventDefault() {} });
+  await settle();
+  const note = document.body.all().filter((node) => (node.getAttribute?.('class') || '').split(/\s+/).includes('kit-toast')).at(-1);
+  assert.equal(note?.textContent, t('kit.share.invited', { name: 'Cris' }));
+  closeAll();
+});
+
 test('whoever it was shared with sees who has it and may leave it', async () => {
   const left = [];
   const outcome = shareDialog({

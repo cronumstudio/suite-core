@@ -14,19 +14,22 @@ import { createSharing } from '../sharing.js';
 import { createShareBrake, OFFERS_PER_HOUR } from '../share-brake.js';
 import { createRouter, HttpError, notFound, forbidden } from '../http.js';
 
-function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes, clock = () => '2026-10-25T10:00:00.000Z' } = {}) {
+function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes, addresses = false, clock = () => '2026-10-25T10:00:00.000Z' } = {}) {
   const database = new DatabaseSync(':memory:');
   database.exec(`
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, display_name TEXT, email TEXT);
     CREATE TABLE boards (id INTEGER PRIMARY KEY, owner_id INTEGER, name TEXT);
     CREATE TABLE board_shares (board_id INTEGER, user_id INTEGER, permission TEXT NOT NULL DEFAULT 'edit',
       accepted INTEGER NOT NULL DEFAULT 0, invited_by INTEGER, created_at TEXT, UNIQUE (board_id, user_id));
+    -- Like the modules' *_address_offers: an offer by email waits under its address.
+    CREATE TABLE board_address_offers (id INTEGER PRIMARY KEY, board_id INTEGER, email TEXT NOT NULL COLLATE NOCASE, UNIQUE (board_id, email));
     -- Like Tasks' list_shares: no invited_by, created_at by the column's default.
     CREATE TABLE lists (id INTEGER PRIMARY KEY, owner_id INTEGER, name TEXT);
     CREATE TABLE list_shares (id INTEGER PRIMARY KEY, list_id INTEGER, user_id INTEGER, permission TEXT NOT NULL DEFAULT 'edit',
       accepted INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (list_id, user_id));
   `);
-  const people = [[1, 'ana', 'Ana', 'ana@example.com'], [2, 'ben', 'Ben', 'ben@example.com'], [3, 'cris', 'Cris', 'cris@example.com'], [4, 'dani', 'Dani', null]];
+  const people = [[1, 'ana', 'Ana', 'ana@example.com'], [2, 'ben', 'Ben', 'ben@example.com'], [3, 'cris', 'Cris', 'cris@example.com'], [4, 'dani', 'Dani', null],
+    [5, 'eve', 'Eve', 'eve@example.com']];
   for (const p of people) database.prepare('INSERT INTO users VALUES (?, ?, ?, ?)').run(...p);
   database.prepare("INSERT INTO boards VALUES (10, 1, 'Plans'), (11, 1, 'Ideas'), (20, 2, 'Ben''s')").run();
   database.prepare("INSERT INTO lists VALUES (30, 1, 'Shopping')").run();
@@ -70,6 +73,20 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
     ...extra,
   });
   const notices = [];
+  // A module that keeps its offers by email under their address, as Tasks, Notes and Next do: the
+  // offer waits there until it is accepted, and the module lists it to the owner itself.
+  const byAddress = !addresses ? {} : {
+    addresses: { table: 'board_address_offers', key: 'board_id' },
+    answer: ({ kind: name, thing, target, permission, invited }) => {
+      if (!target.email) return { share: sharing.sharesOf(name, thing.id, { owner: true }).find((s) => s.user.id === target.id), invited };
+      db.run('INSERT OR IGNORE INTO board_address_offers (board_id, email) VALUES (?, ?)', thing.id, target.email);
+      return sharing.emailAnswer(target.email, permission);
+    },
+    accepted: ({ userId, thing }) => {
+      db.run('DELETE FROM board_address_offers WHERE board_id = ? AND email = (SELECT email FROM users WHERE id = ?)', thing.id, userId);
+      return thing;
+    },
+  };
   const sharing = createSharing({
     db, brake, byUsername, codes, hasPush,
     clock,
@@ -84,6 +101,7 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
           select: 'b.id, b.name', join: 'JOIN boards b ON b.id = s.board_id', owner: 'b.owner_id',
           shape: (row) => ({ board: { id: row.id, name: row.name } }),
         },
+        ...byAddress,
       }),
       list: kind('lists', 'list_shares', 'list_id', {
         offering: (userId, thing) => { if (thing.name === 'Inbox') throw new HttpError(400, 'inbox_not_shared'); },
@@ -162,9 +180,15 @@ test('by id only one of one\'s people, answering as an id nobody has; by usernam
   assert.equal(codeOf(() => sharing.share('board', 1, 10, { user_id: 3 })), '404 email_not_found');
   assert.equal(codeOf(() => sharing.share('board', 1, 10, { user_id: 999 })), '404 email_not_found');
   sharing.share('board', 1, 10, { email: 'cris@example.com' });
+  // Only offered something by email, Cris is no one Ana may name by id yet: trying ids after an
+  // offer by email told whether the address has an account, and which (audit sc-data-1).
+  assert.equal(codeOf(() => sharing.share('board', 1, 11, { user_id: 3 })), '404 email_not_found');
+  assert.equal(codeOf(() => sharing.share('board', 1, 11, { user_id: 5 })), '404 email_not_found', 'the same as anyone else');
+  sharing.accept('board', 3, 10);
   const byId = sharing.share('board', 1, 11, { user_id: 3, permission: 'view' });
-  assert.equal(byId.invited, true);
-  assert.deepEqual(byId.share.user, { id: 3, name: 'cris@example.com', email: 'cris@example.com' }, 'still pending: the address it went to');
+  assert.equal(byId.invited, true, 'once she accepted something of Ana\'s');
+  sharing.share('board', 2, 20, { email: 'ana@example.com' });
+  assert.equal(sharing.share('board', 1, 11, { user_id: 2 }).invited, true, 'and whoever offered Ana something: its invitation names them');
   assert.equal(codeOf(() => sharing.share('board', 1, 10, { username: 'ben' })), '400 field_required', 'no username here');
 
   const open = setup({ byUsername: true, codes: { unknown: 'user_not_found' } }).sharing;
@@ -264,9 +288,30 @@ test('accepting is only one\'s own; leaving and taking back', () => {
   assert.equal(db.get('SELECT COUNT(*) AS n FROM board_shares').n, 0);
   assert.deepEqual(events.at(-1), ['removed', 2]);
 
-  // A kind with strictRemove: false answers as if it went.
+  // A kind with strictRemove: false answers as if it went, and tells nobody: nothing went. Its hooks
+  // told whoever the id named, and Tasks' tabs reload on that notice (audit sc-data-6).
+  const told = events.length;
   sharing.remove('list', 1, 30, 3);
-  assert.deepEqual(events.at(-1), ['removed', 3]);
+  assert.equal(events.length, told, 'no hook for a share that isn\'t there');
+  sharing.share('list', 1, 30, { email: 'cris@example.com' });
+  sharing.remove('list', 1, 30, 3);
+  assert.deepEqual(events.at(-1), ['removed', 3], 'one that is there, as always');
+});
+
+test('every notice a removal sends is for a share an offer made: the brake bounds them (audit sc-data-6)', () => {
+  const brake = createShareBrake({ clock: () => 0, offersPerHour: 3 });
+  const { sharing, events } = setup({ brake });
+  // "Taking back" one's list from every account there is: nothing went, nobody hears of it.
+  for (let id = 2; id <= 40; id += 1) sharing.remove('list', 1, 30, id);
+  assert.deepEqual(events, []);
+  // Offered and taken back again and again: each round is a new offer, and the brake stops them.
+  for (let round = 0; round < 3; round += 1) {
+    sharing.share('list', 1, 30, { email: 'ben@example.com' });
+    sharing.remove('list', 1, 30, 2);
+  }
+  assert.equal(codeOf(() => sharing.share('list', 1, 30, { email: 'ben@example.com' })), '429 share_limit');
+  sharing.remove('list', 1, 30, 2);
+  assert.equal(events.filter(([what]) => what === 'removed').length, 3, 'one per offer, none past the brake');
 });
 
 test('a kind without invited_by and with created_at by default; its own answers', () => {
@@ -276,6 +321,7 @@ test('a kind without invited_by and with created_at by default; its own answers'
   const row = db.get('SELECT * FROM list_shares WHERE user_id = 2');
   assert.equal(row.accepted, 0, 'born waiting, though the column says 1');
   assert.match(row.created_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, 'the column\'s own date');
+  sharing.accept('list', 2, 30);
   assert.deepEqual(sharing.share('list', 1, 30, { user_id: 2, permission: 'view' }), { id: 30, shared: true });
   db.run("UPDATE lists SET name = 'Inbox' WHERE id = 30");
   assert.equal(codeOf(() => sharing.share('list', 1, 30, { email: 'nobody@example.com' })), '400 inbox_not_shared', 'before anyone is looked for');
@@ -293,10 +339,12 @@ test('who has it, and one\'s people of every kind', () => {
   assert.deepEqual(owner.shares.map((s) => [s.user.name, s.user.email, s.accepted]), [['Ben', 'ben@example.com', true], ['cris@example.com', 'cris@example.com', false]]);
   const guest = sharing.list('board', 2, 10);
   assert.deepEqual(guest.shares.map((s) => s.user), [{ id: 2, name: 'Ben' }], 'no emails, nothing unanswered');
-  // Cris hasn't accepted anything: only the address it went to, not the account's name (#693).
-  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben', email: 'ben@example.com' }, { id: 3, name: 'cris@example.com', email: 'cris@example.com' }]);
+  // Cris hasn't accepted anything: none of Ana's people yet, by name or by address (#693, audit
+  // sc-data-1); and nobody's email, which is theirs.
+  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben' }]);
+  assert.deepEqual([...sharing.knownTo(1)], [2]);
   sharing.accept('list', 3, 30);
-  assert.deepEqual(sharing.peopleOf(1).map((p) => p.name), ['Ben', 'Cris'], 'once accepted, by name');
+  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben' }, { id: 3, name: 'Cris' }], 'once accepted, by name');
   assert.deepEqual(sharing.peopleOf(2), [{ id: 1, name: 'Ana' }]);
   assert.deepEqual(sharing.peopleOf(4), []);
   assert.deepEqual(sharing.setPermission('board', 1, 10, 2, 'view').permission, 'view');
@@ -312,6 +360,66 @@ test('what waits for someone, newest first, of the kinds that say how', () => {
     { kind: 'board', board: { id: 20, name: 'Ben\'s' }, owner: { id: 2, name: 'Ben' }, permission: 'view', created_at: '2026-10-26T00:00:00.000Z' },
     { kind: 'board', board: { id: 10, name: 'Plans' }, owner: { id: 1, name: 'Ana' }, permission: 'edit', created_at: '2026-10-25T10:00:00.000Z' },
   ]);
+});
+
+test('an offer by email takes a bare address only, before anything is made or counted (audit sc-data-7)', () => {
+  const brake = createShareBrake({ clock: () => 0, offersPerHour: 1 });
+  const { db, sharing, notices } = setup({ brake });
+  for (const email of ['"Win a phone" <ben@example.com>', 'Ben <ben@example.com>', '<ben@example.com>',
+    'ben@example.com, eve@example.com', 'ben @example.com', 'nobody', '"x" <nobody@example.com>']) {
+    assert.equal(codeOf(() => sharing.share('board', 1, 10, { email })), '400 field_invalid', email);
+  }
+  assert.equal(db.get('SELECT COUNT(*) AS n FROM board_shares').n, 0);
+  assert.deepEqual(notices, []);
+  assert.equal(sharing.share('board', 1, 10, { email: '  Ben@Example.com ' }).invited, true, 'the brake had counted none of them');
+});
+
+test('with the addresses its offers wait under: an account by its name, never its email; one behind an address, by that offer only (audit next-1)', () => {
+  const { db, sharing } = setup({ addresses: true });
+  // Ana and Cris both have Ben's board: Ana knows Cris by her name, never by her email.
+  sharing.share('board', 2, 20, { email: 'ana@example.com' });
+  sharing.share('board', 2, 20, { email: 'cris@example.com' });
+  sharing.accept('board', 1, 20);
+  sharing.accept('board', 3, 20);
+  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben' }, { id: 3, name: 'Cris' }]);
+
+  // Picking Cris's chip for a board of Ana's: Cris by her name, as the chip said, waiting or accepted.
+  const picked = sharing.share('board', 1, 10, { user_id: 3, permission: 'view' });
+  assert.deepEqual(picked.share.user, { id: 3, name: 'Cris' });
+  assert.deepEqual(sharing.list('board', 1, 10).shares.map((s) => [s.user, s.accepted]), [[{ id: 3, name: 'Cris' }, false]]);
+  sharing.accept('board', 3, 10);
+  assert.deepEqual(sharing.list('board', 1, 10).shares.map((s) => [s.user, s.accepted]), [[{ id: 3, name: 'Cris' }, true]]);
+  assert.deepEqual(sharing.setPermission('board', 1, 10, 3, 'edit').user, { id: 3, name: 'Cris' });
+  // Once accepted, by name even for whoever typed their addresses: Ben's board shows Ana and Cris so.
+  assert.deepEqual(sharing.list('board', 2, 20).shares.map((s) => s.user), [{ id: 1, name: 'Ana' }, { id: 3, name: 'Cris' }]);
+
+  // By email, Eve waits under her address, which the module lists: never her account, here or by its id.
+  sharing.share('board', 1, 10, { email: 'eve@example.com' });
+  assert.deepEqual(db.all('SELECT email FROM board_address_offers WHERE board_id = 10').map((o) => o.email), ['eve@example.com']);
+  assert.deepEqual(sharing.list('board', 1, 10).shares.map((s) => s.user.id), [3]);
+  for (const id of [5, 999]) {
+    assert.equal(codeOf(() => sharing.share('board', 1, 10, { user_id: id })), '404 email_not_found', `offer to ${id}`);
+    assert.equal(codeOf(() => sharing.setPermission('board', 1, 10, id, 'view')), '404 not_found', `permission of ${id}`);
+    assert.equal(codeOf(() => sharing.remove('board', 1, 10, id)), '404 not_found', `taking back from ${id}`);
+  }
+  // The module changes her offer, and takes it back, by the offer: its permission first, then the address.
+  sharing.setPermission('board', 1, 10, 5, 'view', { byAddress: true });
+  assert.equal(db.get('SELECT permission FROM board_shares WHERE board_id = 10 AND user_id = 5').permission, 'view');
+  db.run("DELETE FROM board_address_offers WHERE board_id = 10 AND email = 'eve@example.com'");
+  sharing.remove('board', 1, 10, 5);
+  assert.equal(db.get('SELECT COUNT(*) AS n FROM board_shares WHERE board_id = 10 AND user_id = 5').n, 0);
+  // Whoever it waits for declines it by their own id, address or not.
+  sharing.share('board', 1, 11, { email: 'eve@example.com' });
+  sharing.remove('board', 5, 11, 5);
+  assert.equal(db.get('SELECT COUNT(*) AS n FROM board_shares WHERE board_id = 11').n, 0);
+
+  // Someone a board was offered to by id may be named again for it, once nothing else makes them known.
+  sharing.share('board', 1, 11, { user_id: 3 });
+  sharing.remove('board', 1, 10, 3);
+  sharing.remove('board', 3, 20, 3);
+  assert.equal(sharing.knownTo(1).has(3), false);
+  assert.equal(codeOf(() => sharing.share('board', 1, 10, { user_id: 3 })), '404 email_not_found', 'not for something new');
+  assert.equal(sharing.share('board', 1, 11, { user_id: 3, permission: 'view' }).share.permission, 'view', 'what waits for her by id, yes');
 });
 
 /** A request through the routes as the app's server would make it. */

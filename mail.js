@@ -64,6 +64,18 @@ export function parseAddress(text) {
   return { name: match ? match[1].trim() : '', address };
 }
 
+/**
+ * A bare address ("ana@example.com": no name, no brackets), in lower case; null when the text is
+ * anything else. What someone types to invite must be one: `"Win a phone" <ana@example.com>`
+ * matches nobody's account, so it went as an address without one, and parseAddress took
+ * ana@example.com out of it to deliver it, under that name and past her blocking invitations,
+ * which looks for the whole text (audit sc-data-7).
+ */
+export function bareAddress(text) {
+  const clean = String(text ?? '').trim();
+  return clean.length <= 254 && EMAIL.test(clean) ? clean.toLowerCase() : null;
+}
+
 /** A header value in UTF-8 when it needs it (RFC 2047), as is when plain ASCII. */
 const encodeWord = (text) => (/^[\x20-\x7e]*$/.test(text)
   ? text : `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`);

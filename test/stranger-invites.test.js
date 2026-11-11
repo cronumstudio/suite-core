@@ -72,6 +72,34 @@ test('the link to stop them: by a token, never the address; for good, whoever in
   assert.equal(strangers.check('Quiet@example.com', confirmed(2)), 'unsubscribed');
 });
 
+test('only to a bare address: a name around one is nobody, and an older row stops the address it reached (audit sc-data-7)', async () => {
+  const { strangers, database } = setup();
+  const { token } = strangers.record('victim@example.com', 1, 'list');
+  strangers.suppress(token);
+  // Each of these reaches victim@example.com, under a name of the sender's choosing.
+  for (const email of ['"Win a phone" <victim@example.com>', 'Victim <victim@example.com>', '<victim@example.com>',
+    'victim@example.com, other@example.com', ' victim@example.com\r\nBcc: other@example.com']) {
+    assert.equal(strangers.check(email, confirmed(2)), 'nobody', JSON.stringify(email));
+  }
+  assert.equal(strangers.check(' Victim@Example.com ', confirmed(2)), 'unsubscribed');
+
+  const sent = [];
+  const send = createShareMail({
+    mailer: { send: async (m) => { sent.push(m); } }, texts: createTexts(), brand, baseUrl: BASE, strangers,
+    signupUrl: `${BASE}/`, log: () => {},
+  });
+  assert.equal(await send.stranger({ email: '"x" <new@example.com>', inviter: confirmed(3), kind: 'list', name: 'X' }), false);
+  assert.deepEqual(sent, [], 'nothing goes');
+  assert.equal(strangers.check('new@example.com', confirmed(3)), null, 'nor is it noted as sent');
+
+  // A row written before, with a name around the address: its link blocks the address it reached.
+  database.run(`INSERT INTO mail_stranger_invites (email, inviter_id, kind, token, sent_at)
+    VALUES ('"x" <old@example.com>', 1, 'list', 'old-token', '2026-10-29T10:00:00.000Z')`);
+  assert.equal(strangers.emailOf('old-token'), 'old@example.com');
+  assert.equal(strangers.suppress('old-token'), 'old@example.com');
+  assert.equal(strangers.check('old@example.com', confirmed(4)), 'unsubscribed');
+});
+
 test('the email to a stranger: the inviter\'s language, a button to sign up, a link and headers to stop them', async () => {
   const { strangers } = setup();
   const sent = [];

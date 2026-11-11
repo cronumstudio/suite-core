@@ -230,10 +230,11 @@ export async function shareDialog({
         }
         invite.disabled = true;
         if (targets.length === 1) {
-          // One person: said by name, as it always was.
+          // One person: said by the name the dialog showed, the chip's or the address typed, never
+          // another the answer brings (an app that answered a chip with the email told it).
           try {
-            const { share, invited } = await offer(targets[0]);
-            toast(w(invited ? 'invited' : 'changed', { name: share?.user?.name || targets[0].name }));
+            const { invited } = await offer(targets[0]);
+            toast(w(invited ? 'invited' : 'changed', { name: targets[0].name }));
           } catch (err) {
             fail(err);
           }
