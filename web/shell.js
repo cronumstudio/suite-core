@@ -78,8 +78,10 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   or { label?, href, current? }) at its end. Their words are the kit's unless given.
  *   `shell.foot` is { element, create, trash }, the trash a place `setCurrent()` marks too.
  * @param {object} [options.search]          { label, placeholder?, onInput(text), onSubmit?(text) }: the
- *   module's search, at the top of its sidebar; Escape empties it, Enter in the drawer closes it
- *   so the results show. `shell.search` is its field.
+ *   module's search, at the top of its sidebar. It reads the kit's «Buscar» (`kit.side.search`) in
+ *   every module, and `label`, the module's own words, names it (aria-label); `placeholder` would
+ *   replace the word, and no module of the suite gives one. Escape empties it, Enter in the drawer
+ *   closes it so the results show, and «/» goes to it, said nowhere. `shell.search` is its field.
  * @param {Function} [options.onSettings]
  * @param {Function} [options.onSignOut]
  * @param {Function} [options.onBack]        what closes the detail: its ←, its × and Escape (default: showList)
@@ -88,8 +90,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  * @param {Node}   [options.root]
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  * @param {Function} [options.active]       () → whether this frame has the keyboard when the focus is on no
- *   element (the page's body): Escape then closes its detail. In Work's shell `ctx.active`; by default
- *   yes on a page of its own, and in a window only from a focus inside it
+ *   element (the page's body): Escape then closes its detail, and «/» goes to its search. In Work's
+ *   shell `ctx.active`; by default yes on a page of its own, and in a window of Work's shell while it
+ *   is the one in front (`data-focus="true"` on the window that holds `root`, windows.js)
  */
 export function createShell({
   panes = 'split', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
@@ -127,9 +130,10 @@ export function createShell({
   // In Work's shell the window's head or the phone's tab already names the module, and the shell
   // shows the one live dot: the sidebar keeps only its button that folds it.
   const head = embedded ? el('div', { class: 'kit-side__head' }, fold) : el('div', { class: 'kit-side__head' }, headIcon, headName, live, fold);
-  // The module's search, the same in every module: the sidebar's first line.
+  // The module's search, the same in every module: the sidebar's first line, reading the kit's
+  // «Buscar». The module's own words name it: as the words in it they were cut short in two.
   const searchField = search ? el('input', {
-    type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || search.label,
+    type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || t('kit.side.search'),
     'aria-label': search.label, enterkeyhint: 'search', autocomplete: 'off',
   }) : null;
   if (searchField) {
@@ -147,7 +151,9 @@ export function createShell({
       }
     }, { signal });
   }
-  const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null;
+  // «/» goes to it (below): its key, at the end, shows only where a keyboard is likely (kit.css), never over what is typed.
+  const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField,
+    el('kbd', { class: 'kit-side__search-key', 'aria-hidden': 'true', text: '/' })) : null;
   // The sidebar's foot, the same in every module: what makes a collection (a list, a notebook; an
   // item is the floating button's) at its start, the trash at its end. The + with a menu opens it
   // over the drawer, and each choice closes the drawer as an entry would; the trash closes it too.
@@ -619,11 +625,19 @@ export function createShell({
    * is the page's, and a frame adds nothing to it.
    */
   const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
-  const hasKeyboard = active || (() => !embedded);
+  // Told nothing, a window of Work's shell has the keyboard while windows.js marks it the one in
+  // front (`data-focus` on the window that holds `root`, as `ctx.active` says it): Next passes no
+  // `active`, and its Escape and «/» are its window's too. A page of its own always has it.
+  const inFront = () => {
+    const win = root.closest?.('[data-focus]');
+    return win?.getAttribute('data-focus') === 'true' && !win.hidden;
+  };
+  const hasKeyboard = active || (embedded ? inFront : () => true);
   let covered = false;
-  const coveredNow = () => element.hasAttribute('data-drawer')
-    || document.documentElement.hasAttribute('data-kit-dragging')
+  /** Over the frame, with the keys its own: a dialog, a menu, Settings, a drag. */
+  const layerOver = () => document.documentElement.hasAttribute('data-kit-dragging')
     || Boolean(document.querySelector('dialog[open], .kit-menu, .kit-settings-page'));
+  const coveredNow = () => element.hasAttribute('data-drawer') || layerOver();
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') covered = coveredNow(); }, { capture: true, signal });
   document.addEventListener('keydown', (ev) => {
     const over = covered;
@@ -637,6 +651,33 @@ export function createShell({
     ev.preventDefault?.();
     (onBack || showList)();
   }, { signal });
+
+  /* ------------------------------ «/» to search ----------------------------- */
+  /*
+   * «/» goes to the module's search, as in most apps with one, the same in every module (Tasks and
+   * Notes had their own, Projects and Next none). Nothing says so: no hint in the field, nor
+   * anywhere else. On the document, without Ctrl, ⌘ or Alt (Shift is how some keyboards type it),
+   * not while composing, not once something on the way answered it (`preventDefault`), and not from
+   * a field or an editor, where it is typed; not with a dialog, a menu, Settings or a drag over the
+   * frame either. Its own drawer open is no layer over it: the search is in it. Only the frame that
+   * has the keyboard, as Escape: with the focus on no element `hasKeyboard()`, else the one the
+   * focus is in. Over a phone's detail the list comes back, where the results show; where the
+   * sidebar is a closed drawer or folded away it opens; then the field takes the focus, and the «/»
+   * isn't typed in it.
+   */
+  if (searchField) {
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing || ev.defaultPrevented) return;
+      const focus = ev.target?.closest ? ev.target : null;
+      if (focus?.closest(EDITABLE) || focus?.isContentEditable || layerOver()) return;
+      const nowhere = !focus || focus === document.body || focus === document.documentElement;
+      if (nowhere ? !hasKeyboard() : !element.contains(focus)) return;
+      ev.preventDefault?.();
+      if (element.dataset.screen === 'detail' && getComputedStyle(list).display === 'none') showList();
+      if (folded() || drawerIsClosed()) openDrawer({ keyboard: true });
+      searchField.focus();
+    }, { signal });
+  }
 
   /* --------------------------------- account -------------------------------- */
 
