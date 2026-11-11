@@ -11,7 +11,7 @@
  * scoped to its windows, reaches it. Anywhere else it is left as it was.
  */
 import { el, $, append, clear } from './dom.js';
-import { errorMessage } from './api.js';
+import { errorMessage, planAction } from './api.js';
 import { t } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
@@ -39,6 +39,8 @@ function onTop(box) {
  * ("Undo", "Retry") that runs and closes it. Returns a function that closes it.
  */
 export function toast(text, { error = false, action = null, duration = null } = {}) {
+  // A plan's barrier just met, said as an error (api.js): with the way to the plans.
+  if (error && !action) action = planAction(text);
   // One box for the page, whichever copy of the kit made it: each notice in it is its own module's.
   let box = $('#kit-toasts');
   if (!box) {

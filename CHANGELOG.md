@@ -23,6 +23,16 @@ change an interface and a patch never does. Apps pin a version through the submo
   change it; the links never reach into a module whose tools the plan leaves out (`item`, `from`,
   `to`, `create`), and that module's prompts are left out too. Today every plan of Cronum Work has
   `mcp`, so nothing changes there.
+- **A plan's limit met in a module shows the way to Pro** (`web/api.js`, `web/ui.js`, `web/shell.js`;
+  audit of 6/11, billing-6; Martin, 11/11: the notice with «Ver planes»). `offerPlan` was only used by
+  Settings: a Free account that made its 21st list, uploaded a photo without room or saved a
+  template read «Tu plan (Free) permite 20 y ya tienes 20.», without saying of what nor where to
+  go. Now a 402 met by any call of the kit's `api` is kept for ten seconds by its sentence, and the
+  error notice that says it gets «Ver planes», which opens Settings › Plan (`createShell` gives
+  `onSettings('plan')` through the new `setPlanOpener`). Once, and only for those words, in all four
+  modules without a change of theirs: each says its errors with the kit's `errorMessage` and `toast`.
+  `errorMessage` names what `plan_limit` limits, as Settings › Usage counts it («20 listas», «20
+  libretas», «10 proyectos», «50 MB de espacio»).
 - **An account that goes takes its usage with it** (`entitlements.js` `forgetUsage`, `app.js`; audit
   of 6/11, billing-12). Its rows of `entitlement_usage` (the calls of an assistant counted for a
   week's limit) name it by id alone and stayed for good: they go in the removal's transaction now,
