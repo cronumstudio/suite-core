@@ -22,7 +22,7 @@ import { createEntitlements } from '../entitlements.js';
 import { createOrganizations } from '../organizations.js';
 import { createAudit } from '../audit.js';
 import {
-  createBilling, registerBillingApi, signedProvider, signPayload, combinedBilling, registerBillingOverviewApi,
+  createBilling, registerBillingApi, signedProvider, signPayload, combinedBilling, registerBillingOverviewApi, registerBillingAdminApi,
 } from '../billing.js';
 import { createStoreBilling, registerStoreApi } from '../stores.js';
 import { registerStoreProvider } from '../providers.js';
@@ -30,7 +30,7 @@ import { resolveConfig } from '../config.js';
 import { createSuite, createApp, SuiteConfigError } from '../app.js';
 import { randomToken, sha256 } from '../crypto.js';
 import {
-  PROVIDER, AUTH, SIGNING, KEY, PRODUCTS, MONTHLY, YEARLY, LIFETIME, MANAGE_URLS, fakeStore, storeAdapter, storeProvider,
+  PROVIDER, AUTH, SIGNING, KEY, PRODUCTS, MONTHLY, YEARLY, LIFETIME, MANAGE_URLS, DASHBOARD, fakeStore, storeAdapter, storeProvider,
   subscription, purchase, webhook,
 } from './fake-store.js';
 
@@ -77,8 +77,12 @@ async function setup(t, { now = '2026-11-01T10:00:00Z', sandbox = true, ignoreUn
   const provider = storeAdapter({ auth: AUTH, key: KEY, products: PRODUCTS, api, clock: time, sandbox });
   const stores = createStoreBilling({ database, entitlements, provider, products: PRODUCTS, audit, clock: time, log, ignoreUnknownProducts });
   assert.deepEqual(stores.errors, []);
+  // The web's provider has a dashboard too: a subscription's page, for refs it knows (`sub_…`); for
+  // any other it answers an address that isn't https, which the admin is never given.
+  const webDashboard = ({ ref }) => (/^sub_/.test(ref) ? `https://dashboard.web.example/subscriptions/${ref}` : `http://dashboard.web.example/${ref}`);
   const web = createBilling({
-    database, entitlements, provider: signedProvider({ id: WEB, secret: SECRET }), products: WEB_PRODUCTS, audit, clock: time, log,
+    database, entitlements, provider: { ...signedProvider({ id: WEB, secret: SECRET }), dashboardUrl: webDashboard }, products: WEB_PRODUCTS,
+    audit, clock: time, log,
   });
   const ada = accounts.create({ username: 'ada', email: 'ada@example.com' });
   const bob = accounts.create({ username: 'bob', email: 'bob@example.com' });
@@ -87,6 +91,7 @@ async function setup(t, { now = '2026-11-01T10:00:00Z', sandbox = true, ignoreUn
   registerBillingApi(router, { billing: web, organizations, baseUrl: 'https://app.example.com' });
   registerStoreApi(router, { stores, web });
   registerBillingOverviewApi(router, { instances: [web, stores], entitlements, organizations, clock: time });
+  registerBillingAdminApi(router, { instances: [web, stores], entitlements, organizations, accounts });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
@@ -570,6 +575,47 @@ test('the overview: what each source holds and how to manage it, a group\'s plan
   assert.deepEqual(bobs.sources[1], { kind: 'admin', plan: 'pro', plan_name: 'Pro', ends: iso(now + 10 * DAY) });
 });
 
+test('the admin\'s payments: the person\'s and their groups\', live or over, newest first, each with its provider\'s page; only an admin asks', async (t) => {
+  const s = await setup(t);
+  const now = s.clock.now;
+  const root = s.accounts.create({ username: 'root', role: 'admin' });
+  const customer = await s.customerOf(s.ada);
+  s.api.customer(customer).subscriptions[MONTHLY] = subscription({ purchased: now, expires: now + 30 * DAY });
+  await s.deliver({ type: 'purchased', customer, product: MONTHLY });
+  const fleet = s.organizations.create({ name: 'Fleet A', ownerId: s.ada.id });
+  s.organizations.addMember(fleet.id, s.bob.id);
+  const web = (id, fields) => s.web.apply({ id, occurredAt: iso(s.clock.now), type: 'subscription', product: 'pro-web-yearly', ...fields });
+  s.clock.now += 1000;
+  web('web_1', {
+    ref: 'sub_fleet', subject: { type: 'organization', id: fleet.id }, customer: 'ctm_fleet', product: 'fleet-monthly',
+    status: 'active', periodEnd: iso(now + 30 * DAY), quantity: 3,
+  });
+  // One of her own on the web, over: a refund often comes after the end. Its provider's link for it isn't https.
+  s.clock.now += 1000;
+  web('web_2', { ref: 'old_ada', subject: { type: 'user', id: s.ada.id }, customer: 'ctm_ada', status: 'active', periodEnd: iso(now + 365 * DAY) });
+  s.clock.now += 1000;
+  web('web_3', { ref: 'old_ada', subject: { type: 'user', id: s.ada.id }, customer: 'ctm_ada', status: 'canceled' });
+
+  const path = (user) => `/api/admin/users/${user.id}/payments`;
+  assert.equal((await s.call('GET', path(s.ada))).status, 401);
+  assert.equal((await s.call('GET', path(s.ada), { as: s.ada.id })).body.error, 'admin_only', 'not even their own');
+  assert.equal((await s.call('GET', '/api/admin/users/999/payments', { as: root.id })).body.error, 'user_not_found');
+
+  const { payments } = (await s.call('GET', path(s.ada), { as: root.id })).body;
+  assert.deepEqual(payments.map((p) => [p.kind, p.provider, p.product, p.status, p.live, p.organization_name ?? null, p.dashboard_url]), [
+    ['web', WEB, 'pro-web-yearly', 'canceled', false, null, null],
+    ['web', WEB, 'fleet-monthly', 'active', true, 'Fleet A', 'https://dashboard.web.example/subscriptions/sub_fleet'],
+    ['store', PROVIDER, 'pro-monthly', 'active', true, null, `${DASHBOARD}${customer}`],
+  ]);
+  const [over, group, store] = payments;
+  assert.equal(over.ref, 'old_ada', 'the ref, to search for when there is no link');
+  assert.deepEqual([group.organization_id, group.plan, group.plan_name, group.period_end, group.ending], [fleet.id, 'fleet', 'Fleet', iso(now + 30 * DAY), null]);
+  assert.deepEqual([store.plan_name, store.store, store.sandbox, store.ending], ['Pro', 'app_store', false, false]);
+
+  // A member of the group doesn't pay for it; someone who never paid has nothing.
+  assert.deepEqual((await s.call('GET', path(s.bob), { as: root.id })).body, { payments: [] });
+});
+
 test('an account that goes: each instance forgets its links, subscriptions and grants; the group\'s stay; deletion asks both', async (t) => {
   const s = await setup(t);
   const now = s.clock.now;
@@ -668,6 +714,9 @@ test('createSuite with STORE_BILLING: the store\'s routes beside the web\'s unch
     'bought in a store: the app sells no second one');
   const overview = (await call('GET', '/api/billing/overview', { token })).body;
   assert.deepEqual(overview.sources.map((source) => [source.kind, source.product, source.manage.via]), [['store', 'pro-monthly', 'store']]);
+  // The admin's list of what she pays is there, and never answers a phone's token.
+  assert.equal((await call('GET', `/api/admin/users/${dee.id}/payments`, { token })).status, 401);
+  assert.equal(typeof suite.stores.dashboardUrl, 'function');
   await assert.rejects(suite.billing.checkoutUrl({ type: 'user', id: dee.id }, 'pro-web-yearly', { returnUrl: 'http://127.0.0.1/' }),
     (err) => err.status === 409 && err.code === 'already_subscribed', 'the web sells no second subscription');
 
@@ -702,8 +751,9 @@ test('without STORE_BILLING nothing changes: no store routes, the web’s overvi
     ['POST', '/api/billing/stores/sync']]) {
     assert.equal((await fetch(base + pathname, { method })).status, 404, pathname);
   }
-  // What holds the plan, for Settings › Plan: the web's alone, for whoever is signed in.
+  // What holds the plan, for Settings › Plan: the web's alone, for whoever is signed in; and the admin's list of payments.
   assert.equal((await fetch(`${base}/api/billing/overview`)).status, 401);
+  assert.equal((await fetch(`${base}/api/admin/users/1/payments`)).status, 401);
   assert.equal('stores' in (await (await fetch(`${base}/api/auth/config`)).json()).app.modules, false);
   const eve = suite.accounts.create({ username: 'eve' });
   suite.billing.apply({

@@ -3,6 +3,27 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.250.0 — 2026-11-11
+
+- **Admin › Users › an account › Payments, with «Manage charges»** (`billing.js`, `stores.js`,
+  `stripe.js`, `app.js`, `web/admin.js`, `i18n/*.json`): what the account pays or paid, and the
+  provider's own page to refund or cancel it, without knowing where it was bought.
+  - A provider adapter, web or store, may give `dashboardUrl({ ref, customer })`: its dashboard for a
+    subscription, for the install's staff. No call is made, and an answer that isn't https is none.
+    Stripe's gives the subscription's page (a one-off's payment, else the customer's), in test mode
+    with a test key. The hosted suite's Paddle and RevenueCat adapters give theirs from cronum-cloud.
+  - `billing.dashboardUrl(subject, ref)` and the stores' alike; `billingForAdmin(user, { instances })`
+    and `GET /api/admin/users/:id/payments` (instance admin only, registered whenever the web's or the
+    stores' payments are on): every subscription of the account's and of the groups it owns or
+    administers, in both instances, live or over, newest first, with `ref`, `store`, `sandbox`,
+    `live` and `dashboard_url`. Unlike `/api/billing/overview`, which the payer reads, it names the ref.
+  - The account's dialog has a fold «Payments» («Pagos») right after its plan: how many are live;
+    a row each (the kit's list, so on a phone its button stays in sight down to 320 px) with its plan
+    and where (the store bought in, or the provider; «test» for a sandbox), its group, product, state
+    and date, and «Manage charges» («Administrar cargos») at its end, which opens the provider's page
+    apart. One without a link says where to look and its ref. An install without payments has no
+    such fold.
+
 ## 0.249.0 — 2026-11-11
 
 - **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;

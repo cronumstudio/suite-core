@@ -188,6 +188,19 @@ export function stripeProvider({
   /** The Customer Portal: invoices, payment method, changing plan or cancelling. */
   const portalUrl = ({ customer, returnUrl }) => call('/billing_portal/sessions', { customer, return_url: returnUrl });
 
+  /**
+   * Stripe's dashboard for the install's staff (billing.js `dashboardUrl`): a subscription's page
+   * (its invoices and payments, refunds, cancelling), else a one-off's payment, else the customer's;
+   * in test mode with a test key.
+   */
+  const dashboard = `https://dashboard.stripe.com/${/^(sk|rk)_test_/.test(secretKey) ? 'test/' : ''}`;
+  function dashboardUrl({ ref = null, customer = null } = {}) {
+    const id = (value, prefix) => (new RegExp(`^${prefix}_[A-Za-z0-9]+$`).test(String(value ?? '')) ? value : null);
+    if (id(ref, 'sub')) return `${dashboard}subscriptions/${ref}`;
+    if (id(ref, 'pi')) return `${dashboard}payments/${ref}`;
+    return id(customer, 'cus') ? `${dashboard}customers/${customer}` : null;
+  }
+
   /** One Stripe event as the suite's, or null when it says nothing billing.js needs. */
   function translate(event) {
     const object = event?.data?.object || {};
@@ -242,7 +255,7 @@ export function stripeProvider({
   }
 
   return {
-    id: 'stripe', needsPrice: true, checkoutUrl, portalUrl, parseWebhook, translate, cancelSubscription, keepSubscription,
+    id: 'stripe', needsPrice: true, checkoutUrl, portalUrl, dashboardUrl, parseWebhook, translate, cancelSubscription, keepSubscription,
   };
 }
 
