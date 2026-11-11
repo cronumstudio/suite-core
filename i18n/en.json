@@ -843,6 +843,7 @@
   "kit.side.groupFold": "Fold {name}",
   "kit.side.groupUnfold": "Unfold {name}",
   "kit.side.groupOptions": "Options for {name}",
+  "kit.side.search": "Search",
   "kit.more": "More options",
   "kit.saveState.saving": "Saving…",
   "kit.saveState.saved": "Saved",

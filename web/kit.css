@@ -785,9 +785,26 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-side__top .kit-side__fold { margin-inline-end: -4px; }
 .kit-side__search-input {
   flex: 1; min-width: 0; padding: 9px 0; border: 0; background: none; outline: none; color: var(--kit-text);
-  /* 16px or more: below it an iPhone zooms the page in on tapping it. */
-  font: inherit; font-size: max(16px, var(--look-body, 15px));
+  /* 16px or more: below it an iPhone zooms the page in on tapping it. Its own line height, not the
+     page's: Notes' 1.5 made its box a pixel taller than the other modules', its magnifier lower. */
+  font: inherit; font-size: max(16px, var(--look-body, 15px)); line-height: 1.45;
 }
+/* The kit's word in it («Buscar») in the kit's faint colour, light or dark: not the browser's grey. */
+.kit-side__search-input::placeholder { color: var(--kit-faint); opacity: 1; }
+/* «/» goes to the search (shell.js): its key, beside the word and never in it (it wouldn't fit), only on a
+   big screen with a mouse or a trackpad, the sidebar beside the views; gone while the field has the focus
+   or something typed. */
+.kit-side__search-key {
+  display: none; flex: none; min-width: 20px; padding: 0 5px; border: 1px solid var(--kit-border); border-radius: 5px;
+  color: var(--kit-faint); font: 500 12px/18px var(--kit-font-mono); text-align: center;
+}
+@media (hover: hover) and (pointer: fine) {
+  @container kit-app (min-width: 640px) {
+    .kit-app[data-layout="side"] .kit-side__search-key { display: block; }
+  }
+}
+.kit-app .kit-side__search:focus-within .kit-side__search-key,
+.kit-app .kit-side__search-input:not(:placeholder-shown) + .kit-side__search-key { display: none; }
 .kit-side__nav { flex: 1; overflow-y: auto; padding: 0 8px calc(10px + var(--kit-safe-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px; }
 /*
  * The sidebar's foot (shell.js `foot`): the + that makes a collection at its start, the trash at

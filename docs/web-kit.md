@@ -25,8 +25,8 @@ next to what is saved.
 ## Same in every module
 
 Martin's rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
-(v0.248.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that going from one module to the
-next in Cronum Work nothing moves:
+(v0.248.0), for the search (v0.249.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that
+going from one module to the next in Cronum Work nothing moves:
 
 1. **An item is never created from the sidebar.** A note, a step: the floating + button over the
    list, at every width, a computer's too (`createShell({ create })`). A module with an add bar of
@@ -64,6 +64,11 @@ next in Cronum Work nothing moves:
    `confirmDialog()` and `deleteDialog()`): a module sets no width of its own for a form or a
    question (a photo viewer may take the room it needs). Sharing is the kit's dialog in every
    module (`shareDialog()`), an app's own roles included.
+9. **The search is the same in every module** (`createShell({ search })`): the sidebar's first
+   line, as tall in each, reading «Buscar» in the kit's faint colour; the module's own words
+   («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
+   on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
+   never in its words (they wouldn't fit), and goes while the field has the focus or text.
 
 ## A page
 
@@ -117,7 +122,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent })` (items with `glyph`; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
-| `shell.js` | `createShell()`: the frame, with `create` (the floating button) and `foot` (the sidebar's foot), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
+| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
@@ -254,6 +259,22 @@ answers. From one module to another one page fades into the next (`@view-transit
 have view transitions and not for whoever asks for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
+**The module's search** (`search: { label, onInput(text), onSubmit?(text) }`) is the sidebar's
+first line, the same in every module (rule 9, v0.249.0). Its field reads the kit's «Buscar»
+(`kit.side.search`) in `--kit-faint`, in either theme and look, and `label`, the module's own words,
+is its `aria-label`: as the words in it they were cut short. `placeholder` would replace the word;
+no module of the suite gives one. Its line height is its own (1.45), so the page's doesn't make it
+taller in one module than in another. Escape empties it; Enter in a phone's drawer closes the
+drawer, so the results show. «/» goes to it, and its key (`kbd.kit-side__search-key`, hidden from a
+screen reader) says so at the field's end only where a keyboard is likely: a pointer that hovers and
+is fine, and the sidebar beside the views; never while the field has the focus or text. On the
+document, without Ctrl, ⌘
+or Alt, not while composing nor once something answered it (`preventDefault`), not from a field or
+an editor, and not with a dialog, a menu, Settings or a drag over the frame; only in the frame that
+has the keyboard, as Escape (the focus on no element and `active`, or the focus inside it). Over a
+phone's detail the list comes back first, and a closed drawer or a sidebar folded away opens.
+`shell.search` is the field.
+
 **In a window of Cronum Work's shell** (`createShell({ root, embedded: true })`, the module's
 `mount(root, ctx)`), the page and its rail are Work's, shared by every module: the frame draws no
 rail, no person's button and no switcher, shows no founder's notice, asks the host nothing
@@ -269,8 +290,11 @@ app's `applyTheme`, and a language to `registry.language.set`. On a phone a side
 window brings the module beside it (windows.js), but never from a row: `rowSwipe()` and
 `keepSwipe()` mark it `data-own-swipe` (anything else with a sideways gesture of its own may say
 so too, Notes' drawing sheet), so a finger that starts there is the row's alone. Escape with the
-focus on no element closes the detail of the window that has the keyboard: the module passes
-`createShell({ active: ctx.active })`. Anywhere else nothing changes.
+focus on no element closes the detail of the window that has the keyboard, and «/» goes to its
+search: the module passes `createShell({ active: ctx.active })`. Told nothing, the frame has the
+keyboard while windows.js marks its window the one in front (`data-focus="true"` on the window
+that holds `root`, v0.249.0), so Next's, which passes none, has it too; `active` given wins.
+Anywhere else nothing changes.
 
 **Drawing the frame again.** The frame listens on the document (touches at the screen's edges,
 drags) and, in a host, on the window. An app that builds a new frame without reloading the page (a

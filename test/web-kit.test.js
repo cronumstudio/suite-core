@@ -2970,7 +2970,7 @@ test('Escape closes the detail open as ← and × do; not from a field, under a 
     asked.showDetail();
     const inside = asked.detail.appendChild(page.createElement('button'));
     escape(page.body);
-    assert.equal(closed.length, 4, 'told nothing, a window acts only on a focus inside it');
+    assert.equal(closed.length, 4, 'told nothing, and in no window marked in front, a frame acts only on a focus inside it');
     escape(inside);
     assert.deepEqual(closed.slice(4), ['inside']);
     asked.destroy();
@@ -3084,6 +3084,174 @@ test('the module’s search is the sidebar’s first line: each change said, Esc
     assert.deepEqual(said, ['plan', '']);
     assert.equal(createShell(frameOptions()).search, null, 'none without one');
     shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('the search reads the kit’s «Buscar» in every module, its own words name it, in the faint colour and as tall in each', async () => {
+  const catalog = (lang) => JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
+  assert.deepEqual(Object.fromEntries(['es', 'en', 'fr', 'de', 'it'].map((lang) => [lang, catalog(lang)['kit.side.search']])),
+    { es: 'Buscar', en: 'Search', fr: 'Rechercher', de: 'Suchen', it: 'Cerca' });
+  // Its own line height after `font: inherit`, which would give it the page's (Notes' 1.5: a pixel taller).
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(css, /\n\.kit-side__search-input \{[^}]*font: inherit; font-size: max\(16px, var\(--look-body, 15px\)\); line-height: 1\.45;\n\}/);
+  assert.match(css, /^\.kit-side__search-input::placeholder \{ color: var\(--kit-faint\); opacity: 1; \}$/m, 'not the browser\'s grey');
+  // «/»'s key: hidden but on a big screen with a fine pointer and the sidebar beside the views, and
+  // gone while the field has the focus or text.
+  assert.match(css, /\n\.kit-side__search-key \{\n  display: none;/);
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\) \{\n  @container kit-app \(min-width: 640px\) \{\n    \.kit-app\[data-layout="side"\] \.kit-side__search-key \{ display: block; \}/);
+  assert.match(css, /\.kit-app \.kit-side__search:focus-within \.kit-side__search-key,\n\.kit-app \.kit-side__search-input:not\(:placeholder-shown\) \+ \.kit-side__search-key \{ display: none; \}/);
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { t } = await import('../web/i18n.js');
+    const shell = createShell({ ...frameOptions(), search: { label: 'Search notes', onInput: () => {} } });
+    assert.equal(shell.search.getAttribute('placeholder'), t('kit.side.search'), 'the kit’s word, not the label');
+    assert.equal(shell.search.getAttribute('aria-label'), 'Search notes', 'the module’s words name it');
+    const kids = [...shell.search.parentNode.childNodes];
+    const key = kids.find((node) => node.getAttribute?.('class') === 'kit-side__search-key');
+    assert.equal(kids.indexOf(key), kids.indexOf(shell.search) + 1, '«/»\'s key after the field, not in its words');
+    assert.equal(key.tagName.toLowerCase(), 'kbd');
+    assert.equal(key.textContent, '/');
+    assert.equal(key.getAttribute('aria-hidden'), 'true', 'a reader has the field\'s name, not the key');
+    shell.destroy();
+    const own = createShell({ ...frameOptions(), search: { label: 'Search notes', placeholder: 'Find', onInput: () => {} } });
+    assert.equal(own.search.getAttribute('placeholder'), 'Find', 'one given replaces the word');
+    own.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('«/» goes to the search, said nowhere: not from a field, with a modifier, under a dialog, a menu, Settings or a drag, nor once answered', async () => {
+  const { page, win, restore } = await framePage();
+  const realStyle = globalThis.getComputedStyle;
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const shell = createShell({ ...frameOptions(), search: { label: 'Search notes', onInput: () => {} } });
+    assert.doesNotMatch(shell.search.getAttribute('placeholder'), /\//, 'no «( / )» in it');
+    let focused = 0;
+    shell.search.focus = () => { focused += 1; };
+    let typed = true;
+    const slash = (target, extra = {}) => {
+      typed = true;
+      page.dispatch('keydown', { key: '/', target, preventDefault: () => { typed = false; }, ...extra });
+    };
+    const field = shell.detail.appendChild(page.createElement('textarea'));
+    const editor = shell.detail.appendChild(page.createElement('div'));
+    editor.setAttribute('contenteditable', 'true');
+    const button = shell.list.appendChild(page.createElement('button'));
+
+    // A phone: the sidebar is a drawer behind ☰, closed, which opens for it.
+    slash(page.body);
+    assert.equal(focused, 1, 'with the focus nowhere, on its own page');
+    assert.equal(typed, false, 'and the «/» isn\'t typed in it');
+    assert.ok(shell.element.hasAttribute('data-drawer'), 'the closed drawer opens: the search is in it');
+    slash(page.body);
+    assert.equal(focused, 2, 'its own drawer open is no layer over it');
+    shell.closeDrawer();
+    slash(button);
+    assert.equal(focused, 3, 'from a button in the frame');
+    for (const target of [field, editor, shell.search]) slash(target);
+    assert.equal(focused, 3, 'from a field or an editor «/» is typed');
+    assert.equal(typed, true);
+    for (const extra of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { defaultPrevented: true }, { key: 'a' }]) slash(page.body, extra);
+    assert.equal(focused, 3, 'with Ctrl, ⌘ or Alt, composing, once answered, or another key: nothing');
+    slash(page.body, { shiftKey: true });
+    assert.equal(focused, 4, 'with Shift, as some keyboards type it');
+    const realQuery = page.querySelector;
+    for (const layer of ['dialog[open]', '.kit-menu', '.kit-settings-page']) {
+      page.querySelector = (selector) => (selector.includes(layer) ? {} : null);
+      slash(page.body);
+    }
+    page.querySelector = realQuery;
+    page.documentElement.setAttribute('data-kit-dragging', '');
+    slash(page.body);
+    page.documentElement.removeAttribute('data-kit-dragging');
+    assert.equal(focused, 4, 'under a dialog, a menu, Settings or a drag the key is theirs');
+    slash(page.body.appendChild(page.createElement('button')));
+    assert.equal(focused, 4, 'the focus in something else of the page');
+
+    // Over a phone's detail the list comes back, where the results show.
+    shell.showDetail();
+    globalThis.getComputedStyle = (node) => ({ ...realStyle(node), display: node === shell.list ? 'none' : 'inline-grid' });
+    slash(page.body);
+    assert.equal(shell.screen, 'list');
+    // A computer: beside its list the detail stays, and the sidebar beside the views is left as it is…
+    globalThis.getComputedStyle = (node) => ({ ...realStyle(node), display: node.getAttribute?.('class')?.includes('kit-bar__menu') ? 'none' : 'block' });
+    win.innerWidth = 1200;
+    shell.showDetail();
+    slash(page.body);
+    assert.equal(shell.screen, 'detail');
+    assert.equal(shell.element.hasAttribute('data-drawer'), false);
+    // …and folded away, it comes back.
+    shell.element.querySelector('.kit-side__fold').click();
+    assert.equal(shell.folded, true);
+    slash(page.body);
+    assert.equal(shell.folded, false, 'the sidebar folded away comes back');
+    assert.equal(focused, 7);
+    shell.destroy();
+    slash(page.body);
+    assert.equal(focused, 7, 'a frame taken down hears nothing');
+    const none = createShell(frameOptions());
+    slash(page.body);
+    assert.equal(typed, true, 'a frame with no search leaves «/» alone');
+    none.destroy();
+  } finally {
+    globalThis.getComputedStyle = realStyle;
+    restore();
+  }
+});
+
+test('in Work’s shell «/» and Escape are the window’s in front: told nothing, the one windows.js marks (`data-focus`); `active` wins', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    // A window of Work's desk (windows.js), marked in front or not, and its body, the module's root.
+    const windowNode = (front) => {
+      const node = page.body.appendChild(page.createElement('section'));
+      node.setAttribute('data-focus', String(front));
+      return { node, body: node.appendChild(page.createElement('div')) };
+    };
+    const went = [];
+    const frame = (where, name, extra = {}) => {
+      const shell = createShell({
+        ...frameOptions(), embedded: true, root: where.body, search: { label: name, onInput: () => {} },
+        onBack: () => went.push(`${name} back`), ...extra,
+      });
+      shell.search.focus = () => went.push(name);
+      return shell;
+    };
+    const key = (name, target = page.body) => page.dispatch('keydown', { key: name, target, preventDefault: () => {} });
+    const [one, two] = [windowNode(true), windowNode(false)];
+    const first = frame(one, 'one');
+    const second = frame(two, 'two');
+    key('/');
+    assert.deepEqual(went, ['one'], 'with the focus nowhere, the window in front');
+    one.node.setAttribute('data-focus', 'false');
+    two.node.setAttribute('data-focus', 'true');
+    key('/');
+    assert.deepEqual(went, ['one', 'two'], 'the other, once it is in front');
+    key('/', first.list.appendChild(page.createElement('button')));
+    assert.deepEqual(went, ['one', 'two', 'one'], 'with the focus inside a window, that one');
+    two.node.hidden = true;
+    key('/');
+    assert.equal(went.length, 3, 'a window out of sight has it no more');
+    two.node.hidden = false;
+
+    // Escape too: Next passes no `active`, and the detail of its window in front closes.
+    first.showDetail();
+    second.showDetail();
+    key('Escape');
+    assert.deepEqual(went.slice(3), ['two back']);
+
+    // `active` given wins over the mark.
+    two.node.setAttribute('data-focus', 'false');
+    const third = frame(windowNode(true), 'three', { active: () => false });
+    key('/');
+    assert.equal(went.length, 4, 'told it hasn\'t the keyboard, it hasn\'t');
+    for (const shell of [first, second, third]) shell.destroy();
   } finally {
     restore();
   }
