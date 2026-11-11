@@ -665,6 +665,43 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* Rows level with something beside them (a chart's bars) can't move: a dashed line, and nothing moves. */
 .kit-drop-gap--thin { height: 0; border: 0; border-radius: 0; background: none; outline: 1px dashed var(--kit-accent); outline-offset: 0; }
 
+/* ------------------------------- row swipes ------------------------------- */
+/* swipe.js: a finger across a row slides it over what letting go would do, its
+   icon and its words, faint and grey until reached, then in the action's colour.
+   Sideways pans on the row are the swipe's; up and down is still the list's. The
+   colours are the kit's variables, so the dark theme and the Clean look follow. */
+
+.kit-swipe { position: relative; touch-action: pan-y; }
+.kit-swipe__bg {
+  position: absolute; inset: 0; z-index: 0; display: none; align-items: center; justify-content: flex-start;
+  padding-inline: 18px; border-radius: inherit; overflow: hidden; pointer-events: none;
+  background: var(--kit-hover); color: var(--kit-text); font-size: var(--look-body, 15px);
+  user-select: none; -webkit-user-select: none; transition: background-color .18s, color .18s;
+}
+/* While swiped, and under what slides until it is back in place. */
+.kit-swipe[data-swiping] > .kit-swipe__bg, .kit-swipe[data-swipe-settling] > .kit-swipe__bg { display: flex; }
+/* What a swipe to the right does sits at the line's start, what one to the left does at its end. */
+.kit-swipe__bg[data-side="left"] { justify-content: flex-end; }
+/* What slides inside the row goes over the colour, which the row's edges cut (Tasks' rows). */
+.kit-swipe__content { position: relative; z-index: 1; }
+.kit-swipe[data-swipe="under"]:is([data-swiping], [data-swipe-settling]) { overflow: hidden; }
+/* The row slides itself (Notes' button): the colour fills the room it leaves, beside it (its left and
+   width are physical, set by swipe.js, as the finger's way is). */
+.kit-swipe[data-swipe="beside"][data-swiping] { overflow: visible; }
+.kit-swipe[data-swipe="beside"] > .kit-swipe__bg { inset: 0 auto; padding-inline: 14px; }
+.kit-swipe__action { display: flex; align-items: center; gap: 8px; min-width: 0; opacity: .35; transition: opacity .15s, transform .15s; }
+.kit-swipe__action[data-armed] { opacity: 1; transform: scale(1.06); }
+.kit-swipe__icon { display: grid; place-items: center; flex: none; }
+.kit-swipe__icon .kit-icon { width: 20px; height: 20px; }
+.kit-swipe__label { font-size: var(--look-footnote, 13px); font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+.kit-swipe__bg[data-tone="danger"] { background: var(--kit-danger); color: #FFFFFF; }
+.kit-swipe__bg[data-tone="accent"] { background: var(--kit-accent); color: var(--kit-on-accent); }
+/* Yolk marks "now": My Day. Ink on it, as on every yolk. */
+.kit-swipe__bg[data-tone="sun"] { background: var(--kit-now); color: var(--cr-ink); }
+.kit-swipe__bg[data-tone="done"] { background: var(--kit-ok); color: #FFFFFF; }
+/* In the dark the red and the green are light: ink reads on them. */
+:root[data-theme="dark"] .kit-swipe__bg:is([data-tone="danger"], [data-tone="done"]) { color: var(--cr-ink); }
+
 /* ------------------------------- app frame -------------------------------- */
 /*
  * shell.js: a sidebar and the app's views beside it. On a phone the sidebar is
@@ -1006,8 +1043,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /*
  * shell.head(): a view's head, the same in every app. The title and the app's
  * «…»; ☰ (← over a phone's detail) follows the bar's own rules above, by its
- * class. A pane showing a head takes the bar's place: the bar gives way, and
- * the head keeps the clock's gap it kept.
+ * class, and a detail beside its list ends with × instead of ←. A pane showing
+ * a head takes the bar's place: the bar gives way, and the head keeps the
+ * clock's gap it kept.
  */
 .kit-head {
   container: kit-head / inline-size; position: sticky; inset-block-start: 0; z-index: 4;
@@ -1022,6 +1060,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-head__actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .kit-head__actions:empty { display: none; }
+/* A detail's ×, last on its line: only where ← doesn't show, the list and its detail side by side (below). */
+.kit-head__close { display: none; }
 
 .kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head) .kit-bar,
 .kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head) .kit-bar { display: none; }
@@ -1037,9 +1077,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-app:not([data-screen="detail"]):has(.kit-pane--list .kit-head):has(.kit-banners > *) .kit-head,
 .kit-app[data-screen="detail"]:has(.kit-pane--detail .kit-head):has(.kit-banners > *) .kit-head { padding-top: 8px; }
 @container kit-app (min-width: 960px) {
-  /* The list and its detail side by side: the list's head has ☰, and nothing goes back. */
+  /* The list and its detail side by side: the list's head has ☰, nothing goes back, and × closes the detail. */
   .kit-app[data-panes="split"]:has(.kit-pane--list .kit-head) .kit-bar { display: none; }
   .kit-app[data-panes="split"] .kit-head .kit-bar__back { display: none; }
+  .kit-app[data-panes="split"] .kit-head .kit-head__close { display: inline-grid; }
 }
 
 /* --------------------------------- people ---------------------------------- */

@@ -24,8 +24,8 @@ next to what is saved.
 
 ## Same in every module
 
-Martin's rules for the sidebar and the heads (v0.247.0), so that going from one module to the next
-in Cronum Work nothing moves:
+Martin's rules for the sidebar and the heads (v0.247.0), and for an item's detail and a row's
+swipe (v0.248.0), so that going from one module to the next in Cronum Work nothing moves:
 
 1. **An item is never created from the sidebar.** A note, a step: the floating + button over the
    list, at every width, a computer's too (`createShell({ create })`). A module with an add bar of
@@ -35,8 +35,23 @@ in Cronum Work nothing moves:
 3. **Groups look and behave the same** (`navGroup()`): the group's name opens its menu, where a new
    collection in it is too; the chevron folds it. A group stays open while the collection open is in
    it. Collections with no group sit loose under their section's label.
-4. **A view's head holds only «…»** (`moreButton()`), besides the kit's own ☰ and ←: every action
-   of the view is in that one menu.
+4. **A view's head holds only «…»** (`moreButton()`), besides the kit's own ☰, ← and ×: every
+   action of the view is in that one menu.
+5. **An item's detail is the same in every module.** Its head (`shell.head({ pane: 'detail' })`)
+   has the way to close it: ← at its start where the list is a screen of its own (a phone), × last
+   where the list and the detail sit side by side (a computer). Then the place the item lives in
+   (its list, notebook or project, as a chip: `lead`), the item's quick toggles if the module has
+   them in its head (Notes' pin), and one «…» with the item's actions in this order: the module's
+   own, share, public page, a separator, and «Borrar» or «Mover a la papelera» last, in red, which
+   goes to the trash at once and leaves an Undo (`undoToast`). Escape closes the detail too. Next's
+   step and branch cards stay dialogs, as a card fits its board: they keep their ×, Escape and the
+   backdrop, and get a «…» in their header (`tools: moreButton(items)`).
+6. **A sideways swipe on a row acts on that row**, and never switches module (`rowSwipe()`): to
+   the left, the item to the trash, with Undo; to the right, the module's quick toggle (Tasks: the
+   star, and My Day further; Notes: pin or unpin; Projects: done or not done, not for phases). A
+   row with nothing to do (Next's rows, a row only to read) still keeps the finger (`keepSwipe()`):
+   swiping it does nothing. Only a finger swipes, never a mouse or a trackpad, and what scrolls
+   sideways (Next's line, the Gantt, chips) keeps scrolling.
 
 ## A page
 
@@ -90,7 +105,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent })` (items with `glyph`; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
-| `shell.js` | `createShell()`: the frame, with `create` (the floating button) and `foot` (the sidebar's foot); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
+| `shell.js` | `createShell()`: the frame, with `create` (the floating button) and `foot` (the sidebar's foot), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
@@ -112,6 +127,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `qr.js` | `qrSvg(text, { label })` |
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
+| `swipe.js` | `rowSwipe(row, { content, left, right, ignore })`: a finger across a row, to the trash to the left and the module's quick toggle to the right (v0.248.0); `keepSwipe(row)`, a row with nothing to do that keeps the finger; `trashAction(run)`; `swipeAction`, `swipeStretch`, `SWIPE_IGNORE` |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter |
 | `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app |
@@ -238,9 +254,11 @@ banners, Settings and sign-in on the body) carries `data-owner="<module>"` and a
 `data-theme`, `data-look` and `lang` (`markOwned`), so the module's sheet scoped to its windows
 reaches it; a theme chosen in Settings goes to the shell (`registry.theme.set`) instead of the
 app's `applyTheme`, and a language to `registry.language.set`. On a phone a sideways swipe in the
-window brings the module beside it (windows.js); a module marks with `data-own-swipe` what has a
-sideways gesture of its own (Tasks' rows: left deletes, right stars), so a finger that starts
-there is that gesture's alone. Anywhere else nothing changes.
+window brings the module beside it (windows.js), but never from a row: `rowSwipe()` and
+`keepSwipe()` mark it `data-own-swipe` (anything else with a sideways gesture of its own may say
+so too, Notes' drawing sheet), so a finger that starts there is the row's alone. Escape with the
+focus on no element closes the detail of the window that has the keyboard: the module passes
+`createShell({ active: ctx.active })`. Anywhere else nothing changes.
 
 **Drawing the frame again.** The frame listens on the document (touches at the screen's edges,
 drags) and, in a host, on the window. An app that builds a new frame without reloading the page (a
@@ -270,6 +288,34 @@ the view again. A pane showing a head takes the bar's place: one line less, and 
 every app and on any screen. `lead` goes before the title (a list's icon, a note's notebook),
 `below` under its line, inside the head (a search, chips, a toolbar). An app that shows no head
 in a pane keeps the bar there, as before.
+
+**A detail's head** (`pane: 'detail'`, rule 5) closes it the same way at every width: ← at its
+start where the list is a screen of its own, and where the list sits beside it (`panes: 'split'`
+from 960 px, folded or not), where ← doesn't show, the kit's × last on the line (`kit-head__close`,
+«Cerrar», `kit.close`). Both call `createShell({ onBack })` (by default `showList()`), so a
+module's own × goes. `close: false` leaves the × out, for a detail that must not close beside its
+list. `actions` holds the item's toggles (Notes' pin) and its «…», `lead` the place it lives in.
+
+```js
+const head = shell.head({
+  pane: 'detail', title: null,
+  lead: notebookChip(note),                          // where it lives
+  actions: [pinButton(note), moreButton(() => [      // its toggles, then «…»
+    ...ownItems(note), shareItem(note), publicPageItem(note), 'separator',
+    { label: t('notes.toTrash'), iconName: 'trash', danger: true, onClick: () => trash(note) },  // Undo
+  ])],
+});
+```
+
+**Escape** closes the detail too, as ← or × would: whichever shows, so a detail with no × beside
+its list stays. It is left alone while something over the detail had the key as it was pressed (a
+dialog, a menu, Settings, the drawer, a drag), each of which closes itself with it; once something
+on its way answered it (`preventDefault`: a module's own layer does, on itself or capturing on the
+document); and from a field or an editor (`input`, `textarea`, `select`, `contenteditable`), where
+Escape keeps its own job and nothing typed is lost. With the focus on no element, only the frame
+that has the keyboard closes its detail (`createShell({ active })`: in Work's shell `ctx.active`;
+on a page of its own, always); with the focus somewhere, the frame it is in. A module drops its
+own Escape for the detail.
 
 **«…»** (`moreButton(items, { label })`, ui.js) is a `kit-icon-btn` with the kit's «…» icon, named
 «Más opciones» (`kit.more`) unless `label` says otherwise, `aria-haspopup="menu"`. A press opens
@@ -653,7 +699,7 @@ makeDraggable(list, {
   up whose places are in it, and closes it when the drag ends, dropped or not. Held over ☰
   (`data-drag-spring`) it opens too.
 - `document` hears `kit-dragstart` (with `detail.item` and `detail.targets`) and `kit-dragend`, and `<html>` has `data-kit-dragging` meanwhile:
-  an app's own gestures (a swipe on the row, a refresh that redraws the list) wait.
+  a row's swipe (`rowSwipe()`, below) doesn't start, and a refresh that redraws the list waits.
 - It is never the only way: a keyboard or a screen reader can't drag, so what can be dropped
   somewhere can also be moved from a menu. After a move, a notice with *Undo*.
 
@@ -711,9 +757,10 @@ export function renderNav() {
 
 - The box that scrolls the container (itself, or the nearest one above it that scrolls) keeps how
   far it was scrolled.
-- While something is carried (`data-kit-dragging`) it doesn't draw: it waits for `kit-dragend` and
-  draws once, with the last `draw` it was given, however many times it was asked meanwhile. It
-  answers `true` when it drew, `false` when it waits.
+- While something is carried (`data-kit-dragging`) or a row is swiped (`data-kit-swiping`) it
+  doesn't draw: it waits for `kit-dragend` or `kit-swipeend` and draws once, with the last `draw`
+  it was given, however many times it was asked meanwhile. It answers `true` when it drew, `false`
+  when it waits.
 
 **One drag for everything.** A task may go in order, into another category and onto a list of the
 sidebar in the same drag: its places are all of them, and `check` says which is which.
@@ -729,6 +776,68 @@ sidebar in the same drag: its places are all of them, and `check` says which is 
   without letting go. `createShell({ dragTabs: { open: 'menu', back: 'back' } })` chooses their icons.
 - Whatever opens something when held (☰, the tabs: `data-drag-spring`) has `data-spring-armed`
   while the pointer waits over it.
+
+### Swiping a row
+
+A finger across a row of a list acts on that row, the same in every module (rule 6, v0.248.0):
+what the row shows slides over the colour, the icon and the words of what letting go will do,
+faint and grey until the finger has gone far enough, then in the action's colour with a little
+buzz. It was Tasks' own swipe, made the kit's (`swipe.js`):
+
+```js
+import { rowSwipe, keepSwipe, trashAction } from '/suite/swipe.js';
+
+rowSwipe(row, {
+  left: mayTrash(task) ? [trashAction(() => trash(task))] : [],     // «Borrar» in red; trash() offers Undo
+  right: () => [                                                     // asked as the swipe starts
+    { label: starWords(task), iconName: 'star', tone: 'accent', run: () => toggleStar(task) },
+    { label: myDayWords(task), iconName: 'sun', tone: 'sun', run: () => toggleMyDay(task) },
+  ],
+});
+keepSwipe(stepRow);                                                  // nothing to do: swiping does nothing
+```
+
+- `left` and `right` are each one action or two, in the order the finger reaches them: the first
+  at 82 px, the second at 168 (with one, it is reached at 82 and stays further). Past 230 px the
+  row comes harder, a quarter of the finger's way. Each is `{ label, iconName, tone, run }`, or a
+  function that returns them, asked when the swipe starts, so the words say what the row is now
+  («Fijar» or «Quitar»). `tone` is the colour once reached: `danger`, `accent` (the default), `sun`
+  (yolk, "now": My Day) or `done`. `trashAction(run, { label })` is the trash's, the kit's «Borrar»
+  (`kit.delete`). With nothing that way, the row doesn't move that way. Letting go short of an
+  action, or after coming back, does nothing; letting go past it runs it, and the row slides back.
+- **Touch only.** A mouse or a trackpad never swipes: the row's menu does the same.
+- **Where it starts.** Anywhere on the row but on what keeps its own finger inside it (`ignore`,
+  `SWIPE_IGNORE` by default: fields, editors, labels, the round check, the buttons and links in it;
+  the row itself may be a button or a link, as Notes' is), within 28 px of the screen's start edge
+  (the drawer's, and going back), or on something inside it that slides sideways (a row of chips
+  wider than its box, or with `touch-action: pan-x`), which keeps scrolling.
+- **What it isn't.** 12 px across before it is a swipe; more than 12 px down first, and more down
+  than across, is the list's scroll. A finger that held still before it moved (drag.js' hold,
+  380 ms) is picking the row up, and a drag under way (`data-kit-dragging`) is never a swipe: the
+  drag wins. If the system takes the touch away midway (`pointercancel`), the row slides back and
+  nothing is done.
+- **The finger is the row's.** The row has `data-own-swipe` (Cronum Work's windows don't switch
+  module from it, windows.js) and `kit-swipe` with `touch-action: pan-y` (kit.css), and once it is a
+  swipe the touch's moves are kept from the browser, so the list doesn't scroll under it. A row with
+  nothing to do gets the same with `keepSwipe(row)` (or `rowSwipe(row)`), without a listener: a
+  sideways finger on it does nothing at all. Not for rows that lie in something that scrolls sideways
+  (Next's line, the Gantt): `pan-y` there would take that scroll away.
+- **Not a click.** Letting go after a swipe doesn't open the row.
+- **Right to left** it is mirrored: `right` is towards the line's end, a swipe to the left there,
+  and the start edge is the right one.
+- **What slides** (`content`) is the row's one child when it has one (Tasks' `.task-inner`, which
+  then has `kit-swipe__content` and a background of its own), the colour under it, inside the row,
+  whose edges cut it (`data-swipe="under"`); else the row itself (Notes' button), the colour beside
+  it in the room it leaves (`data-swipe="beside"`). The colour (`kit-swipe__bg`, with
+  `kit-swipe__action`, `kit-swipe__icon`, `kit-swipe__label`; `data-side`, `data-tone` and
+  `data-armed` while swiped) is made the first time the row is swiped, not in every row of every
+  list, and is hidden from screen readers: the same actions are in the row's menu.
+- **While a row is swiped** it has `data-swiping` (then `data-swipe-settling` while it slides back),
+  `<html>` has `data-kit-swiping`, and the document hears `kit-swipestart` and `kit-swipeend`
+  (`detail.row`): `redrawInPlace()` waits for the end, as for a drag's, and so can anything else that
+  would draw the row again under the finger. The action runs after `kit-swipeend`.
+- `rowSwipe()` returns `{ destroy }`: its listeners, its colour and its marks go. A row drawn again
+  is a new row, swiped anew.
 
 ### Photos before they travel
 

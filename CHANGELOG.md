@@ -3,6 +3,36 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.248.0 — 2026-11-11
+
+- **An item's detail and a row's swipe, the same in every module** (`web/shell.js`, `web/swipe.js`,
+  `web/drag.js`, `web/kit.css`; consistency; Martin's rules 5 and 6, docs/web-kit.md «Same in every
+  module»):
+  - `shell.head({ pane: 'detail' })` ends with the kit's × (`.kit-head__close`, `kit.close`) where the
+    list and the detail sit side by side (`panes: 'split'` from 960 px, folded or not), where ← doesn't
+    show; both call `onBack` (by default `showList()`). `close: false` leaves it out, for a detail that
+    must not close. The modules' own × (`.detail-close`, `.detail__close`) can go.
+  - Escape closes the detail open, as its ← or × would, whichever shows. Not while a dialog, a menu,
+    Settings, the drawer or a drag had the key as it was pressed, not once something answered it
+    (`preventDefault`), and not from a field or an editor. With the focus on no element, only the frame
+    that has the keyboard: `createShell({ active })`, `ctx.active` in Work's shell, always on a page of
+    its own. The modules' own Escape for the detail can go.
+  - `rowSwipe(row, { content, left, right, ignore })` → `{ destroy }`: Tasks' swipe made the kit's. To
+    the left the item to the trash (`trashAction(run)`, «Borrar» in red), to the right the module's
+    quick toggle; one action or two a side (`{ label, iconName, tone, run }`, or a function asked as the
+    swipe starts), reached at 82 and 168 px, harder past 230; tones `danger`, `accent`, `sun`, `done`, in
+    both themes. Touch only, not from the start edge, a control inside the row (`SWIPE_IGNORE`) or chips
+    that scroll sideways; a vertical move first is the list's, and a drag (held still, or under way)
+    wins. No click after it; mirrored right to left. What slides is the row's one child over the colour,
+    or the row itself with the colour beside it, drawn the first time it is swiped (`.kit-swipe`,
+    `.kit-swipe__bg`, `__content`, `__action`, `__icon`, `__label`).
+  - `keepSwipe(row)`: a row with nothing to do keeps the finger, and swiping it does nothing. Both mark
+    the row `data-own-swipe`, so Cronum Work's windows never switch module from it, and give it
+    `touch-action: pan-y`.
+  - While a row is swiped `<html>` has `data-kit-swiping` and the document hears `kit-swipestart` and
+    `kit-swipeend`: `redrawInPlace()` waits for its end as for a drag's. drag.js exports `HOLD_MS` and
+    `SLOP`, which the swipe reads; the service worker keeps `swipe.js`.
+
 ## 0.247.1 — 2026-11-10
 
 - **Pro for good reads for good in Settings › Plan** (`planStatus` in `web/plan.js`; Martin, 10/11).
