@@ -11,7 +11,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   and something before the server answers such a burst with 429. Now it waits like a 5xx, and a queue
   that listens tries again once, after the server's `Retry-After` (read into the error as
   `retryAfter`, in ms; `retryAfterMs(value)` reads seconds or a date) or half a minute, never more
-  than five. A queue an app stopped to send itself (Tasks) gets no timer of its own. `waits(error)` is
+  than five; a 503 only when it says when. A queue an app stopped to send itself (Tasks) gets no timer of its own. `waits(error)` is
   the outbox's own test, exported.
 - **The first change kept asks for the storage to be kept** (`web/outbox.js`, pwa-10): the browser may
   clear a site's data when the disk fills up, and Safari after a week unused in a tab, and a queued
@@ -31,7 +31,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   `keepTyped: true`) holds something other than what it had when it first took the focus, a tap on the
   backdrop only takes the focus off it and Escape asks «¿Descartar lo escrito?» (`kit.dialog.*`). The
   ×, Cancel and the app's own close are a choice and close at once. `keepTyped: false` for a form
-  whose fields save themselves; `openDialog` keeps its old way unless asked.
+  whose fields save themselves; `openDialog` keeps its old way unless asked. A read-only or disabled field
+  never counts.
 
 ## 0.248.0 — 2026-11-11
 

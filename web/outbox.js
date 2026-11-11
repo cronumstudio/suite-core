@@ -84,8 +84,12 @@ const RETRY_MAX_MS = 300000;
 export const waits = (error) => error instanceof Offline || error instanceof SessionExpired
   || error?.status >= 500 || BUSY.has(error?.status) || error?.code === 'idempotency_in_progress';
 
-/** How long to wait before trying again after `error`, or null when it isn't the server being busy. */
-const busyFor = (error) => (BUSY.has(error?.status) || error?.status === 503
+/**
+ * How long to wait before trying again after `error`, or null when it isn't the server being busy: a
+ * 429, 408 or 425, or a 503 that says when (one that doesn't, a deploy or an app not ready yet, waits
+ * for the signal or the app's own next send).
+ */
+const busyFor = (error) => (BUSY.has(error?.status) || (error?.status === 503 && error.retryAfter != null)
   ? Math.min(Math.max(Number(error.retryAfter) || RETRY_MS, 1000), RETRY_MAX_MS)
   : null);
 

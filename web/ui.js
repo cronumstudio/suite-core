@@ -400,9 +400,9 @@ function addClass(node, name) {
 
 /** The kinds of <input> a person writes in; a box, a choice, a colour or a file is not writing. */
 const WRITTEN = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'number', 'password', 'date', 'time', 'datetime-local', 'month', 'week']);
-const writtenIn = (node) => node?.tagName === 'TEXTAREA'
+const writtenIn = (node) => !node?.readOnly && !node?.disabled && !node?.hasAttribute?.('readonly') && (node?.tagName === 'TEXTAREA'
   || (node?.tagName === 'INPUT' && WRITTEN.has(String(node.getAttribute?.('type') || node.type || '').toLowerCase()))
-  || node?.isContentEditable === true || node?.getAttribute?.('contenteditable') === 'true';
+  || node?.isContentEditable === true || node?.getAttribute?.('contenteditable') === 'true');
 const writtenValue = (node) => (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT' ? String(node.value ?? '') : String(node.textContent ?? ''));
 
 /**
