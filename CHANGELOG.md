@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.248.1 — 2026-11-11
+## 0.249.1 — 2026-11-11
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
   `account-deletion.js`, `web/admin.js`; audit of 6/11, billing-2). `DELETE /api/admin/users/:id`
@@ -41,6 +41,31 @@ change an interface and a patch never does. Apps pin a version through the submo
     when each admin was asked, in memory: a restart asks again.
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
     signs in by `prompt=login`.
+## 0.249.0 — 2026-11-11
+
+- **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;
+  consistency; Martin's rule 9, docs/web-kit.md «Same in every module»):
+  - Its field reads the kit's «Buscar» (`kit.side.search`: «Search», «Rechercher», «Suchen», «Cerca»)
+    in every module. The module's own words (`search.label`: «Buscar tareas», «Buscar en las notas»)
+    stay its `aria-label`; as the words in it, two of them were cut short. `search.placeholder` still
+    replaces the word, and no module of the suite gives one.
+  - Those words are in the kit's faint colour (`--kit-faint`, at full opacity), light and dark and in
+    both looks: only Tasks had them so, by a rule of its own; the other modules showed the browser's
+    grey.
+  - The field has its own line height, 1.45, after `font: inherit`: Notes' page (1.5) made its box
+    44 px tall against 43.2 in the others, and its magnifier sat lower.
+  - «/» goes to it from a keyboard, in every module and on any device. Its key («/», a `kbd` hidden
+    from a screen reader) shows at the field's end, never in its words, and only on a big screen with
+    a mouse or a trackpad (a hovering fine pointer, the sidebar beside the views); it goes while the
+    field has the focus or text. On the document,
+    without Ctrl, ⌘ or Alt, not while composing nor once answered (`preventDefault`), not from a field
+    or an editor, and not with a dialog, a menu, Settings or a drag over the frame (the frame's own
+    drawer is no layer: the search is in it); only in the frame that has the keyboard, as Escape. Over
+    a phone's detail the list comes back, a closed drawer or a sidebar folded away opens, and the
+    field takes the focus. Tasks' and Notes' own «/» can go.
+  - In a window of Cronum Work's shell, a frame told no `active` has the keyboard while windows.js
+    marks its window the one in front (`data-focus="true"` on the window that holds `root`): Escape
+    and «/» work in Next's windows too. `active` given still wins.
 
 ## 0.248.0 — 2026-11-11
 

@@ -625,7 +625,7 @@ the page signs in in place; under a provider's sign-in the server sends the brow
 `/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
 sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
 `/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
-was; besides the connect page, only the admin panel asks for it (v0.248.1, with `return=/admin`),
+was; besides the connect page, only the admin panel asks for it (v0.249.1, with `return=/admin`),
 when an admin with no password to give (Google, Apple, a company's sign-in) must sign in again to
 change who someone is: their session counts only if AuthKit's access token says they actively
 signed in (`auth_time`) after the server asked them, in the ten minutes since
@@ -1773,7 +1773,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
   `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
-  first too, where the install ends them (v0.248.1, `deletion.endSubscriptionsOf`): if the provider
+  first too, where the install ends them (v0.249.1, `deletion.endSubscriptionsOf`): if the provider
   can't, nothing is deleted (503 `subscription_not_ended`), to try again, and the log keeps how
   many ended. Before asking, the panel says what the person pays for themselves
   (`GET /api/admin/users/:id/subscriptions`, from the overview): the web's, cancelled now, and a

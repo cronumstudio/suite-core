@@ -846,6 +846,7 @@
   "kit.side.groupFold": "Replier {name}",
   "kit.side.groupUnfold": "Déplier {name}",
   "kit.side.groupOptions": "Options de {name}",
+  "kit.side.search": "Rechercher",
   "kit.more": "Plus d’options",
   "kit.saveState.saving": "Enregistrement…",
   "kit.saveState.saved": "Enregistré",
