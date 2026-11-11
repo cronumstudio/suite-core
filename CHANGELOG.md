@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.258.1 — 2026-11-11
+## 0.256.1 — 2026-11-11
 
 - **«Ver planes» from a form, and only where there is a plan** (`web/api.js`, `web/shell.js`; audit of 6/11,
   billing-6, checked in a local Cronum Work after 0.254.0). The form that met the plan's limit («Libreta
