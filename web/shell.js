@@ -151,7 +151,9 @@ export function createShell({
       }
     }, { signal });
   }
-  const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField) : null;
+  // «/» goes to it (below): its key, at the end, shows only where a keyboard is likely (kit.css), never over what is typed.
+  const searchBox = searchField ? el('div', { class: 'kit-side__search', role: 'search' }, icon('search'), searchField,
+    el('kbd', { class: 'kit-side__search-key', 'aria-hidden': 'true', text: '/' })) : null;
   // The sidebar's foot, the same in every module: what makes a collection (a list, a notebook; an
   // item is the floating button's) at its start, the trash at its end. The + with a menu opens it
   // over the drawer, and each choice closes the drawer as an entry would; the trash closes it too.

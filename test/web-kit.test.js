@@ -2978,6 +2978,11 @@ test('the search reads the kit’s «Buscar» in every module, its own words nam
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   assert.match(css, /\n\.kit-side__search-input \{[^}]*font: inherit; font-size: max\(16px, var\(--look-body, 15px\)\); line-height: 1\.45;\n\}/);
   assert.match(css, /^\.kit-side__search-input::placeholder \{ color: var\(--kit-faint\); opacity: 1; \}$/m, 'not the browser\'s grey');
+  // «/»'s key: hidden but on a big screen with a fine pointer and the sidebar beside the views, and
+  // gone while the field has the focus or text.
+  assert.match(css, /\n\.kit-side__search-key \{\n  display: none;/);
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\) \{\n  @container kit-app \(min-width: 640px\) \{\n    \.kit-app\[data-layout="side"\] \.kit-side__search-key \{ display: block; \}/);
+  assert.match(css, /\.kit-app \.kit-side__search:focus-within \.kit-side__search-key,\n\.kit-app \.kit-side__search-input:not\(:placeholder-shown\) \+ \.kit-side__search-key \{ display: none; \}/);
   const { restore } = await framePage();
   try {
     const { createShell } = await import('../web/shell.js');
@@ -2985,6 +2990,12 @@ test('the search reads the kit’s «Buscar» in every module, its own words nam
     const shell = createShell({ ...frameOptions(), search: { label: 'Search notes', onInput: () => {} } });
     assert.equal(shell.search.getAttribute('placeholder'), t('kit.side.search'), 'the kit’s word, not the label');
     assert.equal(shell.search.getAttribute('aria-label'), 'Search notes', 'the module’s words name it');
+    const kids = [...shell.search.parentNode.childNodes];
+    const key = kids.find((node) => node.getAttribute?.('class') === 'kit-side__search-key');
+    assert.equal(kids.indexOf(key), kids.indexOf(shell.search) + 1, '«/»\'s key after the field, not in its words');
+    assert.equal(key.tagName.toLowerCase(), 'kbd');
+    assert.equal(key.textContent, '/');
+    assert.equal(key.getAttribute('aria-hidden'), 'true', 'a reader has the field\'s name, not the key');
     shell.destroy();
     const own = createShell({ ...frameOptions(), search: { label: 'Search notes', placeholder: 'Find', onInput: () => {} } });
     assert.equal(own.search.getAttribute('placeholder'), 'Find', 'one given replaces the word');

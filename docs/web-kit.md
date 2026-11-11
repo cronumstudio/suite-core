@@ -66,8 +66,9 @@ going from one module to the next in Cronum Work nothing moves:
    module (`shareDialog()`), an app's own roles included.
 9. **The search is the same in every module** (`createShell({ search })`): the sidebar's first
    line, as tall in each, reading «Buscar» in the kit's faint colour; the module's own words
-   («Buscar tareas») name it for a screen reader. «/» goes to it from a computer's keyboard in
-   every module, and nothing says so: no «( / )» in it, no hint anywhere.
+   («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
+   on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
+   never in its words (they wouldn't fit), and goes while the field has the focus or text.
 
 ## A page
 
@@ -264,7 +265,10 @@ first line, the same in every module (rule 9, v0.249.0). Its field reads the kit
 is its `aria-label`: as the words in it they were cut short. `placeholder` would replace the word;
 no module of the suite gives one. Its line height is its own (1.45), so the page's doesn't make it
 taller in one module than in another. Escape empties it; Enter in a phone's drawer closes the
-drawer, so the results show. «/» goes to it, and nothing says so: on the document, without Ctrl, ⌘
+drawer, so the results show. «/» goes to it, and its key (`kbd.kit-side__search-key`, hidden from a
+screen reader) says so at the field's end only where a keyboard is likely: a pointer that hovers and
+is fine, and the sidebar beside the views; never while the field has the focus or text. On the
+document, without Ctrl, ⌘
 or Alt, not while composing nor once something answered it (`preventDefault`), not from a field or
 an editor, and not with a dialog, a menu, Settings or a drag over the frame; only in the frame that
 has the keyboard, as Escape (the focus on no element and `active`, or the focus inside it). Over a

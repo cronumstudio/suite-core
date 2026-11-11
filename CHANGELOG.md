@@ -16,7 +16,10 @@ change an interface and a patch never does. Apps pin a version through the submo
     grey.
   - The field has its own line height, 1.45, after `font: inherit`: Notes' page (1.5) made its box
     44 px tall against 43.2 in the others, and its magnifier sat lower.
-  - «/» goes to it from a computer's keyboard, in every module, and nothing says so. On the document,
+  - «/» goes to it from a keyboard, in every module and on any device. Its key («/», a `kbd` hidden
+    from a screen reader) shows at the field's end, never in its words, and only on a big screen with
+    a mouse or a trackpad (a hovering fine pointer, the sidebar beside the views); it goes while the
+    field has the focus or text. On the document,
     without Ctrl, ⌘ or Alt, not while composing nor once answered (`preventDefault`), not from a field
     or an editor, and not with a dialog, a menu, Settings or a drag over the frame (the frame's own
     drawer is no layer: the search is in it); only in the frame that has the keyboard, as Escape. Over
