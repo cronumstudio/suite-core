@@ -215,6 +215,70 @@ test('the backdrop: a tap on it closes; a press that began inside and ended on i
   assert.equal(dialog.open, false);
 });
 
+test('what is written in a form stays: a tap outside only puts the keyboard away, Escape asks (audit of 6/11, ux-acciones-5)', async () => {
+  const { dialog } = formDialog({ title: 'Log progress', content: [el('input', { name: 'done' }), el('textarea', { name: 'next' })] });
+  const [input] = dialog.find('input');
+  const [area] = dialog.find('textarea');
+  // Nothing written yet: a tap outside closes, as always.
+  dialog.dispatch('focusin', { target: input });
+  dialog.dispatch('pointerdown', { target: dialog });
+  dialog.dispatch('click', { target: dialog });
+  assert.equal(dialog.open, false, 'untouched, it closes');
+
+  let discarded = 0;
+  const again = formDialog({ title: 'Log progress', onDiscard: () => { discarded += 1; }, content: [el('input', { name: 'done' }), el('textarea', { name: 'next' })] }).dialog;
+  const [field] = again.find('textarea');
+  again.dispatch('focusin', { target: field });
+  field.value = 'Fixed the queue';
+  again.dispatch('pointerdown', { target: again });
+  again.dispatch('click', { target: again });
+  assert.equal(again.open, true, 'a tap outside keeps it');
+
+  const esc = event();
+  again.dispatch('cancel', esc);
+  assert.equal(esc.defaultPrevented, true, "Escape doesn't throw it away");
+  await settle();
+  const asking = document.body.find('dialog').filter((d) => d.open && d !== again).at(-1);
+  assert.ok(asking, 'it asks');
+  const [keep, discard] = buttonsOf(asking);
+  await press(keep);
+  await settle();
+  assert.equal(again.open, true, 'kept writing');
+
+  again.dispatch('cancel', event());
+  await settle();
+  const second = document.body.find('dialog').filter((d) => d.open && d !== again).at(-1);
+  await press(buttonsOf(second)[1]);
+  await settle();
+  assert.equal(again.open, false, 'thrown away only with a yes');
+  assert.equal(discarded, 1, 'and the module hears it, once');
+
+  // Written and put back is nothing written; a form whose fields save themselves passes false.
+  const back = formDialog({ title: 'Rename', content: el('input', { value: 'Ana' }) }).dialog;
+  const [name] = back.find('input');
+  back.dispatch('focusin', { target: name });
+  name.value = 'Anab';
+  name.value = 'Ana';
+  back.dispatch('pointerdown', { target: back });
+  back.dispatch('click', { target: back });
+  assert.equal(back.open, false);
+  const own = formDialog({ title: 'Settings', keepTyped: false, content: el('input') }).dialog;
+  const [mine] = own.find('input');
+  own.dispatch('focusin', { target: mine });
+  mine.value = 'x';
+  own.dispatch('pointerdown', { target: own });
+  own.dispatch('click', { target: own });
+  assert.equal(own.open, false);
+  // openDialog keeps its old way unless asked.
+  const plain = openDialog({ title: 'Search', content: el('input') }).dialog;
+  const [query] = plain.find('input');
+  plain.dispatch('focusin', { target: query });
+  query.value = 'pan';
+  plain.dispatch('pointerdown', { target: plain });
+  plain.dispatch('click', { target: plain });
+  assert.equal(plain.open, false);
+});
+
 test('what the modules need: a width, a place to hang, a body and a foot of their own', () => {
   const root = el('div', { id: 'modal-root' });
   document.body.append(root);
