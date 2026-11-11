@@ -578,10 +578,11 @@ openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, op
   "See plans" running `open` (Settings at its plan section, or a native app's own way to buy);
   false for anything else, which stays the app's. Inside a Settings that sells, every section
   does this by itself.
-- Anywhere else in an app made with `createShell({ onSettings })` it comes on its own (0.254.0):
+- Anywhere else in a host's module made with `createShell({ onSettings })` it comes on its own (0.254.0):
   a 402 met by any call of the kit's `api` is kept for ten seconds by its sentence, and the first
   error notice that says it (`toast(errorMessage(err), { error: true })`, as every module says its
-  errors) gets "See plans", which opens Settings at Plan. Once, and only for those words: any other
+  errors) gets "See plans", which closes a dialog still open (the form that met it, 0.258.1) and opens
+  Settings at Plan. Once, and only for those words: any other
   notice is left as it is. `setPlanOpener(open)` is what the shell gives (`null` when it goes); a
   page without a shell can give its own. `plan_limit` says what it limits, as Usage counts it:
   «Tu plan (Free) permite 20 listas y ya tienes 20.», «… 50 MB de espacio …».
