@@ -13,9 +13,9 @@ import { EventEmitter } from 'node:events';
 import { installFakeDom } from './fake-dom.js';
 
 installFakeDom();
-const { createOutbox, tempId, isTempId } = await import('../web/outbox.js');
+const { createOutbox, sendWhileAway, tempId, isTempId } = await import('../web/outbox.js');
 const { memoryLocal } = await import('../web/local.js');
-const { api, setPatience, Offline, SessionExpired, ApiError } = await import('../web/api.js');
+const { api, setPatience, Offline, SessionExpired, ApiError, retryAfterMs } = await import('../web/api.js');
 const { connectLive } = await import('../web/live.js');
 const { createLive } = await import('../live.js');
 const { watchUpdates, applyUpdate } = await import('../web/update.js');
@@ -280,6 +280,125 @@ function fakeTimers() {
     },
   };
 }
+
+
+test('the outbox keeps a change the server answers busy (429, 408, 425) and tries again when it said (audit of 6/11, sc-shell-11)', async () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const timers = [];
+  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
+  try {
+    const local = memoryLocal();
+    let answer = 429;
+    const dropped = [];
+    const sent = [];
+    const outbox = createOutbox({
+      local, locks: null,
+      send: async (op) => {
+        if (answer) {
+          const error = new ApiError(answer, 'rate_limited');
+          if (answer === 429) error.retryAfter = 7000;
+          throw error;
+        }
+        sent.push(op.path);
+        return {};
+      },
+      onDropped: ({ op }) => dropped.push(op.path),
+    });
+    await outbox.add({ method: 'PATCH', path: '/api/tasks/1', body: { done: true } });
+    await outbox.add({ method: 'PATCH', path: '/api/tasks/2', body: { done: true } });
+    for (answer of [429, 408, 425]) {
+      const report = await outbox.flush();
+      assert.equal(report.left, 2, `${answer}: both wait`);
+    }
+    assert.deepEqual(dropped, [], 'nothing dropped for a busy server');
+    assert.equal(timers.length, 1, 'one try again at a time');
+    assert.equal(timers[0].ms, 7000, 'when the server said');
+    answer = 0;
+    timers[0].fn();
+    await new Promise((r) => realSetTimeout(r, 0));
+    assert.deepEqual(sent, ['/api/tasks/1', '/api/tasks/2'], 'sent on the try again');
+    assert.equal(await outbox.count(), 0);
+
+    // Stopped (an app that sends itself, or off the page), it waits for the app.
+    timers.length = 0;
+    answer = 429;
+    await outbox.add({ method: 'PATCH', path: '/api/tasks/3', body: {} });
+    outbox.stop();
+    await outbox.flush();
+    assert.equal(timers.length, 0, 'no try again of its own once stopped');
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
+test('Retry-After in seconds or as a date, read as milliseconds', () => {
+  assert.equal(retryAfterMs('120'), 120000);
+  assert.equal(retryAfterMs(new Date(10_000 + 5000).toUTCString(), 10_000), 5000);
+  assert.equal(retryAfterMs(null), null);
+  assert.equal(retryAfterMs('soon'), null);
+});
+
+test('the first change kept asks for the storage to be kept, once per page (audit of 6/11, pwa-10)', async () => {
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  let asked = 0;
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { ...(realNavigator?.value || {}), storage: { persisted: async () => false, persist: async () => { asked += 1; return true; } } },
+  });
+  try {
+    const outbox = createOutbox({ local: memoryLocal(), locks: null, send: async () => ({}) });
+    await outbox.add({ method: 'PATCH', path: '/api/notes/1', body: {} });
+    await outbox.add({ method: 'PATCH', path: '/api/notes/1', body: {} });
+    await new Promise((r) => setTimeout(r, 0));
+    assert.ok(asked <= 1, 'never twice');
+  } finally {
+    if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator);
+    else delete globalThis.navigator;
+  }
+});
+
+test('sendWhileAway sends what goes cleanly, swaps provisional ids, and leaves the rest for the app (audit of 6/11, sc-shell-3)', async () => {
+  const local = memoryLocal();
+  const outbox = createOutbox({ local, locks: null, owner: () => 7, send: async () => ({}) });
+  outbox.stop();
+  const draft = tempId();
+  await outbox.add({ method: 'POST', path: '/api/notes', body: { text: 'a', client_ref: draft }, tempId: draft });
+  await outbox.add({ method: 'PATCH', path: `/api/notes/${draft}`, body: { text: 'ab' } });
+  await outbox.add({ method: 'PATCH', path: '/api/notes/9', body: { text: 'theirs' } });
+  await outbox.add({ method: 'PATCH', path: '/api/notes/10', body: { text: 'after' } });
+  const sent = [];
+  const created = [];
+  const send = async (op) => {
+    if (op.path === '/api/notes/9') throw new ApiError(409, 'note_conflict');
+    sent.push(`${op.method} ${op.path}`);
+    return op.method === 'POST' ? { id: 40 } : {};
+  };
+
+  assert.equal((await sendWhileAway({ local, owner: null, send, locks: null })).stopped, 'owner', 'nobody known: nothing goes');
+  assert.equal((await sendWhileAway({ local, owner: 7, send, locks: null, online: () => false })).stopped, 'offline');
+  assert.deepEqual(sent, []);
+
+  const report = await sendWhileAway({ local, owner: 7, send, locks: null, onCreated: ({ tempId: t, id }) => created.push([t, id]) });
+  assert.deepEqual(sent, ['POST /api/notes', 'PATCH /api/notes/40']);
+  assert.deepEqual(created, [[draft, 40]]);
+  assert.equal(report.sent, 2);
+  assert.equal(report.stopped.status, 409, 'a conflict stops it');
+  assert.equal(report.left, 2, 'the conflict and what follows wait for the app');
+  assert.deepEqual((await outbox.pending()).map((op) => op.path), ['/api/notes/9', '/api/notes/10']);
+
+  // Another account's change, or one the app must send itself, stops it too, and stays.
+  const other = memoryLocal();
+  const theirs = createOutbox({ local: other, locks: null, owner: () => 8, send: async () => ({}) });
+  theirs.stop();
+  await theirs.add({ method: 'PATCH', path: '/api/notes/1', body: {} });
+  assert.equal((await sendWhileAway({ local: other, owner: 7, send, locks: null })).stopped, 'owner');
+  assert.equal((await sendWhileAway({ local: other, owner: 8, send, locks: null, skip: () => true })).stopped, 'skip');
+  assert.equal(await theirs.count(), 1);
+
+  // A tab sending the same queue holds the lock: nothing here.
+  const busyLocks = { request: async (name, options, fn) => fn(null) };
+  assert.equal((await sendWhileAway({ local: other, owner: 8, send, locks: busyLocks })).stopped, 'locked');
+});
 
 test('live: changes grouped, resync after a cut, reconnection with a growing wait', () => {
   const timers = fakeTimers();

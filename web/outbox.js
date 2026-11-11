@@ -13,9 +13,20 @@
  *   in memory, or closing the app half way lost them—.
  * - It stops when the signal goes again or the session has ended (401), and
  *   leaves the rest for later: a queue, not a burst. A server error (5xx) also
- *   waits. A conflict (409) goes to the app, which decides (Notes keeps a
- *   conflict copy); anything else that can't be fixed by retrying is dropped
- *   and reported.
+ *   waits, and so does a server that says it is busy (429, also 408 and 425):
+ *   with the signal back the page, the new worker and the queue start at once,
+ *   and something before the server answered a burst with 429, which dropped
+ *   the changes one after another (audit of 6/11, sc-shell-11). Listening, it
+ *   tries again when the server said (`Retry-After`), or in half a minute. A
+ *   conflict (409) goes to the app, which decides (Notes keeps a conflict
+ *   copy); anything else that can't be fixed by retrying is dropped and
+ *   reported.
+ * - The browser may clear what a site keeps when the disk fills up, and Safari
+ *   does after a week unused in a tab: a change kept here is the only copy of
+ *   it, so the first one asks for the storage to be kept (`persist()`; Chrome
+ *   decides alone, Firefox asks, and at that moment the question makes sense).
+ * - With the app off the page (a module of Cronum Work not on screen), what
+ *   goes cleanly is sent by `sendWhileAway`, and the rest waits for the app.
  * - Several tabs share the queue: one sends at a time (a Web Lock), and a
  *   change leaves the queue by its id, never by its place.
  * - Nothing reads the whole queue to count it or to take the next change: an
@@ -63,6 +74,54 @@ function swapId(op, from, to) {
 
 const TEMP_IN_PATH = /\/tmp-[\w-]+(?=\/|\?|$)/;
 
+/** A server that says it is busy, or that took too long or too early: the change waits, it isn't refused. */
+const BUSY = new Set([408, 425, 429]);
+/** When the server said nothing of how long: half a minute. Never more than five. */
+const RETRY_MS = 30000;
+const RETRY_MAX_MS = 300000;
+
+/** Whether an error leaves the change, and the rest, for later: no signal, a session ended, the server in trouble or busy. */
+export const waits = (error) => error instanceof Offline || error instanceof SessionExpired
+  || error?.status >= 500 || BUSY.has(error?.status) || error?.code === 'idempotency_in_progress';
+
+/** How long to wait before trying again after `error`, or null when it isn't the server being busy. */
+const busyFor = (error) => (BUSY.has(error?.status) || error?.status === 503
+  ? Math.min(Math.max(Number(error.retryAfter) || RETRY_MS, 1000), RETRY_MAX_MS)
+  : null);
+
+let keepAsked = false;
+/** The storage kept, asked once per page: the browser decides, and asks the person if it wants to. */
+function askToKeep(storage = globalThis.navigator?.storage) {
+  if (keepAsked || typeof storage?.persist !== 'function') return;
+  keepAsked = true;
+  Promise.resolve(storage.persisted?.()).then((kept) => (kept ? true : storage.persist())).catch(() => {});
+}
+
+/** The queue's reads on a store: its own where it has them (local.js), everything read where it doesn't (an app's own). */
+function queueOf(local) {
+  const entries = () => local.entries(STORE);
+  return {
+    entries,
+    size: () => (local.count ? local.count(STORE) : entries().then((all) => all.length)),
+    first: () => (local.first ? local.first(STORE) : entries().then(([head]) => head)),
+    rewrite: async (change) => {
+      if (local.rewrite) return local.rewrite(STORE, change);
+      let changed = 0;
+      for (const [key, value] of await entries()) {
+        const next = change(value, key);
+        if (next !== undefined) { await local.put(STORE, key, next); changed += 1; }
+      }
+      return changed;
+    },
+  };
+}
+
+/** What was done offline to something just created now points at its real id, in the stored queue. */
+const pointAtReal = (queue, provisional, realId) => queue.rewrite((other) => {
+  const swapped = swapId(other, provisional, String(realId));
+  return swapped.path !== other.path || JSON.stringify(swapped.body) !== JSON.stringify(other.body) ? swapped : undefined;
+});
+
 /**
  * @param {object} options
  * @param {object} options.local          from openLocal() (or memoryLocal())
@@ -82,20 +141,13 @@ export function createOutbox({
   lockName = 'kit-outbox', locks = globalThis.navigator?.locks, now = Date.now, owner = null,
 }) {
   let flushing = null;
+  let listening = true;
+  /** The try again a busy server asked for (Retry-After), while the queue listens. */
+  let again = null;
 
-  const entries = () => local.entries(STORE);
   // A store without the queue's own reads (an app's own) still works, reading everything as before.
-  const size = () => (local.count ? local.count(STORE) : entries().then((all) => all.length));
-  const first = () => (local.first ? local.first(STORE) : entries().then(([head]) => head));
-  const rewrite = async (change) => {
-    if (local.rewrite) return local.rewrite(STORE, change);
-    let changed = 0;
-    for (const [key, value] of await entries()) {
-      const next = change(value, key);
-      if (next !== undefined) { await local.put(STORE, key, next); changed += 1; }
-    }
-    return changed;
-  };
+  const queue = queueOf(local);
+  const { entries, size, first } = queue;
   const count = async () => {
     const n = await size();
     onCount(n);
@@ -112,6 +164,7 @@ export function createOutbox({
     const who = given ?? owner?.() ?? null;
     const op = { id: newId(), method, path, body, ts, ...(provisional ? { tempId: provisional } : {}), ...(who != null ? { owner: who } : {}) };
     await local.put(STORE, orderKey(ts), op);
+    askToKeep();
     await count();
     return op;
   }
@@ -161,8 +214,15 @@ export function createOutbox({
       try {
         answer = await send(op);
       } catch (error) {
-        // No signal, the session ended or the server is in trouble: the rest waits.
-        if (error instanceof Offline || error instanceof SessionExpired || (error?.status >= 500) || error?.code === 'idempotency_in_progress') break;
+        // No signal, the session ended, the server in trouble or busy: the rest waits.
+        if (waits(error)) {
+          const wait = busyFor(error);
+          if (wait != null) {
+            report.retryAfter = wait;
+            tryAgainIn(wait);
+          }
+          break;
+        }
         await local.delete(STORE, key);
         if (error?.status === 409) {
           report.conflicts.push({ op, error });
@@ -179,15 +239,23 @@ export function createOutbox({
       const realId = idOf(answer);
       if (op.tempId && realId != null) {
         // What was done to it offline now points at the real id, in the stored queue.
-        await rewrite((other) => {
-          const swapped = swapId(other, op.tempId, String(realId));
-          return swapped.path !== other.path || JSON.stringify(swapped.body) !== JSON.stringify(other.body) ? swapped : undefined;
-        });
+        await pointAtReal(queue, op.tempId, realId);
         await onCreated({ op, tempId: op.tempId, id: realId, answer });
       }
     }
     report.left = await count();
     return report;
+  }
+
+  /** Once, after a busy server's wait, and only while the queue listens: an app that sends itself (Tasks) decides when. */
+  function tryAgainIn(ms) {
+    if (!listening || again) return;
+    again = setTimeout(() => {
+      again = null;
+      if (listening) flush().catch(() => {});
+    }, ms);
+    // A page closes whenever it likes; a test or a worker isn't kept open by it.
+    again.unref?.();
   }
 
   // Back online: send what waits.
@@ -209,6 +277,68 @@ export function createOutbox({
       if (gone) await count();
       return gone;
     },
-    stop: () => globalThis.removeEventListener?.('online', onOnline),
+    stop: () => {
+      listening = false;
+      clearTimeout(again);
+      again = null;
+      globalThis.removeEventListener?.('online', onOnline);
+    },
   };
+}
+
+/**
+ * What an app left in its queue on this device, sent while the app isn't on the page: Cronum Work's
+ * shell asks each module that isn't on screen to bring its copy up to date (its fresh.js), and a
+ * change made in a module the person then left waited until that module was opened again on this
+ * device: days, for ticks made on a phone (audit of 6/11, sc-shell-3).
+ *
+ * Only what goes through cleanly, oldest first. A creation swaps its provisional id in the stored
+ * queue, as the outbox does, and `onCreated` hears it. The first change that doesn't get a plain yes
+ * stops it, and that change and the rest stay for the app's own queue, which settles them with the
+ * person in front (a conflict copy, a notice): no signal, the server busy or in trouble, a conflict,
+ * a refusal, a provisional id whose creation is gone, or a change of an account other than `owner`
+ * (the id of whoever the server says is signed in; without it, nothing goes). `skip(op)`: a change
+ * the app must send itself (a drawing whose picture is its own), which stops it too. Under the
+ * outbox's lock: a tab with the app on the page sends the same queue, and one does at a time.
+ *
+ * → { sent, left, stopped }: `stopped` is null when the queue is empty, else why it stopped
+ * ('locked', 'offline', 'owner', 'skip', 'provisional', or the error the server answered).
+ */
+export async function sendWhileAway({
+  local, owner, send = (op) => api.write(op.method, op.path, op.body, { key: op.id }),
+  idOf = (answer) => answer?.id, onCreated = () => {}, skip = () => false,
+  lockName = 'kit-outbox', locks = globalThis.navigator?.locks, online = () => globalThis.navigator?.onLine !== false,
+}) {
+  const queue = queueOf(local);
+  const report = { sent: 0, left: 0, stopped: null };
+  const sendAll = async () => {
+    for (;;) {
+      const head = await queue.first();
+      if (!head) break;
+      const [key, op] = head;
+      if (op.owner != null && String(op.owner) !== String(owner)) { report.stopped = 'owner'; break; }
+      if (TEMP_IN_PATH.test(op.path)) { report.stopped = 'provisional'; break; }
+      if (skip(op)) { report.stopped = 'skip'; break; }
+      let answer;
+      try {
+        answer = await send(op);
+      } catch (error) {
+        report.stopped = error;
+        break;
+      }
+      await local.delete(STORE, key);
+      report.sent += 1;
+      const realId = idOf(answer);
+      if (op.tempId && realId != null) {
+        await pointAtReal(queue, op.tempId, realId);
+        await onCreated({ op, tempId: op.tempId, id: realId, answer });
+      }
+    }
+  };
+  if (owner == null) report.stopped = 'owner';
+  else if (!online()) report.stopped = 'offline';
+  else if (!locks) await sendAll();
+  else if (!(await locks.request(lockName, { ifAvailable: true }, async (lock) => { if (lock) await sendAll(); return Boolean(lock); }))) report.stopped = 'locked';
+  report.left = await queue.size();
+  return report;
 }
