@@ -432,10 +432,11 @@ function writing(dialog) {
  * three fields of Next's sheet away; audit of 6/11, ux-acciones-5) but only takes the focus off the
  * field, and Escape asks before throwing it away. Its ×, Cancel and the app's own close are a choice
  * and close as always. A dialog whose fields save themselves as they change passes false.
+ * `onDiscard`: told when the person says yes to throwing it away (a draft the module keeps goes too).
  */
 function frame({
   title = '', subtitle = '', header = null, tools = null, bar = null, wide = false, width = null,
-  className = '', parent = null, onClose = null, keepTyped = false,
+  className = '', parent = null, onClose = null, keepTyped = false, onDiscard = null,
 }) {
   // A menu left open would sit beside the dialog: a dialog comes from a choice, so the menu is done.
   closeMenu();
@@ -496,7 +497,10 @@ function frame({
       const sure = await confirmDialog(null, {
         title: t('kit.dialog.discardTitle'), confirm: t('kit.dialog.discard'), cancel: t('kit.dialog.keepWriting'), parent,
       });
-      if (sure) close();
+      if (sure) {
+        try { onDiscard?.(); } catch { /* the dialog goes all the same */ }
+        close();
+      }
     } finally {
       asking = false;
     }
@@ -546,9 +550,9 @@ function frame({
  */
 export function openDialog({
   title, content = null, actions = [], wide = false, width = null, className = '', parent = null,
-  body = null, footer = null, onClose = null, keepTyped = false,
+  body = null, footer = null, onClose = null, keepTyped = false, onDiscard = null,
 }) {
-  const parts = frame({ title, wide, width, className, parent, onClose, keepTyped });
+  const parts = frame({ title, wide, width, className, parent, onClose, keepTyped, onDiscard });
   const { dialog, close, busy } = parts;
   const buttons = (actions || []).map((action) => actionButton(action, () => busy(async () => {
     if ((await action.onClick?.()) !== false) close();
@@ -583,9 +587,9 @@ export function openDialog({
 export function formDialog({
   title = '', subtitle = '', header = null, tools = null, bar = null, extra = null,
   content = null, actions = [], onSubmit = null, errorText = errorMessage,
-  wide = false, width = null, className = '', parent = null, onClose = null, keepTyped = true,
+  wide = false, width = null, className = '', parent = null, onClose = null, keepTyped = true, onDiscard = null,
 }) {
-  const parts = frame({ title, subtitle, header, tools, bar, wide, width, className: `kit-dialog--form${className ? ` ${className}` : ''}`, parent, onClose, keepTyped });
+  const parts = frame({ title, subtitle, header, tools, bar, wide, width, className: `kit-dialog--form${className ? ` ${className}` : ''}`, parent, onClose, keepTyped, onDiscard });
   const { dialog, close, busy } = parts;
   const error = el('p', { class: 'kit-dialog__error', role: 'alert', hidden: true });
   const footer = el('footer', { class: 'kit-dialog__footer' });

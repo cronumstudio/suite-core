@@ -225,7 +225,8 @@ test('what is written in a form stays: a tap outside only puts the keyboard away
   dialog.dispatch('click', { target: dialog });
   assert.equal(dialog.open, false, 'untouched, it closes');
 
-  const again = formDialog({ title: 'Log progress', content: [el('input', { name: 'done' }), el('textarea', { name: 'next' })] }).dialog;
+  let discarded = 0;
+  const again = formDialog({ title: 'Log progress', onDiscard: () => { discarded += 1; }, content: [el('input', { name: 'done' }), el('textarea', { name: 'next' })] }).dialog;
   const [field] = again.find('textarea');
   again.dispatch('focusin', { target: field });
   field.value = 'Fixed the queue';
@@ -250,6 +251,7 @@ test('what is written in a form stays: a tap outside only puts the keyboard away
   await press(buttonsOf(second)[1]);
   await settle();
   assert.equal(again.open, false, 'thrown away only with a yes');
+  assert.equal(discarded, 1, 'and the module hears it, once');
 
   // Written and put back is nothing written; a form whose fields save themselves passes false.
   const back = formDialog({ title: 'Rename', content: el('input', { value: 'Ana' }) }).dialog;

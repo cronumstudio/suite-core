@@ -32,7 +32,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   backdrop only takes the focus off it and Escape asks «¿Descartar lo escrito?» (`kit.dialog.*`). The
   ×, Cancel and the app's own close are a choice and close at once. `keepTyped: false` for a form
   whose fields save themselves; `openDialog` keeps its old way unless asked. A read-only or disabled field
-  never counts.
+  never counts. `onDiscard` is told when the person says yes to throwing it away (a draft the
+  module keeps goes too).
 
 ## 0.248.0 — 2026-11-11
 
