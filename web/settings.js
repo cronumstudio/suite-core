@@ -2002,13 +2002,15 @@ export function openSettings(options) {
     }, 'danger-quiet');
 
     const remove = button(t('kit.data.deleteButton'), async () => {
+      const inStores = modules.stores ? await storeSubscriptions() : [];
+      if (inStores === undefined) return;
       const identity = deletionIdentity ? await identityChoice() : null;
       if (identity === undefined) return;
       const done = await sure({
         title: t('kit.data.deleteAsk'),
         lines: [
           t('kit.data.deleteText', { app: product, n: deletionDays }), sharedOnDelete,
-          modules.billing ? t('kit.data.deleteBilling') : null, identity?.node, downloadEach(),
+          modules.billing ? t('kit.data.deleteBilling') : null, ...inStores, identity?.node, downloadEach(),
         ],
         confirm: t('kit.data.deleteConfirm'),
         run: async (given) => {
@@ -2033,6 +2035,27 @@ export function openSettings(options) {
       // (in the suite's app, its own, without the farewell notice). Its notices went at the server.
       await leave({ answer: done });
     }, 'danger-quiet');
+
+    /**
+     * What goes on after the account, where the install sells in the stores: a subscription bought
+     * in the App Store or Google Play, which no server can stop, only the person, in the store. Said
+     * before they confirm, with where to cancel it as Settings › Plan says it (`kit.plan.store.*`).
+     * → the lines (none without one), or undefined when it couldn't be known (offline: said, and
+     * nothing is deleted).
+     */
+    async function storeSubscriptions() {
+      let sources;
+      try {
+        ({ sources } = await api.get('/api/billing/overview'));
+      } catch (err) {
+        showError(err);
+        return undefined;
+      }
+      return sources.filter((s) => s.kind === 'store' && s.organization_id == null).flatMap((s) => [
+        el('p', { class: 'kit-warning', text: t('kit.data.deleteStore', { plan: s.plan_name ? t(s.plan_name) : s.product }) }),
+        s.store ? hint(t(`kit.plan.store.${s.store}`, { app: product })) : null,
+      ]);
+    }
 
     /**
      * Whether the login goes too, asked only of someone who uses it in other apps (by their names,

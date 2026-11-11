@@ -15,7 +15,7 @@
  *   the install says so (the WorkOS user, the subscriptions), then here:
  *   `accounts.remove()` runs every hook —each app hands over what others share
  *   with the person and deletes their files— and the audit keeps only that
- *   account #n went.
+ *   account #n went, and how many of its subscriptions ended.
  *
  * Where the identity provider's users are shared with other apps (`shared`,
  * config.accounts.sharedIdentity), the login goes too unless the person uses
@@ -174,9 +174,10 @@ export function createAccountDeletion({
     let gone = 0;
     for (const user of accounts.dueForDeletion()) {
       try {
+        let ended = 0;
         if (subscriptions) {
           try {
-            await subscriptions.endSubscriptions(user.id);
+            ended = Number(await subscriptions.endSubscriptions(user.id)) || 0;
           } catch (err) {
             log(`[accounts] the subscriptions of account #${user.id} could not be ended: ${err.message}`);
             if (subscriptions.stillRenews?.(user.id)) {
@@ -191,7 +192,11 @@ export function createAccountDeletion({
         if (atProviders && idp?.deleteIdentity) await idp.deleteIdentity(user.id);
         else if (choosing) await identityGoes(user);
         accounts.remove(user.id);
-        audit?.record({ action: 'account.delete', targetType: 'user', targetId: user.id, meta: { requested: true } });
+        // How many subscriptions ended with it, as the admin's deletion notes it: never which.
+        audit?.record({
+          action: 'account.delete', targetType: 'user', targetId: user.id,
+          meta: { requested: true, ...(ended ? { subscriptions_ended: ended } : {}) },
+        });
         gone += 1;
       } catch (err) {
         log(`[accounts] account #${user.id} could not be deleted yet: ${err.message}`);

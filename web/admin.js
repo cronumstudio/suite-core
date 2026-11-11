@@ -520,7 +520,8 @@ function userDialog(user) {
       self ? null : el('button', {
         type: 'button', class: 'kit-btn kit-btn--small kit-btn--danger kit-row__last', text: t('admin.users.delete'),
         onClick: async () => {
-          const paying = await paymentsOf(user);
+          const sells = state.config?.app?.modules;
+          const paying = sells?.billing || sells?.stores ? await paymentsOf(user) : [];
           if (paying === undefined) return;
           const identity = state.config?.deletion_identity ? await identityChoice(user) : null;
           if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name }), { more: [paying, identity?.node] }))) return;
@@ -582,13 +583,11 @@ function reauthFailed(err) {
  * What someone pays for themselves, in the question before their account is deleted, as Settings
  * says it before one's own (`GET /api/admin/users/:id/subscriptions`): a web subscription the
  * deletion cancels at once (or doesn't, where the install keeps them), and a store's, which goes
- * on: only they can cancel it, in the store, so the admin tells them before. → the lines (none when
- * they pay nothing or nothing is sold here), or undefined when it couldn't be known: the error is
- * said, and nothing is asked or deleted.
+ * on: only they can cancel it, in the store, so the admin tells them before. Only where the install
+ * sells. → the lines (none when they pay nothing), or undefined when it couldn't be known: the
+ * error is said, and nothing is asked or deleted.
  */
 async function paymentsOf(user) {
-  const sells = state.config?.app?.modules;
-  if (!sells?.billing && !sells?.stores) return [];
   let subscriptions;
   try {
     ({ subscriptions } = await api.get(`/api/admin/users/${user.id}/subscriptions`));

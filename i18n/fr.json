@@ -1163,6 +1163,7 @@
     "other": "Vous serez déconnecté sur tous vos appareils et vos connexions d’IA cesseront de fonctionner. Dans {n} jours, votre compte et tout ce que vous avez dans {app} seront supprimés, sans retour possible."
   },
   "kit.data.deleteBilling": "Si vous avez un abonnement, il cesse de se renouveler.",
+  "kit.data.deleteStore": "Supprimer votre compte ne résilie pas votre abonnement {plan} dans la boutique : résiliez-le d’abord là-bas, sinon il continue de se renouveler.",
   "kit.data.identityUsed": "Vous utilisez aussi votre compte dans {apps}.",
   "kit.data.identityUnknown": "Vous utilisez peut-être aussi votre compte dans d’autres apps, mais nous ne pouvons pas le vérifier pour le moment.",
   "kit.data.identityGoes": "Supprimer aussi mon accès à {apps}",

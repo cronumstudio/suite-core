@@ -25,6 +25,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `billing.cancels` (and `combinedBilling()`'s): whether the provider can stop a subscription from
     here, which the remote one can't; `deletion.endsSubscriptions`: whether deleting an account
     cancels the web's.
+  - The person's own deletion, the other way an account goes: with the stores on, Settings' question
+    says first that a subscription bought in the App Store or Google Play doesn't stop with the
+    account, and where to cancel it (`kit.data.deleteStore`, then `kit.plan.store.*`, as Settings ›
+    Plan says it); it said only "If you have a subscription, it stops renewing". What they pay
+    unknown, nothing is asked. The sweep's `account.delete` notes `subscriptions_ended` too.
 - **An admin's sign-in again is a fresh one** (`workos-security.js`, `workos.js`,
   `workos-accounts.js`, `web/admin.js`; audit of 6/11, sc-auth-3). An admin with no password to give
   (Google, Apple, a company's sign-in) was confirmed by any session opened in the last 10 minutes,

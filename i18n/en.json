@@ -1163,6 +1163,7 @@
     "other": "You will be signed out on every device and your AI connections will stop working. In {n} days your account and everything you have in {app} will be deleted, with no way back."
   },
   "kit.data.deleteBilling": "If you have a subscription, it stops renewing.",
+  "kit.data.deleteStore": "Deleting your account doesn’t cancel your {plan} subscription in the store: cancel it there first, or it keeps renewing.",
   "kit.data.identityUsed": "You also use your account in {apps}.",
   "kit.data.identityUnknown": "You may also use your account in other apps, but we can’t check right now.",
   "kit.data.identityGoes": "Also delete my access to {apps}",

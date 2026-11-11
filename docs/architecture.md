@@ -1778,7 +1778,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   many ended. Before asking, the panel says what the person pays for themselves
   (`GET /api/admin/users/:id/subscriptions`, from the overview): the web's, cancelled now, and a
   store's, which goes on until they cancel it in the store, since Apple and Google let no server
-  do it. A group's stays with the group.
+  do it. A group's stays with the group. Settings says the same before one's own deletion: a
+  subscription bought in a store doesn't stop with the account, and where to cancel it.
   `accounts.sharedIdentity` (v0.211.0) is for WorkOS users shared by several apps, each of which
   notes itself on them (`app_<id>`: its name, in the user's metadata) when someone signs in, and
   once at start for whoever came before. Deleting one's account asks whether the login goes too

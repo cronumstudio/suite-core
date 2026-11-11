@@ -1163,6 +1163,7 @@
     "other": "Verrai disconnesso da tutti i dispositivi e le tue connessioni con l’IA smetteranno di funzionare. Tra {n} giorni il tuo account e tutto ciò che hai in {app} verranno eliminati, senza possibilità di recupero."
   },
   "kit.data.deleteBilling": "Se hai un abbonamento, non verrà più rinnovato.",
+  "kit.data.deleteStore": "Eliminare il tuo account non annulla il tuo abbonamento a {plan} nello store: annullalo prima lì, altrimenti continua a rinnovarsi.",
   "kit.data.identityUsed": "Usi il tuo account anche in {apps}.",
   "kit.data.identityUnknown": "Forse usi il tuo account anche in altre app, ma al momento non possiamo verificarlo.",
   "kit.data.identityGoes": "Elimina anche il mio accesso a {apps}",

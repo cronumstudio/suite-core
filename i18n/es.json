@@ -1163,6 +1163,7 @@
     "other": "Se cerrará tu sesión en todos tus dispositivos y tus conexiones de IA dejarán de funcionar. Dentro de {n} días se borrarán tu cuenta y todo lo que tienes en {app}, sin vuelta atrás."
   },
   "kit.data.deleteBilling": "Si tienes una suscripción, deja de renovarse.",
+  "kit.data.deleteStore": "Borrar tu cuenta no cancela tu suscripción a {plan} en la tienda: cancélala allí antes, o seguirá renovándose.",
   "kit.data.identityUsed": "También usas tu cuenta en {apps}.",
   "kit.data.identityUnknown": "Puede que también uses tu cuenta en otras apps, pero ahora mismo no podemos comprobarlo.",
   "kit.data.identityGoes": "Borrar también mi acceso a {apps}",

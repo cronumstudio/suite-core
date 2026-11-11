@@ -1163,6 +1163,7 @@
     "other": "Du wirst auf allen Geräten abgemeldet, und deine KI-Verbindungen funktionieren nicht mehr. In {n} Tagen werden dein Konto und alles, was du in {app} hast, gelöscht, ohne Weg zurück."
   },
   "kit.data.deleteBilling": "Wenn du ein Abo hast, verlängert es sich nicht mehr.",
+  "kit.data.deleteStore": "Das Löschen deines Kontos kündigt dein Abo für {plan} im Store nicht: Kündige es zuerst dort, sonst verlängert es sich weiter.",
   "kit.data.identityUsed": "Du nutzt dein Konto auch in {apps}.",
   "kit.data.identityUnknown": "Vielleicht nutzt du dein Konto auch in anderen Apps, aber das können wir gerade nicht prüfen.",
   "kit.data.identityGoes": "Auch meinen Zugang zu {apps} löschen",
