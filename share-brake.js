@@ -8,7 +8,7 @@
  *
  *   · offers: how many offers one person may make in an hour (a new offer, or
  *     an address that turns out not to be known: both count, or the refusal
- *     would tell them apart; and, since 0.254.0, an offer made again or a change
+ *     would tell them apart; and, since 0.257.0, an offer made again or a change
  *     of permission to someone who hasn't accepted, each of which tells them:
  *     sharing.js decides what counts), then 429 share_limit;
  *   · notices: one notice (push or email) per sender and recipient every 24
