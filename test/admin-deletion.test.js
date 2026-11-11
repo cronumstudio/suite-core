@@ -127,6 +127,10 @@ test('before the question, what someone pays for themselves and what deleting th
     ['store', 'pro-monthly', 'play_store', 'Pro', false],
   ]);
   assert.equal(JSON.stringify(listed.data).includes('sub_ada'), false, 'never a ref');
+  // Beside it, the staff's view of the same account (`/payments`, 0.259.0) answers as it did: with the refs, and her group's too.
+  const payments = await admin('GET', `/api/admin/users/${ada.id}/payments`);
+  assert.equal(payments.status, 200);
+  assert.deepEqual(payments.data.payments.map((p) => p.ref).sort(), ['play_store:pro-monthly:ada', 'sub_ada', 'sub_team']);
   assert.equal((await admin('GET', '/api/admin/users/999/subscriptions')).status, 404);
   const ana = browser();
   suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password' });

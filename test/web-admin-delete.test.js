@@ -55,6 +55,11 @@ test('deleting someone who pays: what is cancelled and what goes on in a store i
     'GET /api/admin/users': { users: [ADA] },
     'GET /api/admin/users/1/sign-in': { method: 'google', password: false, two_factor: { enabled: false }, manage: true, reauth: 'session' },
     'GET /api/admin/users/1/subscriptions': [{ status: 500, body: { error: 'generic' } }, { subscriptions: PAYS }],
+    // The account's Payments (0.259.0), which its dialog asks as it opens: the staff's view, with the provider's page.
+    'GET /api/admin/users/1/payments': { payments: [{
+      kind: 'web', provider: 'paddle', ref: 'sub_01jada', product: 'pro-yearly', plan: 'pro', plan_name: 'Pro', status: 'active', live: true,
+      period_end: '2027-11-11T00:00:00.000Z', ending: false, dashboard_url: 'https://vendors.paddle.com/subscriptions-v2/sub_01jada',
+    }] },
     'DELETE /api/admin/users/1': [
       { status: 503, body: { error: 'subscription_not_ended' } }, { status: 401, body: { error: 'reauth_required' } }, { ok: true },
     ],
@@ -78,6 +83,10 @@ test('deleting someone who pays: what is cancelled and what goes on in a store i
   main.find('tr')[1].dispatch('click');
   await wait();
   const account = newest();
+  // Its Payments fold is there as before, with «Manage charges»; the deletion's question asks its own route.
+  const paymentsFold = account.find('details').find((node) => node.find('summary')[0]?.find('span')[0]?.textContent === t('admin.payments.title'));
+  assert.ok(paymentsFold, 'the account’s Payments, next to its deletion');
+  assert.deepEqual(paymentsFold.find('a').map((a) => a.getAttribute('href')), ['https://vendors.paddle.com/subscriptions-v2/sub_01jada']);
   const pressDelete = async () => {
     account.find('button').find((node) => node.textContent === t('admin.users.delete')).dispatch('click');
     await wait();
