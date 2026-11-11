@@ -571,6 +571,8 @@ export function createSuite({
    */
   function purge() {
     sessions.purge();
+    // The notices of the sessions that just went, after them (pwa-2).
+    push?.purgeSessions();
     limiter.purge();
     audit.purge(365);
     tokens.purge();
@@ -772,7 +774,7 @@ export function createApp({
     });
   }
   registerProfileApi(api, {
-    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion,
+    accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion, push,
     localPasswords, alsoAt: profile.alsoAt || {},
   });
   // With WorkOS, the password and the second step from Settings too.
@@ -792,7 +794,7 @@ export function createApp({
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
-  if (push) registerPushApi(api, { push, texts, appName: config.app.name });
+  if (push) registerPushApi(api, { push, texts, appName: config.app.name, sessionKeyOf: (ctx) => sessions.keyFor(ctx.sessionToken) });
   // The link in an invitation to an address without an account, to get no more (stranger-invites.js).
   if (suite.strangers) registerUnsubscribeApi(api, { strangers: suite.strangers, texts, brand: suite.mailBrand });
   if (config.modules.live) {

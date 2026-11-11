@@ -926,6 +926,7 @@
   "kit.notifications.devices": "Devices",
   "kit.notifications.none": "No device has notifications on yet.",
   "kit.notifications.since": "since {when}",
+  "kit.notifications.remove": "Remove",
   "kit.notifications.inApp": "On this phone, the {app} app sends your notifications. Turn them on or off in the app’s settings.",
   "kit.notifications.appUpdate": "Notifications on this phone come with an update of the {app} app.",
   "kit.notifications.offTitle": "Notifications are turned off",

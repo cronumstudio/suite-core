@@ -602,7 +602,7 @@ test('over HTTP: /api/push/* with modules.push', async (t) => {
   const subscribed = await phone('POST', '/api/push/subscribe', {
     endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', keys: { p256dh: device.p256dh, auth: device.auth }, label: 'Móvil', lang: 'es',
   });
-  assert.deepEqual([subscribed.status, subscribed.data], [201, { ok: true, devices: 1 }]);
+  assert.deepEqual([subscribed.status, subscribed.data], [201, { ok: true, devices: 1, user_id: ada.id }]);
   const refused = await phone('POST', '/api/push/subscribe', { endpoint: 'https://192.168.1.1/hook/x/y/z', p256dh: device.p256dh, auth: device.auth });
   assert.deepEqual([refused.status, refused.data.error, refused.data.field], [400, 'field_invalid', 'endpoint']);
   assert.equal((await phone('GET', '/api/push/devices')).data[0].label, 'Móvil');
@@ -655,6 +655,64 @@ test('over HTTP: signing out forgets this browser’s notices, only its own and 
     assert.equal((await browser()('POST', '/api/auth/logout', { push_endpoints: [PHONE] })).status, 200);
     assert.deepEqual(endpoints(), [PHONE, BOBS].sort());
   }
+});
+
+test('over HTTP: a device’s notices end with the session they were turned on in, wherever it is closed (audit of 6/11, pwa-2)', async (t) => {
+  const { suite, browser } = await start(t, { push: true });
+  suite.accounts.create({ username: 'ada', password: 'ada-password' });
+  const keys = deviceKeys();
+  const subscribe = (client, name) => client('POST', '/api/push/subscribe', {
+    endpoint: `https://fcm.googleapis.com/fcm/send/${name}`, keys: { p256dh: keys.p256dh, auth: keys.auth }, label: name,
+  });
+  const endpoints = () => suite.database.all('SELECT endpoint FROM push_subscriptions ORDER BY endpoint')
+    .map((r) => r.endpoint.split('/').pop());
+
+  const laptop = browser();
+  const phone = browser();
+  const shared = browser();
+  for (const client of [laptop, phone, shared]) await client('POST', '/api/auth/login', { username: 'ada', password: 'ada-password' });
+  await subscribe(laptop, 'laptop');
+  await subscribe(phone, 'phone');
+  await subscribe(shared, 'shared');
+  assert.deepEqual(endpoints(), ['laptop', 'phone', 'shared']);
+
+  // From the laptop, Settings › Where you're signed in closes the shared computer's session: its notices go.
+  const sessions = (await laptop('GET', '/api/me/sessions')).data;
+  const sharedKey = sessions.find((s) => !s.current && suite.database.get(
+    'SELECT 1 FROM push_subscriptions WHERE session_key = ? AND endpoint LIKE ?', s.key, '%/shared')).key;
+  assert.equal((await laptop('DELETE', `/api/me/sessions/${sharedKey}`)).status, 200);
+  assert.deepEqual(endpoints(), ['laptop', 'phone']);
+
+  // Signing out from a page that couldn't say where its notices come (no push_endpoints): the session's go all the same.
+  await phone('POST', '/api/auth/logout');
+  assert.deepEqual(endpoints(), ['laptop']);
+
+  // A session that ends on its own takes them on the suite's clean-up.
+  const old = browser();
+  await old('POST', '/api/auth/login', { username: 'ada', password: 'ada-password' });
+  await subscribe(old, 'old');
+  const oldKey = suite.database.get('SELECT session_key FROM push_subscriptions WHERE endpoint LIKE ?', '%/old').session_key;
+  suite.database.run("UPDATE sessions SET expires_at = '2000-01-01T00:00:00.000Z' WHERE substr(token_hash, 1, 16) = ?", oldKey);
+  suite.purge();
+  assert.deepEqual(endpoints(), ['laptop']);
+
+  // A row from before (no session) stays; Settings removes any one device by its id.
+  suite.database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
+    suite.accounts.byUsername?.('ada')?.id ?? 1, 'https://fcm.googleapis.com/fcm/send/before', keys.p256dh, keys.auth);
+  suite.purge();
+  assert.deepEqual(endpoints(), ['before', 'laptop']);
+  const devices = (await laptop('GET', '/api/push/devices')).data;
+  const before = devices.find((d) => d.endpoint_hint.endsWith('/bef') || d.endpoint_hint.includes('before') || d.label == null);
+  assert.equal((await laptop('DELETE', `/api/push/devices/${before.id}`)).status, 200);
+  assert.equal((await laptop('DELETE', `/api/push/devices/${before.id}`)).status, 404, 'once');
+  assert.deepEqual(endpoints(), ['laptop']);
+  // Someone else's device can't be removed by its id.
+  suite.accounts.create({ username: 'bob', password: 'bob-password' });
+  const bob = browser();
+  await bob('POST', '/api/auth/login', { username: 'bob', password: 'bob-password' });
+  const laptopId = devices.find((d) => d.label === 'laptop').id;
+  assert.equal((await bob('DELETE', `/api/push/devices/${laptopId}`)).status, 404);
+  assert.deepEqual(endpoints(), ['laptop']);
 });
 
 test('over HTTP: without modules.push the app keeps /api/push/* for itself, and no keys are made', async (t) => {

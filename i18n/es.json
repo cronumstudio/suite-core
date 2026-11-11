@@ -926,6 +926,7 @@
   "kit.notifications.devices": "Dispositivos",
   "kit.notifications.none": "Ningún dispositivo tiene los avisos activados todavía.",
   "kit.notifications.since": "desde {when}",
+  "kit.notifications.remove": "Quitar",
   "kit.notifications.inApp": "En este teléfono, los avisos te llegan desde la app {app}. Actívalos o desactívalos en los ajustes de la app.",
   "kit.notifications.appUpdate": "Los avisos en este teléfono llegarán con una actualización de la app {app}.",
   "kit.notifications.offTitle": "Tienes las notificaciones desactivadas",
