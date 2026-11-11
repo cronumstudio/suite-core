@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.250.0 — 2026-11-11
+## 0.251.0 — 2026-11-11
 
 - **Admin › Users › an account › Payments, with «Manage charges»** (`billing.js`, `stores.js`,
   `stripe.js`, `app.js`, `web/admin.js`, `i18n/*.json`): what the account pays or paid, and the
