@@ -1767,7 +1767,13 @@ kit's), then Notes is built on it whole, then the others as they move to English
   waits for the next sweep); never where other apps share those accounts or that subscription.
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
-  `deleteAtProviders`.
+  `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
+  first too, where the install ends them (v0.248.1, `deletion.endSubscriptionsOf`): if the provider
+  can't, nothing is deleted (503 `subscription_not_ended`), to try again, and the log keeps how
+  many ended. Before asking, the panel says what the person pays for themselves
+  (`GET /api/admin/users/:id/subscriptions`, from the overview): the web's, cancelled now, and a
+  store's, which goes on until they cancel it in the store, since Apple and Google let no server
+  do it. A group's stays with the group.
   `accounts.sharedIdentity` (v0.211.0) is for WorkOS users shared by several apps, each of which
   notes itself on them (`app_<id>`: its name, in the user's metadata) when someone signs in, and
   once at start for whoever came before. Deleting one's account asks whether the login goes too

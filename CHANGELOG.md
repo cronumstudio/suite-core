@@ -3,6 +3,29 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.248.1 — 2026-11-11
+
+- **The admin's deletion ends what the person pays, as their own does** (`api.js`,
+  `account-deletion.js`, `web/admin.js`; audit of 6/11, billing-2). `DELETE /api/admin/users/:id`
+  took the account at once and left their subscription renewing at the provider: the next renewal
+  charged someone with no account here, and nowhere to cancel it. Where the install ends
+  subscriptions with the account (`accounts.endSubscriptions`, Cronum Work), the ones the person
+  pays for themselves on the web are cancelled now, at the provider, before anything goes
+  (`deletion.endSubscriptionsOf`, what the sweep does); if the provider can't, nothing is deleted:
+  503 `subscription_not_ended`, which the panel says, to try again. A group's subscription stays
+  with the group. The log's `admin.user.remove` notes `subscriptions_ended` and
+  `store_subscriptions`.
+  - `GET /api/admin/users/:id/subscriptions`, with billing or the stores on: each live subscription
+    the person pays for themselves, the web's and the stores', as the overview has them, with `ends`,
+    whether deleting the account cancels it. Never a ref.
+  - The panel's question says it first: the web's is cancelled now (`admin.users.deleteCancels`, or
+    `deleteKeeps` where the install keeps them), and a store's goes on, since Apple and Google let
+    no server cancel one: only the person can, in the store (`admin.users.deleteStore.*`, as a
+    warning). What they pay unknown, nothing is asked.
+  - `billing.cancels` (and `combinedBilling()`'s): whether the provider can stop a subscription from
+    here, which the remote one can't; `deletion.endsSubscriptions`: whether deleting an account
+    cancels the web's.
+
 ## 0.248.0 — 2026-11-11
 
 - **An item's detail and a row's swipe, the same in every module** (`web/shell.js`, `web/swipe.js`,

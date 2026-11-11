@@ -1268,13 +1268,17 @@ export function createBilling({
     enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
     markOrganizationStop, sendStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
+    // Whether the provider can stop or end a subscription from here (the remote one can't): the
+    // admin is told before a deletion what it cancels (api.js).
+    cancels: canStop(),
   };
 }
 
 /**
  * Several billing instances as one, for the account deletion (account-deletion.js): the web's and
  * the stores'. Each is asked even when another fails; the first failure is thrown after. A store
- * can't stop a subscription for the person (Apple doesn't let a server do it), so it counts none.
+ * can't stop a subscription for the person (Apple doesn't let a server do it), so it counts none,
+ * and `cancels` is whether any of them can.
  */
 export function combinedBilling(instances) {
   const on = instances.filter((instance) => instance?.enabled);
@@ -1295,6 +1299,7 @@ export function combinedBilling(instances) {
     enabled: on.length > 0,
     stopRenewals: each('stopRenewals'), keepRenewals: each('keepRenewals'), endSubscriptions: each('endSubscriptions'),
     stillRenews: (userId) => on.some((instance) => instance.stillRenews?.(userId) === true),
+    cancels: on.some((instance) => instance.cancels === true),
   };
 }
 

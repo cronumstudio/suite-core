@@ -24,7 +24,9 @@
  * theirs), and with `auto` it is asked again when the account goes. Whatever
  * stays there no longer names this app (`idp.unmark`).
  *
- * An account the admin deletes in /admin goes at once, as before.
+ * An account the admin deletes in /admin goes at once, as before, and where
+ * the install ends the person's subscriptions they end first, at the provider
+ * (`endSubscriptionsOf`): one that can't be ended keeps the account (api.js).
  *
  * Who else hears it: `whenRequested(hook)` and `whenCancelled(hook)`, after the
  * account is disabled or enabled again (`hook(user)`, awaited in turn; one that
@@ -200,6 +202,15 @@ export function createAccountDeletion({
   }
 
   /**
+   * An account the admin deletes (api.js), which goes at once: the subscriptions the person pays
+   * for themselves end first, now, as when their own deletion goes for good. A group's stay with
+   * the group, and a store's go on until the person cancels it in the store (Apple and Google let
+   * no server do it). Throws what the provider answered, before anything is deleted: the admin
+   * tries again. Nothing where the install doesn't end them (`endSubscriptions` off). → how many
+   */
+  const endSubscriptionsOf = async (userId) => (subscriptions ? subscriptions.endSubscriptions(userId) : 0);
+
+  /**
    * The shared login of an account going for good: deleted if the person chose so, or wasn't asked
    * and still uses no other app; otherwise only this app is taken off it. The provider not
    * answering whether another app is theirs throws: the account waits for the next sweep.
@@ -212,7 +223,9 @@ export function createAccountDeletion({
   }
 
   return {
-    days, request, restore, sweep, choosing,
+    days, request, restore, sweep, choosing, endSubscriptionsOf,
+    // Whether deleting an account cancels the web subscriptions the person pays (what the admin is told before).
+    endsSubscriptions: Boolean(subscriptions?.cancels),
     ticketFor: (userId) => deletionTicket(sign, userId, clock),
     whenRequested: (hook) => { requestedHooks.push(hook); },
     whenCancelled: (hook) => { cancelledHooks.push(hook); },

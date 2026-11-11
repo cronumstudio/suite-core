@@ -43,7 +43,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import {
-  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, founderPriceOpen, joinedEarly,
+  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, billingOverview, founderPriceOpen, joinedEarly,
 } from './billing.js';
 import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
@@ -789,6 +789,10 @@ export function createApp({
       accounts, entitlements, organizations, sessions, audit, twoFactor, revokeEverything: suite.revokeEverything,
       devices: suite.devices, sharedLogin: config.accounts.sharedIdentity ? suite.idp : null,
       confirmAdmin: workosSecurity?.confirmAdmin ?? null,
+      // The admin's deletion ends what the person pays, as their own does, and the panel says what that is before.
+      deletion,
+      overview: billing?.enabled || suite.stores?.enabled
+        ? (user) => billingOverview(user, { instances: [billing, suite.stores], entitlements, organizations }) : null,
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
