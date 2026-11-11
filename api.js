@@ -190,6 +190,11 @@ export function registerAuthApi(router, {
       for (const endpoint of endpoints.slice(0, 10)) {
         database.run('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?', ctx.user.id, endpoint);
       }
+      // And those turned on in this session, also where the page couldn't say where they come (pwa-2).
+      const key = sessions.keyFor?.(ctx.sessionToken);
+      if (key && database.columnsOf?.('push_subscriptions').includes('session_key')) {
+        database.run('DELETE FROM push_subscriptions WHERE user_id = ? AND session_key = ?', ctx.user.id, key);
+      }
     }
     const idpSession = sessions.close(ctx.sessionToken);
     sessions.clearCookie(ctx.res);
@@ -222,7 +227,7 @@ export function registerAuthApi(router, {
  * list for Settings and a test notice to every device of the person, in their
  * language. What each real notice says, and to whom, is the app's.
  */
-export function registerPushApi(router, { push, texts, appName }) {
+export function registerPushApi(router, { push, texts, appName, sessionKeyOf = () => null }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
     return ctx.user;
@@ -243,8 +248,18 @@ export function registerPushApi(router, { push, texts, appName }) {
       auth: body.auth ?? body.keys?.auth,
       label: body.label ?? null,
       lang: body.lang ?? null,
+      // The session it is turned on in: closed, the notices go with it (pwa-2).
+      sessionKey: sessionKeyOf(ctx),
     });
-    sendJson(ctx.res, 201, { ok: true, devices });
+    // Whose device it now is: the page remembers that this person turned notices on here (settings.js).
+    sendJson(ctx.res, 201, { ok: true, devices, user_id: user.id });
+  });
+
+  /** One of the person's devices, from Settings › Notifications: a phone lost, a computer left. */
+  router.delete('/api/push/devices/:id', (ctx) => {
+    const user = requireUser(ctx);
+    if (!push.removeDevice(user.id, Number(ctx.params.id))) throw notFound('device_not_found');
+    sendJson(ctx.res, 200, { ok: true });
   });
 
   /** Forgets this device (`?endpoint=`), or all of the person's without it. */
@@ -380,6 +395,7 @@ export function registerAccountMailApi(router, {
  * @param {object} deps
  * @param {object} [deps.accounts]      from createAccounts(), for the password
  * @param {object} [deps.sessions]      from createSessions()
+ * @param {object} [deps.push]          from createPush(): a session closed takes the notices turned on in it
  * @param {object} [deps.tokens]        from createTokens()
  * @param {object} [deps.entitlements]  from createEntitlements()
  * @param {object} [deps.oauth]         from createOAuthServer(), for connected apps
@@ -393,7 +409,7 @@ export function registerAccountMailApi(router, {
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
-  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null, deletion = null,
+  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null, deletion = null, push = null,
 }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
@@ -453,6 +469,8 @@ export function registerProfileApi(router, {
       const user = requireUser(ctx);
       const atProvider = sessions.idpSessionsOf?.(user.id, { key: ctx.params.key }) || [];
       if (!sessions.revoke(user.id, ctx.params.key)) throw notFound('session_not_found');
+      // Its notices too: they carry task titles and list names to that device's locked screen (pwa-2).
+      push?.forgetSession(user.id, ctx.params.key);
       revokeAtProvider(idp, atProvider);
       record(ctx, 'auth.session.revoke', 'session', null);
       sendJson(ctx.res, 200, { ok: true });

@@ -250,6 +250,9 @@ export function createSessions({
       }));
   }
 
+  /** The public key of a token's session (keyOf), or null: what a push subscription keeps of it. */
+  const keyFor = (token) => (typeof token === 'string' && token ? keyOf(hashOf(token)) : null);
+
   /** Closes one session of a person by its public key. */
   function revoke(userId, key) {
     if (typeof key !== 'string' || key.length !== 16) return false;
@@ -267,7 +270,7 @@ export function createSessions({
   const sign = (value) => hmac(secret, `sign|${value}`);
 
   return {
-    cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign,
+    cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign, keyFor,
     setCookie, clearCookie,
     /**
      * Hears `(userId)` whenever sessions of that person are closed here: signing out, one closed

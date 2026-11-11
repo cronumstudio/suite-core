@@ -28,6 +28,10 @@
  *   onNoSignal(request)  instead of throwing Offline: what it returns is the answer
  *                (Tasks' queue answers a change made without signal with it drawn)
  * `api.with(options)` gives the same client with those options on every call.
+ *
+ * A plan's barrier (a 402) met by any call is kept for a moment by its sentence: the notice that
+ * then says it (ui.js `toast`, whichever module shows it) carries «Ver planes», which opens what
+ * `setPlanOpener` was given (createShell: Settings › Plan). Without an opener, the words alone.
  */
 import { t } from './i18n.js';
 import { at } from './base.js';
@@ -142,6 +146,7 @@ async function request(method, path, body, options = {}) {
   // How long the server (or whatever stands before it) asks to wait, when it says (a 429, a 503).
   const after = retryAfterMs(res.headers?.get?.('Retry-After'));
   if (after != null) error.retryAfter = after;
+  if (res.status === 402) barrier = { text: errorMessage(error), at: Date.now() };
   throw error;
 }
 
@@ -155,6 +160,33 @@ export function retryAfterMs(value, now = Date.now()) {
   if (/^\d+$/.test(text)) return Number(text) * 1000;
   const at = Date.parse(text);
   return Number.isFinite(at) ? Math.max(0, at - now) : null;
+}
+
+/* ------------------- a plan's barrier, and the way to the plans ------------------- */
+
+/** How long a barrier met waits for the notice that says it. */
+const BARRIER_MS = 10000;
+let barrier = null;
+let planOpener = null;
+
+/**
+ * What opens the plans from a notice of a barrier (createShell: Settings › Plan); null takes it
+ * away, only if it is still `replacing` when that is given (a shell let go after another came).
+ */
+export function setPlanOpener(open, { replacing } = {}) {
+  if (replacing !== undefined && planOpener !== replacing) return;
+  planOpener = typeof open === 'function' ? open : null;
+}
+
+/**
+ * The button for a notice that says the barrier just met, once: `{ label, onClick }`, or null for
+ * any other words, a barrier said already or long ago, and without an opener.
+ */
+export function planAction(text) {
+  if (!planOpener || !barrier || barrier.text !== text || Date.now() - barrier.at > BARRIER_MS) return null;
+  barrier = null;
+  const open = planOpener;
+  return { label: t('kit.plan.see'), onClick: () => open() };
 }
 
 /** The client, with `defaults` under every call's options. */
@@ -188,11 +220,20 @@ function client(defaults = {}) {
 
 export const api = client();
 
+/** What a plan's limit counts, by its feature: as Settings › Usage names it (`kit.usage.counted.*`). */
+const COUNTED = Object.freeze({ 'lists.max': 'lists', 'projects.max': 'projects', 'notebooks.max': 'notebooks' });
+
 /** What went wrong, as a sentence: errors.<code>, with the field named in the language. */
 export function errorMessage(err) {
   if (err instanceof Offline) return t('errors.offline');
   const data = { ...(err?.data || {}) };
   if (data.field) data.field = t(`fields.${data.field}`);
+  // A plan's limit says what it limits: «permite 20 listas», «50 MB de espacio», not a bare number.
+  if (err?.code === 'plan_limit' && data.limit != null) {
+    const counted = COUNTED[data.feature];
+    if (counted && Number.isFinite(Number(data.limit))) data.limit = t(`kit.usage.counted.${counted}`, { n: Number(data.limit) });
+    else if (data.feature === 'storage.mb') data.limit = t('kit.usage.counted.storage', { size: data.limit });
+  }
   const code = err?.code || 'generic';
   const sentence = t(`errors.${code}`, data);
   return sentence === `errors.${code}` ? t('errors.generic') : sentence;

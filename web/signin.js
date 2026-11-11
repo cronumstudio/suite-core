@@ -498,9 +498,10 @@ function shellRegistry() {
  * and the page stays, with a word why (it used to delete it all and stay signed in at the server).
  * A session that had already ended lets go of the device as always. `before`: what the app does
  * once the server has heard, before the device lets go (its own copies, its live channel).
+ * `forgetPush`: the browser's push subscription goes too (a host's, where nobody shares it).
  * → true when it left, false when it stayed.
  */
-export async function signOutHere({ local = null, ask = false, before = null } = {}) {
+export async function signOutHere({ local = null, ask = false, before = null, forgetPush = false } = {}) {
   if (ask) {
     const waiting = await pendingChanges().catch(() => 0);
     const confirm = typeof ask === 'function' ? ask : (n) => confirmDialog(t('kit.account.unsent', { n }), {
@@ -519,6 +520,22 @@ export async function signOutHere({ local = null, ask = false, before = null } =
     }
   }
   await before?.();
+  // In a host nobody else shares the browser's subscription: let go, so nothing here says this
+  // device still gets notices the server no longer sends (pwa-3). The same person signing in again
+  // gets them back without a tap (settings.js renewNotices).
+  if (forgetPush) await letGoOfPush().catch(() => {});
   await leave({ answer, local });
   return true;
+}
+
+/** Every one of the site's workers lets go of its push subscription; never more than `wait` ms. */
+async function letGoOfPush({ serviceWorker = globalThis.navigator?.serviceWorker, wait = 1500 } = {}) {
+  if (!serviceWorker?.getRegistrations || inApp()) return;
+  const all = async () => {
+    for (const registration of await serviceWorker.getRegistrations()) {
+      await (await registration.pushManager?.getSubscription().catch(() => null))?.unsubscribe().catch(() => {});
+    }
+  };
+  let timer;
+  await Promise.race([all(), new Promise((resolve) => { timer = setTimeout(resolve, wait); })]).finally(() => clearTimeout(timer));
 }
