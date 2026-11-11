@@ -25,6 +25,22 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `billing.cancels` (and `combinedBilling()`'s): whether the provider can stop a subscription from
     here, which the remote one can't; `deletion.endsSubscriptions`: whether deleting an account
     cancels the web's.
+- **An admin's sign-in again is a fresh one** (`workos-security.js`, `workos.js`,
+  `workos-accounts.js`, `web/admin.js`; audit of 6/11, sc-auth-3). An admin with no password to give
+  (Google, Apple, a company's sign-in) was confirmed by any session opened in the last 10 minutes,
+  and the panel sent them to `/auth/login`, where AuthKit signs the browser in again without a word
+  while its own session lasts: the question answered itself. Admins who sign in with a password
+  give it again, as before.
+  - The panel sends them to `/auth/login?prompt=login&return=/admin`: AuthKit asks again
+    (`max_age=0`), and the browser comes back to the panel.
+  - Their session counts only when they actively signed in after the server last asked them, in the
+    10 minutes since: AuthKit's access token says when (`auth_time`, "a Unix timestamp, in seconds,
+    of the user's most recent active authentication", which a session it reuses doesn't move;
+    WorkOS, AuthKit › Re-authentication). `exchangeCode()` gives it as `authTime`, the callback hands
+    it to `sessions.open`, and `createFreshSignIns()` keeps it per session for those minutes, with
+    when each admin was asked, in memory: a restart asks again.
+  - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
+    signs in by `prompt=login`.
 
 ## 0.248.0 — 2026-11-11
 

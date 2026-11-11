@@ -625,7 +625,12 @@ the page signs in in place; under a provider's sign-in the server sends the brow
 `/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
 sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
 `/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
-was; nothing but the connect page asks for it.
+was; besides the connect page, only the admin panel asks for it (v0.248.1, with `return=/admin`),
+when an admin with no password to give (Google, Apple, a company's sign-in) must sign in again to
+change who someone is: their session counts only if AuthKit's access token says they actively
+signed in (`auth_time`) after the server asked them, in the ten minutes since
+(`createFreshSignIns`, workos-security.js). A session opened in the last minutes proved nothing,
+since AuthKit signs a browser in again without a word while its own session lasts.
 
 **Sessions of the web from a device** (**done**, v0.105.0, with `devices.webSessions`): an app
 whose screens are its web pages in a WebView (Cronum Work) turns its token into the web's own

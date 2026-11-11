@@ -65,7 +65,9 @@ const fake = http.createServer(async (req, res) => {
     const challenge = crypto.createHash('sha256').update(String(b.code_verifier || '')).digest('base64url');
     if (b.client_secret !== 'sk_test' || !c || c.challenge !== challenge) return json(400, { error: 'invalid_grant' });
     codes.delete(b.code);
-    return json(200, { user: ACCOUNTS[c.id], access_token: sign({ sid: `sess_${c.id}`, sub: c.id }) });
+    // When they last actively signed in, as AuthKit's tokens say it, where the test gives one.
+    const authTime = c.authTime ? { auth_time: c.authTime } : {};
+    return json(200, { user: ACCOUNTS[c.id], access_token: sign({ sid: `sess_${c.id}`, sub: c.id, ...authTime }) });
   }
   const apps = url.pathname.match(/^\/user_management\/users\/([\w-]+)\/authorized_applications(?:\/([\w-]+))?$/);
   if (apps) {
@@ -137,12 +139,12 @@ accounts = createWorkosAccounts({
   stateCookie: 'test_auth', log: () => {},
 });
 
-const signIn = async (id, returnTo) => {
+const signIn = async (id, returnTo, { authTime = null } = {}) => {
   const out = await fetch(`${base}/auth/login${returnTo ? `?return=${encodeURIComponent(returnTo)}` : ''}`, { redirect: 'manual' });
   const target = new URL(out.headers.get('location'));
   const cookie = out.headers.get('set-cookie').split(';')[0];
   const code = `c-${id}-${Math.random()}`;
-  codes.set(code, { id, challenge: target.searchParams.get('code_challenge') });
+  codes.set(code, { id, challenge: target.searchParams.get('code_challenge'), authTime });
   const back = await fetch(`${base}/auth/callback?code=${code}&state=${target.searchParams.get('state')}`,
     { redirect: 'manual', headers: { Cookie: cookie } });
   return { out, target, cookie, back };
@@ -169,6 +171,10 @@ try {
   check('The return opens a session through the app, with AuthKit’s session id',
     ada.back.headers.get('location') === '/' && opened.at(-1)?.workosSessionId === 'sess_user_ada');
   check('And with the request, so the session knows its browser', typeof opened.at(-1)?.req?.headers === 'object');
+  check('A token without auth_time says nothing of when they last signed in', opened.at(-1)?.authTime === null);
+  await signIn('user_ada', null, { authTime: 1794391200 });
+  check('With it, when they last actively signed in, in milliseconds: what an admin’s fresh sign-in is',
+    opened.at(-1)?.authTime === 1794391200000);
   check('The admin email takes over the existing admin', USERS[0].workos_user_id === 'user_ada'
     && USERS[0].email === 'ada@example.com' && USERS.length === 1);
   const eve = await signIn('user_eve');

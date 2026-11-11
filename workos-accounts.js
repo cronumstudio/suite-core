@@ -221,7 +221,8 @@ function freeUsername(seed, taken) {
  *   for the connected AI clients.
  *   `workosUsers(accounts)` makes all of them on the suite's accounts.
  * @param {object} options.sessions
- *   open(res, userId, { workosSessionId, req }) opens the app's browser session
+ *   open(res, userId, { workosSessionId, req, authTime }) opens the app's browser session;
+ *   `authTime` (ms, or null) is when the person last actively signed in, as AuthKit says
  * @param {object} [options.connections]  used, of, revoke, refuses: the AI clients that
  *   come to the MCP (`workosConnections(database)`); without it, nothing is listed or refused
  * @param {boolean} [options.secureCookies]
@@ -527,7 +528,8 @@ export function createWorkosAccounts({
         state,
         challenge: pkceChallenge,
         signUp: url.searchParams.get('signup') === '1',
-        // Only the device connect page asks for it (device-pages.js), to sign in as someone else.
+        // The device connect page asks for it (device-pages.js), to sign in as someone else, and the
+        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin).
         fresh: url.searchParams.get('prompt') === 'login',
       }));
       return true;
@@ -546,7 +548,7 @@ export function createWorkosAccounts({
         return true;
       }
       try {
-        const { account, sessionId, method } = await workos.exchangeCode({ code, verifier });
+        const { account, sessionId, method, authTime } = await workos.exchangeCode({ code, verifier });
         const user = await localUser(account);
         // Its owner asked to delete it: no session, the offer to take it back.
         if (user.disabled_at && user.delete_after && pendingDeletion) {
@@ -561,7 +563,8 @@ export function createWorkosAccounts({
         }
         users.signedIn?.(user, account, method);
         markOnce(account.id);
-        sessions.open(res, user.id, { workosSessionId: sessionId, req });
+        // With when they last actively signed in: an admin's sign-in again is one (workos-security.js).
+        sessions.open(res, user.id, { workosSessionId: sessionId, req, authTime });
         const target = localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/');
         // A phone's connect page that sent here: straight back to it, not by `/` (device-pages.js).
         redirect(res, (target === '/' && afterSignIn?.(req, res)) || target);

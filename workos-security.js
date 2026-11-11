@@ -33,6 +33,8 @@ import { WorkosUnavailable } from './workos.js';
 const SETUP_MS = 10 * 60 * 1000;
 /** How recent an admin's sign-in must be to change someone's identity without a password to give. */
 const REAUTH_MS = 10 * 60 * 1000;
+/** WorkOS's clock and this one's, which don't tick exactly together (as workos.js's tokens). */
+const SKEW_MS = 30 * 1000;
 const STEP_SECONDS = 30;
 
 /** Methods that are another account's sign-in: its password and second step are there. */
@@ -40,6 +42,50 @@ export const ELSEWHERE = Object.freeze(['google', 'apple', 'microsoft', 'github'
 
 /** WorkOS's names of the accounts it links (identities), as signInMethod() names them. */
 const fromIdentity = (provider) => String(provider || '').replace(/OAuth$/, '').toLowerCase() || null;
+
+/**
+ * What an admin with no password to give (Google, Apple, a company's sign-in) shows instead: a sign-in
+ * at WorkOS in which they actively signed in, after the server asked for it. AuthKit's access token
+ * says when (`auth_time`: "a Unix timestamp, in seconds, of the user's most recent active
+ * authentication", which a session AuthKit reuses or a refresh doesn't move: WorkOS, AuthKit ›
+ * Re-authentication), and the panel asks for it with `max_age=0` (`/auth/login?prompt=login`). A
+ * session opened in the last minutes proved nothing: AuthKit signs the browser in again without a
+ * word while its own session lasts. createSuite notes each session a sign-in at WorkOS opens
+ * (`note`); `ask` is the server asking an admin, and `fresh` whether a session's sign-in came after
+ * the last question, within REAUTH_MS of it, and is no older than that now. In memory, kept those
+ * minutes only: a restart asks again. Sessions by a hash of their token, never the token.
+ */
+export function createFreshSignIns({ clock = () => Date.now() } = {}) {
+  const signedIn = new Map();
+  const asked = new Map();
+  const keyOf = (token) => crypto.createHash('sha256').update(String(token)).digest('base64url');
+  // Past these, neither can make a session fresh again.
+  const prune = () => {
+    const now = clock();
+    for (const [key, at] of signedIn) if (now - at > REAUTH_MS) signedIn.delete(key);
+    for (const [id, at] of asked) if (now - at > 2 * REAUTH_MS) asked.delete(id);
+  };
+  return {
+    /** A session a sign-in at WorkOS just opened (its token), and when they last actively signed in (ms). */
+    note(token, authTime) {
+      if (!token || !Number.isFinite(authTime)) return;
+      prune();
+      signedIn.set(keyOf(token), authTime);
+    },
+    /** The server asks an admin to sign in again: only a sign-in after now counts. */
+    ask(userId) {
+      prune();
+      asked.set(Number(userId), clock());
+    },
+    /** Whether this session's sign-in was active after the admin was last asked, in the minutes after, and still recent. */
+    fresh(userId, token) {
+      const at = token ? signedIn.get(keyOf(token)) : undefined;
+      const since = asked.get(Number(userId));
+      if (at == null || since == null) return false;
+      return at + SKEW_MS >= since && at - since <= REAUTH_MS && clock() - at <= REAUTH_MS;
+    },
+  };
+}
 
 /**
  * @param {object} router
@@ -53,10 +99,13 @@ const fromIdentity = (provider) => String(provider || '').replace(/OAuth$/, '').
  * @param {boolean} [deps.adminIdentity]  whether the admin may set someone's password and take
  *   their second step off at WorkOS (config.accounts.adminIdentity): only the install that owns the
  *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist.
+ * @param {object} [deps.freshSignIns]  from createFreshSignIns(), which createSuite fills from each
+ *   sign-in at WorkOS: an admin with no password to give is confirmed by a fresh one. Without it,
+ *   nothing counts as one and such an admin is always asked to sign in again.
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'on',
-  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, clock = () => Date.now(),
+  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, freshSignIns = null, clock = () => Date.now(),
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -248,7 +297,7 @@ export function registerWorkosSecurityApi(router, {
   /**
    * What the admin gives again before changing someone's identity: `password` (theirs at
    * WorkOS), `password_code` (and a code of their second step), or `session` (they sign in with
-   * Google or a company's sign-in, so there is no password to give: a recent sign-in instead).
+   * Google or a company's sign-in, so there is no password to give: a fresh sign-in instead).
    */
   async function reauthOf(admin) {
     const id = users.workosIdOf(admin.id);
@@ -257,15 +306,19 @@ export function registerWorkosSecurityApi(router, {
   }
 
   /**
-   * The admin again: their password and, with a second step, a code; or a session opened in the
-   * last minutes, else `reauth_required` (the panel sends them to sign in again). A stolen
-   * cookie alone isn't enough to change who someone is in every product.
+   * The admin again: their password and, with a second step, a code; or this session's sign-in at
+   * WorkOS, if they actively signed in after the server last asked them to and in the minutes since
+   * (createFreshSignIns), else `reauth_required`, and they are asked: the panel sends them to sign
+   * in again, with AuthKit asking again too. A stolen cookie alone isn't enough to change who
+   * someone is in every product, nor is a session AuthKit opened by itself.
    */
   async function confirmAdmin(ctx, body) {
     const { kind, id } = await reauthOf(ctx.user);
     if (kind === 'session') {
-      const session = ctx.sessionToken ? sessions.alive(ctx.sessionToken) : null;
-      if (!session || clock() - Date.parse(session.created_at) > REAUTH_MS) throw new HttpError(401, 'reauth_required');
+      if (!freshSignIns?.fresh(ctx.user.id, ctx.sessionToken)) {
+        freshSignIns?.ask(ctx.user.id);
+        throw new HttpError(401, 'reauth_required');
+      }
       return;
     }
     await confirmPassword(ctx, ctx.user, body.admin_password);

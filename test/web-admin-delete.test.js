@@ -45,7 +45,9 @@ test('deleting someone who pays: what is cancelled and what goes on in a store i
     'GET /api/admin/users': { users: [ADA] },
     'GET /api/admin/users/1/sign-in': { method: 'google', password: false, two_factor: { enabled: false }, manage: true, reauth: 'session' },
     'GET /api/admin/users/1/subscriptions': [{ status: 500, body: { error: 'generic' } }, { subscriptions: PAYS }],
-    'DELETE /api/admin/users/1': [{ status: 503, body: { error: 'subscription_not_ended' } }, { ok: true }],
+    'DELETE /api/admin/users/1': [
+      { status: 503, body: { error: 'subscription_not_ended' } }, { status: 401, body: { error: 'reauth_required' } }, { ok: true },
+    ],
   };
   globalThis.fetch = async (path, { method = 'GET' } = {}) => {
     if (String(path).startsWith('/i18n/')) return { ok: true, status: 200, json: async () => english };
@@ -96,7 +98,13 @@ test('deleting someone who pays: what is cancelled and what goes on in a store i
   assert.ok(errors().includes(t('errors.subscription_not_ended')), errors().join(' | '));
   assert.ok(account.open, 'the account’s dialog stays open');
 
+  // A fresh sign-in wanted: at the provider, which asks again instead of taking its own session, and back here.
+  (await pressDelete()).find('button').find((node) => node.className.split(' ').includes('kit-btn--danger')).dispatch('click');
+  await wait();
+  assert.equal(window.location.href, '/auth/login?prompt=login&return=%2Fadmin');
+
   // Deleted.
+  window.location.href = '/admin';
   sent.length = 0;
   (await pressDelete()).find('button').find((node) => node.className.split(' ').includes('kit-btn--danger')).dispatch('click');
   await wait();

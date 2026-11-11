@@ -441,7 +441,11 @@ export async function fakeServer(handler) {
  * the code exchange with PKCE (`/user_management/authenticate`, checking `clientId`/`apiKey`) and
  * the users API. `accounts` are WorkOS users by id. `signIn(base, id, { app })` does a whole round
  * trip for the app at `base` whose id is `app` (its `<app>_auth` and `<app>_sid` cookies):
- * /auth/login → "AuthKit" → /auth/callback, → { back, cookie, client }.
+ * /auth/login → "AuthKit" → /auth/callback, → { back, cookie, client }; with `fresh`, by
+ * /auth/login?prompt=login, the way the admin panel asks someone to sign in again. Each access
+ * token says when its user last actively signed in (`auth_time`), as AuthKit's: the first time
+ * and whenever the app asks again (`max_age=0`); otherwise "AuthKit" takes the session it holds,
+ * and the time stays.
  * The app runs with AUTH_PROVIDER=workos, WORKOS_API_URL and WORKOS_AUTHKIT_DOMAIN at `url`.
  */
 export async function fakeWorkos({ accounts = {}, clientId = 'client_test', apiKey = 'sk_test' } = {}) {
@@ -472,7 +476,9 @@ export async function fakeWorkos({ accounts = {}, clientId = 'client_test', apiK
       codes.delete(asked.code);
       return json(200, {
         user: accounts[code.id],
-        access_token: sign({ sid: `session_${code.id}`, sub: code.id, iss: `${issuer}/user_management/${clientId}` }),
+        access_token: sign({
+          sid: `session_${code.id}`, sub: code.id, iss: `${issuer}/user_management/${clientId}`, auth_time: code.authTime,
+        }),
         refresh_token: 'rt',
       });
     }
@@ -484,15 +490,20 @@ export async function fakeWorkos({ accounts = {}, clientId = 'client_test', apiK
     return json(404, { message: 'Not found' });
   });
 
+  // When each user last actively signed in, in seconds.
+  const active = new Map();
+
   /** A code AuthKit would hand back for `id` after the app's redirect to `authorizeUrl`. */
   function grant(id, authorizeUrl) {
+    const asked = new URL(authorizeUrl).searchParams;
+    if (asked.get('max_age') === '0' || !active.has(id)) active.set(id, Math.floor(Date.now() / 1000));
     const code = `code-${id}-${crypto.randomUUID()}`;
-    codes.set(code, { id, challenge: new URL(authorizeUrl).searchParams.get('code_challenge') });
+    codes.set(code, { id, challenge: asked.get('code_challenge'), authTime: active.get(id) });
     return code;
   }
 
-  async function signIn(base, id, { app, timeoutMs = REQUEST_MS } = {}) {
-    const out = await timed('GET', `${base}/auth/login`, { redirect: 'manual' }, timeoutMs);
+  async function signIn(base, id, { app, fresh = false, timeoutMs = REQUEST_MS } = {}) {
+    const out = await timed('GET', `${base}/auth/login${fresh ? '?prompt=login' : ''}`, { redirect: 'manual' }, timeoutMs);
     const target = out.headers.get('location');
     const state = (out.headers.getSetCookie?.() || []).find((c) => c.startsWith(`${app}_auth=`))?.split(';')[0] ?? '';
     const code = grant(id, target);

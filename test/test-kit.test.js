@@ -242,6 +242,15 @@ test('fakeWorkos: the code exchange checks PKCE and the client, and signIn does 
   assert.deepEqual(head, { alg: 'RS256', kid: 'k1', typ: 'JWT' });
   assert.equal(payload.sub, 'user_ana');
   assert.equal((await exchange({ client_id: 'client_test', client_secret: 'sk_test', code, code_verifier: 'v' })).status, 400, 'a code serves once');
+  // When she last actively signed in, as AuthKit says it: it moves only when the app asks again (max_age=0).
+  assert.ok(Number.isInteger(payload.auth_time) && Math.abs(payload.auth_time - Date.now() / 1000) < 5, 'in seconds');
+  const authTimeOf = async (url) => {
+    const answer = await exchange({ client_id: 'client_test', client_secret: 'sk_test', code: workos.grant('user_ana', url), code_verifier: 'v' });
+    return JSON.parse(Buffer.from((await answer.json()).access_token.split('.')[1], 'base64url')).auth_time;
+  };
+  await sleep(1100);
+  assert.equal(await authTimeOf(authorize), payload.auth_time, 'the session "AuthKit" holds');
+  assert.ok(await authTimeOf(`${authorize}&max_age=0`) > payload.auth_time, 'signed in again');
 
   const jwks = await (await fetch(`${workos.url}/oauth2/jwks`)).json();
   const key = crypto.createPublicKey({ key: jwks.keys[0], format: 'jwk' });

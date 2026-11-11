@@ -550,7 +550,7 @@ function userDialog(user) {
 
 /**
  * The admin's own password (and code) again, as the server asks (`reauth`): the fields, and
- * what they add to the request. With `session` there is nothing to type: a recent sign-in.
+ * what they add to the request. With `session` there is nothing to type: a fresh sign-in.
  */
 function reauthFields(reauth) {
   const own = reauth === 'password' || reauth === 'password_code'
@@ -564,11 +564,15 @@ function reauthFields(reauth) {
   };
 }
 
-/** A recent sign-in is what the server wants: to the sign-in, and back here. */
+/**
+ * A fresh sign-in is what the server wants: to the sign-in, where the provider asks again instead of
+ * taking the session it still holds (`prompt=login`), and back here. Without it AuthKit signed the
+ * browser in again without a word, and that proved nothing (workos-security.js confirmAdmin).
+ */
 function reauthFailed(err) {
   if (err?.code === 'reauth_required') {
     toast(t('errors.reauth_required'), { error: true });
-    window.location.href = '/auth/login';
+    window.location.href = `/auth/login?prompt=login&return=${encodeURIComponent('/admin')}`;
     return;
   }
   fail(err);
