@@ -131,7 +131,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
-| `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; `keepOnly(id)`; `tempId()`, `isTempId()` |
+| `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
 | `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
