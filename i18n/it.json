@@ -840,6 +840,7 @@
   "kit.side.groupFold": "Comprimi {name}",
   "kit.side.groupUnfold": "Espandi {name}",
   "kit.side.groupOptions": "Opzioni di {name}",
+  "kit.side.search": "Cerca",
   "kit.more": "Altre opzioni",
   "kit.saveState.saving": "Salvataggio…",
   "kit.saveState.saved": "Salvato",

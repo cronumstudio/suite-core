@@ -840,6 +840,7 @@
   "kit.side.groupFold": "Plegar {name}",
   "kit.side.groupUnfold": "Desplegar {name}",
   "kit.side.groupOptions": "Opciones de {name}",
+  "kit.side.search": "Buscar",
   "kit.more": "Más opciones",
   "kit.saveState.saving": "Guardando…",
   "kit.saveState.saved": "Guardado",

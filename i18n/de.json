@@ -840,6 +840,7 @@
   "kit.side.groupFold": "{name} einklappen",
   "kit.side.groupUnfold": "{name} ausklappen",
   "kit.side.groupOptions": "Optionen für {name}",
+  "kit.side.search": "Suchen",
   "kit.more": "Weitere Optionen",
   "kit.saveState.saving": "Wird gespeichert …",
   "kit.saveState.saved": "Gespeichert",
