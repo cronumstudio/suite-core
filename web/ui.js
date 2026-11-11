@@ -398,6 +398,27 @@ function addClass(node, name) {
   return node;
 }
 
+/** The kinds of <input> a person writes in; a box, a choice, a colour or a file is not writing. */
+const WRITTEN = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'number', 'password', 'date', 'time', 'datetime-local', 'month', 'week']);
+const writtenIn = (node) => !node?.readOnly && !node?.disabled && !node?.hasAttribute?.('readonly') && (node?.tagName === 'TEXTAREA'
+  || (node?.tagName === 'INPUT' && WRITTEN.has(String(node.getAttribute?.('type') || node.type || '').toLowerCase()))
+  || node?.isContentEditable === true || node?.getAttribute?.('contenteditable') === 'true');
+const writtenValue = (node) => (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT' ? String(node.value ?? '') : String(node.textContent ?? ''));
+
+/**
+ * What has been written in a dialog since it opened: each field's value the first time it takes the
+ * focus, against what it holds now. A field the dialog fills itself before the person reaches it
+ * isn't writing; one they changed and put back is nothing written either.
+ */
+function writing(dialog) {
+  const before = new Map();
+  dialog.addEventListener('focusin', (ev) => {
+    const field = ev.target;
+    if (writtenIn(field) && !before.has(field)) before.set(field, writtenValue(field));
+  });
+  return () => [...before].some(([field, was]) => field.isConnected !== false && dialog.contains?.(field) !== false && writtenValue(field) !== was);
+}
+
 /**
  * The frame every kit dialog shares: the native <dialog> (focus trapped, the rest of the page
  * inert), a header with the title (or `header`, a node of its own), `tools` before the ×, `bar`
@@ -405,10 +426,17 @@ function addClass(node, name) {
  * from the bottom as a sheet (kit.css). A tap on the backdrop closes it; Escape closes only the
  * top one, and only once a menu open inside it is closed. `busy()` runs one action at a time:
  * while it waits every button in the footer is disabled, so a double click can't do it twice.
+ *
+ * `keepTyped` (a dialog whose fields wait for a button): once something is written in it, a tap on
+ * the backdrop doesn't close it (on a phone it is how one puts the keyboard away, and it threw the
+ * three fields of Next's sheet away; audit of 6/11, ux-acciones-5) but only takes the focus off the
+ * field, and Escape asks before throwing it away. Its ×, Cancel and the app's own close are a choice
+ * and close as always. A dialog whose fields save themselves as they change passes false.
+ * `onDiscard`: told when the person says yes to throwing it away (a draft the module keeps goes too).
  */
 function frame({
   title = '', subtitle = '', header = null, tools = null, bar = null, wide = false, width = null,
-  className = '', parent = null, onClose = null,
+  className = '', parent = null, onClose = null, keepTyped = false, onDiscard = null,
 }) {
   // A menu left open would sit beside the dialog: a dialog comes from a choice, so the menu is done.
   closeMenu();
@@ -450,11 +478,33 @@ function frame({
   // A tap on the backdrop closes it, as on a phone's sheet; not a press that began inside and was
   // let go outside (selecting a field's text), which the browser also calls a click on the dialog.
   let pressedInside = false;
+  const written = keepTyped ? writing(dialog) : () => false;
   dialog.addEventListener('pointerdown', (ev) => { pressedInside = ev.target !== dialog; });
   dialog.addEventListener('click', (ev) => {
-    if (ev.target === dialog && !pressedInside) close();
+    if (ev.target === dialog && !pressedInside) {
+      // Something written stays: the tap only puts the keyboard away.
+      if (written()) globalThis.document?.activeElement?.blur?.();
+      else close();
+    }
     pressedInside = false;
   });
+  let asking = false;
+  /** Escape with something written: asked first, and thrown away only with a yes. */
+  const askToDiscard = async () => {
+    if (asking) return;
+    asking = true;
+    try {
+      const sure = await confirmDialog(null, {
+        title: t('kit.dialog.discardTitle'), confirm: t('kit.dialog.discard'), cancel: t('kit.dialog.keepWriting'), parent,
+      });
+      if (sure) {
+        try { onDiscard?.(); } catch { /* the dialog goes all the same */ }
+        close();
+      }
+    } finally {
+      asking = false;
+    }
+  };
   // Escape: the browser asks the top modal dialog; a menu open in it goes first, and a dialog
   // that isn't the kit's top one (a key that reached it anyway) stays.
   dialog.addEventListener('cancel', (ev) => {
@@ -463,6 +513,9 @@ function frame({
       closeMenu();
     } else if (openDialogs.at(-1) !== dialog) {
       ev.preventDefault();
+    } else if (written()) {
+      ev.preventDefault();
+      askToDiscard();
     }
   });
   dialog.addEventListener('close', () => {
@@ -491,13 +544,15 @@ function frame({
  * Optional: `width` ('420px', within the screen), `className`, `parent` (where
  * it hangs; the page's body by default), and for a screen that draws its own
  * parts, `body` and `footer` (nodes used as they are, with the kit's classes
- * added) in place of `content` and `actions`.
+ * added) in place of `content` and `actions`. `keepTyped: true` for a form whose
+ * fields wait for a button: what is written there isn't thrown away by a tap
+ * outside or Escape without asking (frame).
  */
 export function openDialog({
   title, content = null, actions = [], wide = false, width = null, className = '', parent = null,
-  body = null, footer = null, onClose = null,
+  body = null, footer = null, onClose = null, keepTyped = false, onDiscard = null,
 }) {
-  const parts = frame({ title, wide, width, className, parent, onClose });
+  const parts = frame({ title, wide, width, className, parent, onClose, keepTyped, onDiscard });
   const { dialog, close, busy } = parts;
   const buttons = (actions || []).map((action) => actionButton(action, () => busy(async () => {
     if ((await action.onClick?.()) !== false) close();
@@ -525,14 +580,16 @@ export function openDialog({
  * `header` replaces the title and `subtitle`; `tools` go before the ×; `bar`
  * sits under the header and out of the scroll (tabs); `extra` between the body
  * and the footer. The footer can change while it is open (`setActions`); with no
- * actions it isn't shown. Returns { dialog, form, close, setActions, showError }.
+ * actions it isn't shown. What is written in it isn't thrown away by a tap outside
+ * or Escape without asking (frame's `keepTyped`); `keepTyped: false` for one whose
+ * fields save themselves. Returns { dialog, form, close, setActions, showError }.
  */
 export function formDialog({
   title = '', subtitle = '', header = null, tools = null, bar = null, extra = null,
   content = null, actions = [], onSubmit = null, errorText = errorMessage,
-  wide = false, width = null, className = '', parent = null, onClose = null,
+  wide = false, width = null, className = '', parent = null, onClose = null, keepTyped = true, onDiscard = null,
 }) {
-  const parts = frame({ title, subtitle, header, tools, bar, wide, width, className: `kit-dialog--form${className ? ` ${className}` : ''}`, parent, onClose });
+  const parts = frame({ title, subtitle, header, tools, bar, wide, width, className: `kit-dialog--form${className ? ` ${className}` : ''}`, parent, onClose, keepTyped, onDiscard });
   const { dialog, close, busy } = parts;
   const error = el('p', { class: 'kit-dialog__error', role: 'alert', hidden: true });
   const footer = el('footer', { class: 'kit-dialog__footer' });
