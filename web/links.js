@@ -253,6 +253,8 @@ export function linksRow({
     }
     if (ask !== asking) return;
     shown = data?.links || [];
+    // Someone who can only see it doesn't link from it (a host from before says nothing: as before).
+    add.hidden = data?.can_link === false;
     paint();
     onLoad?.(shown);
   }
@@ -305,14 +307,17 @@ export function linksRow({
         ? { label, iconName: 'external', onClick: () => openWith(shell, card.url, { from: mount }) }
         : { label, iconName: 'external', href: card.url });
     }
-    if (reachable(card)) {
+    // Unlinking and «together» only for whoever may change the link (sc-feat-2); a host from before says nothing.
+    const changes = link.can_change !== false;
+    if (changes && reachable(card)) {
       items.push({
         label: link.together ? t('kit.links.togetherOff') : t('kit.links.togetherOn'),
         iconName: 'refresh',
         onClick: () => setTogether(link, !link.together),
       });
     }
-    items.push({ label: t('kit.links.remove'), iconName: 'x', danger: true, onClick: () => removeLink(link) });
+    if (changes) items.push({ label: t('kit.links.remove'), iconName: 'x', danger: true, onClick: () => removeLink(link) });
+    if (!items.length) return;
     menu(anchor, items);
   }
 
