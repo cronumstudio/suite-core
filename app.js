@@ -43,7 +43,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import {
-  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, founderPriceOpen, joinedEarly,
+  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, registerBillingAdminApi, founderPriceOpen, joinedEarly,
 } from './billing.js';
 import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
@@ -816,6 +816,10 @@ export function createApp({
   } else if (billing?.enabled) {
     // What holds the plan and how to change or cancel it, for Settings › Plan, with the web's alone too.
     registerBillingOverviewApi(api, { instances: [billing], entitlements, organizations });
+  }
+  // What each account pays, and the provider's page to refund or cancel it, for the admin panel.
+  if (billing?.enabled || suite.stores?.enabled) {
+    registerBillingAdminApi(api, { instances: [billing, suite.stores], entitlements, organizations, accounts });
   }
   // What a phone may do from a notification: the app's own actions (the body's `module`, when it
   // names one, must be the app's id), or the host's over its modules.

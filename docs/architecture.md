@@ -880,8 +880,20 @@ and the customer portal and reports through a signed webhook. A provider adapter
   checkoutUrl({ subject, identity, customer, product, price, email, returnUrl }),  // hosted checkout page
   portalUrl({ customer, returnUrl }),                                    // manage or cancel
   parseWebhook({ headers, body }),       // verify the signature → normalized events
+  dashboardUrl?({ ref, customer }),      // optional: the provider's own dashboard for a subscription
 }
 ```
+
+`dashboardUrl` is for the install's staff, never the payer: where a subscription is refunded,
+cancelled and its payments seen (Stripe's: the subscription's page, test mode with a test key; the
+hosted suite's Paddle and RevenueCat adapters give theirs). No call is made; an answer that isn't an
+https address counts as none. `GET /api/admin/users/:id/payments` (instance admin only; there
+whenever the web's or the stores' payments are on, a 404 otherwise) lists every subscription of
+the account's and of the groups it owns or administers, in both instances, live or over (a refund
+often comes after the end), newest first, each with its `ref` and `dashboard_url`
+(`billingForAdmin`). Admin › Users › an account › Payments shows them, with «Manage charges»
+opening that page apart (`target=_blank`, `noopener noreferrer`); one without a link names its ref,
+to search for in the provider's dashboard.
 
 Whatever the provider calls them, events arrive normalized as
 `{ id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?, subject?, customer?, ref,

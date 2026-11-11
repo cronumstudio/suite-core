@@ -464,6 +464,11 @@ function userDialog(user) {
         }) : null));
   }
 
+  // What they pay, where payments are on: each subscription, and the provider's page to refund or cancel it.
+  const paymentsNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
+  const paymentsBox = el('div', { class: 'kit-contents' });
+  const payments = fold({ title: t('admin.payments.title'), now: paymentsNow }, paymentsBox);
+
   // The phones and computers connected, where the install connects them (modules.devices): how many, and each.
   const devicesNow = el('small', { class: 'kit-fold__now', text: t('admin.users.devicesCount', { n: user.devices ?? 0 }) });
   const devicesBox = el('div', { class: 'kit-contents' });
@@ -535,10 +540,12 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, devicesFold, usage, first, grants, passwordSection, signInBox), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, first, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
+  // No payments in this install (404), or none to say: the fold goes.
+  paintPayments(paymentsBox, user, paymentsNow).catch(() => payments.remove());
   if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
@@ -766,6 +773,52 @@ async function paintGrants(box, user, now) {
 /** A platform as people write it: "Android", "iOS"; any other as the app named it. */
 const platformName = (platform) => ({ android: 'Android', ios: 'iOS', ipados: 'iPadOS', macos: 'macOS', windows: 'Windows', linux: 'Linux' }[
   String(platform || '').toLowerCase()] || platform || '—');
+
+/* -------------------------------- payments -------------------------------- */
+
+/** Where a payment was made, by the names people know: the store bought in (its name, a text), else the provider. */
+const STORES = ['app_store', 'play_store'];
+const PAYMENT_PROVIDERS = { stripe: 'Stripe', paddle: 'Paddle', 'paddle-sandbox': 'Paddle', revenuecat: 'RevenueCat' };
+const STATUSES = ['active', 'trialing', 'past_due', 'paused', 'canceled', 'ended'];
+
+/**
+ * What an account pays or paid (`/api/admin/users/:id/payments`, billing.js billingForAdmin): each
+ * subscription of theirs and of the groups they administer, with «Manage charges», the provider's
+ * own page for it, where a refund or a cancellation is made. A row each, the button at its end, so
+ * a phone shows it without scrolling sideways. With no payments in this install the request fails
+ * and the fold goes; with none for this account, it says so. `now`: how many are live.
+ */
+async function paintPayments(box, user, now) {
+  const { payments } = await api.get(`/api/admin/users/${user.id}/payments`);
+  const live = payments.filter((p) => p.live).length;
+  now.textContent = payments.length ? t('admin.payments.liveCount', { n: live }) : t('admin.payments.noneShort');
+  const provider = (p) => PAYMENT_PROVIDERS[p.provider] || p.provider;
+  const where = (p) => (STORES.includes(p.store) ? t(`admin.payments.store.${p.store}`) : provider(p));
+  const status = (p) => (STATUSES.includes(p.status) ? t(`admin.payments.status.${p.status}`) : p.status);
+  const when = (p) => {
+    if (!p.period_end) return null;
+    const date = formatDate(p.period_end);
+    if (!p.live) return t('admin.payments.endedOn', { date });
+    return p.ending === true ? t('admin.payments.endsOn', { date }) : t('admin.payments.renewsOn', { date });
+  };
+  const sandbox = (p) => p.sandbox === true || p.provider === 'paddle-sandbox';
+  const row = (p) => el('div', { class: 'kit-list__row' },
+    el('div', { class: 'kit-list__text' },
+      el('strong', { text: `${p.plan_name ? t(p.plan_name) : p.product} · ${where(p)}` }),
+      sandbox(p) ? el('span', { class: 'kit-badge kit-badge--warn', text: t('admin.payments.sandbox') }) : null,
+      // Whose and which: the group it pays for, the product, and the store's provider.
+      el('small', { text: [p.organization_name ? t('admin.payments.group', { name: p.organization_name }) : null, p.product, p.store ? provider(p) : null]
+        .filter(Boolean).join(' · ') }),
+      el('small', { text: [status(p), when(p)].filter(Boolean).join(' · ') }),
+      p.dashboard_url ? null : el('small', { class: 'kit-mono', text: t('admin.payments.noLink', { provider: provider(p), ref: p.ref }) })),
+    p.dashboard_url ? el('a', {
+      class: 'kit-btn kit-btn--small', href: p.dashboard_url, target: '_blank', rel: 'noopener noreferrer',
+      text: t('admin.payments.manage'), title: t('admin.payments.manageHint', { provider: provider(p) }),
+    }) : null);
+  append(clear(box),
+    el('p', { class: 'kit-hint', text: t('admin.payments.lead') }),
+    payments.length ? el('div', { class: 'kit-list' }, payments.map(row)) : el('p', { class: 'kit-empty', text: t('admin.payments.none') }));
+}
 
 /** An account's devices that still work, last used first: what each is, its app, when it connected and was last used. */
 async function paintDevices(box, user, now) {
