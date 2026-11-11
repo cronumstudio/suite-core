@@ -24,6 +24,7 @@
  */
 import { BASE, at } from './base.js';
 import { inApp } from './native.js';
+import { markNoticesOn } from './push.js';
 
 /** What the device remembers of its host: { worker } or null, for a page that opens offline. */
 const HOST_KEY = 'host.worker';
@@ -211,10 +212,11 @@ async function carryNotices(root, endpoints) {
     }
   }
   if (kept) {
-    await send('POST', '/api/push/subscribe', {
+    const answer = await send('POST', '/api/push/subscribe', {
       endpoint: kept.endpoint, keys: kept.keys, label: navigator.userAgent.slice(0, 120),
       lang: document.documentElement.lang || null,
     });
+    markNoticesOn(answer?.user_id);
   }
   for (const endpoint of endpoints) {
     if (endpoint !== kept?.endpoint) await send('DELETE', `/api/push/subscribe?endpoint=${encodeURIComponent(endpoint)}`);
