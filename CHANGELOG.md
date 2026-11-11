@@ -44,6 +44,15 @@ change an interface and a patch never does. Apps pin a version through the submo
   - The share dialog says one person invited by the name it showed (the chip's, or the address
     typed), never by another the answer brings (ui-dialogos-15).
 
+## 0.256.1 — 2026-11-11
+
+- **«Ver planes» from a form, and only where there is a plan** (`web/api.js`, `web/shell.js`; audit of 6/11,
+  billing-6, checked in a local Cronum Work after 0.254.0). The form that met the plan's limit («Libreta
+  nueva», «Lista nueva») is modal, so Settings opened behind it, out of sight, until it was closed: «Ver
+  planes» now closes it first (what it held couldn't be saved anyway) and Settings › Plan is in front. And
+  the button is offered only in a host's module (`createShell` with a `mount`), where Settings has the
+  plan: an app on its own under `/` opened Settings at Profile.
+
 ## 0.256.0 — 2026-11-11
 
 - **Whoever only sees something can't change its links** (`links.js`, `web/links.js`; audit of 6/11, sc-feat-2):

@@ -1074,3 +1074,27 @@ test('a 402 met by any call: the notice that says it, from any module, carries �
   await said('/api/lists');
   assert.equal(lastToast().find('button').length, 0);
 });
+
+test('«See plans» from a form that met the barrier closes the form first: Settings would open behind it', async () => {
+  const { api, errorMessage, setPlanOpener } = await import('../web/api.js');
+  const { toast } = await import('../web/ui.js');
+  routes['POST /api/notebooks'] = { status: 402, data: { error: 'plan_limit', feature: 'notebooks.max', limit: 1, current: 1, plan_name: 'Free' } };
+  // The page's dialogs, as a browser finds them.
+  document.querySelectorAll = (selector) => document.body.querySelectorAll(selector);
+  const form = document.createElement('dialog');
+  document.body.append(form);
+  form.showModal();
+  let closed = 0;
+  form.addEventListener('close', () => { closed += 1; });
+  const order = [];
+  const open = () => order.push(form.open ? 'over the form' : 'with the form closed');
+  setPlanOpener(open);
+  try { await api.post('/api/notebooks', { name: 'One more' }); } catch (err) { toast(errorMessage(err), { error: true }); }
+  assert.equal(textOf(lastToast().find('span')[0]), 'Your plan (Free) allows 1 notebook, and you already have 1.');
+  click(lastToast().find('button')[0]);
+  assert.equal(closed, 1);
+  assert.deepEqual(order, ['with the form closed']);
+  setPlanOpener(null, { replacing: open });
+  form.remove();
+  delete document.querySelectorAll;
+});

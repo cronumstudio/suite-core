@@ -186,7 +186,15 @@ export function planAction(text) {
   if (!planOpener || !barrier || barrier.text !== text || Date.now() - barrier.at > BARRIER_MS) return null;
   barrier = null;
   const open = planOpener;
-  return { label: t('kit.plan.see'), onClick: () => open() };
+  return {
+    label: t('kit.plan.see'),
+    onClick: () => {
+      // The form that met the barrier is modal: Settings would open behind it, out of sight. It
+      // closes first; what it held couldn't be saved anyway.
+      for (const dialog of globalThis.document?.querySelectorAll?.('dialog') || []) if (dialog.open) dialog.close();
+      open();
+    },
+  };
 }
 
 /** The client, with `defaults` under every call's options. */
