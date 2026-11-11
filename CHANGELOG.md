@@ -44,6 +44,18 @@ change an interface and a patch never does. Apps pin a version through the submo
   - The share dialog says one person invited by the name it showed (the chip's, or the address
     typed), never by another the answer brings (ui-dialogos-15).
 
+## 0.256.0 — 2026-11-11
+
+- **Whoever only sees something can't change its links** (`links.js`, `web/links.js`; audit of 6/11, sc-feat-2):
+  a link is written on both its sides, but its permissions asked only to see one. With a list shared to view,
+  someone removed its owner's links, turned «done together» on so that the owner's tick completed a project
+  task they can't open, and hung chips of their own on the owner's tasks. A module's `cards` may say
+  `editable(user, id)` (they may change it, not only see it): linking and «done together» need it on both
+  sides, adding something new from a side that side, unlinking to have made the link or to change one of its
+  sides; otherwise 403 `forbidden`. `GET /api/links` says `can_link` and each link's `can_change`, worked out
+  from what is read already, and the row offers «+ Vincular», «A la vez» and «Quitar» only then. A module
+  without `editable` keeps seeing as enough. `links.canLink(user, ref)`.
+
 ## 0.255.0 — 2026-11-11
 
 - **A device's notices go with the session they were turned on in** (`push.js`, `sessions.js`, `api.js`,

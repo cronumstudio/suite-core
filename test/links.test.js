@@ -196,3 +196,65 @@ test('a module no longer mounted is not gone, and a link whose module left shows
   assert.equal(links.cardOf(bob, { module: 'alpha', type: 'item', id: '1' }).state, 'hidden', 'not his');
   assert.equal(links.cardOf(ana, { module: 'alpha', type: 'item', id: '1' }).title, 'Plan');
 });
+
+test('whoever only sees something can’t change its links: link, unlink, «together» or add from it (audit of 6/11, sc-feat-2)', (t) => {
+  const database = openDatabase({ path: ':memory:' });
+  t.after(() => database.close());
+  database.exec('CREATE TABLE users (id INTEGER PRIMARY KEY)');
+  database.run('INSERT INTO users (id) VALUES (1), (2)');
+  linksSchema(database);
+  // Ana's items; Bob sees those with viewer = 2 and changes none of hers.
+  const items = new Map();
+  const put = (mount, id, owner, viewer = null) => items.set(`${mount}:${id}`, { id, owner, viewer, title: `${mount} ${id}`, done: false });
+  const cards = (mount) => ({
+    item: {
+      read(user, id) {
+        const row = items.get(`${mount}:${id}`);
+        if (!row) return 'gone';
+        if (user && row.owner !== user.id && row.viewer !== user.id) return null;
+        return { id: row.id, title: row.title, state: row.done ? 'done' : 'open' };
+      },
+      editable: (user, id) => items.get(`${mount}:${id}`)?.owner === user.id,
+      create: (user, data) => { const id = 100 + items.size; put(mount, id, user.id); return id; },
+      complete: (user, id, done) => { items.get(`${mount}:${id}`).done = done; },
+      search: () => [],
+    },
+  });
+  const modules = [
+    { mount: 'alpha', config: { app: { name: 'Alpha' } }, parts: { cards: cards('alpha') } },
+    { mount: 'beta', config: { app: { name: 'Beta' } }, parts: { cards: cards('beta') } },
+  ];
+  const links = createLinks({ database, modules: () => modules });
+  put('alpha', 1, 1, 2);   // Ana's task, in a list shared with Bob to view
+  put('beta', 1, 1);       // Ana's project task, which Bob can't open
+  put('beta', 2, 2);       // Bob's own
+  const anas = links.link(ana, 'alpha:item:1', 'beta:item:1');
+
+  // Bob sees the link, can't change it, and is told so for the page.
+  const seen = links.of(bob, 'alpha:item:1');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].can_change, false);
+  assert.equal(links.canLink(bob, 'alpha:item:1'), false);
+  assert.throws(() => links.remove(bob, anas.id), { status: 403 });
+  assert.throws(() => links.update(bob, anas.id, { together: true }), { status: 403 });
+  assert.throws(() => links.link(bob, 'beta:item:2', 'alpha:item:1'), { status: 403 }, 'no chips of his on her task, either way round');
+  assert.throws(() => links.create(bob, 'alpha:item:1', { module: 'beta', type: 'item', data: { title: 'x' } }), { status: 403 });
+  assert.equal(links.of(ana, 'alpha:item:1').length, 1, 'her link is still there');
+
+  // Ana changes hers; a link Bob made himself he may unlink.
+  assert.equal(links.of(ana, 'alpha:item:1')[0].can_change, true);
+  assert.equal(links.canLink(ana, 'alpha:item:1'), true);
+  links.update(ana, anas.id, { together: true });
+  put('alpha', 3, 2);
+  const bobs = links.link(bob, 'alpha:item:3', 'beta:item:2');
+  items.get('alpha:3').owner = 1;   // given to Ana since: Bob still made the link
+  items.get('alpha:3').viewer = 2;
+  assert.equal(links.of(bob, 'alpha:item:3')[0].can_change, true);
+  links.remove(bob, bobs.id);
+  assert.equal(links.of(ana, 'alpha:item:3').length, 0);
+
+  // A module without editable(): seeing is enough, as before.
+  delete modules[0].parts.cards.item.editable;
+  delete modules[1].parts.cards.item.editable;
+  assert.equal(links.canLink(bob, 'alpha:item:1'), true);
+});
