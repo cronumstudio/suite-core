@@ -15,8 +15,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   that still renews, nothing is deleted: 503 `subscription_not_ended`, which the panel says, to try
   again. A group's subscription stays with the group. The log's `admin.user.remove` notes
   `subscriptions_ended`, `subscriptions_lapsing` and `store_subscriptions`.
-  - One the person cancelled already, in the portal or by asking to go, keeps nothing: Paddle takes
-    no other change on a subscription whose cancellation is scheduled
+  - One the person cancelled already, in the portal or by asking to go, no longer keeps the account:
+    Paddle takes no other change on a subscription whose cancellation is scheduled
     (`subscription_locked_pending_changes`), so the deletion would have failed until its period
     ended, up to a year. It renews no more and lapses then (`subscriptions_lapsing`).
     `billing.endSubscriptions` asks every live one even when another fails, and throws only for one
