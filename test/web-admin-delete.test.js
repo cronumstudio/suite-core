@@ -1,7 +1,8 @@
 /**
  * The admin panel deleting an account that pays (web/admin.js): the question says first what the
  * person pays for themselves, the web subscription the deletion cancels and a store's, which goes
- * on until they cancel it in the store; what they pay unknown, nothing is asked; a payment
+ * on until they cancel it in the store, while one cancelled already says it won't renew, with no
+ * warning; what they pay unknown, nothing is asked; a payment
  * provider that can't cancel keeps the account, and the panel says why; and when the server wants
  * a recent sign-in, it is a fresh one, back at the panel. On a fake page, with the core's English
  * catalog. A file of its own: admin.js starts the page as it is imported.
@@ -27,6 +28,15 @@ const PAYS = [
   {
     kind: 'store', provider: 'revenuecat', store: 'app_store', sandbox: false, product: 'store-pro-monthly', plan: 'pro',
     plan_name: 'Pro', status: 'active', period_end: '2026-12-11T00:00:00.000Z', ending: false, ends: false,
+  },
+  // Two she cancelled already, on the web and in Google Play: neither renews.
+  {
+    kind: 'web', provider: 'paddle', product: 'pro-monthly', plan: 'pro', plan_name: 'Pro', status: 'active',
+    period_end: '2026-12-01T00:00:00.000Z', ending: true, ends: true,
+  },
+  {
+    kind: 'store', provider: 'revenuecat', store: 'play_store', sandbox: false, product: 'store-pro-monthly', plan: 'pro',
+    plan_name: 'Pro', status: 'active', period_end: '2026-12-05T00:00:00.000Z', ending: true, ends: false,
   },
 ];
 
@@ -87,8 +97,11 @@ test('deleting someone who pays: what is cancelled and what goes on in a store i
   assert.ok(said.includes(t('admin.users.deleteConfirm', { name: 'Ada' })));
   assert.ok(said.includes(t('admin.users.deleteCancels', { plan: 'Pro', provider: 'Paddle' })), said);
   assert.ok(said.includes(t('admin.users.deleteStore.app_store', { plan: 'Pro' })), said);
-  const warning = question.all().find((node) => node.className.split(' ').includes('kit-warning'));
-  assert.equal(warning?.textContent, t('admin.users.deleteStore.app_store', { plan: 'Pro' }), 'the store’s, where it is seen');
+  const warnings = question.all().filter((node) => node.className.split(' ').includes('kit-warning'));
+  assert.deepEqual(warnings.map((node) => node.textContent), [t('admin.users.deleteStore.app_store', { plan: 'Pro' })],
+    'the store’s that goes on, where it is seen; not the one cancelled in Google Play');
+  assert.equal(said.split(t('admin.users.deleteEnding', { plan: 'Pro' })).length - 1, 2, 'those cancelled already: they won’t renew');
+  assert.ok(!said.includes(t('admin.users.deleteStore.play_store', { plan: 'Pro' })), said);
 
   // The provider couldn't cancel: the account stays, and why is said, to try again.
   sent.length = 0;

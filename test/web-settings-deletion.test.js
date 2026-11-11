@@ -1,8 +1,9 @@
 /**
  * Deleting one's own account in Settings (web/settings.js) where the install sells in the stores: a
  * subscription bought in the App Store or Google Play goes on after the account, since no server
- * can stop it, so the question says it first, with where to cancel it; what they pay unknown,
- * nothing is asked. On a fake page, with the core's English catalog.
+ * can stop it, so the question says it first, with where to cancel it; one cancelled there already
+ * renews no more and isn't said; what they pay unknown, nothing is asked. On a fake page, with the
+ * core's English catalog.
  *
  *   npm test
  */
@@ -45,6 +46,11 @@ const STORE = {
   period_end: '2026-12-11T00:00:00.000Z', ending: false, store: 'app_store', sandbox: false,
   manage: { via: 'store', store: 'app_store', url: 'https://apps.apple.com/account/subscriptions' },
 };
+// One she cancelled in Google Play already: it renews no more, so there is nothing to warn of.
+const CANCELLED = {
+  ...STORE, product: 'store-pro-yearly', period_end: '2026-12-01T00:00:00.000Z', ending: true, store: 'play_store',
+  manage: { via: 'store', store: 'play_store', url: 'https://play.google.com/store/account/subscriptions' },
+};
 // A group's, which she manages but doesn't pay herself: not hers to cancel before going.
 const GROUP = {
   kind: 'web', provider: 'paddle', organization_id: 3, product: 'team-yearly', plan: 'pro', plan_name: 'Pro', status: 'active',
@@ -77,14 +83,16 @@ test('deleting one’s account while paying in a store: said first, with where t
     assert.equal(questions().length, 0, 'what she pays unknown: no question');
     assert.ok(errors().includes(t('errors.billing_provider_unavailable')), errors().join(' | '));
 
-    overview = { status: 200, body: { plan: { id: 'pro', name: 'Pro', ends: STORE.period_end }, sources: [STORE, GROUP] } };
+    overview = { status: 200, body: { plan: { id: 'pro', name: 'Pro', ends: STORE.period_end }, sources: [STORE, CANCELLED, GROUP] } };
     await press();
     const [question] = questions();
     const said = question.textContent;
     assert.ok(said.includes(t('kit.data.deleteStore', { plan: 'Pro' })), said);
     assert.ok(said.includes(t('kit.plan.store.app_store', { app: 'Cronum Work' })), 'where to cancel it');
     assert.ok(said.includes(t('kit.data.deleteBilling')), 'and what the web’s does, as before');
-    assert.equal(question.all().filter((node) => node.className === 'kit-warning').length, 1, 'once: the group’s is not hers to cancel');
+    assert.equal(question.all().filter((node) => node.className === 'kit-warning').length, 1,
+      'once: the one cancelled in Google Play renews no more, and the group’s is not hers to cancel');
+    assert.ok(!said.includes(t('kit.plan.store.play_store', { app: 'Cronum Work' })), said);
   } finally {
     settings.close();
     globalThis.fetch = realFetch;

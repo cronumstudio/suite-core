@@ -210,8 +210,10 @@ export function createAccountDeletion({
    * An account the admin deletes (api.js), which goes at once: the subscriptions the person pays
    * for themselves end first, now, as when their own deletion goes for good. A group's stay with
    * the group, and a store's go on until the person cancels it in the store (Apple and Google let
-   * no server do it). Throws what the provider answered, before anything is deleted: the admin
-   * tries again. Nothing where the install doesn't end them (`endSubscriptions` off). → how many
+   * no server do it). One already cancelled for its period's end that the provider won't end now
+   * lapses then (billing.endSubscriptions). Throws what the provider answered for one that still
+   * renews, before anything is deleted: the admin tries again. Nothing where the install doesn't
+   * end them (`endSubscriptions` off). → how many ended now
    */
   const endSubscriptionsOf = async (userId) => (subscriptions ? subscriptions.endSubscriptions(userId) : 0);
 

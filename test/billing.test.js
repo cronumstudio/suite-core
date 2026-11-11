@@ -783,3 +783,49 @@ test('stillRenews: a live subscription whose stop never reached the provider', a
   await billing.stopRenewals(ada.id);
   assert.equal(billing.stillRenews(ada.id), false, 'asked: it only lapses now');
 });
+
+test('endSubscriptions: each is asked; one already cancelled for its period’s end, which the provider won’t end now, lapses then; one that renews and fails is thrown', async (t) => {
+  // As Paddle: a subscription whose cancellation is scheduled takes no other change until it ends.
+  const scheduled = new Set();
+  const asked = [];
+  let down = false;
+  const provider = {
+    ...signedProvider({ id: 'paddle', secret: SECRET }),
+    cancelSubscription: async (ref, { now = false } = {}) => {
+      asked.push(`${ref} ${now ? 'now' : 'at the end'}`);
+      if (down || scheduled.has(ref)) throw new Error('Paddle refused it');
+      if (!now) scheduled.add(ref);
+      return { already: false };
+    },
+    keepSubscription: async (ref) => { scheduled.delete(ref); },
+  };
+  const { billing, clock, accounts, ada } = setup(t, { provider });
+  const subscribe = (user, ref, fields = {}) => billing.apply({
+    id: `evt_${ref}`, type: 'subscription', ref, subject: { type: 'user', id: user.id }, product: 'pro-monthly',
+    status: 'active', periodEnd: '2026-06-01T10:00:00Z', occurredAt: new Date(clock.now).toISOString(), ...fields,
+  });
+
+  // Ada cancelled one in the portal (the provider said so: `ending`), and pays another that renews.
+  subscribe(ada, 'sub_portal', { ending: true });
+  scheduled.add('sub_portal');
+  assert.equal(billing.stillRenews(ada.id), false, 'cancelled for its period’s end: it renews no more');
+  subscribe(ada, 'sub_renews');
+  assert.equal(billing.stillRenews(ada.id), true);
+
+  // The provider down: both asked; the one that renews is what fails.
+  down = true;
+  await assert.rejects(() => billing.endSubscriptions(ada.id), /Paddle refused it/);
+  assert.deepEqual(asked.splice(0), ['sub_portal now', 'sub_renews now']);
+  // Back: the one that renews ends now; the one cancelled already is refused again, and lapses.
+  down = false;
+  assert.equal(await billing.endSubscriptions(ada.id), 1);
+  assert.deepEqual(asked.splice(0), ['sub_portal now', 'sub_renews now']);
+
+  // Bea asked to go: her stop reached the provider before the webhook said anything; it lapses too.
+  const bea = accounts.create({ username: 'bea' });
+  subscribe(bea, 'sub_bea');
+  assert.equal(await billing.stopRenewals(bea.id), 1);
+  assert.equal(billing.stillRenews(bea.id), false);
+  assert.equal(await billing.endSubscriptions(bea.id), 0, 'nothing ended now, and nothing thrown');
+  assert.deepEqual(asked.splice(0), ['sub_bea at the end', 'sub_bea now']);
+});

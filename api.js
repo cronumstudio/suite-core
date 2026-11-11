@@ -848,9 +848,12 @@ export function registerAdminApi(router, {
    * (workos-security.js). Otherwise it stays, no longer naming this app.
    * What the person pays for themselves ends before anything goes, as when their own deletion goes
    * for good (account-deletion.js): with the account gone, the next renewal would charge someone
-   * with no account here and nowhere to cancel. If the payment provider can't end it, nothing is
-   * deleted (503 `subscription_not_ended`), to try again. A store's subscription goes on: the panel
-   * tells the admin before, and the log keeps how many there were.
+   * with no account here and nowhere to cancel. If the payment provider can't end one that still
+   * renews, nothing is deleted (503 `subscription_not_ended`), to try again; one already cancelled
+   * for its period's end lapses then, as the log notes (`subscriptions_lapsing`). A store's
+   * subscription goes on: the panel tells the admin before, and the log keeps how many there were.
+   * Ended, and then the login not deleted (`?identity=1`): the log keeps what ended, and the answer
+   * says so (503 `subscription_ended_account_kept`), since that can't be taken back.
    */
   router.delete('/api/admin/users/:id', async (ctx) => {
     requireAdmin(ctx);
@@ -863,8 +866,11 @@ export function registerAdminApi(router, {
       if (!confirmAdmin) throw forbidden('identity_not_here');
       await confirmAdmin(ctx, await readJson(ctx.req));
     }
-    const inStores = ownSubscriptions(user).filter((source) => source.kind === 'store').length;
+    const own = ownSubscriptions(user);
+    // One cancelled in the store already renews no more: only those that go on are counted.
+    const inStores = own.filter((source) => source.kind === 'store' && source.ending !== true).length;
     let ended = 0;
+    let lapsing = 0;
     if (deletion) {
       try {
         ended = await deletion.endSubscriptionsOf(id);
@@ -872,12 +878,19 @@ export function registerAdminApi(router, {
         console.error(`[admin] the subscriptions of user #${id} could not be ended: ${err.message}`);
         throw new HttpError(503, 'subscription_not_ended');
       }
+      // Each live one of theirs on the web ended now or, renewing no more, lapses at its period's end.
+      if (deletion.endsSubscriptions) lapsing = Math.max(0, own.filter((source) => source.kind === 'web').length - ended);
     }
+    const whatEnded = { ...(ended ? { subscriptions_ended: ended } : {}), ...(lapsing ? { subscriptions_lapsing: lapsing } : {}) };
     if (withIdentity) {
       try {
         await sharedLogin.deleteIdentity(id);
       } catch (err) {
         console.error(`[admin] the login of user #${id} at ${sharedLogin.name} could not be deleted: ${err.message}`);
+        if (ended) {
+          record(ctx, 'admin.user.subscriptions_end', 'user', id, whatEnded);
+          throw new HttpError(503, 'subscription_ended_account_kept');
+        }
         throw new HttpError(503, 'provider_unavailable');
       }
     } else if (sharedIdentity) {
@@ -886,7 +899,7 @@ export function registerAdminApi(router, {
     accounts.remove(id);
     const meta = {
       ...(withIdentity ? { identity: true } : {}),
-      ...(ended ? { subscriptions_ended: ended } : {}),
+      ...whatEnded,
       ...(inStores ? { store_subscriptions: inStores } : {}),
     };
     record(ctx, 'admin.user.remove', 'user', id, Object.keys(meta).length ? meta : undefined);

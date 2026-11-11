@@ -2051,7 +2051,8 @@ export function openSettings(options) {
         showError(err);
         return undefined;
       }
-      return sources.filter((s) => s.kind === 'store' && s.organization_id == null).flatMap((s) => [
+      // One already cancelled in the store renews no more (Settings › Plan says until when): nothing to warn of.
+      return sources.filter((s) => s.kind === 'store' && s.organization_id == null && s.ending !== true).flatMap((s) => [
         el('p', { class: 'kit-warning', text: t('kit.data.deleteStore', { plan: s.plan_name ? t(s.plan_name) : s.product }) }),
         s.store ? hint(t(`kit.plan.store.${s.store}`, { app: product })) : null,
       ]);

@@ -934,20 +934,56 @@ export function createBilling({
   }
 
   /**
+   * The live subscriptions of a person's own that renew no more, as far as this install knows: the
+   * provider said it is cancelled for its period's end (`ending`: in the portal, say), or its stop
+   * got to the provider when they asked to go (`requested` or `already`). → their refs
+   */
+  function renewingNoMore(userId) {
+    const stopped = personalStops(userId).filter((row) => ['requested', 'already'].includes(row.outcome))
+      .map((row) => row.event_id.slice(personalPrefix(userId).length));
+    const ending = database.all(`SELECT ref FROM billing_subscriptions WHERE provider = ? AND subject_type = 'user'
+      AND subject_id = ? AND status IN ('active', 'trialing', 'past_due') AND ending = 1`, source, userId).map(({ ref }) => ref);
+    return new Set([...stopped, ...ending]);
+  }
+
+  /**
    * Whether a subscription the person pays for themselves still renews as far as this install
-   * knows: live, and its stop never got to the provider (`requested` or `already`). The account
-   * deletion waits on it when the provider fails (account-deletion.js).
+   * knows: live, and neither cancelled for its period's end nor stopped (renewingNoMore). The
+   * account deletion waits on it when the provider fails (account-deletion.js).
    */
   function stillRenews(userId) {
     if (!canStop()) return false;
-    const stopped = new Set(personalStops(userId).filter((row) => ['requested', 'already'].includes(row.outcome))
-      .map((row) => row.event_id.slice(personalPrefix(userId).length)));
+    const lapsing = renewingNoMore(userId);
     return database.all(`SELECT ref FROM billing_subscriptions WHERE provider = ? AND subject_type = 'user'
-      AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, userId).some(({ ref }) => !stopped.has(ref));
+      AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, userId).some(({ ref }) => !lapsing.has(ref));
   }
 
+  /**
+   * An account that goes for good (account-deletion.js, and the admin's deletion in api.js): each
+   * subscription the person pays for themselves ends now, every one asked even when another fails.
+   * One the provider won't end but that renews no more (renewingNoMore) lapses on its day instead,
+   * and nothing more is charged: Paddle takes no other change on a subscription whose cancellation
+   * is scheduled (subscription_locked_pending_changes), so retrying would fail until the period
+   * ends, up to a year. Any other failure is thrown once all were asked: that one would go on
+   * charging. → how many ended now
+   */
   async function endSubscriptions(userId) {
-    const ended = await eachLiveSubscription(userId, (ref) => provider.cancelSubscription(ref, { now: true }));
+    if (!canStop()) return 0;
+    const lapsing = renewingNoMore(userId);
+    const live = database.all(`SELECT ref FROM billing_subscriptions WHERE provider = ? AND subject_type = 'user'
+      AND subject_id = ? AND status IN ('active', 'trialing', 'past_due')`, source, userId);
+    let ended = 0;
+    let failure = null;
+    for (const { ref } of live) {
+      try {
+        await provider.cancelSubscription(ref, { now: true });
+        ended += 1;
+      } catch (err) {
+        if (!lapsing.has(ref)) failure ??= err;
+        else log(`[billing] ${source}: user #${userId}'s subscription ${ref} could not be ended now (${err.message}): it renews no more, and lapses at its period's end`);
+      }
+    }
+    if (failure) throw failure;
     forgetPersonalStops(userId);
     return ended;
   }

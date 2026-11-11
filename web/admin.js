@@ -583,9 +583,10 @@ function reauthFailed(err) {
  * What someone pays for themselves, in the question before their account is deleted, as Settings
  * says it before one's own (`GET /api/admin/users/:id/subscriptions`): a web subscription the
  * deletion cancels at once (or doesn't, where the install keeps them), and a store's, which goes
- * on: only they can cancel it, in the store, so the admin tells them before. Only where the install
- * sells. → the lines (none when they pay nothing), or undefined when it couldn't be known: the
- * error is said, and nothing is asked or deleted.
+ * on: only they can cancel it, in the store, so the admin tells them before. One they cancelled
+ * already, here or in the store, renews no more: it says so, without the warning. Only where the
+ * install sells. → the lines (none when they pay nothing), or undefined when it couldn't be known:
+ * the error is said, and nothing is asked or deleted.
  */
 async function paymentsOf(user) {
   let subscriptions;
@@ -597,6 +598,8 @@ async function paymentsOf(user) {
   }
   return subscriptions.map((s) => {
     const vars = { plan: t(s.plan_name || s.plan || s.product || ''), provider: providerName(s.provider) };
+    // Cancelled already, on the web or in the store: it renews no more, whatever the deletion does.
+    if (s.ending === true) return el('p', { text: t('admin.users.deleteEnding', vars) });
     if (s.kind !== 'store') return el('p', { text: t(s.ends ? 'admin.users.deleteCancels' : 'admin.users.deleteKeeps', vars) });
     const store = ['app_store', 'play_store'].includes(s.store) ? s.store : 'other';
     return el('p', { class: 'kit-warning', text: t(`admin.users.deleteStore.${store}`, vars) });

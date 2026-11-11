@@ -3,33 +3,46 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.249.1 — 2026-11-11
+## 0.254.0 — 2026-11-11
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
-  `account-deletion.js`, `web/admin.js`; audit of 6/11, billing-2). `DELETE /api/admin/users/:id`
-  took the account at once and left their subscription renewing at the provider: the next renewal
-  charged someone with no account here, and nowhere to cancel it. Where the install ends
-  subscriptions with the account (`accounts.endSubscriptions`, Cronum Work), the ones the person
-  pays for themselves on the web are cancelled now, at the provider, before anything goes
-  (`deletion.endSubscriptionsOf`, what the sweep does); if the provider can't, nothing is deleted:
-  503 `subscription_not_ended`, which the panel says, to try again. A group's subscription stays
-  with the group. The log's `admin.user.remove` notes `subscriptions_ended` and
-  `store_subscriptions`.
+  `account-deletion.js`, `billing.js`, `web/admin.js`; audit of 6/11, billing-2).
+  `DELETE /api/admin/users/:id` took the account at once and left their subscription renewing at
+  the provider: the next renewal charged someone with no account here, and nowhere to cancel it.
+  Where the install ends subscriptions with the account (`accounts.endSubscriptions`, Cronum Work),
+  the ones the person pays for themselves on the web are cancelled now, at the provider, before
+  anything goes (`deletion.endSubscriptionsOf`, what the sweep does); if the provider can't end one
+  that still renews, nothing is deleted: 503 `subscription_not_ended`, which the panel says, to try
+  again. A group's subscription stays with the group. The log's `admin.user.remove` notes
+  `subscriptions_ended`, `subscriptions_lapsing` and `store_subscriptions`.
+  - One the person cancelled already, in the portal or by asking to go, keeps nothing: Paddle takes
+    no other change on a subscription whose cancellation is scheduled
+    (`subscription_locked_pending_changes`), so the deletion would have failed until its period
+    ended, up to a year. It renews no more and lapses then (`subscriptions_lapsing`).
+    `billing.endSubscriptions` asks every live one even when another fails, and throws only for one
+    that still renews; `billing.stillRenews` counts one cancelled for its period's end (`ending`) as
+    not renewing, for the sweep too.
+  - With the login too (`?identity=1`), a provider of logins that then fails keeps the account, but
+    what ended can't be taken back: the log keeps `admin.user.subscriptions_end` with
+    `subscriptions_ended`, and the answer is 503 `subscription_ended_account_kept`, which says so.
   - `GET /api/admin/users/:id/subscriptions`, with billing or the stores on: each live subscription
     the person pays for themselves, the web's and the stores', as the overview has them, with `ends`,
     whether deleting the account cancels it. Never a ref.
   - The panel's question says it first: the web's is cancelled now (`admin.users.deleteCancels`, or
     `deleteKeeps` where the install keeps them), and a store's goes on, since Apple and Google let
     no server cancel one: only the person can, in the store (`admin.users.deleteStore.*`, as a
-    warning). What they pay unknown, nothing is asked.
+    warning). What they pay unknown, nothing is asked. One cancelled already, on the web or in a
+    store, says it won't renew (`admin.users.deleteEnding`), without the warning, and isn't counted
+    in `store_subscriptions`.
   - `billing.cancels` (and `combinedBilling()`'s): whether the provider can stop a subscription from
     here, which the remote one can't; `deletion.endsSubscriptions`: whether deleting an account
     cancels the web's.
   - The person's own deletion, the other way an account goes: with the stores on, Settings' question
     says first that a subscription bought in the App Store or Google Play doesn't stop with the
     account, and where to cancel it (`kit.data.deleteStore`, then `kit.plan.store.*`, as Settings ›
-    Plan says it); it said only "If you have a subscription, it stops renewing". What they pay
-    unknown, nothing is asked. The sweep's `account.delete` notes `subscriptions_ended` too.
+    Plan says it); it said only "If you have a subscription, it stops renewing". One cancelled in
+    the store already renews no more and isn't said. What they pay unknown, nothing is asked. The
+    sweep's `account.delete` notes `subscriptions_ended` too.
 - **An admin's sign-in again is a fresh one** (`workos-security.js`, `workos.js`,
   `workos-accounts.js`, `web/admin.js`; audit of 6/11, sc-auth-3). An admin with no password to give
   (Google, Apple, a company's sign-in) was confirmed by any session opened in the last 10 minutes,
@@ -43,9 +56,12 @@ change an interface and a patch never does. Apps pin a version through the submo
     of the user's most recent active authentication", which a session it reuses doesn't move;
     WorkOS, AuthKit › Re-authentication). `exchangeCode()` gives it as `authTime`, the callback hands
     it to `sessions.open`, and `createFreshSignIns()` keeps it per session for those minutes, with
-    when each admin was asked, in memory: a restart asks again.
+    when each admin was asked, in memory: a restart asks again. `registerWorkosSecurityApi()` takes
+    it as `freshSignIns` (createApp gives it): without it such an admin is never confirmed, where a
+    recent session was enough.
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
     signs in by `prompt=login`.
+
 ## 0.249.0 — 2026-11-11
 
 - **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;
