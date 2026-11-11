@@ -143,8 +143,23 @@ async function request(method, path, body, options = {}) {
   const code = data?.error || 'generic';
   if (res.status === 401) throw new SessionExpired(401, code, data);
   const error = new ApiError(res.status, code, data);
+  // How long the server (or whatever stands before it) asks to wait, when it says (a 429, a 503).
+  const after = retryAfterMs(res.headers?.get?.('Retry-After'));
+  if (after != null) error.retryAfter = after;
   if (res.status === 402) barrier = { text: errorMessage(error), at: Date.now() };
   throw error;
+}
+
+/**
+ * A Retry-After header in ms: seconds, or an HTTP date (RFC 9110 §10.2.3). null when there is none
+ * or it says nothing usable.
+ */
+export function retryAfterMs(value, now = Date.now()) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  if (/^\d+$/.test(text)) return Number(text) * 1000;
+  const at = Date.parse(text);
+  return Number.isFinite(at) ? Math.max(0, at - now) : null;
 }
 
 /* ------------------- a plan's barrier, and the way to the plans ------------------- */

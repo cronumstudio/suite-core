@@ -956,7 +956,7 @@ every account made during the early access a grant of its plan until a date
   ends it. A subscription's refund ends its grant too, and the period it paid back doesn't bring
   it back (`refunded_until`); the next period paid for does. `paused` is not paid for either.
   A subscription paid back in full (a refund that says `subscription`, Paddle's) also ends now at
-  the provider, which would otherwise renew it and charge again (0.250.0): `stop:refund:<ref>` in
+  the provider, which would otherwise renew it and charge again (0.254.0): `stop:refund:<ref>` in
   `billing_events`, asked right after the refund and again by the hourly `sendStops()` if that
   fails, only for a subscription this install has and that still renews (or one waiting for its
   person). Audited as `billing.refund.stop`.
@@ -1998,7 +1998,7 @@ What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0
   that names no `feature` needs the module's `mcp` when the module declares it. They keep a way to
   learn why: that module's part of the instructions says it and where to change plan, and
   `<host>_plan_info` (listed only to them) tells the assistant what to pass on. The host's own
-  tools answer a call by their name as the list shows them (0.250.0): the links for whoever uses
+  tools answer a call by their name as the list shows them (0.254.0): the links for whoever uses
   two modules with things to link and their plan has, the calendar for whoever has one with dates,
   and neither ever reaches into a module the plan leaves out; nor do that module's prompts.
 - **`onDemand`** (`{ mount: [tool names] }`): tools used now and then kept out of the list, which goes
