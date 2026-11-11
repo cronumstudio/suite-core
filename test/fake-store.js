@@ -33,6 +33,8 @@ export const LIFETIME = PRODUCTS['pro-lifetime'].appStore;
 /** The stores whose purchases count (stores.js's names), and where people manage a subscription. */
 const STORES = Object.values(STORE_FIELDS);
 export const MANAGE_URLS = Object.freeze(Object.fromEntries(STORES.map((store) => [store, `https://${store.replace('_', '-')}.example/subscriptions`])));
+/** Where the adapter's dashboard shows a customer, for the admin's «Manage charges». */
+export const DASHBOARD = 'https://dashboard.store.example/customers/';
 
 /** The webhooks that may change what someone has; a `test` changes nothing. */
 const TRIGGERS = new Set(['purchased', 'renewed', 'cancelled', 'billing_issue', 'expired', 'refunded', 'refund_reversed', 'transferred']);
@@ -219,7 +221,10 @@ export function storeAdapter({
     return match ? { via: 'store', store: match[1], sandbox: Boolean(match[2]), url: MANAGE_URLS[match[1]] } : null;
   }
 
-  return { id: PROVIDER, kind: 'store', sandbox, parseWebhook, customerEvents, manage };
+  /** The adapter's dashboard, as RevenueCat's: one page per customer, whatever the store. */
+  const dashboardUrl = ({ customer }) => (customer ? `${DASHBOARD}${encodeURIComponent(customer)}` : null);
+
+  return { id: PROVIDER, kind: 'store', sandbox, parseWebhook, customerEvents, manage, dashboardUrl };
 }
 
 /**

@@ -25,6 +25,8 @@
  *       `notes`: facts a later reading can't see at the store again (a refund the store took back),
  *       kept here and asked with `noted(note)`
  *     manage(ref) → { via: 'store', store, sandbox, url } | null
+ *     dashboardUrl?({ ref, customer }) → url | null   (where the install's staff see and refund it: the
+ *                                                      admin panel's «Manage charges», billing.js)
  *   }
  * What an install holds is keyed by the adapter's id (the customers in `billing_customers`, the
  * subscriptions and grants by `provider`/`source`) and by its refs. So an adapter that replaces
@@ -251,7 +253,7 @@ export function createStoreBilling({
     enabled, errors, provider: source, kind: 'store', customerFor, salesFor, sync, handleWebhook, apply: billing.apply,
     offer: billing.offer, customerOf: billing.customerOf, subscriptionsOf: billing.subscriptionsOf, forget: billing.forget,
     stopRenewals: billing.stopRenewals, keepRenewals: billing.keepRenewals, endSubscriptions: billing.endSubscriptions,
-    manage: (ref) => provider?.manage?.(ref) ?? null,
+    manage: (ref) => provider?.manage?.(ref) ?? null, dashboardUrl: billing.dashboardUrl,
   };
 }
 
