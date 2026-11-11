@@ -62,8 +62,9 @@
  * and an event, whatever the provider called it:
  *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
  *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
- *     own?, unknownPrice?, sandbox?, refundReversed?, ending?, unsigned?, customerUnsigned? }
+ *     own?, unknownPrice?, sandbox?, refundReversed?, ending?, unsigned?, customerUnsigned?, subscription? }
  * (`refundReversed`: the store took a refund back, so the period it had paid back counts again.
+ * `subscription`: a refund's `ref` is a subscription, which the provider would go on renewing.
  * `ending`: true when a subscription won't renew, cancelled for its period's end; false when it
  * renews; left out by a provider that can't tell, kept as unknown. `unsigned`: the provider
  * can't vouch that its checkout said who pays (Paddle's `sig`): a subscription or purchase never
@@ -115,6 +116,15 @@
  * `accounts.deleteAtProviders`): each stop is noted the same way (`stop:user:<id>:<ref>`:
  * `requested`, `already` or `failed`), so taking the account back renews only what this install
  * stopped, never a cancellation the person made themselves (`keepRenewals`).
+ *
+ * A subscription paid back in full (a refund with `subscription`, or a chargeback): the plan goes
+ * at once (applyRefund), and the provider would still renew it next period and charge again, while
+ * the web's checkout says `already_subscribed`. So it ends now at the provider too
+ * (`cancelSubscription(ref, { now: true })`), asked once: a row of its own (`stop:refund:<ref>`,
+ * type `stop`), `pending` in the refund's transaction (a refund waiting for its person too), asked
+ * right after it, `sending` while asked, then `requested`, `already` (it had ended there) or
+ * `ended` (it ended before it was asked). One that fails is pending again for the hourly
+ * `sendStops()`. The provider's own `canceled` then ends the subscription's row, as any other.
  */
 import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
@@ -276,6 +286,8 @@ const RENEWS = new Set(['active', 'trialing', 'past_due']);
 const SENDING_MS = 15 * 60 * 1000;
 const STOP_ID = /^stop:organization:(\d+):(.+)$/;
 const stopId = (organizationId, ref) => `stop:organization:${organizationId}:${ref}`;
+/** A subscription paid back in full, to end now at the provider (`markRefundStop`, `sendRefundStops`). */
+const REFUND_STOP = 'stop:refund:';
 
 /**
  * When the account was last shown the founder's offer on starting a host's shell (web/plan.js
@@ -685,6 +697,13 @@ export function createBilling({
    * for its person. An event of one without the provider's signature (`unsigned`) counts only then:
    * one bought before the provider signed, or whose plan changed in the portal on another price.
    */
+  /** Whether this install has a subscription and knows it still charges (RENEWS). */
+  const renewsHere = (ref) => RENEWS.has(database.get('SELECT status FROM billing_subscriptions WHERE provider = ? AND ref = ?',
+    source, ref)?.status);
+  /** A subscription paid back in full, to end now at the provider: marked once. → whether it is marked now */
+  const markRefundStop = (ref) => canStop() && database.run(`INSERT OR IGNORE INTO billing_events
+    (provider, event_id, type, outcome, received_at) VALUES (?, ?, 'stop', 'pending', ?)`, source, `${REFUND_STOP}${ref}`, iso(clock())).changes > 0;
+
   const knownRef = (ref) => Boolean(
     database.get('SELECT 1 FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, ref)
     || database.get('SELECT 1 FROM entitlement_grants WHERE source = ? AND external_ref = ?', source, ref)
@@ -706,7 +725,8 @@ export function createBilling({
     if (!event?.id || !event.type || !event.ref) throw badRequest('invalid_event');
     const at = Date.parse(event.occurredAt);
     const normalized = { ...event, ref: String(event.ref), occurredAt: iso(Number.isNaN(at) ? clock() : at) };
-    return database.tx(() => {
+    let refunded = false;
+    const applied = database.tx(() => {
       if (database.get('SELECT 1 FROM billing_events WHERE provider = ? AND event_id = ?', source, String(event.id))) return 'duplicate';
       database.run('DELETE FROM billing_pending WHERE received_at < ?', iso(clock() - PENDING_DAYS * DAY));
       let outcome = 'ignored';
@@ -716,6 +736,10 @@ export function createBilling({
         const waiting = database.get(`SELECT identity_provider AS provider, identity_subject AS subject FROM billing_pending
           WHERE provider = ? AND ref = ? LIMIT 1`, source, normalized.ref);
         outcome = waiting ? hold(normalized, waiting) : applyRefund(normalized, { reading });
+        // Paid back in full, it would renew and charge again: it ends now at the provider too (see the
+        // top of this file). Only one of this install's, still renewing here or waiting for its person:
+        // every app's destination hears every refund of the account, another product's too.
+        if (normalized.subscription === true && (waiting || renewsHere(normalized.ref))) refunded = markRefundStop(normalized.ref);
       } else if (isForeign(normalized)) {
         // Before whoIs(): nothing of the person is looked up, linked or kept for them.
         outcome = 'foreign';
@@ -747,6 +771,9 @@ export function createBilling({
       }
       return outcome;
     });
+    // Asked once the refund is in; a failure waits for the hourly sweep.
+    if (refunded) setImmediate(() => sendRefundStops().catch((err) => log(`[billing] ${source}: ending a refunded subscription failed: ${err?.stack || err}`)));
+    return applied;
   }
 
   /**
@@ -1152,6 +1179,8 @@ export function createBilling({
    */
   async function sendStops({ organizationId = null } = {}) {
     if (!canStop()) return { requested: 0, waiting: 0 };
+    // The hourly sweep asks again what a refund wanted ended, too.
+    const refunds = organizationId == null ? await sendRefundStops() : { requested: 0, waiting: 0 };
     const stale = iso(clock() - SENDING_MS);
     const due = database.all(`SELECT event_id FROM billing_events WHERE provider = ? AND type = 'stop'
       AND event_id LIKE 'stop:organization:%' AND (outcome IN ('pending', 'rekeep')
@@ -1164,6 +1193,50 @@ export function createBilling({
       const done = await oneAtATime(id, () => sendStop(eventId, id, ref, stale));
       if (done === 'requested') requested += 1;
       if (done === 'waiting') waiting += 1;
+    }
+    return { requested: requested + refunds.requested, waiting: waiting + refunds.waiting };
+  }
+
+  /**
+   * Ends now at the provider each subscription paid back in full and not asked yet (see the top of
+   * this file): taken first (`sending`), so two sweeps never ask twice; one that no longer renews
+   * here is `ended` without asking; one the provider had ended already is `already`; one that
+   * fails is pending again, logged, for the next sweep. Each one asked is audited
+   * (`billing.refund.stop`). → { requested, waiting }
+   */
+  async function sendRefundStops() {
+    if (!canStop()) return { requested: 0, waiting: 0 };
+    const stale = iso(clock() - SENDING_MS);
+    const due = database.all(`SELECT event_id FROM billing_events WHERE provider = ? AND type = 'stop'
+      AND event_id LIKE '${REFUND_STOP}%' AND (outcome = 'pending' OR (outcome = 'sending' AND received_at < ?))
+      ORDER BY received_at, event_id`, source, stale);
+    let requested = 0;
+    let waiting = 0;
+    for (const { event_id: eventId } of due) {
+      const ref = eventId.slice(REFUND_STOP.length);
+      const taken = database.run(`UPDATE billing_events SET outcome = 'sending', received_at = ? WHERE provider = ?
+        AND event_id = ? AND type = 'stop' AND (outcome = 'pending' OR (outcome = 'sending' AND received_at < ?))`,
+      iso(clock()), source, eventId, stale).changes;
+      if (!taken) continue;
+      if (!renews(ref)) {
+        moveStop(eventId, 'sending', 'ended');
+        continue;
+      }
+      let answer;
+      try {
+        answer = await provider.cancelSubscription(ref, { now: true });
+      } catch (err) {
+        moveStop(eventId, 'sending', 'pending');
+        waiting += 1;
+        log(`[billing] ${source}: refunded subscription ${ref} could not be ended yet, tried again later: ${err.message}`);
+        continue;
+      }
+      const already = answer?.already === true;
+      moveStop(eventId, 'sending', already ? 'already' : 'requested');
+      if (already) continue;
+      requested += 1;
+      const row = database.get('SELECT subject_type, subject_id FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, ref);
+      record('billing.refund.stop', row ? { type: row.subject_type, id: row.subject_id } : null, { provider: source, ref });
     }
     return { requested, waiting };
   }
@@ -1267,7 +1340,7 @@ export function createBilling({
   return {
     enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
-    markOrganizationStop, sendStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
+    markOrganizationStop, sendStops, sendRefundStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
   };
 }
 

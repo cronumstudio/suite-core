@@ -955,6 +955,11 @@ every account made during the early access a grant of its plan until a date
 - A one-off purchase grants its plan for good, or for the product's `days` (a pass); a refund
   ends it. A subscription's refund ends its grant too, and the period it paid back doesn't bring
   it back (`refunded_until`); the next period paid for does. `paused` is not paid for either.
+  A subscription paid back in full (a refund that says `subscription`, Paddle's) also ends now at
+  the provider, which would otherwise renew it and charge again (0.250.0): `stop:refund:<ref>` in
+  `billing_events`, asked right after the refund and again by the hourly `sendStops()` if that
+  fails, only for a subscription this install has and that still renews (or one waiting for its
+  person). Audited as `billing.refund.stop`.
 - Each event is applied once (`billing_events`), and a subscription event older than the state
   already known (`billing_subscriptions`) is ignored: providers retry and reorder.
 
@@ -1992,7 +1997,10 @@ What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0
   (before, an account without `mcp` was listed every tool and refused each call). A module's tool
   that names no `feature` needs the module's `mcp` when the module declares it. They keep a way to
   learn why: that module's part of the instructions says it and where to change plan, and
-  `<host>_plan_info` (listed only to them) tells the assistant what to pass on.
+  `<host>_plan_info` (listed only to them) tells the assistant what to pass on. The host's own
+  tools answer a call by their name as the list shows them (0.250.0): the links for whoever uses
+  two modules with things to link and their plan has, the calendar for whoever has one with dates,
+  and neither ever reaches into a module the plan leaves out; nor do that module's prompts.
 - **`onDemand`** (`{ mount: [tool names] }`): tools used now and then kept out of the list, which goes
   whole into every conversation on most clients. `<host>_more_tools` names them in its description
   (so the assistant knows they exist and reaches for one when asked) and says what each does and

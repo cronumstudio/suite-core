@@ -586,6 +586,7 @@
   "admin.actions.billing_revoked": "Payment: plan ended",
   "admin.actions.billing_organization_stop": "Payment: a group’s renewal stopped",
   "admin.actions.billing_organization_keep": "Payment: a group’s renewal resumed",
+  "admin.actions.billing_refund_stop": "Payment: a refunded subscription ended",
   "admin.actions.org_create": "Created a group",
   "admin.actions.org_update": "Changed a group",
   "admin.actions.org_invite": "Invited to a group",

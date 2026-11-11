@@ -3,6 +3,31 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.250.0 — 2026-11-11
+
+- **A refund ends the subscription too** (`billing.js`; audit of 6/11, billing-5). A full refund or a
+  chargeback took the plan back at once, but the subscription went on renewing at the provider: the
+  person was charged again the next period, and meanwhile the web's checkout said
+  `already_subscribed` and Settings showed «Se renueva el…». Now a refund that says `subscription`
+  (Paddle's adjustments) also asks the provider to end it now (`cancelSubscription(ref, { now: true })`).
+  Asked once: a row `stop:refund:<ref>` of `billing_events`, `pending` in the refund's transaction,
+  asked right after it and, if the provider fails, again by the hourly `sendStops()`
+  (`requested`, `already`, or `ended` when it had ended before it was asked). Only a subscription
+  this install has and that still renews, or one waiting for its person: every destination hears
+  every refund of the account, another product's too. Audited as `billing.refund.stop`
+  (`admin.actions.billing_refund_stop` in the five catalogs). `sendRefundStops()` is new.
+- **The host's own MCP tools go by the plan when called by their name** (`host.js`; audit of 6/11,
+  sc-mcp-14, sc-mcp-5 of 30/10). `<host>_linked_items`, `<host>_link_item` and `<host>_calendar`
+  were left out of someone's list when they couldn't use them, but a client that remembered a name
+  still ran them. `allows` now answers them as `visible` does, with a sentence of why and where to
+  change it; the links never reach into a module whose tools the plan leaves out (`item`, `from`,
+  `to`, `create`), and that module's prompts are left out too. Today every plan of Cronum Work has
+  `mcp`, so nothing changes there.
+- **An account that goes takes its usage with it** (`entitlements.js` `forgetUsage`, `app.js`; audit
+  of 6/11, billing-12). Its rows of `entitlement_usage` (the calls of an assistant counted for a
+  week's limit) name it by id alone and stayed for good: they go in the removal's transaction now,
+  whatever `billing.forgetOnRemove` says.
+
 ## 0.249.0 — 2026-11-11
 
 - **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;
