@@ -625,7 +625,7 @@ the page signs in in place; under a provider's sign-in the server sends the brow
 `/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
 sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
 `/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
-was; besides the connect page, only the admin panel asks for it (v0.254.0, with `return=/admin`),
+was; besides the connect page, only the admin panel asks for it (v0.258.0, with `return=/admin`),
 when an admin with no password to give (Google, Apple, a company's sign-in) must sign in again to
 change who someone is: their session counts only if AuthKit's access token says they actively
 signed in (`auth_time`) after the server asked them, in the ten minutes since
@@ -960,6 +960,11 @@ every account made during the early access a grant of its plan until a date
 - A one-off purchase grants its plan for good, or for the product's `days` (a pass); a refund
   ends it. A subscription's refund ends its grant too, and the period it paid back doesn't bring
   it back (`refunded_until`); the next period paid for does. `paused` is not paid for either.
+  A subscription paid back in full (a refund that says `subscription`, Paddle's) also ends now at
+  the provider, which would otherwise renew it and charge again (0.254.0): `stop:refund:<ref>` in
+  `billing_events`, asked right after the refund and again by the hourly `sendStops()` if that
+  fails, only for a subscription this install has and that still renews (or one waiting for its
+  person). Audited as `billing.refund.stop`.
 - Each event is applied once (`billing_events`), and a subscription event older than the state
   already known (`billing_subscriptions`) is ignored: providers retry and reorder.
 
@@ -1773,7 +1778,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
   `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
-  first too, where the install ends them (v0.254.0, `deletion.endSubscriptionsOf`): if the provider
+  first too, where the install ends them (v0.258.0, `deletion.endSubscriptionsOf`): if the provider
   can't end one that still renews, nothing is deleted (503 `subscription_not_ended`), to try
   again, and the log keeps how many ended. One the person cancelled already (in the portal, or by
   asking to go) renews no more and lapses at its period's end when the provider won't end it now,
@@ -2008,7 +2013,10 @@ What a host may add to its MCP, each off without `createHost({ mcpOptions })` (0
   (before, an account without `mcp` was listed every tool and refused each call). A module's tool
   that names no `feature` needs the module's `mcp` when the module declares it. They keep a way to
   learn why: that module's part of the instructions says it and where to change plan, and
-  `<host>_plan_info` (listed only to them) tells the assistant what to pass on.
+  `<host>_plan_info` (listed only to them) tells the assistant what to pass on. The host's own
+  tools answer a call by their name as the list shows them (0.254.0): the links for whoever uses
+  two modules with things to link and their plan has, the calendar for whoever has one with dates,
+  and neither ever reaches into a module the plan leaves out; nor do that module's prompts.
 - **`onDemand`** (`{ mount: [tool names] }`): tools used now and then kept out of the list, which goes
   whole into every conversation on most clients. `<host>_more_tools` names them in its description
   (so the assistant knows they exist and reaches for one when asked) and says what each does and

@@ -829,3 +829,83 @@ test('endSubscriptions: each is asked; one already cancelled for its period’s 
   assert.equal(await billing.endSubscriptions(bea.id), 0, 'nothing ended now, and nothing thrown');
   assert.deepEqual(asked.splice(0), ['sub_bea at the end', 'sub_bea now']);
 });
+
+test('a subscription paid back in full ends now at the provider: asked once, again by the sweep if that fails, only this install\'s', async (t) => {
+  let down = true;
+  const asked = [];
+  const provider = {
+    ...signedProvider({ id: 'paddle', secret: SECRET, baseUrl: 'https://accounts.example' }),
+    cancelSubscription: async (ref, options) => {
+      asked.push([ref, options]);
+      if (down) throw new Error('Paddle is down');
+      return { already: false };
+    },
+    keepSubscription: async () => {},
+  };
+  const { billing, clock, entitlements, database, audit, ada } = setup(t, { provider });
+  const at = () => new Date(clock.now).toISOString();
+  const settle = () => new Promise((done) => { setTimeout(done, 20); });
+  const stop = (ref) => database.get("SELECT outcome FROM billing_events WHERE provider = 'paddle' AND event_id = ?", `stop:refund:${ref}`)?.outcome ?? null;
+  const subscribe = (id, ref, status = 'active') => billing.apply({
+    id, type: 'subscription', ref, subject: { type: 'user', id: ada.id }, product: 'pro-monthly',
+    status, periodEnd: '2026-06-01T10:00:00Z', occurredAt: at(),
+  });
+  const buy = () => billing.checkoutUrl({ type: 'user', id: ada.id }, 'pro-monthly', { user: ada, returnUrl: 'https://app.example/?billing=done' });
+
+  assert.equal(subscribe('s1', 'sub_r'), 'granted');
+  await assert.rejects(buy, (err) => err.code === 'already_subscribed');
+
+  // Nine days later, the money back: Pro goes now, and the provider is asked to end it now.
+  clock.now += 9 * DAY;
+  assert.equal(billing.apply({ id: 'r1', type: 'refund', ref: 'sub_r', subscription: true, occurredAt: at() }), 'revoked');
+  assert.equal(planOf(entitlements, ada), 'free');
+  await settle();
+  assert.deepEqual(asked, [['sub_r', { now: true }]], 'asked right after the refund');
+  assert.equal(stop('sub_r'), 'pending', 'the provider was down: kept for the sweep');
+
+  // The hourly sweep asks again, once.
+  down = false;
+  assert.deepEqual(await billing.sendStops(), { requested: 1, waiting: 0 });
+  assert.equal(stop('sub_r'), 'requested');
+  assert.deepEqual(await billing.sendStops(), { requested: 0, waiting: 0 });
+  assert.equal(asked.length, 2, 'never asked again');
+  assert.equal(audit.list({ action: 'billing.refund.stop' }).length, 1);
+
+  // The provider's own word ends it here: the web's checkout sells again, and no renewal grants anything.
+  assert.equal(subscribe('s2', 'sub_r', 'canceled'), 'nothing');
+  assert.match(await buy(), /^https:\/\/accounts\.example\/checkout\?/);
+  assert.equal(billing.apply({ id: 'r1', type: 'refund', ref: 'sub_r', subscription: true, occurredAt: at() }), 'duplicate');
+
+  // Ended at the provider before the sweep came: nothing to ask.
+  down = true;
+  assert.equal(subscribe('s3', 'sub_q'), 'granted');
+  billing.apply({ id: 'r2', type: 'refund', ref: 'sub_q', subscription: true, occurredAt: at() });
+  await settle();
+  assert.equal(stop('sub_q'), 'pending');
+  clock.now += 1000;
+  subscribe('s4', 'sub_q', 'canceled');
+  down = false;
+  const before = asked.length;
+  assert.deepEqual(await billing.sendStops(), { requested: 0, waiting: 0 });
+  assert.equal(stop('sub_q'), 'ended');
+  assert.equal(asked.length, before);
+
+  // Not one of this install's (another product's, on the same account), nor a one-off purchase: nothing asked.
+  assert.equal(billing.apply({ id: 'r3', type: 'refund', ref: 'sub_tracker', subscription: true, occurredAt: at() }), 'nothing');
+  assert.equal(billing.apply({ id: 'r4', type: 'refund', ref: 'txn_once', occurredAt: at() }), 'nothing');
+  await settle();
+  assert.equal(stop('sub_tracker'), null);
+  assert.equal(stop('txn_once'), null);
+  assert.equal(asked.length, before);
+});
+
+test('a refund with a provider that can\'t end subscriptions marks nothing', async (t) => {
+  const { billing, clock, database, ada } = setup(t);
+  billing.apply({
+    id: 's1', type: 'subscription', ref: 'sub_r', subject: { type: 'user', id: ada.id }, product: 'pro-monthly',
+    status: 'active', periodEnd: '2026-06-01T10:00:00Z', occurredAt: new Date(clock.now).toISOString(),
+  });
+  assert.equal(billing.apply({ id: 'r1', type: 'refund', ref: 'sub_r', subscription: true }), 'revoked');
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM billing_events WHERE type = 'stop'").n, 0);
+  assert.deepEqual(await billing.sendStops(), { requested: 0, waiting: 0 });
+});

@@ -435,7 +435,8 @@ export function hostMcp({
 
   const allows = (principal, tool) => {
     const m = byMount.get(tool.module);
-    if (!m) return true;
+    // The host's own (the links, the calendar): called by their name, the same as tools/list shows them.
+    if (!m) return hostAllows(principal, tool);
     if (!using(principal, m.mount)) {
       return `${m.config.app.name} is turned off for this person: they can turn it on in ${hostName}, Settings › Modules.`;
     }
@@ -459,9 +460,27 @@ export function hostMcp({
     if (!tool.module) return linking(principal);
     return using(principal, tool.module) && (!byPlan || allows(principal, tool) === true);
   };
+  /** A host's own tool called by its name: true when tools/list shows it to them, else the sentence why not. */
+  const hostAllows = (principal, tool) => {
+    if (!principal || tool.name === planInfo || visible(principal, tool)) return true;
+    const where = `They can turn modules on in ${hostName}, Settings › Modules${byPlan ? ', or change plan in Settings › Plan' : ''}.`;
+    return tool.name === calendarName
+      ? `The calendar needs a module with dates that this person uses${byPlan ? ' and their plan lets an assistant read' : ''}. ${where}`
+      : `Linking needs two modules with things to link that this person uses${byPlan ? ' and their plan lets an assistant use' : ''}. ${where}`;
+  };
   // Named with the host's id, as a module's tools are with its own (no old bare names kept).
   if (linkable.length >= 2) {
-    tools.push(...linkTools({ links, modules: () => linkable }).map((tool) => ({ ...tool, name: `${hostId}_${tool.name}` })));
+    tools.push(...linkTools({ links, modules: () => linkable }).map((tool) => ({
+      ...tool,
+      name: `${hostId}_${tool.name}`,
+      // Never into a module whose tools their plan leaves out: the links would be a way round it.
+      handler: (principal, args) => {
+        const named = [args?.item, args?.from, args?.to, args?.create].map((ref) => ref?.module).filter(Boolean);
+        const out = named.map((mount) => byMount.get(String(mount))).find((m) => m && planned(principal, m) !== true);
+        if (!out) return tool.handler(principal, args);
+        return { isError: true, content: [{ type: 'text', text: `${out.config.app.name}: ${upgrade(planned(principal, out))}` }] };
+      },
+    })));
   }
   if (datable.length) {
     tools.push(...calendarTools({ calendar, allowed: (principal, m) => planned(principal, m) === true })
@@ -495,6 +514,8 @@ export function hostMcp({
   }
 
   const sources = modules.filter((m) => m.parts?.mcp?.prompts);
+  // A module's prompts lead to its tools: only for whoever uses it with a plan that has them.
+  const offered = (principal, m) => using(principal, m.mount) && planned(principal, m) === true;
   const promptSaying = (m, prompt) => {
     if (!namesInText || !prompt) return prompt;
     const say = sayers.get(m.mount);
@@ -508,11 +529,11 @@ export function hostMcp({
     };
   };
   const prompts = sources.length ? {
-    list: (principal) => sources.filter((m) => !principal || using(principal, m.mount))
+    list: (principal) => sources.filter((m) => !principal || offered(principal, m))
       .flatMap((m) => m.parts.mcp.prompts.list().map((p) => ({ ...promptSaying(m, p), name: `${m.mount}_${p.name}` }))),
     get: (name, args, principal) => {
       const m = sources.find((s) => String(name).startsWith(`${s.mount}_`));
-      if (!m || (principal && !using(principal, m.mount))) return null;
+      if (!m || (principal && !offered(principal, m))) return null;
       return promptSaying(m, m.parts.mcp.prompts.get(name.slice(m.mount.length + 1), args));
     },
   } : null;

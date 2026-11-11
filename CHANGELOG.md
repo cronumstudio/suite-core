@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.254.0 — 2026-11-11
+## 0.258.0 — 2026-11-11
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
   `account-deletion.js`, `billing.js`, `web/admin.js`; audit of 6/11, billing-2).
@@ -61,6 +61,64 @@ change an interface and a patch never does. Apps pin a version through the submo
     recent session was enough.
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
     signs in by `prompt=login`.
+
+## 0.255.0 — 2026-11-11
+
+- **A device's notices go with the session they were turned on in** (`push.js`, `sessions.js`, `api.js`,
+  `app.js`, `web/settings.js`; audit of 6/11, pwa-2): closing a session from Settings › Where you're signed in
+  left that browser getting task titles and list names on its locked screen, and so did a session that ended
+  on its own. `push_subscriptions` keeps the session it was turned on in (`session_key`, the public key of
+  sessions.js, new column; null for rows from before or made with a device token) and loses the row when that
+  session is revoked (`DELETE /api/me/sessions/:key`), signed out of (also without `push_endpoints`) or ended
+  (the suite's clean-up, `push.purgeSessions()` after `sessions.purge()`). `POST /api/push/subscribe` says
+  `user_id`. Settings › Notifications removes any one device (`DELETE /api/push/devices/:id`, a person's own
+  only, «Quitar» on each row, `kit.notifications.remove`), this browser's marked «Este dispositivo» and letting go
+  of its subscription too. `createPush` adds `removeDevice`, `forgetSession` and `purgeSessions`;
+  `registerPushApi` takes `sessionKeyOf`; `registerProfileApi` takes `push`; `sessions.keyFor(token)`.
+- **Signing out and in again keeps the notices true** (`web/signin.js`, `web/push.js`, `web/settings.js`,
+  `web/worker.js`, `web/sw-core.js`; pwa-3): the server forgot the device and the browser kept its
+  subscription, so Tasks said «This device receives notifications» and nothing came. `signOutHere({ forgetPush:
+  true })` lets go of the browser's subscriptions once the server has heard (a host's, where nobody shares
+  them; Cronum Work's shell passes it). Who turned notices on in this browser is kept per person
+  (`markNoticesOn(userId)`, `markNoticesOff`, `noticesOnHere`; `kit.push.on` in localStorage), set by the kit's
+  `subscribePush` and the worker's carry; `renewNotices({ userId })` turns them on again at the start of a
+  session, without a question while the permission stands, only for that person. The worker tells the server a
+  subscription the browser renewed (`pushsubscriptionchange`).
+
+## 0.254.0 — 2026-11-11
+
+- **A refund ends the subscription too** (`billing.js`; audit of 6/11, billing-5). A full refund or a
+  chargeback took the plan back at once, but the subscription went on renewing at the provider: the
+  person was charged again the next period, and meanwhile the web's checkout said
+  `already_subscribed` and Settings showed «Se renueva el…». Now a refund that says `subscription`
+  (Paddle's adjustments) also asks the provider to end it now (`cancelSubscription(ref, { now: true })`).
+  Asked once: a row `stop:refund:<ref>` of `billing_events`, `pending` in the refund's transaction,
+  asked right after it and, if the provider fails, again by the hourly `sendStops()`
+  (`requested`, `already`, or `ended` when it had ended before it was asked). Only a subscription
+  this install has and that still renews, or one waiting for its person: every destination hears
+  every refund of the account, another product's too. Audited as `billing.refund.stop`
+  (`admin.actions.billing_refund_stop` in the five catalogs). `sendRefundStops()` is new.
+- **The host's own MCP tools go by the plan when called by their name** (`host.js`; audit of 6/11,
+  sc-mcp-14, sc-mcp-5 of 30/10). `<host>_linked_items`, `<host>_link_item` and `<host>_calendar`
+  were left out of someone's list when they couldn't use them, but a client that remembered a name
+  still ran them. `allows` now answers them as `visible` does, with a sentence of why and where to
+  change it; the links never reach into a module whose tools the plan leaves out (`item`, `from`,
+  `to`, `create`), and that module's prompts are left out too. Today every plan of Cronum Work has
+  `mcp`, so nothing changes there.
+- **A plan's limit met in a module shows the way to Pro** (`web/api.js`, `web/ui.js`, `web/shell.js`;
+  audit of 6/11, billing-6; Martin, 11/11: the notice with «Ver planes»). `offerPlan` was only used by
+  Settings: a Free account that made its 21st list, uploaded a photo without room or saved a
+  template read «Tu plan (Free) permite 20 y ya tienes 20.», without saying of what nor where to
+  go. Now a 402 met by any call of the kit's `api` is kept for ten seconds by its sentence, and the
+  error notice that says it gets «Ver planes», which opens Settings › Plan (`createShell` gives
+  `onSettings('plan')` through the new `setPlanOpener`). Once, and only for those words, in all four
+  modules without a change of theirs: each says its errors with the kit's `errorMessage` and `toast`.
+  `errorMessage` names what `plan_limit` limits, as Settings › Usage counts it («20 listas», «20
+  libretas», «10 proyectos», «50 MB de espacio»).
+- **An account that goes takes its usage with it** (`entitlements.js` `forgetUsage`, `app.js`; audit
+  of 6/11, billing-12). Its rows of `entitlement_usage` (the calls of an assistant counted for a
+  week's limit) name it by id alone and stayed for good: they go in the removal's transaction now,
+  whatever `billing.forgetOnRemove` says.
 
 ## 0.250.0 — 2026-11-11
 

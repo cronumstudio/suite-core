@@ -92,3 +92,37 @@ test('without a signal nothing of the device goes, and the module’s clean-up d
   assert.equal(cleaned, false);
   assert.deepEqual(went, []);
 });
+
+test('signing out with forgetPush lets go of the browser’s subscription once the server has heard, and not without a signal (audit of 6/11, pwa-3)', async () => {
+  const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/laptop', unsubscribed: 0, unsubscribe: async () => { subscription.unsubscribed += 1; return true; } };
+  page.navigator.serviceWorker = {
+    getRegistrations: async () => [{ pushManager: { getSubscription: async () => (subscription.unsubscribed ? null : subscription) } }],
+  };
+  try {
+    logout = async () => { throw new TypeError('Failed to fetch'); };
+    assert.equal(await signOutHere({ forgetPush: true }), false);
+    assert.equal(subscription.unsubscribed, 0, 'no signal: the notices stay as they were');
+    logout = async () => ({ ok: true, status: 200, headers: new Map([['content-type', 'application/json']]), json: async () => ({}) });
+    assert.equal(await signOutHere({ forgetPush: true }), true);
+    assert.equal(subscription.unsubscribed, 1);
+    assert.ok(posted.some((url) => url.endsWith('/api/auth/logout')));
+    subscription.unsubscribed = 0;
+    await signOutHere({});
+    assert.equal(subscription.unsubscribed, 0, 'without it, as before: an app on its own may share it');
+  } finally {
+    delete page.navigator.serviceWorker;
+  }
+});
+
+test('who turned notices on here is kept per person, and only for them (pwa-3)', async () => {
+  const { noticesOnHere, markNoticesOn, markNoticesOff } = await import('../web/push.js');
+  assert.equal(noticesOnHere(7), false);
+  markNoticesOn(7);
+  markNoticesOn(7);
+  assert.equal(noticesOnHere(7), true);
+  assert.equal(noticesOnHere('7'), true, 'an id as text is the same person');
+  assert.equal(noticesOnHere(8), false, 'someone else signing in here gets nothing back');
+  markNoticesOff(7);
+  assert.equal(noticesOnHere(7), false);
+  assert.equal(noticesOnHere(null), false);
+});
