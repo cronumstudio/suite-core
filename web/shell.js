@@ -1011,8 +1011,9 @@ export function createShell({
   // until it arrives. Only a host's module comes back to its own path with `?billing=`.
   if (mount && !FRAMED && !embedded) billingReturn({ open: onSettings ? () => onSettings('plan') : null });
   // A plan's barrier met anywhere in the app (a list too many, a photo without room): its notice
-  // opens the plan in Settings (api.js planAction, ui.js toast).
-  const openPlan = onSettings ? () => onSettings('plan') : null;
+  // opens the plan in Settings (api.js planAction, ui.js toast). Only in a host's module: its
+  // Settings has the plan (the host's `plans`); an app on its own would open them at Profile.
+  const openPlan = onSettings && mount ? () => onSettings('plan') : null;
   if (openPlan) setPlanOpener(openPlan);
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
