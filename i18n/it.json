@@ -586,6 +586,7 @@
   "admin.actions.billing_revoked": "Pagamento: piano terminato",
   "admin.actions.billing_organization_stop": "Pagamento: rinnovo di un gruppo interrotto",
   "admin.actions.billing_organization_keep": "Pagamento: rinnovo di un gruppo ripreso",
+  "admin.actions.billing_refund_stop": "Pagamento: abbonamento rimborsato, terminato",
   "admin.actions.org_create": "Ha creato un gruppo",
   "admin.actions.org_update": "Ha modificato un gruppo",
   "admin.actions.org_invite": "Ha invitato in un gruppo",

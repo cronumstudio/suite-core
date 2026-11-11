@@ -211,6 +211,8 @@ export function createSuite({
     organizationExists: (id) => Boolean(organizations?.get(id)),
     othersDeclare,
   });
+  // What their limits counted goes with them, whatever the billing keeps (forgetOnRemove).
+  accounts.whenRemoved((userId) => entitlements.forgetUsage(userId));
   if (config.modules.organizations) {
     organizations = createOrganizations({
       database, roles: config.organizations.roles, seatsOf: entitlements.seatsOf,

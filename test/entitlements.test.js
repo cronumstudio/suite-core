@@ -738,3 +738,19 @@ test('the early access kept past its end: one grant each, never twice, and what 
   assert.equal(none.earlyAccessState(everyone), null);
   assert.throws(() => none.keepEarlyAccess(everyone, { endsAt: END }), (err) => err.status === 404);
 });
+
+test('an account that goes takes what its limits counted with it (audit of 6/11, billing-12)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-usage-gone-'));
+  const suite = createSuite({
+    config: { app: { id: 'tasks', name: 'Tasks' }, features: pick(COMMON_FEATURES, ['mcp.calls_per_week']) },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-work' }, log: () => {}, exitOnError: false,
+  });
+  t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const ana = suite.accounts.create({ username: 'ana' });
+  const bob = suite.accounts.create({ username: 'bob' });
+  for (const who of [ana, bob, ana]) suite.entitlements.countWeekly(who, 'mcp.calls_per_week');
+  const rows = (user) => suite.database.get('SELECT COUNT(*) AS n FROM entitlement_usage WHERE user_id = ?', user.id).n;
+  assert.deepEqual([rows(ana), rows(bob)], [1, 1]);
+  suite.accounts.remove(ana.id);
+  assert.deepEqual([rows(ana), rows(bob)], [0, 1], 'only hers');
+});

@@ -586,6 +586,7 @@
   "admin.actions.billing_revoked": "Pago: plan terminado",
   "admin.actions.billing_organization_stop": "Pago: renovación de un grupo detenida",
   "admin.actions.billing_organization_keep": "Pago: renovación de un grupo reanudada",
+  "admin.actions.billing_refund_stop": "Pago: suscripción reembolsada, terminada",
   "admin.actions.org_create": "Creó un grupo",
   "admin.actions.org_update": "Cambió un grupo",
   "admin.actions.org_invite": "Invitó a un grupo",
