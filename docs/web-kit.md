@@ -24,8 +24,9 @@ next to what is saved.
 
 ## Same in every module
 
-Martin's rules for the sidebar and the heads (v0.247.0), and for an item's detail and a row's
-swipe (v0.248.0), so that going from one module to the next in Cronum Work nothing moves:
+Martin's rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
+(v0.248.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that going from one module to the
+next in Cronum Work nothing moves:
 
 1. **An item is never created from the sidebar.** A note, a step: the floating + button over the
    list, at every width, a computer's too (`createShell({ create })`). A module with an add bar of
@@ -52,6 +53,17 @@ swipe (v0.248.0), so that going from one module to the next in Cronum Work nothi
    row with nothing to do (Next's rows, a row only to read) still keeps the finger (`keepSwipe()`):
    swiping it does nothing. Only a finger swipes, never a mouse or a trackpad, and what scrolls
    sideways (Next's line, the Gantt, chips) keeps scrolling.
+7. **Deleting asks only for what can't come back.** What goes to a trash goes at once and leaves
+   an Undo (`undoToast()`): a task, a note, a notebook, a list or a group of lists, a project's task
+   or phase, a file. A subtask (Tasks) and a dependency (Projects) don't ask either: their Undo makes
+   them again. What can't come back asks «¿Borrar «X»?» with a red Borrar (`deleteDialog()`):
+   deleting from a trash for good, emptying it, a category, a template, a Notes group, a Next
+   project or step. Taking something shared back from someone asks only if they had accepted it
+   (the share dialog's default); withdrawing an invitation never asks.
+8. **A dialog is 560 px wide on a computer, a question 420** (`QUESTION_WIDTH`, the kit's
+   `confirmDialog()` and `deleteDialog()`): a module sets no width of its own for a form or a
+   question (a photo viewer may take the room it needs). Sharing is the kit's dialog in every
+   module (`shareDialog()`), an app's own roles included.
 
 ## A page
 
