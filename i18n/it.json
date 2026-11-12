@@ -105,7 +105,7 @@
   "errors.wrong_password": "La password attuale non è corretta.",
   "errors.password_rejected": "Questa password non va bene: almeno 8 caratteri e difficile da indovinare.",
   "errors.password_elsewhere": "Accedi con un altro account (Google, Apple…): la password si cambia lì.",
-  "errors.reauth_required": "Accedi di nuovo per farlo: serve un accesso recente.",
+  "errors.reauth_required": "Accedi di nuovo per confermare che sei tu.",
   "errors.no_workos_account": "Questo account non è collegato al servizio di accesso.",
   "fields.display_name": "Nome",
   "fields.email": "Email",

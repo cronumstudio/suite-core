@@ -105,7 +105,7 @@
   "errors.wrong_password": "La contraseña actual no es correcta.",
   "errors.password_rejected": "Esa contraseña no vale: usa al menos 8 caracteres y que no sea fácil de adivinar.",
   "errors.password_elsewhere": "Entras con otra cuenta (Google, Apple…): tu contraseña se cambia allí.",
-  "errors.reauth_required": "Vuelve a entrar para hacer esto: hace falta haber entrado hace poco.",
+  "errors.reauth_required": "Vuelve a entrar para confirmar que eres tú.",
   "errors.no_workos_account": "Esta cuenta no está vinculada al servicio de acceso.",
   "fields.display_name": "Nombre",
   "fields.email": "Email",

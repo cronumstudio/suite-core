@@ -105,7 +105,7 @@
   "errors.wrong_password": "Das aktuelle Passwort ist nicht korrekt.",
   "errors.password_rejected": "Dieses Passwort geht nicht: mindestens 8 Zeichen und schwer zu erraten.",
   "errors.password_elsewhere": "Du meldest dich mit einem anderen Konto an (Google, Apple…): Dein Passwort änderst du dort.",
-  "errors.reauth_required": "Melden Sie sich erneut an, um dies zu tun: Es braucht eine kürzliche Anmeldung.",
+  "errors.reauth_required": "Melden Sie sich erneut an, um zu bestätigen, dass Sie es sind.",
   "errors.no_workos_account": "Dieses Konto ist nicht mit dem Anmeldedienst verbunden.",
   "fields.display_name": "Name",
   "fields.email": "E-Mail",
