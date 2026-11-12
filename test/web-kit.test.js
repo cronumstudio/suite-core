@@ -2049,7 +2049,7 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
       'Cronum Work', 'Tasks', 'Notes', t('kit.settings.groups.account'), t('kit.about.title', { app: 'Cronum Work' }),
     ], 'the host\'s first, each module in use in the host\'s order, the account\'s, About on its own; Next is off');
     // The host's group: the modules, the language, the AI, the notices and administration, the whole app's.
-    assert.deepEqual(labels.slice(0, 5), [t('kit.modules.title'), t('kit.appearance.title'), t('kit.ai.title'), t('kit.notifications.title'), t('kit.admin.title')]);
+    assert.deepEqual(labels.slice(0, 5), [t('kit.appearance.title'), t('kit.modules.title'), t('kit.notifications.title'), t('kit.ai.title'), t('kit.admin.title')]);
     // Password and sign-in is the account's, after the profile; where one is signed in, after them.
     assert.equal(labels[labels.indexOf(t('kit.profile.title')) + 1], t('kit.security.title'));
     assert.equal(labels[labels.indexOf(t('kit.security.title')) + 1], t('kit.security.sessions'));

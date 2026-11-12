@@ -90,8 +90,8 @@ test('in a host the list starts with the host’s group, then each module’s, t
     const seen = list.all().filter((node) => ['kit-settings__group-name', 'kit-settings__label'].includes(node.className))
       .map((node) => (node.className === 'kit-settings__group-name' ? `# ${node.textContent}` : node.textContent));
     assert.deepEqual(seen, [
-      '# Cronum Work', t('kit.modules.title'), t('kit.appearance.title'), t('kit.ai.title'), t('kit.notifications.title'),
-      t('kit.day.title'), t('kit.calendar.title'),
+      '# Cronum Work', t('kit.appearance.title'), t('kit.modules.title'), t('kit.day.title'), t('kit.calendar.title'),
+      t('kit.notifications.title'), t('kit.ai.title'),
       '# Tasks', 'Preferences', t('kit.data.title'),
       `# Notes`,
       `# ${t('kit.settings.groups.account')}`, t('kit.profile.title'), t('kit.security.title'), t('kit.security.sessions'),

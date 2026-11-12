@@ -14,6 +14,12 @@ change an interface and a patch never does. Apps pin a version through the submo
   `no-store`, `noindex`), so the browser the app opens hands it to Calendar. Outside the app,
   `webcal:` as before. The token's checks are the link's (404, braked when repeated).
 
+## 0.270.0 — 2026-11-12
+
+- **Settings in a host: the host's group in a new order** (`web/settings.js`; docs/architecture.md
+  §21.1), as Martin asked: Language and theme, Modules, Daily summary, Calendar, Notifications, Your
+  AI, and Administration last. Nothing else moves; the sections keep their ids.
+
 ## 0.269.0 — 2026-11-12
 
 - **An eye in the admin panel's password fields** (`web/ui.js`, `web/icons.js`, `web/kit.css`,
