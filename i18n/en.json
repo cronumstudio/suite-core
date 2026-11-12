@@ -1280,6 +1280,7 @@
   "kit.calendarFeed.apple": "Open in Apple Calendar",
   "kit.calendarFeed.howTitle": "How to add it",
   "kit.calendarFeed.howGoogle": "Google Calendar, on a computer: Other calendars › + › From URL, paste the link and Add calendar. Google updates it every few hours.",
+  "kit.calendarFeed.howAndroid": "Android: the Google Calendar app can’t subscribe to a link. Add it on a computer as above and it shows on the phone; if it doesn’t, in the app, Settings › that calendar › Sync.",
   "kit.calendarFeed.howOutlook": "Outlook: Calendar › Add calendar › Subscribe from web, paste the link and give it a name.",
   "kit.calendarFeed.howApple": "Apple Calendar: on a Mac, File › New Calendar Subscription; on an iPhone, Settings › Apps › Calendar › Calendar Accounts › Add Account › Other › Add Subscribed Calendar.",
   "kit.calendarFeed.renew": "Change link",

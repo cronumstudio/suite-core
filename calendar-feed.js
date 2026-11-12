@@ -18,8 +18,9 @@
  *   UTC from the person's zone. Done ones say so with a ✓ before the title. Each links back to
  *   its module (URL, and the DESCRIPTION for the clients that show no URL).
  *
- * A task that repeats comes as the module's calendar gives it (its next date, as the calendar page
- * shows it). Once a module's items carry their rule, it can go out as RRULE here.
+ * A task that repeats comes as the module's calendar gives it: Tasks (1.153.0) gives each day ahead
+ * as an item of its own (`repeat`, id `<task>-<day>`), so each is an event with its own UID and no
+ * RRULE goes out.
  */
 import crypto from 'node:crypto';
 import { sha256, randomToken, encryptText, decryptText } from './crypto.js';

@@ -1280,6 +1280,7 @@
   "kit.calendarFeed.apple": "Ouvrir dans Calendrier",
   "kit.calendarFeed.howTitle": "Comment l’ajouter",
   "kit.calendarFeed.howGoogle": "Google Agenda, sur un ordinateur : Autres agendas › + › À partir de l’URL, collez le lien puis Ajouter l’agenda. Google le met à jour toutes les quelques heures.",
+  "kit.calendarFeed.howAndroid": "Android : l’app Google Agenda ne s’abonne pas à un lien. Ajoutez-le depuis un ordinateur comme ci-dessus et il apparaîtra sur le téléphone ; sinon, dans l’app, Paramètres › cet agenda › Synchroniser.",
   "kit.calendarFeed.howOutlook": "Outlook : Calendrier › Ajouter un calendrier › S’abonner à partir du web, collez le lien et donnez-lui un nom.",
   "kit.calendarFeed.howApple": "Calendrier d’Apple : sur un Mac, Fichier › Nouvel abonnement à un calendrier ; sur un iPhone, Réglages › Apps › Calendrier › Comptes de calendrier › Ajouter un compte › Autre › Ajouter un calendrier avec abonnement.",
   "kit.calendarFeed.renew": "Changer le lien",
