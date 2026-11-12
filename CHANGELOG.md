@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.262.1 — 2026-11-12
+
+- **The test kit's requests survive a connection the server closes under them**
+  (`tools/test-kit.mjs`, `test/test-kit.test.js`; nothing changes for the apps themselves): Node's
+  server closes a connection idle for 5 s, and fetch can reuse one at that very moment when a
+  test's next request comes about 5 s later on a busy machine. The request never reaches the app,
+  and fetch fails with a bare "fetch failed" (`other side closed`). Tasks' smoke test failed this
+  way on `main` four times on 11/11, always in the first request after the sections that call no
+  server (17i, «Units» or «Default list and language»), and passed on the same code in its pull
+  requests. `client()`, `rpc()` and `mcp()` now send such a request once more on a new connection,
+  as a browser does; a second failure, or any other network failure, is an error that names the
+  request and why (`POST …/api/auth/login: fetch failed (UND_ERR_SOCKET other side closed)`),
+  instead of "fetch failed" alone. A timeout and the caller's own abort are as before.
+
 ## 0.262.0 — 2026-11-12
 
 - **The host's calendar in Google Calendar, Outlook or Apple Calendar** (`calendar-feed.js`, new;
