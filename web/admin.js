@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, confirmDialog, slidingDetails, saveState } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -223,7 +223,7 @@ async function renderUsers(main) {
     el('p', { class: 'kit-lead', text: local() ? t('admin.users.leadLocal') : t('admin.users.leadIdp', { provider: state.config.name }) }),
     el('div', { class: 'kit-toolbar' },
       field(t('admin.users.search'), search),
-      el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: newUserDialog })),
+      el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: () => newUserDialog().catch(fail) })),
     table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
       hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
     rows.map(({ row }) => row)),
@@ -276,42 +276,88 @@ async function paintPeaks(main) {
   }
 }
 
-function newUserDialog() {
-  const username = el('input', { autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '32' });
-  const name = el('input', { maxlength: '80' });
-  const email = el('input', { type: 'email', autocomplete: 'off' });
+/**
+ * A new account (a store's reviewer, a tester): its email first, a name, a role, a password and the
+ * plan it has from the start, all made at once (POST /api/admin/users).
+ * · Passwords here: the username too (left empty, the server takes it from the email), and the
+ *   email taken as confirmed, with no message to confirm it.
+ * · WorkOS where this install owns the logins (the sign-in answer's `manage`): with a password the
+ *   login is made there, its email confirmed, and the admin's own password is asked again as they
+ *   type one; without, as with any other provider, the account waits for its person to sign in
+ *   with that email.
+ * What the server refuses (an email that already has an account here or a login at WorkOS) is said
+ * inside the dialog, which stays open to be corrected.
+ */
+async function newUserDialog() {
+  // Whether this install makes WorkOS logins, and what the admin gives again for it (workos-security.js).
+  const signIn = workos() ? await api.get(`/api/admin/users/${state.me.id}/sign-in`).catch(() => null) : null;
+  const atProvider = signIn?.manage === true;
+  const provider = state.config.name;
+  const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
+  const username = local() ? el('input', { autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '32' }) : null;
+  const name = el('input', { maxlength: '80', autocomplete: 'off' });
   const role = el('select', {}, ['user', 'admin'].map((r) => el('option', { value: r, text: t(`admin.roles.${r}`) })));
-  const password = el('input', { type: 'password', autocomplete: 'new-password' });
-  openDialog({
+  const password = local() || atProvider ? el('input', { type: 'password', autocomplete: 'new-password', maxlength: '1024' }) : null;
+  // The admin's own password (and code), once a password is typed: a recent sign-in has nothing to type.
+  const again = atProvider ? reauthFields(signIn.reauth) : null;
+  const asked = again?.nodes.some(Boolean) ? el('div', { class: 'kit-stack', hidden: true },
+    el('p', { class: 'kit-hint', text: t('admin.users.reauthCreate', { provider }) }),
+    el('div', { class: 'kit-grid' }, ...again.nodes)) : null;
+  if (asked) password.addEventListener('input', () => { asked.hidden = !password.value; });
+
+  // The plan from the start, where there is more than one: its end and its reason only with one of its own.
+  const several = (state.catalog?.plans.length ?? 0) > 1;
+  const plan = several ? el('select', {},
+    el('option', { value: '', text: t('admin.users.newPlanDefault', { plan: planName(state.catalog.defaultPlan) }) }),
+    state.catalog.plans.map((p) => el('option', { value: p.id, text: t(p.name) }))) : null;
+  const until = el('input', { type: 'date' });
+  const note = el('input', { maxlength: '200', placeholder: t('admin.users.optional') });
+  const planMore = el('div', { class: 'kit-grid', hidden: true },
+    field(t('admin.users.planUntil'), until), field(t('admin.users.planNote'), note));
+  plan?.addEventListener('change', () => { planMore.hidden = !plan.value; });
+
+  const lead = local() ? t('admin.users.newLeadLocal') : atProvider ? t('admin.users.newLeadWorkos', { provider }) : null;
+  formDialog({
     title: t('admin.users.new'),
-    content: el('div', { class: 'kit-grid' },
-      field(t('fields.username'), username),
-      field(t('fields.display_name'), name),
-      field(t('fields.email'), email, local() ? null : t('admin.users.idpEmailHint', { provider: state.config.name })),
-      field(t('fields.role'), role),
-      local() ? field(t('fields.password'), password, t('admin.users.passwordHint')) : null),
+    content: [
+      lead ? el('p', { class: 'kit-hint', text: lead }) : null,
+      el('div', { class: 'kit-grid' },
+        field(t('fields.email'), email, local() || atProvider ? null : t('admin.users.idpEmailHint', { provider })),
+        username ? field(t('fields.username'), username, t('admin.users.usernameHint')) : null,
+        field(t('fields.display_name'), name),
+        field(t('fields.role'), role),
+        password ? field(t('fields.password'), password,
+          local() ? t('admin.users.passwordHint') : t('admin.users.passwordHintWorkos', { provider })) : null),
+      asked,
+      plan ? el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan)) : null,
+      plan ? planMore : null,
+    ],
     actions: [
       { label: t('admin.cancel') },
-      {
-        label: t('admin.users.create'), primary: true,
-        onClick: async () => {
-          try {
-            await api.post('/api/admin/users', {
-              username: username.value.trim(), display_name: name.value.trim() || undefined,
-              email: email.value.trim() || null, role: role.value, password: password.value || null,
-            });
-            toast(t('admin.users.created'));
-            show();
-            return true;
-          } catch (err) {
-            fail(err);
-            return false;
-          }
-        },
-      },
+      { label: t('admin.users.create'), primary: true, submit: true },
     ],
+    onSubmit: async () => {
+      const typed = password?.value || '';
+      try {
+        const user = await api.post('/api/admin/users', {
+          email: email.value.trim() || null, display_name: name.value.trim() || undefined, role: role.value,
+          ...(username?.value.trim() ? { username: username.value.trim() } : {}),
+          ...(typed ? { password: typed, ...(again ? again.body() : {}) } : {}),
+          ...(local() ? { email_verified: Boolean(email.value.trim()) } : {}),
+          ...(plan?.value ? { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null } : {}),
+        });
+        toast(local() ? t('admin.users.createdAs', { username: user.username }) : t('admin.users.created'));
+        show();
+        return true;
+      } catch (err) {
+        // A recent sign-in is what the server wants (an admin who signs in with Google): to it, and back.
+        if (err?.code === 'reauth_required') { reauthFailed(err); return false; }
+        if (err instanceof SessionExpired) { fail(err); return true; }
+        throw err;
+      }
+    },
   });
-  username.focus();
+  email.focus();
 }
 
 function userDialog(user) {

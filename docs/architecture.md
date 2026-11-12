@@ -1474,6 +1474,23 @@ role, plan, extras granted per feature with an end date, a new password, signing
 disabling, removal), invitations with the link to pass on, what each plan allows, organizations
 when that module is on, and the activity log, filtered and paged. A feature is named by the app's
 `features.<key>` text when it has one, else by its label in the configuration.
+
+**Accounts the admin makes** (**done**, v0.263.0, `POST /api/admin/users`; Martin, 12/11/2026: test
+accounts for the stores' reviews, testers, directories). Users › New account takes an email, a
+name, a role, a password and the plan the account has from the start (with its end and reason),
+checks all of it before making anything, and gives the plan in the account's own transaction
+(`accounts.create({ also })`), so Users › Plan shows it as one the admin gave. An email any
+account here has is `409 email_taken`; without a username, one comes from the email. With local
+passwords the email is taken as confirmed (`email_verified: true`), with no message to confirm it.
+With WorkOS, only where the install owns the logins (`accounts.adminIdentity`, Cronum Work), a
+password makes the login at WorkOS (`POST /user_management/users` with `email_verified: true` and
+the app's mark in its metadata) and links the account here to it, so it signs in on AuthKit at
+once; the admin gives their own password (and code) again first, as for setting someone's
+password there, since that login opens every product. An email WorkOS already has is someone's
+login, perhaps of another app: `409 email_taken_provider`, never made again. A login made for an
+account that then can't be made is deleted. Where the install doesn't own the logins, and with
+OIDC, no password can be given (`password_not_here`): the account waits, as before, for its
+person to sign in with that email. The password reaches no answer, log entry or server line.
 Next adopts the rest first (its own sign-in, settings, notice and service worker give way to the
 kit's), then Notes is built on it whole, then the others as they move to English.
 
