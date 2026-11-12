@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -282,14 +282,15 @@ async function paintPeaks(main) {
  * · Passwords here: the username too (left empty, the server takes it from the email), and the
  *   email taken as confirmed, with no message to confirm it.
  * · WorkOS where this install owns the logins (the sign-in answer's `manage`): with a password the
- *   login is made there, its email confirmed, and the admin's own password is asked again as they
- *   type one; without, as with any other provider, the account waits for its person to sign in
- *   with that email.
+ *   login is made there, its email confirmed; without, as with any other provider, the account
+ *   waits for its person to sign in with that email. The admin's own password isn't in the form:
+ *   when the server wants it (`admin_confirm_required`, at most every 10 minutes) a dialog of its own
+ *   asks for it over this one, and the account is sent again (confirmYourself).
  * What the server refuses (an email that already has an account here or a login at WorkOS) is said
  * inside the dialog, which stays open to be corrected.
  */
 async function newUserDialog() {
-  // Whether this install makes WorkOS logins, and what the admin gives again for it (workos-security.js).
+  // Whether this install makes WorkOS logins (workos-security.js).
   const signIn = workos() ? await api.get(`/api/admin/users/${state.me.id}/sign-in`).catch(() => null) : null;
   const atProvider = signIn?.manage === true;
   const provider = state.config.name;
@@ -298,12 +299,6 @@ async function newUserDialog() {
   const name = el('input', { maxlength: '80', autocomplete: 'off' });
   const role = el('select', {}, ['user', 'admin'].map((r) => el('option', { value: r, text: t(`admin.roles.${r}`) })));
   const password = local() || atProvider ? el('input', { type: 'password', autocomplete: 'new-password', maxlength: '1024' }) : null;
-  // The admin's own password (and code), once a password is typed: a recent sign-in has nothing to type.
-  const again = atProvider ? reauthFields(signIn.reauth) : null;
-  const asked = again?.nodes.some(Boolean) ? el('div', { class: 'kit-stack', hidden: true },
-    el('p', { class: 'kit-hint', text: t('admin.users.reauthCreate', { provider }) }),
-    el('div', { class: 'kit-grid' }, ...again.nodes)) : null;
-  if (asked) password.addEventListener('input', () => { asked.hidden = !password.value; });
 
   // The plan from the start, where there is more than one: its end and its reason only with one of its own.
   const several = (state.catalog?.plans.length ?? 0) > 1;
@@ -328,7 +323,6 @@ async function newUserDialog() {
         field(t('fields.role'), role),
         password ? field(t('fields.password'), password,
           local() ? t('admin.users.passwordHint') : t('admin.users.passwordHintWorkos', { provider })) : null),
-      asked,
       plan ? el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan)) : null,
       plan ? planMore : null,
     ],
@@ -338,14 +332,26 @@ async function newUserDialog() {
     ],
     onSubmit: async () => {
       const typed = password?.value || '';
+      const body = {
+        email: email.value.trim() || null, display_name: name.value.trim() || undefined, role: role.value,
+        ...(username?.value.trim() ? { username: username.value.trim() } : {}),
+        ...(typed ? { password: typed } : {}),
+        ...(local() ? { email_verified: Boolean(email.value.trim()) } : {}),
+        ...(plan?.value ? { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null } : {}),
+      };
+      const send = async () => {
+        try {
+          return await api.post('/api/admin/users', body);
+        } catch (err) {
+          // The admin's own password, asked apart (at most every 10 minutes); confirmed, the same again.
+          if (err?.code !== 'admin_confirm_required') throw err;
+          if (!(await confirmYourself(err.data?.reauth))) return null;
+          return api.post('/api/admin/users', body);
+        }
+      };
       try {
-        const user = await api.post('/api/admin/users', {
-          email: email.value.trim() || null, display_name: name.value.trim() || undefined, role: role.value,
-          ...(username?.value.trim() ? { username: username.value.trim() } : {}),
-          ...(typed ? { password: typed, ...(again ? again.body() : {}) } : {}),
-          ...(local() ? { email_verified: Boolean(email.value.trim()) } : {}),
-          ...(plan?.value ? { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null } : {}),
-        });
+        const user = await send();
+        if (!user) return false;
         toast(local() ? t('admin.users.createdAs', { username: user.username }) : t('admin.users.created'));
         show();
         return true;
@@ -358,6 +364,36 @@ async function newUserDialog() {
     },
   });
   email.focus();
+}
+
+/**
+ * The admin's own password (and code) in a dialog of its own, over whatever asked for it
+ * (`reauth`: password or password_code, as the server said): POST /api/admin/confirm, which stands
+ * 10 minutes in this session. A wrong one is said inside it, which stays open. → true once
+ * confirmed, false if the admin gave up.
+ */
+function confirmYourself(reauth) {
+  return new Promise((resolve) => {
+    let confirmed = false;
+    const again = reauthFields(reauth === 'password_code' ? 'password_code' : 'password');
+    const { dialog } = formDialog({
+      title: t('admin.confirm.title'),
+      width: QUESTION_WIDTH,
+      keepTyped: false,
+      content: [el('p', { class: 'kit-hint', text: t('admin.confirm.lead') }), ...again.nodes],
+      actions: [
+        { label: t('admin.cancel') },
+        { label: t('admin.confirm.action'), primary: true, submit: true },
+      ],
+      onSubmit: async () => {
+        await api.post('/api/admin/confirm', again.body());
+        confirmed = true;
+        return true;
+      },
+      onClose: () => resolve(confirmed),
+    });
+    dialog.querySelector('input')?.focus();
+  });
 }
 
 function userDialog(user) {
