@@ -27,7 +27,6 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `kit.calendar.show` is gone (the switch says `kit.calendar.title`); new `kit.modules.barTitle`,
     `kit.modules.barHint`, `kit.day.show`, `kit.day.showHint`.
 
-
 ## 0.267.0 — 2026-11-12
 
 - **Settings › Calendar: what shows on it** (`calendar.js`, `host.js`, `web/settings.js`, `i18n/*.json`;
