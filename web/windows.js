@@ -532,6 +532,8 @@ function defaultStorage() {
  * @param {Function} [options.onShow]   (module) a window that comes into view
  * @param {Function} [options.onGesture] (on, kind) a reorder, resize or swipe starts or ends, for whoever measures
  * @param {Function} [options.onFocus]  (module) the focus went to another window
+ * @param {Function} [options.onLayout] (layout) the windows were placed again: a shape chosen, a window
+ *   carried or shown, a bar moved, a narrower or wider desk (the rail's picture of the layout)
  * @param {Function} [options.onEvict]  (module) a module to unmount, its window to remove: more than four were mounted
  * @param {string[]|Function} [options.modules] the modules there are, in the rail's order (the phone's tabs)
  * @param {Function} [options.nameOf]   (module) → its name, for the tabs and the heads' labels
@@ -540,7 +542,7 @@ function defaultStorage() {
  */
 export function createWindows(desk, {
   windowOf,
-  onPause = () => {}, onShow = () => {}, onGesture = () => {}, onFocus = () => {}, onEvict = () => {},
+  onPause = () => {}, onShow = () => {}, onGesture = () => {}, onFocus = () => {}, onLayout = () => {}, onEvict = () => {},
   modules = [], nameOf = (module) => module, iconOf = () => null,
   storage = defaultStorage(), win = globalThis, maxMounted = MAX_MOUNTED,
 } = {}) {
@@ -735,6 +737,7 @@ export function createWindows(desk, {
       writeLayout(storage, keep);
     }
     announce();
+    onLayout(layout);
   }
 
   function hide(module) {

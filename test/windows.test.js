@@ -550,6 +550,16 @@ test('windows: the rail’s columns, and what doesn’t fit the desk stacks', ()
   windows.destroy();
 });
 
+test('windows: onLayout hears every placing, with the layout in sight', () => {
+  const heard = [];
+  const { windows } = setup({ width: 800, onLayout: (layout) => heard.push(layout.cols.map((c) => c.wins.length).join('')) });
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }, { wins: ['tasks'] }] });
+  assert.equal(heard.at(-1), '12', 'three asked: two columns fit 784 px, the third stacks');
+  windows.columns(1);
+  assert.equal(heard.at(-1), '1');
+  windows.destroy();
+});
+
 test('windows: a shape comes back with the shares its bars had', () => {
   const { windows } = setup({ width: 1400 });
   windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }, { wins: ['tasks'] }] });

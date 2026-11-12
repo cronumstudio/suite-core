@@ -14,6 +14,9 @@ change an interface and a patch never does. Apps pin a version through the submo
   showed: `work.layout` keeps them for every shape (`shares`) beside the layout.
   - New exports `asShape(n)`, `shapeOf(layout)` and `readShares(storage, n)`; `applyColumns()`
     takes `{ shares }`. What `work.layout` kept before reads as it did.
+  - `createWindows({ onLayout })`: called with the layout in sight each time the windows are placed
+    again (a shape chosen, a window carried or shown, a bar moved, a narrower or wider desk), so the
+    shell's picture of it never stays behind.
 - **A menu can hold a node of its own** (`web/ui.js` `menu(…, { body })`; docs/web-kit.md): after
   the items, a grid of choices, say; its buttons with `role="menuitem"` move with the arrows.
 
