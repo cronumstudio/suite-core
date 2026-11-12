@@ -4,7 +4,7 @@
  * on until they cancel it in the store, while one cancelled already says it won't renew, with no
  * warning; what they pay unknown, nothing is asked; a payment
  * provider that can't cancel keeps the account, and the panel says why; and when the server wants
- * a recent sign-in, it is a fresh one, back at the panel. On a fake page, with the core's English
+ * a sign-in made after it asked, it is a fresh one, back at the panel. On a fake page, with the core's English
  * catalog. A file of its own: admin.js starts the page as it is imported.
  *
  *   npm test
