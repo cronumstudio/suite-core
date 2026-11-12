@@ -200,6 +200,17 @@ export const HOST_MIGRATIONS = Object.freeze([
   { version: 8, name: 'day-notices', up: dayNoticesSchema },
   // Each person's subscription link to the calendar (calendar-feed.js), with options.calendarFeed.
   { version: 9, name: 'calendar-feeds', up: calendarFeedsSchema },
+  {
+    version: 10,
+    name: 'day-shown',
+    // Whether each person has the daily summary's button on their rail (Settings › Modules). No
+    // row: shown, as it always was before the switch.
+    up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_day (
+      user_id   INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      shown     INTEGER NOT NULL DEFAULT 1,
+      chosen_at TEXT NOT NULL
+    )`),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -618,6 +629,17 @@ function moduleListErrors(modules) {
  *   person has `prefs.day` (two notices, morning and evening, each with its switch and time, in
  *   Settings) and, with push, the host sends those notices; a module's suite says `daySummary: true`,
  *   for it to leave out a morning notice of its own
+ *   The summary's button on the rail is each person's to hide: `day_shown` in GET /api/modules
+ *   (no choice yet: shown), `PUT /api/me/day { shown }`
+ * @param {string[]} [options.doors]  modules that are a button on the rail, not a module among the
+ *   others (Cronum Work's Croc): GET /api/modules marks them `door: true`, and Settings › Modules
+ *   turns them on and off next to the calendar's switch, out of the order, without a group of
+ *   their own in Settings nor a way to install them alone. At least one module that isn't a door
+ *   stays on. A mount the host doesn't have is left out
+ * @param {string} [options.moduleHints]  where Settings › Modules finds each module's line, under
+ *   its switch: a key prefix in the host's own catalog (`/i18n/<lang>.json`), the mount after it
+ *   (`'home.modules.'` → `home.modules.tasks`). GET /api/modules says it as `host.hints`. Without
+ *   it, the module's line in About (its `tagline`)
  * @param {string} [options.aiInstruction]  the host's route that builds the prompt for an assistant, for the
  *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
  *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
@@ -663,7 +685,7 @@ function moduleListErrors(modules) {
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
   aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
-  pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
+  pages = [], scopedSheets = false, liveAll = false, mcpOptions = null, doors = [], moduleHints = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
@@ -1037,6 +1059,10 @@ export async function createHost({
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
+  // The modules that are a button on the rail instead (options.doors): only ones the host has.
+  const doorSet = new Set((Array.isArray(doors) ? doors : []).map(String).filter((mount) => byMount.has(mount)));
+  // Where Settings › Modules finds each module's line (options.moduleHints): a key prefix of the host's catalog.
+  const hints = typeof moduleHints === 'string' && /^[A-Za-z][\w.-]*$/.test(moduleHints) ? moduleHints : null;
   /** A page at the root (the host's own index.html); files alone, such as its icons, aren't one. */
   const hasHome = Boolean(publicDir) && fs.existsSync(path.join(publicDir, 'index.html'));
 
@@ -1077,6 +1103,8 @@ export async function createHost({
     settings: moduleSettings(m.parts.settings, { data: Boolean(m.parts.portable) }),
     // What it gives the daily summary (day.js): Settings › Daily summary offers it in those notices.
     ...(day ? { day: ['agenda', 'done'].filter((part) => typeof m.parts.day?.[part] === 'function') } : {}),
+    // A button on the rail, not a module among the others (options.doors).
+    ...(doorSet.has(m.mount) ? { door: true } : {}),
   }));
 
   /**
@@ -1093,6 +1121,8 @@ export async function createHost({
     // The calendar's button only for whoever turned it on (Settings › Modules): off, the rail stays as it was.
     const calendarShown = Boolean(calendar && user
       && suite.database.get('SELECT shown FROM host_calendar WHERE user_id = ?', user.id)?.shown);
+    // The daily summary's button for everyone until they hide it (Settings › Modules).
+    const dayShown = Boolean(day) && (!user || (suite.database.get('SELECT shown FROM host_day WHERE user_id = ?', user.id)?.shown ?? 1) === 1);
     return {
       host: {
         name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendarShown ? { calendar } : {}),
@@ -1102,9 +1132,13 @@ export async function createHost({
         ...(aiInstruction ? { aiInstruction } : {}),
         // The daily summary's page, for Settings' section of it and its links.
         ...(day ? { day } : {}),
+        // Where Settings › Modules finds each module's line in the host's catalog.
+        ...(hints ? { hints } : {}),
       },
       // Whether they have it on, where the host has a calendar: Settings › Modules offers the switch.
       ...(calendar ? { calendar_shown: calendarShown } : {}),
+      // And the daily summary's button, where the host has one: shown until they hide it.
+      ...(day ? { day_shown: dayShown } : {}),
       // Whether the first start still asks them its two questions: once, answered or skipped.
       ...(firstQuestions && user ? {
         first_questions: !suite.database.get('SELECT 1 AS asked FROM host_first_answers WHERE user_id = ?', user.id),
@@ -1245,6 +1279,20 @@ export async function createHost({
           sendJson(ctx.res, 200, modulesOf(ctx.user));
         });
       }
+      // Whether the daily summary's button is on this person's rail: one choice for the whole host.
+      if (day) {
+        api.put('/api/me/day', async (ctx) => {
+          if (!ctx.user) throw unauthorized();
+          const body = await readJson(ctx.req);
+          if (typeof body.shown !== 'boolean') throw badRequest('field_invalid', { field: 'shown' });
+          suite.database.run(`INSERT INTO host_day (user_id, shown, chosen_at) VALUES (?, ?, ?)
+            ON CONFLICT (user_id) DO UPDATE SET shown = excluded.shown, chosen_at = excluded.chosen_at`,
+          ctx.user.id, body.shown ? 1 : 0, new Date().toISOString());
+          // Their open tabs, in every module, repaint their rail.
+          suite.accounts.changed(ctx.user.id);
+          sendJson(ctx.res, 200, modulesOf(ctx.user));
+        });
+      }
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
       const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
       registerOwnUsageApi(api, { usageFor });
@@ -1276,7 +1324,8 @@ export async function createHost({
         if (!active) throw badRequest('field_invalid', { field: 'modules' });
         const unknown = active.filter((mount) => !byMount.has(mount));
         if (unknown.length) throw badRequest('field_invalid', { field: 'modules' });
-        if (!active.length) throw badRequest('field_required', { field: 'modules' });
+        // One module stays on, and a door on the rail (options.doors) isn't one.
+        if (!active.some((mount) => !doorSet.has(mount))) throw badRequest('field_required', { field: 'modules' });
         const at = new Date().toISOString();
         suite.database.tx(() => {
           for (const { mount } of listed) {

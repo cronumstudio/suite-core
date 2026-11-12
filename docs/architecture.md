@@ -2002,11 +2002,25 @@ The third, `host_looks`, keeps the look each person chose for every module (v0.1
 sets it from Settings › Language and theme. The kit paints it as `<html data-look="clean">`
 (web-kit.md).
 
-Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the account's
-sections, then a group for each module in use, then the host's. A module names its sections for
+Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the same list.
+Since 0.264.0, first the host's group (Modules, Language and theme, Your AI, Notifications, the
+daily summary, the calendar, Administration), then a group for each module in use, then the
+account's (Profile, Password and access, where the account is signed in, Plan, deleting it), and
+About the whole app on its own at the foot; an app on its own keeps Account, Connections and its
+own group, as before. A module names its sections for
 the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }], ai, about }`,
 with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
 with `data` when the module declares its data) and drops what isn't well formed.
+
+Settings › Modules (0.264.0) has each module with its line under its name: the host's catalog's
+with `createHost({ moduleHints: 'home.modules.' })` (`host.hints` in `/api/modules`, the key
+being the prefix and the mount, read from `/i18n/<lang>.json`), else its line in About. Under
+them, a block of what is a button on the rail and not a module, each a switch, in no order: the
+calendar (`calendar_shown`), the daily summary (`day_shown`: shown until hidden, `PUT /api/me/day
+{ shown }`, table `host_day`, migration 10) and each door, `createHost({ doors: ['croc'] })`: a
+module marked `door: true` in `/api/modules`, turned on and off as a module is
+(`PUT /api/me/modules`), but out of the order, without a group in Settings, never installed alone,
+and never the one module left on (`400 field_required`).
 
 ### 21.2 One MCP
 

@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.264.0 — 2026-11-12
+
+- **Settings in a host, in a new order** (`web/settings.js`; docs/architecture.md §21.1): first
+  the host's group (Modules, Language and theme, Your AI, Notifications, Daily summary, the
+  calendar's link, Administration), then each module's, then Account (Profile, Password and
+  access, where you're signed in, Plan, Delete my account), and About the whole app on its own at
+  the foot. Connections is gone from a host. The sections keep their ids, so `?settings=` links
+  still open them. An app on its own keeps its list as it was.
+- **Settings › Modules: each module with its line, and the rail's buttons apart**
+  (`web/settings.js`, `web/kit.css`, `host.js`, `i18n/*.json`): each module has its line under
+  its name, from the host's catalog with `createHost({ moduleHints })` (`host.hints` in
+  `GET /api/modules`), else its line in About. Under the modules, a block «On the bar» with what
+  is a button on the rail and not a module, each a switch, in no order: the calendar (as before,
+  now named Calendar with a short line), My day (the daily summary's button, new) and each door.
+  - `createHost({ doors: ['croc'] })`: those modules are marked `door: true` in `/api/modules`,
+    are turned on and off as before (`PUT /api/me/modules`), but leave the modules' order, have
+    no group in Settings and no way to be installed alone, and are never the one module left on
+    (`400 field_required`). A mount the host lacks is left out.
+  - The daily summary's button is each person's to hide: `day_shown` in `GET /api/modules` (no
+    choice yet: shown, as before), `PUT /api/me/day { shown }`. Migration 10 of the host,
+    `host_day`. The summary itself, its notices and Settings › Daily summary don't change.
+  - `kit.calendar.show` is gone (the switch says `kit.calendar.title`); new `kit.modules.barTitle`,
+    `kit.modules.barHint`, `kit.day.show`, `kit.day.showHint`.
+
 ## 0.263.0 — 2026-11-12
 
 - **The admin makes accounts that sign in at once** (`api.js`, `accounts.js`, `workos.js`,
