@@ -1279,6 +1279,7 @@
   "kit.calendarFeed.apple": "Apri in Calendario",
   "kit.calendarFeed.howTitle": "Come aggiungerlo",
   "kit.calendarFeed.howGoogle": "Google Calendar, sul computer: Altri calendari › + › Da URL, incolla il link e Aggiungi calendario. Google lo aggiorna ogni poche ore.",
+  "kit.calendarFeed.howAndroid": "Android: l’app Google Calendar non si abbona a un link. Aggiungilo dal computer come sopra e comparirà sul telefono; se no, nell’app, Impostazioni › quel calendario › Sincronizza.",
   "kit.calendarFeed.howOutlook": "Outlook: Calendario › Aggiungi calendario › Abbonati dal Web, incolla il link e dagli un nome.",
   "kit.calendarFeed.howApple": "Calendario di Apple: sul Mac, File › Nuova sottoscrizione calendario; sull’iPhone, Impostazioni › App › Calendario › Account calendario › Aggiungi account › Altro › Aggiungi calendario sottoscritto.",
   "kit.calendarFeed.renew": "Cambia link",
