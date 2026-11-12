@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.265.0 — 2026-11-12
+
+- **Settings › Calendar: what shows on it** (`calendar.js`, `host.js`, `web/settings.js`, `i18n/*.json`;
+  docs/architecture.md §21.3.1): the section «Calendar subscription» is now «Calendar» and starts with a switch
+  for each module with dates that the person uses (Tasks, Projects, Notes in Cronum Work), for every plan. One
+  turned off leaves the calendar page and its filters, the link for calendar apps and the assistants' tool:
+  it isn't asked. `GET` and `PUT /api/me/calendar/modules[/:mount] { shown }`, host migration 10
+  (`host_calendar_modules`, a row for each module chosen; none, it shows), `host.calendarModules` in every
+  module's config. The link (Pro's) follows under them, titled «Calendar subscription». Asked by Martin.
+
 ## 0.263.1 — 2026-11-12
 
 - **The calendar link on Android** (`web/settings.js`, `i18n/*.json`): Settings › «Calendar subscription»

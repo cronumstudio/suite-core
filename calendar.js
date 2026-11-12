@@ -19,10 +19,12 @@
  * the module's own path here, as the links' cards (links.js), `mine` whether it is the person's
  * (assigned to them), `time` 'HH:MM' when it has a real time of day.
  *
- * Only the modules the person uses are asked, all at once. One that fails is left out and named
+ * Only the modules the person uses are asked, all at once, and of those the ones they keep on the
+ * calendar (Settings › Calendar, `host_calendar_modules`): one turned off there leaves its page, its
+ * link for calendar apps and the assistants' tool alike. One that fails is left out and named
  * (`failed`), never the whole answer: the rest of the calendar still shows.
  */
-import { badRequest, unauthorized, sendJson, isoDate } from './http.js';
+import { badRequest, unauthorized, sendJson, isoDate, readJson } from './http.js';
 import { addDays, inZoneOf, todayFor } from './time.js';
 
 /** The longest span asked at once, in days with both ends: a whole year, a leap one too. */
@@ -56,9 +58,16 @@ const byDays = (a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.end
  * @param {(user, mount) => boolean} [options.uses]   whether someone uses a module
  * @param {(m) => string} [options.icon]       a module's icon as the host's pages show it
  */
-export function createCalendar({ modules, uses = () => true, icon = (m) => m.config.app.icon, log = () => {} }) {
-  /** The modules with a calendar that someone uses, in the host's order. */
-  const sourcesOf = (user) => modules().filter((m) => typeof m.parts?.calendar?.range === 'function' && uses(user, m.mount));
+export function createCalendar({
+  modules, uses = () => true, icon = (m) => m.config.app.icon, log = () => {}, hidden = () => new Set(),
+}) {
+  /** The modules with a calendar that someone uses, in the host's order, whether they show or not. */
+  const usedOf = (user) => modules().filter((m) => typeof m.parts?.calendar?.range === 'function' && uses(user, m.mount));
+  /** Of those, the ones they have on the calendar (Settings › Calendar): its page, its link and the assistants' tool. */
+  const sourcesOf = (user) => {
+    const off = hidden(user);
+    return usedOf(user).filter((m) => !off.has(m.mount));
+  };
 
   /** An item as the calendar shows it, from what its module gave; null for one that can't be shown. */
   function itemOf(m, raw, { from, to }) {
@@ -113,14 +122,73 @@ export function createCalendar({ modules, uses = () => true, icon = (m) => m.con
     };
   }
 
-  return { range };
+  /**
+   * The modules with a calendar that someone uses and whether each shows on it, for Settings ›
+   * Calendar: [{ mount, name, color, icon, shown }], in the host's order.
+   */
+  function choicesOf(user) {
+    const off = hidden(user);
+    return usedOf(user).map((m) => ({
+      mount: m.mount, name: m.config.app.name, color: m.config.app.color, icon: icon(m), shown: !off.has(m.mount),
+    }));
+  }
+
+  return { range, choicesOf };
 }
 
-/** The host's route for its calendar page, at its root: `GET /api/calendar?from=&to=`. */
-export function registerCalendarApi(api, { calendar }) {
+/**
+ * Which modules each person has on the calendar: a row for each module they turned off or on again
+ * in Settings › Calendar; with none, it shows. A module that comes later shows until they choose.
+ */
+export function calendarModulesSchema(d) {
+  d.exec(`CREATE TABLE IF NOT EXISTS host_calendar_modules (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    module    TEXT NOT NULL,
+    shown     INTEGER NOT NULL,
+    chosen_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, module)
+  )`);
+}
+
+/** What someone chose to leave off the calendar (`hiddenOf`, a Set of mounts), and choosing it (`choose`). */
+export function createCalendarChoices({ database, clock = () => new Date() }) {
+  return {
+    hiddenOf(user) {
+      if (!user?.id) return new Set();
+      return new Set(database.all('SELECT module FROM host_calendar_modules WHERE user_id = ? AND shown = 0', user.id)
+        .map((row) => row.module));
+    },
+    choose(user, mount, shown) {
+      database.run(`INSERT INTO host_calendar_modules (user_id, module, shown, chosen_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT (user_id, module) DO UPDATE SET shown = excluded.shown, chosen_at = excluded.chosen_at`,
+      user.id, mount, shown ? 1 : 0, clock().toISOString());
+    },
+  };
+}
+
+/**
+ * The host's routes for its calendar, at its root: `GET /api/calendar?from=&to=` for its page, and
+ * with `choices`, Settings › Calendar's: `GET /api/me/calendar/modules` and
+ * `PUT /api/me/calendar/modules/:mount { shown }`, both answering `{ modules: choicesOf(user) }`.
+ */
+export function registerCalendarApi(api, { calendar, choices = null }) {
   api.get('/api/calendar', async (ctx) => {
     if (!ctx.user) throw unauthorized();
     sendJson(ctx.res, 200, await calendar.range(ctx.user, { from: ctx.query.get('from'), to: ctx.query.get('to') }));
+  });
+  if (!choices) return;
+  api.get('/api/me/calendar/modules', (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    sendJson(ctx.res, 200, { modules: calendar.choicesOf(ctx.user) });
+  });
+  api.put('/api/me/calendar/modules/:mount', async (ctx) => {
+    if (!ctx.user) throw unauthorized();
+    const body = await readJson(ctx.req);
+    if (typeof body.shown !== 'boolean') throw badRequest('field_invalid', { field: 'shown' });
+    // Only a module with a calendar that they use: anything else is no choice to keep.
+    if (!calendar.choicesOf(ctx.user).some((m) => m.mount === ctx.params.mount)) throw badRequest('field_invalid', { field: 'module' });
+    choices.choose(ctx.user, ctx.params.mount, body.shown);
+    sendJson(ctx.res, 200, { modules: calendar.choicesOf(ctx.user) });
   });
 }
 
