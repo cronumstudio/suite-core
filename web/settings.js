@@ -399,18 +399,16 @@ export function openSettings(options) {
 
   /**
    * A module of a host: one Settings for the whole app, the same list in every module. First the
-   * host's group: the modules in use, the language, the AI, the notices, the daily summary, the
-   * calendar and administration, the whole app's. Then a group for each module the person uses, in
-   * their order, with that module's own sections and its data; then the account's, deleting it
-   * (every module's) last; and about the whole app on its own, at the foot. This module draws its
-   * own sections here; another's are named here and drawn in that module (goTo).
+   * host's group, the whole app's: the language, the modules in use, the daily summary, the
+   * calendar, the notices, the AI and administration. Then a group for each module the person
+   * uses, in their order, with that module's own sections and its data; then the account's,
+   * deleting it (every module's) last; and about the whole app on its own, at the foot. This module
+   * draws its own sections here; another's are named here and drawn in that module (goTo).
    */
   const hostSections = () => [
+    appearanceSection(host.name),
     !alone() ? { group: host.name, id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
       hint: () => inUse.filter((m) => m.active && !m.door).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
-    appearanceSection(host.name),
-    aiSection(host.name),
-    notificationsSection(host.name),
     // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
     host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
       hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
@@ -419,6 +417,8 @@ export function openSettings(options) {
     (host.calendarModules || host.calendarFeed) && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar',
       label: t('kit.calendar.title'), hint: () => t(host.calendarFeed ? 'kit.calendar.hintFeed' : 'kit.calendar.hint'),
       render: () => needsServer(calendarSection) } : null,
+    notificationsSection(host.name),
+    aiSection(host.name),
     admin(host.name),
     ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
     profileSection(t('kit.settings.groups.account')),
