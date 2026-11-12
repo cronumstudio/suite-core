@@ -1298,7 +1298,6 @@
   "kit.calendarFeed.confirmOff": "Abonnierte Kalender bekommen nichts mehr aus {app}. Link ausschalten?",
   "kit.day.title": "Tagesübersicht",
   "kit.day.hint": "Eine Benachrichtigung am Morgen und eine am Abend",
-  "kit.day.show": "Mein Tag",
   "kit.day.showHint": "Was heute ansteht und was heute erledigt ist, aus allen Modulen",
   "kit.day.intro": "{app} sagt dir jeden Morgen, was heute ansteht, mit allem, was von vorher noch offen ist, und jeden Abend, was du geschafft hast. An einem Tag ohne Neuigkeiten kommt nichts.",
   "kit.day.morning": "Am Morgen",

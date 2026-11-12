@@ -3,6 +3,12 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.271.1 — 2026-11-12
+
+- **Settings › Modules › On the bar: the daily summary's switch says «Daily summary»** (`web/settings.js`,
+  `i18n/*.json`), the name of the page it shows or hides, which holds the evening's summary too (Martin).
+  `kit.day.show` goes; the switch says `kit.day.title`.
+
 ## 0.271.0 — 2026-11-12
 
 - **«Open in Apple Calendar» in the phone app** (`calendar-feed.js`, `web/settings.js`, `web/native.js`;

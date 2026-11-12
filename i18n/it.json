@@ -1298,7 +1298,6 @@
   "kit.calendarFeed.confirmOff": "I calendari abbonati non riceveranno più ciò che c’è in {app}. Disattivare il link?",
   "kit.day.title": "Riepilogo del giorno",
   "kit.day.hint": "Una notifica al mattino e una la sera",
-  "kit.day.show": "La mia giornata",
   "kit.day.showHint": "Cosa c’è da fare oggi e cosa hai fatto oggi, da tutti i moduli",
   "kit.day.intro": "{app} ti dice ogni mattina cosa hai da fare oggi, con ciò che è rimasto in sospeso, e ogni sera cosa hai fatto. In un giorno senza niente da dire, non arriva nulla.",
   "kit.day.morning": "Al mattino",
