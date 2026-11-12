@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCalendar, calendarSpan, CALENDAR_MAX_DAYS, CALENDAR_MODULE_MAX } from '../calendar.js';
+import { createCalendar, createCalendarChoices, calendarSpan, CALENDAR_MAX_DAYS, CALENDAR_MODULE_MAX } from '../calendar.js';
 import { hostMcp } from '../host.js';
 import { addDays, todayFor, currentZone } from '../time.js';
 
@@ -240,4 +240,38 @@ test('without the calendar, or without a module that gives its dates, no work_ca
   const tasks = moduleOf('tasks', 'Tasks', () => []);
   assert.equal(mcpOf({ modules: [tasks], calendar: false }), null, 'a host without it, as before');
   assert.equal(mcpOf({ modules: [moduleOf('next', 'Next', null)] }), null, 'nothing to show');
+});
+
+test('a module someone keeps off the calendar is not asked: its page, its link and the tool leave it out, and Settings lists it off', async () => {
+  const asked = [];
+  const tasks = moduleOf('tasks', 'Tasks', (user) => { asked.push('tasks'); return []; });
+  const notes = moduleOf('notes', 'Notes', (user) => { asked.push('notes'); return []; });
+  const next = moduleOf('next', 'Next', null, { cards: {} });
+  const off = new Map([[1, new Set(['notes'])]]);
+  const calendar = createCalendar({ modules: () => [tasks, notes, next], hidden: (user) => off.get(user.id) ?? new Set() });
+  const answer = await calendar.range(ana, { from: '2026-11-01', to: '2026-11-07' });
+  assert.deepEqual(asked, ['tasks'], 'Notes, kept off, is not asked');
+  assert.deepEqual(answer.modules.map((m) => m.mount), ['tasks'], 'nor offered as a filter');
+  assert.deepEqual(calendar.choicesOf(ana), [
+    { mount: 'tasks', name: 'Tasks', color: '#550000', icon: '/icons/tasks.svg', shown: true },
+    { mount: 'notes', name: 'Notes', color: '#550000', icon: '/icons/notes.svg', shown: false },
+  ], 'Settings lists each module with dates, on or off; Next gives none');
+  assert.deepEqual(calendar.choicesOf(bob).map((m) => m.shown), [true, true], 'someone who chose nothing has them all');
+});
+
+test('the choices are each person\'s, one row a module, kept until changed', () => {
+  const rows = new Map();
+  const database = {
+    all: (sql, userId) => [...rows.values()].filter((r) => r.user_id === userId && r.shown === 0).map((r) => ({ module: r.module })),
+    run: (sql, userId, module, shown, at) => rows.set(`${userId}/${module}`, { user_id: userId, module, shown, chosen_at: at }),
+  };
+  const choices = createCalendarChoices({ database, clock: () => new Date('2026-11-12T10:00:00Z') });
+  assert.deepEqual([...choices.hiddenOf(ana)], [], 'none chosen: all of them');
+  choices.choose(ana, 'notes', false);
+  choices.choose(ana, 'projects', false);
+  choices.choose(ana, 'projects', true);
+  assert.deepEqual([...choices.hiddenOf(ana)], ['notes']);
+  assert.deepEqual([...choices.hiddenOf(bob)], [], 'Ana\'s are hers');
+  assert.equal(rows.get('1/notes').chosen_at, '2026-11-12T10:00:00.000Z');
+  assert.deepEqual([...choices.hiddenOf(null)], [], 'nobody signed in: nothing hidden');
 });
