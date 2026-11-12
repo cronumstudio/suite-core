@@ -39,6 +39,8 @@ export const COMMON_FEATURES = Object.freeze({
   'mcp.calls_per_day': { type: 'limit', default: null, label: 'calls from an assistant per day' },
   // The same calls per person and week, from Monday (UTC): an app declares this one or the daily one.
   'mcp.calls_per_week': { type: 'limit', default: null, label: 'calls from an assistant per week' },
+  // A host's calendar in the person's own calendar app, by a secret link (calendar-feed.js): the host declares it.
+  'calendar.feed': { type: 'flag', default: true, label: 'the calendar in Google Calendar, Outlook or Apple Calendar' },
 });
 
 /** The common features named, as an app's `features` wants them. */
@@ -58,6 +60,8 @@ const FREE = {
   embed: false,
   templates: false,
   mcp: true,
+  // Cronum Work's calendar in Google Calendar, Outlook or Apple Calendar: Pro's (Martin, 12 Nov 2026).
+  'calendar.feed': false,
   'mcp.calls_per_day': 100,
   // What Cronum Work declares since 0.203.0: a week evens out a busy day, and a daily 100 was
   // more than almost anyone uses, so nobody needed Pro for it.
@@ -81,6 +85,7 @@ const PRO = {
   publish: true,
   embed: true,
   templates: true,
+  'calendar.feed': true,
   'mcp.calls_per_day': 1000,
   'mcp.calls_per_week': 2000,
   'lists.max': null,

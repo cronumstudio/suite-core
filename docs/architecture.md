@@ -2166,6 +2166,24 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   `{ from, to }`, `to` a week from `from` without it and `from` today in their zone without it,
   answered as text by day, each thing with its `module:type:id` for the modules' tools and the
   links'. A thing that lasts several days is said once, on its first day in the span.
+- **In the person's own calendar app** (`calendar-feed.js`, 0.262.0), with
+  `createHost({ calendar, calendarFeed: true })`: a secret link of theirs that Google Calendar,
+  Outlook or Apple Calendar subscribe to, `GET /api/calendar/feed/<token>.ics`, signed out. The
+  token (192 random bits) is the only thing in it; table `host_calendar_feeds` keeps its hash, to
+  find it, and the token encrypted with a key derived from the session secret, for Settings to
+  show it again. Settings has a section of the host's (`host.calendarFeed` in every module's
+  config), with `GET`, `POST` (made, or made again: the old link stops at once) and `DELETE
+  /api/me/calendar-feed` → `{ included, feed: { url, webcal, created_at, used_at } | null }`,
+  each change in the audit log (`calendar_feed.created`, `.renewed`, `.removed`). The file is
+  RFC 5545: what the calendar page shows (the modules the person uses), from 60 days ago up to a
+  year in all, one VEVENT an item with a stable UID (`<module>-<type>-<id>@<host>`), all day
+  (DTEND the day after its last) or, with a time on one day, half an hour at it in UTC from the
+  person's zone; ✓ before a done one's title, TRANSP:TRANSPARENT, its link in URL and
+  DESCRIPTION. `Cache-Control: private, max-age=900`, an ETag (304 when nothing changed),
+  `REFRESH-INTERVAL` of an hour. A wrong token is 404 and braked as a bad token is
+  (`checkToken`). Where the host declares the plan feature `calendar.feed` (plans.js: Pro's in
+  `cronum-work`), only a plan with it: making one is 402 `plan_feature`, and a link whose plan
+  ended answers 402 and is kept for when it comes back.
 
 ### 21.3.2 The daily summary
 
