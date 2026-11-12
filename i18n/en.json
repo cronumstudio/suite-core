@@ -1298,7 +1298,6 @@
   "kit.calendarFeed.confirmOff": "Subscribed calendars will stop getting what’s in {app}. Turn the link off?",
   "kit.day.title": "Daily summary",
   "kit.day.hint": "A notice in the morning and one in the evening",
-  "kit.day.show": "My day",
   "kit.day.showHint": "What’s for today and what you did today, from every module",
   "kit.day.intro": "{app} tells you each morning what you have for today, with whatever is still pending from before, and each evening what you did. On a day with nothing to say, nothing comes.",
   "kit.day.morning": "In the morning",

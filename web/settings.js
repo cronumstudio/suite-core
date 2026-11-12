@@ -1282,7 +1282,7 @@ export function openSettings(options) {
         buttons.append(shownSwitch(t('kit.calendar.title'), t('kit.calendar.showHint'), 'calendar', answer.calendar_shown, '/api/me/calendar', 'calendar_shown'));
       }
       if (typeof answer.day_shown === 'boolean') {
-        buttons.append(shownSwitch(t('kit.day.show'), t('kit.day.showHint'), 'sun', answer.day_shown, '/api/me/day', 'day_shown'));
+        buttons.append(shownSwitch(t('kit.day.title'), t('kit.day.showHint'), 'sun', answer.day_shown, '/api/me/day', 'day_shown'));
       }
       for (const m of inUse.filter((x) => x.door)) {
         const row = rowOf(m.name, {
