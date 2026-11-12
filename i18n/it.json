@@ -654,6 +654,8 @@
   "kit.cancel": "Annulla",
   "kit.close": "Chiudi",
   "kit.copy": "Copia",
+  "kit.password.show": "Mostra password",
+  "kit.password.hide": "Nascondi password",
   "kit.save": "Salva",
   "kit.back": "Indietro",
   "kit.images.unreadable": "Non è possibile leggere “{name}” come immagine.",

@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -321,7 +321,7 @@ async function newUserDialog() {
         username ? field(t('fields.username'), username, t('admin.users.usernameHint')) : null,
         field(t('fields.display_name'), name),
         field(t('fields.role'), role),
-        password ? field(t('fields.password'), password,
+        password ? field(t('fields.password'), revealable(password),
           local() ? t('admin.users.passwordHint') : t('admin.users.passwordHintWorkos', { provider })) : null),
       plan ? el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan)) : null,
       plan ? planMore : null,
@@ -441,7 +441,7 @@ function userDialog(user) {
   const passwordSection = local() ? fold({ title: t('admin.users.password') },
     el('p', { class: 'kit-hint', text: t('admin.users.passwordLead') }),
     el('div', { class: 'kit-row kit-row--end' },
-      field(t('fields.password'), password),
+      field(t('fields.password'), revealable(password)),
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
         onClick: async () => {
@@ -467,7 +467,7 @@ function userDialog(user) {
       clear(signInBox).append(fold({ title: t('admin.users.password') },
         el('p', { class: 'kit-hint', text: t('admin.users.passwordLeadWorkos') }),
         el('div', { class: 'kit-row kit-row--end' },
-          field(t('fields.password'), next),
+          field(t('fields.password'), revealable(next)),
           ...again.nodes,
           el('button', {
             type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
@@ -645,7 +645,7 @@ function reauthFields(reauth) {
   const code = reauth === 'password_code'
     ? el('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6' }) : null;
   return {
-    nodes: [own ? field(t('admin.users.yourPassword'), own) : null, code ? field(t('admin.users.yourCode'), code) : null],
+    nodes: [own ? field(t('admin.users.yourPassword'), revealable(own)) : null, code ? field(t('admin.users.yourCode'), code) : null],
     body: () => ({ ...(own ? { admin_password: own.value } : {}), ...(code ? { admin_code: code.value } : {}) }),
     reset: () => { if (own) own.value = ''; if (code) code.value = ''; },
   };

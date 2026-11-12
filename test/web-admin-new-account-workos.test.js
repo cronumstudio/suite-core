@@ -92,6 +92,8 @@ test('Users › New account with WorkOS: the admin’s password asked apart when
   assert.equal(confirm.dialog.find('h2')[0].textContent, english['admin.confirm.title']);
   assert.ok(confirm.dialog.find('p').some((p) => p.textContent === english['admin.confirm.lead']));
   assert.equal(confirm.control(english['admin.users.yourCode']), null, 'no code without a second step');
+  assert.equal(confirm.control(english['admin.users.yourPassword']).parentNode.find('button')[0].getAttribute('aria-label'), english['kit.password.show'],
+    'the admin’s own with its eye too');
   confirm.control(english['admin.users.yourPassword']).value = 'not-mine';
   await confirm.submit();
   assert.equal(confirm.error(), english['errors.wrong_password'], 'a wrong one, said where it was typed');

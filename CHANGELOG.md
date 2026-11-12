@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.269.0 — 2026-11-12
+
+- **An eye in the admin panel's password fields** (`web/ui.js`, `web/icons.js`, `web/kit.css`,
+  `web/admin.js`, `i18n/*.json`): Martin wants to see what he typed before sending it. Every
+  password of the admin panel —a new account's, the one set for someone (here or at WorkOS), and the
+  admin's own when it is asked again (the «Confirma que eres tú» dialog, deleting a login)— has a
+  button inside it, at its end, that shows the text and hides it again (`aria-pressed`, «Mostrar
+  contraseña» / «Ocultar contraseña»), and puts the cursor back in the field.
+  - The kit's `revealable(input)` wraps any password input with it, to hand to `field()` in the
+    input's place; `field()` labels what a wrapper names in `labelTarget`, so its label and hint
+    still point at the input. New icons `eye` and `eye-off`, texts `kit.password.show` and
+    `kit.password.hide`. Settings' own password fields are as they were.
+
 ## 0.267.1 — 2026-11-12
 
 - **A host's pages at `/` read the kit at its own address again** (`web/sw-core.js`): Cronum
