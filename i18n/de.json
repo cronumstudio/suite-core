@@ -654,6 +654,8 @@
   "kit.cancel": "Abbrechen",
   "kit.close": "Schließen",
   "kit.copy": "Kopieren",
+  "kit.password.show": "Passwort anzeigen",
+  "kit.password.hide": "Passwort verbergen",
   "kit.save": "Speichern",
   "kit.back": "Zurück",
   "kit.images.unreadable": "„{name}“ lässt sich nicht als Bild lesen.",

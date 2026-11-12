@@ -64,6 +64,14 @@ test('Users › New account, passwords here: everything at once, the email confi
   assert.deepEqual(labels.slice(0, 5), [english['fields.email'], english['fields.username'], english['fields.display_name'], english['fields.role'], english['fields.password']],
     'the email first');
   assert.ok(dialog.find('p').some((p) => p.textContent === text('admin.users.usernameHint')), 'the username may be left to the email');
+  // The password with its eye: what is typed can be seen before creating.
+  const typed = control(english['fields.password']);
+  const eye = typed.parentNode.find('button')[0];
+  assert.deepEqual([typed.parentNode.getAttribute('class'), eye.getAttribute('aria-label')], ['kit-password', english['kit.password.show']]);
+  eye.dispatch('click');
+  assert.equal(typed.getAttribute('type'), 'text');
+  eye.dispatch('click');
+  assert.equal(typed.getAttribute('type'), 'password');
 
   // The plan: the default one unless another is chosen; its end and reason only for one of its own.
   const plan = control(english['admin.users.planName']);

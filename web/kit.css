@@ -280,6 +280,17 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   outline: 2px solid var(--kit-accent); outline-offset: -1px; border-color: transparent;
 }
 .kit-field--bad input, .kit-field--bad select, .kit-field--bad textarea { border-color: var(--kit-danger); }
+/* A password with its eye inside, at the end (ui.js revealable): the text stops before the eye. */
+.kit-password { position: relative; display: grid; }
+/* As specific as the field's own input rule, or its padding would win. */
+.kit-field .kit-password > input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { padding-inline-end: 44px; }
+.kit-password__eye {
+  position: absolute; inset-block: 0; inset-inline-end: 0; width: 40px; border: 0; background: none; padding: 0;
+  display: grid; place-items: center; color: var(--kit-muted); cursor: pointer; border-radius: var(--look-r-md, 9px);
+}
+.kit-password__eye:hover { color: var(--kit-text); }
+.kit-password__eye:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -4px; }
+.kit-password__eye .kit-icon { width: 18px; height: 18px; }
 .kit-hint { margin: 0; color: var(--kit-muted); font-size: var(--look-footnote, 12.5px); }
 .kit-error { margin: 0; color: var(--kit-danger); font-size: var(--look-footnote, 13px); }
 .kit-check { display: flex; align-items: center; gap: 9px; }
