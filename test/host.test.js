@@ -1113,6 +1113,35 @@ test('a host with a calendar and pages of its own: those may frame the calendar�
   assert.equal((await alone('GET', '/calendar/')).headers.get('x-frame-options'), 'DENY');
 });
 
+test('a host with doors and a daily summary: a door is marked and never the last module on, and the summary’s button is each person’s to hide', async (t) => {
+  const { call } = await startHost(t, { day: '/today/', doors: ['beta', 'nope'], moduleHints: 'home.modules.' });
+  assert.equal((await call('PUT', '/api/me/day', { shown: false })).status, 401, 'signed out: nothing');
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  const before = (await call('GET', '/api/modules')).data;
+  assert.deepEqual(before.modules.map((m) => [m.mount, m.door ?? false]), [['alpha', false], ['beta', true]], 'a mount the host lacks is left out');
+  assert.equal(before.host.hints, 'home.modules.', 'where Settings finds each module’s line');
+  assert.equal(before.day_shown, true, 'the summary’s button, shown until hidden');
+  // One module stays on, and a door isn't one.
+  const doorOnly = await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual([doorOnly.status, doorOnly.data.field], [400, 'modules']);
+  const withoutDoor = await call('PUT', '/api/me/modules', { active: ['alpha'] });
+  assert.deepEqual(withoutDoor.data.modules.map((m) => [m.mount, m.active]), [['alpha', true], ['beta', false]], 'the door turned off as a module is');
+  // The summary's button: hidden, kept, shown again; the summary itself stays where it was.
+  assert.equal((await call('PUT', '/api/me/day', { shown: 'no' })).data.field, 'shown');
+  const off = await call('PUT', '/api/me/day', { shown: false });
+  assert.deepEqual([off.status, off.data.day_shown, off.data.host.day], [200, false, '/today/']);
+  assert.equal((await call('GET', '/api/modules')).data.day_shown, false, 'kept');
+  assert.equal((await call('PUT', '/api/me/day', { shown: true })).data.day_shown, true, 'and shown again');
+  // Without doors, hints or a summary, none of it.
+  const { call: plain } = await startHost(t);
+  await plain('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  const answer = (await plain('GET', '/api/modules')).data;
+  assert.equal(answer.modules.some((m) => 'door' in m), false);
+  assert.equal('hints' in answer.host, false);
+  assert.equal('day_shown' in answer, false);
+  assert.equal((await plain('PUT', '/api/me/day', { shown: false })).status, 404);
+});
+
 test('a host with a calendar: the rail offers it to whoever turns it on, and the root answers what has a date in the modules each person uses', async (t) => {
   const { call } = await startHost(t, { calendar: '/calendar/' });
   assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 401, 'signed out: nothing');

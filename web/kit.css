@@ -301,7 +301,12 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-switch[aria-checked="true"]::after { inset-inline-start: 19px; }
 .kit-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .kit-switch-row small { display: block; color: var(--kit-muted); font-size: var(--look-footnote, 12.5px); }
-.kit-switch-row--swatch > span:first-child { display: flex; align-items: center; gap: 8px; }
+.kit-switch-row--swatch > span:first-child { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Settings › Modules: a row's name and its line under it, wrapping on a narrow phone; and the
+   icon of a button on the rail (the calendar's, the daily summary's, a door's). */
+.kit-switch-row__text { min-width: 0; }
+.kit-switch-row__icon { display: inline-grid; place-items: center; width: 22px; flex: none; color: var(--kit-muted); }
+.kit-switch-row__icon .kit-icon { width: 18px; height: 18px; }
 /* Settings › Daily summary: each notice a block of its own (switch, time, modules, its page). */
 .kit-day-list { display: grid; gap: 18px; }
 .kit-day { display: grid; gap: 14px; min-width: 0; }
