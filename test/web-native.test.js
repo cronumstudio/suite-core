@@ -225,6 +225,7 @@ test('every message is { v: 1, type, …payload }, its payload checked, and the 
   nativePurchase(undefined, win);
   assert.equal(openExternal('https://example.org/help?x=1', win), true);
   assert.equal(openExternal('mailto:hello@example.org', win), true);
+  assert.equal(openExternal('webcal://work.example.com/api/calendar/feed/abc.ics', win), true, 'a calendar subscription too');
   assert.equal(openExternal('javascript:alert(1)', win), false, 'only what the app may open outside');
   assert.equal(openExternal('/tasks/', win), true, 'a path is this site’s address');
   assert.equal(nativeSignOut(win), true);
@@ -240,6 +241,7 @@ test('every message is { v: 1, type, …payload }, its payload checked, and the 
     { v: 1, type: 'purchase', product: null },
     { v: 1, type: 'open-external', url: 'https://example.org/help?x=1' },
     { v: 1, type: 'open-external', url: 'mailto:hello@example.org' },
+    { v: 1, type: 'open-external', url: 'webcal://work.example.com/api/calendar/feed/abc.ics' },
     { v: 1, type: 'open-external', url: 'https://work.example.com/tasks/' },
     { v: 1, type: 'sign-out' },
     { v: 1, type: 'haptic', style: 'success' },
