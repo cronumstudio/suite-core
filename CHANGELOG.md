@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.273.0 — 2026-11-12
+
+- **The eye in Settings' password fields too** (`web/settings.js`): as in the admin panel since
+  0.269.0, every password Settings asks for has the kit's eye inside it (`revealable()`) to see
+  what was typed before sending it: the current and the new one when changing it (here or at
+  WorkOS), the one asked before turning two-step verification on or off, and the one asked before
+  erasing one's data or deleting the account. Martin, 12/11/2026. The sign-in page's are as they
+  were.
+
 ## 0.272.0 — 2026-11-12
 
 - **Any shape of windows from the rail, each with its bars as they were left** (`web/windows.js`;

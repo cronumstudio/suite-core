@@ -74,7 +74,7 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateForm
 import { api, errorMessage, Offline } from './api.js';
 import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
+import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
@@ -878,8 +878,8 @@ export function openSettings(options) {
       const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
       const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: String(config.password_min || 10) });
       parts.push(block(t('kit.security.password'),
-        state.user?.has_password === false ? null : field(t('kit.security.currentPassword'), current),
-        field(t('kit.security.newPassword'), next, t('kit.security.newPasswordHint', { n: config.password_min || 10 })),
+        state.user?.has_password === false ? null : field(t('kit.security.currentPassword'), revealable(current)),
+        field(t('kit.security.newPassword'), revealable(next), t('kit.security.newPasswordHint', { n: config.password_min || 10 })),
         row(button(t('kit.security.changePassword'), async () => {
           try {
             await api.post('/api/me/password', { current_password: current.value, password: next.value });
@@ -915,8 +915,8 @@ export function openSettings(options) {
       const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
       const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: '8' });
       append(clear(box), block(t('kit.security.password'),
-        field(t('kit.security.currentPassword'), current),
-        field(t('kit.security.newPassword'), next, t('kit.security.workosPasswordHint')),
+        field(t('kit.security.currentPassword'), revealable(current)),
+        field(t('kit.security.newPassword'), revealable(next), t('kit.security.workosPasswordHint')),
         row(button(t('kit.security.changePassword'), async () => {
           try {
             await api.post('/api/me/sign-in/password', { current_password: current.value, password: next.value });
@@ -1022,7 +1022,7 @@ export function openSettings(options) {
 
     function askPassword() {
       const pass = password('kit-2fa-password');
-      clear(body).append(hint(t('kit.twoFactor.passwordFirst')), field(t('kit.security.currentPassword'), pass),
+      clear(body).append(hint(t('kit.twoFactor.passwordFirst')), field(t('kit.security.currentPassword'), revealable(pass)),
         row(button(t('kit.twoFactor.continue'), async () => {
           try { await showSecret(await api.post(`${base}/setup`, { password: pass.value })); } catch (err) { fail(err); }
         }, 'primary'), cancel()));
@@ -1076,7 +1076,7 @@ export function openSettings(options) {
       const pass = password('kit-2fa-confirm-password');
       const second = code('kit-2fa-confirm-code');
       clear(body).append(hint(t(!recovery ? 'kit.twoFactor.offAskNoCodes' : off ? 'kit.twoFactor.offAsk' : 'kit.twoFactor.newCodesAsk')),
-        field(t('kit.security.currentPassword'), pass), field(t(recovery ? 'kit.twoFactor.codeOrRecovery' : 'kit.twoFactor.code'), second),
+        field(t('kit.security.currentPassword'), revealable(pass)), field(t(recovery ? 'kit.twoFactor.codeOrRecovery' : 'kit.twoFactor.code'), second),
         row(button(t(off ? 'kit.twoFactor.turnOff' : 'kit.twoFactor.newCodes'), async () => {
           try {
             if (off) {
@@ -2030,7 +2030,7 @@ export function openSettings(options) {
         content: el('div', { class: 'kit-stack kit-sure' },
           ...lines.filter(Boolean).map((line) => (typeof line === 'string' ? el('p', { text: line }) : line)),
           field(t('kit.data.typeWord', { word }), typed),
-          pass ? field(t('kit.security.currentPassword'), pass) : null,
+          pass ? field(t('kit.security.currentPassword'), revealable(pass)) : null,
           codeRow,
           error),
         actions: [

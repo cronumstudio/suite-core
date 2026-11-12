@@ -539,3 +539,40 @@ test('in the app, Notifications says when they are off and leads to the phone\'s
   assert.equal(t('kit.notifications.offText', { app: 'Cronum Work' }), 'Turn them on in the Cronum Work app’s notification settings.');
   assert.equal(t('kit.notifications.goToSettings'), 'Go to settings');
 });
+
+test('Account › Password: each password field has an eye inside it that shows what was typed and hides it again', async () => {
+  const { openSettings } = await import('../web/settings.js');
+  const { t } = await import('../web/i18n.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path) => {
+    const data = path === '/api/me/two-factor' ? { enabled: false, recovery_codes_left: 0 } : undefined;
+    return { ok: data !== undefined, status: data === undefined ? 404 : 200, json: async () => data ?? { error: 'not_found' } };
+  };
+  globalThis.window = { location: { origin: 'https://demo.example', assign: () => {} } };
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {} });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  try {
+    const root = document.createElement('div');
+    openSettings({
+      app: { id: 'demo', name: 'Demo' }, user: { username: 'ada', role: 'user', has_password: true }, root, start: 'security',
+      config: { provider: 'local', password_min: 10, two_factor: true, app: { modules: {} } },
+    });
+    await settle();
+    const fields = root.all().filter((node) => node.getAttribute?.('type') === 'password');
+    assert.deepEqual(fields.map((node) => node.getAttribute('autocomplete')), ['current-password', 'new-password'], 'the current and the new');
+    for (const input of fields) {
+      const wrap = input.parentNode;
+      assert.equal(wrap.getAttribute('class'), 'kit-password');
+      const label = wrap.parentNode.find('label')[0];
+      assert.equal(label.getAttribute('for'), input.id, 'its label still names the input');
+      const eye = wrap.find('button')[0];
+      assert.equal(eye.getAttribute('aria-label'), t('kit.password.show'));
+      eye.dispatch('click');
+      assert.equal(input.getAttribute('type'), 'text', 'shown');
+      eye.dispatch('click');
+      assert.equal(input.getAttribute('type'), 'password', 'hidden again');
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
