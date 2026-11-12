@@ -62,9 +62,19 @@ change an interface and a patch never does. Apps pin a version through the submo
     recent session was enough.
   - It holds for 0.266.0's confirmation too, which stands 10 minutes in a session for a new
     account's login (`confirmAdmin(…, { recent })`, `POST /api/admin/confirm`): such an admin is
-    confirmed only by a fresh sign-in, and Users › New account sends them to it the same way.
+    confirmed only by a fresh sign-in.
+  - Users › New account asks such an admin for it before its form shows: the sign-in leaves the
+    page, and what they had typed in the form was lost on the way.
+  - «Turn off two-step verification», in an account's dialog with WorkOS, sends them to it too: it
+    did nothing instead (its `failed()` didn't exist).
+  - `errors.reauth_required` no longer says a recent sign-in is enough: «Sign in again to confirm
+    it’s you.», in the five catalogs.
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
-    signs in by `prompt=login`.
+    signs in by `prompt=login`; it also finds a user by email and makes one, as Users › New account
+    asks.
+  - Tests: a new account's request, refused, is the question that the sign-in after it answers
+    (`workos-security.test.js`, and `admin-create-account.test.js` over HTTP with the kit's fake
+    WorkOS); they fail if it isn't noted.
 
 ## 0.273.0 — 2026-11-12
 

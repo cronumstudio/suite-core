@@ -1496,7 +1496,11 @@ stands 10 minutes in that session (Martin, 12/11/2026: several reviewers' accoun
 request that comes with none outside those minutes is `403 admin_confirm_required` with what to
 give (`reauth`), the panel asks for it in a dialog of its own (`POST /api/admin/confirm`) and
 sends the account again; what changes someone who already exists still asks every time
-(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An email WorkOS already has is someone's
+(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An admin with no password to give
+(Google, Apple, a company's sign-in) is confirmed by a sign-in made after the server asked instead
+(v0.274.0), which leaves the page: the panel asks for it before the form shows
+(`POST /api/admin/confirm`), so nothing typed in it is lost, and the form's accounts go in for
+those 10 minutes. An email WorkOS already has is someone's
 login, perhaps of another app: `409 email_taken_provider`, never made again. A login made for an
 account that then can't be made is deleted. Where the install doesn't own the logins, and with
 OIDC, no password can be given (`password_not_here`): the account waits, as before, for its
