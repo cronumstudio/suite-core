@@ -2008,8 +2008,8 @@ sets it from Settings › Language and theme. The kit paints it as `<html data-l
 (web-kit.md).
 
 Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the same list.
-Since 0.268.0, first the host's group (Modules, Language and theme, Your AI, Notifications, the
-daily summary, the calendar, Administration), then a group for each module in use, then the
+Since 0.268.0, first the host's group (since 0.270.0 in this order: Language and theme, Modules,
+the daily summary, the calendar, Notifications, Your AI, Administration), then a group for each module in use, then the
 account's (Profile, Password and access, where the account is signed in, Plan, deleting it), and
 About the whole app on its own at the foot; an app on its own keeps Account, Connections and its
 own group, as before. A module names its sections for
