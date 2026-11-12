@@ -3,6 +3,81 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.274.0 — 2026-11-12
+
+- **The admin's deletion ends what the person pays, as their own does** (`api.js`,
+  `account-deletion.js`, `billing.js`, `web/admin.js`; audit of 6/11, billing-2).
+  `DELETE /api/admin/users/:id` took the account at once and left their subscription renewing at
+  the provider: the next renewal charged someone with no account here, and nowhere to cancel it.
+  Where the install ends subscriptions with the account (`accounts.endSubscriptions`, Cronum Work),
+  the ones the person pays for themselves on the web are cancelled now, at the provider, before
+  anything goes (`deletion.endSubscriptionsOf`, what the sweep does); if the provider can't end one
+  that still renews, nothing is deleted: 503 `subscription_not_ended`, which the panel says, to try
+  again. A group's subscription stays with the group. The log's `admin.user.remove` notes
+  `subscriptions_ended`, `subscriptions_lapsing` and `store_subscriptions`.
+  - One the person cancelled already, in the portal or by asking to go, no longer keeps the account:
+    Paddle takes no other change on a subscription whose cancellation is scheduled
+    (`subscription_locked_pending_changes`), so the deletion would have failed until its period
+    ended, up to a year. It renews no more and lapses then (`subscriptions_lapsing`).
+    `billing.endSubscriptions` asks every live one even when another fails, and throws only for one
+    that still renews; `billing.stillRenews` counts one cancelled for its period's end (`ending`) as
+    not renewing, for the sweep too.
+  - With the login too (`?identity=1`), a provider of logins that then fails keeps the account, but
+    what ended can't be taken back: the log keeps `admin.user.subscriptions_end` with
+    `subscriptions_ended`, and the answer is 503 `subscription_ended_account_kept`, which says so.
+  - `GET /api/admin/users/:id/subscriptions`, with billing or the stores on: each live subscription
+    the person pays for themselves, the web's and the stores', as the overview has them, with `ends`,
+    whether deleting the account cancels it. Never a ref: the staff's `/payments` (0.259.0), which
+    the account's Payments fold shows with refs and their groups' too, stays as it was.
+  - The panel's question says it first: the web's is cancelled now (`admin.users.deleteCancels`, or
+    `deleteKeeps` where the install keeps them), and a store's goes on, since Apple and Google let
+    no server cancel one: only the person can, in the store (`admin.users.deleteStore.*`, as a
+    warning). What they pay unknown, nothing is asked. One cancelled already, on the web or in a
+    store, says it won't renew (`admin.users.deleteEnding`), without the warning, and isn't counted
+    in `store_subscriptions`.
+  - `billing.cancels` (and `combinedBilling()`'s): whether the provider can stop a subscription from
+    here, which the remote one can't; `deletion.endsSubscriptions`: whether deleting an account
+    cancels the web's.
+  - The person's own deletion, the other way an account goes: with the stores on, Settings' question
+    says first that a subscription bought in the App Store or Google Play doesn't stop with the
+    account, and where to cancel it (`kit.data.deleteStore`, then `kit.plan.store.*`, as Settings ›
+    Plan says it); it said only "If you have a subscription, it stops renewing". One cancelled in
+    the store already renews no more and isn't said. What they pay unknown, nothing is asked. The
+    sweep's `account.delete` notes `subscriptions_ended` too.
+- **An admin's sign-in again is a fresh one** (`workos-security.js`, `workos.js`,
+  `workos-accounts.js`, `web/admin.js`; audit of 6/11, sc-auth-3). An admin with no password to give
+  (Google, Apple, a company's sign-in) was confirmed by any session opened in the last 10 minutes,
+  and the panel sent them to `/auth/login`, where AuthKit signs the browser in again without a word
+  while its own session lasts: the question answered itself. Admins who sign in with a password
+  give it again, as before.
+  - The panel sends them to `/auth/login?prompt=login&return=/admin`: AuthKit asks again
+    (`max_age=0`), and the browser comes back to the panel.
+  - Their session counts only when they actively signed in after the server last asked them, in the
+    10 minutes since: AuthKit's access token says when (`auth_time`, "a Unix timestamp, in seconds,
+    of the user's most recent active authentication", which a session it reuses doesn't move;
+    WorkOS, AuthKit › Re-authentication). `exchangeCode()` gives it as `authTime`, the callback hands
+    it to `sessions.open`, and `createFreshSignIns()` keeps it per session for those minutes, with
+    when each admin was asked, in memory: a restart asks again. `registerWorkosSecurityApi()` takes
+    it as `freshSignIns` (createApp gives it): without it such an admin is never confirmed, where a
+    recent session was enough.
+  - It holds for 0.266.0's confirmation too, which stands 10 minutes in a session for a new
+    account's login (`confirmAdmin(…, { recent })`, `POST /api/admin/confirm`): such an admin is
+    confirmed only by a fresh sign-in.
+  - Users › New account asks such an admin for it before its form shows, also for an account
+    without a password: the sign-in leaves the page, and what they had typed in the form was lost
+    on the way. Its 10 minutes run from that sign-in.
+  - «Turn off two-step verification», in an account's dialog with WorkOS, sends them to it too, and
+    shows its other errors (a wrong password or code, WorkOS down) to every admin: its `failed()`
+    didn't exist, so since 0.146.0 the button did nothing when it went wrong.
+  - `errors.reauth_required` no longer says a recent sign-in is enough: «Sign in again to confirm
+    it’s you.», in the five catalogs.
+  - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
+    signs in by `prompt=login`; it also finds a user by email and makes one, as Users › New account
+    asks.
+  - Tests: a new account's request, refused, is the question that the sign-in after it answers
+    (`workos-security.test.js`, and `admin-create-account.test.js` over HTTP with the kit's fake
+    WorkOS); they fail if it isn't noted.
+
 ## 0.273.0 — 2026-11-12
 
 - **The eye in Settings' password fields too** (`web/settings.js`): as in the admin panel since

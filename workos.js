@@ -111,8 +111,11 @@ export function createWorkosClient({
   /**
    * Exchanges the code coming back for the user. It goes server to server and
    * with the secret, so what WorkOS answers can be trusted as it is.
-   * @returns {{ account: object, sessionId: string|null }} `sessionId` is AuthKit's
-   *   `sid`, needed to close the session there too.
+   * @returns {{ account: object, sessionId: string|null, method: string|null, authTime: number|null }}
+   *   `sessionId` is AuthKit's `sid`, needed to close the session there too. `authTime` (ms) is
+   *   when the person last actively signed in, the access token's `auth_time`: "a Unix timestamp,
+   *   in seconds, of the user's most recent active authentication", which a session AuthKit
+   *   reuses doesn't move (WorkOS, AuthKit › Re-authentication). Null when the token has none.
    */
   async function exchangeCode({ code, verifier }) {
     const { ok, status, body } = await request(`${API_URL}/user_management/authenticate`, {
@@ -130,10 +133,12 @@ export function createWorkosClient({
       if (status >= 500) throw new WorkosUnavailable(`WorkOS answered ${status}`);
       throw new Error(body?.error_description || body?.message || `WorkOS rejected the code (${status})`);
     }
+    const token = claims(body.access_token);
     return {
-      account: body.user, sessionId: claims(body.access_token)?.sid || null,
+      account: body.user, sessionId: token?.sid || null,
       // How they signed in this time: Password, GoogleOAuth, AppleOAuth, MagicAuth, SSO…
       method: body.authentication_method || null,
+      authTime: Number.isFinite(token?.auth_time) ? token.auth_time * 1000 : null,
     };
   }
 

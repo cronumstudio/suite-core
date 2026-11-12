@@ -274,3 +274,26 @@ test('a subscription that never stopped renewing keeps the account a week while 
   assert.equal(await deletion.sweep(), 1);
   assert.equal(accounts.byId(hal.id), null);
 });
+
+test('the sweep’s log says how many subscriptions ended with the account, never which', async () => {
+  const database = openDatabase({ path: ':memory:' });
+  usersSchema(database);
+  accountDeletionSchema(database);
+  let now = Date.parse('2026-11-11T10:00:00Z');
+  const accounts = createAccounts({ database, clock: () => now });
+  const recorded = [];
+  const ida = accounts.create({ username: 'ida', displayName: 'Ida' });
+  const jo = accounts.create({ username: 'jo', displayName: 'Jo' });
+  const billing = { enabled: true, stopRenewals: async () => 1, keepRenewals: async () => 0, endSubscriptions: async (id) => (id === ida.id ? 2 : 0) };
+  const deletion = createAccountDeletion({
+    accounts, sign: (v) => v.length.toString(36), days: 30, billing, endSubscriptions: true,
+    audit: { record: (entry) => recorded.push(entry) }, clock: () => now, log: () => {},
+  });
+  await deletion.request(ida);
+  await deletion.request(jo);
+  now += 31 * DAY;
+  assert.equal(await deletion.sweep(), 2);
+  assert.deepEqual(recorded.filter((e) => e.action === 'account.delete').map((e) => [e.targetId, e.meta]),
+    [[ida.id, { requested: true, subscriptions_ended: 2 }], [jo.id, { requested: true }]]);
+  database.close();
+});

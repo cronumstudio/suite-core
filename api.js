@@ -727,11 +727,15 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  *   accounts (workos-security.js, with accounts.adminIdentity): { provider, name, taken, make, undo }
  * @param {Function} [deps.confirmAdmin]  the admin's own password (and code) again, before changing
  *   or making a login at the provider (workos-security.js)
+ * @param {object} [deps.deletion]      from createAccountDeletion(): the admin's deletion ends what
+ *   the person pays for themselves first, as theirs does (`endSubscriptionsOf`)
+ * @param {Function} [deps.overview]    (user) → billingOverview() (billing.js), with billing or the
+ *   stores on: what someone pays, said before their account is deleted
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
   tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null, sharedLogin = null,
-  confirmAdmin = null, localPasswords = true, logins = null,
+  confirmAdmin = null, localPasswords = true, logins = null, deletion = null, overview = null,
 }) {
   // The identity provider, where its login is shared with other apps (config.accounts.sharedIdentity) and it can say who else uses it.
   const sharedIdentity = Boolean(sharedLogin?.otherApps && sharedLogin?.deleteIdentity && sharedLogin?.unmark);
@@ -782,6 +786,20 @@ export function registerAdminApi(router, {
   };
   /** The admin's reason for a plan, as the grant and the log keep it: short text, or null. */
   const noteOf = (note) => (typeof note === 'string' && note.trim() ? note.trim().slice(0, 200) : null);
+  /**
+   * What someone pays for themselves: each live subscription of theirs, on the web or in a store,
+   * as Settings › Plan lists it (billingOverview), and whether deleting the account ends it
+   * (`ends`): the web's where the install ends them (account-deletion.js), a store's never, since
+   * Apple and Google let no server cancel one and only the person can, in the store. A group's
+   * isn't theirs alone and stays with the group: not here.
+   */
+  const ownSubscriptions = (user) => (overview ? overview(user).sources : [])
+    .filter((source) => (source.kind === 'web' || source.kind === 'store') && source.organization_id == null)
+    .map((source) => ({
+      kind: source.kind, provider: source.provider, ...(source.store ? { store: source.store, sandbox: source.sandbox } : {}),
+      product: source.product, plan: source.plan, plan_name: source.plan_name ?? null, status: source.status,
+      period_end: source.period_end, ending: source.ending, ends: source.kind === 'web' && Boolean(deletion?.endsSubscriptions),
+    }));
 
   router.get('/api/admin/users', (ctx) => {
     requireAdmin(ctx);
@@ -905,33 +923,79 @@ export function registerAdminApi(router, {
     sendJson(ctx.res, 200, withPlan(accounts.byId(user.id)));
   });
 
+  if (overview) {
+    /** What someone pays for themselves, and what deleting their account does to each (ownSubscriptions): the panel says it before. */
+    router.get('/api/admin/users/:id/subscriptions', (ctx) => {
+      requireAdmin(ctx);
+      const user = accounts.byId(idOf(ctx.params.id));
+      if (!user) throw notFound('user_not_found');
+      sendJson(ctx.res, 200, { subscriptions: ownSubscriptions(user) });
+    });
+  }
+
   /**
    * Deleting an account, at once. Where its login is shared with other apps (`sharedIdentity`),
    * `?identity=1` deletes it there too (first: if the provider can't, nothing goes), only where
    * this install owns the identities and with the admin's own password (and code) again: their
    * login in every product goes for good, and a stolen cookie alone isn't enough for that
    * (workos-security.js). Otherwise it stays, no longer naming this app.
+   * What the person pays for themselves ends before anything goes, as when their own deletion goes
+   * for good (account-deletion.js): with the account gone, the next renewal would charge someone
+   * with no account here and nowhere to cancel. If the payment provider can't end one that still
+   * renews, nothing is deleted (503 `subscription_not_ended`), to try again; one already cancelled
+   * for its period's end lapses then, as the log notes (`subscriptions_lapsing`). A store's
+   * subscription goes on: the panel tells the admin before, and the log keeps how many there were.
+   * Ended, and then the login not deleted (`?identity=1`): the log keeps what ended, and the answer
+   * says so (503 `subscription_ended_account_kept`), since that can't be taken back.
    */
   router.delete('/api/admin/users/:id', async (ctx) => {
     requireAdmin(ctx);
     const id = idOf(ctx.params.id);
     if (id === ctx.user.id) throw badRequest('not_on_yourself');
-    if (!accounts.byId(id)) throw notFound('user_not_found');
+    const user = accounts.byId(id);
+    if (!user) throw notFound('user_not_found');
     const withIdentity = Boolean(sharedIdentity && ctx.query?.get('identity') === '1');
     if (withIdentity) {
       if (!confirmAdmin) throw forbidden('identity_not_here');
       await confirmAdmin(ctx, await readJson(ctx.req));
+    }
+    const own = ownSubscriptions(user);
+    // One cancelled in the store already renews no more: only those that go on are counted.
+    const inStores = own.filter((source) => source.kind === 'store' && source.ending !== true).length;
+    let ended = 0;
+    let lapsing = 0;
+    if (deletion) {
+      try {
+        ended = await deletion.endSubscriptionsOf(id);
+      } catch (err) {
+        console.error(`[admin] the subscriptions of user #${id} could not be ended: ${err.message}`);
+        throw new HttpError(503, 'subscription_not_ended');
+      }
+      // Each live one of theirs on the web ended now or, renewing no more, lapses at its period's end.
+      if (deletion.endsSubscriptions) lapsing = Math.max(0, own.filter((source) => source.kind === 'web').length - ended);
+    }
+    const whatEnded = { ...(ended ? { subscriptions_ended: ended } : {}), ...(lapsing ? { subscriptions_lapsing: lapsing } : {}) };
+    if (withIdentity) {
       try {
         await sharedLogin.deleteIdentity(id);
       } catch (err) {
         console.error(`[admin] the login of user #${id} at ${sharedLogin.name} could not be deleted: ${err.message}`);
+        if (ended) {
+          record(ctx, 'admin.user.subscriptions_end', 'user', id, whatEnded);
+          throw new HttpError(503, 'subscription_ended_account_kept');
+        }
         throw new HttpError(503, 'provider_unavailable');
       }
     } else if (sharedIdentity) {
       await sharedLogin.unmark(id);
     }
     accounts.remove(id);
-    record(ctx, 'admin.user.remove', 'user', id, withIdentity ? { identity: true } : undefined);
+    const meta = {
+      ...(withIdentity ? { identity: true } : {}),
+      ...whatEnded,
+      ...(inStores ? { store_subscriptions: inStores } : {}),
+    };
+    record(ctx, 'admin.user.remove', 'user', id, Object.keys(meta).length ? meta : undefined);
     sendJson(ctx.res, 200, { ok: true });
   });
 

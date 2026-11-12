@@ -285,7 +285,11 @@ async function paintPeaks(main) {
  *   login is made there, its email confirmed; without, as with any other provider, the account
  *   waits for its person to sign in with that email. The admin's own password isn't in the form:
  *   when the server wants it (`admin_confirm_required`, at most every 10 minutes) a dialog of its own
- *   asks for it over this one, and the account is sent again (confirmYourself).
+ *   asks for it over this one, and the account is sent again (confirmYourself). An admin with no
+ *   password to give (`reauth: 'session'`: Google, Apple, a company's sign-in) is confirmed before
+ *   the form shows instead (POST /api/admin/confirm): what confirms them is a sign-in made after the
+ *   server asked, which leaves this page, and what they had typed would be lost on the way. Asked,
+ *   they go to sign in again (reauthFailed); confirmed, the form's accounts go in for 10 minutes.
  * What the server refuses (an email that already has an account here or a login at WorkOS) is said
  * inside the dialog, which stays open to be corrected.
  */
@@ -293,6 +297,14 @@ async function newUserDialog() {
   // Whether this install makes WorkOS logins (workos-security.js).
   const signIn = workos() ? await api.get(`/api/admin/users/${state.me.id}/sign-in`).catch(() => null) : null;
   const atProvider = signIn?.manage === true;
+  if (atProvider && signIn.reauth === 'session') {
+    try {
+      await api.post('/api/admin/confirm');
+    } catch (err) {
+      reauthFailed(err);
+      return;
+    }
+  }
   const provider = state.config.name;
   const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
   const username = local() ? el('input', { autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '32' }) : null;
@@ -356,7 +368,8 @@ async function newUserDialog() {
         show();
         return true;
       } catch (err) {
-        // A recent sign-in is what the server wants (an admin who signs in with Google): to it, and back.
+        // A fresh sign-in is what the server wants (an admin who signs in with Google, whose 10
+        // minutes passed with the form open): to it, and back.
         if (err?.code === 'reauth_required') { reauthFailed(err); return false; }
         if (err instanceof SessionExpired) { fail(err); return true; }
         throw err;
@@ -496,7 +509,7 @@ function userDialog(user) {
             await api.delete(`/api/admin/users/${user.id}/sign-in/two-factor`, again.body());
             toast(t('admin.users.twoFactorOffDone'));
             clear(twoFactorBox);
-          } catch (err) { failed(err); }
+          } catch (err) { reauthFailed(err); }
         },
       }));
   }
@@ -607,8 +620,11 @@ function userDialog(user) {
       self ? null : el('button', {
         type: 'button', class: 'kit-btn kit-btn--small kit-btn--danger kit-row__last', text: t('admin.users.delete'),
         onClick: async () => {
+          const sells = state.config?.app?.modules;
+          const paying = sells?.billing || sells?.stores ? await paymentsOf(user) : [];
+          if (paying === undefined) return;
           const identity = state.config?.deletion_identity ? await identityChoice(user) : null;
-          if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name }), { more: identity?.node }))) return;
+          if (!(await confirmDialog(t('admin.users.deleteConfirm', { name: user.display_name }), { more: [paying, identity?.node] }))) return;
           try {
             if (identity?.box.checked) await api.delete(`/api/admin/users/${user.id}?identity=1`, identity.body());
             else await api.delete(`/api/admin/users/${user.id}`);
@@ -637,7 +653,7 @@ function userDialog(user) {
 
 /**
  * The admin's own password (and code) again, as the server asks (`reauth`): the fields, and
- * what they add to the request. With `session` there is nothing to type: a recent sign-in.
+ * what they add to the request. With `session` there is nothing to type: a fresh sign-in.
  */
 function reauthFields(reauth) {
   const own = reauth === 'password' || reauth === 'password_code'
@@ -651,14 +667,45 @@ function reauthFields(reauth) {
   };
 }
 
-/** A recent sign-in is what the server wants: to the sign-in, and back here. */
+/**
+ * A fresh sign-in is what the server wants: to the sign-in, where the provider asks again instead of
+ * taking the session it still holds (`prompt=login`), and back here. Without it AuthKit signed the
+ * browser in again without a word, and that proved nothing (workos-security.js confirmAdmin).
+ */
 function reauthFailed(err) {
   if (err?.code === 'reauth_required') {
     toast(t('errors.reauth_required'), { error: true });
-    window.location.href = '/auth/login';
+    window.location.href = `/auth/login?prompt=login&return=${encodeURIComponent('/admin')}`;
     return;
   }
   fail(err);
+}
+
+/**
+ * What someone pays for themselves, in the question before their account is deleted, as Settings
+ * says it before one's own (`GET /api/admin/users/:id/subscriptions`): a web subscription the
+ * deletion cancels at once (or doesn't, where the install keeps them), and a store's, which goes
+ * on: only they can cancel it, in the store, so the admin tells them before. One they cancelled
+ * already, here or in the store, renews no more: it says so, without the warning. Only where the
+ * install sells. → the lines (none when they pay nothing), or undefined when it couldn't be known:
+ * the error is said, and nothing is asked or deleted.
+ */
+async function paymentsOf(user) {
+  let subscriptions;
+  try {
+    ({ subscriptions } = await api.get(`/api/admin/users/${user.id}/subscriptions`));
+  } catch (err) {
+    fail(err);
+    return undefined;
+  }
+  return subscriptions.map((s) => {
+    const vars = { plan: t(s.plan_name || s.plan || s.product || ''), provider: providerName(s.provider) };
+    // Cancelled already, on the web or in the store: it renews no more, whatever the deletion does.
+    if (s.ending === true) return el('p', { text: t('admin.users.deleteEnding', vars) });
+    if (s.kind !== 'store') return el('p', { text: t(s.ends ? 'admin.users.deleteCancels' : 'admin.users.deleteKeeps', vars) });
+    const store = ['app_store', 'play_store'].includes(s.store) ? s.store : 'other';
+    return el('p', { class: 'kit-warning', text: t(`admin.users.deleteStore.${store}`, vars) });
+  });
 }
 
 /**

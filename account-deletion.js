@@ -15,7 +15,7 @@
  *   the install says so (the WorkOS user, the subscriptions), then here:
  *   `accounts.remove()` runs every hook —each app hands over what others share
  *   with the person and deletes their files— and the audit keeps only that
- *   account #n went.
+ *   account #n went, and how many of its subscriptions ended.
  *
  * Where the identity provider's users are shared with other apps (`shared`,
  * config.accounts.sharedIdentity), the login goes too unless the person uses
@@ -24,7 +24,9 @@
  * theirs), and with `auto` it is asked again when the account goes. Whatever
  * stays there no longer names this app (`idp.unmark`).
  *
- * An account the admin deletes in /admin goes at once, as before.
+ * An account the admin deletes in /admin goes at once, as before, and where
+ * the install ends the person's subscriptions they end first, at the provider
+ * (`endSubscriptionsOf`): one that can't be ended keeps the account (api.js).
  *
  * Who else hears it: `whenRequested(hook)` and `whenCancelled(hook)`, after the
  * account is disabled or enabled again (`hook(user)`, awaited in turn; one that
@@ -172,9 +174,10 @@ export function createAccountDeletion({
     let gone = 0;
     for (const user of accounts.dueForDeletion()) {
       try {
+        let ended = 0;
         if (subscriptions) {
           try {
-            await subscriptions.endSubscriptions(user.id);
+            ended = Number(await subscriptions.endSubscriptions(user.id)) || 0;
           } catch (err) {
             log(`[accounts] the subscriptions of account #${user.id} could not be ended: ${err.message}`);
             if (subscriptions.stillRenews?.(user.id)) {
@@ -189,7 +192,11 @@ export function createAccountDeletion({
         if (atProviders && idp?.deleteIdentity) await idp.deleteIdentity(user.id);
         else if (choosing) await identityGoes(user);
         accounts.remove(user.id);
-        audit?.record({ action: 'account.delete', targetType: 'user', targetId: user.id, meta: { requested: true } });
+        // How many subscriptions ended with it, as the admin's deletion notes it: never which.
+        audit?.record({
+          action: 'account.delete', targetType: 'user', targetId: user.id,
+          meta: { requested: true, ...(ended ? { subscriptions_ended: ended } : {}) },
+        });
         gone += 1;
       } catch (err) {
         log(`[accounts] account #${user.id} could not be deleted yet: ${err.message}`);
@@ -198,6 +205,17 @@ export function createAccountDeletion({
     if (gone) log(`[accounts] ${gone} account(s) deleted at their owners' request`);
     return gone;
   }
+
+  /**
+   * An account the admin deletes (api.js), which goes at once: the subscriptions the person pays
+   * for themselves end first, now, as when their own deletion goes for good. A group's stay with
+   * the group, and a store's go on until the person cancels it in the store (Apple and Google let
+   * no server do it). One already cancelled for its period's end that the provider won't end now
+   * lapses then (billing.endSubscriptions). Throws what the provider answered for one that still
+   * renews, before anything is deleted: the admin tries again. Nothing where the install doesn't
+   * end them (`endSubscriptions` off). → how many ended now
+   */
+  const endSubscriptionsOf = async (userId) => (subscriptions ? subscriptions.endSubscriptions(userId) : 0);
 
   /**
    * The shared login of an account going for good: deleted if the person chose so, or wasn't asked
@@ -212,7 +230,9 @@ export function createAccountDeletion({
   }
 
   return {
-    days, request, restore, sweep, choosing,
+    days, request, restore, sweep, choosing, endSubscriptionsOf,
+    // Whether deleting an account cancels the web subscriptions the person pays (what the admin is told before).
+    endsSubscriptions: Boolean(subscriptions?.cancels),
     ticketFor: (userId) => deletionTicket(sign, userId, clock),
     whenRequested: (hook) => { requestedHooks.push(hook); },
     whenCancelled: (hook) => { cancelledHooks.push(hook); },

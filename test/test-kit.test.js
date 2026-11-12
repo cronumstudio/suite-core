@@ -281,6 +281,15 @@ test('fakeWorkos: the code exchange checks PKCE and the client, and signIn does 
   assert.deepEqual(head, { alg: 'RS256', kid: 'k1', typ: 'JWT' });
   assert.equal(payload.sub, 'user_ana');
   assert.equal((await exchange({ client_id: 'client_test', client_secret: 'sk_test', code, code_verifier: 'v' })).status, 400, 'a code serves once');
+  // When she last actively signed in, as AuthKit says it: it moves only when the app asks again (max_age=0).
+  assert.ok(Number.isInteger(payload.auth_time) && Math.abs(payload.auth_time - Date.now() / 1000) < 5, 'in seconds');
+  const authTimeOf = async (url) => {
+    const answer = await exchange({ client_id: 'client_test', client_secret: 'sk_test', code: workos.grant('user_ana', url), code_verifier: 'v' });
+    return JSON.parse(Buffer.from((await answer.json()).access_token.split('.')[1], 'base64url')).auth_time;
+  };
+  await sleep(1100);
+  assert.equal(await authTimeOf(authorize), payload.auth_time, 'the session "AuthKit" holds');
+  assert.ok(await authTimeOf(`${authorize}&max_age=0`) > payload.auth_time, 'signed in again');
 
   const jwks = await (await fetch(`${workos.url}/oauth2/jwks`)).json();
   const key = crypto.createPublicKey({ key: jwks.keys[0], format: 'jwk' });
@@ -290,6 +299,25 @@ test('fakeWorkos: the code exchange checks PKCE and the client, and signIn does 
   assert.equal((await fetch(`${workos.url}/user_management/users/user_ana`, { headers: { Authorization: 'Bearer sk_test' } })).status, 200);
   assert.equal((await fetch(`${workos.url}/user_management/users/nobody`, { headers: { Authorization: 'Bearer sk_test' } })).status, 404);
   assert.equal((await (await fetch(`${workos.url}/.well-known/oauth-authorization-server`)).json()).issuer, workos.url);
+
+  // A user by email, and a new one, as Users › New account asks (workos-security.js logins).
+  const users = (method, query = '', body = undefined, key = 'sk_test') => fetch(`${workos.url}/user_management/users${query}`, {
+    method, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: body && JSON.stringify(body),
+  });
+  assert.deepEqual((await (await users('GET', '?email=Ana%40Example.com&limit=1')).json()).data.map((u) => u.id), ['user_ana']);
+  assert.deepEqual((await (await users('GET', '?email=bo%40example.com&limit=1')).json()).data, []);
+  assert.equal((await users('GET', '?email=bo%40example.com', undefined, 'sk_other')).status, 401);
+  const made = await users('POST', '', { email: 'Bo@Example.com', password: 'A-long-secret-1', email_verified: true, first_name: 'Bo', metadata: { app_demo: 'Demo' } });
+  assert.equal(made.status, 201);
+  const bo = await made.json();
+  const { id: boId, ...given } = bo;
+  assert.match(boId, /^user_\w+$/);
+  assert.deepEqual(given, {
+    object: 'user', email: 'bo@example.com', email_verified: true, first_name: 'Bo', last_name: null, metadata: { app_demo: 'Demo' },
+  }, 'as WorkOS answers it: no password');
+  assert.equal(workos.accounts[bo.id]?.email, 'bo@example.com', 'one of `accounts` now');
+  assert.deepEqual((await (await users('GET', '?email=bo%40example.com')).json()).data.map((u) => u.id), [bo.id]);
+  assert.equal((await users('POST', '', { email: 'ana@example.com', password: 'A-long-secret-1' })).status, 422, 'an email WorkOS has');
 });
 
 test('fakePaddle keeps what it is asked and answers with a checkout link', async (t) => {

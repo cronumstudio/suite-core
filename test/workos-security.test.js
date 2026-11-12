@@ -20,7 +20,7 @@ import { createRouter } from '../http.js';
 import { createAccounts } from '../accounts.js';
 import { createSessions } from '../sessions.js';
 import { workosUsers, signInMethod } from '../workos-accounts.js';
-import { registerWorkosSecurityApi } from '../workos-security.js';
+import { registerWorkosSecurityApi, createFreshSignIns } from '../workos-security.js';
 import { createWorkosClient, WorkosUnavailable } from '../workos.js';
 import { base32Decode, totp } from '../two-factor.js';
 
@@ -83,9 +83,11 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
     return {};
   };
   const router = createRouter();
+  // The sign-ins at WorkOS createSuite would note: a test notes its own.
+  const freshSignIns = createFreshSignIns({ clock });
   const security = registerWorkosSecurityApi(router, {
     workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeAtProvider: (ids) => revoked.push(...ids),
-    ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), clock,
+    ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), freshSignIns, clock,
   });
 
   /** Someone who signs in with WorkOS: their account here and at WorkOS, with a session. */
@@ -120,7 +122,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
     return answer;
   }
 
-  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person, security };
+  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person, freshSignIns, security };
 }
 
 /* ------------------------------ how they sign in ------------------------------ */
@@ -288,9 +290,10 @@ test('the admin: how someone signs in, their second step off when they lost the 
   assert.equal((await call('GET', '/api/admin/users/999/sign-in', { as: admin })).status, 404);
 });
 
-test('the admin with a second step gives a code too; one who signs in with Google, a recent sign-in', async () => {
+test('the admin with a second step gives a code too; one who signs in with Google, a fresh sign-in after being asked', async () => {
   const later = { ms: 0 };
-  const { person, call, workos, revokedAll } = start({ adminIdentity: true, clock: () => Date.now() + later.ms });
+  const at = () => Date.now() + later.ms;
+  const { person, call, workos, revokedAll, sessions, freshSignIns } = start({ adminIdentity: true, clock: at });
   const root = person({ username: 'root', role: 'admin', password: 'correct horse', method: 'Password' });
   const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
   const secret = 'JBSWY3DPEHPK3PXP';
@@ -304,16 +307,52 @@ test('the admin with a second step gives a code too; one who signs in with Googl
   assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
     { as: root, body: { password: 'a brand new one', admin_password: 'correct horse', admin_code: code } })).status, 200);
 
-  // An admin who signs in with Google: a session opened in the last minutes, else sign in again.
+  // An admin who signs in with Google has no password to give: a sign-in at WorkOS in which they
+  // actively signed in (AuthKit's auth_time) after the server asked, else sign in again.
   const gia = person({ username: 'gia', role: 'admin', method: 'GoogleOAuth' });
   assert.equal((await call('GET', `/api/admin/users/${ada.user.id}/sign-in`, { as: gia })).body.reauth, 'session');
+  const bare = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`, { as: gia, body: { password: 'another new one' } });
+  assert.deepEqual([bare.status, bare.body.error], [401, 'reauth_required'], 'a session just opened is no sign-in again');
+  // A new session from a sign-in where AuthKit took the session it held: active an hour ago, before the question.
+  const silent = { user: gia.user, token: sessions.open(gia.user.id, { idpSessionId: 'session_gia' }) };
+  freshSignIns.note(silent.token, at() - 60 * 60 * 1000);
+  const reused = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`, { as: silent, body: { password: 'another new one' } });
+  assert.deepEqual([reused.status, reused.body.error], [401, 'reauth_required'], 'AuthKit’s own session proves nothing');
+  // Signed in again after it: done, in the minutes after, and not past them.
+  const again = { user: gia.user, token: sessions.open(gia.user.id, { idpSessionId: 'session_gia' }) };
+  freshSignIns.note(again.token, at() + 1000);
   assert.equal((await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`,
-    { as: gia, body: { password: 'another new one' } })).status, 200, 'just signed in');
+    { as: again, body: { password: 'another new one' } })).status, 200, 'signed in again');
+  assert.equal(workos.people.get(ada.workosId).password, 'another new one');
   later.ms = 11 * 60 * 1000;
-  const stale = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`, { as: gia, body: { password: 'a third new one' } });
+  const stale = await call('PUT', `/api/admin/users/${ada.user.id}/sign-in/password`, { as: again, body: { password: 'a third new one' } });
   assert.deepEqual([stale.status, stale.body.error], [401, 'reauth_required']);
   assert.equal(workos.people.get(ada.workosId).password, 'another new one');
   assert.equal(revokedAll.length, 2);
+});
+
+test('a fresh sign-in: active after the last question, in the minutes after it, and still recent; one per session', () => {
+  let clock = Date.parse('2026-11-11T10:00:00Z');
+  const fresh = createFreshSignIns({ clock: () => clock });
+  const minute = 60 * 1000;
+  fresh.note('token-a', clock + minute);
+  assert.equal(fresh.fresh(7, 'token-a'), false, 'nobody asked: nothing counts');
+  fresh.ask(7);
+  assert.equal(fresh.fresh(7, 'token-a'), true, 'signed in after the question');
+  assert.equal(fresh.fresh(8, 'token-a'), false, 'the question was another admin’s');
+  assert.equal(fresh.fresh(7, 'token-b'), false, 'another session, never signed in again');
+  fresh.note('token-c', clock - 20 * 1000);
+  assert.equal(fresh.fresh(7, 'token-c'), true, 'seconds before it, as the two clocks may say');
+  fresh.note('token-d', clock - 5 * minute);
+  assert.equal(fresh.fresh(7, 'token-d'), false, 'minutes before it: the session AuthKit already had');
+  fresh.note('token-e', clock + 11 * minute);
+  clock += 11 * minute;
+  assert.equal(fresh.fresh(7, 'token-e'), false, 'too long after the question: it is asked again');
+  clock += 1;
+  assert.equal(fresh.fresh(7, 'token-a'), false, 'and a sign-in over ten minutes old no longer counts');
+  fresh.note('token-f', Number.NaN);
+  fresh.ask(7);
+  assert.equal(fresh.fresh(7, 'token-f'), false, 'a token without auth_time is no sign-in again');
 });
 
 test('an install that does not own the identities: the admin sees how they sign in, and changes nothing', async () => {
@@ -359,6 +398,43 @@ test('the admin confirmed lately: ten minutes in that session, only for what ask
   // Only that session: the same admin elsewhere, or another one, gives it again.
   const elsewhere = { ...boss, token: person({ username: 'boss2', role: 'admin', password: 'x' }).token };
   await assert.rejects(security.confirmAdmin({ ...ctx(), sessionToken: elsewhere.token }, {}, { recent: true }), asks);
+});
+
+test('the admin who signs in with Google, confirmed lately: by a fresh sign-in, which then stands ten minutes in that session', async () => {
+  const later = { ms: 0 };
+  const at = () => Date.now() + later.ms;
+  const { person, call, sessions, freshSignIns, security } = start({ adminIdentity: true, clock: at });
+  const gia = person({ username: 'gia', role: 'admin', method: 'GoogleOAuth' });
+  const ctx = (token) => ({ user: gia.user, sessionToken: token, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } } });
+  const recent = (token) => security.confirmAdmin(ctx(token), {}, { recent: true });
+  const signInAgain = (err) => err.code === 'reauth_required';
+  const signedInAgain = () => ({ user: gia.user, token: sessions.open(gia.user.id, { idpSessionId: 'session_gia' }) });
+
+  // No password to ask for apart (never `admin_confirm_required`): to sign in again, and a session just opened is none.
+  // That request is the server's question, and nothing else asks before the sign-in that answers it.
+  await assert.rejects(recent(gia.token), signInAgain);
+  // Back from a sign-in AuthKit asked for after that question (auth_time): the same request passes,
+  // before any POST /api/admin/confirm, and those minutes stand.
+  const again = signedInAgain();
+  freshSignIns.note(again.token, at() + 1000);
+  later.ms = 5 * 60 * 1000;
+  await recent(again.token);
+  later.ms = 12 * 60 * 1000;
+  await recent(again.token);
+  // What changes someone who exists asks for the sign-in itself, by now too old: asked again.
+  await assert.rejects(security.confirmAdmin(ctx(again.token), {}), signInAgain);
+  later.ms = 16 * 60 * 1000;
+  await assert.rejects(recent(again.token), signInAgain, 'ten minutes after it was confirmed, asked again');
+
+  // POST /api/admin/confirm, as Users › New account asks it before its form: the same question, answered the same way.
+  const asked = await call('POST', '/api/admin/confirm', { as: again, body: {} });
+  assert.deepEqual([asked.status, asked.body.error], [401, 'reauth_required']);
+  const third = signedInAgain();
+  freshSignIns.note(third.token, at() + 1000);
+  later.ms = 20 * 60 * 1000;
+  assert.equal((await call('POST', '/api/admin/confirm', { as: third, body: {} })).status, 200);
+  later.ms = 29 * 60 * 1000;
+  await recent(third.token);
 });
 
 /* --------------------------------- the client --------------------------------- */

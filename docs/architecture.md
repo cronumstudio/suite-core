@@ -625,7 +625,12 @@ the page signs in in place; under a provider's sign-in the server sends the brow
 `/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
 sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
 `/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
-was; nothing but the connect page asks for it.
+was; besides the connect page, only the admin panel asks for it (v0.274.0, with `return=/admin`),
+when an admin with no password to give (Google, Apple, a company's sign-in) must sign in again to
+change who someone is or make a new account's login: their session counts only if AuthKit's access token says they actively
+signed in (`auth_time`) after the server asked them, in the ten minutes since
+(`createFreshSignIns`, workos-security.js). A session opened in the last minutes proved nothing,
+since AuthKit signs a browser in again without a word while its own session lasts.
 
 **Sessions of the web from a device** (**done**, v0.105.0, with `devices.webSessions`): an app
 whose screens are its web pages in a WebView (Cronum Work) turns its token into the web's own
@@ -1491,7 +1496,11 @@ stands 10 minutes in that session (Martin, 12/11/2026: several reviewers' accoun
 request that comes with none outside those minutes is `403 admin_confirm_required` with what to
 give (`reauth`), the panel asks for it in a dialog of its own (`POST /api/admin/confirm`) and
 sends the account again; what changes someone who already exists still asks every time
-(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An email WorkOS already has is someone's
+(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An admin with no password to give
+(Google, Apple, a company's sign-in) is confirmed by a sign-in made after the server asked instead
+(v0.274.0), which leaves the page: the panel asks for it before the form shows
+(`POST /api/admin/confirm`), so nothing typed in it is lost, and the form's accounts go in for
+those 10 minutes. An email WorkOS already has is someone's
 login, perhaps of another app: `409 email_taken_provider`, never made again. A login made for an
 account that then can't be made is deleted. Where the install doesn't own the logins, and with
 OIDC, no password can be given (`password_not_here`): the account waits, as before, for its
@@ -1806,7 +1815,18 @@ kit's), then Notes is built on it whole, then the others as they move to English
   waits for the next sweep); never where other apps share those accounts or that subscription.
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
-  `deleteAtProviders`.
+  `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
+  first too, where the install ends them (v0.274.0, `deletion.endSubscriptionsOf`): if the provider
+  can't end one that still renews, nothing is deleted (503 `subscription_not_ended`), to try
+  again, and the log keeps how many ended. One the person cancelled already (in the portal, or by
+  asking to go) renews no more and lapses at its period's end when the provider won't end it now,
+  as Paddle won't while a cancellation is scheduled: it never keeps the account. Before asking,
+  the panel says what the person pays for themselves
+  (`GET /api/admin/users/:id/subscriptions`, from the overview): the web's, cancelled now, and a
+  store's, which goes on until they cancel it in the store, since Apple and Google let no server
+  do it; one cancelled already, that it won't renew. A group's stays with the group. Settings says
+  the same before one's own deletion: a subscription bought in a store doesn't stop with the
+  account, and where to cancel it.
   `accounts.sharedIdentity` (v0.211.0) is for WorkOS users shared by several apps, each of which
   notes itself on them (`app_<id>`: its name, in the user's metadata) when someone signs in, and
   once at start for whoever came before. Deleting one's account asks whether the login goes too

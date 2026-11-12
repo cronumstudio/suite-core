@@ -43,13 +43,14 @@ import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
 import { createOrganizations } from './organizations.js';
 import {
-  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, registerBillingAdminApi, founderPriceOpen, joinedEarly,
+  createBilling, registerBillingApi, combinedBilling, registerBillingOverviewApi, registerBillingAdminApi, billingOverview,
+  founderPriceOpen, joinedEarly,
 } from './billing.js';
 import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
-import { registerWorkosSecurityApi } from './workos-security.js';
+import { registerWorkosSecurityApi, createFreshSignIns } from './workos-security.js';
 import { watchPasswordResets } from './workos-events.js';
 import { createOidcClient, createOidcAccounts } from './oidc.js';
 import { createMailer } from './mail.js';
@@ -324,6 +325,9 @@ export function createSuite({
 
   // The AI clients authorized in AuthKit and disconnected here (idp_connections): the routes' and revoke.js's.
   const workosAiClients = install.authProvider === 'workos' ? workosConnections(database) : null;
+  // Each session a sign-in at WorkOS opens, with when they last actively signed in: what confirms an
+  // admin with no password to give (workos-security.js), one for every module of a host.
+  const freshSignIns = install.authProvider === 'workos' ? createFreshSignIns() : null;
   const workos = install.authProvider === 'workos' ? createWorkosAccounts({
     baseUrl: install.baseUrl,
     appName: config.app.name,
@@ -340,8 +344,8 @@ export function createSuite({
     mcp: config.modules.mcp,
     afterSignIn: connectAfterSignIn({ config, sessions }),
     sessions: {
-      open: (res, userId, { workosSessionId, req = null }) => {
-        sessions.open(userId, { req, res, idpSessionId: workosSessionId });
+      open: (res, userId, { workosSessionId, req = null, authTime = null }) => {
+        freshSignIns.note(sessions.open(userId, { req, res, idpSessionId: workosSessionId }), authTime);
         // With the request, the log says where they came from, as a password's sign-in does.
         audit.record({ action: 'auth.login', actor: userId, req, meta: { provider: 'workos' } });
       },
@@ -616,7 +620,7 @@ export function createSuite({
     shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log }),
     mailBrand: brand, strangers, signupUrl,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
-    workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets,
+    workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,
     /**
      * What the app keeps of someone against storage.mb, said where it is counted (its files'
      * module, at import): from then on `suite.storage` checks it (storage.js), in its scripts and
@@ -785,7 +789,7 @@ export function createApp({
     workosSecurity = registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
-      adminIdentity: config.accounts.adminIdentity === true,
+      adminIdentity: config.accounts.adminIdentity === true, freshSignIns: suite.freshSignIns ?? null,
       // A login the admin makes for a new account carries this app's mark, as a sign-in here gives it.
       mark: config.accounts.sharedIdentity ? identityMark(config.app) : null,
     });
@@ -797,6 +801,10 @@ export function createApp({
       confirmAdmin: workosSecurity?.confirmAdmin ?? null,
       // New accounts with a password: here, or a login at WorkOS where this install owns them (adminIdentity).
       localPasswords, logins: workosSecurity?.logins ?? null,
+      // The admin's deletion ends what the person pays, as their own does, and the panel says what that is before.
+      deletion,
+      overview: billing?.enabled || suite.stores?.enabled
+        ? (user) => billingOverview(user, { instances: [billing, suite.stores], entitlements, organizations }) : null,
     });
   }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });

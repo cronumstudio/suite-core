@@ -21,18 +21,30 @@ import { openDatabase } from '../db.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** WorkOS's users: read, their metadata changed partially (null deletes a key), deleted. */
+/**
+ * WorkOS's users: read, their metadata changed partially (null deletes a key), deleted. And the
+ * code of a sign-in exchanged for its user, with an access token saying when they last actively
+ * signed in (`auth_time`, in seconds), as `codes` holds it for each code.
+ */
 async function fakeWorkos(t) {
   const users = new Map();
   const calls = [];
+  const codes = new Map();
   let down = false;
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
+      const answer = (status, body = {}) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+      if (req.url === '/user_management/authenticate' && req.method === 'POST') {
+        const code = codes.get(JSON.parse(raw).code);
+        if (!code) return answer(400, { error: 'invalid_grant' });
+        const token = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ sid: `session_${code.id}`, sub: code.id, auth_time: code.authTime })}.x`;
+        return answer(200, { user: users.get(code.id), access_token: token, authentication_method: 'GoogleOAuth' });
+      }
       const id = decodeURIComponent(req.url.match(/^\/user_management\/users\/([^/?]+)$/)?.[1] || '');
       calls.push(`${req.method} ${id}`);
-      const answer = (status, body = {}) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
       if (down) return answer(503);
       const user = users.get(id);
       if (!user) return answer(404, { code: 'entity_not_found' });
@@ -51,7 +63,7 @@ async function fakeWorkos(t) {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => server.close());
   const add = (id, metadata = {}) => users.set(id, { id, object: 'user', email: `${id}@example.com`, email_verified: true, metadata: { ...metadata } });
-  return { url: `http://127.0.0.1:${server.address().port}`, users, calls, add, setDown: (value) => { down = value; } };
+  return { url: `http://127.0.0.1:${server.address().port}`, users, calls, codes, add, setDown: (value) => { down = value; } };
 }
 
 async function serve(t, workos, { sharedIdentity = true, adminIdentity = true } = {}) {
@@ -68,22 +80,38 @@ async function serve(t, workos, { sharedIdentity = true, adminIdentity = true } 
   const server = await app.listen();
   t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${server.address().port}`;
+  /** A browser with this session's cookie. */
+  const callWith = (cookie) => async (method, pathname, body) => {
+    const res = await fetch(base + pathname, {
+      method, redirect: 'manual',
+      headers: { Cookie: cookie, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
   /** Someone with an account here linked to a WorkOS user, and their browser. */
   const person = (username, workosId, role = 'user') => {
     const user = suite.accounts.create({ username, displayName: username, role, email: `${workosId}@example.com` });
     suite.accounts.linkIdentity(user.id, 'workos', workosId, { email: `${workosId}@example.com` });
-    const cookie = `demo_sid=${suite.sessions.open(user.id)}`;
-    const call = async (method, pathname, body) => {
-      const res = await fetch(base + pathname, {
-        method, redirect: 'manual',
-        headers: { Cookie: cookie, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      return { status: res.status, data: await res.json().catch(() => null) };
-    };
-    return { user, call };
+    return { user, call: callWith(`demo_sid=${suite.sessions.open(user.id)}`) };
   };
-  return { suite, person };
+  /**
+   * A sign-in at WorkOS through the app, as the admin panel sends someone to it (`prompt=login`, back
+   * at /admin): AuthKit's address, where it lands, and the browser it leaves signed in. `authTime`:
+   * when, AuthKit's token says, they last actively signed in (seconds).
+   */
+  const signIn = async (workosId, { authTime }) => {
+    const out = await fetch(`${base}/auth/login?prompt=login&return=%2Fadmin`, { redirect: 'manual' });
+    const target = new URL(out.headers.get('location'));
+    const state = (out.headers.getSetCookie?.() || []).find((c) => c.startsWith('demo_auth='))?.split(';')[0] ?? '';
+    const code = `code-${workosId}-${Math.random()}`;
+    workos.codes.set(code, { id: workosId, authTime });
+    const back = await fetch(`${base}/auth/callback?code=${code}&state=${target.searchParams.get('state')}`,
+      { redirect: 'manual', headers: { Cookie: state } });
+    const cookie = (back.headers.getSetCookie?.() || []).find((c) => c.startsWith('demo_sid='))?.split(';')[0];
+    return { target, back: back.headers.get('location'), call: callWith(cookie) };
+  };
+  return { suite, person, signIn };
 }
 
 test('identityMark: app_<id> and the name in ASCII, as WorkOS takes them', () => {
@@ -101,7 +129,7 @@ test('a shared login: noted at WorkOS, asked about when the person uses another 
   workos.add('user_bea', { app_focus: 'Focus' });
   workos.add('user_cai', { app_focus: 'Focus', app_tracker: 'Tracker' });
   workos.add('user_root');
-  const { suite, person } = await serve(t, workos);
+  const { suite, person, signIn } = await serve(t, workos);
   const admin = person('root', 'user_root', 'admin');
   const ana = person('ana', 'user_ana');
   const bea = person('bea', 'user_bea');
@@ -151,16 +179,25 @@ test('a shared login: noted at WorkOS, asked about when the person uses another 
   assert.equal(wrong.status, 403);
   assert.equal(wrong.data.error, 'wrong_password');
   assert.ok(workos.users.has('user_eve') && suite.accounts.byId(eve.user.id), 'nothing went');
-  // Who signs in elsewhere (Google…) has no password here: a recent sign-in instead.
+  // Who signs in elsewhere (Google…) has no password here: a sign-in at WorkOS instead, in which they
+  // actively signed in after the server asked (AuthKit's auth_time). A session alone, however new,
+  // isn't one: AuthKit signs a browser in again without a word while its own session lasts.
   suite.accounts.usedIdentity('workos', 'user_root', { method: 'google' });
-  const fresh = suite.database.get('SELECT created_at FROM sessions WHERE user_id = ?', admin.user.id).created_at;
-  suite.database.run('UPDATE sessions SET created_at = ? WHERE user_id = ?', new Date(Date.now() - DAY).toISOString(), admin.user.id);
-  const stale = await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`);
-  assert.equal(stale.status, 401);
-  assert.equal(stale.data.error, 'reauth_required');
+  const seconds = () => Math.floor(Date.now() / 1000);
+  const bare = await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`);
+  assert.deepEqual([bare.status, bare.data.error], [401, 'reauth_required'], 'a session opened a moment ago');
   assert.ok(workos.users.has('user_eve') && suite.accounts.byId(eve.user.id), 'nothing went');
-  suite.database.run('UPDATE sessions SET created_at = ? WHERE user_id = ?', fresh, admin.user.id);
-  assert.equal((await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`)).status, 200);
+  // Where the panel sends them: AuthKit asks again (max_age=0), and back at the panel. Here AuthKit
+  // took the session it held: the last active sign-in is from before the question.
+  const silent = await signIn('user_root', { authTime: seconds() - 3600 });
+  assert.equal(silent.target.searchParams.get('max_age'), '0');
+  assert.equal(silent.back, '/admin');
+  const reused = await silent.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`);
+  assert.deepEqual([reused.status, reused.data.error], [401, 'reauth_required']);
+  assert.ok(workos.users.has('user_eve') && suite.accounts.byId(eve.user.id), 'nothing went');
+  // Signed in again: it counts.
+  const fresh = await signIn('user_root', { authTime: seconds() });
+  assert.equal((await fresh.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`)).status, 200);
   assert.equal(workos.users.has('user_eve'), false);
   assert.equal(suite.accounts.byId(eve.user.id), null);
 });
