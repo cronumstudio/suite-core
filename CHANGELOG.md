@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.261.0 — 2026-11-11
+## 0.274.0 — 2026-11-12
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
   `account-deletion.js`, `billing.js`, `web/admin.js`; audit of 6/11, billing-2).
@@ -60,8 +60,205 @@ change an interface and a patch never does. Apps pin a version through the submo
     when each admin was asked, in memory: a restart asks again. `registerWorkosSecurityApi()` takes
     it as `freshSignIns` (createApp gives it): without it such an admin is never confirmed, where a
     recent session was enough.
+  - It holds for 0.266.0's confirmation too, which stands 10 minutes in a session for a new
+    account's login (`confirmAdmin(…, { recent })`, `POST /api/admin/confirm`): such an admin is
+    confirmed only by a fresh sign-in, and Users › New account sends them to it the same way.
   - The test kit's fake WorkOS gives `auth_time` as AuthKit does, and `signIn(…, { fresh: true })`
     signs in by `prompt=login`.
+
+## 0.273.0 — 2026-11-12
+
+- **The eye in Settings' password fields too** (`web/settings.js`): as in the admin panel since
+  0.269.0, every password Settings asks for has the kit's eye inside it (`revealable()`) to see
+  what was typed before sending it: the current and the new one when changing it (here or at
+  WorkOS), the one asked before turning two-step verification on or off, and the one asked before
+  erasing one's data or deleting the account. Martin, 12/11/2026. The sign-in page's are as they
+  were.
+
+## 0.272.0 — 2026-11-12
+
+- **Any shape of windows from the rail, each with its bars as they were left** (`web/windows.js`;
+  docs/architecture.md §21.6): Martin found his way to one window beside two stacked by dragging and
+  couldn't get it back, and wants to choose such views. `columns(n)` takes, besides 1–4 and '2x2',
+  a shape: the windows each column stacks, `[1, 2]` (one window, two stacked beside it), `[2]` (one
+  above the other) and so on, up to four columns and four windows. It fills by rows, as 2×2 did, so
+  windows side by side stay so. A shape comes back with the shares its bars had the last time it
+  showed: `work.layout` keeps them for every shape (`shares`) beside the layout.
+  - New exports `asShape(n)`, `shapeOf(layout)` and `readShares(storage, n)`; `applyColumns()`
+    takes `{ shares }`. What `work.layout` kept before reads as it did.
+  - `createWindows({ onLayout })`: called with the layout in sight each time the windows are placed
+    again (a shape chosen, a window carried or shown, a bar moved, a narrower or wider desk), so the
+    shell's picture of it never stays behind.
+- **A menu can hold a node of its own** (`web/ui.js` `menu(…, { body })`; docs/web-kit.md): after
+  the items, a grid of choices, say; its buttons with `role="menuitem"` move with the arrows.
+
+## 0.271.1 — 2026-11-12
+
+- **Settings › Modules › On the bar: the daily summary's switch says «Daily summary»** (`web/settings.js`,
+  `i18n/*.json`), the name of the page it shows or hides, which holds the evening's summary too (Martin).
+  `kit.day.show` goes; the switch says `kit.day.title`.
+
+## 0.271.0 — 2026-11-12
+
+- **«Open in Apple Calendar» in the phone app** (`calendar-feed.js`, `web/settings.js`, `web/native.js`;
+  docs/architecture.md §21.3.1): on Martin's iPhone, in the app, the button did nothing. It is a
+  `webcal:` link, and the app opens only http, https, mailto, tel and sms outside. Now
+  `openExternal` takes `webcal:` too, for the app's builds that say they open it (capability
+  `webcal`, Cronum Work's app 0.6.5); for older ones the button goes to the link's new `subscribe`
+  address, `GET /api/calendar/subscribe/<token>.ics`, which sends to its `webcal:` one (302,
+  `no-store`, `noindex`), so the browser the app opens hands it to Calendar. Outside the app,
+  `webcal:` as before. The token's checks are the link's (404, braked when repeated).
+
+## 0.270.0 — 2026-11-12
+
+- **Settings in a host: the host's group in a new order** (`web/settings.js`; docs/architecture.md
+  §21.1), as Martin asked: Language and theme, Modules, Daily summary, Calendar, Notifications, Your
+  AI, and Administration last. Nothing else moves; the sections keep their ids.
+
+## 0.269.0 — 2026-11-12
+
+- **An eye in the admin panel's password fields** (`web/ui.js`, `web/icons.js`, `web/kit.css`,
+  `web/admin.js`, `i18n/*.json`): Martin wants to see what he typed before sending it. Every
+  password of the admin panel —a new account's, the one set for someone (here or at WorkOS), and the
+  admin's own when it is asked again (the «Confirma que eres tú» dialog, deleting a login)— has a
+  button inside it, at its end, that shows the text and hides it again (`aria-pressed`, «Mostrar
+  contraseña» / «Ocultar contraseña»), and puts the cursor back in the field.
+  - The kit's `revealable(input)` wraps any password input with it, to hand to `field()` in the
+    input's place; `field()` labels what a wrapper names in `labelTarget`, so its label and hint
+    still point at the input. New icons `eye` and `eye-off`, texts `kit.password.show` and
+    `kit.password.hide`. Settings' own password fields are as they were.
+
+## 0.268.0 — 2026-11-12
+
+- **Settings in a host, in a new order** (`web/settings.js`; docs/architecture.md §21.1): first
+  the host's group (Modules, Language and theme, Your AI, Notifications, Daily summary,
+  Calendar, Administration), then each module's, then Account (Profile, Password and
+  access, where you're signed in, Plan, Delete my account), and About the whole app on its own at
+  the foot. Connections is gone from a host. The sections keep their ids, so `?settings=` links
+  still open them. An app on its own keeps its list as it was.
+- **Settings › Modules: each module with its line, and the rail's buttons apart**
+  (`web/settings.js`, `web/kit.css`, `host.js`, `i18n/*.json`): each module has its line under
+  its name, from the host's catalog with `createHost({ moduleHints })` (`host.hints` in
+  `GET /api/modules`), else its line in About. Under the modules, a block «On the bar» with what
+  is a button on the rail and not a module, each a switch, in no order: the calendar (as before,
+  now named Calendar with a short line), My day (the daily summary's button, new) and each door.
+  - `createHost({ doors: ['croc'] })`: those modules are marked `door: true` in `/api/modules`,
+    are turned on and off as before (`PUT /api/me/modules`), but leave the modules' order, have
+    no group in Settings and no way to be installed alone, and are never the one module left on
+    (`400 field_required`). A mount the host lacks is left out.
+  - The daily summary's button is each person's to hide: `day_shown` in `GET /api/modules` (no
+    choice yet: shown, as before), `PUT /api/me/day { shown }`. Migration 11 of the host,
+    `host_day`. The summary itself, its notices and Settings › Daily summary don't change.
+  - `kit.calendar.show` is gone (the switch says `kit.calendar.title`); new `kit.modules.barTitle`,
+    `kit.modules.barHint`, `kit.day.show`, `kit.day.showHint`.
+
+## 0.267.1 — 2026-11-12
+
+- **A host's pages at `/` read the kit at its own address again** (`web/sw-core.js`): Cronum
+  Work's calendar and daily summary showed their keys (`calendar.today`, `today.view.plan`) from
+  their second load on. With the one copy of the kit (`sharedKit`), a module's page that asked for
+  a kit file the copy lacked (`/projects/suite/i18n.js`, after the caches were cleared under a
+  running worker) had the network's answer kept at `/suite/i18n.js` with its address. Served to a
+  page at `/`, a module script reads its base from the address it answers with, so the kit there
+  took Projects' base (`/projects/`) and asked for Projects' catalog, which has none of the host's
+  texts. Now that answer is kept without its address, and a copy kept with another address (one an
+  older worker kept, which the next releases carry while the file doesn't change) is served at the
+  path asked (`suiteKeptElsewhere`).
+
+## 0.267.0 — 2026-11-12
+
+- **Settings › Calendar: what shows on it** (`calendar.js`, `host.js`, `web/settings.js`, `i18n/*.json`;
+  docs/architecture.md §21.3.1): the section «Calendar subscription» is now «Calendar» and starts with a switch
+  for each module with dates that the person uses (Tasks, Projects, Notes in Cronum Work), for every plan. One
+  turned off leaves the calendar page and its filters, the link for calendar apps and the assistants' tool:
+  it isn't asked. `GET` and `PUT /api/me/calendar/modules[/:mount] { shown }`, host migration 10
+  (`host_calendar_modules`, a row for each module chosen; none, it shows), `host.calendarModules` in every
+  module's config. The link (Pro's) follows under them, titled «Calendar subscription». Asked by Martin.
+
+## 0.266.0 — 2026-11-12
+
+- **New accounts in a row ask for the admin's password once** (`workos-security.js`, `api.js`,
+  `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): Martin makes several reviewers'
+  accounts at a time. Users › New account no longer has the admin's own password in the form.
+  When the server wants it, a dialog of its own asks for it over the form (and the code, with a
+  second step), says a wrong one inside it, and sends the account again; given up, the form stays
+  as it was. Once given, it stands **10 minutes in that session**, so the next accounts go
+  straight in. An admin who signs in with Google goes to sign in again, as before.
+  - `confirmAdmin(ctx, body, { recent: true })`: within 10 minutes of the last confirmation in that
+    session, nothing to give; outside them, with nothing given, `403 admin_confirm_required` with
+    `reauth` (`password` or `password_code`). New route `POST /api/admin/confirm`
+    (`admin_password`, `admin_code` → `{ ok, until }`), only where the install owns the logins.
+    Kept in memory by a hash of the session token: a restart asks once more.
+  - Only a new account's login asks that little: setting someone's password, taking their second
+    step off and deleting their login still ask every time, as before.
+  - The inline hint `admin.users.reauthCreate` goes; `admin.confirm.*` and
+    `errors.admin_confirm_required` come. No migration.
+
+## 0.263.1 — 2026-11-12
+
+- **The calendar link on Android** (`web/settings.js`, `i18n/*.json`): Settings › «Calendar subscription»
+  › How to add it says, right after Google Calendar's steps, that Android's Google Calendar app can't
+  subscribe to a link: it is added on a computer and shows on the phone, and if it doesn't, the
+  calendar's Sync switch in the app turns it on (`kit.calendarFeed.howAndroid`, five languages).
+- `calendar-feed.js`: its head says how a task that repeats comes now (each day ahead an item of its
+  own from Tasks 1.153.0, an event with its own UID), not the RRULE it used to expect.
+
+## 0.263.0 — 2026-11-12
+
+- **The admin makes accounts that sign in at once** (`api.js`, `accounts.js`, `workos.js`,
+  `workos-security.js`, `app.js`, `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): test
+  accounts for the App Store's and Google Play's reviews, testers, directories. Users › New
+  account asks for the email first, a name, a role, a password and the plan from the start (its
+  end and reason once one of its own is chosen), in a form dialog that says inside it what the
+  server refuses. `POST /api/admin/users` checks everything before making anything; the plan goes
+  in the account's own transaction (`accounts.create(fields, { also })`, `setPlan` as Users ›
+  Plan does), recorded as `admin.plan.set` next to `admin.user.create`.
+  - With local passwords: `email_verified: true` takes the email as confirmed
+    (`accounts.create({ emailVerified })`), and without a username one comes from the email.
+  - With WorkOS where the install owns the logins (`accounts.adminIdentity`, Cronum Work): a
+    password makes the login at WorkOS with `email_verified: true` and the app's mark
+    (`createUser`, `userByEmail` in workos.js; `logins` from `registerWorkosSecurityApi`), and the
+    account here is linked to it. The admin's own password (and code) is asked again first, as for
+    setting someone's password there; WorkOS's shortest password (8) applies. A login made for an
+    account that then can't be made is deleted. Without a password, as before: the account waits
+    for its person to sign in with that email.
+  - New answers: `409 email_taken` (an account here has the email, whatever its case),
+    `409 email_taken_provider` with `provider` (WorkOS has a login with it, perhaps another app's:
+    never made again) and `400 password_not_here` (a password where logins are a provider's this
+    install doesn't own, or OIDC's). `registerAdminApi` takes `localPasswords` (default true, as
+    before) and `logins`; `accounts` exports `checkEmail`, `checkName`, `checkRole` and `byEmail`,
+    and `checkPassword(password, min)` takes another shortest length.
+  - The password reaches no answer, log entry or server line. No migration.
+
+## 0.262.1 — 2026-11-12
+
+- **The test kit's requests survive a connection the server closes under them**
+  (`tools/test-kit.mjs`, `test/test-kit.test.js`; nothing changes for the apps themselves): Node's
+  server closes a connection idle for 5 s, and fetch can reuse one at that very moment when a
+  test's next request comes about 5 s later on a busy machine. The request never reaches the app,
+  and fetch fails with a bare "fetch failed" (`other side closed`). Tasks' smoke test failed this
+  way on `main` four times on 11/11, always in the first request after the sections that call no
+  server (17i, «Units» or «Default list and language»), and passed on the same code in its pull
+  requests. `client()`, `rpc()` and `mcp()` now send such a request once more on a new connection,
+  as a browser does; a second failure, or any other network failure, is an error that names the
+  request and why (`POST …/api/auth/login: fetch failed (UND_ERR_SOCKET other side closed)`),
+  instead of "fetch failed" alone. A timeout and the caller's own abort are as before.
+
+## 0.262.0 — 2026-11-12
+
+- **The host's calendar in Google Calendar, Outlook or Apple Calendar** (`calendar-feed.js`, new;
+  `host.js`, `plans.js`, `web/settings.js`, `i18n/*.json`; docs/architecture.md §21.3.1):
+  `createHost({ calendar, calendarFeed: true })` gives each person a secret subscription link,
+  `GET /api/calendar/feed/<token>.ics`, an iCalendar file (RFC 5545) of what the calendar page
+  shows, from 60 days ago up to a year: all-day events, or half an hour at an item's time,
+  with stable UIDs and a link back to each thing. Settings has a section of the host's to make
+  it, copy it, add it to Google Calendar or Apple Calendar in one tap, make it again (the old one
+  stops at once) or turn it off, with a line on how to subscribe in Google, Outlook and Apple.
+  - Host migration 9, `calendar-feeds`: table `host_calendar_feeds`, one row a person (its
+    token's hash, and the token encrypted with a key from the session secret, to show it again).
+  - New plan feature `calendar.feed` (a flag, `COMMON_FEATURES`): false in `cronum-work`'s Free,
+    true in Pro and Team. Only a host that declares it gates the link; without the option nothing
+    of it is there, and nothing changes for an app on its own or a module.
 
 ## 0.260.0 — 2026-11-11
 
@@ -2713,7 +2910,6 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   page nor `/api/devices/web-session`, and its configuration's `devices` keeps its shape. A host
   with either option refuses a module mounted at `/devices/`.
 
-
 ## 0.104.0 — 2026-10-20
 
 - **One Settings for a whole host** (`settings.js`, `host.js`, `base.js`, `shell.js`). In a host
@@ -2738,7 +2934,6 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - **The rail's top is the host's mark** (`shell.js`, kit.css). It was a link to the host's page that
   chooses the modules, which only took people out of what they were doing; the modules are chosen
   in Settings › Modules.
-
 
 ## 0.103.0 — 2026-10-20
 

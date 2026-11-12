@@ -11,7 +11,7 @@ import { installFakeDom } from './fake-dom.js';
 
 installFakeDom();
 const { el, svg, append, clear, $, $$ } = await import('../web/dom.js');
-const { field } = await import('../web/ui.js');
+const { field, revealable } = await import('../web/ui.js');
 
 /** A style that records what was set, custom properties apart (as a browser's CSSStyleDeclaration). */
 function recordingStyle(node) {
@@ -124,4 +124,37 @@ test('field with an app’s options: its classes and hint tag, a <span> over a g
 
   const withHint = field('Colour', el('div'), 'Pick one', look);
   assert.equal(withHint.children[2].hasAttribute('id'), false, 'a hint over a group has no id to point at');
+});
+
+test('revealable: an eye inside a password field shows what was typed and hides it again; the label still names the input', () => {
+  const input = el('input', { type: 'password', autocomplete: 'current-password' });
+  const wrap = revealable(input);
+  const node = field('Your password', wrap, 'A hint');
+  const [label, control, hint] = node.children;
+  assert.equal(control, wrap);
+  assert.equal(wrap.getAttribute('class'), 'kit-password');
+  assert.equal(label.getAttribute('for'), input.id, 'the label names the input, not its wrapper');
+  assert.ok(input.id);
+  assert.equal(wrap.hasAttribute('id'), false);
+  assert.equal(input.getAttribute('aria-describedby'), hint.getAttribute('id'));
+  const [first, eye] = wrap.children;
+  assert.equal(first, input);
+  assert.deepEqual([eye.tagName, eye.getAttribute('type'), eye.getAttribute('aria-pressed')], ['BUTTON', 'button', 'false'],
+    'a button of its own: pressing it never sends the form');
+  const said = eye.getAttribute('aria-label');
+  const drawn = () => eye.find('path')[0].getAttribute('d');
+  const closed = drawn();
+
+  eye.dispatch('click');
+  assert.equal(input.getAttribute('type'), 'text', 'shown');
+  assert.equal(eye.getAttribute('aria-pressed'), 'true');
+  assert.notEqual(eye.getAttribute('aria-label'), said, 'and it says it hides now');
+  assert.notEqual(drawn(), closed, 'the eye crossed out');
+  assert.equal(input.getAttribute('autocomplete'), 'current-password', 'its own attributes kept');
+
+  eye.dispatch('click');
+  assert.equal(input.getAttribute('type'), 'password', 'hidden again');
+  assert.equal(eye.getAttribute('aria-pressed'), 'false');
+  assert.equal(eye.getAttribute('aria-label'), said);
+  assert.equal(drawn(), closed);
 });

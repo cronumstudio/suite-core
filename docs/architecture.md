@@ -625,9 +625,9 @@ the page signs in in place; under a provider's sign-in the server sends the brow
 `/auth/login?prompt=login` (its cookie carrying the request as before), which asks the provider to
 sign in again instead of reusing its own session (OIDC `prompt=login`; AuthKit `max_age=0`), and
 `/` brings it back to the request without the prompt. `/auth/login` without `prompt=login` is as it
-was; besides the connect page, only the admin panel asks for it (v0.261.0, with `return=/admin`),
+was; besides the connect page, only the admin panel asks for it (v0.274.0, with `return=/admin`),
 when an admin with no password to give (Google, Apple, a company's sign-in) must sign in again to
-change who someone is: their session counts only if AuthKit's access token says they actively
+change who someone is or make a new account's login: their session counts only if AuthKit's access token says they actively
 signed in (`auth_time`) after the server asked them, in the ten minutes since
 (`createFreshSignIns`, workos-security.js). A session opened in the last minutes proved nothing,
 since AuthKit signs a browser in again without a word while its own session lasts.
@@ -1479,6 +1479,28 @@ role, plan, extras granted per feature with an end date, a new password, signing
 disabling, removal), invitations with the link to pass on, what each plan allows, organizations
 when that module is on, and the activity log, filtered and paged. A feature is named by the app's
 `features.<key>` text when it has one, else by its label in the configuration.
+
+**Accounts the admin makes** (**done**, v0.263.0, `POST /api/admin/users`; Martin, 12/11/2026: test
+accounts for the stores' reviews, testers, directories). Users › New account takes an email, a
+name, a role, a password and the plan the account has from the start (with its end and reason),
+checks all of it before making anything, and gives the plan in the account's own transaction
+(`accounts.create({ also })`), so Users › Plan shows it as one the admin gave. An email any
+account here has is `409 email_taken`; without a username, one comes from the email. With local
+passwords the email is taken as confirmed (`email_verified: true`), with no message to confirm it.
+With WorkOS, only where the install owns the logins (`accounts.adminIdentity`, Cronum Work), a
+password makes the login at WorkOS (`POST /user_management/users` with `email_verified: true` and
+the app's mark in its metadata) and links the account here to it, so it signs in on AuthKit at
+once; the admin gives their own password (and code) again first, as for setting someone's
+password there, since that login opens every product. Since v0.266.0 it isn't in the form and
+stands 10 minutes in that session (Martin, 12/11/2026: several reviewers' accounts in a row): a
+request that comes with none outside those minutes is `403 admin_confirm_required` with what to
+give (`reauth`), the panel asks for it in a dialog of its own (`POST /api/admin/confirm`) and
+sends the account again; what changes someone who already exists still asks every time
+(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An email WorkOS already has is someone's
+login, perhaps of another app: `409 email_taken_provider`, never made again. A login made for an
+account that then can't be made is deleted. Where the install doesn't own the logins, and with
+OIDC, no password can be given (`password_not_here`): the account waits, as before, for its
+person to sign in with that email. The password reaches no answer, log entry or server line.
 Next adopts the rest first (its own sign-in, settings, notice and service worker give way to the
 kit's), then Notes is built on it whole, then the others as they move to English.
 
@@ -1790,7 +1812,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
   an install that bills alone while other apps sign in with the same users; left out, as
   `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
-  first too, where the install ends them (v0.261.0, `deletion.endSubscriptionsOf`): if the provider
+  first too, where the install ends them (v0.274.0, `deletion.endSubscriptionsOf`): if the provider
   can't end one that still renews, nothing is deleted (503 `subscription_not_ended`), to try
   again, and the log keeps how many ended. One the person cancelled already (in the portal, or by
   asking to go) renews no more and lapses at its period's end when the provider won't end it now,
@@ -2001,11 +2023,25 @@ The third, `host_looks`, keeps the look each person chose for every module (v0.1
 sets it from Settings › Language and theme. The kit paints it as `<html data-look="clean">`
 (web-kit.md).
 
-Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the account's
-sections, then a group for each module in use, then the host's. A module names its sections for
+Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the same list.
+Since 0.268.0, first the host's group (since 0.270.0 in this order: Language and theme, Modules,
+the daily summary, the calendar, Notifications, Your AI, Administration), then a group for each module in use, then the
+account's (Profile, Password and access, where the account is signed in, Plan, deleting it), and
+About the whole app on its own at the foot; an app on its own keeps Account, Connections and its
+own group, as before. A module names its sections for
 the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }], ai, about }`,
 with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
 with `data` when the module declares its data) and drops what isn't well formed.
+
+Settings › Modules (0.268.0) has each module with its line under its name: the host's catalog's
+with `createHost({ moduleHints: 'home.modules.' })` (`host.hints` in `/api/modules`, the key
+being the prefix and the mount, read from `/i18n/<lang>.json`), else its line in About. Under
+them, a block of what is a button on the rail and not a module, each a switch, in no order: the
+calendar (`calendar_shown`), the daily summary (`day_shown`: shown until hidden, `PUT /api/me/day
+{ shown }`, table `host_day`, migration 11) and each door, `createHost({ doors: ['croc'] })`: a
+module marked `door: true` in `/api/modules`, turned on and off as a module is
+(`PUT /api/me/modules`), but out of the order, without a group in Settings, never installed alone,
+and never the one module left on (`400 field_required`).
 
 ### 21.2 One MCP
 
@@ -2177,11 +2213,39 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   Only for whoever turned it on (0.195.0): Settings › Modules has the switch (`calendar_shown` in
   the same answer, `PUT /api/me/calendar { shown }`, table `host_calendar`); no row, no button,
   so the rail stays as simple as it was. The page and the assistants' tool are there either way.
+- **Which modules show on it** (0.267.0): Settings › Calendar (`host.calendarModules` in every
+  module's config, section `calendar-feed`) has a switch for each module with dates that the person
+  uses: `GET /api/me/calendar/modules` and `PUT /api/me/calendar/modules/:mount { shown }`, both
+  answering `{ modules: [{ mount, name, color, icon, shown }] }`; a module with no dates, or one
+  they don't use, is 400 `field_invalid` (`module`). Table `host_calendar_modules`, a row for
+  each module chosen: none, it shows (one that comes later too). One kept off is not asked at all:
+  it leaves the page (and its filters), the link for calendar apps and the assistants' tool alike.
 - **For assistants**, the host's MCP adds `<host id>_calendar` (`work_calendar`) for whoever uses
   a module that gives its dates (and, with `byPlan`, whose plan lets an assistant read it):
   `{ from, to }`, `to` a week from `from` without it and `from` today in their zone without it,
   answered as text by day, each thing with its `module:type:id` for the modules' tools and the
   links'. A thing that lasts several days is said once, on its first day in the span.
+- **In the person's own calendar app** (`calendar-feed.js`, 0.262.0), with
+  `createHost({ calendar, calendarFeed: true })`: a secret link of theirs that Google Calendar,
+  Outlook or Apple Calendar subscribe to, `GET /api/calendar/feed/<token>.ics`, signed out. The
+  token (192 random bits) is the only thing in it; table `host_calendar_feeds` keeps its hash, to
+  find it, and the token encrypted with a key derived from the session secret, for Settings to
+  show it again. Settings has a section of the host's (`host.calendarFeed` in every module's
+  config), with `GET`, `POST` (made, or made again: the old link stops at once) and `DELETE
+  /api/me/calendar-feed` → `{ included, feed: { url, webcal, created_at, used_at } | null }`,
+  each change in the audit log (`calendar_feed.created`, `.renewed`, `.removed`). The file is
+  RFC 5545: what the calendar page shows (the modules the person uses), from 60 days ago up to a
+  year in all, one VEVENT an item with a stable UID (`<module>-<type>-<id>@<host>`), all day
+  (DTEND the day after its last) or, with a time on one day, half an hour at it in UTC from the
+  person's zone; ✓ before a done one's title, TRANSP:TRANSPARENT, its link in URL and
+  DESCRIPTION. `Cache-Control: private, max-age=900`, an ETag (304 when nothing changed),
+  `REFRESH-INTERVAL` of an hour. A wrong token is 404 and braked as a bad token is
+  (`checkToken`). Settings' «Open in Apple Calendar» is the `webcal:` address; in the phone app,
+  only where it says it opens it (`can('webcal')`, app 0.6.5): for older builds, which open only
+  http and https outside, the answer's `subscribe`, `GET /api/calendar/subscribe/<token>.ics`,
+  sends there (302, `no-store`), so the browser the app opens hands it to Calendar (0.271.0). Where the host declares the plan feature `calendar.feed` (plans.js: Pro's in
+  `cronum-work`), only a plan with it: making one is 402 `plan_feature`, and a link whose plan
+  ended answers 402 and is kept for when it comes back.
 
 ### 21.3.2 The daily summary
 
@@ -2345,6 +2409,11 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   kept shape, the prototype's `{ slots }` included. A window never moves in the document: it is
   placed by its grid column (`--cw-col-N` in the desk's template, 320 px at least, an 8 px bar
   between two), and a stacked one takes its half of the cell (`--cw-row-N`).
+- **Shapes.** `columns(n)` takes the shell's choice: 1–4 columns, '2x2', or a shape, the windows
+  each column stacks (`[1, 2]`: one window beside two stacked; `asShape()` cuts it to what a
+  layout may be, `shapeOf(layout)` reads it back). It fills by rows, the top row and then the
+  bottom one, the windows in sight first and the focused one kept, and gives the shape the shares
+  its bars had the last time it showed (`readShares`, kept by `writeLayout` beside the layout).
 - **Moving them.** A head picks its window up after 6 px (its shadow lifts it). As magnets, the
   window it comes over gives way while it is carried: pushed toward the place it would take, up to
   40 % of the way, as much as it is covered; past 55 % the two trade places and the others flow on

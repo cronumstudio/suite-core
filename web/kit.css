@@ -280,6 +280,17 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   outline: 2px solid var(--kit-accent); outline-offset: -1px; border-color: transparent;
 }
 .kit-field--bad input, .kit-field--bad select, .kit-field--bad textarea { border-color: var(--kit-danger); }
+/* A password with its eye inside, at the end (ui.js revealable): the text stops before the eye. */
+.kit-password { position: relative; display: grid; }
+/* As specific as the field's own input rule, or its padding would win. */
+.kit-field .kit-password > input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { padding-inline-end: 44px; }
+.kit-password__eye {
+  position: absolute; inset-block: 0; inset-inline-end: 0; width: 40px; border: 0; background: none; padding: 0;
+  display: grid; place-items: center; color: var(--kit-muted); cursor: pointer; border-radius: var(--look-r-md, 9px);
+}
+.kit-password__eye:hover { color: var(--kit-text); }
+.kit-password__eye:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: -4px; }
+.kit-password__eye .kit-icon { width: 18px; height: 18px; }
 .kit-hint { margin: 0; color: var(--kit-muted); font-size: var(--look-footnote, 12.5px); }
 .kit-error { margin: 0; color: var(--kit-danger); font-size: var(--look-footnote, 13px); }
 .kit-check { display: flex; align-items: center; gap: 9px; }
@@ -301,7 +312,12 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-switch[aria-checked="true"]::after { inset-inline-start: 19px; }
 .kit-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .kit-switch-row small { display: block; color: var(--kit-muted); font-size: var(--look-footnote, 12.5px); }
-.kit-switch-row--swatch > span:first-child { display: flex; align-items: center; gap: 8px; }
+.kit-switch-row--swatch > span:first-child { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Settings › Modules: a row's name and its line under it, wrapping on a narrow phone; and the
+   icon of a button on the rail (the calendar's, the daily summary's, a door's). */
+.kit-switch-row__text { min-width: 0; }
+.kit-switch-row__icon { display: inline-grid; place-items: center; width: 22px; flex: none; color: var(--kit-muted); }
+.kit-switch-row__icon .kit-icon { width: 18px; height: 18px; }
 /* Settings › Daily summary: each notice a block of its own (switch, time, modules, its page). */
 .kit-day-list { display: grid; gap: 18px; }
 .kit-day { display: grid; gap: 14px; min-width: 0; }

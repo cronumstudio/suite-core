@@ -111,6 +111,45 @@ test('client keeps its session cookie, sends and reads JSON, and names a request
   await assert.rejects(impatient('GET', '/hang'), /GET http:\/\/127\.0\.0\.1:\d+\/hang: no answer within 0\.2 s/);
 });
 
+test('client sends a request again, once, when the connection it got was closed under it', async (t) => {
+  // What Node's server does to a connection idle for 5 s, at the moment fetch reuses it: closes
+  // it without reading what came. Here the server does it on purpose, to the second request of
+  // the first connection (tasks' smoke test failed this way on CI: "fetch failed", nothing more).
+  const seen = new Map();
+  let connections = 0;
+  const fake = await fakeServer((req, res, { url, body, json }) => {
+    if (!seen.has(req.socket)) seen.set(req.socket, ++connections);
+    const connection = seen.get(req.socket);
+    if (url.pathname === '/always' || (connection === 1 && url.pathname === '/second')) return req.socket.destroy();
+    return json(200, { connection, path: url.pathname, body: JSON.parse(body || 'null') });
+  });
+  t.after(fake.close);
+
+  const browser = client(fake.url);
+  const first = await browser('POST', '/first', { n: 1 });
+  assert.deepEqual(first.data, { connection: 1, path: '/first', body: { n: 1 } });
+  await sleep(100); // the first connection is back among the idle ones, the one fetch reuses
+  const second = await browser('POST', '/second', { n: 2 });
+  assert.equal(second.status, 200, 'it went through');
+  assert.deepEqual(second.data, { connection: 2, path: '/second', body: { n: 2 } }, 'on a new connection, with its body');
+  assert.deepEqual(fake.requests.map((r) => r.path), ['/first', '/second', '/second'], 'sent twice: the closed connection, then the new one');
+
+  // Only once: a server that closes every time is a failure, and the error says which request and why.
+  const before = fake.requests.length;
+  await assert.rejects(browser('POST', '/always', { n: 3 }),
+    (err) => /^POST http:\/\/127\.0\.0\.1:\d+\/always: fetch failed \((UND_ERR_SOCKET|ECONNRESET|EPIPE)\b/.test(err.message) && err.cause?.name === 'TypeError',
+    'the request and the reason, not "fetch failed" alone');
+  assert.equal(fake.requests.length - before, 2, 'tried twice, no more');
+
+  // A server that isn't there is no closed connection: nothing is sent again, and the reason is in the message.
+  const gone = client(`http://127.0.0.1:${await freePort()}`);
+  await assert.rejects(gone('GET', '/x'), (err) => /^GET http:\/\/127\.0\.0\.1:\d+\/x: fetch failed \(ECONNREFUSED\b/.test(err.message));
+
+  // rpc goes through the same fetch.
+  const viaRpc = await rpc(fake.url, 'tok', 'tools/list');
+  assert.equal(viaRpc.status, 200);
+});
+
 test('mcp and rpc speak JSON-RPC with a bearer token', async (t) => {
   const fake = await fakeServer((req, res, { url, body, json }) => {
     if (url.pathname === '/broken/mcp') { res.writeHead(502); return res.end('Bad gateway'); }

@@ -978,8 +978,9 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
-  assert.match(settings, /calendarSwitch\.hidden = typeof answer\.calendar_shown !== 'boolean';/);
-  assert.match(settings, /sendOne\('\/api\/me\/calendar', \{ shown \}/);
+  assert.match(settings, /if \(typeof answer\.calendar_shown === 'boolean'\) \{/);
+  assert.match(settings, /shownSwitch\(t\('kit\.calendar\.title'\), t\('kit\.calendar\.showHint'\), 'calendar', answer\.calendar_shown, '\/api\/me\/calendar', 'calendar_shown'\)/);
+  assert.match(settings, /await sendOne\(path, \{ shown \}/);
   assert.match(settings, /keep\('PUT', path, body, \{ root: true \}\)/, 'at the host\'s root, not the module\'s path');
   // On a phone, where the rail doesn't show, the switcher's menu has it.
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
@@ -1040,7 +1041,7 @@ test('a module installed on its own has Settings of its own: no other modules, n
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
   // In a window of Work's shell (its registry) the module is the whole app's, never alone.
   assert.match(settings, /const alone = \(\) => Boolean\(host\) && installedAlone\(hostInfo, \{ embedded: Boolean\(workRegistry\(\)\) \}\);/);
-  assert.match(settings, /host && !alone\(\) \? \{ group: t\('kit\.settings\.groups\.account'\), id: 'modules',/);
+  assert.match(settings, /!alone\(\) \? \{ group: host\.name, id: 'modules',/);
   // Its group, Your AI's words and About's cards all come from modulesHere(): only this module.
   assert.match(settings, /function modulesHere\(\) \{\s*if \(alone\(\)\) return \[inUse\.find\(\(m\) => m\.mount === host\.mount\) \|\| \{ mount: host\.mount \}\];/);
   assert.match(settings, /const list = !path \? \[\] : inUse\.length && !alone\(\) \? inUse : modulesHere\(\);/);
@@ -1584,6 +1585,40 @@ test('a host’s worker serves code from its copy, keeps the kit once, and a rel
   assert.deepEqual(fetched, []);
 });
 
+test('the kit a module’s page brought into the one copy is the host’s page’s at /suite/, never at the module’s address (0.267.1)', async () => {
+  // Work's calendar and daily summary (at /suite/) showed their keys: their /suite/i18n.js came
+  // from the copy a Projects window had kept there, with its address, /projects/suite/i18n.js. A
+  // module script reads its base from the address it answers with, so the kit read Projects' base
+  // and catalog (/projects/i18n/es.json), which has none of their texts (Martin's test Chrome, 12/11).
+  const server = { '/': 'shell', '/calendar/': 'calendar' };
+  for (const file of ['/suite/i18n.js', '/suite/base.js']) {
+    server[file] = `${file} v1`;
+    server[`/projects${file}`] = `${file} v1`;
+  }
+  const { worker, store } = await deployedWorkers('https://work.example/', server);
+  const release = (version, hashes) => worker({
+    version, modules: ['/projects/'], codeFirst: true, sharedKit: true, hashes, shell: ['/', '/calendar/'],
+  });
+  const kit = { '/suite/i18n.js': 'i1', '/suite/base.js': 'b1' };
+  const one = await release('work-a', kit);
+  // The copy without that file (its caches cleared under a running worker, a file the install left out).
+  store.get('work-a').delete('/suite/i18n.js');
+  const asked = await one.get('https://work.example/projects/suite/i18n.js');
+  assert.equal(asked.url, 'https://work.example/projects/suite/i18n.js', 'Projects gets the network’s answer');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const own = await one.get('https://work.example/suite/i18n.js');
+  assert.equal(own.body, '/suite/i18n.js v1');
+  assert.ok(['', 'https://work.example/suite/i18n.js'].includes(own.url), `read at /suite/, its base /: ${own.url}`);
+
+  // A copy kept that way before this release, which the next one takes as it is (same hash): healed when served.
+  store.get('work-a').get('/suite/base.js').url = 'https://work.example/projects/suite/base.js';
+  const two = await release('work-b', kit);
+  assert.equal(store.get('work-b').get('/suite/base.js').url, 'https://work.example/projects/suite/base.js', 'the old copy, carried');
+  const healed = await two.get('https://work.example/suite/base.js');
+  assert.equal(healed.body, '/suite/base.js v1');
+  assert.ok(['', 'https://work.example/suite/base.js'].includes(healed.url), `never Projects' address: ${healed.url}`);
+});
+
 test('offline, a navigation gets the page kept at its own path: Cronum Work opens on its shell at /, not on the home (0.203.1)', async () => {
   // The host's start is a page of its own (Work's shell, pages[].root): / answers it, and
   // /index.html is the home that chooses modules. The installed app and the phone app open /.
@@ -2011,16 +2046,17 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     const groups = texts('kit-settings__group');
     const labels = texts('kit-settings__label');
     assert.deepEqual(groups, [
-      t('kit.settings.groups.account'), t('kit.settings.groups.connections'),
-      'Tasks', 'Notes', 'Cronum Work',
-    ], 'the account\'s, each module in use in the host\'s order, the host\'s last; Next is off');
-    // Password and sign-in is the account's, after the profile; where one is signed in, the last of Connections.
+      'Cronum Work', 'Tasks', 'Notes', t('kit.settings.groups.account'), t('kit.about.title', { app: 'Cronum Work' }),
+    ], 'the host\'s first, each module in use in the host\'s order, the account\'s, About on its own; Next is off');
+    // The host's group: the modules, the language, the AI, the notices and administration, the whole app's.
+    assert.deepEqual(labels.slice(0, 5), [t('kit.appearance.title'), t('kit.modules.title'), t('kit.notifications.title'), t('kit.ai.title'), t('kit.admin.title')]);
+    // Password and sign-in is the account's, after the profile; where one is signed in, after them.
     assert.equal(labels[labels.indexOf(t('kit.profile.title')) + 1], t('kit.security.title'));
-    assert.equal(labels[labels.indexOf(t('kit.notifications.title')) + 1], t('kit.security.sessions'));
+    assert.equal(labels[labels.indexOf(t('kit.security.title')) + 1], t('kit.security.sessions'));
     // Notices and the plan are the host's to say, the same in every module, whatever this one passed;
     // the plan is the account's.
     assert.ok(labels.includes(t('kit.notifications.title')));
-    assert.equal(labels[labels.indexOf(t('kit.appearance.title')) + 1], t('kit.plan.title'));
+    assert.equal(labels[labels.indexOf(t('kit.security.sessions')) + 1], t('kit.plan.title'));
     // This module's own, drawn here: its sections, its data and what it adds to Your AI (it has no
     // instruction for Your AI to show); what it is goes in About's card.
     assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 3),
@@ -2032,9 +2068,9 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     assert.ok(!labels.includes('no.such.key'));
     assert.ok(asked.includes('/notes/i18n/en.json'));
     assert.ok(!asked.some((path) => path.startsWith('/next/')), 'a module not in use isn\'t asked');
-    // Deleting the whole account is the account's, after the plan; the host's last: administration and about it.
+    // Deleting the whole account is the account's, after the plan, the last of the list's groups.
     assert.equal(labels[labels.indexOf(t('kit.plan.title')) + 1], t('kit.data.deleteTitle'));
-    assert.deepEqual(labels.slice(-2), [t('kit.admin.title'), t('kit.about.title', { app: 'Cronum Work' })]);
+    assert.equal(labels.at(-1), t('kit.data.deleteTitle'));
     // Choosing another module's section goes there, with Settings open on it.
     const templates = root.all().find((node) => node.className === 'kit-settings__item' && node.textContent.includes('Templates'));
     for (const fn of templates.listeners.click) fn({ currentTarget: templates });

@@ -112,20 +112,48 @@ const LABELABLE = new Set(['BUTTON', 'INPUT', 'METER', 'OUTPUT', 'PROGRESS', 'SE
  * The options keep an app's own look: `class` for the wrapper, `hintClass` and `hintTag` for the
  * hint, and `groupLabel: true` writes the label as a <span> when what it names isn't something a
  * <label> can name (a palette of buttons), leaving the control's id alone. Without options, the
- * kit's field as it has always been.
+ * kit's field as it has always been. A control wrapped with something beside it (revealable())
+ * says what the label names in `labelTarget`.
  */
 export function field(label, control, hint = null, options = {}) {
   const { class: className = 'kit-field', hintClass = 'kit-hint', hintTag = 'p', groupLabel = false } = options;
-  const labelable = !groupLabel || (control?.tagName && LABELABLE.has(control.tagName));
+  const target = control?.labelTarget || control;
+  const labelable = !groupLabel || (target?.tagName && LABELABLE.has(target.tagName));
   let id = null;
   if (labelable) {
-    id = control.id || `f-${Math.random().toString(36).slice(2, 9)}`;
-    control.id = id;
+    id = target.id || `f-${Math.random().toString(36).slice(2, 9)}`;
+    target.id = id;
   }
   const hintNode = hint ? el(hintTag, { class: hintClass, id: id && `${id}-hint`, text: hint }) : null;
-  if (hintNode && id) control.setAttribute('aria-describedby', `${id}-hint`);
+  if (hintNode && id) target.setAttribute('aria-describedby', `${id}-hint`);
   const header = labelable ? el('label', { for: id, text: label }) : el('span', { text: label });
   return el('div', { class: className }, header, control, hintNode);
+}
+
+/**
+ * A password input with an eye inside it, at its end: pressed, what was typed shows, to check it
+ * before sending; pressed again, it hides. The input keeps its own attributes (autocomplete…).
+ * → the wrapper, to give field() in the input's place: its label still names the input.
+ */
+export function revealable(input) {
+  const button = el('button', {
+    type: 'button', class: 'kit-password__eye', 'aria-pressed': 'false', 'aria-label': t('kit.password.show'),
+    title: t('kit.password.show'),
+  }, icon('eye'));
+  button.addEventListener('click', () => {
+    const show = input.getAttribute('type') === 'password';
+    input.setAttribute('type', show ? 'text' : 'password');
+    const said = t(show ? 'kit.password.hide' : 'kit.password.show');
+    button.setAttribute('aria-pressed', String(show));
+    button.setAttribute('aria-label', said);
+    button.setAttribute('title', said);
+    clear(button).append(icon(show ? 'eye-off' : 'eye'));
+    // Back where it was typing: the eye is a glance, not a stop.
+    input.focus();
+  });
+  const wrap = el('div', { class: 'kit-password' }, input, button);
+  wrap.labelTarget = input;
+  return wrap;
 }
 
 /** An on/off switch with its label; `onChange(checked)` may throw to put it back. */
@@ -713,10 +741,12 @@ function tidy(items) {
  * one is left out, and so is a separator with nothing to separate. `header`
  * is a node on top (what the menu is about). `at` ({ x, y }, a pointer's place)
  * puts it there instead of under the anchor; `parent` is where it hangs (the
- * page's body by default; inside a modal dialog, always that dialog). Arrows
- * move, Escape and a click outside close it.
+ * page's body by default; inside a modal dialog, always that dialog). `body`
+ * is a node of the caller's after the items (a grid of choices, say): its
+ * buttons with role="menuitem" move with the arrows too, and close nothing
+ * by themselves (closeMenu()). Arrows move, Escape and a click outside close it.
  */
-export function menu(anchor, items, { header = null, at = null, parent = null } = {}) {
+export function menu(anchor, items, { header = null, at = null, parent = null, body = null } = {}) {
   closeMenu();
   const entries = tidy(items).map((item) => {
     if (item === 'separator') return el('div', { class: 'kit-menu__sep', role: 'separator' });
@@ -736,7 +766,7 @@ export function menu(anchor, items, { header = null, at = null, parent = null } 
     node.addEventListener('click', () => { closeMenu(); item.onClick?.(); });
     return node;
   });
-  const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries);
+  const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries, body);
   // Under a modal dialog the rest of the page is inert: a menu opened from one goes inside it.
   (anchor?.closest?.('dialog[open]') || parent || document.body).append(markOwned(node));
   openMenuNode = node;

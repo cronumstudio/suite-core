@@ -35,6 +35,8 @@ const SETUP_MS = 10 * 60 * 1000;
 const REAUTH_MS = 10 * 60 * 1000;
 /** WorkOS's clock and this one's, which don't tick exactly together (as workos.js's tokens). */
 const SKEW_MS = 30 * 1000;
+/** How long the admin's password given again stands in their session, for what asks only that it was given lately. */
+const CONFIRMED_MS = 10 * 60 * 1000;
 const STEP_SECONDS = 30;
 
 /** Methods that are another account's sign-in: its password and second step are there. */
@@ -98,14 +100,18 @@ export function createFreshSignIns({ clock = () => Date.now() } = {}) {
  * @param {'on'|'admins'|'off'} [deps.twoFactor]
  * @param {boolean} [deps.adminIdentity]  whether the admin may set someone's password and take
  *   their second step off at WorkOS (config.accounts.adminIdentity): only the install that owns the
- *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist.
+ *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist,
+ *   and neither do the logins the admin makes for new accounts (`logins`, returned).
+ * @param {object} [deps.mark]  `{ key, name }` (app.js identityMark), where the logins are shared
+ *   with other apps: what a login the admin makes carries in its metadata.
  * @param {object} [deps.freshSignIns]  from createFreshSignIns(), which createSuite fills from each
  *   sign-in at WorkOS: an admin with no password to give is confirmed by a fresh one. Without it,
  *   nothing counts as one and such an admin is always asked to sign in again.
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'on',
-  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, freshSignIns = null, clock = () => Date.now(),
+  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, mark = null, freshSignIns = null,
+  clock = () => Date.now(),
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -306,23 +312,52 @@ export function registerWorkosSecurityApi(router, {
   }
 
   /**
+   * The sessions whose admin was confirmed lately (confirmAdmin), by a hash of the token, with
+   * whose and when. Kept in memory: a restart only means giving the password once more.
+   */
+  const confirmedAt = new Map();
+  const sessionKey = (ctx) => (ctx.sessionToken
+    ? crypto.createHash('sha256').update(String(ctx.sessionToken)).digest('base64url') : null);
+  const remember = (ctx) => {
+    const key = sessionKey(ctx);
+    if (!key) return;
+    for (const [other, entry] of confirmedAt) if (clock() - entry.at > CONFIRMED_MS) confirmedAt.delete(other);
+    confirmedAt.set(key, { userId: ctx.user.id, at: clock() });
+  };
+  const confirmedLately = (ctx) => {
+    const entry = confirmedAt.get(sessionKey(ctx));
+    return Boolean(entry && entry.userId === ctx.user.id && clock() - entry.at <= CONFIRMED_MS && sessions.alive(ctx.sessionToken));
+  };
+
+  /**
    * The admin again: their password and, with a second step, a code; or this session's sign-in at
    * WorkOS, if they actively signed in after the server last asked them to and in the minutes since
    * (createFreshSignIns), else `reauth_required`, and they are asked: the panel sends them to sign
    * in again, with AuthKit asking again too. A stolen cookie alone isn't enough to change who
    * someone is in every product, nor is a session AuthKit opened by itself.
+   *
+   * Each time it passes, it stands for that session for 10 minutes (CONFIRMED_MS) for what asks
+   * only that the admin was confirmed lately (`recent`: a new account's login), so making several
+   * accounts asks once. Such a request that comes with nothing to check, outside those minutes, is
+   * `403 admin_confirm_required` with what to give (`reauth`): the panel asks for it apart
+   * (POST /api/admin/confirm) and sends the request again. What changes someone who already
+   * exists (their password, their second step, their login gone) still asks every time.
    */
-  async function confirmAdmin(ctx, body) {
+  async function confirmAdmin(ctx, body, { recent = false } = {}) {
+    if (recent && confirmedLately(ctx)) return;
     const { kind, id } = await reauthOf(ctx.user);
     if (kind === 'session') {
       if (!freshSignIns?.fresh(ctx.user.id, ctx.sessionToken)) {
         freshSignIns?.ask(ctx.user.id);
         throw new HttpError(401, 'reauth_required');
       }
+      remember(ctx);
       return;
     }
-    await confirmPassword(ctx, ctx.user, body.admin_password);
-    if (kind === 'password_code') await confirmCode(id, body.admin_code);
+    if (recent && body?.admin_password == null) throw new HttpError(403, 'admin_confirm_required', { reauth: kind });
+    await confirmPassword(ctx, ctx.user, body?.admin_password);
+    if (kind === 'password_code') await confirmCode(id, body?.admin_code);
+    remember(ctx);
   }
 
   /**
@@ -348,6 +383,18 @@ export function registerWorkosSecurityApi(router, {
   // Changing someone's WorkOS identity changes it in every product: only the install that owns
   // the identities does it, and only with the admin's own password (and code) again.
   if (!adminIdentity) return {};
+
+  /**
+   * The admin's own password (and code) given apart, when a request answered `admin_confirm_required`:
+   * it stands 10 minutes in this session (confirmAdmin), so the panel sends that request again
+   * and the next ones go through. An admin who signs in elsewhere (Google) has nothing to give:
+   * a fresh sign-in (createFreshSignIns), else `reauth_required`. → { ok, until }
+   */
+  router.post('/api/admin/confirm', route(async (ctx) => {
+    requireAdmin(ctx);
+    await confirmAdmin(ctx, await readJson(ctx.req));
+    sendJson(ctx.res, 200, { ok: true, until: new Date(clock() + CONFIRMED_MS).toISOString() });
+  }));
 
   /**
    * Whoever lost the phone: their second step off. They sign in with the password alone until
@@ -386,5 +433,42 @@ export function registerWorkosSecurityApi(router, {
     sendJson(ctx.res, 200, { ok: true });
   }));
 
-  return { confirmAdmin: (ctx, body) => route(() => confirmAdmin(ctx, body))(ctx) };
+  /** WorkOS not answering, as the routes here say it (route()), for what the admin API calls. */
+  const answered = async (fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof WorkosUnavailable) throw new HttpError(503, 'provider_unavailable');
+      throw err;
+    }
+  };
+
+  /**
+   * Logins the admin makes at WorkOS for the accounts they create (registerAdminApi's `logins`):
+   * a test account for a store's review, a tester. Its email is taken as verified, so it signs in
+   * at once with the password the admin chose, and it carries this app's mark (`mark`, where the
+   * logins are shared) as if it had signed in here. `taken(email)`, whether WorkOS has one with
+   * that email already (someone of another app of the suite): theirs, never made again. `make`
+   * → the WorkOS id, or 400 `password_rejected` with WorkOS's reason. `undo(id)`: the account
+   * here couldn't be made after all, so the login goes too.
+   */
+  const logins = {
+    provider: 'workos', name: 'WorkOS',
+    taken: (email) => answered(async () => Boolean(await workos.userByEmail(email))),
+    make: ({ email, password, displayName = null }) => answered(async () => {
+      const done = await workos.createUser({
+        email, password, firstName: displayName, emailVerified: true,
+        metadata: mark ? { [mark.key]: mark.name } : null,
+      });
+      if (done.refused) {
+        // Someone took the email between the question and now: said as the question would have.
+        if (await workos.userByEmail(email)) throw conflict('email_taken_provider', { provider: 'WorkOS' });
+        throw badRequest('password_rejected', { detail: done.refused });
+      }
+      return done.user.id;
+    }),
+    undo: (id) => workos.deleteUser(id),
+  };
+
+  return { confirmAdmin: (ctx, body, options) => route(() => confirmAdmin(ctx, body, options))(ctx), logins };
 }

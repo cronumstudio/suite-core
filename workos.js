@@ -222,6 +222,37 @@ export function createWorkosClient({
   const unavailable = (status) => status >= 500 || status === 429;
 
   /**
+   * The WorkOS user with that email, or null (WorkOS keeps emails in lower case).
+   * @throws {WorkosUnavailable}
+   */
+  async function userByEmail(email) {
+    const q = new URLSearchParams({ email: String(email || '').trim().toLowerCase(), limit: '1' });
+    const { ok, status, body } = await request(`${API_URL}/user_management/users?${q}`, { headers: bearer });
+    if (!ok || !Array.isArray(body?.data)) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    return body.data[0] ?? null;
+  }
+
+  /**
+   * A new WorkOS user with a password: `{ user }`, or `{ refused: message }` when WorkOS won't
+   * have it (a password its policy refuses, an email taken meanwhile). `emailVerified`: the
+   * address is taken as confirmed, so AuthKit doesn't ask for a code the first time. The password
+   * goes to WorkOS and nowhere else: not into the refusal, not into a log.
+   * @throws {WorkosUnavailable}
+   */
+  async function createUser({ email, password, firstName = null, emailVerified = false, metadata = null }) {
+    const { ok, status, body } = await request(`${API_URL}/user_management/users`, {
+      method: 'POST', headers: bearer,
+      body: JSON.stringify({
+        email, password, email_verified: Boolean(emailVerified),
+        ...(firstName ? { first_name: firstName } : {}), ...(metadata ? { metadata } : {}),
+      }),
+    });
+    if (ok && body?.id) return { user: body };
+    if (unavailable(status) || ok) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    return { refused: body?.errors?.[0]?.message || body?.message || `WorkOS answered ${status}` };
+  }
+
+  /**
    * Whether `password` is that person's password at WorkOS. It is asked the way
    * a sign-in is (the password grant), and the session that opens is closed at
    * once. An answer that only wants one more step (the code of a second step,
@@ -478,6 +509,6 @@ export function createWorkosClient({
     authkitDomain: AUTHKIT,
     missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, setMetadata, account, knows,
     authorizedApplications, revokeApplication, listEvents, verifyToken, resourceMetadata, authorizationServerMetadata,
-    checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor,
+    checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor, userByEmail, createUser,
   };
 }

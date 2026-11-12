@@ -144,13 +144,34 @@ export async function startApp(entry, options = {}) {
 
 /* ---------------------------------- clients -------------------------------- */
 
-/** fetch with a deadline that names the request when it passes, instead of hanging the run. */
+/**
+ * How fetch says that the connection it picked was closed under it before any answer came. Node's
+ * http server closes a connection that sat idle for 5 s (`keepAliveTimeout`), and fetch keeps
+ * idle connections to reuse them: when a test's next request comes about 5 s after the previous
+ * one, and the test process is busy (a long synchronous section, a loaded CI machine), fetch can
+ * hand the request to a connection the server is closing at that very moment. The app never
+ * reads it, and fetch fails with "fetch failed" (`other side closed`, or a reset).
+ */
+const CLOSED_UNDER_IT = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);
+
+/**
+ * fetch with a deadline that names the request when it passes, instead of hanging the run. A
+ * request whose connection was closed under it (above) goes once more, on a new connection, as a
+ * browser does; a second failure, or any other, is thrown naming the request and why.
+ */
 async function timed(method, url, init, timeoutMs) {
-  try {
-    return await fetch(url, { ...init, method, signal: init.signal ?? AbortSignal.timeout(timeoutMs) });
-  } catch (err) {
-    if (err?.name === 'TimeoutError') throw new Error(`${method} ${url}: no answer within ${timeoutMs / 1000} s`, { cause: err });
-    throw err;
+  const signal = init.signal ?? AbortSignal.timeout(timeoutMs);
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetch(url, { ...init, method, signal });
+    } catch (err) {
+      if (err?.name === 'TimeoutError') throw new Error(`${method} ${url}: no answer within ${timeoutMs / 1000} s`, { cause: err });
+      // Anything that is not fetch's own network failure (an abort of the caller's) goes as it came.
+      if (err?.name !== 'TypeError' || !err.cause) throw err;
+      if (attempt === 1 && CLOSED_UNDER_IT.has(err.cause.code) && !signal.aborted) continue;
+      const why = [err.cause.code, err.cause.message].filter(Boolean).join(' ');
+      throw new Error(`${method} ${url}: ${err.message}${why ? ` (${why})` : ''}`, { cause: err });
+    }
   }
 }
 

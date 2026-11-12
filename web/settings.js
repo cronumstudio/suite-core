@@ -74,7 +74,7 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateForm
 import { api, errorMessage, Offline } from './api.js';
 import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
+import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
@@ -351,34 +351,36 @@ export function openSettings(options) {
 
   /* -------------------------------- sections -------------------------------- */
 
-  // What every account has. In a host (Cronum Work) these are the same in every module: notices
-  // and the plan are the host's to say, not each module's.
+  // What every account has, each section in the group it is given. In a host (Cronum Work) these
+  // are the same in every module: notices and the plan are the host's to say, not each module's.
+  const profileSection = (group) => ({ group, id: 'profile', iconName: 'user', label: t('kit.profile.title'),
+    hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() });
+  // The password and two-step verification are the account's, next to who it is.
+  const securitySection = (group) => ({ group, id: 'security', iconName: 'shield', label: t('kit.security.title'),
+    hint: () => t(local || provider === 'workos' ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => needsServer(security) });
+  const appearanceSection = (group) => ({ group, id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
+    hint: () => `${LANGUAGE_NAMES[currentLanguage()] || currentLanguage()} · ${t(`kit.appearance.theme.${state.user?.theme || 'system'}`)}`,
+    render: () => appearance() });
+  // The plan is the account's: what it is and what it includes, with the account's other things.
+  const planSection = (group) => (options.plan || host?.plans ? { group, id: 'plan', iconName: 'card', label: t('kit.plan.title'),
+    hint: () => t('kit.plan.hint'), render: () => needsServer(plan) } : null);
+  // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
+  const aiSection = (group) => (modules.mcp !== false ? { group, id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
+    hint: () => t('kit.ai.hint'), render: () => needsServer(ai) } : null);
+  const notificationsSection = (group) => (options.push || host?.push ? { group, id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
+    hint: () => t('kit.notifications.hint'), render: () => needsServer(notifications) } : null);
+  // The devices and browsers signed in to the account.
+  const sessionsSection = (group) => ({ group, id: 'sessions', iconName: 'device', label: t('kit.security.sessions'),
+    hint: () => t('kit.sessions.hint'), render: () => needsServer(sessionsBlock) });
+  /** An app on its own: the account's sections, then what it connects to. */
   const common = () => [
-    { group: t('kit.settings.groups.account'), id: 'profile', iconName: 'user', label: t('kit.profile.title'),
-      hint: () => [state.user?.display_name, state.user?.email].filter(Boolean).join(' · '), render: () => profile() },
-    // The password and two-step verification are the account's, next to who it is.
-    { group: t('kit.settings.groups.account'), id: 'security', iconName: 'shield', label: t('kit.security.title'),
-      hint: () => t(local || provider === 'workos' ? 'kit.security.hint' : 'kit.security.hintProvider'), render: () => needsServer(security) },
-    host && !alone() ? { group: t('kit.settings.groups.account'), id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
-      hint: () => inUse.filter((m) => m.active).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
-    { group: t('kit.settings.groups.account'), id: 'appearance', iconName: 'globe', label: t('kit.appearance.title'),
-      hint: () => `${LANGUAGE_NAMES[currentLanguage()] || currentLanguage()} · ${t(`kit.appearance.theme.${state.user?.theme || 'system'}`)}`,
-      render: () => appearance() },
-    // The plan is the account's: what it is and what it includes, with the account's other things.
-    options.plan || host?.plans ? { group: t('kit.settings.groups.account'), id: 'plan', iconName: 'card', label: t('kit.plan.title'),
-      hint: () => t('kit.plan.hint'), render: () => needsServer(plan) } : null,
-    // In a host, deleting the account (every module's) is the account's too, last. An app on its
-    // own says it in Your data, with its data.
-    host && deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
-      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => needsConnection(data({ module: false })) } : null,
-    // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
-    modules.mcp !== false ? { group: t('kit.settings.groups.connections'), id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
-      hint: () => t('kit.ai.hint'), render: () => needsServer(ai) } : null,
-    options.push || host?.push ? { group: t('kit.settings.groups.connections'), id: 'notifications', iconName: 'bell', label: t('kit.notifications.title'),
-      hint: () => t('kit.notifications.hint'), render: () => needsServer(notifications) } : null,
-    // The devices and browsers signed in to the account, with the other things connected to it.
-    { group: t('kit.settings.groups.connections'), id: 'sessions', iconName: 'device', label: t('kit.security.sessions'),
-      hint: () => t('kit.sessions.hint'), render: () => needsServer(sessionsBlock) },
+    profileSection(t('kit.settings.groups.account')),
+    securitySection(t('kit.settings.groups.account')),
+    appearanceSection(t('kit.settings.groups.account')),
+    planSection(t('kit.settings.groups.account')),
+    aiSection(t('kit.settings.groups.connections')),
+    notificationsSection(t('kit.settings.groups.connections')),
+    sessionsSection(t('kit.settings.groups.connections')),
   ];
   const own = (group) => sections.map((section) => ({ group, ...section, hint: typeof section.hint === 'function' ? section.hint : () => section.hint || '' }));
   const admin = (group) => (state.user?.role === 'admin'
@@ -396,26 +398,46 @@ export function openSettings(options) {
   ];
 
   /**
-   * A module of a host: one Settings for the whole app, the same list in every module. The
-   * account's sections, deleting it (every module's) among them; then a group for each module the
-   * person uses, in the host's order, with that module's own sections and its data; last the
-   * host's: administration and about the whole app. This module draws its own sections here;
-   * another's are named here and drawn in that module (goTo).
+   * A module of a host: one Settings for the whole app, the same list in every module. First the
+   * host's group, the whole app's: the language, the modules in use, the daily summary, the
+   * calendar, the notices, the AI and administration. Then a group for each module the person
+   * uses, in their order, with that module's own sections and its data; then the account's,
+   * deleting it (every module's) last; and about the whole app on its own, at the foot. This module
+   * draws its own sections here; another's are named here and drawn in that module (goTo).
    */
   const hostSections = () => [
-    ...common(),
-    ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
+    appearanceSection(host.name),
+    !alone() ? { group: host.name, id: 'modules', iconName: 'grid', label: t('kit.modules.title'),
+      hint: () => inUse.filter((m) => m.active && !m.door).map((m) => m.name).join(' · ') || t('kit.modules.hint'), render: () => moduleChoice() } : null,
     // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
     host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
       hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
+    // The host's calendar (host.js `calendar`): which modules show on it and, where the host has
+    // one, its link for the person's own calendar app (`calendarFeed`). The whole app's.
+    (host.calendarModules || host.calendarFeed) && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar',
+      label: t('kit.calendar.title'), hint: () => t(host.calendarFeed ? 'kit.calendar.hintFeed' : 'kit.calendar.hint'),
+      render: () => needsServer(calendarSection) } : null,
+    notificationsSection(host.name),
+    aiSection(host.name),
     admin(host.name),
-    { group: host.name, id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hostHint'), render: () => about() },
+    ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
+    profileSection(t('kit.settings.groups.account')),
+    securitySection(t('kit.settings.groups.account')),
+    sessionsSection(t('kit.settings.groups.account')),
+    planSection(t('kit.settings.groups.account')),
+    deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
+      hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => needsConnection(data({ module: false })) } : null,
+    // A group of its own name: the list shows it as one row, at the foot, under no other.
+    { group: t('kit.about.title', { app: host.name }), id: 'about', iconName: 'info', label: t('kit.about.title', { app: host.name }), hint: () => t('kit.about.hostHint'), render: () => about() },
   ];
 
-  /** The host's modules this person uses, in the host's order, and always the one open here: only it, installed alone. */
+  /**
+   * The host's modules this person uses, in the host's order, and always the one open here: only it,
+   * installed alone. A door on the rail (host.js `doors`, Croc) has no group of its own.
+   */
   function modulesHere() {
     if (alone()) return [inUse.find((m) => m.mount === host.mount) || { mount: host.mount }];
-    const shown = inUse.filter((m) => m.active || m.mount === host.mount);
+    const shown = inUse.filter((m) => (m.active && !m.door) || m.mount === host.mount);
     return shown.some((m) => m.mount === host.mount) ? shown : [{ mount: host.mount }];
   }
 
@@ -856,8 +878,8 @@ export function openSettings(options) {
       const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
       const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: String(config.password_min || 10) });
       parts.push(block(t('kit.security.password'),
-        state.user?.has_password === false ? null : field(t('kit.security.currentPassword'), current),
-        field(t('kit.security.newPassword'), next, t('kit.security.newPasswordHint', { n: config.password_min || 10 })),
+        state.user?.has_password === false ? null : field(t('kit.security.currentPassword'), revealable(current)),
+        field(t('kit.security.newPassword'), revealable(next), t('kit.security.newPasswordHint', { n: config.password_min || 10 })),
         row(button(t('kit.security.changePassword'), async () => {
           try {
             await api.post('/api/me/password', { current_password: current.value, password: next.value });
@@ -893,8 +915,8 @@ export function openSettings(options) {
       const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
       const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: '8' });
       append(clear(box), block(t('kit.security.password'),
-        field(t('kit.security.currentPassword'), current),
-        field(t('kit.security.newPassword'), next, t('kit.security.workosPasswordHint')),
+        field(t('kit.security.currentPassword'), revealable(current)),
+        field(t('kit.security.newPassword'), revealable(next), t('kit.security.workosPasswordHint')),
         row(button(t('kit.security.changePassword'), async () => {
           try {
             await api.post('/api/me/sign-in/password', { current_password: current.value, password: next.value });
@@ -1000,7 +1022,7 @@ export function openSettings(options) {
 
     function askPassword() {
       const pass = password('kit-2fa-password');
-      clear(body).append(hint(t('kit.twoFactor.passwordFirst')), field(t('kit.security.currentPassword'), pass),
+      clear(body).append(hint(t('kit.twoFactor.passwordFirst')), field(t('kit.security.currentPassword'), revealable(pass)),
         row(button(t('kit.twoFactor.continue'), async () => {
           try { await showSecret(await api.post(`${base}/setup`, { password: pass.value })); } catch (err) { fail(err); }
         }, 'primary'), cancel()));
@@ -1054,7 +1076,7 @@ export function openSettings(options) {
       const pass = password('kit-2fa-confirm-password');
       const second = code('kit-2fa-confirm-code');
       clear(body).append(hint(t(!recovery ? 'kit.twoFactor.offAskNoCodes' : off ? 'kit.twoFactor.offAsk' : 'kit.twoFactor.newCodesAsk')),
-        field(t('kit.security.currentPassword'), pass), field(t(recovery ? 'kit.twoFactor.codeOrRecovery' : 'kit.twoFactor.code'), second),
+        field(t('kit.security.currentPassword'), revealable(pass)), field(t(recovery ? 'kit.twoFactor.codeOrRecovery' : 'kit.twoFactor.code'), second),
         row(button(t(off ? 'kit.twoFactor.turnOff' : 'kit.twoFactor.newCodes'), async () => {
           try {
             if (off) {
@@ -1087,15 +1109,52 @@ export function openSettings(options) {
    * stays on; one turned off keeps its data and only leaves their menus. Each can have its own
    * icon on a phone's home screen, installed from its own page. Their order on the rail and a
    * phone's tabs (PUT /api/me/modules/order): each row dragged by its grip, or moved from the
-   * grip's menu, which the keyboard and a screen reader reach too.
+   * grip's menu, which the keyboard and a screen reader reach too. Each with its line under its
+   * name: the host's catalog's (host.js `moduleHints`), or its own line in About.
+   *
+   * Under them, what is a button on the rail and not a module, each turned on and off, in no
+   * order: the calendar, the daily summary and the doors (host.js `doors`, Croc), which leave the
+   * modules' order and can't be installed alone.
    */
   function moduleChoice() {
     const switches = el('div', { class: 'kit-stack' });
-    const calendarSwitch = el('div', { hidden: true });
+    const buttons = el('div', { class: 'kit-stack' });
+    const bar = block(t('kit.modules.barTitle'), hint(t('kit.modules.barHint')), buttons);
+    bar.hidden = true;
     const icons = el('div', { class: 'kit-row' });
-    // What the switches say now: two pressed one after the other both count.
-    const shownOn = () => [...switches.querySelectorAll('.kit-switch')]
-      .filter((s) => s.getAttribute('aria-checked') === 'true').map((s) => s.dataset.mount);
+    // What the switches of modules and doors say now: two pressed one after the other both count.
+    const shownOn = () => [...switches.querySelectorAll('.kit-switch'), ...buttons.querySelectorAll('.kit-switch')]
+      .filter((s) => s.dataset.mount && s.getAttribute('aria-checked') === 'true').map((s) => s.dataset.mount);
+    const doors = () => inUse.filter((m) => m.door).map((m) => m.mount);
+    // The catalogs the lines come from, by path: asked once while this is open.
+    const catalogs = new Map();
+    const catalogAt = (place) => {
+      if (!place.path) return null;
+      if (!catalogs.has(place.path)) {
+        catalogs.set(place.path, undefined);
+        const now = moduleWords(place, currentLanguage(), () => {
+          catalogs.set(place.path, moduleWords(place, currentLanguage(), () => {}) ?? null);
+          if (!closed) paint(answered);
+        });
+        if (now !== undefined) catalogs.set(place.path, now);
+      }
+      return catalogs.get(place.path);
+    };
+    /** A module's line under its name: the host's catalog's, or its own in About; none while on its way. */
+    const lineOf = (m, answer) => {
+      const prefix = answer.host?.hints;
+      const words = catalogAt(prefix ? { mount: '', path: '/' } : m);
+      const key = prefix ? `${prefix}${m.mount}` : m.settings?.tagline || 'app.tagline';
+      return typeof words?.[key] === 'string' ? words[key] : null;
+    };
+    /** A switch's row with what comes before its name (a grip, a colour, an icon) and its line under it. */
+    const rowOf = (label, { checked, line = null, lead = [], onChange }) => {
+      const row = switchRow(label, { checked, onChange });
+      row.classList.add('kit-switch-row--swatch');
+      clear(row.firstChild);
+      row.firstChild.append(...lead, el('span', { class: 'kit-switch-row__text' }, label, line ? el('small', { text: line }) : null));
+      return row;
+    };
     // One change at a time, in the order they were made: the last one sent is what stays. Without
     // a signal it is kept for later (settings-queue.js), and the answer is this device's own: the
     // modules as they were, with the change, kept for the rail of the next page (shell.js) too.
@@ -1113,8 +1172,10 @@ export function openSettings(options) {
     };
     const send = (active) => sendOne('/api/me/modules', { active },
       (was) => ({ modules: was.modules.map((m) => ({ ...m, active: active.includes(m.mount) })) }));
+    // The order names the modules alone: a door the server keeps after them.
+    const rank = (order, m) => (order.includes(m.mount) ? order.indexOf(m.mount) : order.length);
     const sendOrder = (order) => sendOne('/api/me/modules/order', { order },
-      (was) => ({ modules: [...was.modules].sort((a, b) => order.indexOf(a.mount) - order.indexOf(b.mount)) }));
+      (was) => ({ modules: [...was.modules].sort((a, b) => rank(order, a) - rank(order, b)) }));
     /** The modules in a new order: drawn in it, kept, and the rail of every page follows. */
     const reorder = async (order) => {
       try {
@@ -1125,7 +1186,9 @@ export function openSettings(options) {
         fail(err);
       }
     };
-    const mounts = () => inUse.map((m) => m.mount);
+    // The modules that are put in order: not the doors.
+    const sorted = () => inUse.filter((m) => !m.door);
+    const mounts = () => sorted().map((m) => m.mount);
     /** The order with `mount` taken to `index` among the others. */
     const moved = (mount, index) => {
       const rest = mounts().filter((x) => x !== mount);
@@ -1156,66 +1219,80 @@ export function openSettings(options) {
       },
     });
     cleanups.push(() => dragging.destroy());
+    /** A module or a door turned on or off: every switch's state sent, one module left on at least. */
+    const turned = async () => {
+      const active = shownOn();
+      if (!active.some((mount) => !doors().includes(mount))) {
+        toast(t('kit.modules.last'), { error: true });
+        throw new Error('one stays on');   // the switch goes back
+      }
+      try {
+        const answer = await send(active);
+        // A later change still on its way repaints when it arrives.
+        if (shownOn().join() === active.join()) paint(answer);
+        repaint();
+        // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
+        modulesChanged();
+      } catch (err) {
+        fail(err);
+        throw err;   // the switch goes back
+      }
+    };
+    /** A button of the host's on the rail (the calendar's, the daily summary's), shown or not: `path` takes `{ shown }`. */
+    const shownSwitch = (label, line, iconName, checked, path, field) => rowOf(label, {
+      checked, line, lead: [el('span', { class: 'kit-switch-row__icon' }, icon(iconName))],
+      onChange: async (shown) => {
+        try {
+          // The host's root, as the modules' switches: a module's api.js would ask its own path.
+          await sendOne(path, { shown }, () => ({ [field]: shown }));
+          // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
+          modulesChanged();
+        } catch (err) {
+          fail(err);
+          throw err;   // the switch goes back
+        }
+      },
+    });
     const paint = (answer) => {
       inUse = answer.modules || [];
       clear(switches);
-      for (const m of inUse) {
-        const row = switchRow(m.name, {
-          checked: m.active,
-          onChange: async () => {
-            const active = shownOn();
-            if (!active.length) {
-              toast(t('kit.modules.last'), { error: true });
-              throw new Error('one stays on');   // the switch goes back
-            }
-            try {
-              const answer = await send(active);
-              // A later change still on its way repaints when it arrives.
-              if (shownOn().join() === active.join()) paint(answer);
-              repaint();
-              // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
-              modulesChanged();
-            } catch (err) {
-              fail(err);
-              throw err;   // the switch goes back
-            }
-          },
-        });
-        row.querySelector('.kit-switch').dataset.mount = m.mount;
-        row.dataset.mount = m.mount;
-        row.classList.add('kit-switch-row--swatch');
-        const at = inUse.indexOf(m);
+      const ordered = sorted();
+      for (const m of ordered) {
+        const at = ordered.indexOf(m);
         const grip = el('button', {
           type: 'button', class: 'kit-module-grip', 'aria-haspopup': 'menu',
           'aria-label': t('kit.modules.move', { name: m.name }), title: t('kit.modules.move', { name: m.name }),
           onClick: (ev) => menu(ev.currentTarget, [
             at > 0 ? { label: t('kit.modules.moveUp'), onClick: () => reorder(moved(m.mount, at - 1)) } : null,
-            at < inUse.length - 1 ? { label: t('kit.modules.moveDown'), onClick: () => reorder(moved(m.mount, at + 1)) } : null,
+            at < ordered.length - 1 ? { label: t('kit.modules.moveDown'), onClick: () => reorder(moved(m.mount, at + 1)) } : null,
           ].filter(Boolean)),
         }, icon('grip'));
-        row.firstChild.prepend(grip, el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null }));
+        const row = rowOf(m.name, {
+          checked: m.active, line: lineOf(m, answer), onChange: turned,
+          lead: [grip, el('span', { class: 'kit-nav__swatch', style: m.color ? `background:${m.color}` : null })],
+        });
+        row.querySelector('.kit-switch').dataset.mount = m.mount;
+        row.dataset.mount = m.mount;
         switches.append(row);
       }
-      // The host's calendar, where it has one: its button on the rail only for whoever wants it.
-      clear(calendarSwitch);
-      calendarSwitch.hidden = typeof answer.calendar_shown !== 'boolean';
-      if (!calendarSwitch.hidden) {
-        calendarSwitch.append(switchRow(t('kit.calendar.show'), {
-          checked: answer.calendar_shown,
-          hint: t('kit.calendar.showHint'),
-          onChange: async (shown) => {
-            try {
-              // The host's root, as the modules' switches: a module's api.js would ask its own path.
-              await sendOne('/api/me/calendar', { shown }, () => ({ calendar_shown: shown }));
-              // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
-              modulesChanged();
-            } catch (err) {
-              fail(err);
-              throw err;   // the switch goes back
-            }
-          },
-        }));
+      // On the rail, not modules: the calendar's button only for whoever wants it, the daily
+      // summary's until hidden, and each door (Croc) on or off as a module is, out of the order.
+      clear(buttons);
+      if (typeof answer.calendar_shown === 'boolean') {
+        buttons.append(shownSwitch(t('kit.calendar.title'), t('kit.calendar.showHint'), 'calendar', answer.calendar_shown, '/api/me/calendar', 'calendar_shown'));
       }
+      if (typeof answer.day_shown === 'boolean') {
+        buttons.append(shownSwitch(t('kit.day.title'), t('kit.day.showHint'), 'sun', answer.day_shown, '/api/me/day', 'day_shown'));
+      }
+      for (const m of inUse.filter((x) => x.door)) {
+        const row = rowOf(m.name, {
+          checked: m.active, line: lineOf(m, answer), onChange: turned,
+          lead: [el('span', { class: 'kit-switch-row__icon' }, icon('key'))],
+        });
+        row.querySelector('.kit-switch').dataset.mount = m.mount;
+        buttons.append(row);
+      }
+      bar.hidden = !buttons.firstChild;
       clear(icons);
       // In the suite's app each one opens outside it, in the browser, where it can be installed.
       const native = inApp();
@@ -1227,7 +1304,8 @@ export function openSettings(options) {
       // opening on the module used last. Its page at /?modules stays put instead of going on to a
       // module, so it can be installed from there.
       if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
-      for (const m of inUse.filter((x) => x.active)) icons.append(link(m.path, m.icon, m.name));
+      // A door (Croc) is a button of the whole app's, never installed alone.
+      for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(m.path, m.icon, m.name));
     };
     // Without a signal, the modules of last time (with the changes kept for later): they can still
     // be turned on and off, and put in order.
@@ -1238,7 +1316,8 @@ export function openSettings(options) {
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((answer) => { if (closed) return; paint(answered = answer); repaint(); }, fail);
     return el('div', {},
-      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.order')), hint(t('kit.modules.one')), hint(t('kit.modules.off')), calendarSwitch),
+      block(null, hint(t('kit.modules.hint')), switches, hint(t('kit.modules.order')), hint(t('kit.modules.one')), hint(t('kit.modules.off'))),
+      bar,
       installing(icons));
   }
 
@@ -1542,6 +1621,94 @@ export function openSettings(options) {
    * The time is two lists, its hour and its minutes every five, the steps the server keeps: a time
    * field took any minute on an iPhone (its wheel has no steps), and 16:37 was kept as 16:35.
    */
+  /**
+   * Settings › Calendar: a switch for each module with dates that the person uses, whether it shows
+   * on the calendar (its page, its link and the assistants' tool, calendar.js), for every plan; and
+   * under them, where the host has it, the link for calendar apps (calendarFeed). A switch that
+   * can't be saved goes back.
+   */
+  function calendarSection() {
+    const modules = el('div', {});
+    const paint = (answer) => {
+      if (closed || !answer?.modules?.length) return;
+      clear(modules).append(block(t('kit.calendar.modulesTitle'),
+        hint(t(host.calendarFeed ? 'kit.calendar.modulesHintFeed' : 'kit.calendar.modulesHint')),
+        ...answer.modules.map((m) => switchRow(m.name, {
+          checked: m.shown,
+          onChange: async (shown) => {
+            try {
+              await api.root.put(`/api/me/calendar/modules/${encodeURIComponent(m.mount)}`, { shown });
+            } catch (err) {
+              fail(err);
+              throw err;   // the switch goes back
+            }
+          },
+        }))));
+    };
+    if (host.calendarModules) api.root.get('/api/me/calendar/modules').then(paint, fail);
+    return el('div', {}, modules, host.calendarFeed ? calendarFeed() : null);
+  }
+
+  /**
+   * The host's calendar in Google Calendar, Outlook or Apple Calendar (calendar-feed.js): a secret
+   * link of the person's, made here, copied, made again (the old one stops) or turned off, with a
+   * line for each calendar app on how to subscribe. Where the plan doesn't include it, the plan's.
+   * Its first block is titled: it goes under the module switches (calendarSection).
+   */
+  function calendarFeed() {
+    const box = el('div', {});
+    const native = inApp();
+    /** A calendar app's own way in: outside the suite's app, in the browser or the system's app. */
+    const away = (href, text) => el('a', {
+      class: 'kit-btn kit-btn--small', href, target: '_blank', rel: 'noopener',
+      onClick: (ev) => { if (native && openExternal(href)) ev.preventDefault(); },
+    }, icon('calendar'), el('span', { text }));
+    const change = async (method) => {
+      try {
+        paint(method === 'POST' ? await api.root.post('/api/me/calendar-feed') : await api.root.delete('/api/me/calendar-feed'));
+      } catch (err) { fail(err); }
+    };
+    const paint = (answer) => {
+      if (closed) return;
+      const feed = answer.feed;
+      const intro = hint(t('kit.calendarFeed.intro', { app: host.name }));
+      const plan = answer.included ? null : hint(t(feed ? 'kit.calendarFeed.paused' : 'kit.calendarFeed.pro'));
+      const seePlan = !answer.included && openPlan ? button(t('kit.plan.see'), () => openPlan(), 'primary') : null;
+      if (!feed) {
+        clear(box).append(block(t('kit.calendarFeed.title'), intro, plan,
+          row(answer.included ? button(t('kit.calendarFeed.create'), () => change('POST'), 'primary') : seePlan)));
+        return;
+      }
+      const value = el('code', { text: feed.url || '' });
+      const read = feed.used_at ? t('kit.calendarFeed.read', { when: formatDateTime(feed.used_at) }) : t('kit.calendarFeed.unread');
+      clear(box).append(
+        block(t('kit.calendarFeed.title'), intro, plan, seePlan ? row(seePlan) : null,
+          feed.url
+            ? el('div', { class: 'kit-copy' }, value, el('button', { type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(feed.url, value) }))
+            : hint(t('kit.calendarFeed.lost')),
+          hint(t('kit.calendarFeed.secret')), hint(read),
+          feed.webcal ? row(
+            away(`https://calendar.google.com/calendar/render?cid=${encodeURIComponent(feed.webcal)}`, t('kit.calendarFeed.google')),
+            // In the phone app, webcal: only where it says it opens it (app 0.6.5); before, an https address that sends there.
+            away(native && !can('webcal') && feed.subscribe ? feed.subscribe : feed.webcal, t('kit.calendarFeed.apple')),
+          ) : null),
+        // Android's Google Calendar app can't subscribe to a link: it is added on a computer, right after Google's.
+        block(t('kit.calendarFeed.howTitle'), hint(t('kit.calendarFeed.howGoogle')), hint(t('kit.calendarFeed.howAndroid')),
+          hint(t('kit.calendarFeed.howOutlook')), hint(t('kit.calendarFeed.howApple'))),
+        block(null, row(
+          button(t('kit.calendarFeed.renew'), async () => {
+            if (await confirmDialog(t('kit.calendarFeed.confirmRenew'), { confirm: t('kit.calendarFeed.renew') })) change('POST');
+          }),
+          button(t('kit.calendarFeed.off'), async () => {
+            if (await confirmDialog(t('kit.calendarFeed.confirmOff', { app: host.name }), { confirm: t('kit.calendarFeed.off') })) change('DELETE');
+          }, 'danger-quiet'),
+        )),
+      );
+    };
+    api.root.get('/api/me/calendar-feed').then(paint, fail);
+    return box;
+  }
+
   function daySummary() {
     const box = el('div', { class: 'kit-day-list' });
     const page = host.day;
@@ -1863,7 +2030,7 @@ export function openSettings(options) {
         content: el('div', { class: 'kit-stack kit-sure' },
           ...lines.filter(Boolean).map((line) => (typeof line === 'string' ? el('p', { text: line }) : line)),
           field(t('kit.data.typeWord', { word }), typed),
-          pass ? field(t('kit.security.currentPassword'), pass) : null,
+          pass ? field(t('kit.security.currentPassword'), revealable(pass)) : null,
           codeRow,
           error),
         actions: [

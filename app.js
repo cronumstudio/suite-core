@@ -790,6 +790,8 @@ export function createApp({
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
       adminIdentity: config.accounts.adminIdentity === true, freshSignIns: suite.freshSignIns ?? null,
+      // A login the admin makes for a new account carries this app's mark, as a sign-in here gives it.
+      mark: config.accounts.sharedIdentity ? identityMark(config.app) : null,
     });
   }
   if (config.modules.admin) {
@@ -797,6 +799,8 @@ export function createApp({
       accounts, entitlements, organizations, sessions, audit, twoFactor, revokeEverything: suite.revokeEverything,
       devices: suite.devices, sharedLogin: config.accounts.sharedIdentity ? suite.idp : null,
       confirmAdmin: workosSecurity?.confirmAdmin ?? null,
+      // New accounts with a password: here, or a login at WorkOS where this install owns them (adminIdentity).
+      localPasswords, logins: workosSecurity?.logins ?? null,
       // The admin's deletion ends what the person pays, as their own does, and the panel says what that is before.
       deletion,
       overview: billing?.enabled || suite.stores?.enabled

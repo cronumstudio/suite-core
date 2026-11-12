@@ -85,7 +85,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
   const router = createRouter();
   // The sign-ins at WorkOS createSuite would note: a test notes its own.
   const freshSignIns = createFreshSignIns({ clock });
-  registerWorkosSecurityApi(router, {
+  const security = registerWorkosSecurityApi(router, {
     workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeAtProvider: (ids) => revoked.push(...ids),
     ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), freshSignIns, clock,
   });
@@ -122,7 +122,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
     return answer;
   }
 
-  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person, freshSignIns };
+  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person, freshSignIns, security };
 }
 
 /* ------------------------------ how they sign in ------------------------------ */
@@ -370,6 +370,62 @@ test('an install that does not own the identities: the admin sees how they sign 
   assert.equal(workos.people.get(ada.workosId).password, 'correct horse');
 });
 
+test('the admin confirmed lately: ten minutes in that session, only for what asks no more than that', async () => {
+  const later = { ms: 0 };
+  const { person, call, security } = start({ adminIdentity: true, clock: () => Date.now() + later.ms });
+  const boss = person({ username: 'boss', role: 'admin', password: 'boss secret' });
+  const ctx = (who = boss) => ({
+    user: who.user, sessionToken: who.token, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } },
+  });
+  const recent = (who) => security.confirmAdmin(ctx(who), {}, { recent: true });
+  const asks = (err) => err.code === 'admin_confirm_required' && err.extra?.reauth === 'password';
+
+  await assert.rejects(recent(), asks, 'nothing given, nothing confirmed: what to give');
+  assert.equal((await call('POST', '/api/admin/confirm', { as: boss, body: { admin_password: 'wrong' } })).body.error, 'wrong_password');
+  assert.equal((await call('POST', '/api/admin/confirm', { as: boss, body: { admin_password: 'boss secret' } })).status, 200);
+  await recent();
+  later.ms = 9 * 60 * 1000;
+  await recent();
+  // Without `recent`, as every change to someone who exists: asked each time.
+  await assert.rejects(security.confirmAdmin(ctx(), {}), (err) => err.code === 'wrong_password');
+  later.ms = 11 * 60 * 1000;
+  await assert.rejects(recent(), asks, 'ten minutes after, asked again');
+
+  // A password given with the request stands too, and opens the same minutes.
+  later.ms = 12 * 60 * 1000;
+  await security.confirmAdmin(ctx(), { admin_password: 'boss secret' }, { recent: true });
+  await recent();
+  // Only that session: the same admin elsewhere, or another one, gives it again.
+  const elsewhere = { ...boss, token: person({ username: 'boss2', role: 'admin', password: 'x' }).token };
+  await assert.rejects(security.confirmAdmin({ ...ctx(), sessionToken: elsewhere.token }, {}, { recent: true }), asks);
+});
+
+test('the admin who signs in with Google, confirmed lately: by a fresh sign-in, which then stands ten minutes in that session', async () => {
+  const later = { ms: 0 };
+  const at = () => Date.now() + later.ms;
+  const { person, call, sessions, freshSignIns, security } = start({ adminIdentity: true, clock: at });
+  const gia = person({ username: 'gia', role: 'admin', method: 'GoogleOAuth' });
+  const ctx = (token) => ({ user: gia.user, sessionToken: token, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } } });
+  const recent = (token) => security.confirmAdmin(ctx(token), {}, { recent: true });
+  const signInAgain = (err) => err.code === 'reauth_required';
+
+  // No password to ask for apart (never `admin_confirm_required`): to sign in again, and a session just opened is none.
+  await assert.rejects(recent(gia.token), signInAgain);
+  const asked = await call('POST', '/api/admin/confirm', { as: gia, body: {} });
+  assert.deepEqual([asked.status, asked.body.error], [401, 'reauth_required']);
+  // Back from a sign-in AuthKit asked for after that question (auth_time): confirmed, and those minutes stand.
+  const again = { user: gia.user, token: sessions.open(gia.user.id, { idpSessionId: 'session_gia' }) };
+  freshSignIns.note(again.token, at() + 1000);
+  later.ms = 5 * 60 * 1000;
+  assert.equal((await call('POST', '/api/admin/confirm', { as: again, body: {} })).status, 200);
+  later.ms = 12 * 60 * 1000;
+  await recent(again.token);
+  // What changes someone who exists asks for the sign-in itself, by now too old: asked again.
+  await assert.rejects(security.confirmAdmin(ctx(again.token), {}), signInAgain);
+  later.ms = 16 * 60 * 1000;
+  await assert.rejects(recent(again.token), signInAgain, 'ten minutes after it was confirmed, asked again');
+});
+
 /* --------------------------------- the client --------------------------------- */
 
 test('the client: the password asked as a sign-in and its session closed, factors, a new password', async () => {
@@ -415,6 +471,41 @@ test('the client: the password asked as a sign-in and its session closed, factor
     assert.deepEqual(await workos.setPassword('user_1', 'weak'), { refused: 'Password does not meet strength requirements' });
     answers.push([200, [{ type: 'OAuth', provider: 'GoogleOAuth' }]]);
     assert.deepEqual(await workos.identities('user_1'), ['GoogleOAuth']);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('the client: a user found by email, and one made with a password and its email verified', async () => {
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  const answers = [];
+  globalThis.fetch = async (url, options = {}) => {
+    asked.push({ url: String(url), method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
+    const [status, body] = answers.shift() || [200, {}];
+    return { status, ok: status < 300, json: async () => body };
+  };
+  try {
+    const workos = createWorkosClient({ apiKey: 'sk_test', clientId: 'client_1', authkitDomain: 'x.authkit.app' });
+    answers.push([200, { object: 'list', data: [{ id: 'user_1', email: 'a@b.c' }], list_metadata: {} }]);
+    assert.deepEqual(await workos.userByEmail(' A@B.c '), { id: 'user_1', email: 'a@b.c' });
+    const found = new URL(asked[0].url);
+    assert.deepEqual([found.pathname, found.searchParams.get('email'), found.searchParams.get('limit')], ['/user_management/users', 'a@b.c', '1']);
+    answers.push([200, { object: 'list', data: [] }]);
+    assert.equal(await workos.userByEmail('nobody@b.c'), null);
+    answers.push([503, {}]);
+    await assert.rejects(workos.userByEmail('a@b.c'), WorkosUnavailable, 'no answer is not "nobody"');
+
+    asked.length = 0;
+    answers.push([201, { object: 'user', id: 'user_2', email: 'new@b.c', email_verified: true }]);
+    assert.deepEqual(await workos.createUser({ email: 'new@b.c', password: 'Long-secret-1', firstName: 'New', emailVerified: true, metadata: { app_work: 'Cronum Work' } }),
+      { user: { object: 'user', id: 'user_2', email: 'new@b.c', email_verified: true } });
+    assert.deepEqual([asked[0].method, new URL(asked[0].url).pathname], ['POST', '/user_management/users']);
+    assert.deepEqual(asked[0].body, { email: 'new@b.c', password: 'Long-secret-1', email_verified: true, first_name: 'New', metadata: { app_work: 'Cronum Work' } });
+    answers.push([422, { code: 'user_creation_error', errors: [{ code: 'password_strength_error', message: 'The password is too weak.' }] }]);
+    assert.deepEqual(await workos.createUser({ email: 'new@b.c', password: 'weak' }), { refused: 'The password is too weak.' });
+    answers.push([429, {}]);
+    await assert.rejects(workos.createUser({ email: 'new@b.c', password: 'Long-secret-1' }), WorkosUnavailable);
   } finally {
     globalThis.fetch = realFetch;
   }

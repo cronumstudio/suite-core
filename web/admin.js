@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, confirmDialog, slidingDetails, saveState } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -223,7 +223,7 @@ async function renderUsers(main) {
     el('p', { class: 'kit-lead', text: local() ? t('admin.users.leadLocal') : t('admin.users.leadIdp', { provider: state.config.name }) }),
     el('div', { class: 'kit-toolbar' },
       field(t('admin.users.search'), search),
-      el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: newUserDialog })),
+      el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: () => newUserDialog().catch(fail) })),
     table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
       hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
     rows.map(({ row }) => row)),
@@ -276,42 +276,124 @@ async function paintPeaks(main) {
   }
 }
 
-function newUserDialog() {
-  const username = el('input', { autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '32' });
-  const name = el('input', { maxlength: '80' });
-  const email = el('input', { type: 'email', autocomplete: 'off' });
+/**
+ * A new account (a store's reviewer, a tester): its email first, a name, a role, a password and the
+ * plan it has from the start, all made at once (POST /api/admin/users).
+ * · Passwords here: the username too (left empty, the server takes it from the email), and the
+ *   email taken as confirmed, with no message to confirm it.
+ * · WorkOS where this install owns the logins (the sign-in answer's `manage`): with a password the
+ *   login is made there, its email confirmed; without, as with any other provider, the account
+ *   waits for its person to sign in with that email. The admin's own password isn't in the form:
+ *   when the server wants it (`admin_confirm_required`, at most every 10 minutes) a dialog of its own
+ *   asks for it over this one, and the account is sent again (confirmYourself).
+ * What the server refuses (an email that already has an account here or a login at WorkOS) is said
+ * inside the dialog, which stays open to be corrected.
+ */
+async function newUserDialog() {
+  // Whether this install makes WorkOS logins (workos-security.js).
+  const signIn = workos() ? await api.get(`/api/admin/users/${state.me.id}/sign-in`).catch(() => null) : null;
+  const atProvider = signIn?.manage === true;
+  const provider = state.config.name;
+  const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
+  const username = local() ? el('input', { autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '32' }) : null;
+  const name = el('input', { maxlength: '80', autocomplete: 'off' });
   const role = el('select', {}, ['user', 'admin'].map((r) => el('option', { value: r, text: t(`admin.roles.${r}`) })));
-  const password = el('input', { type: 'password', autocomplete: 'new-password' });
-  openDialog({
+  const password = local() || atProvider ? el('input', { type: 'password', autocomplete: 'new-password', maxlength: '1024' }) : null;
+
+  // The plan from the start, where there is more than one: its end and its reason only with one of its own.
+  const several = (state.catalog?.plans.length ?? 0) > 1;
+  const plan = several ? el('select', {},
+    el('option', { value: '', text: t('admin.users.newPlanDefault', { plan: planName(state.catalog.defaultPlan) }) }),
+    state.catalog.plans.map((p) => el('option', { value: p.id, text: t(p.name) }))) : null;
+  const until = el('input', { type: 'date' });
+  const note = el('input', { maxlength: '200', placeholder: t('admin.users.optional') });
+  const planMore = el('div', { class: 'kit-grid', hidden: true },
+    field(t('admin.users.planUntil'), until), field(t('admin.users.planNote'), note));
+  plan?.addEventListener('change', () => { planMore.hidden = !plan.value; });
+
+  const lead = local() ? t('admin.users.newLeadLocal') : atProvider ? t('admin.users.newLeadWorkos', { provider }) : null;
+  formDialog({
     title: t('admin.users.new'),
-    content: el('div', { class: 'kit-grid' },
-      field(t('fields.username'), username),
-      field(t('fields.display_name'), name),
-      field(t('fields.email'), email, local() ? null : t('admin.users.idpEmailHint', { provider: state.config.name })),
-      field(t('fields.role'), role),
-      local() ? field(t('fields.password'), password, t('admin.users.passwordHint')) : null),
+    content: [
+      lead ? el('p', { class: 'kit-hint', text: lead }) : null,
+      el('div', { class: 'kit-grid' },
+        field(t('fields.email'), email, local() || atProvider ? null : t('admin.users.idpEmailHint', { provider })),
+        username ? field(t('fields.username'), username, t('admin.users.usernameHint')) : null,
+        field(t('fields.display_name'), name),
+        field(t('fields.role'), role),
+        password ? field(t('fields.password'), revealable(password),
+          local() ? t('admin.users.passwordHint') : t('admin.users.passwordHintWorkos', { provider })) : null),
+      plan ? el('div', { class: 'kit-grid' }, field(t('admin.users.planName'), plan)) : null,
+      plan ? planMore : null,
+    ],
     actions: [
       { label: t('admin.cancel') },
-      {
-        label: t('admin.users.create'), primary: true,
-        onClick: async () => {
-          try {
-            await api.post('/api/admin/users', {
-              username: username.value.trim(), display_name: name.value.trim() || undefined,
-              email: email.value.trim() || null, role: role.value, password: password.value || null,
-            });
-            toast(t('admin.users.created'));
-            show();
-            return true;
-          } catch (err) {
-            fail(err);
-            return false;
-          }
-        },
-      },
+      { label: t('admin.users.create'), primary: true, submit: true },
     ],
+    onSubmit: async () => {
+      const typed = password?.value || '';
+      const body = {
+        email: email.value.trim() || null, display_name: name.value.trim() || undefined, role: role.value,
+        ...(username?.value.trim() ? { username: username.value.trim() } : {}),
+        ...(typed ? { password: typed } : {}),
+        ...(local() ? { email_verified: Boolean(email.value.trim()) } : {}),
+        ...(plan?.value ? { plan: plan.value, ends_at: endOfDay(until.value), note: note.value.trim() || null } : {}),
+      };
+      const send = async () => {
+        try {
+          return await api.post('/api/admin/users', body);
+        } catch (err) {
+          // The admin's own password, asked apart (at most every 10 minutes); confirmed, the same again.
+          if (err?.code !== 'admin_confirm_required') throw err;
+          if (!(await confirmYourself(err.data?.reauth))) return null;
+          return api.post('/api/admin/users', body);
+        }
+      };
+      try {
+        const user = await send();
+        if (!user) return false;
+        toast(local() ? t('admin.users.createdAs', { username: user.username }) : t('admin.users.created'));
+        show();
+        return true;
+      } catch (err) {
+        // A fresh sign-in is what the server wants (an admin who signs in with Google): to it, and back.
+        if (err?.code === 'reauth_required') { reauthFailed(err); return false; }
+        if (err instanceof SessionExpired) { fail(err); return true; }
+        throw err;
+      }
+    },
   });
-  username.focus();
+  email.focus();
+}
+
+/**
+ * The admin's own password (and code) in a dialog of its own, over whatever asked for it
+ * (`reauth`: password or password_code, as the server said): POST /api/admin/confirm, which stands
+ * 10 minutes in this session. A wrong one is said inside it, which stays open. → true once
+ * confirmed, false if the admin gave up.
+ */
+function confirmYourself(reauth) {
+  return new Promise((resolve) => {
+    let confirmed = false;
+    const again = reauthFields(reauth === 'password_code' ? 'password_code' : 'password');
+    const { dialog } = formDialog({
+      title: t('admin.confirm.title'),
+      width: QUESTION_WIDTH,
+      keepTyped: false,
+      content: [el('p', { class: 'kit-hint', text: t('admin.confirm.lead') }), ...again.nodes],
+      actions: [
+        { label: t('admin.cancel') },
+        { label: t('admin.confirm.action'), primary: true, submit: true },
+      ],
+      onSubmit: async () => {
+        await api.post('/api/admin/confirm', again.body());
+        confirmed = true;
+        return true;
+      },
+      onClose: () => resolve(confirmed),
+    });
+    dialog.querySelector('input')?.focus();
+  });
 }
 
 function userDialog(user) {
@@ -359,7 +441,7 @@ function userDialog(user) {
   const passwordSection = local() ? fold({ title: t('admin.users.password') },
     el('p', { class: 'kit-hint', text: t('admin.users.passwordLead') }),
     el('div', { class: 'kit-row kit-row--end' },
-      field(t('fields.password'), password),
+      field(t('fields.password'), revealable(password)),
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
         onClick: async () => {
@@ -385,7 +467,7 @@ function userDialog(user) {
       clear(signInBox).append(fold({ title: t('admin.users.password') },
         el('p', { class: 'kit-hint', text: t('admin.users.passwordLeadWorkos') }),
         el('div', { class: 'kit-row kit-row--end' },
-          field(t('fields.password'), next),
+          field(t('fields.password'), revealable(next)),
           ...again.nodes,
           el('button', {
             type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
@@ -566,7 +648,7 @@ function reauthFields(reauth) {
   const code = reauth === 'password_code'
     ? el('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6' }) : null;
   return {
-    nodes: [own ? field(t('admin.users.yourPassword'), own) : null, code ? field(t('admin.users.yourCode'), code) : null],
+    nodes: [own ? field(t('admin.users.yourPassword'), revealable(own)) : null, code ? field(t('admin.users.yourCode'), code) : null],
     body: () => ({ ...(own ? { admin_password: own.value } : {}), ...(code ? { admin_code: code.value } : {}) }),
     reset: () => { if (own) own.value = ''; if (code) code.value = ''; },
   };
