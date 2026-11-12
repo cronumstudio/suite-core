@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.267.1 — 2026-11-12
+
+- **A host's pages at `/` read the kit at its own address again** (`web/sw-core.js`): Cronum
+  Work's calendar and daily summary showed their keys (`calendar.today`, `today.view.plan`) from
+  their second load on. With the one copy of the kit (`sharedKit`), a module's page that asked for
+  a kit file the copy lacked (`/projects/suite/i18n.js`, after the caches were cleared under a
+  running worker) had the network's answer kept at `/suite/i18n.js` with its address. Served to a
+  page at `/`, a module script reads its base from the address it answers with, so the kit there
+  took Projects' base (`/projects/`) and asked for Projects' catalog, which has none of the host's
+  texts. Now that answer is kept without its address, and a copy kept with another address (one an
+  older worker kept, which the next releases carry while the file doesn't change) is served at the
+  path asked (`suiteKeptElsewhere`).
+
 ## 0.267.0 — 2026-11-12
 
 - **Settings › Calendar: what shows on it** (`calendar.js`, `host.js`, `web/settings.js`, `i18n/*.json`;
