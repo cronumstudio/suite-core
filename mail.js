@@ -64,6 +64,26 @@ export function parseAddress(text) {
   return { name: match ? match[1].trim() : '', address };
 }
 
+/** A domain of labels none of them empty: no dot at its start or its end, nor two together. */
+const DOMAIN = /^[^\s@<>()",;:\\[\].]+(?:\.[^\s@<>()",;:\\[\].]+)+$/;
+/** What shows as nothing (a zero-width space, a soft hyphen…), which a mail server may drop. */
+const INVISIBLE = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
+
+/**
+ * A bare address ("ana@example.com": no name, no brackets), in lower case; null when the text is
+ * anything else. What someone types to invite must be one: `"Win a phone" <ana@example.com>`
+ * matches nobody's account, so it went as an address without one, and parseAddress took
+ * ana@example.com out of it to deliver it, under that name and past her blocking invitations,
+ * which looks for the whole text (audit sc-data-7). Nor the same address spelt another way that
+ * a mail server delivers to it all the same: a dot at the end of the domain, an invisible
+ * character, a letter written as a variant of itself (a full-width one, which NFKC changes).
+ */
+export function bareAddress(text) {
+  const clean = String(text ?? '').trim();
+  if (clean.length > 254 || !EMAIL.test(clean) || INVISIBLE.test(clean) || clean.normalize('NFKC') !== clean) return null;
+  return DOMAIN.test(clean.slice(clean.indexOf('@') + 1)) ? clean.toLowerCase() : null;
+}
+
 /** A header value in UTF-8 when it needs it (RFC 2047), as is when plain ASCII. */
 const encodeWord = (text) => (/^[\x20-\x7e]*$/.test(text)
   ? text : `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`);

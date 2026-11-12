@@ -21,11 +21,13 @@ const confirmed = (id, lang = 'es') => ({
   prefs: JSON.stringify({ lang }),
 });
 
-function setup({ limits, enabled = true, now = Date.parse('2026-10-30T10:00:00.000Z') } = {}) {
+function setup({ limits, enabled = true, now = Date.parse('2026-10-30T10:00:00.000Z'), before = null } = {}) {
   const database = wrapDatabase(new DatabaseSync(':memory:'));
   database.exec('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, display_name TEXT, email TEXT, email_verified_at TEXT, prefs TEXT)');
   for (const id of [1, 2, 3, 4, 5]) database.run('INSERT INTO users (id, username) VALUES (?, ?)', id, `u${id}`);
   strangerInvitesSchema(database);
+  // What an install already had when it starts (rows written by an older release).
+  before?.(database);
   const clock = { now };
   const alerts = [];
   const strangers = createStrangerInvites({
@@ -70,6 +72,58 @@ test('the link to stop them: by a token, never the address; for good, whoever in
   assert.equal(strangers.suppress('not-a-token'), null);
   assert.equal(strangers.suppress(token), 'quiet@example.com');
   assert.equal(strangers.check('Quiet@example.com', confirmed(2)), 'unsubscribed');
+});
+
+test('only to a bare address: a name around one is nobody, and an older row stops the address it reached (audit sc-data-7)', async () => {
+  const { strangers, database } = setup();
+  const { token } = strangers.record('victim@example.com', 1, 'list');
+  strangers.suppress(token);
+  // Each of these reaches victim@example.com, under a name of the sender's choosing.
+  for (const email of ['"Win a phone" <victim@example.com>', 'Victim <victim@example.com>', '<victim@example.com>',
+    'victim@example.com, other@example.com', ' victim@example.com\r\nBcc: other@example.com']) {
+    assert.equal(strangers.check(email, confirmed(2)), 'nobody', JSON.stringify(email));
+  }
+  assert.equal(strangers.check(' Victim@Example.com ', confirmed(2)), 'unsubscribed');
+
+  const sent = [];
+  const send = createShareMail({
+    mailer: { send: async (m) => { sent.push(m); } }, texts: createTexts(), brand, baseUrl: BASE, strangers,
+    signupUrl: `${BASE}/`, log: () => {},
+  });
+  assert.equal(await send.stranger({ email: '"x" <new@example.com>', inviter: confirmed(3), kind: 'list', name: 'X' }), false);
+  assert.deepEqual(sent, [], 'nothing goes');
+  assert.equal(strangers.check('new@example.com', confirmed(3)), null, 'nor is it noted as sent');
+
+  // A row written before, with a name around the address: its link blocks the address it reached.
+  database.run(`INSERT INTO mail_stranger_invites (email, inviter_id, kind, token, sent_at)
+    VALUES ('"x" <old@example.com>', 1, 'list', 'old-token', '2026-10-29T10:00:00.000Z')`);
+  assert.equal(strangers.emailOf('old-token'), 'old@example.com');
+  assert.equal(strangers.suppress('old-token'), 'old@example.com');
+  assert.equal(strangers.check('old@example.com', confirmed(4)), 'unsubscribed');
+});
+
+test('what an older release wrote another way blocks and counts as the address it reached (audit sc-data-7)', () => {
+  const sentAt = '2026-10-29T10:00:00.000Z';
+  const { database, strangers } = setup({
+    limits: { perAddressMonth: 2 },
+    before: (d) => {
+      // Someone who said «stop» to an email sent to `"x" <blocked@example.com>`, or to `…com.`.
+      d.run(`INSERT INTO mail_suppressions (email, created_at) VALUES ('"x" <blocked@example.com>', ?), ('dot@example.com.', ?)`, sentAt, sentAt);
+      // Invitations that went to `"y" <counted@example.com>`: they count for that address.
+      for (const [inviter, token] of [[1, 't1'], [2, 't2']]) {
+        d.run(`INSERT INTO mail_stranger_invites (email, inviter_id, kind, token, sent_at) VALUES ('"y" <counted@example.com>', ?, 'list', ?, ?)`,
+          inviter, token, sentAt);
+      }
+      d.run(`INSERT INTO mail_stranger_invites (email, inviter_id, kind, token, sent_at) VALUES ('plain@example.com', 3, 'list', 't3', ?)`, sentAt);
+    },
+  });
+  assert.equal(strangers.check('blocked@example.com', confirmed(4)), 'unsubscribed', 'an old «stop» still stops it');
+  assert.equal(strangers.check('dot@example.com', confirmed(4)), 'unsubscribed');
+  assert.equal(strangers.check('counted@example.com', confirmed(1)), 'already_sent', 'never twice from the same person');
+  assert.equal(strangers.check('counted@example.com', confirmed(4)), 'address_limit', 'and the month\'s sends to it count');
+  assert.equal(strangers.emailOf('t1'), 'counted@example.com');
+  assert.equal(database.get("SELECT email FROM mail_stranger_invites WHERE token = 't3'").email, 'plain@example.com', 'a bare row as it was');
+  assert.equal(strangers.check('new@example.com', confirmed(4)), null, 'nothing else held back');
 });
 
 test('the email to a stranger: the inviter\'s language, a button to sign up, a link and headers to stop them', async () => {

@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import {
-  buildMessage, parseAddress, createMailer, mailConfigErrors, mailConfigFromEnv, sendSmtp, checkSmtp, MailError,
+  buildMessage, parseAddress, bareAddress, createMailer, mailConfigErrors, mailConfigFromEnv, sendSmtp, checkSmtp, MailError,
 } from '../mail.js';
 
 test('addresses and messages: encoded where needed, never broken into', () => {
@@ -16,6 +16,19 @@ test('addresses and messages: encoded where needed, never broken into', () => {
   assert.deepEqual(parseAddress('ana@example.com'), { name: '', address: 'ana@example.com' });
   assert.equal(parseAddress('not an address'), null);
   assert.equal(parseAddress('ana@example.com\r\nBcc: someone@evil.example'), null);
+  // What someone types to invite: a bare address only, in lower case (audit sc-data-7).
+  assert.equal(bareAddress(' Ana@Example.com '), 'ana@example.com');
+  for (const text of ['"Win a phone" <ana@example.com>', 'Ana <ana@example.com>', '<ana@example.com>', 'ana@example.com, b@example.com',
+    'ana @example.com', 'ana@example', '', null, `${'a'.repeat(250)}@example.com`]) {
+    assert.equal(bareAddress(text), null, String(text));
+  }
+  // Nor ana@example.com spelt another way that a mail server delivers to it all the same: to the
+  // blocks and the limits per address, those were other addresses.
+  for (const text of ['ana@example.com.', 'ana@example..com', 'ana@.example.com', 'an​a@example.com',
+    'ana@exam­ple.com', 'ana@exam⁠ple.com', 'ana@ｅxample.com']) {
+    assert.equal(bareAddress(text), null, JSON.stringify(text));
+  }
+  for (const text of ['ana.maria+tasks@example.co.uk', 'josé@españa.es', 'a@b.c']) assert.equal(bareAddress(text), text, text);
 
   const message = buildMessage({
     from: 'Próximo <next@example.com>', to: 'ana@example.com', subject: 'Contraseña\r\nBcc: someone@evil.example',
