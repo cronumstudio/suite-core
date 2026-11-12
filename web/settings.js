@@ -414,9 +414,11 @@ export function openSettings(options) {
     // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
     host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
       hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
-    // The host's calendar in the person's own calendar app (host.js `calendarFeed`): the whole app's.
-    host.calendarFeed && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar', label: t('kit.calendarFeed.title'),
-      hint: () => t('kit.calendarFeed.hint'), render: () => needsServer(calendarFeed) } : null,
+    // The host's calendar (host.js `calendar`): which modules show on it and, where the host has
+    // one, its link for the person's own calendar app (`calendarFeed`). The whole app's.
+    (host.calendarModules || host.calendarFeed) && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar',
+      label: t('kit.calendar.title'), hint: () => t(host.calendarFeed ? 'kit.calendar.hintFeed' : 'kit.calendar.hint'),
+      render: () => needsServer(calendarSection) } : null,
     admin(host.name),
     ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
     profileSection(t('kit.settings.groups.account')),
@@ -1620,9 +1622,38 @@ export function openSettings(options) {
    * field took any minute on an iPhone (its wheel has no steps), and 16:37 was kept as 16:35.
    */
   /**
+   * Settings › Calendar: a switch for each module with dates that the person uses, whether it shows
+   * on the calendar (its page, its link and the assistants' tool, calendar.js), for every plan; and
+   * under them, where the host has it, the link for calendar apps (calendarFeed). A switch that
+   * can't be saved goes back.
+   */
+  function calendarSection() {
+    const modules = el('div', {});
+    const paint = (answer) => {
+      if (closed || !answer?.modules?.length) return;
+      clear(modules).append(block(t('kit.calendar.modulesTitle'),
+        hint(t(host.calendarFeed ? 'kit.calendar.modulesHintFeed' : 'kit.calendar.modulesHint')),
+        ...answer.modules.map((m) => switchRow(m.name, {
+          checked: m.shown,
+          onChange: async (shown) => {
+            try {
+              await api.root.put(`/api/me/calendar/modules/${encodeURIComponent(m.mount)}`, { shown });
+            } catch (err) {
+              fail(err);
+              throw err;   // the switch goes back
+            }
+          },
+        }))));
+    };
+    if (host.calendarModules) api.root.get('/api/me/calendar/modules').then(paint, fail);
+    return el('div', {}, modules, host.calendarFeed ? calendarFeed() : null);
+  }
+
+  /**
    * The host's calendar in Google Calendar, Outlook or Apple Calendar (calendar-feed.js): a secret
    * link of the person's, made here, copied, made again (the old one stops) or turned off, with a
    * line for each calendar app on how to subscribe. Where the plan doesn't include it, the plan's.
+   * Its first block is titled: it goes under the module switches (calendarSection).
    */
   function calendarFeed() {
     const box = el('div', {});
@@ -1644,14 +1675,14 @@ export function openSettings(options) {
       const plan = answer.included ? null : hint(t(feed ? 'kit.calendarFeed.paused' : 'kit.calendarFeed.pro'));
       const seePlan = !answer.included && openPlan ? button(t('kit.plan.see'), () => openPlan(), 'primary') : null;
       if (!feed) {
-        clear(box).append(block(null, intro, plan,
+        clear(box).append(block(t('kit.calendarFeed.title'), intro, plan,
           row(answer.included ? button(t('kit.calendarFeed.create'), () => change('POST'), 'primary') : seePlan)));
         return;
       }
       const value = el('code', { text: feed.url || '' });
       const read = feed.used_at ? t('kit.calendarFeed.read', { when: formatDateTime(feed.used_at) }) : t('kit.calendarFeed.unread');
       clear(box).append(
-        block(null, intro, plan, seePlan ? row(seePlan) : null,
+        block(t('kit.calendarFeed.title'), intro, plan, seePlan ? row(seePlan) : null,
           feed.url
             ? el('div', { class: 'kit-copy' }, value, el('button', { type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(feed.url, value) }))
             : hint(t('kit.calendarFeed.lost')),

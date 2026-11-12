@@ -1838,3 +1838,23 @@ test('with scopedSheets, how the server rewrites the sheets is part of the versi
   const plain = (await plainCall('GET', '/version')).data;
   assert.notEqual(scoped.version, plain.version, 'the same files, one more thing the worker keeps as code');
 });
+
+test('Settings › Calendar: each person keeps the modules with dates they want on the calendar, and one kept off leaves it', async (t) => {
+  const { call } = await startHost(t, { calendar: '/calendar/' });
+  assert.equal((await call('GET', '/api/me/calendar/modules')).status, 401, 'signed out: nothing');
+  assert.equal((await call('PUT', '/api/me/calendar/modules/alpha', { shown: false })).status, 401);
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  assert.equal((await call('GET', '/alpha/api/where')).data.host.calendarModules, true, 'Settings has the section in every module');
+  assert.deepEqual((await call('GET', '/api/me/calendar/modules')).data, {
+    modules: [{ mount: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', shown: true }],
+  }, 'the modules with dates they use, on until chosen; beta gives none');
+  await call('POST', '/alpha/api/items', { text: '2026-11-03 Dentist' });
+  assert.equal((await call('PUT', '/api/me/calendar/modules/alpha', { shown: 'no' })).data.field, 'shown');
+  assert.equal((await call('PUT', '/api/me/calendar/modules/beta', { shown: false })).data.field, 'module', 'a module with no dates is no choice');
+  const off = await call('PUT', '/api/me/calendar/modules/alpha', { shown: false });
+  assert.deepEqual([off.status, off.data.modules[0].shown], [200, false]);
+  assert.deepEqual((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-30')).data,
+    { from: '2026-11-01', to: '2026-11-30', modules: [], items: [] }, 'off: not on the calendar, not even as a filter');
+  await call('PUT', '/api/me/calendar/modules/alpha', { shown: true });
+  assert.deepEqual((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-30')).data.items.map((i) => i.title), ['Dentist'], 'and back');
+});

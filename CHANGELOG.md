@@ -3,11 +3,11 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.264.0 — 2026-11-12
+## 0.266.0 — 2026-11-12
 
 - **Settings in a host, in a new order** (`web/settings.js`; docs/architecture.md §21.1): first
-  the host's group (Modules, Language and theme, Your AI, Notifications, Daily summary, the
-  calendar's link, Administration), then each module's, then Account (Profile, Password and
+  the host's group (Modules, Language and theme, Your AI, Notifications, Daily summary,
+  Calendar, Administration), then each module's, then Account (Profile, Password and
   access, where you're signed in, Plan, Delete my account), and About the whole app on its own at
   the foot. Connections is gone from a host. The sections keep their ids, so `?settings=` links
   still open them. An app on its own keeps its list as it was.
@@ -22,10 +22,20 @@ change an interface and a patch never does. Apps pin a version through the submo
     no group in Settings and no way to be installed alone, and are never the one module left on
     (`400 field_required`). A mount the host lacks is left out.
   - The daily summary's button is each person's to hide: `day_shown` in `GET /api/modules` (no
-    choice yet: shown, as before), `PUT /api/me/day { shown }`. Migration 10 of the host,
+    choice yet: shown, as before), `PUT /api/me/day { shown }`. Migration 11 of the host,
     `host_day`. The summary itself, its notices and Settings › Daily summary don't change.
   - `kit.calendar.show` is gone (the switch says `kit.calendar.title`); new `kit.modules.barTitle`,
     `kit.modules.barHint`, `kit.day.show`, `kit.day.showHint`.
+
+## 0.265.0 — 2026-11-12
+
+- **Settings › Calendar: what shows on it** (`calendar.js`, `host.js`, `web/settings.js`, `i18n/*.json`;
+  docs/architecture.md §21.3.1): the section «Calendar subscription» is now «Calendar» and starts with a switch
+  for each module with dates that the person uses (Tasks, Projects, Notes in Cronum Work), for every plan. One
+  turned off leaves the calendar page and its filters, the link for calendar apps and the assistants' tool:
+  it isn't asked. `GET` and `PUT /api/me/calendar/modules[/:mount] { shown }`, host migration 10
+  (`host_calendar_modules`, a row for each module chosen; none, it shows), `host.calendarModules` in every
+  module's config. The link (Pro's) follows under them, titled «Calendar subscription». Asked by Martin.
 
 ## 0.263.1 — 2026-11-12
 

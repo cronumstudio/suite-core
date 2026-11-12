@@ -81,7 +81,7 @@ import {
 import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
-import { createCalendar, registerCalendarApi, calendarTools } from './calendar.js';
+import { createCalendar, registerCalendarApi, calendarTools, calendarModulesSchema, createCalendarChoices } from './calendar.js';
 import { createCalendarFeeds, registerCalendarFeedApi, calendarFeedsSchema } from './calendar-feed.js';
 import { createDay, registerDayApi, createDayNotices, dayNoticesSchema, DAY_PREFS } from './day.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
@@ -200,8 +200,10 @@ export const HOST_MIGRATIONS = Object.freeze([
   { version: 8, name: 'day-notices', up: dayNoticesSchema },
   // Each person's subscription link to the calendar (calendar-feed.js), with options.calendarFeed.
   { version: 9, name: 'calendar-feeds', up: calendarFeedsSchema },
+  // Which modules each person keeps on the calendar (Settings › Calendar): a row for each one chosen.
+  { version: 10, name: 'calendar-modules', up: calendarModulesSchema },
   {
-    version: 10,
+    version: 11,
     name: 'day-shown',
     // Whether each person has the daily summary's button on their rail (Settings › Modules). No
     // row: shown, as it always was before the switch.
@@ -876,7 +878,9 @@ export async function createHost({
         ...(hostWorker ? { worker: '/sw.js' } : {}),
         // The host's daily summary: its page, and Settings' section of it in every module.
         ...(day ? { day } : {}),
-        // The calendar's link for calendar apps: Settings' section of it in every module.
+        // The host's calendar: Settings › Calendar, with which modules show on it, in every module.
+        ...(calendar ? { calendarModules: true } : {}),
+        // The calendar's link for calendar apps: in that same section, under them.
         ...(calendar && calendarFeed ? { calendarFeed: true } : {}),
       },
       errors: [],
@@ -1179,8 +1183,11 @@ export async function createHost({
   });
 
   // What has a date in each module (calendar.js), for the host's calendar page and its assistants' tool.
+  // Which of them each person keeps on it (Settings › Calendar): the rest, off its page, its link and the tool.
+  const calendarChoices = calendar ? createCalendarChoices({ database: suite.database }) : null;
   const agenda = calendar ? createCalendar({
     modules: () => joined, uses, log, icon: (m) => mountedPath(m.mount, m.config.app.icon),
+    hidden: (user) => calendarChoices.hiddenOf(user),
   }) : null;
   // And its link for calendar apps, each person's (calendar-feed.js).
   const feeds = agenda && calendarFeed ? createCalendarFeeds({ database: suite.database, sign: suite.sessions.sign }) : null;
@@ -1257,7 +1264,7 @@ export async function createHost({
         });
       }
       registerLinksApi(api, { links });
-      if (agenda) registerCalendarApi(api, { calendar: agenda });
+      if (agenda) registerCalendarApi(api, { calendar: agenda, choices: calendarChoices });
       if (feeds) {
         registerCalendarFeedApi(api, {
           feeds, calendar: agenda, accounts: suite.accounts, entitlements: suite.entitlements, limiter: suite.limiter,

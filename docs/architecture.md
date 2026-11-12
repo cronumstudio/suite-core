@@ -2003,7 +2003,7 @@ sets it from Settings › Language and theme. The kit paints it as `<html data-l
 (web-kit.md).
 
 Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the same list.
-Since 0.264.0, first the host's group (Modules, Language and theme, Your AI, Notifications, the
+Since 0.266.0, first the host's group (Modules, Language and theme, Your AI, Notifications, the
 daily summary, the calendar, Administration), then a group for each module in use, then the
 account's (Profile, Password and access, where the account is signed in, Plan, deleting it), and
 About the whole app on its own at the foot; an app on its own keeps Account, Connections and its
@@ -2012,12 +2012,12 @@ the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }
 with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
 with `data` when the module declares its data) and drops what isn't well formed.
 
-Settings › Modules (0.264.0) has each module with its line under its name: the host's catalog's
+Settings › Modules (0.266.0) has each module with its line under its name: the host's catalog's
 with `createHost({ moduleHints: 'home.modules.' })` (`host.hints` in `/api/modules`, the key
 being the prefix and the mount, read from `/i18n/<lang>.json`), else its line in About. Under
 them, a block of what is a button on the rail and not a module, each a switch, in no order: the
 calendar (`calendar_shown`), the daily summary (`day_shown`: shown until hidden, `PUT /api/me/day
-{ shown }`, table `host_day`, migration 10) and each door, `createHost({ doors: ['croc'] })`: a
+{ shown }`, table `host_day`, migration 11) and each door, `createHost({ doors: ['croc'] })`: a
 module marked `door: true` in `/api/modules`, turned on and off as a module is
 (`PUT /api/me/modules`), but out of the order, without a group in Settings, never installed alone,
 and never the one module left on (`400 field_required`).
@@ -2192,6 +2192,13 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   Only for whoever turned it on (0.195.0): Settings › Modules has the switch (`calendar_shown` in
   the same answer, `PUT /api/me/calendar { shown }`, table `host_calendar`); no row, no button,
   so the rail stays as simple as it was. The page and the assistants' tool are there either way.
+- **Which modules show on it** (0.265.0): Settings › Calendar (`host.calendarModules` in every
+  module's config, section `calendar-feed`) has a switch for each module with dates that the person
+  uses: `GET /api/me/calendar/modules` and `PUT /api/me/calendar/modules/:mount { shown }`, both
+  answering `{ modules: [{ mount, name, color, icon, shown }] }`; a module with no dates, or one
+  they don't use, is 400 `field_invalid` (`module`). Table `host_calendar_modules`, a row for
+  each module chosen: none, it shows (one that comes later too). One kept off is not asked at all:
+  it leaves the page (and its filters), the link for calendar apps and the assistants' tool alike.
 - **For assistants**, the host's MCP adds `<host id>_calendar` (`work_calendar`) for whoever uses
   a module that gives its dates (and, with `byPlan`, whose plan lets an assistant read it):
   `{ from, to }`, `to` a week from `from` without it and `from` today in their zone without it,
