@@ -978,8 +978,9 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
-  assert.match(settings, /calendarSwitch\.hidden = typeof answer\.calendar_shown !== 'boolean';/);
-  assert.match(settings, /sendOne\('\/api\/me\/calendar', \{ shown \}/);
+  assert.match(settings, /if \(typeof answer\.calendar_shown === 'boolean'\) \{/);
+  assert.match(settings, /shownSwitch\(t\('kit\.calendar\.title'\), t\('kit\.calendar\.showHint'\), 'calendar', answer\.calendar_shown, '\/api\/me\/calendar', 'calendar_shown'\)/);
+  assert.match(settings, /await sendOne\(path, \{ shown \}/);
   assert.match(settings, /keep\('PUT', path, body, \{ root: true \}\)/, 'at the host\'s root, not the module\'s path');
   // On a phone, where the rail doesn't show, the switcher's menu has it.
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
@@ -1040,7 +1041,7 @@ test('a module installed on its own has Settings of its own: no other modules, n
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
   // In a window of Work's shell (its registry) the module is the whole app's, never alone.
   assert.match(settings, /const alone = \(\) => Boolean\(host\) && installedAlone\(hostInfo, \{ embedded: Boolean\(workRegistry\(\)\) \}\);/);
-  assert.match(settings, /host && !alone\(\) \? \{ group: t\('kit\.settings\.groups\.account'\), id: 'modules',/);
+  assert.match(settings, /!alone\(\) \? \{ group: host\.name, id: 'modules',/);
   // Its group, Your AI's words and About's cards all come from modulesHere(): only this module.
   assert.match(settings, /function modulesHere\(\) \{\s*if \(alone\(\)\) return \[inUse\.find\(\(m\) => m\.mount === host\.mount\) \|\| \{ mount: host\.mount \}\];/);
   assert.match(settings, /const list = !path \? \[\] : inUse\.length && !alone\(\) \? inUse : modulesHere\(\);/);
@@ -2045,16 +2046,17 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     const groups = texts('kit-settings__group');
     const labels = texts('kit-settings__label');
     assert.deepEqual(groups, [
-      t('kit.settings.groups.account'), t('kit.settings.groups.connections'),
-      'Tasks', 'Notes', 'Cronum Work',
-    ], 'the account\'s, each module in use in the host\'s order, the host\'s last; Next is off');
-    // Password and sign-in is the account's, after the profile; where one is signed in, the last of Connections.
+      'Cronum Work', 'Tasks', 'Notes', t('kit.settings.groups.account'), t('kit.about.title', { app: 'Cronum Work' }),
+    ], 'the host\'s first, each module in use in the host\'s order, the account\'s, About on its own; Next is off');
+    // The host's group: the modules, the language, the AI, the notices and administration, the whole app's.
+    assert.deepEqual(labels.slice(0, 5), [t('kit.modules.title'), t('kit.appearance.title'), t('kit.ai.title'), t('kit.notifications.title'), t('kit.admin.title')]);
+    // Password and sign-in is the account's, after the profile; where one is signed in, after them.
     assert.equal(labels[labels.indexOf(t('kit.profile.title')) + 1], t('kit.security.title'));
-    assert.equal(labels[labels.indexOf(t('kit.notifications.title')) + 1], t('kit.security.sessions'));
+    assert.equal(labels[labels.indexOf(t('kit.security.title')) + 1], t('kit.security.sessions'));
     // Notices and the plan are the host's to say, the same in every module, whatever this one passed;
     // the plan is the account's.
     assert.ok(labels.includes(t('kit.notifications.title')));
-    assert.equal(labels[labels.indexOf(t('kit.appearance.title')) + 1], t('kit.plan.title'));
+    assert.equal(labels[labels.indexOf(t('kit.security.sessions')) + 1], t('kit.plan.title'));
     // This module's own, drawn here: its sections, its data and what it adds to Your AI (it has no
     // instruction for Your AI to show); what it is goes in About's card.
     assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 3),
@@ -2066,9 +2068,9 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     assert.ok(!labels.includes('no.such.key'));
     assert.ok(asked.includes('/notes/i18n/en.json'));
     assert.ok(!asked.some((path) => path.startsWith('/next/')), 'a module not in use isn\'t asked');
-    // Deleting the whole account is the account's, after the plan; the host's last: administration and about it.
+    // Deleting the whole account is the account's, after the plan, the last of the list's groups.
     assert.equal(labels[labels.indexOf(t('kit.plan.title')) + 1], t('kit.data.deleteTitle'));
-    assert.deepEqual(labels.slice(-2), [t('kit.admin.title'), t('kit.about.title', { app: 'Cronum Work' })]);
+    assert.equal(labels.at(-1), t('kit.data.deleteTitle'));
     // Choosing another module's section goes there, with Settings open on it.
     const templates = root.all().find((node) => node.className === 'kit-settings__item' && node.textContent.includes('Templates'));
     for (const fn of templates.listeners.click) fn({ currentTarget: templates });

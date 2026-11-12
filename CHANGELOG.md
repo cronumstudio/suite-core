@@ -16,6 +16,30 @@ change an interface and a patch never does. Apps pin a version through the submo
     still point at the input. New icons `eye` and `eye-off`, texts `kit.password.show` and
     `kit.password.hide`. Settings' own password fields are as they were.
 
+## 0.268.0 — 2026-11-12
+
+- **Settings in a host, in a new order** (`web/settings.js`; docs/architecture.md §21.1): first
+  the host's group (Modules, Language and theme, Your AI, Notifications, Daily summary,
+  Calendar, Administration), then each module's, then Account (Profile, Password and
+  access, where you're signed in, Plan, Delete my account), and About the whole app on its own at
+  the foot. Connections is gone from a host. The sections keep their ids, so `?settings=` links
+  still open them. An app on its own keeps its list as it was.
+- **Settings › Modules: each module with its line, and the rail's buttons apart**
+  (`web/settings.js`, `web/kit.css`, `host.js`, `i18n/*.json`): each module has its line under
+  its name, from the host's catalog with `createHost({ moduleHints })` (`host.hints` in
+  `GET /api/modules`), else its line in About. Under the modules, a block «On the bar» with what
+  is a button on the rail and not a module, each a switch, in no order: the calendar (as before,
+  now named Calendar with a short line), My day (the daily summary's button, new) and each door.
+  - `createHost({ doors: ['croc'] })`: those modules are marked `door: true` in `/api/modules`,
+    are turned on and off as before (`PUT /api/me/modules`), but leave the modules' order, have
+    no group in Settings and no way to be installed alone, and are never the one module left on
+    (`400 field_required`). A mount the host lacks is left out.
+  - The daily summary's button is each person's to hide: `day_shown` in `GET /api/modules` (no
+    choice yet: shown, as before), `PUT /api/me/day { shown }`. Migration 11 of the host,
+    `host_day`. The summary itself, its notices and Settings › Daily summary don't change.
+  - `kit.calendar.show` is gone (the switch says `kit.calendar.title`); new `kit.modules.barTitle`,
+    `kit.modules.barHint`, `kit.day.show`, `kit.day.showHint`.
+
 ## 0.267.1 — 2026-11-12
 
 - **A host's pages at `/` read the kit at its own address again** (`web/sw-core.js`): Cronum
@@ -2774,7 +2798,6 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   page nor `/api/devices/web-session`, and its configuration's `devices` keeps its shape. A host
   with either option refuses a module mounted at `/devices/`.
 
-
 ## 0.104.0 — 2026-10-20
 
 - **One Settings for a whole host** (`settings.js`, `host.js`, `base.js`, `shell.js`). In a host
@@ -2799,7 +2822,6 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - **The rail's top is the host's mark** (`shell.js`, kit.css). It was a link to the host's page that
   chooses the modules, which only took people out of what they were doing; the modules are chosen
   in Settings › Modules.
-
 
 ## 0.103.0 — 2026-10-20
 
