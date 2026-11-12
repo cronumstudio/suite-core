@@ -205,9 +205,10 @@ export function createAccounts({
     }
   }
 
-  function checkPassword(password) {
+  /** `min`: another shortest length than this app's (a login at the identity provider follows its own rule). */
+  function checkPassword(password, min = minPasswordLength) {
     if (typeof password !== 'string') throw badRequest('field_invalid', { field: 'password' });
-    if (password.length < minPasswordLength) throw badRequest('field_too_short', { field: 'password', min: minPasswordLength });
+    if (password.length < min) throw badRequest('field_too_short', { field: 'password', min });
     if (password.length > 1024) throw badRequest('field_too_long', { field: 'password', max: 1024 });
   }
   function checkEmail(email) {
@@ -231,12 +232,16 @@ export function createAccounts({
    * Creates an account. Without a password it can only sign in elsewhere; with
    * `identity: { provider, subject, email }` it is linked to that account in
    * the same transaction, and the provider's email is taken as verified.
+   * `emailVerified`: the admin vouches for the email (an account they make for
+   * someone), so it needs no message to confirm it.
    * `quiet`: the account arrives with its data (an import), so what the app
    * makes for a newcomer —Tasks' first lists— isn't made for it.
+   * `also(user)`: what else is made with the account (the admin's plan for it),
+   * in its transaction: if it throws, there is no account either.
    */
   function create({
-    username, displayName, password = null, role = 'user', email = null, locale = null, identity = null,
-  }, { quiet = false } = {}) {
+    username, displayName, password = null, role = 'user', email = null, locale = null, identity = null, emailVerified = false,
+  }, { quiet = false, also = null } = {}) {
     const name = String(username || '').trim();
     if (!USERNAME.test(name)) throw badRequest('field_invalid', { field: 'username' });
     if (byUsername(name)) throw conflict('username_taken');
@@ -247,6 +252,7 @@ export function createAccounts({
       locale, created_at: iso(clock()),
     };
     if (identity?.email && row.email === checkEmail(identity.email)) row.email_verified_at = row.created_at;
+    if (emailVerified && row.email) row.email_verified_at = row.created_at;
     return database.tx(() => {
       const extra = extraColumns(row) || {};
       const columns = [...Object.keys(row), ...Object.keys(extra)];
@@ -255,11 +261,16 @@ export function createAccounts({
         ...Object.values(row), ...Object.values(extra),
       );
       if (identity) insertIdentity(lastInsertRowid, identity.provider, identity.subject, row.email_verified_at ? row.email : null);
+      also?.(byId(lastInsertRowid));
       const user = byId(lastInsertRowid);
       if (!quiet) for (const hook of created) hook(user);
       return user;
     });
   }
+
+  /** The oldest account with that email, whatever its case, or null. */
+  const byEmail = (email) => database.get('SELECT * FROM users WHERE email = ? COLLATE NOCASE ORDER BY id LIMIT 1',
+    String(email || '').trim().toLowerCase()) || null;
 
   /* ----------------------------- identities ----------------------------- */
 
@@ -589,7 +600,8 @@ export function createAccounts({
   const list = () => database.all('SELECT * FROM users ORDER BY id');
 
   return {
-    create, update, setPassword, checkPassword, verify, signedIn, remove, byId, byUsername, list, publicUser, activeAdmins,
+    create, update, setPassword, checkPassword, checkEmail, checkName, checkRole, verify, signedIn, remove, byId, byUsername, byEmail,
+    list, publicUser, activeAdmins,
     requestDeletion, cancelDeletion, dueForDeletion, markedIdentity, unmarkedIdentities,
     byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
     linkedByEmail, relinkIdentity,

@@ -17,7 +17,10 @@ import {
 } from './http.js';
 import { verifyPassword } from './crypto.js';
 import { answeredOnce } from './idempotency.js';
+import { USERNAME } from './accounts.js';
 
+/** The shortest password a login at an identity provider takes (WorkOS's, workos-security.js). */
+const PROVIDER_PASSWORD_MIN = 8;
 const idOf = (value, field = 'id') => int(value, { field, min: 1 });
 const countOrNull = (value, field) => (value == null ? null : int(value, { field, min: 0 }));
 /** A moment of a query as the log writes them (ISO, in UTC), or null; 400 for what isn't one. */
@@ -718,11 +721,17 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  * @param {object} [deps.audit]         from createAudit()
  * @param {object} [deps.twoFactor]     from createTwoFactor()
  * @param {object} [deps.devices]       from createDevices(), with modules.devices
+ * @param {boolean} [deps.localPasswords]  whether passwords are this app's own (AUTH_PROVIDER=local);
+ *   false with an identity provider, where a new account's password can only be its login's there
+ * @param {object} [deps.logins]        the identity provider's logins the admin may make for new
+ *   accounts (workos-security.js, with accounts.adminIdentity): { provider, name, taken, make, undo }
+ * @param {Function} [deps.confirmAdmin]  the admin's own password (and code) again, before changing
+ *   or making a login at the provider (workos-security.js)
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
   tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null, sharedLogin = null,
-  confirmAdmin = null,
+  confirmAdmin = null, localPasswords = true, logins = null,
 }) {
   // The identity provider, where its login is shared with other apps (config.accounts.sharedIdentity) and it can say who else uses it.
   const sharedIdentity = Boolean(sharedLogin?.otherApps && sharedLogin?.deleteIdentity && sharedLogin?.unmark);
@@ -793,15 +802,80 @@ export function registerAdminApi(router, {
     });
   }
 
+  /**
+   * A new account (a store's reviewer, a tester), checked whole before anything is made: its email,
+   * which no account here may have; its name, role and password; and the admin's plan for it
+   * (`plan`, `ends_at`, `note`), given in the same transaction and seen in Users › Plan as one the
+   * admin gave. Without a username, one from the email.
+   *
+   * · Passwords here (`localPasswords`): `email_verified: true` when the admin vouches for the
+   *   email, which then needs no message to confirm it.
+   * · Where the identity provider's logins are this install's to make (`logins`: WorkOS with
+   *   accounts.adminIdentity) and a password comes: the login is made there with its email
+   *   verified, and the account here linked to it, so it signs in at once. With the admin's own
+   *   password (and code) again (`confirmAdmin`), as for setting someone's password there: that
+   *   login opens every product of the suite. An email the provider already has is someone's login,
+   *   of another app perhaps: 409, never made again, and they can sign in here with it.
+   * · Otherwise no password can be given (`password_not_here`): the account waits for its person
+   *   to sign in with that email, as it always did.
+   * The password goes into no answer, no entry of the log and no line of the server's.
+   */
   router.post('/api/admin/users', async (ctx) => {
     requireAdmin(ctx);
     const body = await readJson(ctx.req);
-    const user = accounts.create({
-      username: body.username, displayName: body.display_name, password: body.password ?? null,
-      role: body.role ?? 'user', email: body.email ?? null, locale: body.locale ?? null,
+    const password = body.password == null || body.password === '' ? null : body.password;
+    const atProvider = Boolean(logins && password != null);
+    if (password != null && !localPasswords && !atProvider) throw badRequest('password_not_here');
+    if (body.email_verified !== undefined && typeof body.email_verified !== 'boolean') {
+      throw badRequest('field_invalid', { field: 'email_verified' });
+    }
+    const email = accounts.checkEmail(body.email);
+    const given = String(body.username ?? '').trim();
+    if (!email && (atProvider || !given)) throw badRequest('field_required', { field: 'email' });
+    if (email && accounts.byEmail(email)) throw conflict('email_taken');
+    const username = given || accounts.freeUsername(email);
+    if (!USERNAME.test(username)) throw badRequest('field_invalid', { field: 'username' });
+    if (accounts.byUsername(username)) throw conflict('username_taken');
+    const name = String(body.display_name ?? '').trim() ? accounts.checkName(body.display_name) : null;
+    const role = accounts.checkRole(body.role ?? 'user');
+    // A login at the provider follows the provider's rule, which checks the rest itself (password_rejected).
+    if (password != null) accounts.checkPassword(password, ...(atProvider ? [PROVIDER_PASSWORD_MIN] : []));
+    const plan = body.plan == null || body.plan === '' ? null : String(body.plan);
+    if (plan != null) {
+      if (!entitlements) throw badRequest('field_invalid', { field: 'plan' });
+      if (!entitlements.describe().plans.some((p) => p.id === plan)) throw badRequest('plan_unknown', { plan });
+      if (body.ends_at != null && !Number.isFinite(Date.parse(body.ends_at))) throw badRequest('field_invalid', { field: 'ends_at' });
+    }
+    const note = noteOf(body.note);
+
+    let subject = null;
+    if (atProvider) {
+      // Never a login there without the admin's password again: without the way to ask for it, none.
+      if (!confirmAdmin) throw badRequest('password_not_here');
+      await confirmAdmin(ctx, body);
+      if (await logins.taken(email)) throw conflict('email_taken_provider', { provider: logins.name });
+      subject = await logins.make({ email, password, displayName: name });
+    }
+    let user;
+    try {
+      user = accounts.create({
+        username, displayName: name ?? username, role, email, locale: body.locale ?? null,
+        ...(atProvider
+          ? { identity: { provider: logins.provider, subject, email } }
+          : { password, emailVerified: localPasswords && body.email_verified === true }),
+      }, { also: plan == null ? null : (made) => entitlements.setPlan(made.id, plan, { endsAt: body.ends_at ?? null, note }) });
+    } catch (err) {
+      // The login made a moment ago would be left with no account here: it goes too.
+      if (subject) {
+        await logins.undo(subject).catch((e) => console.error(`[admin] the login made at ${logins.name} for a new account could not be deleted: ${e.message}`));
+      }
+      throw err;
+    }
+    record(ctx, 'admin.user.create', 'user', user.id, {
+      role: user.role, email_verified: Boolean(user.email_verified_at), ...(atProvider ? { provider: logins.provider } : {}),
     });
-    record(ctx, 'admin.user.create', 'user', user.id, { role: user.role });
-    sendJson(ctx.res, 201, withPlan(user));
+    if (plan != null) record(ctx, 'admin.plan.set', 'user', user.id, { plan, ends_at: body.ends_at ?? null, ...(note ? { note } : {}) });
+    sendJson(ctx.res, 201, withPlan(accounts.byId(user.id)));
   });
 
   router.patch('/api/admin/users/:id', async (ctx) => {

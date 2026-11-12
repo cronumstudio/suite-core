@@ -380,3 +380,38 @@ test('the client: the password asked as a sign-in and its session closed, factor
     globalThis.fetch = realFetch;
   }
 });
+
+test('the client: a user found by email, and one made with a password and its email verified', async () => {
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  const answers = [];
+  globalThis.fetch = async (url, options = {}) => {
+    asked.push({ url: String(url), method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
+    const [status, body] = answers.shift() || [200, {}];
+    return { status, ok: status < 300, json: async () => body };
+  };
+  try {
+    const workos = createWorkosClient({ apiKey: 'sk_test', clientId: 'client_1', authkitDomain: 'x.authkit.app' });
+    answers.push([200, { object: 'list', data: [{ id: 'user_1', email: 'a@b.c' }], list_metadata: {} }]);
+    assert.deepEqual(await workos.userByEmail(' A@B.c '), { id: 'user_1', email: 'a@b.c' });
+    const found = new URL(asked[0].url);
+    assert.deepEqual([found.pathname, found.searchParams.get('email'), found.searchParams.get('limit')], ['/user_management/users', 'a@b.c', '1']);
+    answers.push([200, { object: 'list', data: [] }]);
+    assert.equal(await workos.userByEmail('nobody@b.c'), null);
+    answers.push([503, {}]);
+    await assert.rejects(workos.userByEmail('a@b.c'), WorkosUnavailable, 'no answer is not "nobody"');
+
+    asked.length = 0;
+    answers.push([201, { object: 'user', id: 'user_2', email: 'new@b.c', email_verified: true }]);
+    assert.deepEqual(await workos.createUser({ email: 'new@b.c', password: 'Long-secret-1', firstName: 'New', emailVerified: true, metadata: { app_work: 'Cronum Work' } }),
+      { user: { object: 'user', id: 'user_2', email: 'new@b.c', email_verified: true } });
+    assert.deepEqual([asked[0].method, new URL(asked[0].url).pathname], ['POST', '/user_management/users']);
+    assert.deepEqual(asked[0].body, { email: 'new@b.c', password: 'Long-secret-1', email_verified: true, first_name: 'New', metadata: { app_work: 'Cronum Work' } });
+    answers.push([422, { code: 'user_creation_error', errors: [{ code: 'password_strength_error', message: 'The password is too weak.' }] }]);
+    assert.deepEqual(await workos.createUser({ email: 'new@b.c', password: 'weak' }), { refused: 'The password is too weak.' });
+    answers.push([429, {}]);
+    await assert.rejects(workos.createUser({ email: 'new@b.c', password: 'Long-secret-1' }), WorkosUnavailable);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

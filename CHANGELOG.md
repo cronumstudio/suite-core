@@ -3,6 +3,33 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.263.0 — 2026-11-12
+
+- **The admin makes accounts that sign in at once** (`api.js`, `accounts.js`, `workos.js`,
+  `workos-security.js`, `app.js`, `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): test
+  accounts for the App Store's and Google Play's reviews, testers, directories. Users › New
+  account asks for the email first, a name, a role, a password and the plan from the start (its
+  end and reason once one of its own is chosen), in a form dialog that says inside it what the
+  server refuses. `POST /api/admin/users` checks everything before making anything; the plan goes
+  in the account's own transaction (`accounts.create(fields, { also })`, `setPlan` as Users ›
+  Plan does), recorded as `admin.plan.set` next to `admin.user.create`.
+  - With local passwords: `email_verified: true` takes the email as confirmed
+    (`accounts.create({ emailVerified })`), and without a username one comes from the email.
+  - With WorkOS where the install owns the logins (`accounts.adminIdentity`, Cronum Work): a
+    password makes the login at WorkOS with `email_verified: true` and the app's mark
+    (`createUser`, `userByEmail` in workos.js; `logins` from `registerWorkosSecurityApi`), and the
+    account here is linked to it. The admin's own password (and code) is asked again first, as for
+    setting someone's password there; WorkOS's shortest password (8) applies. A login made for an
+    account that then can't be made is deleted. Without a password, as before: the account waits
+    for its person to sign in with that email.
+  - New answers: `409 email_taken` (an account here has the email, whatever its case),
+    `409 email_taken_provider` with `provider` (WorkOS has a login with it, perhaps another app's:
+    never made again) and `400 password_not_here` (a password where logins are a provider's this
+    install doesn't own, or OIDC's). `registerAdminApi` takes `localPasswords` (default true, as
+    before) and `logins`; `accounts` exports `checkEmail`, `checkName`, `checkRole` and `byEmail`,
+    and `checkPassword(password, min)` takes another shortest length.
+  - The password reaches no answer, log entry or server line. No migration.
+
 ## 0.262.1 — 2026-11-12
 
 - **The test kit's requests survive a connection the server closes under them**

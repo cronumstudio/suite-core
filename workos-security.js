@@ -52,11 +52,14 @@ const fromIdentity = (provider) => String(provider || '').replace(/OAuth$/, '').
  * @param {'on'|'admins'|'off'} [deps.twoFactor]
  * @param {boolean} [deps.adminIdentity]  whether the admin may set someone's password and take
  *   their second step off at WorkOS (config.accounts.adminIdentity): only the install that owns the
- *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist.
+ *   identities, since a WorkOS user is the same in every product. Off, those two routes don't exist,
+ *   and neither do the logins the admin makes for new accounts (`logins`, returned).
+ * @param {object} [deps.mark]  `{ key, name }` (app.js identityMark), where the logins are shared
+ *   with other apps: what a login the admin makes carries in its metadata.
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'on',
-  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, clock = () => Date.now(),
+  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, mark = null, clock = () => Date.now(),
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -333,5 +336,42 @@ export function registerWorkosSecurityApi(router, {
     sendJson(ctx.res, 200, { ok: true });
   }));
 
-  return { confirmAdmin: (ctx, body) => route(() => confirmAdmin(ctx, body))(ctx) };
+  /** WorkOS not answering, as the routes here say it (route()), for what the admin API calls. */
+  const answered = async (fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof WorkosUnavailable) throw new HttpError(503, 'provider_unavailable');
+      throw err;
+    }
+  };
+
+  /**
+   * Logins the admin makes at WorkOS for the accounts they create (registerAdminApi's `logins`):
+   * a test account for a store's review, a tester. Its email is taken as verified, so it signs in
+   * at once with the password the admin chose, and it carries this app's mark (`mark`, where the
+   * logins are shared) as if it had signed in here. `taken(email)`, whether WorkOS has one with
+   * that email already (someone of another app of the suite): theirs, never made again. `make`
+   * → the WorkOS id, or 400 `password_rejected` with WorkOS's reason. `undo(id)`: the account
+   * here couldn't be made after all, so the login goes too.
+   */
+  const logins = {
+    provider: 'workos', name: 'WorkOS',
+    taken: (email) => answered(async () => Boolean(await workos.userByEmail(email))),
+    make: ({ email, password, displayName = null }) => answered(async () => {
+      const done = await workos.createUser({
+        email, password, firstName: displayName, emailVerified: true,
+        metadata: mark ? { [mark.key]: mark.name } : null,
+      });
+      if (done.refused) {
+        // Someone took the email between the question and now: said as the question would have.
+        if (await workos.userByEmail(email)) throw conflict('email_taken_provider', { provider: 'WorkOS' });
+        throw badRequest('password_rejected', { detail: done.refused });
+      }
+      return done.user.id;
+    }),
+    undo: (id) => workos.deleteUser(id),
+  };
+
+  return { confirmAdmin: (ctx, body) => route(() => confirmAdmin(ctx, body))(ctx), logins };
 }
