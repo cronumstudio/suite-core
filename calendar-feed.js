@@ -212,8 +212,10 @@ export function calendarIcs(answer, { name, id, baseUrl, zone, now = new Date() 
 
 /**
  * The person's link, in Settings: GET, POST (made, or made again) and DELETE /api/me/calendar-feed
- * → `{ included, feed: { url, webcal, created_at, used_at } | null }`; and the link itself,
- * signed out, GET /api/calendar/feed/<token>.ics.
+ * → `{ included, feed: { url, webcal, subscribe, created_at, used_at } | null }`; and the link itself,
+ * signed out, GET /api/calendar/feed/<token>.ics. `subscribe`, GET /api/calendar/subscribe/<token>.ics,
+ * sends to its webcal: address (302): for the phone app's builds that open only http and https
+ * outside (native.js `can('webcal')` says which do), the browser it opens hands it to Calendar.
  *
  * @param {object} api
  * @param {object} deps   { feeds, calendar, accounts, entitlements?, limiter?, audit?, baseUrl, name, id, clock? }
@@ -222,13 +224,16 @@ export function registerCalendarFeedApi(api, { feeds, calendar, accounts, entitl
   const gated = Boolean(entitlements?.knows?.(FEED_FEATURE));
   const included = (user) => !gated || entitlements.can(user, FEED_FEATURE);
   const urlOf = (token) => `${baseUrl}/api/calendar/feed/${token}.ics`;
+  const webcalOf = (url) => url.replace(/^https?:/, 'webcal:');
   const answerFor = (user) => {
     const feed = feeds.of(user.id);
     const url = feed?.token ? urlOf(feed.token) : null;
     return {
       included: included(user),
       feed: feed ? {
-        url, webcal: url ? url.replace(/^https?:/, 'webcal:') : null, created_at: feed.created_at, used_at: feed.used_at,
+        url, webcal: url ? webcalOf(url) : null,
+        subscribe: feed.token ? `${baseUrl}/api/calendar/subscribe/${feed.token}.ics` : null,
+        created_at: feed.created_at, used_at: feed.used_at,
       } : null,
     };
   };
@@ -251,7 +256,8 @@ export function registerCalendarFeedApi(api, { feeds, calendar, accounts, entitl
     sendJson(ctx.res, 200, answerFor(ctx.user));
   });
 
-  api.get('/api/calendar/feed/:file', async (ctx) => {
+  /** The token of `<token>.ics` and whose it is, or 404 (429 for a client repeating bad ones). */
+  const ownerOf = (ctx) => {
     const token = /^(.+)\.ics$/.exec(ctx.params.file)?.[1] ?? '';
     // A client repeating a bad address is braked, as a bad token is (rate-limit.js).
     const allowed = limiter ? limiter.checkToken(ctx.req, token) : { allowed: true };
@@ -262,6 +268,23 @@ export function registerCalendarFeedApi(api, { feeds, calendar, accounts, entitl
       limiter?.tokenFailed(ctx.req, token);
       throw notFound();
     }
+    return { token, user };
+  };
+
+  // To Calendar by way of a browser: the webcal: address of the same link (its plan is the link's to say).
+  api.get('/api/calendar/subscribe/:file', (ctx) => {
+    const { token } = ownerOf(ctx);
+    ctx.res.writeHead(302, {
+      Location: webcalOf(urlOf(token)),
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+      'Referrer-Policy': 'no-referrer',
+    });
+    ctx.res.end();
+  });
+
+  api.get('/api/calendar/feed/:file', async (ctx) => {
+    const { user } = ownerOf(ctx);
     if (!included(user)) {
       const entitled = entitlements.of(user);
       throw new HttpError(402, 'plan_feature', { feature: FEED_FEATURE, plan: entitled.plan.id, plan_name: entitled.plan.name });

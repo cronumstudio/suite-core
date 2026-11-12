@@ -229,8 +229,8 @@ async function startHost(t, { config = HOST, plans = PLANS, ...rest } = {}) {
     return { status: res.status, data, headers: res.headers };
   };
   /** The link as a calendar app reads it: no cookie, the URL Settings gave, on this server. */
-  const read = async (url, headers = {}) => {
-    const res = await fetch(url.replace('http://127.0.0.1', base), { headers });
+  const read = async (url, headers = {}, options = {}) => {
+    const res = await fetch(url.replace('http://127.0.0.1', base), { headers, ...options });
     return { status: res.status, body: await res.text(), headers: res.headers };
   };
   return { host, call, read };
@@ -264,9 +264,16 @@ test('a host’s calendar link: Pro’s, made in Settings, read by a calendar ap
   const made = await call('POST', '/api/me/calendar-feed');
   assert.equal(made.status, 200);
   assert.equal(made.data.included, true);
-  const { url, webcal, created_at: createdAt, used_at: usedAt } = made.data.feed;
+  const { url, webcal, subscribe, created_at: createdAt, used_at: usedAt } = made.data.feed;
   assert.match(url, /^http:\/\/127\.0\.0\.1\/api\/calendar\/feed\/[A-Za-z0-9_-]{32}\.ics$/, 'the token is all there is in it');
   assert.equal(webcal, url.replace('http:', 'webcal:'));
+  // The phone app's builds that open only https: an address that sends to the webcal: one.
+  assert.equal(subscribe, url.replace('/api/calendar/feed/', '/api/calendar/subscribe/'));
+  const sent = await read(subscribe, {}, { redirect: 'manual' });
+  assert.deepEqual([sent.status, sent.headers.get('location'), sent.headers.get('cache-control'), sent.headers.get('x-robots-tag')],
+    [302, webcal, 'no-store', 'noindex, nofollow']);
+  const unknown = subscribe.replace(/[A-Za-z0-9_-]{32}\.ics$/, `${'B'.repeat(32)}.ics`);
+  assert.equal((await read(unknown, {}, { redirect: 'manual' })).status, 404, 'an unknown one: nothing');
   assert.ok(createdAt);
   assert.equal(usedAt, null);
   assert.deepEqual((await call('GET', '/api/me/calendar-feed')).data.feed.url, url, 'shown again');
