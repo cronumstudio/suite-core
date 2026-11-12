@@ -272,6 +272,39 @@ test('WorkOS: only with the admin’s own password again, and never over a login
   assert.equal(suite.accounts.list().length, before, 'no account here for any of them');
 });
 
+test('WorkOS: the admin’s password given once, apart, stands for several accounts in that session', async (t) => {
+  const { suite, workos, root, admin, as } = await withWorkos(t);
+  const checks = () => workos.calls.filter((c) => c.path === '/user_management/authenticate').length;
+  const make = (who, email) => who('POST', '/api/admin/users', { email, password: SECRET, role: 'user' });
+
+  // Nothing given and nothing confirmed lately: what to give, and nothing made.
+  const asked = await make(admin, 'one@example.com');
+  assert.deepEqual([asked.status, asked.data], [403, { error: 'admin_confirm_required', reauth: 'password' }]);
+  assert.equal(suite.accounts.byEmail('one@example.com'), null);
+  assert.equal(workos.calls.filter((c) => c.method === 'POST' && c.path === '/user_management/users').length, 0);
+
+  // Given apart: a wrong one is said, the right one stands.
+  assert.deepEqual((await admin('POST', '/api/admin/confirm', { admin_password: 'not-mine' })).data, { error: 'wrong_password' });
+  const confirmed = await admin('POST', '/api/admin/confirm', { admin_password: ADMIN_SECRET });
+  assert.equal(confirmed.status, 200);
+  assert.ok(Date.parse(confirmed.data.until) - Date.now() > 9 * 60 * 1000, 'for ten minutes');
+  const before = checks();
+  for (const email of ['one@example.com', 'two@example.com', 'three@example.com']) {
+    assert.equal((await make(admin, email)).status, 201, email);
+  }
+  assert.equal(checks(), before, 'no password asked of WorkOS again');
+
+  // Another session of the same admin (another browser) gives it again; so does anyone else's.
+  assert.equal((await make(as(root), 'four@example.com')).data.error, 'admin_confirm_required');
+  const other = suite.accounts.create({ username: 'boss', role: 'admin', email: 'boss@example.com' });
+  suite.accounts.linkIdentity(other.id, 'workos', 'user_boss', { email: 'boss@example.com' });
+  workos.add('user_boss', 'boss@example.com', 'boss-secret-1');
+  assert.equal((await make(as(other), 'five@example.com')).data.error, 'admin_confirm_required');
+  // And setting someone's password still asks every time (workos-security.js).
+  const one = suite.accounts.byEmail('one@example.com');
+  assert.equal((await admin('PUT', `/api/admin/users/${one.id}/sign-in/password`, { password: 'Another-pass-1' })).data.error, 'wrong_password');
+});
+
 test('WorkOS: a login made for an account that then couldn’t be made goes too', async (t) => {
   const { suite, workos, admin } = await withWorkos(t);
   let broken = true;

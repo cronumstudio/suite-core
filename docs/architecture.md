@@ -1486,7 +1486,12 @@ With WorkOS, only where the install owns the logins (`accounts.adminIdentity`, C
 password makes the login at WorkOS (`POST /user_management/users` with `email_verified: true` and
 the app's mark in its metadata) and links the account here to it, so it signs in on AuthKit at
 once; the admin gives their own password (and code) again first, as for setting someone's
-password there, since that login opens every product. An email WorkOS already has is someone's
+password there, since that login opens every product. Since v0.266.0 it isn't in the form and
+stands 10 minutes in that session (Martin, 12/11/2026: several reviewers' accounts in a row): a
+request that comes with none outside those minutes is `403 admin_confirm_required` with what to
+give (`reauth`), the panel asks for it in a dialog of its own (`POST /api/admin/confirm`) and
+sends the account again; what changes someone who already exists still asks every time
+(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An email WorkOS already has is someone's
 login, perhaps of another app: `409 email_taken_provider`, never made again. A login made for an
 account that then can't be made is deleted. Where the install doesn't own the logins, and with
 OIDC, no password can be given (`password_not_here`): the account waits, as before, for its

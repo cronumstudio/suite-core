@@ -3,6 +3,25 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.266.0 — 2026-11-12
+
+- **New accounts in a row ask for the admin's password once** (`workos-security.js`, `api.js`,
+  `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): Martin makes several reviewers'
+  accounts at a time. Users › New account no longer has the admin's own password in the form.
+  When the server wants it, a dialog of its own asks for it over the form (and the code, with a
+  second step), says a wrong one inside it, and sends the account again; given up, the form stays
+  as it was. Once given, it stands **10 minutes in that session**, so the next accounts go
+  straight in. An admin who signs in with Google goes to sign in again, as before.
+  - `confirmAdmin(ctx, body, { recent: true })`: within 10 minutes of the last confirmation in that
+    session, nothing to give; outside them, with nothing given, `403 admin_confirm_required` with
+    `reauth` (`password` or `password_code`). New route `POST /api/admin/confirm`
+    (`admin_password`, `admin_code` → `{ ok, until }`), only where the install owns the logins.
+    Kept in memory by a hash of the session token: a restart asks once more.
+  - Only a new account's login asks that little: setting someone's password, taking their second
+    step off and deleting their login still ask every time, as before.
+  - The inline hint `admin.users.reauthCreate` goes; `admin.confirm.*` and
+    `errors.admin_confirm_required` come. No migration.
+
 ## 0.263.1 — 2026-11-12
 
 - **The calendar link on Android** (`web/settings.js`, `i18n/*.json`): Settings › «Calendar subscription»

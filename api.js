@@ -852,7 +852,8 @@ export function registerAdminApi(router, {
     if (atProvider) {
       // Never a login there without the admin's password again: without the way to ask for it, none.
       if (!confirmAdmin) throw badRequest('password_not_here');
-      await confirmAdmin(ctx, body);
+      // Given lately in this session is enough (10 minutes): several accounts, one password.
+      await confirmAdmin(ctx, body, { recent: true });
       if (await logins.taken(email)) throw conflict('email_taken_provider', { provider: logins.name });
       subject = await logins.make({ email, password, displayName: name });
     }

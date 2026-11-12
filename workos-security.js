@@ -33,6 +33,8 @@ import { WorkosUnavailable } from './workos.js';
 const SETUP_MS = 10 * 60 * 1000;
 /** How recent an admin's sign-in must be to change someone's identity without a password to give. */
 const REAUTH_MS = 10 * 60 * 1000;
+/** How long the admin's password given again stands in their session, for what asks only that it was given lately. */
+const CONFIRMED_MS = 10 * 60 * 1000;
 const STEP_SECONDS = 30;
 
 /** Methods that are another account's sign-in: its password and second step are there. */
@@ -260,19 +262,48 @@ export function registerWorkosSecurityApi(router, {
   }
 
   /**
+   * The sessions whose admin was confirmed lately (confirmAdmin), by a hash of the token, with
+   * whose and when. Kept in memory: a restart only means giving the password once more.
+   */
+  const confirmedAt = new Map();
+  const sessionKey = (ctx) => (ctx.sessionToken
+    ? crypto.createHash('sha256').update(String(ctx.sessionToken)).digest('base64url') : null);
+  const remember = (ctx) => {
+    const key = sessionKey(ctx);
+    if (!key) return;
+    for (const [other, entry] of confirmedAt) if (clock() - entry.at > CONFIRMED_MS) confirmedAt.delete(other);
+    confirmedAt.set(key, { userId: ctx.user.id, at: clock() });
+  };
+  const confirmedLately = (ctx) => {
+    const entry = confirmedAt.get(sessionKey(ctx));
+    return Boolean(entry && entry.userId === ctx.user.id && clock() - entry.at <= CONFIRMED_MS && sessions.alive(ctx.sessionToken));
+  };
+
+  /**
    * The admin again: their password and, with a second step, a code; or a session opened in the
    * last minutes, else `reauth_required` (the panel sends them to sign in again). A stolen
    * cookie alone isn't enough to change who someone is in every product.
+   *
+   * Each time it passes, it stands for that session for 10 minutes (CONFIRMED_MS) for what asks
+   * only that the admin was confirmed lately (`recent`: a new account's login), so making several
+   * accounts asks once. Such a request that comes with nothing to check, outside those minutes, is
+   * `403 admin_confirm_required` with what to give (`reauth`): the panel asks for it apart
+   * (POST /api/admin/confirm) and sends the request again. What changes someone who already
+   * exists (their password, their second step, their login gone) still asks every time.
    */
-  async function confirmAdmin(ctx, body) {
+  async function confirmAdmin(ctx, body, { recent = false } = {}) {
+    if (recent && confirmedLately(ctx)) return;
     const { kind, id } = await reauthOf(ctx.user);
     if (kind === 'session') {
       const session = ctx.sessionToken ? sessions.alive(ctx.sessionToken) : null;
       if (!session || clock() - Date.parse(session.created_at) > REAUTH_MS) throw new HttpError(401, 'reauth_required');
+      remember(ctx);
       return;
     }
-    await confirmPassword(ctx, ctx.user, body.admin_password);
-    if (kind === 'password_code') await confirmCode(id, body.admin_code);
+    if (recent && body?.admin_password == null) throw new HttpError(403, 'admin_confirm_required', { reauth: kind });
+    await confirmPassword(ctx, ctx.user, body?.admin_password);
+    if (kind === 'password_code') await confirmCode(id, body?.admin_code);
+    remember(ctx);
   }
 
   /**
@@ -298,6 +329,18 @@ export function registerWorkosSecurityApi(router, {
   // Changing someone's WorkOS identity changes it in every product: only the install that owns
   // the identities does it, and only with the admin's own password (and code) again.
   if (!adminIdentity) return {};
+
+  /**
+   * The admin's own password (and code) given apart, when a request answered `admin_confirm_required`:
+   * it stands 10 minutes in this session (confirmAdmin), so the panel sends that request again
+   * and the next ones go through. An admin who signs in elsewhere (Google) has nothing to give:
+   * a recent sign-in, else `reauth_required`. → { ok, until }
+   */
+  router.post('/api/admin/confirm', route(async (ctx) => {
+    requireAdmin(ctx);
+    await confirmAdmin(ctx, await readJson(ctx.req));
+    sendJson(ctx.res, 200, { ok: true, until: new Date(clock() + CONFIRMED_MS).toISOString() });
+  }));
 
   /**
    * Whoever lost the phone: their second step off. They sign in with the password alone until
@@ -373,5 +416,5 @@ export function registerWorkosSecurityApi(router, {
     undo: (id) => workos.deleteUser(id),
   };
 
-  return { confirmAdmin: (ctx, body) => route(() => confirmAdmin(ctx, body))(ctx), logins };
+  return { confirmAdmin: (ctx, body, options) => route(() => confirmAdmin(ctx, body, options))(ctx), logins };
 }
