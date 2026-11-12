@@ -285,7 +285,11 @@ async function paintPeaks(main) {
  *   login is made there, its email confirmed; without, as with any other provider, the account
  *   waits for its person to sign in with that email. The admin's own password isn't in the form:
  *   when the server wants it (`admin_confirm_required`, at most every 10 minutes) a dialog of its own
- *   asks for it over this one, and the account is sent again (confirmYourself).
+ *   asks for it over this one, and the account is sent again (confirmYourself). An admin with no
+ *   password to give (`reauth: 'session'`: Google, Apple, a company's sign-in) is confirmed before
+ *   the form shows instead (POST /api/admin/confirm): what confirms them is a sign-in made after the
+ *   server asked, which leaves this page, and what they had typed would be lost on the way. Asked,
+ *   they go to sign in again (reauthFailed); confirmed, the form's accounts go in for 10 minutes.
  * What the server refuses (an email that already has an account here or a login at WorkOS) is said
  * inside the dialog, which stays open to be corrected.
  */
@@ -293,6 +297,14 @@ async function newUserDialog() {
   // Whether this install makes WorkOS logins (workos-security.js).
   const signIn = workos() ? await api.get(`/api/admin/users/${state.me.id}/sign-in`).catch(() => null) : null;
   const atProvider = signIn?.manage === true;
+  if (atProvider && signIn.reauth === 'session') {
+    try {
+      await api.post('/api/admin/confirm');
+    } catch (err) {
+      reauthFailed(err);
+      return;
+    }
+  }
   const provider = state.config.name;
   const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
   const username = local() ? el('input', { autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '32' }) : null;
@@ -356,7 +368,8 @@ async function newUserDialog() {
         show();
         return true;
       } catch (err) {
-        // A fresh sign-in is what the server wants (an admin who signs in with Google): to it, and back.
+        // A fresh sign-in is what the server wants (an admin who signs in with Google, whose 10
+        // minutes passed with the form open): to it, and back.
         if (err?.code === 'reauth_required') { reauthFailed(err); return false; }
         if (err instanceof SessionExpired) { fail(err); return true; }
         throw err;

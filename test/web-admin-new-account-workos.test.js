@@ -3,7 +3,8 @@
  * (the sign-in answer's `manage`), a password makes one there. The admin's own password isn't in
  * the form: when the server asks for it (`admin_confirm_required`) a dialog of its own does, over
  * the form, and the account is sent again; a wrong one is said in it; given up, the form stays as
- * it was. An admin who signs in with Google goes to sign in again when the server wants it. An
+ * it was. An admin who signs in with Google is confirmed before the form shows: asked to sign in
+ * again, the panel goes to it with no form; confirmed, the form's accounts go in. An
  * email WorkOS already has is said in the form. Where the install doesn't own the logins, no
  * password at all. No username anywhere: the server takes it from the email. The server is a
  * stand-in; the texts are the core's English catalog.
@@ -133,15 +134,38 @@ test('Users › New account with WorkOS: the admin’s password asked apart when
   assert.equal(quit.error(), '');
   quit.dialog.close();
 
-  // An admin who signs in with Google gives no password: a fresh sign-in, or off to sign in again,
-  // with AuthKit asking again (prompt=login) and back to the panel.
+  // An admin who signs in with Google gives no password: a sign-in made after the server asked,
+  // which leaves the page, so it is asked before the form shows and nothing typed in it is lost.
+  // Not signed in again since: off to it, with AuthKit asking again (prompt=login), and back to the
+  // panel, with no form on the way.
   signIn = { ...signIn, reauth: 'session' };
-  const google = await open();
-  fill(google, 'x@example.com');
-  answers['/api/admin/users'].push({ status: 401, body: { error: 'reauth_required' } });
-  await google.submit();
+  sent.length = 0;
+  answers['/api/admin/confirm'].push({ status: 401, body: { error: 'reauth_required' } });
+  await open();
+  assert.deepEqual(sent, [{ path: '/api/admin/confirm', body: {} }], 'asked first, with nothing to give');
+  assert.equal(opened().length, 0, 'no form');
   assert.equal(location.href, '/auth/login?prompt=login&return=%2Fadmin', 'to sign in again, and back');
-  google.dialog.close();
+  // Back from it: confirmed, then the form, whose account goes in with nothing more asked.
+  location.href = '/admin#/users';
+  sent.length = 0;
+  answers['/api/admin/confirm'].push({ status: 200, body: { ok: true, until: new Date(Date.now() + 10 * 60 * 1000).toISOString() } });
+  const google = await open();
+  assert.ok(google.control(english['fields.password']), 'a password for the login');
+  assert.equal(google.control(english['admin.users.yourPassword']), null, 'none of the admin’s');
+  fill(google, 'x@example.com');
+  answers['/api/admin/users'].push({ status: 201, body: { id: 8, username: 'x' } });
+  await google.submit();
+  assert.deepEqual(sent.map((s) => s.path), ['/api/admin/confirm', '/api/admin/users']);
+  assert.equal(opened().length, 0, 'made');
+  assert.equal(location.href, '/admin#/users', 'with no sign-in on the way');
+  // Those minutes over with the form still open: off to sign in again, as before.
+  answers['/api/admin/confirm'].push({ status: 200, body: { ok: true } });
+  const late = await open();
+  fill(late, 'y@example.com');
+  answers['/api/admin/users'].push({ status: 401, body: { error: 'reauth_required' } });
+  await late.submit();
+  assert.equal(location.href, '/auth/login?prompt=login&return=%2Fadmin');
+  late.dialog.close();
 
   // Where the install doesn't own them: no password, and the email is how the person is found.
   signIn = { method: 'password', password: true, two_factor: { enabled: false }, manage: false };
