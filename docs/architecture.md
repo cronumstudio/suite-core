@@ -2197,7 +2197,7 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   Only for whoever turned it on (0.195.0): Settings › Modules has the switch (`calendar_shown` in
   the same answer, `PUT /api/me/calendar { shown }`, table `host_calendar`); no row, no button,
   so the rail stays as simple as it was. The page and the assistants' tool are there either way.
-- **Which modules show on it** (0.265.0): Settings › Calendar (`host.calendarModules` in every
+- **Which modules show on it** (0.267.0): Settings › Calendar (`host.calendarModules` in every
   module's config, section `calendar-feed`) has a switch for each module with dates that the person
   uses: `GET /api/me/calendar/modules` and `PUT /api/me/calendar/modules/:mount { shown }`, both
   answering `{ modules: [{ mount, name, color, icon, shown }] }`; a module with no dates, or one
