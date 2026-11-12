@@ -1586,8 +1586,9 @@ export function openSettings(options) {
             away(`https://calendar.google.com/calendar/render?cid=${encodeURIComponent(feed.webcal)}`, t('kit.calendarFeed.google')),
             away(feed.webcal, t('kit.calendarFeed.apple')),
           ) : null),
-        block(t('kit.calendarFeed.howTitle'), hint(t('kit.calendarFeed.howGoogle')), hint(t('kit.calendarFeed.howOutlook')),
-          hint(t('kit.calendarFeed.howApple'))),
+        // Android's Google Calendar app can't subscribe to a link: it is added on a computer, right after Google's.
+        block(t('kit.calendarFeed.howTitle'), hint(t('kit.calendarFeed.howGoogle')), hint(t('kit.calendarFeed.howAndroid')),
+          hint(t('kit.calendarFeed.howOutlook')), hint(t('kit.calendarFeed.howApple'))),
         block(null, row(
           button(t('kit.calendarFeed.renew'), async () => {
             if (await confirmDialog(t('kit.calendarFeed.confirmRenew'), { confirm: t('kit.calendarFeed.renew') })) change('POST');

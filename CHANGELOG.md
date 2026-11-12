@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.263.1 — 2026-11-12
+
+- **The calendar link on Android** (`web/settings.js`, `i18n/*.json`): Settings › «Calendar subscription»
+  › How to add it says, right after Google Calendar's steps, that Android's Google Calendar app can't
+  subscribe to a link: it is added on a computer and shows on the phone, and if it doesn't, the
+  calendar's Sync switch in the app turns it on (`kit.calendarFeed.howAndroid`, five languages).
+- `calendar-feed.js`: its head says how a task that repeats comes now (each day ahead an item of its
+  own from Tasks 1.153.0, an event with its own UID), not the RRULE it used to expect.
+
 ## 0.263.0 — 2026-11-12
 
 - **The admin makes accounts that sign in at once** (`api.js`, `accounts.js`, `workos.js`,
