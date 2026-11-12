@@ -459,8 +459,15 @@ function suiteWorker(options) {
       event.respondWith(caches.open(version)
         .then(function (cache) { return cache.match(key || request); })
         .then(function (cached) {
-          if (cached) return key ? suiteAsAsked(cached) : cached;
-          return fetch(request, { cache: 'no-cache' }).then(function (response) { return store(request, response, key); });
+          // A copy kept from another address (a module's page asked for the kit the copy lacked, and
+          // its answer, with its address, went to /suite/) is the host's page's too: at the path asked.
+          if (cached) return key || suiteKeptElsewhere(cached, url) ? suiteAsAsked(cached) : cached;
+          return fetch(request, { cache: 'no-cache' }).then(function (response) {
+            // Kept at /suite/ without the module's address, so the host's pages read it there.
+            if (!key) return store(request, response);
+            if (response && response.ok) store(request, suiteAsAsked(response.clone()), key);
+            return response;
+          });
         }));
       return;
     }
@@ -553,6 +560,17 @@ function suiteWorker(options) {
  */
 function suiteAsAsked(cached) {
   return new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: cached.headers });
+}
+
+/**
+ * Whether a copy carries an address other than the one asked (`url`, a URL): kept from
+ * /projects/suite/i18n.js at /suite/i18n.js by a worker before 0.267.1, which the next copies take
+ * as it is while the file doesn't change. Served as it is, the host's page read Projects' base and
+ * catalog, and Work's calendar showed its keys.
+ */
+function suiteKeptElsewhere(cached, url) {
+  if (!cached.url) return false;
+  try { return new URL(cached.url).pathname !== url.pathname; } catch (err) { return false; }
 }
 
 /**

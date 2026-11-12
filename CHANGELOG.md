@@ -27,6 +27,19 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `kit.calendar.show` is gone (the switch says `kit.calendar.title`); new `kit.modules.barTitle`,
     `kit.modules.barHint`, `kit.day.show`, `kit.day.showHint`.
 
+## 0.267.1 — 2026-11-12
+
+- **A host's pages at `/` read the kit at its own address again** (`web/sw-core.js`): Cronum
+  Work's calendar and daily summary showed their keys (`calendar.today`, `today.view.plan`) from
+  their second load on. With the one copy of the kit (`sharedKit`), a module's page that asked for
+  a kit file the copy lacked (`/projects/suite/i18n.js`, after the caches were cleared under a
+  running worker) had the network's answer kept at `/suite/i18n.js` with its address. Served to a
+  page at `/`, a module script reads its base from the address it answers with, so the kit there
+  took Projects' base (`/projects/`) and asked for Projects' catalog, which has none of the host's
+  texts. Now that answer is kept without its address, and a copy kept with another address (one an
+  older worker kept, which the next releases carry while the file doesn't change) is served at the
+  path asked (`suiteKeptElsewhere`).
+
 ## 0.267.0 — 2026-11-12
 
 - **Settings › Calendar: what shows on it** (`calendar.js`, `host.js`, `web/settings.js`, `i18n/*.json`;
@@ -2772,7 +2785,6 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   page nor `/api/devices/web-session`, and its configuration's `devices` keeps its shape. A host
   with either option refuses a module mounted at `/devices/`.
 
-
 ## 0.104.0 — 2026-10-20
 
 - **One Settings for a whole host** (`settings.js`, `host.js`, `base.js`, `shell.js`). In a host
@@ -2797,7 +2809,6 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - **The rail's top is the host's mark** (`shell.js`, kit.css). It was a link to the host's page that
   chooses the modules, which only took people out of what they were doing; the modules are chosen
   in Settings › Modules.
-
 
 ## 0.103.0 — 2026-10-20
 

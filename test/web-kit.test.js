@@ -1585,6 +1585,40 @@ test('a host’s worker serves code from its copy, keeps the kit once, and a rel
   assert.deepEqual(fetched, []);
 });
 
+test('the kit a module’s page brought into the one copy is the host’s page’s at /suite/, never at the module’s address (0.267.1)', async () => {
+  // Work's calendar and daily summary (at /suite/) showed their keys: their /suite/i18n.js came
+  // from the copy a Projects window had kept there, with its address, /projects/suite/i18n.js. A
+  // module script reads its base from the address it answers with, so the kit read Projects' base
+  // and catalog (/projects/i18n/es.json), which has none of their texts (Martin's test Chrome, 12/11).
+  const server = { '/': 'shell', '/calendar/': 'calendar' };
+  for (const file of ['/suite/i18n.js', '/suite/base.js']) {
+    server[file] = `${file} v1`;
+    server[`/projects${file}`] = `${file} v1`;
+  }
+  const { worker, store } = await deployedWorkers('https://work.example/', server);
+  const release = (version, hashes) => worker({
+    version, modules: ['/projects/'], codeFirst: true, sharedKit: true, hashes, shell: ['/', '/calendar/'],
+  });
+  const kit = { '/suite/i18n.js': 'i1', '/suite/base.js': 'b1' };
+  const one = await release('work-a', kit);
+  // The copy without that file (its caches cleared under a running worker, a file the install left out).
+  store.get('work-a').delete('/suite/i18n.js');
+  const asked = await one.get('https://work.example/projects/suite/i18n.js');
+  assert.equal(asked.url, 'https://work.example/projects/suite/i18n.js', 'Projects gets the network’s answer');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const own = await one.get('https://work.example/suite/i18n.js');
+  assert.equal(own.body, '/suite/i18n.js v1');
+  assert.ok(['', 'https://work.example/suite/i18n.js'].includes(own.url), `read at /suite/, its base /: ${own.url}`);
+
+  // A copy kept that way before this release, which the next one takes as it is (same hash): healed when served.
+  store.get('work-a').get('/suite/base.js').url = 'https://work.example/projects/suite/base.js';
+  const two = await release('work-b', kit);
+  assert.equal(store.get('work-b').get('/suite/base.js').url, 'https://work.example/projects/suite/base.js', 'the old copy, carried');
+  const healed = await two.get('https://work.example/suite/base.js');
+  assert.equal(healed.body, '/suite/base.js v1');
+  assert.ok(['', 'https://work.example/suite/base.js'].includes(healed.url), `never Projects' address: ${healed.url}`);
+});
+
 test('offline, a navigation gets the page kept at its own path: Cronum Work opens on its shell at /, not on the home (0.203.1)', async () => {
   // The host's start is a page of its own (Work's shell, pages[].root): / answers it, and
   // /index.html is the home that chooses modules. The installed app and the phone app open /.
