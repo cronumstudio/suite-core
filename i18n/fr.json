@@ -1298,7 +1298,6 @@
   "kit.calendarFeed.confirmOff": "Les calendriers abonnés ne recevront plus ce qu’il y a dans {app}. Désactiver le lien ?",
   "kit.day.title": "Résumé du jour",
   "kit.day.hint": "Une notification le matin et une le soir",
-  "kit.day.show": "Ma journée",
   "kit.day.showHint": "Ce qui est prévu aujourd’hui et ce qui est fait, dans tous les modules",
   "kit.day.intro": "{app} vous dit chaque matin ce que vous avez à faire aujourd’hui, avec ce qui reste d’avant, et chaque soir ce que vous avez fait. Un jour sans rien à dire, rien n’arrive.",
   "kit.day.morning": "Le matin",

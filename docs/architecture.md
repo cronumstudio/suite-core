@@ -2224,7 +2224,10 @@ whether it is the person's, and `HH:MM` when it has a real time of day.
   person's zone; ✓ before a done one's title, TRANSP:TRANSPARENT, its link in URL and
   DESCRIPTION. `Cache-Control: private, max-age=900`, an ETag (304 when nothing changed),
   `REFRESH-INTERVAL` of an hour. A wrong token is 404 and braked as a bad token is
-  (`checkToken`). Where the host declares the plan feature `calendar.feed` (plans.js: Pro's in
+  (`checkToken`). Settings' «Open in Apple Calendar» is the `webcal:` address; in the phone app,
+  only where it says it opens it (`can('webcal')`, app 0.6.5): for older builds, which open only
+  http and https outside, the answer's `subscribe`, `GET /api/calendar/subscribe/<token>.ics`,
+  sends there (302, `no-store`), so the browser the app opens hands it to Calendar (0.271.0). Where the host declares the plan feature `calendar.feed` (plans.js: Pro's in
   `cronum-work`), only a plan with it: making one is 402 `plan_feature`, and a link whose plan
   ended answers 402 and is kept for when it comes back.
 

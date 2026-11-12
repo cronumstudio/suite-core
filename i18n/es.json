@@ -1298,7 +1298,6 @@
   "kit.calendarFeed.confirmOff": "Los calendarios suscritos dejarán de recibir lo que hay en {app}. ¿Desactivar el enlace?",
   "kit.day.title": "Resumen diario",
   "kit.day.hint": "Un aviso por la mañana y otro por la tarde",
-  "kit.day.show": "Mi día",
   "kit.day.showHint": "Lo que toca hoy y lo hecho hoy, de todos los módulos",
   "kit.day.intro": "{app} te dice cada mañana lo que tienes para hoy, con lo que quedó pendiente de antes, y cada tarde lo que has hecho. Un día sin nada que contar, no llega nada.",
   "kit.day.morning": "Por la mañana",

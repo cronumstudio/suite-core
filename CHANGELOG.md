@@ -20,6 +20,23 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **A menu can hold a node of its own** (`web/ui.js` `menu(…, { body })`; docs/web-kit.md): after
   the items, a grid of choices, say; its buttons with `role="menuitem"` move with the arrows.
 
+## 0.271.1 — 2026-11-12
+
+- **Settings › Modules › On the bar: the daily summary's switch says «Daily summary»** (`web/settings.js`,
+  `i18n/*.json`), the name of the page it shows or hides, which holds the evening's summary too (Martin).
+  `kit.day.show` goes; the switch says `kit.day.title`.
+
+## 0.271.0 — 2026-11-12
+
+- **«Open in Apple Calendar» in the phone app** (`calendar-feed.js`, `web/settings.js`, `web/native.js`;
+  docs/architecture.md §21.3.1): on Martin's iPhone, in the app, the button did nothing. It is a
+  `webcal:` link, and the app opens only http, https, mailto, tel and sms outside. Now
+  `openExternal` takes `webcal:` too, for the app's builds that say they open it (capability
+  `webcal`, Cronum Work's app 0.6.5); for older ones the button goes to the link's new `subscribe`
+  address, `GET /api/calendar/subscribe/<token>.ics`, which sends to its `webcal:` one (302,
+  `no-store`, `noindex`), so the browser the app opens hands it to Calendar. Outside the app,
+  `webcal:` as before. The token's checks are the link's (404, braked when repeated).
+
 ## 0.270.0 — 2026-11-12
 
 - **Settings in a host: the host's group in a new order** (`web/settings.js`; docs/architecture.md

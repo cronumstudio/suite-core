@@ -62,7 +62,8 @@ const USER_AGENT = /\bCronumWorkApp\/([0-9A-Za-z.+-]{1,40})/;
 
 /** What a page may ask the app to do: a haptic's styles, the addresses opened outside. */
 const HAPTICS = new Set(['light', 'medium', 'heavy', 'selection', 'success', 'warning', 'error']);
-const OUTSIDE = new Set(['http:', 'https:', 'mailto:', 'tel:', 'sms:']);
+// webcal: is a calendar subscription (Settings › Calendar): only for a build that says it can ('webcal').
+const OUTSIDE = new Set(['http:', 'https:', 'mailto:', 'tel:', 'sms:', 'webcal:']);
 
 /** iOS keeps 64 local notifications per app: the soonest are sent, the rest come in a later set. */
 export const MAX_REMINDERS = 64;
@@ -114,7 +115,7 @@ export function nativeInfo(win = globalThis.window) {
   });
 }
 
-/** Whether the app can do `capability` ('push', 'reminders', 'badge', 'purchase', 'biometrics', 'share'). */
+/** Whether the app can do `capability` ('push', 'reminders', 'badge', 'purchase', 'biometrics', 'share', 'webcal'). */
 export function can(capability, win = globalThis.window) {
   return Boolean(nativeInfo(win)?.capabilities.includes(capability));
 }

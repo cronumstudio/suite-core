@@ -1282,7 +1282,7 @@ export function openSettings(options) {
         buttons.append(shownSwitch(t('kit.calendar.title'), t('kit.calendar.showHint'), 'calendar', answer.calendar_shown, '/api/me/calendar', 'calendar_shown'));
       }
       if (typeof answer.day_shown === 'boolean') {
-        buttons.append(shownSwitch(t('kit.day.show'), t('kit.day.showHint'), 'sun', answer.day_shown, '/api/me/day', 'day_shown'));
+        buttons.append(shownSwitch(t('kit.day.title'), t('kit.day.showHint'), 'sun', answer.day_shown, '/api/me/day', 'day_shown'));
       }
       for (const m of inUse.filter((x) => x.door)) {
         const row = rowOf(m.name, {
@@ -1689,7 +1689,8 @@ export function openSettings(options) {
           hint(t('kit.calendarFeed.secret')), hint(read),
           feed.webcal ? row(
             away(`https://calendar.google.com/calendar/render?cid=${encodeURIComponent(feed.webcal)}`, t('kit.calendarFeed.google')),
-            away(feed.webcal, t('kit.calendarFeed.apple')),
+            // In the phone app, webcal: only where it says it opens it (app 0.6.5); before, an https address that sends there.
+            away(native && !can('webcal') && feed.subscribe ? feed.subscribe : feed.webcal, t('kit.calendarFeed.apple')),
           ) : null),
         // Android's Google Calendar app can't subscribe to a link: it is added on a computer, right after Google's.
         block(t('kit.calendarFeed.howTitle'), hint(t('kit.calendarFeed.howGoogle')), hint(t('kit.calendarFeed.howAndroid')),

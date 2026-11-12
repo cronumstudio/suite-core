@@ -134,7 +134,7 @@ test('Settings › Modules: the modules in order with their lines, and under the
     assert.ok(bar && !bar.hidden, 'the block is there');
     const buttons = bar.all().filter((node) => (node.className || '').split(' ').includes('kit-switch-row'));
     const label = (row) => named(row).textContent.replace(named(row).find('small')[0]?.textContent || '', '');
-    assert.deepEqual(buttons.map(label), [t('kit.calendar.title'), t('kit.day.show'), 'Croc']);
+    assert.deepEqual(buttons.map(label), [t('kit.calendar.title'), t('kit.day.title'), 'Croc']);
     assert.deepEqual(buttons.map((row) => named(row).find('small')[0].textContent), [t('kit.calendar.showHint'), t('kit.day.showHint'), 'One-minute games']);
     const state = (row) => row.all().find((node) => node.className === 'kit-switch').getAttribute('aria-checked');
     assert.deepEqual(buttons.map(state), ['false', 'true', 'true']);
@@ -157,7 +157,7 @@ test('Settings › Modules: the modules in order with their lines, and under the
     assert.equal(asked.filter(([what]) => what === 'PUT /api/me/modules').length, 1, 'nothing more sent');
 
     // My day hidden: its own preference, at the host's root.
-    const day = root.all().filter((node) => (node.className || '').split(' ').includes('kit-switch-row')).find((row) => named(row).textContent.startsWith(t('kit.day.show')));
+    const day = root.all().filter((node) => (node.className || '').split(' ').includes('kit-switch-row')).find((row) => named(row).textContent.startsWith(t('kit.day.title')));
     day.all().find((node) => node.className === 'kit-switch').click();
     await settle();
     assert.deepEqual(asked.filter(([what]) => what === 'PUT /api/me/day').map(([, body]) => body), [{ shown: false }]);
