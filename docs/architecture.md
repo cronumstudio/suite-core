@@ -2393,6 +2393,11 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   kept shape, the prototype's `{ slots }` included. A window never moves in the document: it is
   placed by its grid column (`--cw-col-N` in the desk's template, 320 px at least, an 8 px bar
   between two), and a stacked one takes its half of the cell (`--cw-row-N`).
+- **Shapes.** `columns(n)` takes the shell's choice: 1–4 columns, '2x2', or a shape, the windows
+  each column stacks (`[1, 2]`: one window beside two stacked; `asShape()` cuts it to what a
+  layout may be, `shapeOf(layout)` reads it back). It fills by rows, the top row and then the
+  bottom one, the windows in sight first and the focused one kept, and gives the shape the shares
+  its bars had the last time it showed (`readShares`, kept by `writeLayout` beside the layout).
 - **Moving them.** A head picks its window up after 6 px (its shadow lifts it). As magnets, the
   window it comes over gives way while it is carried: pushed toward the place it would take, up to
   40 % of the way, as much as it is covered; past 55 % the two trade places and the others flow on

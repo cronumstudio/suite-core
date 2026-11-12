@@ -43,10 +43,13 @@
  * - The layout is kept on this device, one for every width (`work.layout`): a narrower window
  *   squeezes it into the columns that fit, a phone shows its focused window, and it comes back
  *   as it was when the window widens. The same modules stay in sight whatever the width.
+ * - A shape chosen (`columns()`: 1–4 columns, '2x2', or how many windows each column stacks, such
+ *   as `[1, 2]` for one window beside two stacked) comes back with the shares its bars had the
+ *   last time it showed: they are kept for every shape with the layout (`shares`).
  *
  *   const windows = createWindows(desk, { windowOf, onPause, onShow, onEvict, modules, nameOf });
  *   windows.restore({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });
- *   windows.columns('2x2');  windows.show('tasks');  windows.destroy();
+ *   windows.columns('2x2');  windows.columns([1, 2]);  windows.show('tasks');  windows.destroy();
  *
  * What decides (the layout and its moves, where the pointer is, what is kept, what is evicted) is
  * pure and exported below for the tests; createWindows() only measures, writes and listens.
@@ -179,22 +182,50 @@ export function where(layout, module) {
 const copy = (layout) => ({ cols: layout.cols.map((col) => ({ ...col, wins: [...col.wins] })), focus: layout.focus });
 
 /**
- * The layout for the rail's choice: `n` columns (1–4) or `'2x2'`, with the modules it shows now
- * first and then the others of `modules`. The focused window stays; a 2×2 fills by rows, so two
- * windows side by side stay side by side.
+ * A shape as columns() takes it, as the windows each column stacks, left to right: `n` columns of
+ * one (1–4), '2x2' (`[2, 2]`), or such a list already (`[1, 2]`: one window, then two stacked),
+ * cut to four columns of one or two and four windows.
  */
-export function applyColumns(n, modules = [], current = null) {
-  const grid = n === '2x2';
-  const count = grid ? MAX_WINDOWS : clamp(Math.trunc(Number(n)) || 1, 1, MAX_COLS);
+export function asShape(n) {
+  if (n === '2x2') return [2, 2];
+  if (!Array.isArray(n)) return Array(clamp(Math.trunc(Number(n)) || 1, 1, MAX_COLS)).fill(1);
+  const shape = [];
+  let windows = 0;
+  for (const stack of n.slice(0, MAX_COLS).map((s) => clamp(Math.trunc(Number(s)) || 1, 1, MAX_STACK))) {
+    if (windows + stack > MAX_WINDOWS) break;
+    shape.push(stack);
+    windows += stack;
+  }
+  return shape.length ? shape : [1];
+}
+
+/** A layout's shape: the windows each column stacks (`[1, 2]`). */
+export const shapeOf = (layout) => (layout?.cols || []).map((col) => col.wins.length);
+
+/**
+ * The layout for the rail's choice, a shape (asShape: `n` columns, '2x2', or `[1, 2]`…), with the
+ * modules it shows now first and then the others of `modules`. The focused window stays. It fills
+ * by rows, the top row and then the bottom one, so two windows side by side stay side by side.
+ * `shares` (readShares) are the bars' shares the shape had last time, kept when it is filled.
+ */
+export function applyColumns(n, modules = [], current = null, { shares = null } = {}) {
+  const shape = asShape(n);
+  const count = shape.reduce((sum, stack) => sum + stack, 0);
   const had = current ? modulesOf(current) : [];
   const order = [...new Set([...had, ...modules])];
   const focus = current?.focus;
   const at = order.indexOf(focus);
   if (at >= count) order.splice(count - 1, 0, ...order.splice(at, 1));
   const picked = order.slice(0, count);
-  const cols = grid
-    ? [0, 1].map((i) => ({ w: 1, wins: picked.filter((_, j) => j % 2 === i), h: 0.5 }))
-    : picked.map((module) => ({ w: 1, wins: [module] }));
+  // The places in reading order: each column's top, left to right, then the bottoms of the stacks.
+  const places = [...shape.keys(), ...shape.flatMap((stack, col) => (stack === 2 ? [col] : []))];
+  const cols = shape.map(() => ({ w: 1, wins: [] }));
+  picked.forEach((module, i) => cols[places[i]].wins.push(module));
+  const kept = picked.length === count && shares?.w?.length === shape.length ? shares : null;
+  cols.forEach((col, i) => {
+    col.w = kept?.w[i] ?? 1;
+    if (col.wins.length === 2) col.h = kept?.h?.[i] ?? 0.5;
+  });
   return normalizeLayout({ cols, focus: picked.includes(focus) ? focus : picked[0] });
 }
 
@@ -448,10 +479,42 @@ export function readLayout(storage, screen, { modules } = {}) {
   }
 }
 
-/** Keeps the layout, for every width (the old ones per screen class go). Only a convenience: it may fail. */
+/** A shape as the word its shares are kept under: `[1, 2]` → '12'. */
+const shapeKey = (shape) => shape.join('');
+
+/** The shares kept of every shape (writeLayout), or none. */
+function keptShares(storage) {
+  try {
+    const shares = JSON.parse(storage?.getItem(KEY) || '{}')?.shares;
+    return shares && typeof shares === 'object' && !Array.isArray(shares) ? shares : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The shares the bars of shape `n` (asShape) had the last time it showed: `{ w, h }`, each
+ * column's width and each stack's top share (null for a column of one), or null.
+ */
+export function readShares(storage, n) {
+  const kept = keptShares(storage)[shapeKey(asShape(n))];
+  return Array.isArray(kept?.w) ? { w: kept.w, h: Array.isArray(kept.h) ? kept.h : [] } : null;
+}
+
+/**
+ * Keeps the layout, for every width (the old ones per screen class go), and its bars' shares for
+ * its shape, beside those of the others. Only a convenience: it may fail.
+ */
 export function writeLayout(storage, layout) {
   try {
-    storage?.setItem(KEY, JSON.stringify({ all: layout }));
+    const shares = keptShares(storage);
+    if (layout?.cols?.length) {
+      shares[shapeKey(shapeOf(layout))] = {
+        w: layout.cols.map((col) => col.w),
+        h: layout.cols.map((col) => (col.wins.length === 2 ? rowShare(col.h) : null)),
+      };
+    }
+    storage?.setItem(KEY, JSON.stringify({ all: layout, shares }));
   } catch { /* private mode, full, or something else's */ }
 }
 
@@ -469,6 +532,8 @@ function defaultStorage() {
  * @param {Function} [options.onShow]   (module) a window that comes into view
  * @param {Function} [options.onGesture] (on, kind) a reorder, resize or swipe starts or ends, for whoever measures
  * @param {Function} [options.onFocus]  (module) the focus went to another window
+ * @param {Function} [options.onLayout] (layout) the windows were placed again: a shape chosen, a window
+ *   carried or shown, a bar moved, a narrower or wider desk (the rail's picture of the layout)
  * @param {Function} [options.onEvict]  (module) a module to unmount, its window to remove: more than four were mounted
  * @param {string[]|Function} [options.modules] the modules there are, in the rail's order (the phone's tabs)
  * @param {Function} [options.nameOf]   (module) → its name, for the tabs and the heads' labels
@@ -477,7 +542,7 @@ function defaultStorage() {
  */
 export function createWindows(desk, {
   windowOf,
-  onPause = () => {}, onShow = () => {}, onGesture = () => {}, onFocus = () => {}, onEvict = () => {},
+  onPause = () => {}, onShow = () => {}, onGesture = () => {}, onFocus = () => {}, onLayout = () => {}, onEvict = () => {},
   modules = [], nameOf = (module) => module, iconOf = () => null,
   storage = defaultStorage(), win = globalThis, maxMounted = MAX_MOUNTED,
 } = {}) {
@@ -672,6 +737,7 @@ export function createWindows(desk, {
       writeLayout(storage, keep);
     }
     announce();
+    onLayout(layout);
   }
 
   function hide(module) {
@@ -1411,11 +1477,14 @@ export function createWindows(desk, {
     set(readLayout(storage, screen, allowed()) ?? fallback ?? { cols: [] });
   }
 
-  /** The rail's choice of columns (1–4 or '2x2'), with the modules shown now and then `list`'s. */
+  /**
+   * The rail's choice of a shape (1–4 columns, '2x2', or the windows each column stacks, `[1, 2]`),
+   * with the modules shown now and then `list`'s, and the shares its bars had last time.
+   */
   function columns(n, list = available()) {
     gesture?.cancel();
     room = measure();
-    const want = applyColumns(n, list, layout);
+    const want = applyColumns(n, list, layout, { shares: readShares(storage, n) });
     relayout(arrange(want), want);
   }
 

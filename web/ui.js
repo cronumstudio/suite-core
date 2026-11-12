@@ -741,10 +741,12 @@ function tidy(items) {
  * one is left out, and so is a separator with nothing to separate. `header`
  * is a node on top (what the menu is about). `at` ({ x, y }, a pointer's place)
  * puts it there instead of under the anchor; `parent` is where it hangs (the
- * page's body by default; inside a modal dialog, always that dialog). Arrows
- * move, Escape and a click outside close it.
+ * page's body by default; inside a modal dialog, always that dialog). `body`
+ * is a node of the caller's after the items (a grid of choices, say): its
+ * buttons with role="menuitem" move with the arrows too, and close nothing
+ * by themselves (closeMenu()). Arrows move, Escape and a click outside close it.
  */
-export function menu(anchor, items, { header = null, at = null, parent = null } = {}) {
+export function menu(anchor, items, { header = null, at = null, parent = null, body = null } = {}) {
   closeMenu();
   const entries = tidy(items).map((item) => {
     if (item === 'separator') return el('div', { class: 'kit-menu__sep', role: 'separator' });
@@ -764,7 +766,7 @@ export function menu(anchor, items, { header = null, at = null, parent = null } 
     node.addEventListener('click', () => { closeMenu(); item.onClick?.(); });
     return node;
   });
-  const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries);
+  const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries, body);
   // Under a modal dialog the rest of the page is inert: a menu opened from one goes inside it.
   (anchor?.closest?.('dialog[open]') || parent || document.body).append(markOwned(node));
   openMenuNode = node;

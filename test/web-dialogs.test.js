@@ -376,6 +376,17 @@ test('menu: what is left out (`cond ? item : null`) leaves no gap, nor a separat
   await settle();
 });
 
+test('menu: a body of the caller’s after the items, its buttons moved through with the arrows', async () => {
+  const picks = [1, 2].map((n) => el('button', { type: 'button', role: 'menuitem', text: `View ${n}` }));
+  const node = menu(null, [{ label: 'Rename' }], { body: el('div', { class: 'grid' }, picks) });
+  assert.deepEqual(node.children.map((child) => child.getAttribute('role') || child.className), ['menuitem', 'grid']);
+  assert.deepEqual(node.querySelectorAll('[role="menuitem"]').map((item) => item.textContent), ['Rename', 'View 1', 'View 2']);
+  closeMenu();
+  assert.deepEqual(menu(null, [], { body: el('div', { class: 'grid' }, picks) }).children.map((child) => child.className), ['grid'], 'a body alone');
+  closeMenu();
+  await settle();
+});
+
 test('moreButton: «…» with its name, a menu of what is possible when it opens, closed by a second press', async () => {
   let shared = false;
   const button = moreButton(() => [
