@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.272.0 — 2026-11-12
+
+- **Any shape of windows from the rail, each with its bars as they were left** (`web/windows.js`;
+  docs/architecture.md §21.6): Martin found his way to one window beside two stacked by dragging and
+  couldn't get it back, and wants to choose such views. `columns(n)` takes, besides 1–4 and '2x2',
+  a shape: the windows each column stacks, `[1, 2]` (one window, two stacked beside it), `[2]` (one
+  above the other) and so on, up to four columns and four windows. It fills by rows, as 2×2 did, so
+  windows side by side stay so. A shape comes back with the shares its bars had the last time it
+  showed: `work.layout` keeps them for every shape (`shares`) beside the layout.
+  - New exports `asShape(n)`, `shapeOf(layout)` and `readShares(storage, n)`; `applyColumns()`
+    takes `{ shares }`. What `work.layout` kept before reads as it did.
+- **A menu can hold a node of its own** (`web/ui.js` `menu(…, { body })`; docs/web-kit.md): after
+  the items, a grid of choices, say; its buttons with `role="menuitem"` move with the arrows.
+
 ## 0.270.0 — 2026-11-12
 
 - **Settings in a host: the host's group in a new order** (`web/settings.js`; docs/architecture.md
