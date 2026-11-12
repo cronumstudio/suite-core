@@ -83,7 +83,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
     return {};
   };
   const router = createRouter();
-  registerWorkosSecurityApi(router, {
+  const security = registerWorkosSecurityApi(router, {
     workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeAtProvider: (ids) => revoked.push(...ids),
     ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), clock,
   });
@@ -120,7 +120,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
     return answer;
   }
 
-  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person };
+  return { database, sessions, accounts, users, workos, revoked, revokedAll, call, person, security };
 }
 
 /* ------------------------------ how they sign in ------------------------------ */
@@ -329,6 +329,36 @@ test('an install that does not own the identities: the admin sees how they sign 
     { as: admin, body: { password: 'a brand new one', ...again } })).status, 404);
   assert.equal(workos.people.get(ada.workosId).factors.length, 1);
   assert.equal(workos.people.get(ada.workosId).password, 'correct horse');
+});
+
+test('the admin confirmed lately: ten minutes in that session, only for what asks no more than that', async () => {
+  const later = { ms: 0 };
+  const { person, call, security } = start({ adminIdentity: true, clock: () => Date.now() + later.ms });
+  const boss = person({ username: 'boss', role: 'admin', password: 'boss secret' });
+  const ctx = (who = boss) => ({
+    user: who.user, sessionToken: who.token, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } },
+  });
+  const recent = (who) => security.confirmAdmin(ctx(who), {}, { recent: true });
+  const asks = (err) => err.code === 'admin_confirm_required' && err.extra?.reauth === 'password';
+
+  await assert.rejects(recent(), asks, 'nothing given, nothing confirmed: what to give');
+  assert.equal((await call('POST', '/api/admin/confirm', { as: boss, body: { admin_password: 'wrong' } })).body.error, 'wrong_password');
+  assert.equal((await call('POST', '/api/admin/confirm', { as: boss, body: { admin_password: 'boss secret' } })).status, 200);
+  await recent();
+  later.ms = 9 * 60 * 1000;
+  await recent();
+  // Without `recent`, as every change to someone who exists: asked each time.
+  await assert.rejects(security.confirmAdmin(ctx(), {}), (err) => err.code === 'wrong_password');
+  later.ms = 11 * 60 * 1000;
+  await assert.rejects(recent(), asks, 'ten minutes after, asked again');
+
+  // A password given with the request stands too, and opens the same minutes.
+  later.ms = 12 * 60 * 1000;
+  await security.confirmAdmin(ctx(), { admin_password: 'boss secret' }, { recent: true });
+  await recent();
+  // Only that session: the same admin elsewhere, or another one, gives it again.
+  const elsewhere = { ...boss, token: person({ username: 'boss2', role: 'admin', password: 'x' }).token };
+  await assert.rejects(security.confirmAdmin({ ...ctx(), sessionToken: elsewhere.token }, {}, { recent: true }), asks);
 });
 
 /* --------------------------------- the client --------------------------------- */

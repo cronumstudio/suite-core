@@ -1486,7 +1486,12 @@ With WorkOS, only where the install owns the logins (`accounts.adminIdentity`, C
 password makes the login at WorkOS (`POST /user_management/users` with `email_verified: true` and
 the app's mark in its metadata) and links the account here to it, so it signs in on AuthKit at
 once; the admin gives their own password (and code) again first, as for setting someone's
-password there, since that login opens every product. An email WorkOS already has is someone's
+password there, since that login opens every product. Since v0.266.0 it isn't in the form and
+stands 10 minutes in that session (Martin, 12/11/2026: several reviewers' accounts in a row): a
+request that comes with none outside those minutes is `403 admin_confirm_required` with what to
+give (`reauth`), the panel asks for it in a dialog of its own (`POST /api/admin/confirm`) and
+sends the account again; what changes someone who already exists still asks every time
+(`confirmAdmin(ctx, body, { recent })`, workos-security.js). An email WorkOS already has is someone's
 login, perhaps of another app: `409 email_taken_provider`, never made again. A login made for an
 account that then can't be made is deleted. Where the install doesn't own the logins, and with
 OIDC, no password can be given (`password_not_here`): the account waits, as before, for its
@@ -2003,7 +2008,7 @@ sets it from Settings › Language and theme. The kit paints it as `<html data-l
 (web-kit.md).
 
 Settings are one for the whole host (web-kit.md, v0.104.0): every module lists the same list.
-Since 0.266.0, first the host's group (Modules, Language and theme, Your AI, Notifications, the
+Since 0.268.0, first the host's group (Modules, Language and theme, Your AI, Notifications, the
 daily summary, the calendar, Administration), then a group for each module in use, then the
 account's (Profile, Password and access, where the account is signed in, Plan, deleting it), and
 About the whole app on its own at the foot; an app on its own keeps Account, Connections and its
@@ -2012,7 +2017,7 @@ the others in `createModule().settings`: `{ sections: [{ id, icon, label, hint }
 with `label` and `hint` keys of its catalog; the host lists them in `/api/modules` (`settings`,
 with `data` when the module declares its data) and drops what isn't well formed.
 
-Settings › Modules (0.266.0) has each module with its line under its name: the host's catalog's
+Settings › Modules (0.268.0) has each module with its line under its name: the host's catalog's
 with `createHost({ moduleHints: 'home.modules.' })` (`host.hints` in `/api/modules`, the key
 being the prefix and the mount, read from `/i18n/<lang>.json`), else its line in About. Under
 them, a block of what is a button on the rail and not a module, each a switch, in no order: the
