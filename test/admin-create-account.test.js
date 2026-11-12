@@ -20,6 +20,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
+import { fakeWorkos as kitWorkos } from '../tools/test-kit.mjs';
 
 const SECRET = 'Review-Pass-2026!';
 const ADMIN_SECRET = 'root-secret-at-workos';
@@ -90,7 +91,8 @@ async function serve(t, { workos = null, accounts = {} } = {}) {
     env: {
       DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: '', DEFAULT_PLAN: '',
       ...(workos ? {
-        AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'sk_test', WORKOS_CLIENT_ID: 'client', WORKOS_AUTHKIT_DOMAIN: workos.url, WORKOS_API_URL: workos.url,
+        AUTH_PROVIDER: 'workos', WORKOS_API_KEY: workos.apiKey ?? 'sk_test', WORKOS_CLIENT_ID: workos.clientId ?? 'client',
+        WORKOS_AUTHKIT_DOMAIN: workos.url, WORKOS_API_URL: workos.url,
       } : {}),
     },
     log, exitOnError: false,
@@ -303,6 +305,34 @@ test('WorkOS: the admin’s password given once, apart, stands for several accou
   // And setting someone's password still asks every time (workos-security.js).
   const one = suite.accounts.byEmail('one@example.com');
   assert.equal((await admin('PUT', `/api/admin/users/${one.id}/sign-in/password`, { password: 'Another-pass-1' })).data.error, 'wrong_password');
+});
+
+test('WorkOS: an admin who signs in with Google signs in again, as the panel sends them, and the same account goes in, and the next', async (t) => {
+  // The test kit's WorkOS: its sign-ins give auth_time as AuthKit's do, moved only when the app asks again.
+  const workos = await kitWorkos({ accounts: { user_root: { object: 'user', id: 'user_root', email: 'root@example.com', email_verified: true, metadata: {} } } });
+  t.after(workos.close);
+  const { suite, base, as } = await serve(t, { workos, accounts: { adminIdentity: true, sharedIdentity: true } });
+  const root = suite.accounts.create({ username: 'root', displayName: 'Root', role: 'admin', email: 'root@example.com' });
+  suite.accounts.linkIdentity(root.id, 'workos', 'user_root', { email: 'root@example.com' });
+  // Their last sign-in was with Google: no password of theirs to give (workos-security.js reauthOf).
+  suite.accounts.usedIdentity('workos', 'user_root', { method: 'google' });
+  const account = { email: 'play.review@example.com', password: SECRET, role: 'user' };
+  const logins = () => Object.values(workos.accounts).map((u) => u.email).filter((email) => email !== 'root@example.com');
+
+  // The session they have, however new, is no sign-in again: asked, and nothing made.
+  const asked = await as(root)('POST', '/api/admin/users', account);
+  assert.deepEqual([asked.status, asked.data], [401, { error: 'reauth_required' }]);
+  assert.equal(suite.accounts.byEmail('play.review@example.com'), null);
+  assert.deepEqual(logins(), []);
+  // Signed in again where the panel sends them (prompt=login: AuthKit asks again): that request was
+  // the question, and the same one goes in.
+  const fresh = await workos.signIn(base, 'user_root', { app: 'demo', fresh: true });
+  const made = await fresh.client('POST', '/api/admin/users', account);
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  assert.deepEqual([made.data.email, made.data.providers], ['play.review@example.com', ['workos']]);
+  // And the next, in those ten minutes, with nothing asked.
+  assert.equal((await fresh.client('POST', '/api/admin/users', { ...account, email: 'apple.review@example.com' })).status, 201);
+  assert.deepEqual(logins(), ['play.review@example.com', 'apple.review@example.com'], 'their logins at WorkOS');
 });
 
 test('WorkOS: a login made for an account that then couldn’t be made goes too', async (t) => {

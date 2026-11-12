@@ -408,22 +408,33 @@ test('the admin who signs in with Google, confirmed lately: by a fresh sign-in, 
   const ctx = (token) => ({ user: gia.user, sessionToken: token, req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } } });
   const recent = (token) => security.confirmAdmin(ctx(token), {}, { recent: true });
   const signInAgain = (err) => err.code === 'reauth_required';
+  const signedInAgain = () => ({ user: gia.user, token: sessions.open(gia.user.id, { idpSessionId: 'session_gia' }) });
 
   // No password to ask for apart (never `admin_confirm_required`): to sign in again, and a session just opened is none.
+  // That request is the server's question, and nothing else asks before the sign-in that answers it.
   await assert.rejects(recent(gia.token), signInAgain);
-  const asked = await call('POST', '/api/admin/confirm', { as: gia, body: {} });
-  assert.deepEqual([asked.status, asked.body.error], [401, 'reauth_required']);
-  // Back from a sign-in AuthKit asked for after that question (auth_time): confirmed, and those minutes stand.
-  const again = { user: gia.user, token: sessions.open(gia.user.id, { idpSessionId: 'session_gia' }) };
+  // Back from a sign-in AuthKit asked for after that question (auth_time): the same request passes,
+  // before any POST /api/admin/confirm, and those minutes stand.
+  const again = signedInAgain();
   freshSignIns.note(again.token, at() + 1000);
   later.ms = 5 * 60 * 1000;
-  assert.equal((await call('POST', '/api/admin/confirm', { as: again, body: {} })).status, 200);
+  await recent(again.token);
   later.ms = 12 * 60 * 1000;
   await recent(again.token);
   // What changes someone who exists asks for the sign-in itself, by now too old: asked again.
   await assert.rejects(security.confirmAdmin(ctx(again.token), {}), signInAgain);
   later.ms = 16 * 60 * 1000;
   await assert.rejects(recent(again.token), signInAgain, 'ten minutes after it was confirmed, asked again');
+
+  // POST /api/admin/confirm, as Users › New account asks it before its form: the same question, answered the same way.
+  const asked = await call('POST', '/api/admin/confirm', { as: again, body: {} });
+  assert.deepEqual([asked.status, asked.body.error], [401, 'reauth_required']);
+  const third = signedInAgain();
+  freshSignIns.note(third.token, at() + 1000);
+  later.ms = 20 * 60 * 1000;
+  assert.equal((await call('POST', '/api/admin/confirm', { as: third, body: {} })).status, 200);
+  later.ms = 29 * 60 * 1000;
+  await recent(third.token);
 });
 
 /* --------------------------------- the client --------------------------------- */

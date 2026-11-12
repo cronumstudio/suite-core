@@ -299,6 +299,25 @@ test('fakeWorkos: the code exchange checks PKCE and the client, and signIn does 
   assert.equal((await fetch(`${workos.url}/user_management/users/user_ana`, { headers: { Authorization: 'Bearer sk_test' } })).status, 200);
   assert.equal((await fetch(`${workos.url}/user_management/users/nobody`, { headers: { Authorization: 'Bearer sk_test' } })).status, 404);
   assert.equal((await (await fetch(`${workos.url}/.well-known/oauth-authorization-server`)).json()).issuer, workos.url);
+
+  // A user by email, and a new one, as Users › New account asks (workos-security.js logins).
+  const users = (method, query = '', body = undefined, key = 'sk_test') => fetch(`${workos.url}/user_management/users${query}`, {
+    method, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: body && JSON.stringify(body),
+  });
+  assert.deepEqual((await (await users('GET', '?email=Ana%40Example.com&limit=1')).json()).data.map((u) => u.id), ['user_ana']);
+  assert.deepEqual((await (await users('GET', '?email=bo%40example.com&limit=1')).json()).data, []);
+  assert.equal((await users('GET', '?email=bo%40example.com', undefined, 'sk_other')).status, 401);
+  const made = await users('POST', '', { email: 'Bo@Example.com', password: 'A-long-secret-1', email_verified: true, first_name: 'Bo', metadata: { app_demo: 'Demo' } });
+  assert.equal(made.status, 201);
+  const bo = await made.json();
+  const { id: boId, ...given } = bo;
+  assert.match(boId, /^user_\w+$/);
+  assert.deepEqual(given, {
+    object: 'user', email: 'bo@example.com', email_verified: true, first_name: 'Bo', last_name: null, metadata: { app_demo: 'Demo' },
+  }, 'as WorkOS answers it: no password');
+  assert.equal(workos.accounts[bo.id]?.email, 'bo@example.com', 'one of `accounts` now');
+  assert.deepEqual((await (await users('GET', '?email=bo%40example.com')).json()).data.map((u) => u.id), [bo.id]);
+  assert.equal((await users('POST', '', { email: 'ana@example.com', password: 'A-long-secret-1' })).status, 422, 'an email WorkOS has');
 });
 
 test('fakePaddle keeps what it is asked and answers with a checkout link', async (t) => {

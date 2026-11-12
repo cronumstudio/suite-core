@@ -460,8 +460,10 @@ export async function fakeServer(handler) {
 /**
  * A fake WorkOS with the real one's contract for what the suite asks: AuthKit's metadata, JWKS,
  * the code exchange with PKCE (`/user_management/authenticate`, checking `clientId`/`apiKey`) and
- * the users API. `accounts` are WorkOS users by id. `signIn(base, id, { app })` does a whole round
- * trip for the app at `base` whose id is `app` (its `<app>_auth` and `<app>_sid` cookies):
+ * the users API: a user by id, one by email, and a new one, as an admin's Users › New account
+ * makes it (an email WorkOS has already is refused, 422). `accounts` are WorkOS users by id, the
+ * new ones too. `signIn(base, id, { app })` does a whole round trip for the app at `base` whose id
+ * is `app` (its `<app>_auth` and `<app>_sid` cookies):
  * /auth/login → "AuthKit" → /auth/callback, → { back, cookie, client }; with `fresh`, by
  * /auth/login?prompt=login, the way the admin panel asks someone to sign in again. Each access
  * token says when its user last actively signed in (`auth_time`), as AuthKit's: the first time
@@ -507,6 +509,25 @@ export async function fakeWorkos({ accounts = {}, clientId = 'client_test', apiK
     if (user) {
       if (req.headers.authorization !== `Bearer ${apiKey}`) return json(401, { message: 'Unauthorized' });
       return accounts[user[1]] ? json(200, accounts[user[1]]) : json(404, { message: 'Not found' });
+    }
+    if (url.pathname === '/user_management/users' && ['GET', 'POST'].includes(req.method)) {
+      if (req.headers.authorization !== `Bearer ${apiKey}`) return json(401, { message: 'Unauthorized' });
+      // WorkOS keeps emails in lower case.
+      const byEmail = (email) => Object.values(accounts).find((a) => String(a.email || '').toLowerCase() === String(email ?? '').trim().toLowerCase());
+      if (req.method === 'GET') {
+        const found = byEmail(url.searchParams.get('email'));
+        return json(200, { object: 'list', data: found ? [found] : [], list_metadata: {} });
+      }
+      const asked = parsed(body || '{}');
+      if (byEmail(asked.email)) {
+        return json(422, { code: 'user_creation_error', errors: [{ code: 'email_not_available', message: 'This email is not available.' }] });
+      }
+      const id = `user_${crypto.randomUUID().replace(/-/g, '')}`;
+      accounts[id] = {
+        object: 'user', id, email: String(asked.email).toLowerCase(), email_verified: Boolean(asked.email_verified),
+        first_name: asked.first_name ?? null, last_name: null, metadata: asked.metadata ?? {},
+      };
+      return json(201, accounts[id]);
     }
     return json(404, { message: 'Not found' });
   });
