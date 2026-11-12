@@ -405,6 +405,9 @@ export function openSettings(options) {
   const hostSections = () => [
     ...common(),
     ...modulesHere().flatMap((m) => (m.mount === host.mount ? thisModule() : otherModule(m))),
+    // The host's calendar in the person's own calendar app (host.js `calendarFeed`): the whole app's.
+    host.calendarFeed && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar', label: t('kit.calendarFeed.title'),
+      hint: () => t('kit.calendarFeed.hint'), render: () => needsServer(calendarFeed) } : null,
     // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
     host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
       hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
@@ -1542,6 +1545,63 @@ export function openSettings(options) {
    * The time is two lists, its hour and its minutes every five, the steps the server keeps: a time
    * field took any minute on an iPhone (its wheel has no steps), and 16:37 was kept as 16:35.
    */
+  /**
+   * The host's calendar in Google Calendar, Outlook or Apple Calendar (calendar-feed.js): a secret
+   * link of the person's, made here, copied, made again (the old one stops) or turned off, with a
+   * line for each calendar app on how to subscribe. Where the plan doesn't include it, the plan's.
+   */
+  function calendarFeed() {
+    const box = el('div', {});
+    const native = inApp();
+    /** A calendar app's own way in: outside the suite's app, in the browser or the system's app. */
+    const away = (href, text) => el('a', {
+      class: 'kit-btn kit-btn--small', href, target: '_blank', rel: 'noopener',
+      onClick: (ev) => { if (native && openExternal(href)) ev.preventDefault(); },
+    }, icon('calendar'), el('span', { text }));
+    const change = async (method) => {
+      try {
+        paint(method === 'POST' ? await api.root.post('/api/me/calendar-feed') : await api.root.delete('/api/me/calendar-feed'));
+      } catch (err) { fail(err); }
+    };
+    const paint = (answer) => {
+      if (closed) return;
+      const feed = answer.feed;
+      const intro = hint(t('kit.calendarFeed.intro', { app: host.name }));
+      const plan = answer.included ? null : hint(t(feed ? 'kit.calendarFeed.paused' : 'kit.calendarFeed.pro'));
+      const seePlan = !answer.included && openPlan ? button(t('kit.plan.see'), () => openPlan(), 'primary') : null;
+      if (!feed) {
+        clear(box).append(block(null, intro, plan,
+          row(answer.included ? button(t('kit.calendarFeed.create'), () => change('POST'), 'primary') : seePlan)));
+        return;
+      }
+      const value = el('code', { text: feed.url || '' });
+      const read = feed.used_at ? t('kit.calendarFeed.read', { when: formatDateTime(feed.used_at) }) : t('kit.calendarFeed.unread');
+      clear(box).append(
+        block(null, intro, plan, seePlan ? row(seePlan) : null,
+          feed.url
+            ? el('div', { class: 'kit-copy' }, value, el('button', { type: 'button', class: 'kit-link', text: t('kit.copy'), onClick: () => copyText(feed.url, value) }))
+            : hint(t('kit.calendarFeed.lost')),
+          hint(t('kit.calendarFeed.secret')), hint(read),
+          feed.webcal ? row(
+            away(`https://calendar.google.com/calendar/render?cid=${encodeURIComponent(feed.webcal)}`, t('kit.calendarFeed.google')),
+            away(feed.webcal, t('kit.calendarFeed.apple')),
+          ) : null),
+        block(t('kit.calendarFeed.howTitle'), hint(t('kit.calendarFeed.howGoogle')), hint(t('kit.calendarFeed.howOutlook')),
+          hint(t('kit.calendarFeed.howApple'))),
+        block(null, row(
+          button(t('kit.calendarFeed.renew'), async () => {
+            if (await confirmDialog(t('kit.calendarFeed.confirmRenew'), { confirm: t('kit.calendarFeed.renew') })) change('POST');
+          }),
+          button(t('kit.calendarFeed.off'), async () => {
+            if (await confirmDialog(t('kit.calendarFeed.confirmOff', { app: host.name }), { confirm: t('kit.calendarFeed.off') })) change('DELETE');
+          }, 'danger-quiet'),
+        )),
+      );
+    };
+    api.root.get('/api/me/calendar-feed').then(paint, fail);
+    return box;
+  }
+
   function daySummary() {
     const box = el('div', { class: 'kit-day-list' });
     const page = host.day;

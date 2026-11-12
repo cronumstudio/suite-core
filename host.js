@@ -82,6 +82,7 @@ import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
 import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { createCalendar, registerCalendarApi, calendarTools } from './calendar.js';
+import { createCalendarFeeds, registerCalendarFeedApi, calendarFeedsSchema } from './calendar-feed.js';
 import { createDay, registerDayApi, createDayNotices, dayNoticesSchema, DAY_PREFS } from './day.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
@@ -197,6 +198,8 @@ export const HOST_MIGRATIONS = Object.freeze([
   },
   // The daily summary's notices sent, one a person, notice and day (day.js), claimed before sending.
   { version: 8, name: 'day-notices', up: dayNoticesSchema },
+  // Each person's subscription link to the calendar (calendar-feed.js), with options.calendarFeed.
+  { version: 9, name: 'calendar-feeds', up: calendarFeedsSchema },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -606,6 +609,10 @@ function moduleListErrors(modules) {
  * @param {string} [options.calendar]   the host's page that shows what has a date in each module
  *   (`/calendar/`, in its publicDir; calendar.js): the rail offers it, `GET /api/calendar` answers
  *   it at the root and the host's MCP adds `<id>_calendar`, from the modules' `createModule().calendar`
+ * @param {boolean} [options.calendarFeed]  with a calendar, each person may have it in their own
+ *   calendar app (calendar-feed.js): a secret link of theirs, `/api/calendar/feed/<token>.ics`,
+ *   made, made again and turned off in Settings (`/api/me/calendar-feed`); where the host declares
+ *   the plan feature `calendar.feed`, only for a plan with it
  * @param {string} [options.day]   the host's page of the daily summary (`/today/`, in its publicDir;
  *   day.js): `GET /api/day` answers it at the root from the modules' `createModule().day`, every
  *   person has `prefs.day` (two notices, morning and evening, each with its switch and time, in
@@ -654,7 +661,7 @@ function moduleListErrors(modules) {
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null, day = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
   aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null,
 }) {
@@ -696,6 +703,9 @@ export async function createHost({
   if (calendar !== null && !(typeof calendar === 'string' && /^\/[a-z0-9-]+\/$/.test(calendar))) {
     listErrors.push(`calendar: "${calendar}" is not a page of the host (such as /calendar/)`);
   }
+  // Its link for calendar apps is the calendar's, as a file.
+  if (calendarFeed !== false && calendarFeed !== true) listErrors.push('calendarFeed: true or false');
+  else if (calendarFeed && calendar === null) listErrors.push('calendarFeed: the host has no calendar to give (options.calendar)');
   // And the daily summary's, a page of its own.
   if (day !== null && !(typeof day === 'string' && /^\/[a-z0-9-]+\/$/.test(day))) {
     listErrors.push(`day: "${day}" is not a page of the host (such as /today/)`);
@@ -844,6 +854,8 @@ export async function createHost({
         ...(hostWorker ? { worker: '/sw.js' } : {}),
         // The host's daily summary: its page, and Settings' section of it in every module.
         ...(day ? { day } : {}),
+        // The calendar's link for calendar apps: Settings' section of it in every module.
+        ...(calendar && calendarFeed ? { calendarFeed: true } : {}),
       },
       errors: [],
       warnings: [],
@@ -1136,6 +1148,8 @@ export async function createHost({
   const agenda = calendar ? createCalendar({
     modules: () => joined, uses, log, icon: (m) => mountedPath(m.mount, m.config.app.icon),
   }) : null;
+  // And its link for calendar apps, each person's (calendar-feed.js).
+  const feeds = agenda && calendarFeed ? createCalendarFeeds({ database: suite.database, sign: suite.sessions.sign }) : null;
 
   // What each module has for today and what was done (day.js), for the host's page and its two notices.
   const daily = day ? createDay({
@@ -1210,6 +1224,12 @@ export async function createHost({
       }
       registerLinksApi(api, { links });
       if (agenda) registerCalendarApi(api, { calendar: agenda });
+      if (feeds) {
+        registerCalendarFeedApi(api, {
+          feeds, calendar: agenda, accounts: suite.accounts, entitlements: suite.entitlements, limiter: suite.limiter,
+          audit: suite.audit, baseUrl: install.baseUrl, name: config.app.name, id: config.app.id,
+        });
+      }
       if (daily) registerDayApi(api, { day: daily });
       // Whether the calendar's button is on this person's rail: one choice for the whole host.
       if (calendar) {

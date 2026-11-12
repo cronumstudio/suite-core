@@ -3,6 +3,22 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.262.0 — 2026-11-12
+
+- **The host's calendar in Google Calendar, Outlook or Apple Calendar** (`calendar-feed.js`, new;
+  `host.js`, `plans.js`, `web/settings.js`, `i18n/*.json`; docs/architecture.md §21.3.1):
+  `createHost({ calendar, calendarFeed: true })` gives each person a secret subscription link,
+  `GET /api/calendar/feed/<token>.ics`, an iCalendar file (RFC 5545) of what the calendar page
+  shows, from 60 days ago up to a year: all-day events, or half an hour at an item's time,
+  with stable UIDs and a link back to each thing. Settings has a section of the host's to make
+  it, copy it, add it to Google Calendar or Apple Calendar in one tap, make it again (the old one
+  stops at once) or turn it off, with a line on how to subscribe in Google, Outlook and Apple.
+  - Host migration 9, `calendar-feeds`: table `host_calendar_feeds`, one row a person (its
+    token's hash, and the token encrypted with a key from the session secret, to show it again).
+  - New plan feature `calendar.feed` (a flag, `COMMON_FEATURES`): false in `cronum-work`'s Free,
+    true in Pro and Team. Only a host that declares it gates the link; without the option nothing
+    of it is there, and nothing changes for an app on its own or a module.
+
 ## 0.260.0 — 2026-11-11
 
 - **Invitations tell nobody's email, nor who has an account** (`sharing.js`, `stranger-invites.js`,
