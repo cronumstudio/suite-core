@@ -496,7 +496,7 @@ function userDialog(user) {
             await api.delete(`/api/admin/users/${user.id}/sign-in/two-factor`, again.body());
             toast(t('admin.users.twoFactorOffDone'));
             clear(twoFactorBox);
-          } catch (err) { failed(err); }
+          } catch (err) { reauthFailed(err); }
         },
       }));
   }
