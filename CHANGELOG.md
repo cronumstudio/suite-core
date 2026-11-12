@@ -37,6 +37,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   (`host_calendar_modules`, a row for each module chosen; none, it shows), `host.calendarModules` in every
   module's config. The link (Pro's) follows under them, titled «Calendar subscription». Asked by Martin.
 
+## 0.266.0 — 2026-11-12
+
 - **New accounts in a row ask for the admin's password once** (`workos-security.js`, `api.js`,
   `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): Martin makes several reviewers'
   accounts at a time. Users › New account no longer has the admin's own password in the form.
