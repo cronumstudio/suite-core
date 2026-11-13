@@ -119,6 +119,13 @@ test('database: a statement kept prepared answers as a new one would (perf-srv-6
       assert.equal(database.get(`SELECT COUNT(*) AS n FROM t WHERE id IN (${Array(n).fill('?').join(', ')})`, ...Array.from({ length: n }, (_, i) => i + 1)).n, Math.min(n, 3));
     }
     assert.equal(database.get(every, 2).a, 'z');
+    // A test that counts statements by replacing prepare() on the connection still sees each one.
+    const seen = [];
+    const prepare = database.db.prepare.bind(database.db);
+    database.db.prepare = (sql) => { seen.push(sql); return prepare(sql); };
+    database.get(every, 1);
+    database.get(every, 2);
+    assert.deepEqual(seen, [every, every]);
     // The statistics for the planner: at the start and with each clean-up.
     database.optimize({ first: true });
     database.optimize();

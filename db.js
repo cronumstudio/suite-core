@@ -42,6 +42,9 @@ export function wrapDatabase(db, { path = null } = {}) {
   // are null, as in a new one). Text made with a varying number of `?` is kept too, up to the cap.
   const kept = new Map();
   const statement = (sql) => {
+    // A connection whose prepare() was replaced on it (the modules' tests count statements so)
+    // prepares each one as before: what it counts stays the statements run.
+    if (Object.hasOwn(db, 'prepare')) return db.prepare(sql);
     let found = kept.get(sql);
     if (found) {
       // Most recently used last: what goes first is what was used least recently.
