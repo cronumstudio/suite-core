@@ -174,6 +174,17 @@ try {
   check('"Cancel", a person’s own click, still goes back with access_denied and the state',
     cancelled.status === 302 && cancelledTo.origin === 'https://client.example'
     && cancelledTo.searchParams.get('error') === 'access_denied' && cancelledTo.searchParams.get('state') === 's1');
+  // sc-oauth-mcp-3 (audit 23/10): without a session, a form posted by another site's page could
+  // sign this browser in to the account whose name and password that page chose.
+  for (const [what, headers] of [['Sec-Fetch-Site: cross-site', { 'Sec-Fetch-Site': 'cross-site' }],
+    ['Sec-Fetch-Site: same-site', { 'Sec-Fetch-Site': 'same-site' }], ['another Origin', { Origin: 'https://evil.example' }]]) {
+    const forged = await post('/oauth/authorize', { ...params, username: 'ada', password: 'secret123', decision: 'allow' }, headers);
+    check(`A sign-in posted from another site (${what}) opens nothing`,
+      forged.status !== 302 && !/sid=/.test(forged.headers.get('set-cookie') || '') && (await forged.text()).includes('[oauth.error.request_expired]'));
+  }
+  const sameSite = await post('/oauth/authorize', { ...params, username: 'ada', password: 'nope', decision: 'allow' },
+    { 'Sec-Fetch-Site': 'same-origin', Origin: base });
+  check('The screen’s own form still signs in', sameSite.status === 200 && (await sameSite.text()).includes('[oauth.badCredentials]'));
   const wrong = await post('/oauth/authorize', { ...params, username: 'ada', password: 'nope', decision: 'allow' });
   check('A wrong password stays on screen', wrong.status === 200 && (await wrong.text()).includes('[oauth.badCredentials]'));
   const ok = await post('/oauth/authorize', { ...params, username: 'ada', password: 'secret123', decision: 'allow' });
@@ -197,6 +208,20 @@ try {
     asUser.status === 200 && (await asUser.json()).user === 'ada');
   check('Tokens are stored only as hashes', !adapter.get(
     'SELECT 1 FROM oauth_tokens WHERE token_hash = ?', tokens.access_token));
+  // sc-oauth-mcp-6: the grant's last use is written once a minute at most, not on every call.
+  adapter.run("UPDATE oauth_grants SET last_used_at = '2000-01-01 00:00:00'");
+  await mcp(tokens.access_token);
+  const used = adapter.get('SELECT last_used_at FROM oauth_grants ORDER BY id DESC LIMIT 1').last_used_at;
+  check('A call writes when the grant was last used', used > '2000-01-01 00:00:00', used);
+  adapter.run('UPDATE oauth_grants SET last_used_at = ?', '2999-01-01 00:00:00');
+  await mcp(tokens.access_token);
+  check('…and the next one within the minute writes nothing',
+    adapter.get('SELECT last_used_at FROM oauth_grants ORDER BY id DESC LIMIT 1').last_used_at === '2999-01-01 00:00:00');
+  // sc-oauth-mcp-5: a Basic header that doesn't decode is a wrong credential, not a 500.
+  const badBasic = await post('/oauth/token', { grant_type: 'refresh_token', refresh_token: 'x' },
+    { Authorization: `Basic ${Buffer.from('%:x').toString('base64')}` });
+  check('A Basic header that doesn’t decode is invalid_client (401)', badBasic.status === 401
+    && (await badBasic.json()).error === 'invalid_client', String(badBasic.status));
 
   const refreshed = await (await post('/oauth/token', {
     grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: client.client_id,
@@ -204,6 +229,10 @@ try {
   check('Refreshing rotates the pair', /^mcpat_/.test(refreshed.access_token)
     && refreshed.refresh_token !== tokens.refresh_token);
   check('The old access token stops working', (await mcp(tokens.access_token)).status === 401);
+  // sc-oauth-mcp-7: the one exchanged is kept a week to tell a copy, not the 60 days it had left.
+  const usedRow = adapter.get("SELECT expires_at FROM oauth_tokens WHERE kind = 'refresh' AND used_at IS NOT NULL ORDER BY rowid DESC LIMIT 1");
+  const weekAhead = new Date(Date.now() + 8 * 86400 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  check('A refresh token once used is kept a week, not 60 days', usedRow && usedRow.expires_at < weekAhead, usedRow?.expires_at);
   await post('/oauth/token', { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: client.client_id });
   check('Reusing a refresh token revokes the whole grant', (await mcp(refreshed.access_token)).status === 401);
 
@@ -235,6 +264,30 @@ try {
   const byHttp = await fetch(`${base}/oauth/authorize?${form({ ...params, client_id: 'http://127.0.0.1:1/client.json' })}`);
   check('An http client_id is not a document: it is an unknown client',
     byHttp.status === 400 && (await byHttp.text()).includes('[oauth.error.client_unknown]'));
+  // sc-oauth-mcp-4: each document this server goes out to read counts against the address, and
+  // one that couldn't be read isn't fetched again for a minute.
+  let reads = 0;
+  let open = true;
+  const fetching = createOAuthServer({
+    baseUrl: base, appName: 'Test app', db: adapter, allowPrivateCimd: true,
+    users: { fromRequest: () => null, handle: (u) => `@${u.username}` },
+    sessions: { tokenFrom: () => null, sign: (v) => v },
+    limits: { allowRegistration: () => { reads++; return { allowed: open }; } },
+    texts, page: ({ body }) => body, log: () => {},
+  });
+  const screenOf = async (clientId) => {
+    let body = '';
+    const res = { setHeader() {}, writeHead() {}, end(text) { body = String(text || ''); } };
+    await fetching.handle({ method: 'GET', headers: {} }, res, new URL(`${base}/oauth/authorize?${form({ ...params, client_id: clientId })}`));
+    return body;
+  };
+  const missing = await screenOf(`${base}/missing-client.json`);
+  check('A document that isn’t there says so, and counted as one read', missing.includes('[oauth.error.client_document_unreachable]') && reads === 1, String(reads));
+  await screenOf(`${base}/missing-client.json`);
+  check('…and asked again at once, it isn’t fetched again', reads === 1, String(reads));
+  open = false;
+  const braked = await screenOf(`${base}/another-client.json`);
+  check('Past the address’s limit, nothing is fetched', braked.includes('[oauth.error.client_document_unreachable]') && reads === 2, String(reads));
 
   console.log('\nThe suite’s own texts');
   const plain = createOAuthServer({

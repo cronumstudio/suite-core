@@ -16,7 +16,7 @@ import { createSuite, createApp } from '../app.js';
 import { createHost, MCP_TEXT_MAX } from '../host.js';
 import { HttpError } from '../http.js';
 import {
-  createUploadLinks, receiveFile, uploadLinkText, FILE_PARAMS, UPLOAD_LINK_MINUTES, MAX_UPLOAD_LINKS,
+  createUploadLinks, receiveFile, uploadLinkText, FILE_PARAMS, UPLOAD_LINK_MINUTES, MAX_UPLOAD_LINKS, MAX_UPLOAD_LINKS_PER_USER,
 } from '../mcp-files.js';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 7)]);
@@ -30,7 +30,7 @@ const PRODUCT = {
 
 test('an upload link: single use, a quarter of an hour, for an account still active; the oldest goes past the limit', () => {
   let now = Date.parse('2026-10-16T10:00:00Z');
-  const people = { 1: { id: 1, disabled_at: null }, 2: { id: 2, disabled_at: '2026-10-16T09:00:00Z' } };
+  const people = { 1: { id: 1, disabled_at: null }, 2: { id: 2, disabled_at: '2026-10-16T09:00:00Z' }, 5: { id: 5, disabled_at: null } };
   const links = createUploadLinks({
     baseUrl: 'https://app.example/notes/', accounts: { byId: (id) => people[id] ?? null }, clock: () => now,
   });
@@ -57,9 +57,18 @@ test('an upload link: single use, a quarter of an hour, for an account still act
   assert.equal(links.take(tokenOf(links.offer({ userId: 3, accept }))), null, 'nor one of an account that is gone');
 
   const first = links.offer({ userId: 1, accept });
-  for (let i = 0; i < MAX_UPLOAD_LINKS; i++) links.offer({ userId: 1, accept });
+  for (let i = 0; i < MAX_UPLOAD_LINKS; i++) links.offer({ userId: 100 + i, accept });
   assert.equal(links.size, MAX_UPLOAD_LINKS, 'never more than the limit in memory');
   assert.equal(links.take(tokenOf(first)), null, 'the oldest went');
+
+  // One account asking again and again pushes out its own links, never someone else's.
+  const others = links.offer({ userId: 1, accept });
+  for (let i = 0; i < MAX_UPLOAD_LINKS; i++) links.offer({ userId: 4, accept });
+  assert.equal(links.size, MAX_UPLOAD_LINKS, 'still at most the limit');
+  assert.equal(links.take(tokenOf(others)).userId, 1, 'another account’s link still opens');
+  const mine = Array.from({ length: MAX_UPLOAD_LINKS_PER_USER + 1 }, () => links.offer({ userId: 5, accept }));
+  assert.equal(links.take(tokenOf(mine[0])), null, 'past their own ceiling, their oldest went');
+  assert.equal(links.take(tokenOf(mine.at(-1))).userId, 5);
 
   assert.throws(() => links.offer({ accept }), /userId/);
   assert.throws(() => links.offer({ userId: 1 }), /accept/);

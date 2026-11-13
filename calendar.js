@@ -221,15 +221,27 @@ export function calendarTools({ calendar, allowed = () => true }) {
     inputSchema: {
       type: 'object',
       properties: {
-        from: { type: 'string', description: 'First day, YYYY-MM-DD (today if left out).' },
-        to: { type: 'string', description: 'Last day, YYYY-MM-DD (six days after `from` if left out).' },
+        from: { type: 'string', format: 'date', description: 'First day, YYYY-MM-DD (today if left out).' },
+        to: { type: 'string', format: 'date', description: 'Last day, YYYY-MM-DD (six days after `from` if left out).' },
       },
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     handler: async (user, args = {}) => {
       const from = args.from ?? todayFor(user);
       const start = isoDate(from);
-      const answer = await calendar.range(user, { from, to: args.to ?? (start ? addDays(start, 6) : null) },
+      const to = args.to ?? (start ? addDays(start, 6) : null);
+      // What calendarSpan would refuse with a bare code, said so the assistant can correct it.
+      const end = isoDate(to);
+      if (!start || !end) {
+        return { isError: true, content: [{ type: 'text', text: `"${start ? 'to' : 'from'}" must be a date as YYYY-MM-DD.` }] };
+      }
+      if (end < start || daysBetween(start, end) + 1 > CALENDAR_MAX_DAYS) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `"to" must be on or after "from" (${start}) and at most ${CALENDAR_MAX_DAYS} days from it, both included. Ask for a shorter span.` }],
+        };
+      }
+      const answer = await calendar.range(user, { from, to },
         { only: (m) => allowed(user, m) });
       const names = new Map(answer.modules.map((m) => [m.mount, m.name]));
       const days = new Map();

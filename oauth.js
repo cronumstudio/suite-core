@@ -71,6 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON oauth_tokens(grant_id);
 
 const ACCESS_TTL_S = 3600;
 const REFRESH_TTL_DAYS = 60;
+/** A refresh token already exchanged, kept to tell a copy of it coming back. */
+const USED_REFRESH_KEPT_DAYS = 7;
 const CODE_TTL_MS = 5 * 60 * 1000;
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
@@ -239,6 +241,8 @@ export function createOAuthServer({
   /** CIMD documents already read: an hour, and at most a couple hundred. */
   const documents = new Map();
   const DOCUMENT_TTL_MS = 3600 * 1000;
+  /** One that couldn't be read, a minute: asking again at once fetches nothing. */
+  const FAILED_DOCUMENT_TTL_MS = 60 * 1000;
   const MAX_DOCUMENT_BYTES = 64 * 1024;
 
   /**
@@ -248,9 +252,29 @@ export function createOAuthServer({
    * server could be used to peek into the home network on behalf of whoever
    * made up a client_id.
    */
-  async function cimdDocument(clientId) {
+  async function cimdDocument(clientId, req = null) {
     const cached = documents.get(clientId);
-    if (cached && Date.now() - cached.at < DOCUMENT_TTL_MS) return cached.client;
+    if (cached?.client && Date.now() - cached.at < DOCUMENT_TTL_MS) return cached.client;
+    if (cached?.failure && Date.now() - cached.at < FAILED_DOCUMENT_TTL_MS) throw new OAuthScreenError(cached.failure);
+    // Anyone may make up a client_id: each one this server goes out to read counts against
+    // their address, as a registration does, so it can't be used to send requests elsewhere.
+    const allowed = req && limits?.allowRegistration ? limits.allowRegistration(req) : { allowed: true };
+    if (!allowed.allowed) throw new OAuthScreenError('client_document_unreachable');
+    try {
+      const client = await readCimdDocument(clientId);
+      if (documents.size > 200) documents.delete(documents.keys().next().value);
+      documents.set(clientId, { client, at: Date.now() });
+      return client;
+    } catch (error) {
+      if (error instanceof OAuthScreenError) {
+        if (documents.size > 200) documents.delete(documents.keys().next().value);
+        documents.set(clientId, { failure: error.code, at: Date.now() });
+      }
+      throw error;
+    }
+  }
+
+  async function readCimdDocument(clientId) {
 
     const u = parseUrl(clientId);
     if (!u || u.hash || u.username || u.password || u.pathname === '/') {
@@ -302,15 +326,13 @@ export function createOAuthServer({
       public: true,
       verified: true,            // the name comes from the client_id's domain
     };
-    if (documents.size > 200) documents.delete(documents.keys().next().value);
-    documents.set(clientId, { client, at: Date.now() });
     return client;
   }
 
   /** The client by its id, from CIMD or from registration. Throws if unknown. */
-  async function findClient(clientId) {
+  async function findClient(clientId, req = null) {
     if (!clientId) throw new OAuthScreenError('client_missing');
-    if (isCimdClient(clientId)) return cimdDocument(clientId);
+    if (isCimdClient(clientId)) return cimdDocument(clientId, req);
     const row = db.get('SELECT * FROM oauth_clients WHERE client_id = ?', clientId);
     if (!row) throw new OAuthScreenError('client_unknown');
     return {
@@ -404,9 +426,9 @@ export function createOAuthServer({
    * sent back to the client: the URI could be an attacker's. It is shown on
    * screen and that's it.
    */
-  async function checkClient(p) {
+  async function checkClient(p, req = null) {
     let client;
-    try { client = await findClient(p.get('client_id')); } catch (err) {
+    try { client = await findClient(p.get('client_id'), req); } catch (err) {
       if (err instanceof OAuthScreenError) return { failure: err.code };
       throw err;
     }
@@ -559,7 +581,7 @@ ${!user && !challenge && externalSignIn
 
   async function authorize(req, res, url) {
     const p = req.method === 'POST' ? await readForm(req) : url.searchParams;
-    const checked = await checkClient(p);
+    const checked = await checkClient(p, req);
     if (checked.failure) {
       errorScreen(req, res, checked.failure);
       return;
@@ -574,6 +596,14 @@ ${!user && !challenge && externalSignIn
     let user = users.fromRequest(req);
     if (req.method === 'GET') {
       consentScreen(req, res, p, checked, { user });
+      return;
+    }
+
+    // Without a session the form has no token to prove it is this screen's: a page of another
+    // site could post someone else's name and password and leave this browser signed in to that
+    // account (login CSRF). Browsers say where a form comes from: only this site's is taken.
+    if (!user && !fromThisSite(req)) {
+      errorScreen(req, res, 'request_expired');
       return;
     }
 
@@ -656,6 +686,20 @@ ${!user && !challenge && externalSignIn
     redirectBack(res, redirect, { code, state: p.get('state') });
   }
 
+  /**
+   * Whether a request comes from this site's own pages, as the browser says: `Sec-Fetch-Site`
+   * (every current browser sends it), else an `Origin` that is this site's. A request that
+   * says neither (an old browser, a script with no page around it) is let through, as before:
+   * what this guards against is a page of another site, and a browser says where that is.
+   */
+  function fromThisSite(req) {
+    const site = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+    if (site) return site === 'same-origin' || site === 'none';
+    const origin = req.headers.origin;
+    if (!origin) return true;
+    return origin === new URL(BASE_URL).origin;
+  }
+
   /* ------------------------------ tokens -------------------------------- */
 
   /** Who is calling the token endpoint. Returns the client_id or null. */
@@ -665,11 +709,16 @@ ${!user && !challenge && externalSignIn
     const basic = String(req.headers.authorization || '').match(/^basic\s+(.+)$/i);
     if (basic) {
       const [id, key] = Buffer.from(basic[1], 'base64').toString('utf8').split(':');
-      clientId = decodeURIComponent(id || '');
-      secret = decodeURIComponent(key || '');
+      // A header that doesn't decode ("%") is a wrong credential: 401, not a 500 and an alert.
+      try {
+        clientId = decodeURIComponent(id || '');
+        secret = decodeURIComponent(key || '');
+      } catch {
+        return null;
+      }
     }
     let client;
-    try { client = await findClient(clientId); } catch { return null; }
+    try { client = await findClient(clientId, req); } catch { return null; }
     if (client.public) return client.client_id;
     if (!secret || hash(secret) !== client.secret_hash) return null;
     return client.client_id;
@@ -763,7 +812,9 @@ ${!user && !challenge && externalSignIn
         oauthError(res, 400, 'invalid_grant', 'Refresh token already used');
         return;
       }
-      db.run("UPDATE oauth_tokens SET used_at = datetime('now') WHERE token_hash = ?", row.token_hash);
+      // Kept only to tell that it came back (a copy): a week, not the 60 days it had left.
+      db.run(`UPDATE oauth_tokens SET used_at = datetime('now'), expires_at = MIN(expires_at, ?) WHERE token_hash = ?`,
+        sqlTime(Date.now() + USED_REFRESH_KEPT_DAYS * 86400 * 1000), row.token_hash);
       // The previous access token stops working: with the new pair it is not needed.
       db.run("DELETE FROM oauth_tokens WHERE grant_id = ? AND kind = 'access'", row.grant_id);
       sendJson(res, 200, issue(row.grant_id, p.get('scope') || ''), CORS);
@@ -843,7 +894,7 @@ ${!user && !challenge && externalSignIn
   function userFromAccessToken(tokenValue) {
     if (!enabled || !String(tokenValue || '').startsWith(OAUTH_PREFIXES.access)) return null;
     const row = db.get(
-      `SELECT g.id AS grant_id, g.user_id FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
+      `SELECT g.id AS grant_id, g.user_id, g.last_used_at FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
        WHERE t.token_hash = ? AND t.kind = 'access' AND t.expires_at > datetime('now')`,
       hash(tokenValue),
     );
@@ -851,7 +902,10 @@ ${!user && !challenge && externalSignIn
     const user = users.byId(row.user_id);
     // An account the admin disabled keeps its grants, unused, until it comes back.
     if (!user || user.disabled_at) return null;
-    db.run("UPDATE oauth_grants SET last_used_at = datetime('now') WHERE id = ?", row.grant_id);
+    // Settings shows when it was last used: written once a minute at most, not on every call (tokens.js does the same).
+    if (!row.last_used_at || row.last_used_at < sqlTime(Date.now() - 60 * 1000)) {
+      db.run("UPDATE oauth_grants SET last_used_at = datetime('now') WHERE id = ?", row.grant_id);
+    }
     return user;
   }
 

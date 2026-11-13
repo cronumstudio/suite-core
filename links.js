@@ -522,7 +522,9 @@ export function linkTools({ links, modules }) {
         properties: {
           from: ref,
           to: ref,
-          create: { type: 'object', properties: { module: { type: 'string' }, type: { type: 'string' }, title: { type: 'string' }, place: { type: 'string' } }, required: ['module', 'type'] },
+          // The free texts with a ceiling over every module's own (which still decides): a title of
+          // megabytes is refused here, before any module reads it.
+          create: { type: 'object', properties: { module: { type: 'string' }, type: { type: 'string' }, title: { type: 'string', maxLength: 500 }, place: { type: 'string', maxLength: 200 } }, required: ['module', 'type'] },
           together: { type: 'boolean' },
         },
         required: ['from'],
