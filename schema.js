@@ -96,4 +96,7 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 28, name: 'identity-deletion', up: identityDeletionSchema },
   // Invitations emailed to addresses without an account, and the addresses that want no more (stranger-invites.js).
   { version: 29, name: 'stranger-invites', up: strangerInvitesSchema },
+  // push_subscriptions.session_key (0.255.0) went into version 13, which databases from before had
+  // already run: pushSchema again, which only adds what is missing.
+  { version: 30, name: 'push-session-key', up: pushSchema },
 ]);

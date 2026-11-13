@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.278.0 — 2026-11-14
+## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
   `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
@@ -15,6 +15,14 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
   claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
   paused ones: «Open projects» now, in the five languages.
+## 0.279.0 — 2026-11-14
+
+- **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
+  0.255.0 added `push_subscriptions.session_key` inside suite migration 13, which every existing
+  database had already applied, so there the column never came. `POST /api/push/subscribe` failed with
+  `no such column: session_key`, and so did the suite's clean-up (`push.purgeSessions()`). Migration 30
+  runs `pushSchema` again, which only adds what a table lacks; new databases are unchanged.
+
 ## 0.277.1 — 2026-11-14
 
 - **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
