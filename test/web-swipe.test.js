@@ -83,7 +83,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
 
 test('to the right, its first action at 82 px and its second at 168, a buzz as each is reached; let go, it runs', async () => {
   const { row, inner, ran, swipe } = taskRow();
-  assert.ok(row.hasAttribute('data-own-swipe'), 'the row keeps the finger: Work\'s windows don\'t switch module from it');
+  assert.ok(row.hasAttribute('data-own-swipe'), 'the row says its sideways finger is its own');
   assert.match(row.getAttribute('class'), /\btask-row kit-swipe\b/, 'its own classes kept');
   assert.equal(bgOf(row), null, 'no colour drawn until it is swiped');
   buzzes.length = 0;
@@ -280,7 +280,7 @@ test('a row with nothing to do keeps the finger; destroy() takes away all it add
   const quiet = el('div', { class: 'step-row' }, el('span', { text: 'Step' }));
   document.body.append(quiet);
   const kept = keepSwipe(quiet);
-  assert.ok(quiet.hasAttribute('data-own-swipe'), 'Work\'s windows leave it alone');
+  assert.ok(quiet.hasAttribute('data-own-swipe'), 'it says its sideways finger is its own');
   assert.equal(quiet.getAttribute('class'), 'step-row kit-swipe', 'and pan-y keeps the browser\'s sideways pan off it (kit.css)');
   assert.equal(quiet.listenerCount(), 0, 'nothing to listen for');
   finger(quiet.children[0]).to(320).up();

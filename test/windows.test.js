@@ -51,7 +51,7 @@ Object.defineProperties(FakeElement.prototype, {
 const {
   KEY, screenClass, fitColumns, normalizeLayout, modulesOf, where, applyColumns, asShape, shapeOf, readShares, fitLayout, narrowLayout,
   moveColumn, swapWindows, placement, slotAt, dropLayout, dropRect, moveByKey, shareAfter, rowShareAt,
-  lruTouch, lruEvict, readLayout, writeLayout, createWindows, swipeHolds, OWN_SWIPE,
+  lruTouch, lruEvict, readLayout, writeLayout, createWindows,
 } = await import('../web/windows.js');
 
 const L = (...cols) => normalizeLayout({ cols: cols.map((wins) => ({ w: 1, wins: [].concat(wins) })) });
@@ -790,7 +790,7 @@ test('keyboard: Alt and an arrow on a head move its window; focusing inside a wi
   windows.destroy();
 });
 
-test('phones: one window, a tab per module, switching by tab or by swipe, the edges left alone', () => {
+test('phones: one window, a tab per module, switching by tab only', () => {
   const { desk, made, windows, told, press } = setup({ width: 390 });
   windows.restore({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
   assert.equal(desk.getAttribute('data-screen'), 'narrow');
@@ -808,116 +808,29 @@ test('phones: one window, a tab per module, switching by tab or by swipe, the ed
   assert.equal(made.get('notes').hidden, true);
   assert.equal(tabs.children[0].getAttribute('aria-current'), 'true');
 
-  // A swipe to the left brings the next mounted module (notes, after next in the tabs).
-  const body = made.get('next').children[1];
+  // A sideways finger is the module's (a row to the trash, Next's line, the Gantt), never another
+  // module (Martin, 14/11): quick or slow, either way, in the middle or from an edge.
   told.length = 0;
-  press(body, 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 280, clientY: 402, timeStamp: 20 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 150, clientY: 405, timeStamp: 120 });
-  assert.equal(made.get('next').style.transform, 'translateX(-150px)');
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'notes');
-  assert.equal(made.get('next').style.transform, '');
-  assert.deepEqual(told.filter(([w]) => w === 'start' || w === 'end'), [['start', 'swipe'], ['end', 'swipe']]);
-
-  // Nothing further that way: it gives a little and comes back.
-  press(made.get('notes').children[1], 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 200, clientY: 400, timeStamp: 50 });
-  assert.equal(made.get('notes').style.transform, 'translateX(-30px)');
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'notes');
-
-  // Up and down is the module's scroll; a held finger is a row picked up; the edges are the drawer's.
   for (const [start, moves] of [
-    [{ x: 300, y: 400 }, [{ clientX: 302, clientY: 300, timeStamp: 50 }, { clientX: 400, clientY: 280, timeStamp: 80 }]],
-    [{ x: 200, y: 400 }, [{ clientX: 330, clientY: 400, timeStamp: 600 }]],
+    [{ x: 300, y: 400 }, [{ clientX: 280, clientY: 402, timeStamp: 20 }, { clientX: 150, clientY: 405, timeStamp: 120 }]],
+    [{ x: 100, y: 400 }, [{ clientX: 330, clientY: 400, timeStamp: 50 }]],
     [{ x: 10, y: 400 }, [{ clientX: 300, clientY: 400, timeStamp: 50 }]],
   ]) {
-    press(made.get('notes').children[1], start.x, start.y, { pointerType: 'touch', timeStamp: 0 });
+    press(made.get('next').children[1], start.x, start.y, { pointerType: 'touch', timeStamp: 0 });
     for (const move of moves) desk.dispatch('pointermove', { pointerId: 1, ...move });
     desk.dispatch('pointerup', { pointerId: 1 });
-    assert.equal(windows.layout.focus, 'notes');
+    assert.equal(windows.layout.focus, 'next');
+    assert.equal(made.get('next').style.transform ?? '', '', 'the window stays put');
   }
-  assert.equal(desk.listeners.pointermove?.length ?? 0, 0, 'no swipe left listening');
+  assert.equal(desk.listeners.pointermove?.length ?? 0, 0, 'nothing follows the finger');
+  assert.deepEqual(told.filter(([w]) => w === 'start' || w === 'end'), [], 'no gesture of the windows');
 
-  // On something that slides sideways itself (Next's line, the Gantt), the finger is its own;
-  // the same box with nothing to slide still swipes.
-  const line = document.createElement('div');
-  line.computed = { overflowX: 'auto' };
-  line.clientWidth = 336;
-  line.scrollWidth = 1389;
-  const dot = document.createElement('span');
-  line.append(dot);
-  made.get('notes').children[1].append(line);
-  press(dot, 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 400, timeStamp: 50 });
-  assert.equal(made.get('notes').style.transform ?? '', '', 'the window stays put');
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'notes');
-  line.scrollWidth = 336;
-  line.computed = { touchAction: 'pan-x pan-y' };
-  press(dot, 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 400, timeStamp: 50 });
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'notes', 'what takes sideways pans as its own keeps them');
-  line.computed = { overflowX: 'auto' };
-  press(dot, 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 400, clientY: 400, timeStamp: 50 });
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'next', 'a line that fits swipes to the module before');
-
-  // A mouse doesn't swipe; a head isn't picked up on a phone.
-  press(made.get('next').children[1], 300, 400);
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 400, timeStamp: 50 });
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'next');
-  windows.destroy();
-});
-
-test('phones: what has a swipe of its own keeps it, and a sideways finger in any list is the swipe\'s, not the browser\'s', () => {
-  const { desk, made, windows, press } = setup({ width: 390 });
-  windows.restore({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
-  desk.dispatch('click', { target: desk.querySelector('.cw-tabs').children[0] });
-  assert.equal(windows.layout.focus, 'next');
-
-  // A task's row (Tasks marks it): its own swipe deletes or stars it, and the module stays (#47).
-  assert.equal(OWN_SWIPE, '[data-own-swipe]');
-  const row = document.createElement('div');
-  row.setAttribute('data-own-swipe', '');
-  const title = document.createElement('span');
-  row.append(title);
-  made.get('next').children[1].append(row);
-  press(title, 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 402, timeStamp: 60 });
-  assert.equal(made.get('next').style.transform ?? '', '', 'the window stays put');
-  desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'next');
-
-  // Elsewhere in the window the swipe keeps a sideways touch from the browser, which would take it
-  // in a scroller (pointercancel); up and down is left to it, the module's scroll.
-  const touchmove = (x, y) => {
-    let prevented = false;
-    desk.dispatch('touchmove', { touches: [{ clientX: x, clientY: y }], cancelable: true, preventDefault() { prevented = true; } });
-    return prevented;
-  };
-  assert.equal(touchmove(200, 400), false, 'no swipe under way: nothing kept');
+  // Nor is a sideways touch kept from the browser: a list's own scroller pans as it would anywhere.
+  let prevented = false;
   press(made.get('next').children[1], 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  assert.equal(touchmove(301, 400), false, 'a tremor is nobody\'s yet');
-  assert.equal(touchmove(295, 401), true, 'more across than down: the swipe\'s');
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 280, clientY: 402, timeStamp: 20 });
-  assert.equal(touchmove(280, 460), true, 'once it is a swipe, every move of it');
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 150, clientY: 405, timeStamp: 120 });
+  desk.dispatch('touchmove', { touches: [{ clientX: 250, clientY: 401 }], cancelable: true, preventDefault() { prevented = true; } });
   desk.dispatch('pointerup', { pointerId: 1 });
-  assert.equal(windows.layout.focus, 'notes');
-  press(made.get('notes').children[1], 300, 400, { pointerType: 'touch', timeStamp: 0 });
-  assert.equal(touchmove(302, 380), false, 'more up than across: the module scrolls');
-  desk.dispatch('pointermove', { pointerId: 1, clientX: 302, clientY: 380, timeStamp: 20 });
-  assert.equal(touchmove(330, 380), false, 'a scroll stays a scroll');
-  desk.dispatch('pointerup', { pointerId: 1 });
-
-  assert.equal(swipeHolds({ clientX: 100, clientY: 100 }, { x0: 100, y0: 100, armed: true }), true);
-  assert.equal(swipeHolds({ clientX: 110, clientY: 108 }, { x0: 100, y0: 100 }), true);
-  assert.equal(swipeHolds({ clientX: 110, clientY: 109 }, { x0: 100, y0: 100 }), false, 'not more across than down by enough');
+  assert.equal(prevented, false);
   windows.destroy();
 });
 

@@ -287,10 +287,8 @@ with `{ start }` or not. What the kit hangs on the page's body there (notices, d
 banners, Settings and sign-in on the body) carries `data-owner="<module>"` and a copy of `<html>`'s
 `data-theme`, `data-look` and `lang` (`markOwned`), so the module's sheet scoped to its windows
 reaches it; a theme chosen in Settings goes to the shell (`registry.theme.set`) instead of the
-app's `applyTheme`, and a language to `registry.language.set`. On a phone a sideways swipe in the
-window brings the module beside it (windows.js), but never from a row: `rowSwipe()` and
-`keepSwipe()` mark it `data-own-swipe` (anything else with a sideways gesture of its own may say
-so too, Notes' drawing sheet), so a finger that starts there is the row's alone. Escape with the
+app's `applyTheme`, and a language to `registry.language.set`. On a phone the tabs at the bottom
+change module and a sideways finger never does (since 0.286.0): it is the module's. Escape with the
 focus on no element closes the detail of the window that has the keyboard, and «/» goes to its
 search: the module passes `createShell({ active: ctx.active })`. Told nothing, the frame has the
 keyboard while windows.js marks its window the one in front (`data-focus="true"` on the window
@@ -867,8 +865,8 @@ keepSwipe(stepRow);                                                  // nothing 
   380 ms) is picking the row up, and a drag under way (`data-kit-dragging`) is never a swipe: the
   drag wins. If the system takes the touch away midway (`pointercancel`), the row slides back and
   nothing is done.
-- **The finger is the row's.** The row has `data-own-swipe` (Cronum Work's windows don't switch
-  module from it, windows.js) and `kit-swipe` with `touch-action: pan-y` (kit.css), and once it is a
+- **The finger is the row's.** The row has `data-own-swipe` (a sign that its sideways finger is
+  its own) and `kit-swipe` with `touch-action: pan-y` (kit.css), and once it is a
   swipe the touch's moves are kept from the browser, so the list doesn't scroll under it. A row with
   nothing to do gets the same with `keepSwipe(row)` (or `rowSwipe(row)`), without a listener: a
   sideways finger on it does nothing at all. Not for rows that lie in something that scrolls sideways
