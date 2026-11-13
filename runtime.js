@@ -52,12 +52,21 @@ export function jobRunner({ log, tag, alerts }) {
 }
 
 /**
- * The jobs of every install, on `timers`: the clean-up (`purge`, now and every 6 hours), OAuth's,
+ * The jobs of every install, on `timers`: the clean-up (`purge`, now and every 6 hours, with the
+ * planner's statistics), OAuth's,
  * the accounts whose days are over, the WorkOS users told of this app, the passwords reset on
  * AuthKit's page, and the groups' renewals asked to stop. Each only where the suite has it.
  */
 export function startSuiteJobs(suite, { purge, timers, failed, safely }) {
-  const cleanUp = safely('clean-up', purge);
+  const purgeAll = safely('clean-up', purge);
+  // With the clean-ups, the planner's statistics (db.js optimize): every table at the start, then
+  // what changed. Without them it chose blind (audit of 6/11, perf-srv-6).
+  let first = true;
+  const optimize = safely('optimize', () => {
+    suite.database.optimize?.({ first });
+    first = false;
+  });
+  const cleanUp = () => { purgeAll(); optimize(); };
   cleanUp();
   timers.push(setInterval(cleanUp, 6 * HOUR).unref());
   if (suite.oauth) {

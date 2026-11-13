@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.282.0 — 2026-11-14
+## 0.288.0 — 2026-11-14
 
 Audit of 6/11: the host's runtime, mail, push, the configuration and what was left of billing.
 
@@ -22,7 +22,7 @@ Audit of 6/11: the host's runtime, mail, push, the configuration and what was le
   whose identity nobody has here now goes, before waiting, to the person its subscription (or
   purchase) is known for here, else to the person its customer is linked to. Someone who hasn't
   opened this app yet still waits, as before.
-- **Back from a checkout in Work's shell** (`billing.js`, `app.js`, `host.js`, `web/plan.js`,
+- **Back from a checkout in Work's shell** (`billing.js`, `app.js`, `host.js`, `web/plan-return.js`,
   billing-8). Buying from a module's window sent the browser back to `/<module>/?billing=done`, the
   module's page on its own, outside the shell. In a host with a page at its root (Cronum Work's
   shell), a module's checkout now comes back to `/?open=/<module>/&billing=done` and its portal to
@@ -73,6 +73,127 @@ Audit of 6/11: the host's runtime, mail, push, the configuration and what was le
   spread from the host's); `reload` and `replayed` in the small body that replays an answer too big
   to keep (`idempotency.js`: `{ id }`, or `{}`; the `Idempotent-Replayed` header says it is a
   replay). `http.js sendError` stays, used now by createApp's own error answer.
+
+## 0.285.0 — 2026-11-14
+
+- **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,
+  `page-hints.js`, `host-worker.js`, `host.js`; audit of 6/11, perf-web-5). Every copy of the kit
+  asked for English and then the person's language, one after the other, though English only
+  stood in for a key the language lacked: in Cronum Work, two catalogs per module, most of their
+  bytes the kit's texts twice.
+  - `GET /i18n/<lang>.json?en` (also with `?all`): the language with English under it, every key
+    it lacks English's, and `$meta.fallback: "en"` saying so (`CATALOG_FALLBACK`). Each key reads as
+    before, English's where the language has none; `/i18n/<lang>.json` is the language alone, as it
+    was (the conformance check reads what it lacks), and English is still `/i18n/en.json`.
+  - The kit asks for that one alone (`catalogPath(lang)`): English only for English. A catalog
+    that comes without the mark (an older server, a copy kept before) has English asked for too,
+    as before; none at all (no signal and no copy), English stands in, as it did.
+  - A module page's `Link` names that one catalog (`es.json?en`, or `en.json`), and a host's worker
+    keeps every other language's as the kit asks for it (`catalogsOverEnglish`), its hash with the
+    app's English file in it too (`shellHashes`): a weak signal waits for no catalog.
+  - Measured on a local Work in Spanish (every key of every module's catalog, and the shell's, in
+    every language, reads the same both ways): a module's catalogs are 1 request where they were 2,
+    and Tasks' 108 KB where they were 212 (Notes 83/162, Projects 88/172, Next 81/159, the shell 68/133);
+    with the four modules and the shell, 5 catalogs and 428 KB where there were 10 and 838 KB.
+- **A module's start no longer evaluates the sign-in screen, Settings' plan and the worker**
+  (`web/signin.js`, `web/signin-form.js`, `web/plan.js`, `web/plan-return.js`, `web/shell.js`,
+  `web/update.js`, `web/sw-core.js`; audit of 6/11, perf-web-4). Each module mounted in Cronum Work
+  loads the kit from its own address and evaluated its own copy whole, with code that inside Work
+  never runs or runs only on a tap.
+  - The sign-in screen is `signin-form.js`, which `signIn()` loads when it draws it: a page with a
+    session never evaluates it. `signin.js` keeps every export (signing out, `pendingChanges`,
+    `confirmEmailFromLink`, `straightToProvider`…); `signIn()` resolves as before, the screen a
+    moment later than before (its file, from the worker's copy).
+  - `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, which the frame (shell.js)
+    takes them from; `plan.js`, Settings' plan section, comes only with Settings, and still names
+    all three.
+  - `update.js` asks for worker.js (and with it push.js) only when a check needs the host's worker:
+    a module in a window of Work, which never watches for updates itself, doesn't evaluate them.
+  - The worker's copy keeps the two new files.
+  - Measured from the static imports of each module's main.js (what Work mounts): the kit a module
+    evaluates goes from 402 to 337 KB in Tasks, 388 to 314 in Projects, 405 to 331 in Notes and 382
+    to 308 in Next, 1 577 to 1 289 KB with the four; the shell's own copy from 299 to 288 KB. In the
+    test Chrome, with no worker, cold: Tasks' window 27 kit files and 372 KB where it was 28 and 422
+    (the four, 108 files and 1 674 KB → 101 and 1 446 KB; parsed, 1 595 → 1 372 KB).
+- **Docs: live notices while a module is put away** (`docs/architecture.md` §21.6; audit of 6/11,
+  perf-web-2): the mount contract says what the shell does with a hidden module's notices since Work
+  0.109.0 (held, then one `onResync()` after `resume()`), and that a paused module doesn't reload on
+  `visibilitychange`.
+
+## 0.284.0 — 2026-11-14
+
+Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
+routes; measured on the audit's database (301 accounts, ~37 000 tasks, 14 000 notes), numbers in
+the pull request.
+
+- **Time zones read once** (`time.js`, `day.js`; perf-srv-1): `knownTimeZone()` built a formatter
+  to check a zone each time it was asked, ~100–250 µs, and every `dayIn()`, `daysSince()` and
+  request asks: it keeps what each name resolves to (500 names at most, the oldest going first;
+  `prefs.tz` is the client's). `dayIn()` 102 → 1.6 µs. The check of the daily notices every minute
+  reads each person's preferences once and the minute and day once a zone, not once a person:
+  1 000 accounts 103 → 2 ms, 10 000 1.5 s → 17 ms, during which nobody else was answered.
+- **Statements kept prepared, and statistics for the planner** (`db.js`; perf-srv-6):
+  `all/get/run` prepared their SQL every time, up to half of a route's CPU. Each handle keeps the
+  last 500 texts of reads and writes (never a PRAGMA nor DDL) prepared; a call binds every
+  parameter anew, SQLite prepares one again when the schema changes, and `close()` lets them go.
+  A connection whose `prepare` was replaced on it (the modules' tests that count statements)
+  prepares each one, as before.
+  New `optimize({ first })`: `PRAGMA optimize` (0x10002 the first time: whole tables that have no
+  statistics yet), run with the clean-ups, at the start and every 6 hours (`host.js`, `app.js`).
+  Never sampled (`analysis_limit`): sampled statistics made My Day's queries ten times slower.
+  `synchronous` is as it was.
+- **Usage without the dates nobody sees** (`usage.js`, `host.js`; perf-srv-5): `active_at` is
+  shown only in the admin's dialog of one account (`GET /api/admin/users/:id/usage`, which asks
+  with `{ activity: true }`). Settings › Plan (`/api/me/usage`) and the admin's list
+  (`/api/admin/usage`) ask the modules' `usage(id, { activity: false })` and
+  `usageAll(ids, { activity: false })`, and answer `active_at: null`: a module may skip the MAX of
+  dates over whole tables that was ~90 % of both routes. The modules don't read the option yet;
+  until they do, they still compute it.
+- **The admin's list of accounts in a few queries** (`api.js`, `entitlements.js`, `accounts.js`;
+  perf-srv-9): `GET /api/admin/users` asked four or more queries an account (905 for 301), now 6
+  for all of them, with the same answer: `entitlements.plansOfMany(users)` (of() and sourceOf()
+  of each, from ofMany()'s queries) and `accounts.providersOfMany(ids)`.
+- **One session check a heartbeat for each stream of every module** (`live.js`, `host.js`;
+  perf-srv-10): the host's `GET /api/events?all` was asked about by every module's heartbeat, the
+  same session four times. `createLiveAll({ stillIn })` opens them (`subscribe()`) and asks each
+  once a heartbeat itself, and at once when that person's sessions close (`recheck(userId)`); the
+  modules' relays are opened with `checked: false`, so their heartbeats leave them out (`dropUser`
+  still keeps the session kept). `subscribeAll()` takes `stillIn` and `onEnd` and returns
+  `{ userId, recheck }`; without `stillIn` it is as it was. 9 tabs, 55 s: 72 → 18 checks.
+- **Erasing one's data or importing with "replace" reloads only who it concerns**
+  (`portability.js`; perf-srv-11): the `resync` went to every connected tab. Now to the person,
+  everyone their rows share something with (whom their lists are shared with, who shared one with
+  them, the other members of their groups: `peopleNear()`, read before anything is handed over),
+  and with groups that changed, their members. A whole install's import still tells everyone.
+- **Exporting lets everyone else in** (`portability.js`; perf-srv-14): a copy was read whole in
+  one synchronous transaction, and its tables turned into JSON in one go. `prepareExportAsync()`
+  (what `/api/me/export` and `/api/admin/export` use) reads on a second, read-only connection, in
+  its own read transaction (one moment of the data, whatever is written meanwhile), pausing between
+  tables and every 2 000 rows (`selectingRows()`, the steps of `selectRows()`); each table's JSON is
+  written 2 000 rows at a time (`jsonOfRows()`, byte for byte what `JSON.stringify` wrote).
+  `prepareExport()` stays as it was, for the command line and the tests; without a file to open a
+  second connection on (`:memory:`), the routes use it.
+
+## 0.283.0 — 2026-11-14
+
+- **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
+  `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
+  optional `permissions`: the same `[{ value, label, offered? }]` list `shareDialog` takes, broadest
+  first, or a function of the item when the roles differ from one item to another. With two roles
+  they are buttons, with more a list to pick from; a role with `offered: false` is shown in words, never
+  given, changed or taken back there (a project's manager, to whoever isn't its owner). Without the
+  option nothing changes: can view, can edit. Projects uses it for its three roles.
+- **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
+  claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
+  paused ones: «Open projects» now, in the five languages.
+
+## 0.279.0 — 2026-11-14
+
+- **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
+  0.255.0 added `push_subscriptions.session_key` inside suite migration 13, which every existing
+  database had already applied, so there the column never came. `POST /api/push/subscribe` failed with
+  `no such column: session_key`, and so did the suite's clean-up (`push.purgeSessions()`). Migration 30
+  runs `pushSchema` again, which only adds what a table lacks; new databases are unchanged.
 
 ## 0.277.1 — 2026-11-14
 

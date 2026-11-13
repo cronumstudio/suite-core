@@ -65,6 +65,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { randomToken } from './crypto.js';
 import {
   HttpError, badRequest, notFound, conflict, forbidden, unauthorized, readJson, sendJson, int,
@@ -483,7 +484,23 @@ function fits(value, affinity) {
  * concern that person were left out, per table: what is shared with other
  * people.
  */
-export function selectRows(model, rowsOf, inside, { account = null, organizations = () => false } = {}) {
+export function selectRows(model, rowsOf, inside, options = {}) {
+  const steps = selectingRows(model, rowsOf, inside, options);
+  for (;;) {
+    const { done, value } = steps.next();
+    if (done) return value;
+  }
+}
+
+/** Rows looked at between two pauses of selectingRows(): a few milliseconds of work. */
+const ROWS_AT_ONCE = 2000;
+
+/**
+ * selectRows(), one step at a time: it yields after each table and every ROWS_AT_ONCE rows, so
+ * whoever drives it can let the process answer others in between (an export, perf-srv-14), and
+ * returns what selectRows() returns.
+ */
+export function* selectingRows(model, rowsOf, inside, { account = null, organizations = () => false } = {}) {
   const kept = new Map();
   const ids = new Map();
   const leftOut = {};
@@ -491,7 +508,9 @@ export function selectRows(model, rowsOf, inside, { account = null, organization
     const rows = [];
     const keptIds = new Set();
     let left = 0;
+    let seen = 0;
     for (const source of rowsOf(table.name, ids)) {
+      if (++seen % ROWS_AT_ONCE === 0) yield;
       const row = { ...source };
       let belongs = true;
       let concerns = false;
@@ -516,6 +535,7 @@ export function selectRows(model, rowsOf, inside, { account = null, organization
     kept.set(table.name, rows);
     ids.set(table.name, keptIds);
     if (left) leftOut[table.name] = left;
+    yield;
   }
   for (const table of model.tables) {
     for (const ref of table.refs.filter((r) => r.deferred)) {
@@ -564,6 +584,21 @@ const countsOf = (kept) => Object.fromEntries([...kept].filter(([, rows]) => row
 
 /* ------------------------------ values in the file ----------------------------- */
 
+/**
+ * The JSON of a table's rows in a copy, as `JSON.stringify(rows.map(map), null, 1)` writes it, byte
+ * for byte, but a slice of rows at a time, letting the process answer others in between: a table
+ * of tens of thousands of rows was one long stop (perf-srv-14).
+ */
+export async function jsonOfRows(rows, map = (row) => row) {
+  if (!rows.length) return '[]';
+  const parts = [];
+  for (let i = 0; i < rows.length; i += ROWS_AT_ONCE) {
+    if (i) await new Promise((resolve) => { setImmediate(resolve); });
+    for (const row of rows.slice(i, i + ROWS_AT_ONCE)) parts.push(` ${JSON.stringify(map(row), null, 1).replaceAll('\n', '\n ')}`);
+  }
+  return `[\n${parts.join(',\n')}\n]`;
+}
+
 /** A value as it goes into JSON: blobs (none of the apps has one today) as base64, which comes back only into a BLOB column. */
 const toJson = (value) => (value instanceof Uint8Array ? { $blob: Buffer.from(value).toString('base64') } : value);
 
@@ -593,6 +628,23 @@ function countValues(bytes) {
     if (byte === 0x2c || byte === 0x7b || byte === 0x5b) count += 1;
   }
   return count;
+}
+
+/**
+ * A second connection to the database, read-only, for an export to read from while the app's own
+ * goes on answering (prepareExportAsync): all, get, iterate, exec, columnsOf, close.
+ */
+function openReader(file) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  db.exec('PRAGMA busy_timeout = 5000');
+  return {
+    all: (sql, ...params) => db.prepare(sql).all(...params),
+    get: (sql, ...params) => db.prepare(sql).get(...params),
+    iterate: (sql, ...params) => db.prepare(sql).iterate(...params),
+    exec: (sql) => db.exec(sql),
+    columnsOf: (table) => db.prepare(`PRAGMA table_info("${String(table).replaceAll('"', '""')}")`).all().map((c) => c.name),
+    close: () => db.close(),
+  };
 }
 
 /* -------------------------------- the service ---------------------------------- */
@@ -642,9 +694,11 @@ export function createPortability({
     organizations: byWho(limits.organizations, 100, 1_000_000),
   };
   const iso = () => new Date(clock()).toISOString();
-  const rowsOfDb = (name) => {
+  /** A query's rows from `from` (the database, or an export's own reader): one at a time where it can. */
+  const rowsFrom = (from, sql, ...params) => (from.iterate ? from.iterate(sql, ...params) : from.all(sql, ...params));
+  const rowsOfDb = (name, ids, from = database) => {
     const table = model.byName.get(name);
-    return database.all(`SELECT * FROM ${quote(name)} ORDER BY ${table.key.map(quote).join(', ')}`);
+    return rowsFrom(from, `SELECT * FROM ${quote(name)} ORDER BY ${table.key.map(quote).join(', ')}`);
   };
 
   /**
@@ -655,7 +709,7 @@ export function createPortability({
    * every table whole made one person's copy cost, in time with the server
    * stopped and in memory, as much as everybody's data (x-stability-1).
    */
-  const rowsNear = (userIds, organizationIds = []) => (name, ids) => {
+  const rowsNear = (userIds, organizationIds = [], from = database) => (name, ids) => {
     const table = model.byName.get(name);
     const where = [];
     const params = [];
@@ -666,7 +720,7 @@ export function createPortability({
       params.push(JSON.stringify(ref.target === 'users' ? userIds
         : ref.target === 'organizations' ? organizationIds : [...ids.get(ref.target)]));
     }
-    return database.all(`SELECT * FROM ${quote(name)} WHERE ${where.join(' OR ')}
+    return rowsFrom(from, `SELECT * FROM ${quote(name)} WHERE ${where.join(' OR ')}
       ORDER BY ${table.key.map(quote).join(', ')}`, ...params);
   };
 
@@ -680,7 +734,7 @@ export function createPortability({
    * role is one that carries it, archived ones too (marked so: what points at them keeps its
    * meaning). With the role and when they joined.
    */
-  const groupsOf = (userId) => (groups ? database.all(`SELECT o.*, m.role, m.joined_at,
+  const groupsOf = (userId, from = database) => (groups ? from.all(`SELECT o.*, m.role, m.joined_at,
       (SELECT COUNT(*) FROM memberships x WHERE x.organization_id = o.id) AS members
     FROM memberships m JOIN organizations o ON o.id = m.organization_id
     WHERE m.user_id = ? ORDER BY o.id`, userId)
@@ -705,6 +759,68 @@ export function createPortability({
     const set = new Set(own);
     return selectRows(model, rowsNear([userId], own), (id) => id === userId, { organizations: (id) => set.has(id) }).kept;
   };
+
+  /**
+   * Whose open tabs must reload when an account's data here goes (erasing it, "replace"): the
+   * account, everyone its rows point at or are pointed at by (whom its lists are shared with, who
+   * added a task to them), the people whose rows theirs hang from (who shared a list with it, whose
+   * list it has a task in), and the other members of its groups. Read before anything is handed
+   * over or deleted. Telling everyone connected made every tab of every person reload all it shows
+   * for one person's erase (audit of 6/11, perf-srv-11). → Set of user ids.
+   */
+  function peopleNear(userId) {
+    const people = new Set([Number(userId)]);
+    const mine = groupsOf(userId).map((o) => o.id);
+    const inMine = new Set(mine);
+    if (mine.length) {
+      for (const row of database.all(`SELECT DISTINCT user_id FROM memberships
+        WHERE organization_id IN (SELECT value FROM json_each(?))`, JSON.stringify(mine))) people.add(Number(row.user_id));
+    }
+    const above = new Map();
+    const near = rowsNear([userId], mine);
+    selectRows(model, (name, ids) => {
+      const rows = near(name, ids);
+      const table = model.byName.get(name);
+      for (const row of rows) {
+        for (const ref of table.refs) {
+          const value = row[ref.column];
+          if (value == null) continue;
+          if (ref.target === 'users') people.add(Number(value));
+          else if (ref.target !== 'organizations') {
+            if (!above.has(ref.target)) above.set(ref.target, new Set());
+            above.get(ref.target).add(value);
+          }
+        }
+      }
+      return rows;
+    }, (id) => id === userId, { organizations: (id) => inMine.has(id) });
+    // One step up: whose are the rows theirs hang from.
+    for (const [name, ids] of above) {
+      const columns = model.byName.get(name).refs.filter((ref) => ref.target === 'users').map((ref) => quote(ref.column));
+      if (!columns.length) continue;
+      for (const row of database.all(`SELECT ${columns.join(', ')} FROM ${quote(name)} WHERE id IN (SELECT value FROM json_each(?))`,
+        JSON.stringify([...ids]))) {
+        for (const value of Object.values(row)) if (value != null) people.add(Number(value));
+      }
+    }
+    return people;
+  }
+
+  /**
+   * Who reloads after someone's own import: they, `near` (peopleNear before "replace"), and with
+   * `result` (a group others are in changed) every member of the groups the copy went into or
+   * they were taken out of. → Set of user ids.
+   */
+  function audienceOf(user, near, result) {
+    const people = new Set([Number(user.id), ...near]);
+    const touched = result ? [...(result.organizations || []).map((o) => o.organization_id),
+      ...(result.handed_over || []).map((o) => o.organization_id)].filter((id) => id != null) : [];
+    if (touched.length) {
+      for (const row of database.all(`SELECT DISTINCT user_id FROM memberships
+        WHERE organization_id IN (SELECT value FROM json_each(?))`, JSON.stringify(touched))) people.add(Number(row.user_id));
+    }
+    return people;
+  }
 
   /**
    * Before "replace" empties an account: each group in its copy that others share is handed over
@@ -749,13 +865,16 @@ export function createPortability({
    * copy would take, but a group's rows only where nobody else is in it—, and
    * its files once committed. A group they share keeps its rows and them as a
    * member, and a group of theirs alone keeps its organization and plan.
-   * Everyone resyncs: a list handed over has a new owner. → { erased: { table: n } }
+   * They and whoever shared something with them resync (peopleNear): a list handed over has a new
+   * owner. → { erased: { table: n } }
    */
   function erase(user, { req = null } = {}) {
     const release = begin(`user:${user.id}`);
     try {
       const files = [];
+      let near = null;
       const erased = database.tx(() => {
+        near = peopleNear(user.id);
         declaration.handOver?.(user.id);
         return emptyAccount(user.id, files);
       });
@@ -764,7 +883,8 @@ export function createPortability({
         action: 'data.erase', actor: user, req,
         meta: { rows: Object.values(erased).reduce((a, b) => a + b, 0), files: files.length },
       });
-      live?.publish({ audience: null, event: 'resync', data: {} });
+      // Who shared something with them, and they: a list handed over has a new owner.
+      live?.publish({ audience: [...near], event: 'resync', data: {} });
       // What else keeps something of it (a host's links): told once it is gone.
       try { onErased?.(user); } catch (error) { log(`[${app.id}] after erasing user ${user.id}: ${error?.stack || error}`); }
       return { erased };
@@ -855,7 +975,52 @@ export function createPortability({
    * @param {'account'|'install'} options.scope
    * @param {number} [options.userId]   whose, for an account's copy
    */
-  function prepareExport({ scope, userId = null, run = null }) {
+  function prepareExport(options) {
+    const steps = exporting(options, database, { transaction: true });
+    for (;;) {
+      const { done, value } = steps.next();
+      if (done) return value;
+    }
+  }
+
+  /**
+   * prepareExport() that lets the process answer everyone else while it reads: table by table, and
+   * every few thousand rows, on a second connection of its own, read-only, in a read transaction of
+   * its own (WAL: the copy is of one moment, whatever is written meanwhile). On the app's own
+   * connection, a request coming in between would have run inside the export's transaction.
+   * Exporting the whole install stopped everyone for over a second, and a big account's for a
+   * quarter of one (audit of 6/11, perf-srv-14). Without a file to open a second connection on
+   * (`:memory:`), it reads at once, as prepareExport() does.
+   */
+  async function prepareExportAsync(options) {
+    const file = database.path;
+    let reader = null;
+    try {
+      reader = file && file !== ':memory:' ? openReader(file) : null;
+    } catch (err) {
+      log(`[data] an export reads at once: no second connection (${err.message})`);
+    }
+    if (!reader) return prepareExport(options);
+    try {
+      reader.exec('BEGIN');
+      const steps = exporting(options, reader, { transaction: false });
+      for (;;) {
+        const { done, value } = steps.next();
+        if (done) return value;
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    } finally {
+      try { reader.exec('COMMIT'); } catch { /* a read transaction: nothing to keep */ }
+      reader.close();
+    }
+  }
+
+  /**
+   * What an export reads, one step at a time (it yields between them): with `from` the database
+   * itself and `transaction`, in one read transaction of the app's connection (prepareExport); with
+   * a reader of its own, in that reader's (prepareExportAsync).
+   */
+  function* exporting({ scope, userId = null, run = null }, from, { transaction }) {
     if (!['account', 'install'].includes(scope)) throw new Error(`export: unknown scope ${scope}`);
     const userSql = `SELECT ${model.userColumns.map(quote).join(', ')} FROM users`;
     let users;
@@ -872,61 +1037,64 @@ export function createPortability({
     const install = groups && scope === 'install' ? installId() : null;
     // The run it is of: the caller's, when its other modules are exported with it; else its own.
     const exportRun = install ? (typeof run === 'string' && TOKEN.test(run) ? run : randomToken(18)) : null;
-    database.exec('BEGIN');
+    if (transaction) database.exec('BEGIN');
     try {
-      users = scope === 'install' ? database.all(`${userSql} ORDER BY id`) : [database.get(`${userSql} WHERE id = ?`, userId)].filter(Boolean);
+      users = scope === 'install' ? from.all(`${userSql} ORDER BY id`) : [from.get(`${userSql} WHERE id = ?`, userId)].filter(Boolean);
       if (!users.length) throw notFound('user_not_found');
+      yield;
       if (groups && scope === 'install') {
         // Every group, the archived too (what points at them keeps its meaning), with every member.
-        orgs = database.all(`SELECT ${ORGANIZATION_COLUMNS.map(quote).join(', ')} FROM organizations ORDER BY id`);
-        memberships = database.all(`SELECT ${MEMBERSHIP_COLUMNS.map(quote).join(', ')} FROM memberships
+        orgs = from.all(`SELECT ${ORGANIZATION_COLUMNS.map(quote).join(', ')} FROM organizations ORDER BY id`);
+        memberships = from.all(`SELECT ${MEMBERSHIP_COLUMNS.map(quote).join(', ')} FROM memberships
           ORDER BY organization_id, joined_at, user_id`);
         // The links people were sent still open the group after the move: only their hash travels,
         // as it is kept here, in the administrator's copy. Used, revoked and expired ones are history.
-        invitations = database.all(`SELECT ${INVITATION_COLUMNS.map(quote).join(', ')} FROM invitations
+        invitations = from.all(`SELECT ${INVITATION_COLUMNS.map(quote).join(', ')} FROM invitations
           WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ? ORDER BY id`, iso());
       } else if (groups) {
         // Someone's own: their groups and their own membership in each, never the other members.
-        const mine = groupsOf(userId);
+        const mine = groupsOf(userId, from);
         orgs = mine.map((o) => Object.fromEntries(ORGANIZATION_COLUMNS.map((c) => [c, o[c] ?? null])));
         memberships = mine.map((o) => ({ organization_id: o.id, user_id: userId, role: o.role, invited_by: null, joined_at: o.joined_at }));
       }
       const orgIds = new Set(orgs.map((o) => o.id));
       const inside = scope === 'install' ? () => true : (id) => id === userId;
-      ({ kept, leftOut } = selectRows(model, scope === 'install' ? rowsOfDb : rowsNear([userId], [...orgIds]), inside,
+      yield;
+      ({ kept, leftOut } = yield* selectingRows(model, scope === 'install' ? (name, ids) => rowsOfDb(name, ids, from) : rowsNear([userId], [...orgIds], from), inside,
         { account: scope === 'account' ? userId : null, organizations: (id) => orgIds.has(id) }));
-      if (scope === 'install' && database.columnsOf('entitlement_grants').length) {
+      if (scope === 'install' && from.columnsOf('entitlement_grants').length) {
         // Every source, not only the administrator's: a paid plan moves with its account,
         // which the new install numbers anew (audit sc-data-48).
-        grants = database.all(`SELECT subject_id, plan, feature, value, quantity, source, external_ref, starts_at, ends_at,
+        grants = from.all(`SELECT subject_id, plan, feature, value, quantity, source, external_ref, starts_at, ends_at,
           created_at, note FROM entitlement_grants WHERE subject_type = 'user' AND revoked_at IS NULL ORDER BY id`);
         // And a group's (a trial, a family's Pro), each saying so: a grant without a type is an account's.
         if (groups) {
-          grants.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, plan, feature, value, quantity, source,
+          grants.push(...from.all(`SELECT 'organization' AS subject_type, subject_id, plan, feature, value, quantity, source,
             external_ref, starts_at, ends_at, created_at, note FROM entitlement_grants
             WHERE subject_type = 'organization' AND revoked_at IS NULL ORDER BY id`).filter((g) => orgIds.has(g.subject_id)));
         }
       }
-      if (scope === 'install' && database.columnsOf('billing_customers').length) {
-        const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
+      yield;
+      if (scope === 'install' && from.columnsOf('billing_customers').length) {
+        const refunded = from.columnsOf('billing_subscriptions').includes('refunded_until');
         billing = {
-          customers: database.all(`SELECT subject_id, provider, customer_id, created_at FROM billing_customers
+          customers: from.all(`SELECT subject_id, provider, customer_id, created_at FROM billing_customers
             WHERE subject_type = 'user' ORDER BY subject_id`),
-          subscriptions: database.all(`SELECT subject_id, provider, ref, product, status, quantity, period_end, occurred_at,
+          subscriptions: from.all(`SELECT subject_id, provider, ref, product, status, quantity, period_end, occurred_at,
             updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions WHERE subject_type = 'user' ORDER BY updated_at`),
         };
         // Who pays for a group, so that its renewals still find it under its new id.
         if (groups) {
-          billing.customers.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, provider, customer_id,
+          billing.customers.push(...from.all(`SELECT 'organization' AS subject_type, subject_id, provider, customer_id,
             created_at FROM billing_customers WHERE subject_type = 'organization' ORDER BY subject_id`).filter((c) => orgIds.has(c.subject_id)));
-          billing.subscriptions.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, provider, ref, product,
+          billing.subscriptions.push(...from.all(`SELECT 'organization' AS subject_type, subject_id, provider, ref, product,
             status, quantity, period_end, occurred_at, updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions
             WHERE subject_type = 'organization' ORDER BY updated_at`).filter((s) => orgIds.has(s.subject_id)));
         }
         if (!billing.customers.length && !billing.subscriptions.length) billing = null;
       }
     } finally {
-      database.exec('COMMIT');
+      if (transaction) database.exec('COMMIT');
     }
     const id = randomToken(18);
     const createdAt = iso();
@@ -935,7 +1103,7 @@ export function createPortability({
     async function write(output) {
       const zip = createZipWriter(output, { now: () => new Date(clock()) });
       const json = (value) => JSON.stringify(value, null, 1);
-      await zip.add('data/users.json', json(users.map((u) => Object.fromEntries(Object.entries(u).map(([k, v]) => [k, toJson(v)])))));
+      await zip.add('data/users.json', await jsonOfRows(users, (u) => Object.fromEntries(Object.entries(u).map(([k, v]) => [k, toJson(v)]))));
       if (orgs.length) {
         await zip.add('data/organizations.json', json(orgs));
         await zip.add('data/memberships.json', json(memberships));
@@ -944,8 +1112,8 @@ export function createPortability({
         const rows = kept.get(table.name);
         // A column the app omits never reaches the file, in any copy.
         if (rows.length) {
-          await zip.add(`data/${table.name}.json`, json(rows.map((r) => Object.fromEntries(Object.entries(r)
-            .filter(([k]) => !table.omit.has(k)).map(([k, v]) => [k, toJson(v)])))));
+          await zip.add(`data/${table.name}.json`, await jsonOfRows(rows, (r) => Object.fromEntries(Object.entries(r)
+            .filter(([k]) => !table.omit.has(k)).map(([k, v]) => [k, toJson(v)]))));
         }
       }
       if (grants.length) await zip.add('suite/grants.json', json(grants));
@@ -1640,6 +1808,8 @@ export function createPortability({
 
       const replacedFiles = [];
       const moves = [];
+      /** Someone's own "replace": the people whose tabs reload, besides them (peopleNear). */
+      const near = new Set();
       const result = database.tx(() => {
         // The run gate, where nothing can come in between: two imports of an install (two modules, the
         // command line) may both pass the check above while reading their attachments; the second one
@@ -1690,6 +1860,8 @@ export function createPortability({
           if (choice.action !== 'map' || !choice.replace) continue;
           // Again, inside: nothing may have changed since the check before the attachments were read.
           if (confirmHandOver) checkHandOver(choice.userId, handOver);
+          // Someone's own: whose tabs reload once it is in, read before anything of theirs goes.
+          if (mode === 'account') for (const id of peopleNear(choice.userId)) near.add(id);
           if (groups) handedOver.push(...handOverGroups(choice.userId).map((g) => ({ ...g, user_id: choice.userId })));
           // Someone's own copy doesn't take what they share from the people using it: it passes on,
           // as when they erase their data, and the copy comes back as theirs alone. A whole install's
@@ -2016,10 +2188,12 @@ export function createPortability({
           files: result.imported.files, ...(groups ? { organizations: result.organizations.length } : {}),
         },
       });
-      // Whoever has the app open sees it all without reloading by hand: everyone when a group
-      // others are in changed (rows came into one, or someone left it).
+      // Whoever has the app open sees it all without reloading by hand: someone's own, they; with
+      // "replace", whoever shared something with them too (a list handed over has a new owner), and
+      // when a group others are in changed (rows came into one, or someone left it), its members.
+      // A whole install's: everyone.
       const shared = groups && (result.imported.organizations.mapped > 0 || result.handed_over.length > 0);
-      live?.publish({ audience: mode === 'account' && !Object.keys(result.replaced).length && !shared ? [user.id] : null, event: 'resync', data: {} });
+      live?.publish({ audience: mode === 'account' ? [...audienceOf(user, near, shared ? result : null)] : null, event: 'resync', data: {} });
       for (const { user_id: id } of result.accounts) accounts.changed?.(id);
       // What was emptied leaves nothing elsewhere either (a host's links), as when it is erased.
       if (mode === 'account' && Object.keys(result.replaced).length) {
@@ -2175,7 +2349,7 @@ export function createPortability({
   }
 
   return {
-    model, max, prepareExport, receive, apply, discard, planFile, applyFile, purge, begin, erase,
+    model, max, prepareExport, prepareExportAsync, receive, apply, discard, planFile, applyFile, purge, begin, erase,
     /** For tests and tools: the pieces under the service. */
     readArchive, schemaVersions,
   };
@@ -2216,7 +2390,7 @@ export function registerPortabilityApi(router, {
     try {
       // `?run=`: the run of a host's other modules exported with it (the copy says which it is of).
       const run = scope === 'install' ? ctx.query?.get('run') ?? null : null;
-      const job = portability.prepareExport({ scope, userId: user.id, run });
+      const job = await portability.prepareExportAsync({ scope, userId: user.id, run });
       const ascii = job.filename.replace(/[^\w.-]/g, '_');
       ctx.res.writeHead(200, {
         'Content-Type': 'application/zip',

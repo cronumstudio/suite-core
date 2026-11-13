@@ -28,12 +28,41 @@ export function openDatabase({ path, name = 'app', dataDir = process.env.DATA_DI
   return wrapDatabase(db, { path: file });
 }
 
+/** Statements kept prepared per handle, by their text: the most used stay, the oldest unused go first. */
+const STATEMENTS_KEPT = 500;
+/** What is kept prepared: reads and writes of rows. Never a PRAGMA (some answer what they found when prepared) nor DDL. */
+const KEEPABLE = /^\s*(?:SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)\b/i;
+
 /** The suite's handle around a `DatabaseSync` the app already has. */
 export function wrapDatabase(db, { path = null } = {}) {
-  const all = (sql, ...params) => db.prepare(sql).all(...params);
-  const get = (sql, ...params) => db.prepare(sql).get(...params);
+  // Each call prepared its statement again, and preparing was up to half of a route's CPU
+  // (audit of 6/11, perf-srv-6). A statement here is only ever run whole (all, get, run: never
+  // iterated), so one kept is never in use when it is asked for again; SQLite prepares it again by
+  // itself when the schema changes, and every call binds all its parameters anew (those not given
+  // are null, as in a new one). Text made with a varying number of `?` is kept too, up to the cap.
+  const kept = new Map();
+  const statement = (sql) => {
+    // A connection whose prepare() was replaced on it (the modules' tests count statements so)
+    // prepares each one as before: what it counts stays the statements run.
+    if (Object.hasOwn(db, 'prepare')) return db.prepare(sql);
+    let found = kept.get(sql);
+    if (found) {
+      // Most recently used last: what goes first is what was used least recently.
+      kept.delete(sql);
+      kept.set(sql, found);
+      return found;
+    }
+    found = db.prepare(sql);
+    if (typeof sql === 'string' && KEEPABLE.test(sql)) {
+      if (kept.size >= STATEMENTS_KEPT) kept.delete(kept.keys().next().value);
+      kept.set(sql, found);
+    }
+    return found;
+  };
+  const all = (sql, ...params) => statement(sql).all(...params);
+  const get = (sql, ...params) => statement(sql).get(...params);
   const run = (sql, ...params) => {
-    const result = db.prepare(sql).run(...params);
+    const result = statement(sql).run(...params);
     return { changes: Number(result.changes), lastInsertRowid: Number(result.lastInsertRowid) };
   };
 
@@ -79,6 +108,19 @@ export function wrapDatabase(db, { path = null } = {}) {
     ),
     /** Names of a table's columns (empty if the table doesn't exist). */
     columnsOf: (table) => all(`PRAGMA table_info("${String(table).replaceAll('"', '""')}")`).map((c) => c.name),
-    close: () => db.close(),
+    /**
+     * Lets SQLite gather what its planner needs (`PRAGMA optimize`): without it, it has no
+     * statistics and chooses blind (perf-srv-6). `first`, at the start: every table that has none
+     * yet (0x10002), ~0.1 s on the audit's database of 70 MB; later (the clean-ups), only the tables
+     * whose data changed enough to matter. Whole tables, never a sample (`analysis_limit`): sampled
+     * statistics made My Day's queries choose a date index over the list's, ten times slower.
+     */
+    optimize: ({ first = false } = {}) => {
+      db.exec(first ? 'PRAGMA optimize = 0x10002' : 'PRAGMA optimize');
+    },
+    close: () => {
+      kept.clear();
+      db.close();
+    },
   };
 }

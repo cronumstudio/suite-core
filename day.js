@@ -410,14 +410,22 @@ export function createDayNotices({
   async function run(now) {
     // Whose notice is due now, each on their own day and at their own time.
     const due = [];
+    // The minute and the day of `now` in each zone, read once a zone rather than once a person:
+    // with every account in one stretch each minute, that was most of it (audit of 6/11, perf-srv-1).
+    const clockOf = new Map();
+    const inZone = (zone) => {
+      if (!clockOf.has(zone)) clockOf.set(zone, { minute: minuteIn(zone, now), day: dayIn(zone, now) });
+      return clockOf.get(zone);
+    };
     for (const row of database.all('SELECT id, prefs FROM users WHERE disabled_at IS NULL ORDER BY id')) {
-      const zone = zoneOf(row);
-      const minute = minuteIn(zone, now);
-      const prefs = dayPrefsOf(row.prefs);
+      // Their preferences read once, for the zone and for the notices.
+      const stored = readPrefs(row.prefs);
+      const { minute, day: today } = inZone(zoneOf({ prefs: stored }));
+      const prefs = dayPrefsOf(stored);
       for (const kind of DAY_NOTICES) {
         const { on, at } = prefs[kind];
         const from = minutesOf(at);
-        if (on && minute >= from && minute < from + DAY_WINDOW_MINUTES) due.push({ userId: row.id, kind, day: dayIn(zone, now) });
+        if (on && minute >= from && minute < from + DAY_WINDOW_MINUTES) due.push({ userId: row.id, kind, day: today });
       }
     }
     const result = { sent: 0, empty: 0 };
