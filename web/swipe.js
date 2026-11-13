@@ -27,7 +27,7 @@
  * - Right to left it is mirrored: `right` is towards the line's end, where a reader of that
  *   language reads on.
  * - The row keeps the finger whatever it has: `data-own-swipe` (a sign that its sideways finger is
- *   its own; Cronum Work's windows read it while a swipe changed module on a phone, until 0.285.0)
+ *   its own; Cronum Work's windows read it while a swipe changed module on a phone, until 0.286.0)
  *   and `touch-action: pan-y` (kit.css), and once it is a swipe the touch's moves are kept from the
  *   browser. Not for what lies in something that scrolls sideways (Next's line, the Gantt): there
  *   `pan-y` would take that scroll away.
