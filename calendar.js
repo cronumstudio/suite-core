@@ -226,7 +226,7 @@ export function calendarTools({ calendar, allowed = () => true }) {
         to: { type: 'string', description: 'Last day, YYYY-MM-DD (six days after `from` if left out).' },
       },
     },
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     handler: async (user, args = {}) => {
       const from = args.from ?? todayFor(user);
       const start = isoDate(from);

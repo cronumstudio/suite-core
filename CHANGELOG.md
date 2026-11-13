@@ -52,6 +52,14 @@ module gives today keeps working as it does.
   `cardOf`, `cardsOf`, `parseRef`, `formatRef` on what `createLinks()` returns (`parseRef` and
   `formatRef` stay exported from `links.js`). `?date=` stays: Work's tests read another day.
 
+## 0.277.1 — 2026-11-14
+
+- **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
+  `links.js`, `calendar.js` and `mcp.js`): `destructiveHint: false` and `idempotentHint: true` besides
+  `readOnlyHint: true` and `openWorldHint: false`. OpenAI's plugin portal flags a tool whose
+  `readOnlyHint`, `destructiveHint` and `openWorldHint` are not all explicit booleans; in Cronum Work,
+  the 28 that read.
+
 ## 0.277.0 — 2026-11-13
 
 - **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`;

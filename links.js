@@ -546,7 +546,7 @@ export function linkTools({ links, modules }) {
           + ` Give the thing as module, type and id (from that module's tools). Kinds: ${kinds()}.`;
       },
       inputSchema: { type: 'object', properties: { item: ref }, required: ['item'] },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: (user, args) => {
         const found = links.of(user, formatRef(args.item || {}));
         return text(found.length
