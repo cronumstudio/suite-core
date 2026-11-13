@@ -3,6 +3,77 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.282.0 — 2026-11-14
+
+Audit of 6/11: the host's runtime, mail, push, the configuration and what was left of billing.
+
+- **A group left with nobody stops renewing** (`organizations.js`, `billing.js`, `app.js`; Martin's
+  decision of 13/11). When an account's deletion leaves a group of a kind kept when empty
+  (`onEmpty: 'archive'`) with nobody in it, the group was archived and its own subscription went on
+  renewing, with nobody to cancel it. Now its live subscriptions stop at the end of the period they
+  paid for, asked of the provider once the deletion's transaction is over and by the hourly sweep if
+  that fails, the same way a group's stop always goes (`billing.organizationArchived`, who wants it:
+  `empty`; each stop asked is `billing.organization.stop` in the log). The archive itself is in the
+  log too (`org.archive`, `reason: 'empty'`). `organizations.whenArchived(hook)` is new. Only with
+  `modules.organizations`, and a provider that can stop one.
+- **A relinked login keeps its renewals** (`billing.js`, billing-16). Someone whose WorkOS id changed
+  (WorkOS forgot it, and the same verified email signed in again) had their subscription's renewals
+  waiting forever for the old id, and lost Pro after the grace days while still paying. An event
+  whose identity nobody has here now goes, before waiting, to the person its subscription (or
+  purchase) is known for here, else to the person its customer is linked to. Someone who hasn't
+  opened this app yet still waits, as before.
+- **Back from a checkout in Work's shell** (`billing.js`, `app.js`, `host.js`, `web/plan.js`,
+  billing-8). Buying from a module's window sent the browser back to `/<module>/?billing=done`, the
+  module's page on its own, outside the shell. In a host with a page at its root (Cronum Work's
+  shell), a module's checkout now comes back to `/?open=/<module>/&billing=done` and its portal to
+  `/?open=/<module>/`: the shell opens that module's window and thanks (its `billingReturn()` at the
+  start, as it already does for its own Settings). Without such a page, as before. createApp's new
+  `billingReturn: { checkout, portal }` and registerBillingApi's `returnUrls` say it. The kit keeps
+  the plan from before a checkout under one key for the origin (`host.billing`; `<app>.billing`,
+  the key before, is still read once), so the shell knows it after a module's window began it.
+- **Plan names in every language** (`i18n/*.json`, `web/api.js`, billing-9, billing-11): `Free` and
+  `Team` are keys of the five catalogs («Gratis», «Gratuit»…, as the web says them), and the errors
+  `plan_feature` and `plan_limit` say the plan by that name. `errors.already_subscribed` names the
+  button Settings has now, «Change or cancel plan» (`kit.plan.change`), not «Manage subscription».
+- **/health reads the database file** (`app.js`, work-srv-1). `SELECT 1` read nothing: with the file
+  broken or unreadable underneath, /health still said 200. It now reads a page of the schema, and
+  once more through a read-only connection of its own, since the server's connection keeps its
+  pages in memory: a broken file is a 503. `/version` keeps the modules' versions (deployments are
+  checked with it).
+- **STARTTLS has a deadline, and nothing in clear rides past it** (`mail.js`, sc-host-2). A server
+  that went quiet during the TLS handshake kept the send (and its socket) waiting forever; now the
+  handshake has the same deadline as every reply. A reply sent in the clear behind "220 go ahead"
+  stops the conversation (`MailError`) instead of answering the first encrypted command.
+- **A silent APNs connection is replaced** (`native-push.js`, sc-host-3). A request that timed out
+  left its HTTP/2 session in use, and every next notice to an iPhone timed out on it, 10 s each,
+  until the system dropped the TCP. The session is now destroyed at the timeout, and the next send
+  connects again. `createApnsSender({ timeoutMs })`, 10 s by default.
+- **A module's start can't stop the host, and its jobs reach the alerts** (`host.js`, sc-host-4,
+  work-srv-4). A `start()` that throws is logged and emailed (`<mount> start`) and the other modules
+  are served. `start()` gets `failed(name)` (for a promise's catch) and `safely(name, fn)` (for a
+  timer) besides `day` and `uses`: what a module's own job throws is logged and emailed as the
+  host's jobs are, as `<mount> <name>` (docs/architecture.md, section 21).
+- **The phone's connect page under Work's shell** (`host.js`, sc-host-9): back from a provider's
+  sign-in at `/` with the request's cookie, the browser goes to the connect page again; a host
+  whose own page is its root answered `/` with that page first, and the request was lost.
+- **One runtime for an app and a host** (`runtime.js`, `app.js`, `host.js`, sc-host-12). The server
+  around the handler, the install's jobs (clean-ups, OAuth, account deletion, WorkOS, the groups'
+  stops), the process signals and the lines said on listening were written twice and had started
+  to differ; both use the same ones now. A module's `createApp()` in a host no longer makes an
+  `http.Server` it never listens on (`app.server` makes it when first asked for).
+- **`rateLimits` takes every limit the limiter has** (`config.js`, sc-host-6): the defaults and the
+  names come from `rate-limit.js`'s `DEFAULT_LIMITS`; `rateLimits: { billing: 20 }` stopped the
+  start ("not a limit").
+- **ADMIN_EMAIL with WorkOS** (`config.js`, work-srv-10): a warning at the start when it is empty,
+  since nobody who signs in becomes an administrator. The text for `EARLY_ACCESS_UNTIL` says what
+  the code does: the first day after the early access (2027-01-01 keeps 31 December in it), as
+  Work's `.env.example` says; it said "the date the early access ends".
+- **Removed, nobody called them** (sc-host-5, sc-host-7): `push.sendTo` and the module wrappers'
+  `send` and `sendTo` (`host-worker.js`; a module's push has `deliver` only, and no unmarked `send`
+  spread from the host's); `reload` and `replayed` in the small body that replays an answer too big
+  to keep (`idempotency.js`: `{ id }`, or `{}`; the `Idempotent-Replayed` header says it is a
+  replay). `http.js sendError` stays, used now by createApp's own error answer.
+
 ## 0.274.0 — 2026-11-12
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,

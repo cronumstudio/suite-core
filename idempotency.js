@@ -10,9 +10,11 @@
  * is another key. A key used for a different method or path is a mistake of
  * the client and is refused rather than answered with something unrelated.
  * An answer too big to keep whole (a project with all its tasks) keeps its key
- * all the same, with a small body in its place: what it made (`id`, when the
- * answer names one) and `reload: true`, so the client learns what it made and
- * reads the rest again, never an empty answer.
+ * all the same, with a small body in its place: what it made (`{ id }`, when the
+ * answer names one, which the outbox hands to whoever waited for the write), or
+ * `{}` when it names none or is past what is read of it (MAX_READ). A replay,
+ * whole or small, says so in its `Idempotent-Replayed: true` header; nothing
+ * more is promised, and a client that needs the rest reads it again itself.
  * Only successful answers are kept: a 409 or a 503 may well go another way
  * on the next try, and the client is right to try. Nor is an answer that
  * carries a secret shown once (`answeredOnce`): the table would hold in clear
@@ -28,7 +30,7 @@ const MAX_BODY = 256 * 1024;
 /** What is read of a bigger answer to find what it made; past this, nothing (a download, not an answer). */
 const MAX_READ = 16 * 1024 * 1024;
 
-/** What a replay of an answer too big to keep says: what it made, and to read the rest again. */
+/** What a replay of an answer too big to keep says: what it made, when it names it. */
 function smallBody(body) {
   let id;
   try {
@@ -37,7 +39,7 @@ function smallBody(body) {
   } catch {
     // Cut short or not an object: nothing to name.
   }
-  return JSON.stringify({ ...(id === undefined ? {} : { id }), replayed: true, reload: true });
+  return JSON.stringify(id === undefined ? {} : { id });
 }
 
 /**
@@ -167,6 +169,7 @@ function capture(res) {
   return () => ({
     status: res.statusCode,
     json: /application\/json/.test(type || String(res.getHeader('content-type') || '')),
+    // Past MAX_READ nothing was kept to look for an id in: the replay is `{}` (see the header).
     body: size > MAX_READ ? '{}' : Buffer.concat(chunks).toString('utf8'),
   });
 }

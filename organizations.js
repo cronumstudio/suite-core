@@ -176,6 +176,8 @@ export function createOrganizations({
   const deletedHooks = [];
   /** Billing's: after every app's, whenever each joined (a host's modules join after the suite). */
   const lastDeletedHooks = [];
+  /** Who hears of a group archived because nobody was left in it (billing: its renewals stop). */
+  const archivedHooks = [];
   const checkRole = (role) => {
     if (!roles.includes(role)) throw badRequest('field_invalid', { field: 'role', options: roles });
     return role;
@@ -462,8 +464,14 @@ export function createOrganizations({
           const heir = heirOf(id, userId);
           if (heir != null) {
             database.run("UPDATE memberships SET role = 'owner' WHERE organization_id = ? AND user_id = ?", id, heir);
-          } else {
-            archive(id);
+          } else if (archive(id)) {
+            // Nobody left in it: what it pays would renew with nobody to cancel it (billing hooks this,
+            // Martin's decision of 13/11/2026). Noted in the log, as a deletion is.
+            for (const hook of archivedHooks) hook({ organization, reason: 'empty' });
+            audit?.record({
+              action: 'org.archive', targetType: 'organization', targetId: id, organizationId: id,
+              meta: { kind: organization.kind ?? null, reason: 'empty' },
+            });
           }
         }
         memberGoes(organization, userId, role, 'account_deleted', null);
@@ -551,5 +559,10 @@ export function createOrganizations({
      * caller's. `{ last: true }`: after every other's, whenever they were added (billing's).
      */
     whenDeleted: (hook, { last = false } = {}) => { (last ? lastDeletedHooks : deletedHooks).push(hook); },
+    /**
+     * `hook({ organization, reason: 'empty' })`, inside the transaction that archived a group its
+     * last member's account deletion left with nobody (a kind kept when empty, `onEmpty: 'archive'`).
+     */
+    whenArchived: (hook) => { archivedHooks.push(hook); },
   };
 }

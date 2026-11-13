@@ -85,18 +85,26 @@ const button = (text, onClick, kind = '') => el('button', {
   type: 'button', class: `kit-btn kit-btn--small${kind ? ` kit-btn--${kind}` : ''}`, text, onClick,
 });
 
-/** Where the browser keeps the plan from before a checkout, to tell when the new one arrives. */
-const storageKey = () => `${globalThis.document?.documentElement?.dataset?.app || 'app'}.billing`;
+/**
+ * Where the browser keeps the plan from before a checkout, to tell when the new one arrives: one
+ * key for the whole origin, since in a host the checkout starts in a module's window (`tasks`)
+ * and comes back to the host's shell (`work`), which must read it (audit billing-8). An app on
+ * its own has its origin to itself. The key named after the page's app, as before, is still read
+ * once: a checkout begun before this version.
+ */
+const STORAGE_KEY = 'host.billing';
+const oldStorageKey = () => `${globalThis.document?.documentElement?.dataset?.app || 'app'}.billing`;
 const mark = (answer) => JSON.stringify([answer?.plan?.id ?? answer?.plan ?? null, answer?.ends ?? null]);
 
 function remember(answer) {
-  try { sessionStorage.setItem(storageKey(), mark(answer)); } catch { /* private mode: no thanks for the new plan */ }
+  try { sessionStorage.setItem(STORAGE_KEY, mark(answer)); } catch { /* private mode: no thanks for the new plan */ }
 }
 
 function recall() {
   try {
-    const kept = sessionStorage.getItem(storageKey());
-    sessionStorage.removeItem(storageKey());
+    const kept = sessionStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(oldStorageKey());
+    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(oldStorageKey());
     return kept;
   } catch { return null; }
 }

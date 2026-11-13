@@ -313,7 +313,7 @@ export function checkSubscription(subscription) {
  * @param {object} [options.native]  native-push.js, with `push.native`: the same sends also reach
  *   the person's phones through APNs and FCM. Without it everything here is Web Push only.
  *
- * `send`, `deliver` and `sendTo` take `reminder: { id, at, module? }` among
+ * `send` and `deliver` take `reminder: { id, at, module? }` among
  * their options, for a reminder's notice: with `push.native`, a phone whose app
  * said it shows that reminder itself (`PUT /api/devices/reminders`) is skipped,
  * and `deliver` adds how many to its answer (`skipped`). Web Push never is.
@@ -564,8 +564,6 @@ export function createPush({
   return {
     publicKey: vapid.publicKey,
     send, deliver, subscriptionsOf, subscribe, unsubscribe, devices, removeDevice, forgetSession, purgeSessions,
-    /** Sends to every device of some people. */
-    sendTo: (userIds, payload, options) => deliver(subscriptionsOf(userIds), payload, options),
     checkSubscription, sendToSubscription,
   };
 }

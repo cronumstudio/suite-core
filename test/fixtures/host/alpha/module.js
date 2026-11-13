@@ -67,8 +67,11 @@ export function createModule({ mount }) {
       tools: itemTools({ suite, table: 'alpha_items', name: 'alpha', add: true }),
       describeError: (error) => (error.code === 'item_exploded' ? 'That item cannot be added.' : null),
     },
-    start: () => {
+    start: (host = {}) => {
       events.started += 1;
+      // How its own jobs report what they throw (failed, safely), kept for the tests to call.
+      events.jobs = host;
+      if (events.throwOnStart) throw new Error('alpha could not start its jobs');
       // What it still has to send goes before the host closes: its stop's promise is waited for.
       return () => {
         events.stopped += 1;

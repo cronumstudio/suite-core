@@ -170,7 +170,7 @@ test('delivering keeps the table clean: gone ones dropped, three refusals droppe
   add(refused.url('/wrong-keys'));
 
   const said = [];
-  const result = await push.sendTo([ada.id], (sub) => {
+  const result = await push.deliver(push.subscriptionsOf([ada.id]), (sub) => {
     said.push(sub.lang);
     return { title: sub.lang === 'es' ? 'Hola' : 'Hello' };
   });
@@ -182,12 +182,12 @@ test('delivering keeps the table clean: gone ones dropped, three refusals droppe
   const rows = () => database.all('SELECT endpoint, failures, last_ok_at FROM push_subscriptions ORDER BY id');
   assert.deepEqual(rows().map((r) => r.endpoint), [ok.url('/phone'), broken.url('/flaky'), refused.url('/wrong-keys')], 'the gone one is dropped');
   assert.ok(rows()[0].last_ok_at, 'the good one is noted');
-  await push.sendTo([ada.id], { title: 'x' });
-  await push.sendTo([ada.id], { title: 'x' });
+  await push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' });
+  await push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' });
   // A service that is down says nothing about the device: counted, an outage of minutes dropped everyone's.
   assert.deepEqual(rows().map((r) => r.endpoint), [ok.url('/phone'), broken.url('/flaky')], 'three refusals in a row and it goes; an outage, never');
   assert.deepEqual(rows().map((r) => r.failures), [0, 0]);
-  assert.deepEqual(await push.sendTo([], { title: 'x' }), { sent: 0, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([]), { title: 'x' }), { sent: 0, gone: 0, failed: 0 });
 });
 
 test('where a subscription may point: real push services, never inside the network', () => {
@@ -242,7 +242,7 @@ test('a key off the curve is refused, and one stored before does not stop the ot
     ada.id, ok.url('/broken'), offCurve, device.auth);
   database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
     ada.id, ok.url('/phone'), device.p256dh, device.auth);
-  assert.deepEqual(await push.sendTo([ada.id], { title: 'x' }), { sent: 1, gone: 1, failed: 0 },
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' }), { sent: 1, gone: 1, failed: 0 },
     'the good device gets it; the broken one is dropped instead of failing the whole send');
   assert.deepEqual(database.all('SELECT endpoint FROM push_subscriptions').map((r) => r.endpoint), [ok.url('/phone')]);
 });
@@ -284,8 +284,8 @@ test('a notice that can’t be written is the app’s mistake: nobody loses a de
   const device = deviceKeys();
   database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
     ada.id, ok.url('/phone'), device.p256dh, device.auth);
-  assert.deepEqual(await push.sendTo([ada.id], { n: 1n }), { sent: 0, gone: 0, failed: 1 });
-  assert.deepEqual(await push.sendTo([ada.id], () => undefined), { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), { n: 1n }), { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), () => undefined), { sent: 0, gone: 0, failed: 1 });
   assert.equal(database.all('SELECT 1 FROM push_subscriptions').length, 1);
 });
 
@@ -304,7 +304,7 @@ test('a push service that redirects or never answers: a failure, not a request e
     database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
       ada.id, `https://push.example${p}`, device.p256dh, device.auth);
   }
-  assert.deepEqual(await push.sendTo([ada.id], { title: 'x' }), { sent: 0, gone: 0, failed: 2 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' }), { sent: 0, gone: 0, failed: 2 });
   assert.ok(seen.every((o) => o.redirect === 'error'), 'redirects are never followed');
   assert.ok(seen.every((o) => o.signal instanceof AbortSignal), 'every send has a time limit');
 });
@@ -526,15 +526,15 @@ test('a notice as long as a push service takes is sent whole; one longer costs n
 
   // A person's device: the notice fails, and the device keeps its place and its count.
   push.subscribe(ada.id, { endpoint: tablet.json.endpoint, ...tablet.json.keys });
-  assert.deepEqual(await push.sendTo([ada.id], { body: 'x'.repeat(MAX_PAYLOAD) }), { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), { body: 'x'.repeat(MAX_PAYLOAD) }), { sent: 0, gone: 0, failed: 1 });
   assert.deepEqual(database.all('SELECT failures FROM push_subscriptions').map((r) => r.failures), [0]);
   assert.equal(asked.length, 1, 'only the first one went out');
 
   // A topic written wrong is said once, for everyone, and nobody is sent anything.
-  await assert.rejects(push.sendTo([ada.id], { title: 'x' }, { topic: 'a b' }), TypeError);
+  await assert.rejects(push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' }, { topic: 'a b' }), TypeError);
   await assert.rejects(push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' }, { topic: '' }), TypeError);
   assert.equal(asked.length, 1);
-  assert.deepEqual(await push.sendTo([ada.id], { title: 'x' }, { topic: 'list-7' }), { sent: 1, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), { title: 'x' }, { topic: 'list-7' }), { sent: 1, gone: 0, failed: 0 });
   assert.equal(service.got[1].headers.topic, 'list-7', 'a good one goes with every notice');
 });
 
@@ -550,7 +550,7 @@ test('a person’s subscription stored before the keys were checked so closely s
   const endpoint = 'https://fcm.googleapis.com/fcm/send/old-phone';
   database.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)',
     ada.id, endpoint, `${device.p256dh}=`, shortSecret);
-  assert.deepEqual(await push.sendTo([ada.id], { title: 'Still here' }), { sent: 1, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ada.id]), { title: 'Still here' }), { sent: 1, gone: 0, failed: 0 });
   assert.equal(JSON.parse(decryptPayload(service.got[0].body, device.d, device.p256dh, shortSecret).toString()).title, 'Still here');
   // Subscribing anew is checked as a browser makes keys: 16 bytes, kept in plain base64url.
   assert.throws(() => push.subscribe(ada.id, { endpoint, p256dh: device.p256dh, auth: shortSecret }), { extra: { field: 'auth' } });

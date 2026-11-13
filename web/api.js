@@ -236,6 +236,8 @@ export function errorMessage(err) {
   if (err instanceof Offline) return t('errors.offline');
   const data = { ...(err?.data || {}) };
   if (data.field) data.field = t(`fields.${data.field}`);
+  // The plan by its name in the language («Gratis»), as Settings and the web say it (audit billing-11).
+  if (data.plan_name) data.plan_name = t(String(data.plan_name));
   // A plan's limit says what it limits: «permite 20 listas», «50 MB de espacio», not a bare number.
   if (err?.code === 'plan_limit' && data.limit != null) {
     const counted = COUNTED[data.feature];
