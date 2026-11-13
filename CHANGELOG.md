@@ -52,6 +52,25 @@ module gives today keeps working as it does.
   `cardOf`, `cardsOf`, `parseRef`, `formatRef` on what `createLinks()` returns (`parseRef` and
   `formatRef` stay exported from `links.js`). `?date=` stays: Work's tests read another day.
 
+## 0.277.0 — 2026-11-13
+
+- **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`;
+  audit of 6/11: tasks-srv-22, tasks-web-16, notes-srv-13, notes-web-13, next-srv-16). Tasks, Notes,
+  Next and Projects each had their own copy of the read-only link, and they had drifted apart.
+  `createPublicPage({ db, entitlements, table, publicUrl, find, ownerOf, changed })` now keeps it in
+  one place: the token, on and off, a read that never turns it on, the plan's `publish` checked again
+  when the page is served, an owner whose account is disabled (`disabled_at`) answering 404,
+  `embed` only with the plan's `embed` (403 `embed_not_allowed`), the owner's own display name
+  only (`publicOwnerName`: never the username nor the start of the email), `unpublish()` for
+  hand-overs, no-store and noindex headers (`publicHeaders`) and `routes()`.
+  - `web/public-page.js`: `publicDialog()` and `embedCode()`: the dialog reads the page with a GET,
+    shows «Embed» once the plan is known, and copying says so once. `web/public-page.css`: the
+    page's frame (bar, footer, embedded, refused, gone), whose bar stays inside a 320–430 px phone in
+    every language. `kit.public.*`, `errors.public_not_found` and `errors.embed_not_allowed` in
+    five languages; `.kit-public*` in kit.css; both files in the service worker's kit copy.
+  - `time.js`: `dayStart(zone, day)` and `daySpan(zone, day)`, which Next and Notes had word for word.
+  - Only additions: nothing that was exported changes.
+
 ## 0.274.0 — 2026-11-12
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,

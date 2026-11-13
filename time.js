@@ -103,3 +103,30 @@ export function isoInstant(stamp) {
   const ms = Date.parse(zoned ? text : `${text.replace(' ', 'T')}Z`);
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
+
+const HOUR = 3600 * 1000;
+
+/**
+ * The first instant (ms) whose date in `zone` is `day` (YYYY-MM-DD). Every zone is within 14 hours
+ * of UTC, so 15 hours before that day's midnight in UTC it is still the day before everywhere, and
+ * 15 hours after it the day has come everywhere: what lies between is halved down to the
+ * millisecond. A day that starts at 01:00 because the clocks moved at midnight starts there.
+ * (Next's and Notes' day.js had it twice, word for word: audit of 6/11, next-srv-16.)
+ */
+export function dayStart(zone, day) {
+  const midnight = Date.parse(`${day}T00:00:00Z`);
+  let before = midnight - 15 * HOUR;
+  let after = midnight + 15 * HOUR;
+  while (after - before > 1) {
+    const middle = Math.floor((before + after) / 2);
+    if (dayIn(zone, middle) < day) before = middle;
+    else after = middle;
+  }
+  return after;
+}
+
+/** A day of `zone` as the instants stored dates are compared with: from its first, to the next day's (not in). */
+export const daySpan = (zone, day) => ({
+  from: new Date(dayStart(zone, day)).toISOString(),
+  to: new Date(dayStart(zone, addDays(day, 1))).toISOString(),
+});
