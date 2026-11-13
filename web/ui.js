@@ -12,7 +12,7 @@
  */
 import { el, $, append, clear } from './dom.js';
 import { errorMessage, planAction } from './api.js';
-import { t } from './i18n.js';
+import { t, dateFormat, relativeDay, currentLanguage, instant } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
 
@@ -97,6 +97,56 @@ export function saveState(initial = 'saved') {
   };
   set(initial);
   return { node, set };
+}
+
+/* --------------------------------- stamps --------------------------------- */
+
+const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+/**
+ * When something was done, as an item's detail says it: «hoy a las 15:52», «ayer a las 09:10»,
+ * «12 mar a las 14:00» (a year only when it isn't this one), in the interface language. Two-digit
+ * hours, except in English («9:10 AM»). A moment from the server, ISO or SQLite's; '' for none.
+ */
+export function stampTime(value) {
+  const date = instant(value);
+  if (!date) return '';
+  const time = dateFormat(currentLanguage() === 'en' ? { hour: 'numeric', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
+    .format(date);
+  const now = new Date();
+  const day = localDay(date);
+  if (day === localDay(now)) return t('kit.stamps.at', { day: relativeDay(0), time });
+  if (day === localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) {
+    return t('kit.stamps.at', { day: relativeDay(-1), time });
+  }
+  const label = dateFormat(date.getFullYear() === now.getFullYear()
+    ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  return t('kit.stamps.at', { day: label, time });
+}
+
+/**
+ * Who made an item and who changed it last, the same words under its detail in every module
+ * (kit.stamps.*, a task's: «Creada por Ana · hoy a las 15:52», «Modificada por Luis · ayer a las
+ * 09:10»). `author` and `editor` are names, `createdVia` and `updatedVia` the assistant it was done
+ * through, `created`, `updated` and `completed` the moments (`format` writes them: stampTime). The
+ * change is said only when it isn't the creation, the completion only when given.
+ * → the lines, in order, for a `.kit-stamps` block.
+ */
+export function stamps({
+  author = null, createdVia = null, created = null, editor = null, updatedVia = null, updated = null, completed = null,
+} = {}, { format = stampTime } = {}) {
+  const by = (name, via) => (name && via ? t('kit.stamps.via', { name, via }) : name);
+  const name = by(author, createdVia);
+  const when = created ? format(created) : '';
+  const lines = [name && when ? t('kit.stamps.createdByAt', { name, when })
+    : name ? t('kit.stamps.createdBy', { name })
+      : when ? t('kit.stamps.createdAt', { when }) : t('kit.stamps.created')];
+  if (updated && updated !== created) {
+    const at = format(updated);
+    lines.push(editor ? t('kit.stamps.modifiedBy', { name: by(editor, updatedVia), when: at }) : t('kit.stamps.modified', { when: at }));
+  }
+  if (completed) lines.push(t('kit.stamps.completed', { when: format(completed) }));
+  return lines;
 }
 
 /* --------------------------------- fields --------------------------------- */

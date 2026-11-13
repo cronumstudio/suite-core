@@ -53,6 +53,12 @@
   /* What a view's content keeps from the edges of its pane, the title of its head included: one
      margin for every module. The Clean look has its own, below. */
   --look-gutter: 16px;
+  /* The small label in capitals over a group of things (a sidebar's section, Share's «People»,
+     a step's «Why»): one measure in every module (.kit-eyebrow). Clean has its own spacing, below;
+     its size follows Clean's footnote. */
+  --kit-eyebrow-size: var(--look-footnote, 11px);
+  --kit-eyebrow-weight: 600;
+  --kit-eyebrow-spacing: .1em;
 }
 
 /*
@@ -130,6 +136,7 @@
   --look-item-y: 10px;
   --look-bar-y: 10px;
   --look-section: 28px;
+  --kit-eyebrow-spacing: .02em;
 }
 :root[data-look="clean"]:not([data-theme="dark"]) {
   --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 10%, #FFFFFF);
@@ -174,7 +181,15 @@ body {
   background: var(--kit-bg);
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
+  /* No blue flash when a row or a button is tapped on a phone: the kit's own states show it. */
+  -webkit-tap-highlight-color: transparent;
 }
+/* The frame's controls aren't selected by a long press, in every module; what is typed in them
+   and an item's own text are. */
+:is(.kit-side, .kit-bar, .kit-head, .kit-nav__item, .kit-group-title, .kit-round-check, .kit-segmented) {
+  user-select: none; -webkit-user-select: none;
+}
+:is(.kit-side, .kit-bar, .kit-head) :is(input, textarea, [contenteditable]) { user-select: text; -webkit-user-select: text; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--kit-accent); }
 h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
@@ -262,6 +277,14 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-icon-btn:hover { background: var(--kit-hover); color: var(--kit-text); }
 .kit-icon-btn .kit-icon { width: 20px; height: 20px; }
+/* A button that stays on while what it opens is open (a card's pencil, a note's pin): in every module. */
+.kit-icon-btn[aria-pressed="true"] { background: var(--kit-accent-soft); color: var(--kit-accent); }
+
+/* The small label in capitals over a group of things, the same in every module. */
+.kit-eyebrow {
+  font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1.2 var(--kit-font);
+  letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted);
+}
 
 .kit-spinner {
   width: 15px; height: 15px; border-radius: 50%; border: 2px solid currentColor; border-inline-end-color: transparent;
@@ -270,7 +293,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 @keyframes kit-spin { to { transform: rotate(360deg); } }
 
 .kit-field { display: grid; gap: 5px; }
-.kit-field > label { font-size: var(--look-footnote, 13px); font-weight: 500; color: var(--kit-text); }
+/* `.kit-label`: a field's label where there is no field() around it (a block of an item's detail,
+   over several controls), with the same measure in every module. */
+.kit-field > label, .kit-label { font-size: var(--look-footnote, 13px); font-weight: 500; color: var(--kit-text); }
+.kit-label { display: block; margin: 0; line-height: 1.5; }
 .kit-field input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .kit-field select, .kit-field textarea, .kit-input {
   width: 100%; min-height: 40px; padding: 8px 12px; border-radius: var(--look-r-md, 9px);
   border: 1px solid var(--kit-border); background: var(--kit-panel); color: var(--kit-text);
@@ -278,6 +304,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-field textarea { min-height: 90px; resize: vertical; }
 .kit-field input:focus-visible, .kit-field select:focus-visible, .kit-field textarea:focus-visible, .kit-input:focus-visible {
   outline: 2px solid var(--kit-accent); outline-offset: -1px; border-color: transparent;
+}
+/* On a touch screen a field's text is never under 16px: below that the iPhone zooms the page in
+   when it takes the focus. In every module (it was Notes' alone). */
+@media (pointer: coarse) {
+  .kit-input, .kit-field input, .kit-field select, .kit-field textarea { font-size: var(--look-body, 16px); }
 }
 .kit-field--bad input, .kit-field--bad select, .kit-field--bad textarea { border-color: var(--kit-danger); }
 /* A password with its eye inside, at the end (ui.js revealable): the text stops before the eye. */
@@ -505,8 +536,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-dialog:not([open]) { display: none; }
 .kit-dialog--wide { width: min(760px, calc(100vw - 24px)); }
 .kit-dialog::backdrop { background: var(--kit-scrim); }
+/* One look in every module (Martin, 14/11): no line under the title nor over the buttons, and the
+   room below. A module never paints its own header, body or footer over these. */
 .kit-dialog__header { display: flex; align-items: center; gap: 8px; padding: 14px 10px 8px 20px; }
-.kit-dialog__header h2 { margin: 0; flex: 1; font: 700 var(--look-title3, 18px)/1.2 var(--kit-font-display); letter-spacing: -.01em; }
+.kit-dialog__header h2, .kit-dialog__titles h2 { margin: 0; font: 700 var(--look-title3, 18px)/1.2 var(--kit-font-display); letter-spacing: -.01em; }
+.kit-dialog__header h2 { flex: 1; }
 .kit-dialog__body { padding: 6px 20px 14px; overflow-y: auto; display: grid; gap: 14px; }
 .kit-dialog__body > p { margin: 0; }
 /* Settings → Your data: what goes for good, asked before (settings.js sure()). */
@@ -516,7 +550,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* A form dialog (ui.js formDialog): a title with its subtitle, tools before the ×, a bar that stays
    and a form whose body alone scrolls, with the error inside it. */
 .kit-dialog__titles { flex: 1; min-width: 0; }
-.kit-dialog__titles h2 { margin: 0; font: 700 var(--look-title3, 18px)/1.2 var(--kit-font-display); letter-spacing: -.01em; }
 .kit-dialog__header > :first-child:not(h2, .kit-dialog__titles) { flex: 1; min-width: 0; }
 .kit-dialog__subtitle { margin: 2px 0 0; font-size: var(--look-subhead, 13px); color: var(--kit-muted); overflow-wrap: anywhere; }
 .kit-dialog__tools { display: flex; align-items: center; gap: 2px; flex: none; }
@@ -607,6 +640,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-saved--offline { color: var(--kit-warn); }
 .kit-saved--offline .kit-icon { color: var(--kit-warn); }
 .kit-saved--error, .kit-saved--error .kit-icon { color: var(--kit-danger); }
+/* Who made an item and who changed it (ui.js stamps()): a line each, under its detail. */
+.kit-stamps { display: flex; flex-direction: column; gap: 2px; min-width: 0; color: var(--kit-muted); font-size: var(--look-footnote, 12px); line-height: 1.4; }
+.kit-stamps > span { overflow: hidden; text-overflow: ellipsis; }
 
 /* The live channel: green while it is open. */
 .kit-live { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--kit-muted); transition: background .3s, box-shadow .3s; }
@@ -837,7 +873,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* Notes' trash is a view: open, it is marked as an entry of the sidebar is. */
 .kit-side__trash[aria-current="page"] { background: var(--kit-accent-soft); color: var(--kit-accent); }
 
-.kit-nav__section { font: 600 var(--look-footnote, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); padding: 16px 8px 6px; }
+.kit-nav__section { font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1 var(--kit-font); letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted); padding: 16px 8px 6px; }
 /* A heading that folds its group (shell.js navFold): the same words, a button with a chevron. */
 .kit-nav__group, .kit-nav__fold-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .kit-nav__fold-body[hidden] { display: none; }
@@ -1135,7 +1171,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-share__invite { display: grid; gap: 10px; }
 .kit-share__invite[hidden] { display: none; }
 .kit-share__row { justify-content: space-between; }
-.kit-share__heading { margin: 4px 0 0; font: 600 var(--look-caption2, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); }
+.kit-share__heading { margin: 4px 0 0; font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1 var(--kit-font); letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted); }
 /* On a phone, what someone may do and the button to take it back go under their name. */
 .kit-share__people .kit-list__row { flex-wrap: wrap; gap: 8px 10px; }
 .kit-share__people .kit-list__text { flex: 1 1 150px; }
@@ -1149,7 +1185,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-share__role { margin-inline-start: auto; color: var(--kit-muted); font-size: var(--look-subhead, 13.5px); white-space: nowrap; }
 /* A touch screen's field text is never under 16px: below that the iPhone zooms the page in. */
 @media (pointer: coarse) { .kit-share__permission { font-size: var(--look-body, 16px); } }
-:root[data-look="clean"] .kit-share__heading { font-size: var(--look-footnote, 11px); letter-spacing: .02em; }
 
 /* ---------------------------------- links ---------------------------------- */
 /* The "Linked" row of an item (links.js): one chip per link, a dot in the other module's colour. */
@@ -1254,7 +1289,7 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings__group {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; margin-top: 2px;
   border: 0; border-radius: var(--look-r-md, 10px); background: none; cursor: pointer; text-align: start;
-  font: 600 var(--look-footnote, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted);
+  font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1 var(--kit-font); letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted);
 }
 .kit-settings__group:hover { background: var(--kit-hover); color: var(--kit-text); }
 .kit-settings__group[aria-expanded="true"], .kit-settings__group[aria-current="page"] { color: var(--kit-text); }
@@ -1526,7 +1561,6 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 :root[data-look="clean"] .kit-head__title { letter-spacing: -.022em; }
 :root[data-look="clean"] .kit-nav__item { min-height: 40px; padding-block: 8px; font-size: var(--look-callout, 15px); }
 :root[data-look="clean"] .kit-nav__item[aria-current="page"] { font-weight: 500; }
-:root[data-look="clean"] :is(.kit-nav__section, .kit-settings__group) { letter-spacing: .02em; }
 /* The sidebar's groups as plain rows the size of their collections: the colour stays in the collections' own marks. */
 :root[data-look="clean"] .kit-nav-group__head {
   min-height: 40px; padding-inline-start: 5px; border-inline-start: 0; background: transparent; color: var(--kit-text);
