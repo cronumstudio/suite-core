@@ -44,6 +44,10 @@ change an interface and a patch never does. Apps pin a version through the submo
     to 308 in Next, 1 577 to 1 289 KB with the four; the shell's own copy from 299 to 288 KB. In the
     test Chrome, with no worker, cold: Tasks' window 27 kit files and 372 KB where it was 28 and 422
     (the four, 108 files and 1 674 KB → 101 and 1 446 KB; parsed, 1 595 → 1 372 KB).
+- **Docs: live notices while a module is put away** (`docs/architecture.md` §21.6; audit of 6/11,
+  perf-web-2): the mount contract says what the shell does with a hidden module's notices since Work
+  0.109.0 (held, then one `onResync()` after `resume()`), and that a paused module doesn't reload on
+  `visibilitychange`.
 
 ## 0.274.0 — 2026-11-12
 

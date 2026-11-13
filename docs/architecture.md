@@ -2441,6 +2441,19 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
   most four modules stay mounted: beyond that `onEvict(module)` names the least recently used one
   that doesn't show, for the shell to unmount.
+- **Live notices while put away** (Work 0.109.0). The shell holds the one live channel
+  (`/api/events?all`, §21.7) for a module while its window is out of view: from `onPause(module,
+  true, { hidden: true })` until `onPause(module, false, { hidden: true })`, which comes after the
+  module's `resume()`, the module's own `connectLive()` subscription gets no `onChange` and no
+  `onResync`, only `onState` and `onAccount`. The shell notes that it missed something and, once the
+  module is back and resumed, sends it a single `onResync()`, however many notices came (none if
+  nothing came). Meanwhile the module's copy on the device is kept by the shell's own background
+  subscription (Work's fresh.js, through the module's `refreshDevice`). So `pause()`/`resume()` need
+  not note live notices themselves, and a paused module must not reload on `visibilitychange`: the
+  page coming back into view does not bring a put-away window into view. A module whose `resume()`
+  reloads what it shows anyway gets the resync on top of it, so it should reload in one place only,
+  the resync. A window paused only while it is resized (`{ resizing: true }`) keeps hearing its
+  notices.
 - **Kept** in this browser as `work.layout`, one layout for every width (`{ all }`): the columns
   that don't fit a narrower desk stack where there is room, the layout kept as chosen until it
   fits again, and a phone (< 768 px) shows its focused window, its tabs moving that focus or
