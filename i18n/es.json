@@ -509,7 +509,7 @@
   "features.attachments": "Fotos y archivos adjuntos",
   "features.activity": "Registro de actividad",
   "features.lists.max": "Listas propias",
-  "features.projects.max": "Proyectos activos",
+  "features.projects.max": "Proyectos abiertos",
   "features.notebooks.max": "Libretas",
   "features.history.days": "Días que se guardan las versiones anteriores",
   "features.files.per_note": "Archivos en una nota",

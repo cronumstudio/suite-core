@@ -68,7 +68,7 @@ import { migrate } from './migrate.js';
 import { openDatabase } from './db.js';
 import { SUITE_MIGRATIONS } from './schema.js';
 import { createEntitlements } from './entitlements.js';
-import { createLive, subscribeAll } from './live.js';
+import { createLive, createLiveAll } from './live.js';
 import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
@@ -92,7 +92,7 @@ import { FOUNDER_NOTICE_PREFS } from './billing.js';
 import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
-  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
+  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush, catalogsOverEnglish,
 } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
@@ -843,6 +843,10 @@ export async function createHost({
     stop(['modules: "devices" is the path of the host’s phone pages (devices.connectPage, devices.webSessions)']);
   }
   migrate(suite.database, HOST_MIGRATIONS, { scope: 'host', log });
+  // The one channel for every module (liveAll): its session asked once a heartbeat by each stream,
+  // not by every module's (live.js createLiveAll), and at once when that person's sessions close.
+  const liveStreams = liveAll ? createLiveAll({ stillIn: (userId, token) => suite.sessions.stillOpen(token) === userId }) : null;
+  if (liveStreams) suite.sessions.whenClosed((id) => liveStreams.recheck(id));
 
   /**
    * The tables a module's migrations make, worked out on an empty database with the suite's and the
@@ -1362,7 +1366,8 @@ export async function createHost({
         });
       }
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
-      const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
+      // `activity`: whether the modules are asked when each last changed, which only the admin's dialog shows.
+      const usageFor = (user, { activity = true } = {}) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log, activity });
       registerOwnUsageApi(api, { usageFor });
       // Everyone's nearest cap for the admin's list, asked in batches: a fixed number of queries per module where it can.
       const peaksFor = (users) => peaksOf(users, { modules: joined, entitlements: suite.entitlements, log });
@@ -1539,14 +1544,14 @@ export async function createHost({
     const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
     const icon = hostWorker.icon || config.app.icon || null;
     const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
-    const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
+    const shell = catalogsOverEnglish([...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
       // The host's own pages' files, at their paths: the new worker brings them with its version.
       ...pageList.flatMap((page) => pageShell(page)),
       // A page that shows several modules loads each one's sheets scoped to its windows (scopedSheets):
       // kept too, or a module opened without a signal on a new copy shows unstyled.
-      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])];
+      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])]);
     // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
-    const optional = [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])];
+    const optional = catalogsOverEnglish([...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])]);
     const options = {
       version: `${config.app.id}-${now.version}`,
       modules: joined.map((m) => `/${m.mount}/`),
@@ -1712,7 +1717,7 @@ export async function createHost({
         sendJson(res, 401, { error: 'unauthorized' });
         return undefined;
       }
-      subscribeAll(liveChannels(), req, res, user, { sessionToken: suite.sessions.tokenFrom(req) ?? null });
+      liveStreams.subscribe(liveChannels(), req, res, user, { sessionToken: suite.sessions.tokenFrom(req) ?? null });
       return undefined;
     }
     const mount = url.pathname.split('/')[1];
@@ -1815,11 +1820,19 @@ export async function createHost({
   function listen() {
     suite.alerts.setVersion(version);
     suite.ensureAdmin();
-    const cleanUp = safely('clean-up', () => {
+    const purge = safely('clean-up', () => {
       suite.purge();
       root.portability?.purge();
       for (const m of joined) m.app.portability?.purge();
     });
+    // With the clean-ups, the planner's statistics (db.js optimize): every table at the start, then
+    // what changed. Without them it chose blind (audit of 6/11, perf-srv-6).
+    let first = true;
+    const optimize = safely('optimize', () => {
+      suite.database.optimize?.({ first });
+      first = false;
+    });
+    const cleanUp = () => { purge(); optimize(); };
     cleanUp();
     timers.push(setInterval(cleanUp, 6 * HOUR).unref());
     if (suite.oauth) {

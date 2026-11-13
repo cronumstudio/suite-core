@@ -143,6 +143,107 @@ test('a refusal is said, and the page shows what the server has', async () => {
   assert.equal(pressed.textContent, t('kit.shared.edit'), 'still "edit", as the server says');
 });
 
+/** A project's team as Projects shares it: three roles, broadest first, and Settings' calls kept. */
+function roles() {
+  const state = {
+    mine: [
+      {
+        kind: 'project', id: 3, name: 'Launch', mine: true,
+        people: [
+          { user: { id: 2, name: 'Ben' }, permission: 'manager', accepted: true },
+          { user: { id: 4, name: 'Dani' }, permission: 'member', accepted: true },
+          { user: { id: -7, name: 'eve@example.com', email: 'eve@example.com' }, permission: 'viewer', accepted: false },
+        ],
+      },
+      {
+        kind: 'project', id: 5, name: 'Garden', mine: false,
+        people: [
+          { user: { id: 6, name: 'Cris' }, permission: 'manager', accepted: true },
+          { user: { id: 8, name: 'Fay' }, permission: 'viewer', accepted: true },
+        ],
+      },
+    ],
+    withMe: [{ kind: 'project', id: 5, name: 'Garden', owner: { id: 1, name: 'Ana' }, permission: 'edit', accepted: true }],
+  };
+  const calls = [];
+  const options = {
+    kinds: { project: { label: 'Project', iconName: 'folder' } },
+    // Naming a manager is the owner's alone: offered only in what the person owns.
+    permissions: (item) => [
+      { value: 'manager', label: 'Manages', offered: item.mine },
+      { value: 'member', label: 'Can edit' },
+      { value: 'viewer', label: 'Read only' },
+    ],
+    load: async () => { calls.push(['load']); return structuredClone(state); },
+    setPermission: async (item, person, permission) => { calls.push(['permission', item.id, person.user.id, permission]); },
+    remove: async (item, person) => { calls.push(['remove', item.id, person.user.id]); },
+    leave: async (item) => { calls.push(['leave', item.id]); },
+  };
+  return { calls, options };
+}
+
+const personRow = (page, name) => page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && n.textContent.includes(name));
+const removeButton = (row, name) => row.all().find((n) => n.tagName === 'BUTTON' && n.getAttribute('aria-label') === t('kit.shared.remove', { name }));
+
+test('an app with roles of its own: a list of them for each person, as the share dialog has it, changed there', async () => {
+  const { options, calls } = roles();
+  const page = sharedPage(options);
+  await settle();
+  assert.equal(page.all().filter((n) => n.getAttribute('class') === 'kit-segmented').length, 0, 'three roles: lists, not buttons');
+
+  const dani = personRow(page, 'Dani');
+  const choice = dani.find('select')[0];
+  assert.equal(choice.getAttribute('aria-label'), t('kit.share.permission'));
+  assert.deepEqual(choice.find('option').map((o) => o.textContent), ['Manages', 'Can edit', 'Read only'], 'its owner may name a manager');
+  assert.deepEqual(choice.find('option').filter((o) => o.hasAttribute('selected')).map((o) => o.textContent), ['Can edit']);
+  calls.length = 0;
+  choice.value = 'viewer';
+  choice.dispatch('change');
+  await settle();
+  assert.deepEqual(calls, [['permission', 3, 4, 'viewer'], ['load']], 'the role\'s own value, then the server again');
+
+  const ben = personRow(page, 'Ben');
+  assert.deepEqual(ben.find('select')[0].find('option').filter((o) => o.hasAttribute('selected')).map((o) => o.textContent), ['Manages']);
+  assert.ok(removeButton(ben, 'Ben'), 'and take a manager out');
+  assert.ok(removeButton(personRow(page, 'eve@example.com'), 'eve@example.com'), 'or an invitation by its address');
+});
+
+test('a role not offered is said on whoever has it, never chosen, and their row stays as it is', async () => {
+  const { options } = roles();
+  const page = sharedPage(options);
+  await settle();
+  const garden = page.all().filter((n) => n.tagName === 'ARTICLE').find((n) => /Garden/.test(n.textContent) && n.textContent.includes('Cris'));
+  const cris = personRow(garden, 'Cris');
+  assert.deepEqual(cris.all().filter((n) => n.getAttribute('class') === 'kit-share__role').map((n) => n.textContent), ['Manages']);
+  assert.equal(cris.find('select').length, 0, 'nothing to change');
+  assert.equal(removeButton(cris, 'Cris'), undefined, 'nor to take back');
+  const fay = personRow(garden, 'Fay');
+  assert.deepEqual(fay.find('select')[0].find('option').map((o) => o.textContent), ['Can edit', 'Read only'], 'whoever isn\'t its owner names no manager');
+  assert.ok(removeButton(fay, 'Fay'));
+  // What is shared with the person still says what they may do, as always.
+  const withMe = page.all().filter((n) => n.tagName === 'ARTICLE').at(-1);
+  assert.match(withMe.textContent, new RegExp(t('kit.shared.canEdit')));
+});
+
+test('two roles of the app\'s own are buttons with their names; without any, the kit\'s two as always', async () => {
+  const { options, calls } = roles();
+  options.permissions = [{ value: 'member', label: 'Can edit' }, { value: 'viewer', label: 'Read only' }];
+  const page = sharedPage(options);
+  await settle();
+  const fay = personRow(page, 'Fay');
+  assert.equal(fay.find('select').length, 0);
+  assert.deepEqual(fay.all().filter((n) => n.tagName === 'BUTTON' && n.hasAttribute('data-value')).map((n) => n.textContent), ['Can edit', 'Read only']);
+  calls.length = 0;
+  buttons(fay, 'Can edit')[0].dispatch('click');
+  await settle();
+  assert.deepEqual(calls, [['permission', 5, 8, 'member'], ['load']]);
+
+  const plain = fixture();
+  const again = sharedPage({ ...plain.options, permissions: [] });
+  await settle();
+  assert.equal(buttons(again, t('kit.shared.view')).length, 2, 'an empty list is no roles: can view and can edit, for Ana and Ben');
+});
+
 test('nothing shared: one quiet message; without `accept` or `open`, no buttons for them', async () => {
   const empty = sharedPage({ kinds: KINDS, load: async () => ({ mine: [], withMe: [] }), setPermission() {}, remove() {}, leave() {} });
   await settle();

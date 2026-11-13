@@ -1339,7 +1339,7 @@ just say what changed (Tasks' lists): the app chooses.
 protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, SSE answers when the client only accepts
 them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` when AuthKit cannot
 be reached, and the token brake. `GET /mcp` answers `405` (after the token): the server sends
-nothing on its own, so it opens no server→client channel (v0.281.0). Arguments are checked against
+nothing on its own, so it opens no server→client channel (v0.287.0). Arguments are checked against
 each tool's `inputSchema` and reach it as the schema says (`"false"` a `false`, `"30"` a `30`); an
 unexpected error reaches the assistant as a plain sentence, its message only in the log. The app
 hands in its tools, prompts and instructions:
@@ -1967,7 +1967,9 @@ await host.listen();
   (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
   they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
-  web's session only, never an assistant's token.
+  web's session only, never an assistant's token. Only the dialog of one account shows `active_at`:
+  everywhere else `usage(userId, { activity: false })` and `usageAll(userIds, { activity: false })`
+  are asked, a module may skip finding it, and the answer's `active_at` is null (v0.284.0).
 - **What each module's plans allow** (`GET /api/admin/plans/modules`, the admin's only): the
   host's `/api/admin/plans` is its own catalog (its one MCP's calls); this one says, per module
   with a feature of its own, its declared features and each plan's values for them. A feature the
@@ -2446,6 +2448,19 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
   most four modules stay mounted: beyond that `onEvict(module)` names the least recently used one
   that doesn't show, for the shell to unmount.
+- **Live notices while put away** (Work 0.109.0). The shell holds the one live channel
+  (`/api/events?all`, §21.7) for a module while its window is out of view: from `onPause(module,
+  true, { hidden: true })` until `onPause(module, false, { hidden: true })`, which comes after the
+  module's `resume()`, the module's own `connectLive()` subscription gets no `onChange` and no
+  `onResync`, only `onState` and `onAccount`. The shell notes that it missed something and, once the
+  module is back and resumed, sends it a single `onResync()`, however many notices came (none if
+  nothing came). Meanwhile the module's copy on the device is kept by the shell's own background
+  subscription (Work's fresh.js, through the module's `refreshDevice`). So `pause()`/`resume()` need
+  not note live notices themselves, and a paused module must not reload on `visibilitychange`: the
+  page coming back into view does not bring a put-away window into view. A module whose `resume()`
+  reloads what it shows anyway gets the resync on top of it, so it should reload in one place only,
+  the resync. A window paused only while it is resized (`{ resizing: true }`) keeps hearing its
+  notices.
 - **Kept** in this browser as `work.layout`, one layout for every width (`{ all }`): the columns
   that don't fit a narrower desk stack where there is room, the layout kept as chosen until it
   fits again, and a phone (< 768 px) shows its focused window, its tabs moving that focus or
@@ -2504,6 +2519,7 @@ const host = await createHost({
   (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
   module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
   channels in each module, and ends with any of them: revoked sessions (`account` said first),
+  asked once a heartbeat by the stream itself (`createLiveAll()`, v0.284.0) rather than by every module,
   the host closing, a reader that stopped reading. The modules' own channels stay as they are.
   In the browser, `connectLive()` of a module in the shell's page goes through the shell's
   registry (`workRegistry().live.subscribe(module, handlers)`) and gives back the same object.

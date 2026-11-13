@@ -25,6 +25,12 @@
  * person. Both are optional: an id left out of the Map is asked one by one, and so is every id
  * when it throws.
  *
+ * `active_at` is shown only in the admin's dialog of one account: that is the only place it is
+ * asked for. Everywhere else (Settings › Plan, the admin's list) `usage` and `usageAll` get a
+ * second argument, `{ activity: false }`, and a module may leave out what it costs to find it
+ * (MAX of dates over whole tables: ~90 % of both routes, audit of 6/11, perf-srv-5); whatever it
+ * answers, `active_at` is null there. The dialog asks with `{ activity: true }`, as before.
+ *
  * `id` is one of USAGE_ITEMS, which the admin panel has words for. A count with
  * a `feature` is set against that limit of the module's own plan: it has to be
  * what the module's barrier counts, or the percentage tells the admin something
@@ -81,7 +87,7 @@ function limitOf(entitlements, user, feature) {
  * storage, the calls from assistants and the cap they are nearest to. One reckoning for one account
  * (usageOf) and for the admin's list (peaksOf), which only differ in how they ask.
  */
-function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, mcpOf, log }) {
+function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, mcpOf, log, activity = true }) {
   let bytes = 0;
   let files = 0;
   let storageLimit;
@@ -93,6 +99,8 @@ function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, m
     if (typeof m.parts?.usage === 'function') {
       try {
         Object.assign(row, cleanCounts(answerOf(m)));
+        // Not asked for: never a date, whatever the module said (one that doesn't read `activity` yet).
+        if (!activity) row.active_at = null;
       } catch (error) {
         row.failed = true;
         log(`[${app.id || m.mount}] usage of user ${user.id} failed: ${error.message}`);
@@ -142,13 +150,13 @@ function reckon(user, { modules, on, answerOf, bytesOf, limitIn, entitlements, m
 /**
  * Someone's usage across the modules. `modules` are the host's joined ones ({ mount, config,
  * parts, view }), `uses(user, mount)` whether they have it on, `entitlements` the host's own (the
- * one that counts the calls from assistants).
+ * one that counts the calls from assistants). `activity`: whether to ask for `active_at`.
  */
-export function usageOf(user, { modules, uses = () => true, entitlements = null, log = () => {} }) {
+export function usageOf(user, { modules, uses = () => true, entitlements = null, log = () => {}, activity = true }) {
   return reckon(user, {
-    modules, entitlements, log,
+    modules, entitlements, log, activity,
     on: (mount) => uses(user, mount),
-    answerOf: (m) => m.parts.usage(user.id),
+    answerOf: (m) => m.parts.usage(user.id, { activity }),
     bytesOf: (m) => m.parts.storage(user.id),
     limitIn: (plans, feature) => limitOf(plans, user, feature),
     mcpOf: (limit, feature) => {
@@ -171,11 +179,11 @@ export function usageOf(user, { modules, uses = () => true, entitlements = null,
 }
 
 /** A module's answer for many at once (`usageAll`, `storageAll`): its Map, or null when it has none or it fails. */
-function askAll(m, hook, ids, log) {
+function askAll(m, hook, ids, log, options) {
   const all = m.parts?.[hook];
   if (typeof all !== 'function') return null;
   try {
-    const answer = all(ids);
+    const answer = options ? all(ids, options) : all(ids);
     return answer instanceof Map ? answer : null;
   } catch (error) {
     log(`[${m.config?.app?.id || m.mount}] ${hook} failed: ${error.message}`);
@@ -191,7 +199,7 @@ function askAll(m, hook, ids, log) {
  */
 export function peaksOf(users, { modules, entitlements = null, log = () => {} }) {
   const ids = users.map((user) => user.id);
-  const answers = new Map(modules.map((m) => [m, typeof m.parts?.usage === 'function' ? askAll(m, 'usageAll', ids, log) : null]));
+  const answers = new Map(modules.map((m) => [m, typeof m.parts?.usage === 'function' ? askAll(m, 'usageAll', ids, log, { activity: false }) : null]));
   const weights = new Map(modules.map((m) => [m, typeof m.parts?.storage === 'function' ? askAll(m, 'storageAll', ids, log) : null]));
   // Each module's plans (and the host's) for all of them, asked once, when first needed.
   const plans = new Map();
@@ -211,9 +219,9 @@ export function peaksOf(users, { modules, entitlements = null, log = () => {} })
   const peaks = new Map();
   for (const user of users) {
     const { peak } = reckon(user, {
-      modules, entitlements, log,
+      modules, entitlements, log, activity: false,   // the list shows no dates
       on: () => null,   // not part of the peak
-      answerOf: (m) => fromAll(answers.get(m), user.id, () => m.parts.usage(user.id)),
+      answerOf: (m) => fromAll(answers.get(m), user.id, () => m.parts.usage(user.id, { activity: false })),
       bytesOf: (m) => fromAll(weights.get(m), user.id, () => m.parts.storage(user.id)),
       limitIn: (source, feature) => {
         if (!source || !feature) return null;
@@ -239,7 +247,8 @@ const PEAK_BATCH = 100;
 
 /**
  * The admin's routes: one account's usage, and every account's nearest cap for the list.
- * `usageFor(user)` is usageOf() with the host's modules, `peaksFor(users)` peaksOf() with them.
+ * `usageFor(user, { activity })` is usageOf() with the host's modules, `peaksFor(users)` peaksOf() with
+ * them. Only the dialog of one account shows when each module last changed (`activity`).
  */
 export function registerUsageApi(api, { accounts, usageFor, peaksFor = null }) {
   const requireAdmin = (ctx) => {
@@ -250,7 +259,7 @@ export function registerUsageApi(api, { accounts, usageFor, peaksFor = null }) {
     requireAdmin(ctx);
     const user = accounts.byId(int(ctx.params.id, { field: 'id', min: 1 }));
     if (!user) throw notFound('user_not_found');
-    sendJson(ctx.res, 200, usageFor(user));
+    sendJson(ctx.res, 200, usageFor(user, { activity: true }));
   });
   api.get('/api/admin/usage', async (ctx) => {
     requireAdmin(ctx);
@@ -260,7 +269,7 @@ export function registerUsageApi(api, { accounts, usageFor, peaksFor = null }) {
       if (i) await new Promise((resolve) => setImmediate(resolve));
       const batch = users.slice(i, i + PEAK_BATCH);
       if (peaksFor) for (const [id, peak] of peaksFor(batch)) peaks[id] = peak;
-      else for (const user of batch) peaks[user.id] = usageFor(user).peak;
+      else for (const user of batch) peaks[user.id] = usageFor(user, { activity: false }).peak;
     }
     sendJson(ctx.res, 200, { peaks });
   });
@@ -273,6 +282,7 @@ export function registerUsageApi(api, { accounts, usageFor, peaksFor = null }) {
 export function registerOwnUsageApi(api, { usageFor }) {
   api.get('/api/me/usage', (ctx) => {
     if (!ctx.user) throw unauthorized();
-    sendJson(ctx.res, 200, usageFor(ctx.user));
+    // Settings › Plan shows no dates: the module needn't look for its last change (perf-srv-5).
+    sendJson(ctx.res, 200, usageFor(ctx.user, { activity: false }));
   });
 }

@@ -509,7 +509,7 @@
   "features.attachments": "Photos and files attached",
   "features.activity": "Activity log",
   "features.lists.max": "Own lists",
-  "features.projects.max": "Active projects",
+  "features.projects.max": "Open projects",
   "features.notebooks.max": "Notebooks",
   "features.history.days": "Days earlier versions are kept",
   "features.files.per_note": "Files in one note",
