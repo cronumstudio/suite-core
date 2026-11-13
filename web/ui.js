@@ -96,15 +96,25 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
  * - `offline()`: what the module knows besides the browser: a request found no signal.
  * - `empty()`: nothing loaded yet to show: only that the server can't be reached.
  * - `retry()`: asks the server again.
+ * - `announce`: says by itself that the changes waiting without a signal arrived, once the signal
+ *   is back and none waits (for a module whose sending reports no count): as many as waited at
+ *   most while offline, less those it says were refused (`dropped()`).
  *
- * → { paint, sent, stop }: `paint()` after the module's own state changed (its `offline()`, its
- * `pending()`); `paint(true)` draws it again even with the same words (a new shell).
+ * → { paint, sent, dropped, stop }: `paint()` after the module's own state changed (its
+ * `offline()`, its `pending()`); `paint(true)` draws it again even with the same words (a new shell).
  */
 export function offlineBanner({
   shell = null, show = null, hide = null, pending = () => 0, offline = () => false, empty = () => false, retry = null,
+  announce = false,
 } = {}) {
   const shellOf = () => (typeof shell === 'function' ? shell() : shell);
-  const showIt = show || ((options) => shellOf()?.showBanner('offline', options()));
+  // Without a shell yet nothing is drawn, and it is drawn once there is one.
+  const showIt = show || ((options) => {
+    const target = shellOf();
+    if (!target) return false;
+    target.showBanner('offline', options());
+    return true;
+  });
   const hideIt = hide || (() => shellOf()?.hideBanner('offline'));
   const away = () => globalThis.navigator?.onLine === false || !!offline();
   const waiting = () => Number(pending() || 0);
@@ -117,7 +127,15 @@ export function offlineBanner({
     : { kind: 'warn', iconName: 'upload', text: t('kit.offline.pending', { n: waiting() }) });
   // What it shows now, by its words: the same again isn't drawn again (nor said again to a screen reader).
   let drawn = null;
+  // How many changes waited at most while offline, still to be said arrived (`announce`).
+  let held = 0;
   const paint = (again = false) => {
+    if (away()) held = Math.max(held, waiting());
+    else if (!waiting() && held) {
+      const arrived = held;
+      held = 0;
+      if (announce) toast(t('kit.offline.sent', { n: arrived }));
+    }
     if (!away() && !waiting()) {
       if (drawn !== null || again) hideIt();
       drawn = null;
@@ -126,8 +144,7 @@ export function offlineBanner({
     const now = options();
     const key = `${now.text}|${now.action ? now.action.label : ''}`;
     if (!again && key === drawn) return;
-    drawn = key;
-    showIt(options);
+    drawn = showIt(options) === false ? null : key;
   };
   const onSignal = () => paint();
   const onLanguage = () => paint(true);
@@ -139,8 +156,13 @@ export function offlineBanner({
     paint,
     /** `n` changes made without a signal arrived: said, and the banner painted again. */
     sent(n) {
+      held = 0;
       if (Number(n) > 0) toast(t('kit.offline.sent', { n: Number(n) }));
       paint();
+    },
+    /** `n` of the changes that waited were refused when they went (the module says why): not said arrived. */
+    dropped(n = 1) {
+      held = Math.max(0, held - Number(n));
     },
     stop() {
       globalThis.removeEventListener?.('offline', onSignal);

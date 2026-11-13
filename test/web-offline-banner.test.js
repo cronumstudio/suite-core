@@ -144,6 +144,61 @@ test('offlineBanner: sent(n) says the changes arrived, and paints again', () => 
   }
 });
 
+test('offlineBanner: with `announce`, what waited offline is said arrived once back and sent, less what was refused', () => {
+  const notices = () => document.body.all().filter((node) => (node.getAttribute?.('class') || '').split(/\s+/).includes('kit-toast'))
+    .map((node) => node.textContent);
+  const before = notices().length;
+  signal.onLine = false;
+  let waiting = 0;
+  const banner = offlineBanner({ shell: fakeShell(), pending: () => waiting, announce: true });
+  try {
+    waiting = 2;
+    banner.paint();
+    waiting = 3;
+    banner.paint();
+    go(true);
+    assert.equal(notices().length, before, 'back, still sending: nothing said yet');
+    banner.dropped();
+    waiting = 0;
+    banner.paint();
+    assert.equal(notices().length, before + 1, 'all sent: said once');
+    banner.paint();
+    assert.equal(notices().length, before + 1, 'and not again');
+    // Online saves that come and go are no news.
+    waiting = 1;
+    banner.paint();
+    waiting = 0;
+    banner.paint();
+    assert.equal(notices().length, before + 1);
+    // All of them refused: nothing to say arrived.
+    go(false);
+    waiting = 1;
+    banner.paint();
+    banner.dropped();
+    go(true);
+    waiting = 0;
+    banner.paint();
+    assert.equal(notices().length, before + 1);
+  } finally {
+    banner.stop();
+    signal.onLine = true;
+  }
+});
+
+test('offlineBanner: without a shell yet nothing is drawn, and it is once the shell is there', () => {
+  signal.onLine = false;
+  let shell = null;
+  const banner = offlineBanner({ shell: () => shell });
+  try {
+    shell = fakeShell();
+    banner.paint();
+    assert.equal(shell.shown.has('offline'), true, 'the same words, drawn now that there is a shell');
+  } finally {
+    banner.stop();
+    signal.onLine = true;
+  }
+});
+
 test('offlineNotice: «Necesita conexión» and that it shows once the signal is back', () => {
   const notice = offlineNotice({ className: 'kit-settings__offline' });
   assert.equal(notice.getAttribute('class'), 'kit-notice kit-settings__offline');
