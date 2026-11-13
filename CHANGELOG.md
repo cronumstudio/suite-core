@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.279.0 — 2026-11-14
+
+- **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
+  0.255.0 added `push_subscriptions.session_key` inside suite migration 13, which every existing
+  database had already applied, so there the column never came. `POST /api/push/subscribe` failed with
+  `no such column: session_key`, and so did the suite's clean-up (`push.purgeSessions()`). Migration 30
+  runs `pushSchema` again, which only adds what a table lacks; new databases are unchanged.
+
 ## 0.277.1 — 2026-11-14
 
 - **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
