@@ -19,6 +19,8 @@ the pull request.
   `all/get/run` prepared their SQL every time, up to half of a route's CPU. Each handle keeps the
   last 500 texts of reads and writes (never a PRAGMA nor DDL) prepared; a call binds every
   parameter anew, SQLite prepares one again when the schema changes, and `close()` lets them go.
+  A connection whose `prepare` was replaced on it (the modules' tests that count statements)
+  prepares each one, as before.
   New `optimize({ first })`: `PRAGMA optimize` (0x10002 the first time: whole tables that have no
   statistics yet), run with the clean-ups, at the start and every 6 hours (`host.js`, `app.js`).
   Never sampled (`analysis_limit`): sampled statistics made My Day's queries ten times slower.
