@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.277.0 — 2026-11-13
+
+- **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
+  `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
+  optional `permissions`: the same `[{ value, label, offered? }]` list `shareDialog` takes, broadest
+  first, or a function of the item when the roles differ from one item to another. With two roles
+  they are buttons, with more a list to pick from; a role with `offered: false` is shown in words, never
+  given, changed or taken back there (a project's manager, to whoever isn't its owner). Without the
+  option nothing changes: can view, can edit. Projects uses it for its three roles.
+- **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
+  claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
+  paused ones: «Open projects» now, in the five languages.
+
 ## 0.274.0 — 2026-11-12
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
