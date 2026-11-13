@@ -1,2 +1,5 @@
 # A made-up key in a test (alerts.test.js) that looked like a Stripe one, pushed before it was replaced.
 54273282e65e23090caa333a2476fa4ddcab6e3e:test/alerts.test.js:stripe-access-token:355
+# A made-up session key in a test (push-session-key.test.js), replaced by plain words.
+e7004940f73d85f1dca0e5a1e16c6b93988361ed:test/push-session-key.test.js:generic-api-key:38
+e7004940f73d85f1dca0e5a1e16c6b93988361ed:test/push-session-key.test.js:generic-api-key:41

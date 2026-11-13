@@ -96,6 +96,7 @@ suite-core/
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
   ownership.js          done   whose it is: 403 not_yours, the author who may delete, giving it, the notice when shared things go, heirs
+  public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
@@ -1962,7 +1963,9 @@ await host.listen();
   (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
   they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
-  web's session only, never an assistant's token.
+  web's session only, never an assistant's token. Only the dialog of one account shows `active_at`:
+  everywhere else `usage(userId, { activity: false })` and `usageAll(userIds, { activity: false })`
+  are asked, a module may skip finding it, and the answer's `active_at` is null (v0.284.0).
 - **What each module's plans allow** (`GET /api/admin/plans/modules`, the admin's only): the
   host's `/api/admin/plans` is its own catalog (its one MCP's calls); this one says, per module
   with a feature of its own, its declared features and each plan's values for them. A feature the
@@ -2512,6 +2515,7 @@ const host = await createHost({
   (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
   module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
   channels in each module, and ends with any of them: revoked sessions (`account` said first),
+  asked once a heartbeat by the stream itself (`createLiveAll()`, v0.284.0) rather than by every module,
   the host closing, a reader that stopped reading. The modules' own channels stay as they are.
   In the browser, `connectLive()` of a module in the shell's page goes through the shell's
   registry (`workRegistry().live.subscribe(module, handlers)`) and gives back the same object.

@@ -1060,7 +1060,7 @@ test('the sidebar folds only where it sits beside the views, and the device reme
   assert.doesNotMatch(`${css}\n${shell}`, /kit-bar__create/, 'what creates stays the floating button, folded or not (0.247.0)');
 });
 
-test('a module’s start leaves out of the kit what only Settings, the sign-in screen and updates use (0.276.0, perf-web-4)', () => {
+test('a module’s start leaves out of the kit what only Settings, the sign-in screen and updates use (0.285.0, perf-web-4)', () => {
   // What a module's main.js imports of the kit (Tasks, Projects, Notes and Next), and all they import.
   const seen = new Set();
   const queue = ['shell.js', 'signin.js', 'update.js', 'share.js', 'links.js', 'i18n.js', 'ui.js', 'drag.js', 'swipe.js',
@@ -3085,7 +3085,7 @@ test('in Work\'s shell, Settings cover the whole page and another module\'s sect
 
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-  // The sign-in screen is signin-form.js, which signin.js loads when it is drawn (0.276.0).
+  // The sign-in screen is signin-form.js, which signin.js loads when it is drawn (0.285.0).
   assert.match(read('signin-form.js'), /href: login\(\), target: FRAMED \? '_top' : null/);
   // And back to the whole window's page, not the frame's: a module installed on its own stays in its app.
   assert.match(read('signin-form.js'), /\(FRAMED \? window\.top : window\)\.location; here = page\.pathname \+ page\.search;/);

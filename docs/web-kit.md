@@ -123,16 +123,17 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted; the screen itself is `signin-form.js`, which `signIn` loads when it draws it (0.276.0): a page with a session never evaluates it |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted; the screen itself is `signin-form.js`, which `signIn` loads when it draws it (0.285.0): a page with a session never evaluates it |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does |
+| `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`; the module's sheet after it draws the rest |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
-| `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT`; `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, all a frame's start needs (shell.js), so plan.js comes only with Settings (0.276.0) |
-| `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.276.0) |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT`; `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, all a frame's start needs (shell.js), so plan.js comes only with Settings (0.285.0) |
+| `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
@@ -486,7 +487,10 @@ the person shares, each with who has it, whether they accepted and what they may
 edit, changed there; taken back there), and everything shared with them (accept, decline or
 leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
 it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
-notebooks and notes.
+notebooks and notes. An app whose people have roles of its own passes `permissions`, the share
+dialog's `[{ value, label, offered }]` (Projects: manages, can edit, read only), or a function of
+the item when they differ (only a project's owner names a manager): two are buttons with their
+names, more a list, and a role not offered is said on whoever has it, their row left as it is.
 
 **Sharing with people one knows** (`people.js`, v0.96.0): a share dialog puts `peopleChips(people)`
 under its email field, with the people the app says the person already shares with (each app's
@@ -500,7 +504,10 @@ the person shares, each with who has it, whether they accepted and what they may
 edit, changed there; taken back there), and everything shared with them (accept, decline or
 leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
 it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
-notebooks and notes.
+notebooks and notes. An app whose people have roles of its own passes `permissions`, the share
+dialog's `[{ value, label, offered }]` (Projects: manages, can edit, read only), or a function of
+the item when they differ (only a project's owner names a manager): two are buttons with their
+names, more a list, and a role not offered is said on whoever has it, their row left as it is.
 
 ### Plans and payments
 
@@ -987,7 +994,7 @@ Every text a person reads comes from the catalogs: the kit's are `kit.*` in suit
 - **Catalogs**: `public/i18n/<lang>.json`, flat (dotted keys), in the app's languages (`app.languages`).
 - **One catalog per language**: the browser asks for English at `/i18n/en.json` and any other
   language at `/i18n/<lang>.json?en`, the language with English under it (every key it lacks,
-  English's), which says so with `$meta.fallback: "en"` (0.276.0): one trip where it was English
+  English's), which says so with `$meta.fallback: "en"` (0.285.0): one trip where it was English
   and then the language. `/i18n/<lang>.json` stays the language alone, as the conformance check
   reads it; a catalog that comes without the mark (a copy kept before) has English asked for too,
   as before. A host's worker keeps the `?en` ones (host-worker.js `catalogsOverEnglish`).

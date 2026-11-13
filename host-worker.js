@@ -204,7 +204,7 @@ const OVER_ENGLISH = /[?&]en(?:&|$)/;
 
 /**
  * A worker's list of files with every catalog but English's as the kit's i18n.js asks for it since
- * 0.276.0: the language with English under it (`/tasks/i18n/es.json?en`), one catalog where it
+ * 0.285.0: the language with English under it (`/tasks/i18n/es.json?en`), one catalog where it
  * was two. The copy keeps what the page reads: a weak signal waits for no catalog, as before.
  */
 export function catalogsOverEnglish(urls) {

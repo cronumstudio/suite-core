@@ -135,7 +135,7 @@ test('a release that changes only the kit changes its fingerprint and that file�
   assert.deepEqual(Object.keys(texts).filter((url) => texts[url] !== after[url]).sort(), ['/tasks/i18n/de.json', '/tasks/i18n/en.json'],
     'the suite’s texts change every catalog');
 
-  // A catalog with English under it (`?en`, as the kit asks for it since 0.276.0): the app's English is in it too.
+  // A catalog with English under it (`?en`, as the kit asks for it since 0.285.0): the app's English is in it too.
   fs.writeFileSync(path.join(tasks, 'i18n', 'de.json'), '{"hello":"Hallo"}');
   const withUnder = [...shell, '/tasks/i18n/de.json?en'];
   const one = shellHashes(withUnder, { kitDir, places, catalogs: 'texts-2' });
@@ -147,7 +147,7 @@ test('a release that changes only the kit changes its fingerprint and that file�
     'English changed: English, and every catalog with it under');
 });
 
-test('a host’s worker keeps every catalog but English’s as the kit asks for it, with English under it (0.276.0)', () => {
+test('a host’s worker keeps every catalog but English’s as the kit asks for it, with English under it (0.285.0)', () => {
   assert.deepEqual(catalogsOverEnglish(['/', '/tasks/i18n/en.json', '/tasks/i18n/es.json', '/i18n/de.json', '/i18n/de.json',
     '/tasks/i18n/es.json?en', '/tasks/js/i18n.json.js', '/tasks/css/app.css?scope=work', null]),
   ['/', '/tasks/i18n/en.json', '/tasks/i18n/es.json?en', '/i18n/de.json?en', '/tasks/js/i18n.json.js', '/tasks/css/app.css?scope=work', null]);

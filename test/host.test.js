@@ -161,7 +161,7 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(catalog.data.errors?.username_taken ?? catalog.data['errors.username_taken'], 'That username is already taken.');
   assert.equal((await call('GET', '/alpha/i18n/es.json')).status, 200);
   const alphaUnder = (await call('GET', '/alpha/i18n/es.json?en')).data;
-  assert.equal(alphaUnder['$meta.fallback'], 'en', 'a module’s catalog with English under it, at its path (0.276.0)');
+  assert.equal(alphaUnder['$meta.fallback'], 'en', 'a module’s catalog with English under it, at its path (0.285.0)');
   assert.equal(alphaUnder['alpha.title'] ?? alphaUnder.alpha?.title, (await call('GET', '/alpha/i18n/es.json')).data['alpha.title'] ?? 'Alpha');
   assert.equal((await call('GET', '/beta/i18n/es.json')).status, 404, 'not a language of beta');
   assert.match((await call('GET', '/alpha/js/app-version.js')).data, /APP_NAME_VERSION = '1\.0\.0'/);
@@ -279,10 +279,10 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   const listed = announced.map((tool) => tool.name);
   assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'work_linked_items', 'work_link_item']);
   const hints = Object.fromEntries(announced.map((tool) => [tool.name, tool.annotations]));
-  assert.deepEqual(hints.alpha_list_items, { title: 'List items', readOnlyHint: true, openWorldHint: false },
+  assert.deepEqual(hints.alpha_list_items, { title: 'List items', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     'a module’s tool keeps its hints under the host’s name');
   assert.equal(hints.alpha_add_item, undefined, 'and one without them announces none');
-  assert.deepEqual(hints.work_linked_items, { title: 'What is linked with something', readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(hints.work_linked_items, { title: 'What is linked with something', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.deepEqual(hints.work_link_item, {
     title: 'Link, or add to another module and link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
   });
@@ -635,8 +635,11 @@ test('the admin sees what each person uses: every module’s counts against its 
   await call('POST', '/api/auth/logout');
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
 
+  globalThis.alphaUsageAsked = [];
   const { status, data } = await call('GET', `/api/admin/users/${ana}/usage`);
   assert.equal(status, 200);
+  assert.deepEqual(globalThis.alphaUsageAsked, [{ activity: true }], 'the dialog shows when it last changed: it is asked');
+  delete globalThis.alphaUsageAsked;
   const [alpha, beta] = data.modules;
   assert.deepEqual(alpha, {
     mount: 'alpha', name: 'Alpha', on: true, active_at: '2026-10-21T18:22:00.000Z', failed: false, bytes: 3000,
@@ -705,9 +708,14 @@ test('each person sees their own usage, signed in on the web: nobody else’s, a
   await call('POST', '/alpha/api/items', { text: 'One' });
   await call('POST', '/alpha/api/items', { text: 'Two' });
 
+  globalThis.alphaUsageAsked = [];
   const { status, data } = await call('GET', '/api/me/usage');
   assert.equal(status, 200);
   assert.deepEqual(data.modules[0].counts[0], { id: 'tasks', count: 2, feature: 'items.max', limit: 4, share: 0.5 }, 'hers, not the admin’s');
+  // Settings › Plan shows no dates: the module is told it needn't find its last change, and none is said (perf-srv-5).
+  assert.deepEqual(globalThis.alphaUsageAsked, [{ activity: false }]);
+  assert.equal(data.modules[0].active_at, null);
+  delete globalThis.alphaUsageAsked;
   assert.equal(data.mcp.limit, 10);
   assert.deepEqual(data.peak, { share: 0.5, mount: 'alpha', name: 'Alpha', id: 'tasks' });
 

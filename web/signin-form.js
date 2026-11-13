@@ -1,7 +1,7 @@
 /**
  * The sign-in screen (signin.js `signIn`, which loads this file when it is drawn): the product's
  * colour large, the form beside it, and "by Cronum Studio" under it. Everything signin.js says of
- * it holds here; only where it lives changed (0.276.0, audit of 6/11, perf-web-4).
+ * it holds here; only where it lives changed (0.285.0, audit of 6/11, perf-web-4).
  */
 import { el, clear } from './dom.js';
 import { t, formatDateTime } from './i18n.js';

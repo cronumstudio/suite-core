@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.276.0 — 2026-11-13
+## 0.285.0 — 2026-11-14
 
 - **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,
   `page-hints.js`, `host-worker.js`, `host.js`; audit of 6/11, perf-web-5). Every copy of the kit
@@ -48,6 +48,108 @@ change an interface and a patch never does. Apps pin a version through the submo
   perf-web-2): the mount contract says what the shell does with a hidden module's notices since Work
   0.109.0 (held, then one `onResync()` after `resume()`), and that a paused module doesn't reload on
   `visibilitychange`.
+
+## 0.284.0 — 2026-11-14
+
+Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
+routes; measured on the audit's database (301 accounts, ~37 000 tasks, 14 000 notes), numbers in
+the pull request.
+
+- **Time zones read once** (`time.js`, `day.js`; perf-srv-1): `knownTimeZone()` built a formatter
+  to check a zone each time it was asked, ~100–250 µs, and every `dayIn()`, `daysSince()` and
+  request asks: it keeps what each name resolves to (500 names at most, the oldest going first;
+  `prefs.tz` is the client's). `dayIn()` 102 → 1.6 µs. The check of the daily notices every minute
+  reads each person's preferences once and the minute and day once a zone, not once a person:
+  1 000 accounts 103 → 2 ms, 10 000 1.5 s → 17 ms, during which nobody else was answered.
+- **Statements kept prepared, and statistics for the planner** (`db.js`; perf-srv-6):
+  `all/get/run` prepared their SQL every time, up to half of a route's CPU. Each handle keeps the
+  last 500 texts of reads and writes (never a PRAGMA nor DDL) prepared; a call binds every
+  parameter anew, SQLite prepares one again when the schema changes, and `close()` lets them go.
+  A connection whose `prepare` was replaced on it (the modules' tests that count statements)
+  prepares each one, as before.
+  New `optimize({ first })`: `PRAGMA optimize` (0x10002 the first time: whole tables that have no
+  statistics yet), run with the clean-ups, at the start and every 6 hours (`host.js`, `app.js`).
+  Never sampled (`analysis_limit`): sampled statistics made My Day's queries ten times slower.
+  `synchronous` is as it was.
+- **Usage without the dates nobody sees** (`usage.js`, `host.js`; perf-srv-5): `active_at` is
+  shown only in the admin's dialog of one account (`GET /api/admin/users/:id/usage`, which asks
+  with `{ activity: true }`). Settings › Plan (`/api/me/usage`) and the admin's list
+  (`/api/admin/usage`) ask the modules' `usage(id, { activity: false })` and
+  `usageAll(ids, { activity: false })`, and answer `active_at: null`: a module may skip the MAX of
+  dates over whole tables that was ~90 % of both routes. The modules don't read the option yet;
+  until they do, they still compute it.
+- **The admin's list of accounts in a few queries** (`api.js`, `entitlements.js`, `accounts.js`;
+  perf-srv-9): `GET /api/admin/users` asked four or more queries an account (905 for 301), now 6
+  for all of them, with the same answer: `entitlements.plansOfMany(users)` (of() and sourceOf()
+  of each, from ofMany()'s queries) and `accounts.providersOfMany(ids)`.
+- **One session check a heartbeat for each stream of every module** (`live.js`, `host.js`;
+  perf-srv-10): the host's `GET /api/events?all` was asked about by every module's heartbeat, the
+  same session four times. `createLiveAll({ stillIn })` opens them (`subscribe()`) and asks each
+  once a heartbeat itself, and at once when that person's sessions close (`recheck(userId)`); the
+  modules' relays are opened with `checked: false`, so their heartbeats leave them out (`dropUser`
+  still keeps the session kept). `subscribeAll()` takes `stillIn` and `onEnd` and returns
+  `{ userId, recheck }`; without `stillIn` it is as it was. 9 tabs, 55 s: 72 → 18 checks.
+- **Erasing one's data or importing with "replace" reloads only who it concerns**
+  (`portability.js`; perf-srv-11): the `resync` went to every connected tab. Now to the person,
+  everyone their rows share something with (whom their lists are shared with, who shared one with
+  them, the other members of their groups: `peopleNear()`, read before anything is handed over),
+  and with groups that changed, their members. A whole install's import still tells everyone.
+- **Exporting lets everyone else in** (`portability.js`; perf-srv-14): a copy was read whole in
+  one synchronous transaction, and its tables turned into JSON in one go. `prepareExportAsync()`
+  (what `/api/me/export` and `/api/admin/export` use) reads on a second, read-only connection, in
+  its own read transaction (one moment of the data, whatever is written meanwhile), pausing between
+  tables and every 2 000 rows (`selectingRows()`, the steps of `selectRows()`); each table's JSON is
+  written 2 000 rows at a time (`jsonOfRows()`, byte for byte what `JSON.stringify` wrote).
+  `prepareExport()` stays as it was, for the command line and the tests; without a file to open a
+  second connection on (`:memory:`), the routes use it.
+
+## 0.283.0 — 2026-11-14
+
+- **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
+  `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
+  optional `permissions`: the same `[{ value, label, offered? }]` list `shareDialog` takes, broadest
+  first, or a function of the item when the roles differ from one item to another. With two roles
+  they are buttons, with more a list to pick from; a role with `offered: false` is shown in words, never
+  given, changed or taken back there (a project's manager, to whoever isn't its owner). Without the
+  option nothing changes: can view, can edit. Projects uses it for its three roles.
+- **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
+  claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
+  paused ones: «Open projects» now, in the five languages.
+
+## 0.279.0 — 2026-11-14
+
+- **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
+  0.255.0 added `push_subscriptions.session_key` inside suite migration 13, which every existing
+  database had already applied, so there the column never came. `POST /api/push/subscribe` failed with
+  `no such column: session_key`, and so did the suite's clean-up (`push.purgeSessions()`). Migration 30
+  runs `pushSchema` again, which only adds what a table lacks; new databases are unchanged.
+
+## 0.277.1 — 2026-11-14
+
+- **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
+  `links.js`, `calendar.js` and `mcp.js`): `destructiveHint: false` and `idempotentHint: true` besides
+  `readOnlyHint: true` and `openWorldHint: false`. OpenAI's plugin portal flags a tool whose
+  `readOnlyHint`, `destructiveHint` and `openWorldHint` are not all explicit booleans; in Cronum Work,
+  the 28 that read.
+
+## 0.277.0 — 2026-11-13
+
+- **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`;
+  audit of 6/11: tasks-srv-22, tasks-web-16, notes-srv-13, notes-web-13, next-srv-16). Tasks, Notes,
+  Next and Projects each had their own copy of the read-only link, and they had drifted apart.
+  `createPublicPage({ db, entitlements, table, publicUrl, find, ownerOf, changed })` now keeps it in
+  one place: the token, on and off, a read that never turns it on, the plan's `publish` checked again
+  when the page is served, an owner whose account is disabled (`disabled_at`) answering 404,
+  `embed` only with the plan's `embed` (403 `embed_not_allowed`), the owner's own display name
+  only (`publicOwnerName`: never the username nor the start of the email), `unpublish()` for
+  hand-overs, no-store and noindex headers (`publicHeaders`) and `routes()`.
+  - `web/public-page.js`: `publicDialog()` and `embedCode()`: the dialog reads the page with a GET,
+    shows «Embed» once the plan is known, and copying says so once. `web/public-page.css`: the
+    page's frame (bar, footer, embedded, refused, gone), whose bar stays inside a 320–430 px phone in
+    every language. `kit.public.*`, `errors.public_not_found` and `errors.embed_not_allowed` in
+    five languages; `.kit-public*` in kit.css; both files in the service worker's kit copy.
+  - `time.js`: `dayStart(zone, day)` and `daySpan(zone, day)`, which Next and Notes had word for word.
+  - Only additions: nothing that was exported changes.
 
 ## 0.274.0 — 2026-11-12
 

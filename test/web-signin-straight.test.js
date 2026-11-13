@@ -47,7 +47,7 @@ globalThis.fetch = async (url) => {
 const { loadLanguage } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
 const { straightToProvider, leave, signIn: signInLater } = await import('../web/signin.js');
-// The screen itself, drawn at once (signin.js loads it when it is drawn, 0.276.0).
+// The screen itself, drawn at once (signin.js loads it when it is drawn, 0.285.0).
 const { signIn } = await import('../web/signin-form.js');
 
 const app = { name: 'Cronum Work', icon: '/icons/favicon.svg' };
@@ -79,7 +79,7 @@ test('with WorkOS and nothing to say first, its page opens at once, coming back 
   assert.deepEqual(card().links, [], 'no card drawn on the way');
 });
 
-test('signin.js signIn draws the same screen, from signin-form.js, loaded when it is drawn (0.276.0)', async () => {
+test('signin.js signIn draws the same screen, from signin-form.js, loaded when it is drawn (0.285.0)', async () => {
   at('/tasks/?list=3');
   signInLater({ app, config: workos });
   assert.deepEqual(went, [], 'not yet: the code of the screen is on its way');

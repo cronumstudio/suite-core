@@ -101,7 +101,7 @@ export function createPageHints() {
     // The kit reads them with fetch(): `crossorigin` is what makes a preload match it.
     const fetched = (p) => `<${p}>; rel=preload; as=fetch; crossorigin`;
     // One catalog: English, or the language with English under it (`?en`), as the kit's i18n.js
-    // asks for it since 0.276.0, where it was English and then the language.
+    // asks for it since 0.285.0, where it was English and then the language.
     if (graph.includes('/suite/i18n.js')) {
       const lang = languageOf(req.headers['accept-language'], languages);
       links.push(fetched(at(lang && lang !== 'en' ? `/i18n/${lang}.json?en` : '/i18n/en.json')));

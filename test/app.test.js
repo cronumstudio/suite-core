@@ -256,7 +256,7 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.ok(Object.keys(whole.data).some((key) => key.startsWith('oauth.')));
   assert.notEqual(whole.headers.get('etag'), (await call('GET', '/i18n/es.json')).headers.get('etag'));
   assert.equal((await call('GET', '/i18n/fr.json')).status, 404, 'not a language of this app');
-  // `?en`: the language with English under it, the one catalog the kit's i18n.js asks for (0.276.0).
+  // `?en`: the language with English under it, the one catalog the kit's i18n.js asks for (0.285.0).
   // Every key reads as English then the language read, one key at a time; the plain one stays as it was.
   const lookup = (dict, key) => dict[key] ?? key.split('.').reduce((node, part) => node?.[part], dict);
   const english = (await call('GET', '/i18n/en.json')).data;

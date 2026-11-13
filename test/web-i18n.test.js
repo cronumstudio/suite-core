@@ -29,7 +29,7 @@ globalThis.fetch = async (url) => {
   if (!listed.includes(lang)) return { ok: false, status: 404, json: async () => ({}) };
   if (!catalogs[lang]) return { ok: false, status: 503, json: async () => ({}) };
   // `?en`, as the server answers it (app.js catalogFor): the language with English under it, saying
-  // so. `olderServer` answers the language alone, as before 0.276.0.
+  // so. `olderServer` answers the language alone, as before 0.285.0.
   const under = lang !== 'en' && /[?&]en(&|$)/.test(String(url)) && !olderServer;
   return { ok: true, status: 200, json: async () => (under ? { ...catalogs.en, ...catalogs[lang], '$meta.fallback': 'en' } : catalogs[lang]) };
 };
@@ -177,7 +177,7 @@ test('each catalog is asked for once per page, and one that failed is asked for 
   }
 });
 
-test('another language is one catalog with English under it, one trip; an answer without it has English asked for, as before (0.276.0)', async () => {
+test('another language is one catalog with English under it, one trip; an answer without it has English asked for, as before (0.285.0)', async () => {
   const serve = globalThis.fetch;
   for (const older of [false, true]) {
     olderServer = older;

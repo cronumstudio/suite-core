@@ -1195,7 +1195,14 @@ export function createApp({
   function listen() {
     alerts.setVersion(version);
     suite.ensureAdmin();
-    const cleanUp = safely('clean-up', () => { suite.purge(); portability?.purge(); });
+    const purge = safely('clean-up', () => { suite.purge(); portability?.purge(); });
+    // With the clean-ups, the planner's statistics (db.js optimize): every table at the start, then what changed.
+    let first = true;
+    const optimize = safely('optimize', () => {
+      suite.database.optimize?.({ first });
+      first = false;
+    });
+    const cleanUp = () => { purge(); optimize(); };
     cleanUp();
     timers.push(setInterval(cleanUp, 6 * HOUR).unref());
     if (sweep) {
