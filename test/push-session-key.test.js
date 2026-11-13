@@ -35,10 +35,10 @@ test('a database from before 0.255.0 gets push_subscriptions.session_key', () =>
   const user = database.run("INSERT INTO users (username, password_hash, display_name) VALUES ('ana', 'x', 'Ana')").lastInsertRowid;
   const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, log });
   const n = push.subscribe(Number(user), {
-    endpoint: 'https://fcm.googleapis.com/fcm/send/abc', ...deviceKeys(), sessionKey: '0123456789abcdef0123',
+    endpoint: 'https://fcm.googleapis.com/fcm/send/abc', ...deviceKeys(), sessionKey: 'session-key-of-ana-here',
   });
   assert.equal(n, 1);
-  assert.equal(database.get('SELECT session_key FROM push_subscriptions').session_key, '0123456789abcdef');
+  assert.equal(database.get('SELECT session_key FROM push_subscriptions').session_key, 'session-key-of-a');
   assert.doesNotThrow(() => push.purgeSessions());
 });
 
