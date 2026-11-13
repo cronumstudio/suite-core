@@ -11,6 +11,14 @@ change an interface and a patch never does. Apps pin a version through the submo
   `no such column: session_key`, and so did the suite's clean-up (`push.purgeSessions()`). Migration 30
   runs `pushSchema` again, which only adds what a table lacks; new databases are unchanged.
 
+## 0.277.1 — 2026-11-14
+
+- **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
+  `links.js`, `calendar.js` and `mcp.js`): `destructiveHint: false` and `idempotentHint: true` besides
+  `readOnlyHint: true` and `openWorldHint: false`. OpenAI's plugin portal flags a tool whose
+  `readOnlyHint`, `destructiveHint` and `openWorldHint` are not all explicit booleans; in Cronum Work,
+  the 28 that read.
+
 ## 0.277.0 — 2026-11-13
 
 - **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`;

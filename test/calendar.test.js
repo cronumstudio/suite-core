@@ -190,7 +190,7 @@ test('assistants get work_calendar: what has a date, said by day, for whoever us
   const mcp = mcpOf({ modules: [tasks, projects], uses: (user) => user.id === 1 });
   const tool = mcp.tools.find((t) => t.name === 'work_calendar');
   assert.ok(tool, 'named with the host\'s id');
-  assert.deepEqual(tool.annotations, { readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(tool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.ok(tool.description.length <= 2048);
   assert.equal(mcp.visible(ana, tool), true, 'for whoever uses a module with dates');
   assert.equal(mcp.visible(bob, tool), false, 'not for whoever uses none');

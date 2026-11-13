@@ -24,7 +24,7 @@ function server({ extra = [], ...options } = {}) {
     tools: [
       {
         name: 'list_items', title: 'List items', description: 'Lists the items. Newest first.',
-        annotations: { readOnlyHint: true, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } } },
         handler: (p, args) => { calls.push(['list_items', args]); return text('a\nb\nc'); },
       },
@@ -42,7 +42,7 @@ function server({ extra = [], ...options } = {}) {
       },
       {
         name: 'other_list_items', title: 'List other items', description: 'Lists the other items.',
-        annotations: { readOnlyHint: true, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: { type: 'object', properties: {} },
         handler: () => ({ isError: true, content: [{ type: 'text', text: 'Nothing here.' }] }),
       },
@@ -93,7 +93,7 @@ test('tools kept on demand: out of the list, named by the door, read and run thr
   assert.deepEqual(names(list), ['list_items', 'other_list_items', 'work_more_tools', 'work_use_tool']);
   const more = list.find((t) => t.name === 'work_more_tools');
   assert.match(more.description, /: add_subtask, share_list\. When the user asks/, 'the door names what is behind it');
-  assert.deepEqual(more.annotations, { title: 'More tools', readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(more.annotations, { title: 'More tools', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.equal(list.find((t) => t.name === 'work_use_tool').annotations.destructiveHint, false, 'nothing destructive goes through it');
 
   // A line each, then what one named does and takes.

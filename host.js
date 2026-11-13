@@ -508,7 +508,7 @@ export function hostMcp({
       title: 'Why some tools are missing',
       description: `What the user's plan leaves out of ${hostName} for an assistant, and how they get it. Call it when they ask for something those modules do.`,
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       handler: (principal) => ({
         content: [{
           type: 'text',
