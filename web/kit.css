@@ -486,8 +486,42 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-blank__icon { width: 46px; height: 46px; border-radius: var(--look-r-lg, 12px); background: var(--kit-accent-soft); color: var(--kit-accent); display: grid; place-items: center; }
 .kit-blank__icon .kit-icon { width: 22px; height: 22px; }
-.kit-blank strong { color: var(--kit-text); font-size: var(--look-headline, 15px); }
+/* One size of title in every module, the line of a list's and the heading of a view's (blank({ page })). */
+.kit-blank strong, .kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-headline, 15px); font-weight: 600; }
 .kit-blank p { margin: 0; max-width: 36ch; font-size: var(--look-subhead, 13.5px); }
+/* The emoji a person chose (a Tasks list's) in the icon's box; the spinner while it loads. */
+.kit-blank__glyph { font-size: 22px; line-height: 1; }
+.kit-blank--loading .kit-blank__icon { background: none; }
+.kit-blank__note { margin-top: 6px; font-size: var(--look-footnote, 13px); }
+.kit-blank .kit-btn { margin-top: 6px; }
+
+/*
+ * The row whose item is open in the detail beside it (rule 12 of web-kit.md): a soft background
+ * in the accent, the same in every module. A module whose row carries a surface of its own (what
+ * a finger slides) paints that surface too.
+ */
+.kit-row[aria-current="true"] { background: var(--kit-accent-soft); }
+
+/*
+ * The bar that adds an item at the foot of a list (ui.js addBar, rule 11): a card with a +, the
+ * field without a frame of its own and «Añadir». Where it sits (at the foot of a column, sticky
+ * over a chart) is the module's.
+ */
+.kit-add-bar {
+  display: flex; align-items: center; gap: var(--look-row-gap, 10px); flex: 0 0 auto;
+  margin: 0 var(--look-gutter, 16px) max(16px, var(--kit-safe-bottom));
+  padding: var(--look-bar-y, 10px) 14px;
+  background: var(--kit-panel); border: 1px solid var(--kit-border); border-radius: var(--kit-radius);
+  box-shadow: var(--kit-shadow);
+}
+.kit-add-bar:focus-within { border-color: color-mix(in oklab, var(--kit-accent) 45%, var(--kit-border)); }
+.kit-add-bar__plus { display: inline-grid; place-items: center; color: var(--kit-accent); flex: none; }
+.kit-add-bar__plus .kit-icon { width: 18px; height: 18px; }
+.kit-add-bar__input {
+  flex: 1; min-width: 0; border: none; background: transparent; outline: none; color: inherit; font: inherit;
+  padding: 4px 10px;
+}
+.kit-add-bar__add { flex: none; }
 
 .kit-avatar {
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none;
@@ -565,7 +599,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* --------------------------------- notices -------------------------------- */
 
 .kit-toasts {
-  position: fixed; inset-inline: 12px; bottom: calc(16px + var(--kit-safe-bottom)); z-index: 1000;
+  /* Over an add bar in sight, when ui.js measured one under them (--kit-toast-floor): never on it. */
+  position: fixed; inset-inline: 12px; bottom: max(calc(16px + var(--kit-safe-bottom)), var(--kit-toast-floor, 0px)); z-index: 1000;
   display: grid; justify-items: center; gap: 8px; pointer-events: none;
 }
 /* Over an open dialog (ui.js toast), without the browser's popover look: a box in the middle, framed. */
@@ -952,8 +987,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /*
  * Folded away (shell.js): the views take the whole width, under the bar whose
  * ☰ unfolds it. Something carried brings it over them as a drawer, as on a
- * phone, and it goes again when the drag ends. An app that lays out its own
- * columns (Tasks, Projects) gives their folded version too.
+ * phone, and it goes again when the drag ends. The detail as a column of its
+ * own (createShell({ detail: 'column' }), below) has its folded version there.
  */
 @container kit-app (min-width: 640px) {
   .kit-app[data-layout="side"][data-folded] .kit-shell {
@@ -978,6 +1013,34 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   }
   /* The detail is beside the list here: nothing to go back from. */
   .kit-app[data-layout="side"][data-panes="split"][data-folded] .kit-bar__back { display: none; }
+}
+
+/*
+ * The detail as a column of its own (createShell({ detail: 'column' }), Tasks and Projects): from
+ * 960 px the list takes the whole width while nothing is open, and the item opens as a column on
+ * its right (`shell.setDetailOpen()`, `data-detail-open`), the list being what is read and the
+ * item what is touched now and then. Folded away, the same under the bar. Below, the kit's two
+ * screens, as any split frame.
+ */
+@container kit-app (min-width: 960px) {
+  .kit-app[data-detail="column"][data-layout="side"][data-panes="split"] .kit-shell {
+    grid-template-columns: var(--kit-side-width, 260px) minmax(0, 1fr);
+    grid-template-areas: "side banners" "side list";
+  }
+  .kit-app[data-detail="column"][data-layout="side"][data-panes="split"][data-detail-open] .kit-shell {
+    grid-template-columns: var(--kit-side-width, 260px) minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-areas: "side banners banners" "side list detail";
+  }
+  .kit-app[data-detail="column"]:not([data-detail-open]) .kit-pane--detail { display: none; }
+  .kit-app[data-detail="column"][data-folded][data-layout="side"][data-panes="split"] .kit-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "bar" "banners" "list";
+  }
+  .kit-app[data-detail="column"][data-folded][data-layout="side"][data-panes="split"][data-detail-open] .kit-shell {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-areas: "bar bar" "banners banners" "list detail";
+  }
 }
 
 /*
@@ -1470,7 +1533,7 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
   inset-block: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) / 2); translate: 0 -50%;
   margin-block: 0; max-height: calc(var(--kit-view-h) - 24px);
 }
-:root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - 16px); translate: 0 -100%; }
+:root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - max(16px, var(--kit-toast-floor, 0px))); translate: 0 -100%; }
 @media (max-width: 640px) {
   :root[data-kit-keyboard] dialog:modal { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
 }
@@ -1648,7 +1711,6 @@ button.kit-chip:hover { background: var(--kit-hover); }
 
 /* An empty view: the blank message alone in the middle of the page, with a heading of its own. */
 .kit-blank--page { max-width: 460px; margin: 10vh auto 0; }
-.kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-title3, 19px); }
 
 /* ------------------------------- public page ------------------------------ */
 

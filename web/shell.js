@@ -69,6 +69,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 /**
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
+ * @param {'beside'|'column'} [options.detail] (split) from 960 px, the detail always beside the list
+ *   (the default), or a column of its own on the list's right only while an item is open
+ *   (`setDetailOpen()`), the list taking the whole width otherwise (Tasks, Projects; kit.css)
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers
  * @param {object} [options.create]          { label, onClick }: the floating button that creates an
  *   item (a note, a step), at every width: over the list on a phone, at the foot of the list's pane
@@ -96,7 +99,7 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   is the one in front (`data-focus="true"` on the window that holds `root`, windows.js)
  */
 export function createShell({
-  panes = 'split', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
+  panes = 'split', detail: detailMode = 'beside', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
   embedded = false, active = null,
 }) {
@@ -239,7 +242,7 @@ export function createShell({
   const shell = el('div', { class: 'kit-shell' },
     side, scrim, bar, banners, list, detail, fab, tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back'));
   // `data-layout` stays for the apps' own CSS, which names it.
-  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}) }, shell);
+  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}), ...(detailMode === 'column' ? { 'data-detail': 'column' } : {}) }, shell);
   root.append(element);
 
   /* --------------------------------- folding -------------------------------- */
@@ -1089,6 +1092,9 @@ export function createShell({
     foot: footer ? { element: footer, create: add, trash } : null,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
+    /** (detail: 'column') whether an item is open: its column on the list's right from 960 px. */
+    setDetailOpen: (open) => element.toggleAttribute('data-detail-open', Boolean(open)),
+    get detailOpen() { return element.hasAttribute('data-detail-open'); },
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
     setUser: (next) => { user = next; },

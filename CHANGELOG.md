@@ -3,6 +3,30 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.287.0 — 2026-11-14
+
+- **One empty and one loading state in every module** (`web/ui.js`, `web/kit.css`, `i18n`,
+  `docs/web-kit.md` rule 10; audit of 6/11, ux-acciones-6, ux-acciones-11). `blank()` takes
+  `glyph` (a text in the icon's box: a Tasks list's emoji), `page` (alone in a view, its title an h2),
+  `loading` (the kit's spinner and «Cargando…», new key `kit.loading`), `note`, an `action` with
+  `href` or `primary: false`, and no `title` for a sentence alone. `.kit-blank strong` and
+  `.kit-blank h2` are one size now (`--look-headline`): a page's empty view was 19 px, a list's 15.
+  Without the new options `blank()` draws what it drew.
+- **The add bar is the kit's** (`addBar()`, `.kit-add-bar`, new key `kit.add`; rule 11; ux-menus-15,
+  ui-medidas-11): Tasks' card (a +, the field without a frame, «Añadir», the module's own tools between
+  them), for Tasks and Projects.
+- **Notices rise above the add bar** (`toast()`, `.kit-toasts`; ui-dialogos-14): each time one shows,
+  the kit measures the bars in sight under the notices' place and sets `--kit-toast-floor`, also with
+  the keyboard up. With no bar they sit where they always did.
+- **The row open in the detail** (`.kit-row[aria-current="true"]`, rule 12; dup-css-5, ui-medidas-12):
+  a soft background in the accent, as Notes' had, for Tasks, Notes and Projects.
+- **The detail as a column of its own** (`createShell({ detail: 'column' })`, `shell.setDetailOpen()`,
+  `data-detail-open`; dup-css-11): from 960 px the list takes the whole width while nothing is open and
+  the item opens as a 340–400 px column on its right, folded or not. Tasks and Projects each had a copy
+  of these rules; the default (`'beside'`) is the frame as before.
+- **`inkOn(color)`** (ui-medidas-16): white where it reads 4.5:1 on a colour, otherwise the dark ink
+  (`INK`), for a button in a list's own colour.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,

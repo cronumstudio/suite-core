@@ -664,6 +664,8 @@
   "push.test": "Notifications work. This is a test message.",
   "kit.cancel": "Cancel",
   "kit.close": "Close",
+  "kit.add": "Add",
+  "kit.loading": "Loading…",
   "kit.copy": "Copy",
   "kit.password.show": "Show password",
   "kit.password.hide": "Hide password",

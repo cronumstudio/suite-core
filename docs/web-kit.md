@@ -69,6 +69,20 @@ going from one module to the next in Cronum Work nothing moves:
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text.
+10. **An empty place and one still loading are the kit's** (`blank()`, v0.287.0): an icon in its
+    box (the kit's, or the emoji a person chose for a Tasks list, `glyph`), one size of title, a
+    line, and what to do about it if there is something. Alone in a view, `page: true`. While what
+    goes there is on its way, `blank({ loading: true })`: the kit's spinner and «Cargando…», never
+    the empty message. A filter that leaves nothing out of things that exist says so in a short
+    sentence, never «add the first one».
+11. **The add bar is the same card in Tasks and Projects** (`addBar()`, v0.287.0): a +, the field
+    and «Añadir», with the module's own tools between them; Projects keeps its gradient behind it,
+    over the Gantt. The notices rise above it, never onto it (`toast()` measures it).
+12. **The row open in the detail has a soft background** (`.kit-row[aria-current="true"]`,
+    `--kit-accent-soft`, v0.287.0), as Notes' had: Tasks, Notes and Projects (whose state stripe
+    stays). A long title wraps onto more lines, as Tasks' always did; it is never cut with «…».
+    From 960 px, Tasks' and Projects' item opens as a column on the list's right
+    (`createShell({ detail: 'column' })`, `setDetailOpen()`).
 
 ## A page
 
@@ -120,7 +134,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
-| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank({ iconName, glyph, title, text, action, note, page, loading })`, `addBar({ placeholder, label, tools, onAdd, className, id, input })`, `inkOn(color)` (white or the dark ink, whichever reads on a colour), `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
@@ -164,7 +178,9 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 | `kit-group-title` | The heading of a group in a list |
 | `kit-avatar` (`--tiny` 20, `--small` 26, `--large` 34 px) | A person, as `avatar()` makes it |
 | `kit-segmented` | One choice among a few, as `segmented()` makes it |
-| `kit-blank` (`--page`), `kit-empty` | Nothing here yet, as `blank()` makes it; a view's whole page |
+| `kit-blank` (`--page`, `--loading`), `kit-empty` | Nothing here yet, or still on its way, as `blank()` makes it; a view's whole page |
+| `kit-add-bar` | The add bar at a list's foot, as `addBar()` makes it |
+| `kit-row[aria-current="true"]` | The row open in the detail beside it |
 
 Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
 has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,

@@ -35,6 +35,31 @@ function onTop(box) {
 }
 
 /**
+ * The notices rise over an add bar in sight below them (addBar(), rule 11), never onto it: measured
+ * each time one shows, from the bars that reach under where the notices go (the middle of the
+ * page), as the distance from the foot of the screen in view to the bar's top and a gap
+ * (`--kit-toast-floor`, kit.css). With none, they stay where they always were.
+ */
+function liftOver(box) {
+  // Nothing to measure without a window (a test, a worker): where they always were.
+  if (typeof window === 'undefined') return;
+  const view = window.visualViewport;
+  const bottom = view ? view.offsetTop + view.height : window.innerHeight;
+  const middle = (window.innerWidth || 0) / 2;
+  const half = Math.max(0, Math.min(230, middle - 12));
+  let floor = 0;
+  for (const bar of document.querySelectorAll?.('.kit-add-bar') || []) {
+    const r = bar.getBoundingClientRect?.();
+    // Hidden (no box), out of the screen in view, or beside the notices: it is not under them.
+    if (!r || !r.width || !r.height || r.top >= bottom || r.bottom <= 0) continue;
+    if (r.right <= middle - half || r.left >= middle + half) continue;
+    floor = Math.max(floor, bottom - r.top + 8);
+  }
+  if (floor) box.style.setProperty?.('--kit-toast-floor', `${Math.round(floor)}px`);
+  else box.style.removeProperty?.('--kit-toast-floor');
+}
+
+/**
  * A notice for a few seconds; errors stay longer. `action` adds a button
  * ("Undo", "Retry") that runs and closes it. Returns a function that closes it.
  */
@@ -55,6 +80,7 @@ export function toast(text, { error = false, action = null, duration = null } = 
       onClick: () => { close(); action.onClick?.(); },
     }) : null);
   box.append(markOwned(note));
+  liftOver(box);
   onTop(box);
   // An action needs time to be reached; an error, to be read.
   setTimeout(close, duration ?? (action ? 8000 : error ? 7000 : 3500));
@@ -189,14 +215,95 @@ export function segmented(options, value, onChange) {
   return group;
 }
 
-/** A centred message for a place with nothing in it yet, with what to do about it. */
-export function blank({ iconName = 'inbox', title, text = null, action = null }) {
-  return el('div', { class: 'kit-blank' },
-    el('span', { class: 'kit-blank__icon' }, icon(iconName)),
-    el('strong', { text: title }),
-    text ? el('p', { text }) : null,
-    action ? el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small', onClick: action.onClick },
-      action.iconName ? icon(action.iconName) : null, action.label) : null);
+/**
+ * A centred message for a place with nothing in it yet, with what to do about it: the same in every
+ * module (rule 10 of web-kit.md), one size of title in all of them.
+ *
+ * - `iconName`, the kit's icon in its box; `glyph`, a text in its place (the emoji a person chose
+ *   for a Tasks list).
+ * - `title` may be left out for a sentence alone (`text`).
+ * - `action`: { label, onClick } or { label, href } (a link), with `iconName`, and `primary: false`
+ *   for a plain button. `note`: a smaller line under it all.
+ * - `page`: alone in a view (`kit-blank--page`), its title the view's heading (an h2).
+ * - `loading`: the same place while what goes there is on its way, the kit's spinner in the box and
+ *   «Cargando…» (`kit.loading`) unless a `title` says otherwise.
+ */
+export function blank({
+  iconName = 'inbox', glyph = null, title = null, text = null, action = null, note = null, page = false, loading = false,
+} = {}) {
+  const box = el('span', { class: 'kit-blank__icon', 'aria-hidden': 'true' },
+    loading ? el('span', { class: 'kit-spinner' })
+      : glyph ? el('span', { class: 'kit-blank__glyph', text: glyph }) : icon(iconName));
+  const heading = title || (loading ? t('kit.loading') : null);
+  const button = !action ? null : action.href
+    ? el('a', { class: `kit-btn${action.primary === false ? '' : ' kit-btn--primary'} kit-btn--small`, href: action.href },
+      action.iconName ? icon(action.iconName) : null, action.label)
+    : el('button', { type: 'button', class: `kit-btn${action.primary === false ? '' : ' kit-btn--primary'} kit-btn--small`, onClick: action.onClick },
+      action.iconName ? icon(action.iconName) : null, action.label);
+  return el('div', {
+    class: `kit-blank${page ? ' kit-blank--page' : ''}${loading ? ' kit-blank--loading' : ''}`,
+    ...(loading ? { role: 'status', 'aria-busy': 'true' } : {}),
+  },
+  box,
+  heading ? el(page ? 'h2' : 'strong', { text: heading }) : null,
+  text ? el('p', { text }) : null,
+  button,
+  note ? el('p', { class: 'kit-blank__note', text: note }) : null);
+}
+
+/**
+ * The bar that adds an item at the foot of a list (Tasks, Projects): a card with a +, the field and
+ * «Añadir», the same in both (rule 11 of web-kit.md). The notices rise over it (toast).
+ *
+ * - `placeholder`, and `label` for the button (the kit's «Añadir» by default).
+ * - `tools`: the module's own buttons, between the field and «Añadir» (Tasks' history, its category).
+ * - `onAdd(text, input)`: what was typed, trimmed, when there is something; the field is the
+ *   module's to empty. Without it, the form's submit is the module's own.
+ * - `className`, `id`, `input` (the field's attributes: an id, aria, maxlength…): what the module
+ *   finds them by.
+ */
+export function addBar({ placeholder = '', label = null, tools = [], onAdd = null, className = '', id = null, input: inputProps = {} } = {}) {
+  const input = el('input', {
+    type: 'text', class: 'kit-add-bar__input', placeholder, autocomplete: 'off', enterkeyhint: 'done',
+    ...(placeholder ? { 'aria-label': placeholder } : {}), ...inputProps,
+  });
+  const form = el('form', { class: `kit-add-bar${className ? ` ${className}` : ''}`, id },
+    el('span', { class: 'kit-add-bar__plus', 'aria-hidden': 'true' }, icon('plus')),
+    input,
+    ...tools,
+    el('button', { type: 'submit', class: 'kit-btn kit-btn--primary kit-btn--small kit-add-bar__add', text: label ?? t('kit.add') }));
+  if (onAdd) {
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (text) onAdd(text, input);
+    });
+  }
+  return form;
+}
+
+/**
+ * The ink that reads on a colour (a Tasks list's, a project's) as the text of its button: white
+ * where it reaches WCAG's 4.5:1, and otherwise the kit's dark ink, whichever reads better.
+ * Anything that isn't a #rgb or #rrggbb colour gets white, as before.
+ */
+export const INK = '#16130E';
+export function inkOn(color) {
+  const hex = String(color || '').trim().replace(/^#/, '');
+  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return '#fff';
+  const lum = (h) => {
+    const [r, g, b] = [0, 2, 4].map((i) => {
+      const c = parseInt(h.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const bg = lum(full);
+  const onWhite = 1.05 / (bg + 0.05);
+  if (onWhite >= 4.5) return '#fff';
+  const onInk = (bg + 0.05) / (lum(INK.slice(1)) + 0.05);
+  return onInk > onWhite ? INK : '#fff';
 }
 
 /** The initials of a name on a circle: what stands for a person. */

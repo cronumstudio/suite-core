@@ -664,6 +664,8 @@
   "push.test": "Los avisos funcionan. Este es un mensaje de prueba.",
   "kit.cancel": "Cancelar",
   "kit.close": "Cerrar",
+  "kit.add": "Añadir",
+  "kit.loading": "Cargando…",
   "kit.copy": "Copiar",
   "kit.password.show": "Mostrar contraseña",
   "kit.password.hide": "Ocultar contraseña",
