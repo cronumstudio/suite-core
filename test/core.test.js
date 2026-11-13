@@ -91,6 +91,45 @@ test('database: pragmas, helpers and app_meta', () => {
   }
 });
 
+test('database: a statement kept prepared answers as a new one would (perf-srv-6)', () => {
+  const { database, dir } = tempDb();
+  try {
+    database.exec('CREATE TABLE t (id INTEGER PRIMARY KEY, a TEXT, b TEXT)');
+    const insert = 'INSERT INTO t (a, b) VALUES (?, ?)';
+    database.run(insert, 'x', 'y');
+    // Fewer values than marks: the rest are null, as with a statement prepared for this call alone.
+    database.run(insert, 'z');
+    assert.deepEqual(database.all('SELECT a, b FROM t ORDER BY id').map((r) => [r.a, r.b]), [['x', 'y'], ['z', null]]);
+    const named = 'SELECT :one AS one, :two AS two';
+    assert.deepEqual({ ...database.get(named, { one: 1, two: 2 }) }, { one: 1, two: 2 });
+    assert.deepEqual({ ...database.get(named, { one: 3 }) }, { one: 3, two: null });
+    // A get() that read one row of many leaves nothing open: the next statements see every write.
+    const first = 'SELECT id FROM t ORDER BY id';
+    assert.equal(database.get(first).id, 1);
+    database.run(insert, 'w', 'v');
+    assert.equal(database.all(first).length, 3);
+    // The schema changes under a kept statement: it is prepared again by SQLite, with the new column.
+    const every = 'SELECT * FROM t WHERE id = ?';
+    assert.deepEqual(Object.keys(database.get(every, 1)), ['id', 'a', 'b']);
+    database.exec('ALTER TABLE t ADD COLUMN c TEXT');
+    assert.deepEqual(Object.keys(database.get(every, 1)), ['id', 'a', 'b', 'c']);
+    assert.deepEqual(database.columnsOf('t'), ['id', 'a', 'b', 'c'], 'a PRAGMA is never kept: it reads the table as it is now');
+    // Hundreds of different texts (an IN list of every length): all answered, the oldest let go.
+    for (let n = 1; n <= 700; n++) {
+      assert.equal(database.get(`SELECT COUNT(*) AS n FROM t WHERE id IN (${Array(n).fill('?').join(', ')})`, ...Array.from({ length: n }, (_, i) => i + 1)).n, Math.min(n, 3));
+    }
+    assert.equal(database.get(every, 2).a, 'z');
+    // The statistics for the planner: at the start and with each clean-up.
+    database.optimize({ first: true });
+    database.optimize();
+    database.run(insert, 'after', 'optimize');
+    assert.equal(database.all(first).length, 4);
+  } finally {
+    database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('database: transactions roll back whole, and nest', () => {
   const { database, dir } = tempDb();
   try {
