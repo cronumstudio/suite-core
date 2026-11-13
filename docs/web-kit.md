@@ -127,11 +127,11 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does |
 | `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`; the module's sheet after it draws the rest |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
@@ -487,7 +487,10 @@ the person shares, each with who has it, whether they accepted and what they may
 edit, changed there; taken back there), and everything shared with them (accept, decline or
 leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
 it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
-notebooks and notes.
+notebooks and notes. An app whose people have roles of its own passes `permissions`, the share
+dialog's `[{ value, label, offered }]` (Projects: manages, can edit, read only), or a function of
+the item when they differ (only a project's owner names a manager): two are buttons with their
+names, more a list, and a role not offered is said on whoever has it, their row left as it is.
 
 **Sharing with people one knows** (`people.js`, v0.96.0): a share dialog puts `peopleChips(people)`
 under its email field, with the people the app says the person already shares with (each app's
@@ -501,7 +504,10 @@ the person shares, each with who has it, whether they accepted and what they may
 edit, changed there; taken back there), and everything shared with them (accept, decline or
 leave). The app gives `load()` → `{ mine, withMe }` and how each change is made; the kit draws
 it and asks `load()` again after every change. Tasks shows its lists there; Notes its groups,
-notebooks and notes.
+notebooks and notes. An app whose people have roles of its own passes `permissions`, the share
+dialog's `[{ value, label, offered }]` (Projects: manages, can edit, read only), or a function of
+the item when they differ (only a project's owner names a manager): two are buttons with their
+names, more a list, and a role not offered is said on whoever has it, their row left as it is.
 
 ### Plans and payments
 
