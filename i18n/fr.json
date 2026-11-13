@@ -882,6 +882,7 @@
   "kit.deleteAsk": "Supprimer « {name} » ?",
   "kit.delete": "Supprimer",
   "kit.undo": "Annuler",
+  "kit.retry": "Réessayer",
   "kit.saved": "Enregistré.",
   "kit.offline.title": "Connexion nécessaire",
   "kit.offline.server": "Ceci est lu sur le serveur. Il s’affichera dès le retour de la connexion.",
@@ -914,7 +915,16 @@
     "one": "Hors ligne. Une modification gardée sur cet appareil ; elle partira au retour du réseau.",
     "other": "Hors ligne. {n} modifications gardées sur cet appareil ; elles partiront au retour du réseau."
   },
+  "kit.offline.pending": {
+    "one": "Envoi d’une modification faite hors ligne…",
+    "other": "Envoi de {n} modifications faites hors ligne…"
+  },
+  "kit.offline.sent": {
+    "one": "La modification faite hors ligne a été enregistrée",
+    "other": "Les {n} modifications faites hors ligne ont été enregistrées"
+  },
   "kit.offline.dropped": "Une modification faite hors ligne n’a pas pu être enregistrée : {reason}",
+  "kit.offline.droppedWhat": "Une modification faite hors ligne n’a pas pu être enregistrée ({what}) : {reason}",
   "kit.account.menu": "Votre compte",
   "kit.account.settings": "Réglages",
   "kit.account.admin": "Administration",

@@ -3,6 +3,23 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.288.0 — 2026-11-14
+
+- **One banner without a signal, the same in every module** (`web/ui.js` `offlineBanner`,
+  `docs/web-kit.md` rule 10; audit of 6/11, ui-dialogos-12, ux-acciones-14). It listens to the
+  browser's `offline` and `online` itself, so the banner shows the moment the signal goes, changes
+  waiting or not (Notes showed none without them, Tasks only once its probe failed). Offline it
+  says what is shown is the last thing loaded and how many changes wait, with a discreet
+  «Reintentar» (`kit.retry`, never primary) when the module passes `retry`; back online, while they
+  go, how many are being sent (`kit.offline.pending`); `sent(n)` says they arrived
+  (`kit.offline.sent`). It paints in the shell's banner row, or through the module's own
+  `show`/`hide`, and again in a new language. New texts in the five languages: `kit.retry`,
+  `kit.offline.pending`, `kit.offline.sent` and `kit.offline.droppedWhat` (the dropped change named,
+  as Next says it). Nothing changes for a module that doesn't use it.
+- **«Necesita conexión» as a piece** (`web/ui.js` `offlineNotice`; ui-dialogos-13): what only the
+  server can show says so in its place, as Settings already did (it uses the piece now); Tasks' and
+  Projects' trash use it without a signal.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,

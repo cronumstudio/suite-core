@@ -882,6 +882,7 @@
   "kit.deleteAsk": "„{name}“ löschen?",
   "kit.delete": "Löschen",
   "kit.undo": "Rückgängig",
+  "kit.retry": "Erneut versuchen",
   "kit.saved": "Gespeichert.",
   "kit.offline.title": "Verbindung nötig",
   "kit.offline.server": "Das kommt vom Server. Es erscheint, sobald die Verbindung zurück ist.",
@@ -914,7 +915,16 @@
     "one": "Offline. Eine Änderung ist auf diesem Gerät gespeichert und wird gesendet, sobald du wieder online bist.",
     "other": "Offline. {n} Änderungen sind auf diesem Gerät gespeichert und werden gesendet, sobald du wieder online bist."
   },
+  "kit.offline.pending": {
+    "one": "Eine offline gemachte Änderung wird gesendet…",
+    "other": "{n} offline gemachte Änderungen werden gesendet…"
+  },
+  "kit.offline.sent": {
+    "one": "Die offline gemachte Änderung wurde gespeichert",
+    "other": "Die {n} offline gemachten Änderungen wurden gespeichert"
+  },
   "kit.offline.dropped": "Eine offline gemachte Änderung konnte nicht gespeichert werden: {reason}",
+  "kit.offline.droppedWhat": "Eine offline gemachte Änderung konnte nicht gespeichert werden ({what}): {reason}",
   "kit.account.menu": "Dein Konto",
   "kit.account.settings": "Einstellungen",
   "kit.account.admin": "Verwaltung",

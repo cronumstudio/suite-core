@@ -69,6 +69,14 @@ going from one module to the next in Cronum Work nothing moves:
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text.
+10. **Without a signal every module says the same, at once** (`offlineBanner()`, v0.288.0): the
+   kit's banner under the header the moment the browser says the signal went, not once a request
+   has failed, with or without changes waiting: «Sin conexión. Se ve lo último que se cargó.» and
+   how many changes wait on the device; «Reintentar», when there is one, is never the primary
+   button. Back online, «Enviando N cambios…» while they go, and a notice once they arrived
+   (`kit.offline.sent`). The words are the kit's (`kit.offline.*`, `errors.offline`): no module
+   keeps a copy. What only the server can show (a trash) says «Necesita conexión» in its place
+   (`offlineNotice()`), and its dialog keeps its «Cerrar».
 
 ## A page
 

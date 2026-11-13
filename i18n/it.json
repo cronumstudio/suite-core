@@ -882,6 +882,7 @@
   "kit.deleteAsk": "Eliminare «{name}»?",
   "kit.delete": "Elimina",
   "kit.undo": "Annulla",
+  "kit.retry": "Riprova",
   "kit.saved": "Salvato.",
   "kit.offline.title": "Serve una connessione",
   "kit.offline.server": "Questo si legge dal server. Apparirà appena torna la connessione.",
@@ -914,7 +915,16 @@
     "one": "Offline. Una modifica conservata su questo dispositivo; verrà inviata quando torni online.",
     "other": "Offline. {n} modifiche conservate su questo dispositivo; verranno inviate quando torni online."
   },
+  "kit.offline.pending": {
+    "one": "Invio di una modifica fatta offline…",
+    "other": "Invio di {n} modifiche fatte offline…"
+  },
+  "kit.offline.sent": {
+    "one": "La modifica fatta offline è stata salvata",
+    "other": "Le {n} modifiche fatte offline sono state salvate"
+  },
   "kit.offline.dropped": "Non è stato possibile salvare una modifica fatta offline: {reason}",
+  "kit.offline.droppedWhat": "Non è stato possibile salvare una modifica fatta offline ({what}): {reason}",
   "kit.account.menu": "Il tuo account",
   "kit.account.settings": "Impostazioni",
   "kit.account.admin": "Amministrazione",

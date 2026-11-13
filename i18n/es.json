@@ -882,6 +882,7 @@
   "kit.deleteAsk": "¿Borrar «{name}»?",
   "kit.delete": "Borrar",
   "kit.undo": "Deshacer",
+  "kit.retry": "Reintentar",
   "kit.saved": "Guardado.",
   "kit.offline.title": "Necesita conexión",
   "kit.offline.server": "Esto se consulta en el servidor. Se mostrará en cuanto vuelva la conexión.",
@@ -914,7 +915,16 @@
     "one": "Sin conexión. Un cambio guardado en este dispositivo; se enviará al volver.",
     "other": "Sin conexión. {n} cambios guardados en este dispositivo; se enviarán al volver."
   },
+  "kit.offline.pending": {
+    "one": "Enviando un cambio hecho sin conexión…",
+    "other": "Enviando {n} cambios hechos sin conexión…"
+  },
+  "kit.offline.sent": {
+    "one": "Se ha guardado el cambio hecho sin conexión",
+    "other": "Se han guardado los {n} cambios hechos sin conexión"
+  },
   "kit.offline.dropped": "Un cambio hecho sin conexión no se pudo guardar: {reason}",
+  "kit.offline.droppedWhat": "Un cambio hecho sin conexión no se pudo guardar ({what}): {reason}",
   "kit.account.menu": "Tu cuenta",
   "kit.account.settings": "Ajustes",
   "kit.account.admin": "Administración",
