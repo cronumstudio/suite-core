@@ -96,6 +96,7 @@ suite-core/
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
   ownership.js          done   whose it is: 403 not_yours, the author who may delete, giving it, the notice when shared things go, heirs
+  public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them

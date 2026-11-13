@@ -470,7 +470,7 @@ export function createMcpServer({
       properties: { names: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: Math.max(1, kept.length), description: 'Names from the list above; none for a short line on each' } },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, {
     name: doors.use,
     title: 'Use a tool from More tools',

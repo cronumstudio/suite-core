@@ -40,7 +40,7 @@ export const S = Object.freeze({
  * Work; a tool that does (fetching a file from a link) spreads one of these
  * with `openWorldHint: true`.
  */
-export const READS = Object.freeze({ readOnlyHint: true, openWorldHint: false });
+export const READS = Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
 export const ADDS = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
 export const SETS = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
 export const DESTRUCTIVE = Object.freeze({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
