@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.278.0 — 2026-11-13
+## 0.278.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
   `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
