@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.280.0 — 2026-11-14
+## 0.281.0 — 2026-11-14
 
 - **The MCP layer, after the audit of 6/11** (`mcp.js`, `host.js`, `calendar.js`, `links.js`,
   `mcp-files.js`, `oauth.js`, `mcp-kit.js`, `web/agents.js`; sc-mcp-6, -10, -11, -12, -15, -16,
