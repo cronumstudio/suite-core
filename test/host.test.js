@@ -276,10 +276,10 @@ test('one MCP for every module: its tools with the module’s name, its plans, a
   const listed = announced.map((tool) => tool.name);
   assert.deepEqual(listed, ['alpha_list_items', 'alpha_add_item', 'beta_list_items', 'work_linked_items', 'work_link_item']);
   const hints = Object.fromEntries(announced.map((tool) => [tool.name, tool.annotations]));
-  assert.deepEqual(hints.alpha_list_items, { title: 'List items', readOnlyHint: true, openWorldHint: false },
+  assert.deepEqual(hints.alpha_list_items, { title: 'List items', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     'a module’s tool keeps its hints under the host’s name');
   assert.equal(hints.alpha_add_item, undefined, 'and one without them announces none');
-  assert.deepEqual(hints.work_linked_items, { title: 'What is linked with something', readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(hints.work_linked_items, { title: 'What is linked with something', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.deepEqual(hints.work_link_item, {
     title: 'Link, or add to another module and link', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false,
   });
