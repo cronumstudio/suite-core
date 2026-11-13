@@ -1150,6 +1150,31 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* A touch screen's field text is never under 16px: below that the iPhone zooms the page in. */
 @media (pointer: coarse) { .kit-share__permission { font-size: var(--look-body, 16px); } }
 :root[data-look="clean"] .kit-share__heading { font-size: var(--look-footnote, 11px); letter-spacing: .02em; }
+.kit-share__offline { margin: 0; }
+
+/* An invitation waiting for an answer (invitation.js), first in the sidebar in every module:
+   who offers what, what accepting it gives, and the two answers, as wide as each other. */
+.kit-invites { display: grid; gap: 8px; margin-block: 4px 10px; }
+.kit-invite {
+  display: grid; gap: 6px; padding: 10px 12px; min-width: 0;
+  border: 1px solid var(--kit-border); border-inline-start: 3px solid var(--invite-color, var(--kit-accent));
+  border-radius: var(--kit-radius); background: var(--kit-panel);
+}
+.kit-invite__from { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--look-footnote, 12.5px); color: var(--kit-muted); }
+.kit-invite__from > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-invite__name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--look-headline, 14.5px); }
+.kit-invite__name > span:last-child { overflow-wrap: anywhere; }
+.kit-invite__icon { flex: none; line-height: 1; }
+.kit-invite__swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--invite-color, var(--kit-accent)); }
+.kit-invite__about { font-size: var(--look-caption, 12px); color: var(--kit-muted); }
+.kit-invite__actions { display: flex; gap: 6px; margin-block-start: 2px; }
+.kit-invite__actions .kit-btn { flex: 1 1 0; }
+/* ☰ while an invitation waits in the closed drawer (shell.js setMark): a dot at its corner. */
+.kit-app[data-mark] .kit-bar__menu { position: relative; }
+.kit-app[data-mark] .kit-bar__menu::after {
+  content: ''; position: absolute; inset-block-start: 7px; inset-inline-end: 7px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--kit-accent); box-shadow: 0 0 0 2px var(--kit-bg, var(--kit-panel));
+}
 
 /* ---------------------------------- links ---------------------------------- */
 /* The "Linked" row of an item (links.js): one chip per link, a dot in the other module's colour. */

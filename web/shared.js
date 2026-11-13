@@ -100,7 +100,8 @@ export function sharedPage({
    */
   const permissionChoice = (roles, value, onChange) => {
     if (!roles) {
-      return segmented([{ value: 'view', label: t('kit.shared.view') }, { value: 'edit', label: t('kit.shared.edit') }], value, onChange);
+      // The share dialog's words and order: can edit first, then read only.
+      return segmented([{ value: 'edit', label: t('kit.share.edit') }, { value: 'view', label: t('kit.share.view') }], value, onChange);
     }
     const offered = roles.filter((role) => role.offered !== false);
     if (roles.length <= 2) return segmented(offered, value, onChange);
@@ -120,16 +121,18 @@ export function sharedPage({
       const role = roles?.find((r) => r.value === person.permission);
       const kept = role?.offered === false;
       return el('div', { class: 'kit-shared__person' },
-        avatar(who),
+        avatar(person.user || who),
         el('span', { class: 'kit-shared__who' }, el('span', { text: who }), email ? el('small', { text: email }) : null),
-        person.accepted ? null : el('span', { class: 'kit-badge kit-badge--warn', text: t('kit.shared.pending') }),
+        person.accepted ? null : el('span', { class: 'kit-badge kit-badge--warn', text: t('kit.share.pending') }),
         kept ? el('span', { class: 'kit-share__role', text: role.label })
           : permissionChoice(roles, person.permission, (permission) => change(() => setPermission(item, person, permission))()),
         kept ? null : el('button', {
-          type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.shared.remove', { name: who }), title: t('kit.shared.remove', { name: who }),
+          type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.share.remove', { name: who }), title: t('kit.share.remove', { name: who }),
           onClick: async () => {
-            const sure = await confirmDialog(t('kit.shared.removeConfirm', { name: who, item: item.name }), { confirm: t('kit.shared.stop') });
-            if (sure) await change(() => remove(item, person))();
+            // As the share dialog (rule 7 of docs/web-kit.md): someone who accepted is asked about,
+            // an invitation nobody answered goes at once.
+            if (person.accepted && !await confirmDialog(t('kit.share.removeAsk', { name: who }), { confirm: t('kit.share.takeBack') })) return;
+            await change(() => remove(item, person))();
           },
         }, icon('x')));
     });
@@ -141,8 +144,8 @@ export function sharedPage({
     const actions = !item.accepted
       ? [accept ? button(t('kit.shared.accept'), change(() => accept(item)), 'primary') : null,
         button(t('kit.shared.decline'), change(() => leave(item)), 'quiet')]
-      : [button(t('kit.shared.leave'), async () => {
-        const sure = await confirmDialog(t('kit.shared.leaveConfirm', { item: item.name }), { confirm: t('kit.shared.leave') });
+      : [button(t('kit.share.leave'), async () => {
+        const sure = await confirmDialog(t('kit.share.leaveConfirm', { name: item.name }), { title: t('kit.share.leaveAsk', { name: item.name }), confirm: t('kit.share.leave') });
         if (sure) await change(() => leave(item))();
       }, 'danger-quiet')];
     return el('article', { class: 'kit-shared__item' },

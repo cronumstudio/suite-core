@@ -76,7 +76,7 @@ test('what one shares, with each person, and what is shared with one, invitation
   assert.match(text, /Notebook · Home/, 'what kind of thing, and where it is');
   assert.match(text, /Ana/);
   assert.match(text, /ben@example\.com/, 'the email the owner typed');
-  assert.equal(page.all().filter((n) => n.textContent === t('kit.shared.pending')).length, 1, 'only Ben has yet to accept');
+  assert.equal(page.all().filter((n) => n.textContent === t('kit.share.pending')).length, 1, 'only Ben has yet to accept');
   const withMe = page.all().filter((n) => n.tagName === 'ARTICLE').slice(1).map((n) => n.textContent);
   assert.match(withMe[0], /Garden/, 'the invitation to answer goes first');
   assert.match(withMe[0], new RegExp(t('kit.shared.canEdit')));
@@ -93,18 +93,26 @@ test('each change goes through the app and the page asks again', async () => {
 
   // Ana from "edit" to "view": the segmented choice of her row.
   const anaRow = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ana/.test(n.textContent));
-  buttons(anaRow, t('kit.shared.view'))[0].dispatch('click');
+  buttons(anaRow, t('kit.share.view'))[0].dispatch('click');
   await settle();
   assert.deepEqual(calls, [['permission', 3, 2, 'view'], ['load']]);
 
-  // Taking it back from Ben asks first.
+  // Ben never answered: his invitation goes at once, as in the share dialog (rule 7).
   calls.length = 0;
   const benRow = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ben/.test(n.textContent));
-  benRow.all().find((n) => n.getAttribute('aria-label') === t('kit.shared.remove', { name: 'Ben' })).dispatch('click');
-  await settle();
-  buttons(openDialog(), t('kit.shared.stop'))[0].dispatch('click');
+  benRow.all().find((n) => n.getAttribute('aria-label') === t('kit.share.remove', { name: 'Ben' })).dispatch('click');
   await settle();
   assert.deepEqual(calls, [['remove', 3, 4], ['load']]);
+
+  // Ana accepted it: taking it back from her asks first, in the dialog's words.
+  calls.length = 0;
+  const ana = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ana/.test(n.textContent));
+  ana.all().find((n) => n.getAttribute('aria-label') === t('kit.share.remove', { name: 'Ana' })).dispatch('click');
+  await settle();
+  assert.ok(openDialog().textContent.includes(t('kit.share.removeAsk', { name: 'Ana' })));
+  buttons(openDialog(), t('kit.share.takeBack'))[0].dispatch('click');
+  await settle();
+  assert.deepEqual(calls, [['remove', 3, 2], ['load']]);
 
   calls.length = 0;
   buttons(page, t('kit.shared.accept'))[0].dispatch('click');
@@ -118,7 +126,7 @@ test('each change goes through the app and the page asks again', async () => {
 
   // Leaving something accepted asks first; cancelled, nothing happens.
   calls.length = 0;
-  buttons(page, t('kit.shared.leave'))[0].dispatch('click');
+  buttons(page, t('kit.share.leave'))[0].dispatch('click');
   await settle();
   buttons(openDialog(), t('kit.cancel'))[0].dispatch('click');
   await settle();
@@ -135,12 +143,12 @@ test('a refusal is said, and the page shows what the server has', async () => {
   await settle();
   calls.length = 0;
   const anaRow = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ana/.test(n.textContent));
-  buttons(anaRow, t('kit.shared.view'))[0].dispatch('click');
+  buttons(anaRow, t('kit.share.view'))[0].dispatch('click');
   await settle();
   assert.deepEqual(calls, [['load']], 'asked again after the refusal');
   const again = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ana/.test(n.textContent));
   const pressed = again.all().find((n) => n.getAttribute('aria-pressed') === 'true');
-  assert.equal(pressed.textContent, t('kit.shared.edit'), 'still "edit", as the server says');
+  assert.equal(pressed.textContent, t('kit.share.edit'), 'still "edit", as the server says');
 });
 
 /** A project's team as Projects shares it: three roles, broadest first, and Settings' calls kept. */
@@ -183,7 +191,7 @@ function roles() {
 }
 
 const personRow = (page, name) => page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && n.textContent.includes(name));
-const removeButton = (row, name) => row.all().find((n) => n.tagName === 'BUTTON' && n.getAttribute('aria-label') === t('kit.shared.remove', { name }));
+const removeButton = (row, name) => row.all().find((n) => n.tagName === 'BUTTON' && n.getAttribute('aria-label') === t('kit.share.remove', { name }));
 
 test('an app with roles of its own: a list of them for each person, as the share dialog has it, changed there', async () => {
   const { options, calls } = roles();
@@ -241,7 +249,7 @@ test('two roles of the app\'s own are buttons with their names; without any, the
   const plain = fixture();
   const again = sharedPage({ ...plain.options, permissions: [] });
   await settle();
-  assert.equal(buttons(again, t('kit.shared.view')).length, 2, 'an empty list is no roles: can view and can edit, for Ana and Ben');
+  assert.equal(buttons(again, t('kit.share.view')).length, 2, 'an empty list is no roles: can view and can edit, for Ana and Ben');
 });
 
 test('nothing shared: one quiet message; without `accept` or `open`, no buttons for them', async () => {

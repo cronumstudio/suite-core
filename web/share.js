@@ -36,6 +36,9 @@ const fail = (err) => {
   return false;
 };
 
+/** Whether the device says it has a network: only a plain «no» counts (a test, a server, say nothing). */
+const online = () => !(typeof navigator !== 'undefined' && navigator?.onLine === false);
+
 /**
  * @param {object} options
  * @param {string} options.name   what is shared, as the title says it.
@@ -71,7 +74,7 @@ const fail = (err) => {
  */
 export async function shareDialog({
   name, base = null, me = null, words = (key) => `kit.share.${key}`, people = null, email: byEmail = true,
-  hint = null, empty = null, avatar = (person) => kitAvatar(person?.name), detail = null,
+  hint = null, empty = null, avatar = (person) => kitAvatar(person || ''), detail = null,
   load = null, offer: offerOne = null, setPermission = null, remove = null, leave = null,
   permissions = null, invitePermission = null, fixed = null, confirmRemove = null, parent = null,
 } = {}) {
@@ -103,6 +106,20 @@ export async function shareDialog({
   return new Promise((resolve) => {
     let result = null;
     const list = el('div', { class: 'kit-list kit-share__people' });
+    // Without a connection (an app that knows who has it on the device, Tasks) it opens with what it
+    // knows, one line says why nothing can change, and what changes is off until the network is back.
+    const needsNet = new Set();   // the rows' (drawn again with the list)
+    const formNet = new Set();    // the form's
+    const notice = el('p', { class: 'kit-hint kit-share__offline', role: 'status', text: t('kit.offline.actions'), hidden: online() });
+    const syncNet = () => {
+      const on = online();
+      notice.hidden = on;
+      for (const control of [...needsNet, ...formNet]) {
+        for (const node of control.classList?.contains('kit-segmented') ? [...control.children] : [control]) node.disabled = !on;
+      }
+      readyInvite();
+    };
+    let readyInvite = () => {};
     const can = (permission) => kinds.find((k) => k.value === permission)?.label ?? w(permission === 'view' ? 'view' : 'edit');
     // The chips of whoever manages, drawn again with the list: whoever has it now leaves them.
     let paintChips = () => {};
@@ -117,6 +134,7 @@ export async function shareDialog({
 
     const paint = () => {
       clear(list);
+      needsNet.clear();
       const mine = data.owner?.id === me;
       list.append(el('div', { class: 'kit-list__row' }, avatar(data.owner),
         el('span', { class: 'kit-list__text' },
@@ -150,6 +168,7 @@ export async function shareDialog({
         }, icon('x'));
         const under = lineUnder(share);
         const keep = locked(share);
+        if (manages && !keep) needsNet.add(permission).add(takeBack);
         list.append(el('div', { class: 'kit-list__row' }, avatar(share.user),
           el('span', { class: 'kit-list__text' },
             // The whole name in its title: on a phone it keeps one line, cut with "…" (kit.css).
@@ -162,8 +181,8 @@ export async function shareDialog({
           manages && !keep ? takeBack : null));
       }
       paintChips();
+      syncNet();
     };
-    paint();
 
     let form = null;
     if (manages) {
@@ -183,7 +202,9 @@ export async function shareDialog({
       const invite = el('button', { type: 'submit', class: 'kit-btn kit-btn--primary', text: w('invite') });
       const typed = () => (email ? email.value.trim() : '');
       // Nothing to share until there is an email or a chip chosen.
-      const ready = () => { invite.disabled = !typed() && !chips.selected().length; };
+      const ready = () => { invite.disabled = !online() || (!typed() && !chips.selected().length); };
+      readyInvite = ready;
+      formNet.add(choice);
       // One's people, the kit's chips under the email: one or several at once.
       const chips = peopleChips([], { onChange: ready, ...(byEmail ? {} : { label: '' }) });
       email?.addEventListener('input', ready);
@@ -218,6 +239,7 @@ export async function shareDialog({
       };
       invitation.addEventListener('submit', async (ev) => {
         ev.preventDefault();
+        if (!online()) return;
         const address = typed();
         const chosen = new Set(chips.selected());
         const targets = [
@@ -248,15 +270,26 @@ export async function shareDialog({
       if (email) setTimeout(() => email.focus(), 50);
       form = nobody ? el('div', { class: 'kit-stack' }, invitation, nobody) : invitation;
     }
+    paint();
+    // The network coming and going while it is open turns what changes on and off.
+    const listens = typeof window !== 'undefined' && typeof window.addEventListener === 'function';
+    if (listens) {
+      window.addEventListener('online', syncNet);
+      window.addEventListener('offline', syncNet);
+    }
 
     openDialog({
       title: manages ? w('title', { name }) : w('people'),
-      content: el('div', { class: 'kit-stack' }, form,
+      content: el('div', { class: 'kit-stack' }, notice, form,
         manages ? el('h3', { class: 'kit-share__heading', text: w('withAccess') }) : null, list),
       // Someone who reaches it some other way (a notebook through its group) has nothing here to leave.
       actions: owner || !data.shares.some((s) => s.user.id === me) ? [{ label: t('kit.close') }] : [{
         label: w('leave'), danger: true,
         onClick: async () => {
+          if (!online()) {
+            toast(t('kit.offline.actions'));
+            return false;
+          }
           if (!await confirmDialog(w('leaveConfirm', { name }), { title: w('leaveAsk', { name }), confirm: w('leave'), parent })) return false;
           try {
             await leave();
@@ -268,7 +301,13 @@ export async function shareDialog({
         },
       }, { label: t('kit.close'), primary: true }],
       parent,
-      onClose: () => resolve(result),
+      onClose: () => {
+        if (listens) {
+          window.removeEventListener('online', syncNet);
+          window.removeEventListener('offline', syncNet);
+        }
+        resolve(result);
+      },
     });
   });
 }

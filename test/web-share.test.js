@@ -221,7 +221,7 @@ test('roles of an app\'s own and a manager who doesn\'t own it: a list, rows kep
   assert.equal(dialog.getAttribute('aria-label'), t('kit.share.title', { name: 'Launch' }), 'a manager shares as its owner does');
   assert.deepEqual(byClass(dialog, 'kit-share__role').map((n) => n.textContent), ['Manages', 'Manages'],
     'one\'s own row and another manager\'s say what they may do, with nothing to change');
-  const takeBacks = () => dialog.all().filter((n) => n.tagName === 'BUTTON' && /^Take it back|^Quit/.test(n.getAttribute('aria-label') || ''));
+  const takeBacks = () => dialog.all().filter((n) => n.tagName === 'BUTTON' && /^Remove .*access$/.test(n.getAttribute('aria-label') || ''));
   assert.equal(takeBacks().length, 2, 'Dani and the address, not Ben nor Cris');
 
   const choice = byClass(dialog, 'kit-share__choice')[0];
@@ -259,4 +259,42 @@ test('a load that fails says so and opens nothing', async () => {
   const outcome = await shareDialog({ name: 'X', load: async () => { throw Object.assign(new Error('x'), { code: 'not_found' }); } });
   assert.equal(outcome, null);
   assert.equal(openDialogs().length, before);
+});
+
+test('offline, it opens with what the app knows: one line says why, and nothing that changes it is on', async () => {
+  const calls = [];
+  const was = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { onLine: false }, configurable: true, writable: true });
+  try {
+    const outcome = shareDialog({
+      name: 'Groceries', me: 1,
+      load: async () => ({
+        role: 'owner', owner: { id: 1, name: 'Ana' },
+        shares: [{ user: { id: 2, name: 'Ben Ros', avatar_color: '#aa3355' }, permission: 'edit', accepted: true }],
+      }),
+      offer: async () => { calls.push('offer'); return { share: null, invited: true }; },
+      setPermission: async () => { calls.push('set'); },
+      remove: async () => { calls.push('remove'); },
+    });
+    await settle();
+    const dialog = openDialogs().at(-1);
+    const notice = byClass(dialog, 'kit-share__offline')[0];
+    assert.ok(notice && !notice.hidden, 'the line that says it needs a connection');
+    assert.equal(notice.textContent, t('kit.offline.actions'));
+    assert.equal(button(dialog, t('kit.share.invite')).disabled, true, 'Invite is off');
+    const takeBack = dialog.all().find((n) => n.tagName === 'BUTTON' && n.getAttribute('aria-label') === t('kit.share.remove', { name: 'Ben Ros' }));
+    assert.equal(takeBack.disabled, true, 'and taking it back');
+    assert.equal(byClass(dialog, 'kit-share__permission').every((n) => n.disabled), true, 'and changing what one may do');
+    // The person's own colour, on their initials.
+    const ben = byClass(dialog, 'kit-avatar').find((n) => n.textContent === 'BR');
+    assert.equal(ben.style.background, '#aa3355');
+    byClass(dialog, 'kit-share__invite')[0].dispatch('submit', { preventDefault() {} });
+    await settle();
+    assert.deepEqual(calls, [], 'nothing was sent');
+    closeAll();
+    assert.equal(await outcome, null);
+  } finally {
+    if (was) Object.defineProperty(globalThis, 'navigator', was);
+    else delete globalThis.navigator;
+  }
 });

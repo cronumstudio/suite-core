@@ -195,11 +195,15 @@ export function createShell({
   const actions = el('div', { class: 'kit-bar__actions' });
   // The bar's buttons, made again for each view's head (head()): kit.css shows each one where
   // it applies, in the bar or in a head alike, by its class.
+  // How many invitations wait in the sidebar (setMark): on a phone it is a closed drawer, so its ☰
+  // carries a dot, and says why to a screen reader.
+  let marked = 0;
+  const labelMenu = (button) => button.setAttribute('aria-label', marked ? `${t('kit.menu')} · ${t('kit.invite.mark', { n: marked })}` : t('kit.menu'));
   const menuToggle = () => {
     // ☰ pressed with Enter or Space: the click that follows is the keyboard's. Not a click without
     // a pointer, which a tap at the screen's edge passed on is too.
     let byKeys = false;
-    return el('button', {
+    const button = el('button', {
       type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
       onKeydown: (ev) => { byKeys = ev.key === 'Enter' || ev.key === ' '; },
       onClick: () => {
@@ -208,6 +212,8 @@ export function createShell({
         toggleDrawer({ keyboard });
       },
     }, icon('menu'));
+    if (marked) labelMenu(button);
+    return button;
   };
   const backToggle = () => el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
@@ -293,6 +299,15 @@ export function createShell({
     else nav.focus({ preventScroll: true });
   }
   function closeDrawer() { element.removeAttribute('data-drawer'); }
+  /**
+   * What waits in the sidebar for an answer (the invitations, invitation.js): a dot on every ☰ of
+   * the frame, the bar's and each head's, which only show where the sidebar is a drawer or folded.
+   */
+  function setMark(count = 0) {
+    marked = Math.max(0, Number(count) || 0);
+    element.toggleAttribute('data-mark', marked > 0);
+    for (const button of element.querySelectorAll('.kit-bar__menu')) labelMenu(button);
+  }
   function toggleDrawer(how) { if (element.hasAttribute('data-drawer')) closeDrawer(); else openDrawer(how); }
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
@@ -1088,7 +1103,7 @@ export function createShell({
     element, nav, list, detail, actions, banners, head: viewHead, search: searchField,
     foot: footer ? { element: footer, create: add, trash } : null,
     get screen() { return element.dataset.screen; },
-    showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
+    showList, showDetail, openDrawer, closeDrawer, toggleDrawer, setMark,
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
     setUser: (next) => { user = next; },

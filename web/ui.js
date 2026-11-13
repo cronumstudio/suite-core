@@ -199,10 +199,28 @@ export function blank({ iconName = 'inbox', title, text = null, action = null })
       action.iconName ? icon(action.iconName) : null, action.label) : null);
 }
 
-/** The initials of a name on a circle: what stands for a person. */
-export function avatar(name = '') {
-  const initials = String(name).trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
-  return el('span', { class: 'kit-avatar', 'aria-hidden': 'true', text: initials || '·' });
+/** A person's own colour, as accounts keep it (`users.avatar_color`): "#rrggbb", else none. */
+const AVATAR_COLOR = /^#[0-9a-f]{6}$/i;
+const AVATAR_SIZES = new Set(['tiny', 'small', 'large']);
+
+/**
+ * The initials of a name on a circle: what stands for a person. Given the person itself
+ * ({ name | display_name | username, avatar_color | color }) it takes their name and the colour
+ * they chose, the same in every module; without one, the kit's neutral. `size`: 'tiny', 'small'
+ * or 'large' (kit.css); `title`: the name on hover, where the circle stands alone for it.
+ */
+export function avatar(who = '', { color = null, size = null, title = null } = {}) {
+  const person = who && typeof who === 'object' ? who : null;
+  const name = person ? (person.name || person.display_name || person.username || '') : who;
+  const initials = String(name ?? '').trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
+  const paint = [color, person?.avatar_color, person?.color].find((value) => AVATAR_COLOR.test(String(value ?? '')));
+  return el('span', {
+    class: `kit-avatar${AVATAR_SIZES.has(size) ? ` kit-avatar--${size}` : ''}`,
+    'aria-hidden': 'true',
+    style: paint ? { background: paint } : null,
+    title: title || null,
+    text: initials || '·',
+  });
 }
 
 /** "by Cronum Studio": the brand that signs every app, in English in every language. */

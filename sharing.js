@@ -122,9 +122,20 @@ export function createSharing({
    * the owner of a kind without `addresses` is shown (sharesOf).
    */
   function personOf(userId, { email = false } = {}) {
-    const user = get('SELECT id, display_name, username, email FROM users WHERE id = ?', userId);
+    const user = get(`SELECT id, display_name, username, email${hasColor() ? ', avatar_color' : ''} FROM users WHERE id = ?`, userId);
     if (!user) return null;
-    return { id: user.id, name: user.display_name || user.username, ...(email ? { email: user.email ?? null } : {}) };
+    return {
+      id: user.id, name: user.display_name || user.username,
+      // The colour they chose, where accounts keep one (Tasks, Projects): the kit's avatar paints it.
+      ...(user.avatar_color ? { avatar_color: user.avatar_color } : {}),
+      ...(email ? { email: user.email ?? null } : {}),
+    };
+  }
+  /** Whether this app's users have a colour of their own (`users.avatar_color`), asked once. */
+  let colorColumn = null;
+  function hasColor() {
+    colorColumn ??= all("SELECT name FROM pragma_table_info('users')").some((column) => column.name === 'avatar_color');
+    return colorColumn;
   }
 
   /** Until they accept, the owner sees the address the offer went to, not the name the account gave itself. */
@@ -173,7 +184,7 @@ export function createSharing({
         if (!s.accepted && person?.email && typed.has(person.email.toLowerCase())) return [];
         // Picked by id, or accepted: by the name the owner already knew, or they showed by
         // accepting. Their email stays theirs.
-        return [{ user: person && { id: person.id, name: person.name }, ...share }];
+        return [{ user: person && { id: person.id, name: person.name, ...(person.avatar_color ? { avatar_color: person.avatar_color } : {}) }, ...share }];
       });
   }
 

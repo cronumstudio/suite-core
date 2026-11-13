@@ -3531,3 +3531,27 @@ test('a group folded stays open with the collection open in it; without a menu i
   assert.match(css, /\.kit-nav-group__body \{[^}]*padding-inline-start: 12px; \}/);
   assert.match(css, /:root\[data-look="clean"\] \.kit-nav-group__head \{\s*min-height: 40px;[^}]*border-inline-start: 0; background: transparent; color: var\(--kit-text\);/);
 });
+
+test('an invitation waiting marks every ☰ of the frame, and says so; none, no mark', async () => {
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(css, /\.kit-app\[data-mark\] \.kit-bar__menu::after \{/, 'a dot at its corner');
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { t } = await import('../web/i18n.js');
+    const shell = createShell(frameOptions());
+    shell.head({ pane: 'list', title: 'All notes' });
+    shell.setMark(2);
+    assert.equal(shell.element.hasAttribute('data-mark'), true);
+    const later = shell.head({ pane: 'list', title: 'Pinned' }).element.querySelector('.kit-bar__menu');
+    const label = `${t('kit.menu')} · ${t('kit.invite.mark', { n: 2 })}`;
+    assert.equal(shell.element.querySelector('.kit-bar__menu').getAttribute('aria-label'), label);
+    assert.equal(later.getAttribute('aria-label'), label, 'a head made afterwards too');
+    shell.setMark(0);
+    assert.equal(shell.element.hasAttribute('data-mark'), false);
+    assert.equal(shell.element.querySelector('.kit-bar__menu').getAttribute('aria-label'), t('kit.menu'));
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});

@@ -3,6 +3,37 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.284.0 — 2026-11-14
+
+- **An invitation is the kit's card, first in the sidebar, and ☰ says one waits** (`web/invitation.js`,
+  `web/shell.js`, `web/kit.css`; audit of 6/11, ux-compartir-5, ux-menus-14, dup-css-10; Martin's choice
+  of 14/11). `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline })`
+  and `invitationCards(list)`: who offers what, what accepting gives («Solo lectura», «Podrás editarlo»,
+  or the app's own line), «Rechazar» and «Aceptar» as wide as each other, both off while an answer is on
+  its way. `.kit-invite` in kit.css; texts `kit.invite.*`. `shell.setMark(n)` puts a dot on every ☰ of
+  the frame while `n` invitations wait, and says so to a screen reader. The four modules drop their own
+  cards.
+- **The share dialog without a network** (`web/share.js`; ui-dialogos-13): it opens with what `load`
+  knows (Tasks has it on the device), one line says it needs a connection (`kit.offline.actions`), and
+  Invite, the permissions and taking back are off until the network is back (they turn on by themselves).
+- **A person's colour** (`web/ui.js`, `sharing.js`; ux-compartir-19, ux-acciones-19):
+  `avatar(person | name, { color, size, title })` takes a person and paints the colour they chose
+  (`avatar_color`, `#rrggbb` only); `avatar(name)` is as before. The engine's `personOf` (and so the
+  share dialog's rows, Settings › Sharing and the invitations) carries `avatar_color` where the users
+  table has the column. The share dialog's default avatar uses it.
+- **Settings › Sharing speaks as the share dialog** (`web/shared.js`; ux-compartir-7, -8): «Puede
+  editar» before «Solo lectura», «Invitación sin responder», «Quitar el acceso a X»; taking it back
+  asks only when they had accepted (rule 7), with the dialog's question. The twins `kit.shared.view`,
+  `.edit`, `.pending`, `.stop`, `.remove`, `.removeConfirm`, `.leave` and `.leaveConfirm` are gone (no
+  module used them); `kit.shared.canView` says «Solo lectura».
+- **One set of words for sharing** (`i18n`; ux-compartir-6, -11, -15, -16, ux-textos-12; Martin's choices
+  of 14/11): leaving is «Salir» («¿Salir de «X»?») and `kit.share.left` («Has salido de «X».») says it
+  after; `kit.share.action` «Compartir» for the «…»; the owner's row says «Propietario»; taking back is
+  «Quitar el acceso a X», without the thing's gender; `errors.owner_only` «Solo el propietario puede
+  hacer eso.»; `kit.data.shareNote` with `{ things }` says what happens to what one shares when one's
+  data goes, by the rule `pickHeir` keeps (whoever can edit first, then whoever has had it longest).
+- **Rule 10 of «Same in every module»** (`docs/web-kit.md`): sharing reads the same in every module.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
