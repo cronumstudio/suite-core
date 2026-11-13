@@ -40,7 +40,11 @@ let routes = {};
 let asked = [];
 globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
   const path = String(url);
-  if (path.startsWith('/i18n/')) return { ok: true, status: 200, json: async () => english };
+  if (path.startsWith('/i18n/')) {
+    const lang = path.match(/^[/]i18n[/](\w+)[.]json/)?.[1] || 'en';
+    const catalog = lang === 'en' ? english : JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
+    return { ok: true, status: 200, json: async () => catalog };
+  }
   asked.push(`${method} ${path}`);
   const route = routes[`${method} ${path}`];
   // A route may answer later (a promise), to put answers out of order.
@@ -324,7 +328,7 @@ test('Upgrade: the products with their names and prices, the founder’s first w
   await settle();
   assert.deepEqual(sent, { product: 'pro-yearly' }, 'only the product: the price is the server’s');
   assert.deepEqual(followed, ['https://pay.example.com/checkout?x=1']);
-  assert.equal(storage.get('app.billing'), JSON.stringify(['free', null]), 'the plan from before, to tell the new one');
+  assert.equal(storage.get('host.billing'), JSON.stringify(['free', null]), 'the plan from before, to tell the new one');
   view.settings.close();
 });
 
@@ -346,7 +350,7 @@ test('Upgrade answered 409 already_subscribed: why, with Change or cancel at han
   await settle();
   await settle();
   assert.equal(textOf(lastToast()).startsWith(english['errors.already_subscribed']), true);
-  assert.equal(storage.has('app.billing'), false, 'no checkout: nothing kept');
+  assert.equal(storage.has('host.billing'), false, 'no checkout: nothing kept');
   assert.equal(reads, 2, 'read again');
   await settle();
   assert.equal(view.buttons('Upgrade').length, 0, 'paying already: no second checkout');
@@ -580,6 +584,25 @@ test('a 402 anywhere: why, in words, with a button to the plan; anything else is
   assert.equal(lastToast().find('button').length, 0, 'without `open`, the words alone');
 });
 
+test('a plan’s name in every language: Settings, the errors and the web say the same (audit billing-9, billing-11)', async () => {
+  const { errorMessage } = await import('../web/api.js');
+  const said = {};
+  try {
+    for (const lang of ['en', 'es', 'fr', 'de', 'it']) {
+      await loadLanguage(lang, { remember: false });
+      said[lang] = [t('Free'), errorMessage(new ApiError(402, 'plan_feature', { plan: 'free', plan_name: 'Free' }))];
+      // Who already pays is sent to the button Settings really has.
+      assert.ok(t('errors.already_subscribed').includes(t('kit.plan.change')), `${lang}: ${t('errors.already_subscribed')}`);
+    }
+  } finally {
+    await loadLanguage('en', { remember: false });
+  }
+  assert.deepEqual(said.es, ['Gratis', 'Tu plan (Gratis) no incluye esto.']);
+  assert.deepEqual(said.fr, ['Gratuit', 'Votre formule (Gratuit) n’inclut pas cela.']);
+  assert.deepEqual(said.it, ['Gratis', 'Il tuo piano (Gratis) non lo include.']);
+  assert.deepEqual(said.en, ['Free', 'Your plan (Free) doesn’t include this.']);
+});
+
 test('in Settings that sells, a 402 met in another section offers the plan section; without the option, a notice as always', async () => {
   const server = {
     'GET /api/me/entitlements': { data: FREE },
@@ -619,7 +642,7 @@ test('back from the checkout: the mark leaves the address, thanks, and the plan 
   // The webhook comes after the person: free, free, then Pro.
   const answers = [FREE, FREE, PRO];
   routes = { 'GET /api/me/entitlements': () => ({ data: answers.shift() || PRO }) };
-  storage.set('app.billing', JSON.stringify(['free', null]));
+  storage.set('host.billing', JSON.stringify(['free', null]));
   globalThis.location.href = 'https://app.example.com/?billing=done&x=1#list';
   let opened = 0;
   const plans = [];
@@ -633,11 +656,11 @@ test('back from the checkout: the mark leaves the address, thanks, and the plan 
   assert.deepEqual(plans, ['free', 'pro'], 'told at once, and when it changed');
   assert.deepEqual(heard, ['free', 'pro'], 'an open Settings hears it too');
   assert.equal(textOf(lastToast()), 'Your plan is now Pro.');
-  assert.equal(storage.has('app.billing'), false);
+  assert.equal(storage.has('host.billing'), false);
 
   // Never confirmed while it looked: said so, when the plan from before is known.
   routes = { 'GET /api/me/entitlements': { data: FREE } };
-  storage.set('app.billing', JSON.stringify(['free', null]));
+  storage.set('host.billing', JSON.stringify(['free', null]));
   globalThis.location.href = 'https://app.example.com/?billing=done';
   assert.equal(await billingReturn({ waits: [0, 0], wait: async () => {} }), null);
   assert.equal(textOf(lastToast()), english['kit.plan.notYet']);
@@ -648,19 +671,49 @@ test('back from the checkout: the mark leaves the address, thanks, and the plan 
   assert.equal(toasts().length, count + 1, 'only the thanks');
 });
 
+test('back from a checkout begun in a module’s window, in the host’s shell: the same key, so the plan from before is known (audit billing-8)', async () => {
+  globalThis.history = { state: null, replaceState: () => {} };
+  globalThis.CustomEvent = class CustomEvent { constructor(type, { detail } = {}) { this.type = type; this.detail = detail; } };
+  const app = document.documentElement.dataset.app;
+  try {
+    // The module's window writes it…
+    document.documentElement.dataset.app = 'tasks';
+    storage.clear();
+    routes = { 'GET /api/me/entitlements': { data: FREE } };
+    globalThis.location.href = 'https://app.example.com/tasks/';
+    // (as Settings does before following the checkout)
+    storage.set('host.billing', JSON.stringify(['free', null]));
+    // …and the shell reads it: never confirmed, said so, since the plan from before is known.
+    document.documentElement.dataset.app = 'work';
+    globalThis.location.href = 'https://app.example.com/?open=%2Ftasks%2F&billing=done';
+    assert.equal(await billingReturn({ waits: [0, 0], wait: async () => {} }), null);
+    assert.equal(textOf(lastToast()), english['kit.plan.notYet']);
+    assert.equal(storage.size, 0);
+    // A checkout begun before this version, under the page's own key, is still read once.
+    storage.set('work.billing', JSON.stringify(['free', null]));
+    globalThis.location.href = 'https://app.example.com/?billing=done';
+    assert.equal(await billingReturn({ waits: [0, 0], wait: async () => {} }), null);
+    assert.equal(textOf(lastToast()), english['kit.plan.notYet']);
+    assert.equal(storage.size, 0);
+  } finally {
+    if (app === undefined) delete document.documentElement.dataset.app;
+    else document.documentElement.dataset.app = app;
+  }
+});
+
 test('back from a checkout left unpaid (?billing=canceled): a tidy address, a plain word, nothing read', async () => {
   const replaced = [];
   globalThis.history = { state: null, replaceState: (state, title, url) => replaced.push(url) };
   routes = {};
   asked = [];
-  storage.set('app.billing', JSON.stringify(['free', null]));
+  storage.set('host.billing', JSON.stringify(['free', null]));
   globalThis.location.href = 'https://app.example.com/?billing=canceled#list';
   let opened = 0;
   const done = billingReturn({ onPlan: () => assert.fail('no plan to tell'), open: () => opened++, waits: [0], wait: async () => {} });
   assert.ok(done, 'a return');
   assert.equal(await done, null);
   assert.deepEqual(replaced, ['/#list']);
-  assert.equal(storage.has('app.billing'), false, 'the plan from before goes with it');
+  assert.equal(storage.has('host.billing'), false, 'the plan from before goes with it');
   assert.equal(textOf(lastToast().find('span')[0]), english['kit.plan.canceled']);
   click(lastToast().find('button')[0]);
   assert.equal(opened, 1, 'the plans at hand, to try again');

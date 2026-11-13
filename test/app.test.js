@@ -11,7 +11,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveConfig } from '../config.js';
-import { createSuite, createApp, SuiteConfigError } from '../app.js';
+import { createSuite, createApp, SuiteConfigError, healthOf } from '../app.js';
+import { openDatabase } from '../db.js';
 import { fakeWorkos } from '../tools/test-kit.mjs';
 
 const PRODUCT = {
@@ -46,12 +47,16 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.equal(hosted.install.mcpOAuth, false, 'with WorkOS, AuthKit is the authorization server');
   assert.equal(hosted.install.hotReload, true);
   // Without an audience, a token AuthKit issued for another app of the environment would open this MCP.
-  assert.deepEqual(hosted.warnings, ['WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to https://demo.example/mcp, with that resource in WorkOS']);
+  // Nor would anyone administer it without ADMIN_EMAIL (audit work-srv-10).
+  assert.deepEqual(hosted.warnings, [
+    'ADMIN_EMAIL is not set: with AUTH_PROVIDER=workos it is the verified address that administers, and without it nobody who signs in becomes an administrator',
+    'WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to https://demo.example/mcp, with that resource in WorkOS',
+  ]);
   const bound = resolveConfig(PRODUCT, {
     BASE_URL: 'https://demo.example', AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'sk', WORKOS_CLIENT_ID: 'client',
-    WORKOS_AUTHKIT_DOMAIN: 'auth.example', WORKOS_MCP_AUDIENCE: 'https://demo.example/mcp',
+    WORKOS_AUTHKIT_DOMAIN: 'auth.example', WORKOS_MCP_AUDIENCE: 'https://demo.example/mcp', ADMIN_EMAIL: 'admin@demo.example',
   });
-  assert.deepEqual(bound.warnings, [], 'with the audience set nothing is said');
+  assert.deepEqual(bound.warnings, [], 'with the audience and the admin set nothing is said');
   assert.equal(resolveConfig({ ...PRODUCT, trustProxy: true }, { TRUST_PROXY: '' }).install.trustProxy, 'true',
     'an empty TRUST_PROXY, as compose passes it, leaves the product’s default');
 
@@ -103,6 +108,33 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.match(unknownProvider.warnings[0], /AUTH_PROVIDER="ldap" is not known/);
   const billing = resolveConfig({ ...PRODUCT, modules: { billing: true } }, { BILLING_PROVIDER: 'remote', BILLING_SECRET: 'short' });
   assert.match(billing.errors.join(), /BILLING_SECRET/);
+});
+
+test('rateLimits: every limit the limiter has, from its own list (audit sc-host-6)', async () => {
+  const { DEFAULT_LIMITS } = await import('../rate-limit.js');
+  const plain = resolveConfig(PRODUCT, {});
+  assert.deepEqual(plain.rateLimits, { ...DEFAULT_LIMITS }, 'the same defaults, written once');
+  const tuned = resolveConfig({ ...PRODUCT, rateLimits: { billing: 20, devicesRefused: 3, ip: 120 } }, {});
+  assert.deepEqual(tuned.errors, [], 'billing and devicesRefused can be set, as the limiter says');
+  assert.deepEqual([tuned.rateLimits.billing, tuned.rateLimits.devicesRefused, tuned.rateLimits.ip, tuned.rateLimits.account], [20, 3, 120, 10]);
+  assert.deepEqual(resolveConfig({ ...PRODUCT, rateLimits: { lunch: 2, billing: 0 } }, {}).errors,
+    ['rateLimits.billing must be a whole number', 'rateLimits.lunch is not a limit']);
+});
+
+test('/health reads the file: broken underneath an open database, 503 (audit work-srv-1)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-health-'));
+  const file = path.join(dir, 'demo.db');
+  const database = openDatabase({ path: file });
+  t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  database.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT)');
+  database.run("INSERT INTO notes (text) VALUES ('kept')");
+  database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  const versionOf = () => ({ app: '1.0.0', version: '1.0.0', built: null });
+  assert.deepEqual(healthOf(database, versionOf), [200, { ok: true, version: { app: '1.0.0', version: '1.0.0', built: null } }]);
+  fs.writeFileSync(file, Buffer.alloc(8192, 0x41));
+  assert.equal(database.get('SELECT 1 AS one').one, 1, 'what it asked before still answers');
+  assert.deepEqual(healthOf(database, versionOf), [503, { ok: false }]);
+  assert.deepEqual(healthOf(openDatabase({ path: ':memory:' }), versionOf)[0], 200, 'a database in memory has no file to read');
 });
 
 test('the first administrator never gets a password from an example', (t) => {

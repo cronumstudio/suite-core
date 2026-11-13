@@ -58,11 +58,11 @@
  * nothing of this runs unless a host is loading it.
  */
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createSuite, createApp, healthOf, SuiteConfigError } from './app.js';
+import { serverFor, jobRunner, startSuiteJobs, handleProcessSignals, listenAndSay, MINUTE_BEFORE_SWEEP } from './runtime.js';
 import { resolveConfig } from './config.js';
 import { migrate } from './migrate.js';
 import { openDatabase } from './db.js';
@@ -79,7 +79,6 @@ import {
   sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
 } from './http.js';
 import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
-import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { createCalendar, registerCalendarApi, calendarTools, calendarModulesSchema, createCalendarChoices } from './calendar.js';
 import { createCalendarFeeds, registerCalendarFeedApi, calendarFeedsSchema } from './calendar-feed.js';
@@ -95,7 +94,6 @@ import {
 } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
-const MINUTE_BEFORE_SWEEP = 60 * 1000;
 /** What a module still finishes when the host closes (its stop's promise), at most this long. */
 const STOP_MS = 3000;
 
@@ -1064,6 +1062,14 @@ export async function createHost({
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
+      // Back from the provider, a person who bought from a window of the host's shell (a page that
+      // is the root, Cronum Work's) lands in the shell with that module's window open, where
+      // billingReturn() (the shell's start) thanks them; not on the module's page on its own,
+      // outside the shell (audit billing-8). Without such a page, the module's page as before.
+      billingReturn: rootPage ? {
+        checkout: `${install.baseUrl}/?open=${encodeURIComponent(`/${entry.mount}/`)}&billing=done`,
+        portal: `${install.baseUrl}/?open=${encodeURIComponent(`/${entry.mount}/`)}`,
+      } : null,
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
@@ -1646,6 +1652,14 @@ export async function createHost({
     // An app's old address: its connector as it was, everything else to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
+    // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else:
+    // before the host's own pages too, since a page that is the root (Work's shell) answers `/`
+    // (audit sc-host-9). The callback sends the browser there itself (connectAfterSignIn); this is
+    // for one that came to `/` all the same, with the session and the request's cookie.
+    if (root.devicePages && url.pathname === '/') {
+      securityHeaders(res, { https: install.https });
+      if (root.devicePages.back(req, res, url)) return undefined;
+    }
     // The host's own pages, before anything of the host's or a module's.
     if (pageList.length && answerPage(req, res, url)) return undefined;
     // Every module's live channel in one, with the host's session as each module's own takes it.
@@ -1663,11 +1677,6 @@ export async function createHost({
     const m = byMount.get(mount);
     if (!m) {
       if (answerWorker(req, res, url)) return undefined;
-      // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else.
-      if (root.devicePages && url.pathname === '/') {
-        securityHeaders(res, { https: install.https });
-        if (root.devicePages.back(req, res, url)) return undefined;
-      }
       // Without a page of its own, the host opens on its first module.
       if (!hasHome && url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
         redirect(res, 302, `/${joined[0].mount}/${url.search}`);
@@ -1727,81 +1736,28 @@ export async function createHost({
     return m.app.handle(req, res);
   }
 
-  const server = http.createServer((req, res) => {
-    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, while req.url is still the whole path.
-    suite.alerts.watch(req, res);
-    handle(req, res).catch((err) => {
-      suite.alerts.noteError(req, err);
-      console.error(`[error] ${req.method} ${req.url}`, err);
-      if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
-      else res.end();
-    });
-  });
-  server.headersTimeout = 65000;
-  // Receiving the request, not answering it: a live channel stays open all the same.
-  server.requestTimeout = 600_000;
+  // Whatever escapes handle() is a 500 (runtime.js), with req.url still the whole path when counted.
+  const server = serverFor(handle, suite.alerts);
 
   /* ------------------------------ running -------------------------------- */
 
   const timers = [];
   const stops = [];
-  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
-  const failed = (name) => (err) => {
-    log(`${tag} ${name} failed: ${err?.stack || err}`);
-    suite.alerts.jobFailed(name, err);
-  };
-  /** A clean-up that fails must not take the host down. */
-  const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { failed(name)(err); }
-  };
+  const { failed, safely } = jobRunner({ log, tag, alerts: suite.alerts });
 
   /** Creates the first administrator, starts the clean-ups and each module's own jobs, and listens. */
   function listen() {
     suite.alerts.setVersion(version);
     suite.ensureAdmin();
-    const purge = safely('clean-up', () => {
-      suite.purge();
-      root.portability?.purge();
-      for (const m of joined) m.app.portability?.purge();
+    // Once for every module: the install's clean-ups, account deletion, WorkOS and the groups' renewals.
+    startSuiteJobs(suite, {
+      purge: () => {
+        suite.purge();
+        root.portability?.purge();
+        for (const m of joined) m.app.portability?.purge();
+      },
+      timers, failed, safely,
     });
-    // With the clean-ups, the planner's statistics (db.js optimize): every table at the start, then
-    // what changed. Without them it chose blind (audit of 6/11, perf-srv-6).
-    let first = true;
-    const optimize = safely('optimize', () => {
-      suite.database.optimize?.({ first });
-      first = false;
-    });
-    const cleanUp = () => { purge(); optimize(); };
-    cleanUp();
-    timers.push(setInterval(cleanUp, 6 * HOUR).unref());
-    if (suite.oauth) {
-      const purgeOAuth = safely('OAuth clean-up', () => suite.oauth.purge());
-      purgeOAuth();
-      timers.push(setInterval(purgeOAuth, HOUR).unref());
-    }
-    if (suite.deletion) {
-      // The accounts whose owners asked to delete them, once their days are over: once for every module.
-      const sweepAccounts = () => suite.deletion.sweep().catch(failed('account deletion'));
-      timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
-      timers.push(setInterval(sweepAccounts, HOUR).unref());
-    }
-    if (suite.workos?.markAll) {
-      // Who signed in before the host noted itself on their WorkOS user (accounts.sharedIdentity): told once.
-      const markAll = () => suite.workos.markAll().catch(failed('noting this app at WorkOS'));
-      timers.push(setTimeout(markAll, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (suite.workosResets) {
-      // Passwords reset on AuthKit's own page, once for every module (workos-events.js). Every minute.
-      const resets = () => suite.workosResets.poll();
-      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (suite.billing?.enabled) {
-      // Groups' renewals asked to stop that the provider didn't take yet, once for every module.
-      const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));
-      timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(sendStops, HOUR).unref());
-    }
     if (daily && suite.push) {
       // The daily summary's two notices, each at the minute its person chose (day.js): asked every minute.
       const notices = createDayNotices({
@@ -1823,47 +1779,32 @@ export async function createHost({
       }
       // Its own timers (reminders, clean-ups): what the app's index.js starts on its own.
       if (typeof m.parts.start === 'function') {
-        // What a module's timers may need of the whole host: the day's work and who uses what.
-        const stopIt = m.parts.start({ day: daily, uses });
-        if (typeof stopIt === 'function') stops.push(stopIt);
+        // What a module's timers may need of the whole host: the day's work, who uses what, and
+        // how a job of its own that throws reaches the alerts (ALERT_EMAIL) as the host's do,
+        // under the module's name: `failed(name)` → (err) => …, for a promise's catch, and
+        // `safely(name, fn)` → a function that runs fn and reports what it throws (audit work-srv-4).
+        const jobs = {
+          failed: (name) => failed(`${m.mount} ${name}`),
+          safely: (name, fn) => safely(`${m.mount} ${name}`, fn),
+        };
+        // One module whose start throws must not keep the others from being served (audit sc-host-4).
+        try {
+          const stopIt = m.parts.start({ day: daily, uses, ...jobs });
+          if (typeof stopIt === 'function') stops.push(stopIt);
+        } catch (err) {
+          failed(`${m.mount} start`)(err);
+        }
       }
     }
-    if (handleSignals) {
-      // As an app's (app.js): `waitFor` is the crash's alert, which gives itself less than those 5 s.
-      const shutdown = (reason, code = 0, waitFor = null) => {
-        log(`${tag} ${reason}, closing…`);
-        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
-        setTimeout(() => process.exit(code), 5000).unref();
-      };
-      process.once('SIGTERM', () => shutdown('SIGTERM received'));
-      process.once('SIGINT', () => shutdown('SIGINT received'));
-      process.on('unhandledRejection', (err) => {
-        log(`${tag} unhandled rejection: ${err?.stack || err}`);
-        suite.alerts.report('rejection', err);
-      });
-      process.once('uncaughtException', (err) => {
-        log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1, suite.alerts.crashed(err));
-      });
-    }
-    return new Promise((resolve) => {
-      server.listen(install.port, install.host, () => {
-        log(`${tag} listening on http://${install.host}:${server.address().port}`);
-        log(`${tag} public URL: ${install.baseUrl}, with ${joined.map((m) => `/${m.mount}/`).join(', ')}`);
-        if (legacyDomains) {
-          log(`${tag} also answering the apps' old addresses: ${[...legacy.domains].map(([d, m]) => `${d} → /${m}/`).join(', ')}`);
-        }
-        if (suite.mailer?.provider === 'smtp') {
-          suite.mailer.verify().then(
-            () => log(`[mail] SMTP ready: ${install.mail.host}:${install.mail.port} (${install.mail.secure})`),
-            (err) => log(`[mail] SMTP check failed, nothing will be sent until MAIL_* are fixed: ${err.message}`),
-          );
-        }
-        if (install.hotReload) {
-          timers.push(watchCode({ root: watchRoot || path.dirname(path.resolve(process.argv[1] || '.')), log }));
-        }
-        resolve(server);
-      });
+    if (handleSignals) handleProcessSignals({ log, tag, alerts: suite.alerts, close });
+    return listenAndSay(server, {
+      install, mailer: suite.mailer, log, tag, timers, watchRoot,
+      lines: [
+        `${tag} public URL: ${install.baseUrl}, with ${joined.map((m) => `/${m.mount}/`).join(', ')}`,
+        ...(legacyDomains
+          ? [`${tag} also answering the apps' old addresses: ${[...legacy.domains].map(([d, m]) => `${d} → /${m}/`).join(', ')}`]
+          : []),
+      ],
     });
   }
 

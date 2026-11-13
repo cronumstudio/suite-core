@@ -200,11 +200,24 @@ function conversation(socket, timeoutMs) {
     },
     /** STARTTLS: the same connection, encrypted from here on. */
     async upgrade(host) {
+      // Whatever came in the clear after "220 go ahead" would answer the first encrypted command
+      // (the pattern of CVE-2021-33515): a server that sends it is not one to talk to.
+      if (buffer || early.length || replies.length) {
+        throw new MailError('The mail server sent more than it was asked before encrypting');
+      }
       detach(current);
-      const secure = tls.connect({ socket: current, servername: host });
+      const plain = current;
+      const secure = tls.connect({ socket: plain, servername: host });
       await new Promise((resolve, reject) => {
-        secure.once('secureConnect', resolve);
-        secure.once('error', reject);
+        // The handshake has the same deadline as every reply: a server that goes quiet here would
+        // otherwise keep the send, and its socket, waiting forever.
+        const timer = setTimeout(() => {
+          secure.destroy();
+          plain.destroy();
+          reject(new MailError('The mail server did not encrypt in time'));
+        }, timeoutMs);
+        secure.once('secureConnect', () => { clearTimeout(timer); resolve(); });
+        secure.once('error', (err) => { clearTimeout(timer); reject(err); });
       });
       current = secure;
       attach(current);

@@ -600,7 +600,9 @@ openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, op
   answer goes to `onPlan` and to `kit-plan` (`PLAN_EVENT`) on the document, which an open Settings
   repaints with (an older answer that comes late never paints over it), and the notice says the
   new plan once it is there. When the plan from before the checkout is known (kept for the tab as
-  `<app>.billing` in `sessionStorage`) and nothing changed by the last look, it says the payment
+  `host.billing` in `sessionStorage`, one key for the origin since v0.288.0, so that a checkout
+  begun in a module's window of a host is known back in the host's shell; `<app>.billing`, the key
+  before, is still read once) and nothing changed by the last look, it says the payment
   isn't confirmed yet. It returns a promise of the plan that arrived, or null. Back from a
   checkout left unpaid (`canceled`, where the provider has a cancel address), it forgets the kept
   plan, says nothing was charged and reads nothing: a promise of null.

@@ -23,8 +23,8 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { resolveConfig } from './config.js';
 import { openDatabase } from './db.js';
@@ -38,6 +38,7 @@ import {
   createDevices, registerDevicesApi, deviceActionOf, deviceActionsProblem,
 } from './devices.js';
 import { createDevicePages, connectAfterSignIn } from './device-pages.js';
+import { serverFor, jobRunner, startSuiteJobs, handleProcessSignals, listenAndSay, MINUTE_BEFORE_SWEEP } from './runtime.js';
 import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
@@ -81,14 +82,12 @@ import {
 } from './api.js';
 import { definePrefs, userSerializer } from './prefs.js';
 import {
-  HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
+  HttpError, badRequest, createRouter, sendJson, sendError, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
 } from './http.js';
 import { fingerprint } from './host-worker.js';
-import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs, CATALOG_FALLBACK } from './i18n.js';
 
 const HOUR = 3600 * 1000;
-const MINUTE_BEFORE_SWEEP = 60 * 1000;
 /** The suite's browser code, served at /suite/. */
 const WEB_DIR = fileURLToPath(new URL('./web/', import.meta.url));
 
@@ -288,6 +287,13 @@ export function createSuite({
     organizations.whenDeleted(({ organization }) => billing.organizationDeleted(organization.id, {
       stop: config.billing?.stopOnOrganizationDeleted === true, forget: config.billing?.forgetOnRemove === true,
     }), { last: true });
+  }
+  // A group archived with nobody left in it (its last member's account deleted, a kind kept when
+  // empty): its own subscriptions stop renewing at the end of their period, since nobody is left to
+  // cancel them (Martin's decision of 13/11/2026). Only with organizations, and a provider that can
+  // stop one.
+  if (organizations && billing?.enabled) {
+    organizations.whenArchived(({ organization }) => billing.organizationArchived(organization.id));
   }
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
@@ -697,6 +703,10 @@ export function clientTexts(flat) {
  * @param {'none'|'self'|Function} [options.frames]  who may frame its pages: nobody (default), or pages of
  *   the same site, a host's module in its split view (host.js `split`); or, by path, `(pathname) =>`
  *   either (a host's calendar, in a window of its own page)
+ * @param {{checkout: string, portal: string}} [options.billingReturn]   where the payment provider
+ *   sends the browser back from a checkout and from its portal; by default the app's page
+ *   (`/?billing=done`, `/`). A host with a shell passes its modules the shell's address with the
+ *   module's window (host.js).
  * @param {string[]} [options.embeds]  the paths of its pages any site may frame, whatever `frames`
  *   says: pages that only show, without a session, made to be embedded elsewhere (Next's
  *   /shared.html, a project's public page). A host passes its module's, at the module's own paths
@@ -707,7 +717,16 @@ export function clientTexts(flat) {
  */
 export function healthOf(database, versionOf) {
   try {
-    database.get('SELECT 1 AS one');
+    // `SELECT 1` opened no transaction and read nothing: it answered with the file broken or
+    // unreadable underneath (audit work-srv-1). A page of the schema is read here, and, since the
+    // server's own connection keeps its pages in memory (WAL), once more by a connection of its
+    // own, read-only (it never makes a file that went missing): one page from the disk, a
+    // millisecond, for a check that runs every half a minute.
+    database.get('SELECT 1 AS one FROM sqlite_master LIMIT 1');
+    if (database.path && database.path !== ':memory:') {
+      const probe = new DatabaseSync(database.path, { readOnly: true });
+      try { probe.prepare('SELECT 1 AS one FROM sqlite_master LIMIT 1').get(); } finally { probe.close(); }
+    }
   } catch {
     return [503, { ok: false }];
   }
@@ -719,7 +738,7 @@ export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
-  deviceActions = null, resolveDeviceAction = null, storage = null,
+  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -818,7 +837,7 @@ export function createApp({
       live.subscribe(ctx.req, ctx.res, ctx.user, { sessionToken: ctx.sessionToken ?? null });
     });
   }
-  if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl, limiter });
+  if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl, limiter, returnUrls: billingReturn });
   if (suite.stores?.enabled) {
     // Only the app on the phone buys in a store: with stores.devices, its device token is taken here.
     const storeDevices = config.stores.devices ? suite.devices : null;
@@ -1152,59 +1171,28 @@ export function createApp({
         res.end();
         return;
       }
-      if (err instanceof HttpError) {
-        if (err.status >= 500) alerts.noteError(req, err);
-        sendJson(res, err.status, { error: err.code, ...err.extra }, err.headers);
-        return;
-      }
-      alerts.noteError(req, err);
-      console.error(`[error] ${req.method} ${pathname} (${Date.now() - start}ms)`, err);
-      sendJson(res, 500, { error: 'internal' });
+      // An HttpError is its code; anything else is `internal`, logged with its stack (http.js sendError).
+      const coded = err instanceof HttpError;
+      if (!coded || err.status >= 500) alerts.noteError(req, err);
+      if (!coded) console.error(`[error] ${req.method} ${pathname} (${Date.now() - start}ms)`, err);
+      sendError(res, err);
     }
   }
 
-  // handle() catches what a route throws; this is for whatever escapes it, so
-  // that one request can never leave a rejection nobody awaits.
-  const server = http.createServer((req, res) => {
-    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, before anything rewrites req.url.
-    alerts.watch(req, res);
-    handle(req, res).catch((err) => {
-      alerts.noteError(req, err);
-      console.error(`[error] ${req.method} ${req.url}`, err);
-      if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
-      else res.end();
-    });
-  });
-  server.headersTimeout = 65000;
-  // Receiving the request, not answering it: a live channel stays open all the same.
-  server.requestTimeout = 600_000;
+  // handle() catches what a route throws; the server (runtime.js) is for whatever escapes it. Made
+  // when it is first asked for: a module's createApp() in a host never listens (the host's does),
+  // so it never needs one (audit sc-host-12).
+  let server = null;
+  const serverOf = () => (server ??= serverFor(handle, alerts));
 
   const timers = [];
-
-  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
-  const failed = (name) => (err) => {
-    log(`${tag} ${name} failed: ${err?.stack || err}`);
-    alerts.jobFailed(name, err);
-  };
-  /** A clean-up that fails must not take the server down. */
-  const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { failed(name)(err); }
-  };
+  const { failed, safely } = jobRunner({ log, tag, alerts });
 
   /** Creates the first administrator if needed, starts the clean-ups and listens. */
   function listen() {
     alerts.setVersion(version);
     suite.ensureAdmin();
-    const purge = safely('clean-up', () => { suite.purge(); portability?.purge(); });
-    // With the clean-ups, the planner's statistics (db.js optimize): every table at the start, then what changed.
-    let first = true;
-    const optimize = safely('optimize', () => {
-      suite.database.optimize?.({ first });
-      first = false;
-    });
-    const cleanUp = () => { purge(); optimize(); };
-    cleanUp();
-    timers.push(setInterval(cleanUp, 6 * HOUR).unref());
+    startSuiteJobs(suite, { purge: () => { suite.purge(); portability?.purge(); }, timers, failed, safely });
     if (sweep) {
       // What a plan keeps for a while only (entitlements.cutoff): the app's own sweep, a minute
       // after the start so a start is never slowed by it, and then with the clean-ups.
@@ -1215,74 +1203,9 @@ export function createApp({
       timers.push(setTimeout(sweepPlans, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepPlans, 6 * HOUR).unref());
     }
-    if (oauth) {
-      const purgeOAuth = safely('OAuth clean-up', () => oauth.purge());
-      purgeOAuth();
-      timers.push(setInterval(purgeOAuth, HOUR).unref());
-    }
-    if (deletion) {
-      // The accounts whose owners asked to delete them, once their days are over: every hour.
-      const sweepAccounts = () => deletion.sweep().catch(failed('account deletion'));
-      timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(sweepAccounts, HOUR).unref());
-    }
-    if (suite.workos?.markAll) {
-      // Who signed in before this app noted itself on their WorkOS user: told once, a minute after starting.
-      const markAll = () => suite.workos.markAll().catch(failed('noting this app at WorkOS'));
-      timers.push(setTimeout(markAll, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (suite.workosResets) {
-      // Passwords reset on AuthKit's own page: everything that let that person in here, revoked. Every minute.
-      const resets = () => suite.workosResets.poll();
-      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (billing?.enabled) {
-      // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).
-      const sendStops = () => billing.sendStops().catch(failed("stopping groups' renewals"));
-      timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(sendStops, HOUR).unref());
-    }
-    if (handleSignals) {
-      // close() also ends the live channels, which would otherwise keep the server open until the timeout.
-      // `waitFor`: the crash's alert, which gives itself less than those 5 s (alerts.js).
-      const shutdown = (reason, code = 0, waitFor = null) => {
-        log(`${tag} ${reason}, closing…`);
-        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
-        setTimeout(() => process.exit(code), 5000).unref();
-      };
-      process.once('SIGTERM', () => shutdown('SIGTERM received'));
-      process.once('SIGINT', () => shutdown('SIGINT received'));
-      // A rejection that nothing awaited belongs to one task (a notice, a timer): it is
-      // logged and the rest goes on. An exception that reached the top leaves the process
-      // in a state nobody knows: it is logged and the process ends, for Docker to start it again.
-      // Both are emailed with ALERT_EMAIL.
-      process.on('unhandledRejection', (err) => {
-        log(`${tag} unhandled rejection: ${err?.stack || err}`);
-        alerts.report('rejection', err);
-      });
-      process.once('uncaughtException', (err) => {
-        log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1, alerts.crashed(err));
-      });
-    }
-    return new Promise((resolve) => {
-      server.listen(install.port, install.host, () => {
-        log(`${tag} listening on http://${install.host}:${server.address().port}`);
-        log(`${tag} public URL: ${install.baseUrl}`);
-        // Whether mail can go out, said once at the start: a wrong MAIL_* shows
-        // up here instead of in the first message that never arrives.
-        if (suite.mailer?.provider === 'smtp') {
-          suite.mailer.verify().then(
-            () => log(`[mail] SMTP ready: ${install.mail.host}:${install.mail.port} (${install.mail.secure})`),
-            (err) => log(`[mail] SMTP check failed, nothing will be sent until MAIL_* are fixed: ${err.message}`),
-          );
-        }
-        if (install.hotReload) {
-          timers.push(watchCode({ root: watchRoot || path.dirname(path.resolve(process.argv[1] || '.')), log }));
-        }
-        resolve(server);
-      });
+    if (handleSignals) handleProcessSignals({ log, tag, alerts, close });
+    return listenAndSay(serverOf(), {
+      install, mailer: suite.mailer, log, tag, timers, watchRoot, lines: [`${tag} public URL: ${install.baseUrl}`],
     });
   }
 
@@ -1293,8 +1216,12 @@ export function createApp({
     // Open tabs would keep the server from closing.
     live.close();
     suite.nativePush?.close();
+    if (!server) return Promise.resolve();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
-  return { server, api, mcp: mcpServer, portability, handle, listen, close, devicePages };
+  return {
+    get server() { return serverOf(); },
+    api, mcp: mcpServer, portability, handle, listen, close, devicePages,
+  };
 }

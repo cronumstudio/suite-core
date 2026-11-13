@@ -284,6 +284,8 @@ test('a long notice is shortened to fit, never refused: APNs 4 KB, FCM 4 KB', ()
 
 /** Apple on this machine: an HTTP/2 server without TLS that answers `answer(headers, body)`. */
 async function fakeApple(t, answer = () => ({ status: 200 })) {
+  // `silent`: takes every request and never answers it.
+  const fake = { silent: false };
   const got = [];
   let sessions = 0;
   const server = http2.createServer();
@@ -294,6 +296,7 @@ async function fakeApple(t, answer = () => ({ status: 200 })) {
     stream.on('end', () => {
       const body = Buffer.concat(chunks).toString('utf8');
       got.push({ headers, body: body ? JSON.parse(body) : null });
+      if (fake.silent) return;
       const { status, reason } = answer(headers, body);
       stream.respond({ ':status': status, 'apns-id': 'id-1', ...(reason ? { 'content-type': 'application/json' } : {}) });
       stream.end(reason ? JSON.stringify({ reason }) : undefined);
@@ -306,7 +309,8 @@ async function fakeApple(t, answer = () => ({ status: 200 })) {
     authorities.push(authority);
     return http2.connect(`http://127.0.0.1:${server.address().port}`);
   };
-  return { got, connect, authorities, sessions: () => sessions };
+  Object.assign(fake, { got, connect, authorities, sessions: () => sessions });
+  return fake;
 }
 
 test('APNs: the provider token is an ES256 JWT of the key and team, kept 50 minutes', () => {
@@ -378,6 +382,24 @@ test('APNs: a refused provider token is made again at once; Apple down is an ans
   const res = await nowhere.send({ token: IOS_TOKEN }, notice);
   assert.equal(res.status, 0);
   nowhere.close();
+});
+
+test('APNs: a connection that goes quiet is dropped at the timeout, and the next notice opens another (audit sc-host-3)', async (t) => {
+  // Apple that takes the request and never answers: what a half-open connection looks like.
+  const apple = await fakeApple(t);
+  apple.silent = true;
+  const sender = createApnsSender({
+    keyId: 'ABCDE12345', teamId: 'TEAM123456', privateKey: APNS_PEM, topic: 'com.cronumstudio.work', connect: apple.connect,
+    timeoutMs: 200,
+  });
+  t.after(() => sender.close());
+  const notice = noticeOf({ title: 'Hi' });
+  assert.deepEqual(await sender.send({ token: IOS_TOKEN }, notice), { status: 0, reason: 'timeout' });
+  assert.deepEqual(await sender.send({ token: IOS_TOKEN }, notice), { status: 0, reason: 'timeout' });
+  assert.equal(apple.authorities.length, 2, 'the second send connected again');
+  apple.silent = false;
+  assert.deepEqual(await sender.send({ token: IOS_TOKEN }, notice), { status: 200, reason: null });
+  assert.equal(apple.authorities.length, 3);
 });
 
 test('what Apple’s and Google’s answers say of a token', () => {
@@ -592,9 +614,9 @@ test('one send reaches both: subscriptionsOf gives the phones, deliver sends eac
   assert.deepEqual(await push.deliver(rows, { title: 'Reminder' }, { topic: 'reminder-3' }), { sent: 2, gone: 0, failed: 0 });
   assert.deepEqual(fake.sent.map((s) => [s.platform, s.options.topic]), [['ios', 'reminder-3']]);
 
-  // sendTo, and a person with a phone only.
+  // Everyone's devices of a person with a phone only.
   fake.sent.length = 0;
-  assert.deepEqual(await push.sendTo([bea.id], { title: 'Only the phone' }), { sent: 1, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([bea.id]), { title: 'Only the phone' }), { sent: 1, gone: 0, failed: 0 });
   assert.deepEqual(fake.sent.map((s) => s.platform), ['android']);
   // send() with a phone's row goes to the phone.
   assert.equal((await push.send(push.subscriptionsOf([bea.id])[0], { title: 'one' })).ok, true);
@@ -609,11 +631,11 @@ test('without push.native, push sends to Web Push only, as before', async (t) =>
   native.register(connect(ana).device.id, { platform: 'ios', token: IOS_TOKEN, environment: 'production' });
   const push = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch: async () => new Response(null, { status: 201 }), log: () => {} });
   assert.deepEqual(push.subscriptionsOf([ana.id]), []);
-  assert.deepEqual(await push.sendTo([ana.id], { title: 'x' }), { sent: 0, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ana.id]), { title: 'x' }), { sent: 0, gone: 0, failed: 0 });
   assert.equal(fake.sent.length, 0);
 });
 
-test('in a host, a module’s notice reaches the phone at the module’s path, through deliver and sendTo', async (t) => {
+test('in a host, a module’s notice reaches the phone at the module’s path, through deliver', async (t) => {
   const { database, devices, ana, connect } = setup(t);
   const fake = fakeSenders();
   const native = createNativePush({ database, devices, ...fake });
@@ -621,7 +643,7 @@ test('in a host, a module’s notice reaches the phone at the module’s path, t
   native.register(connect(ana).device.id, { platform: 'ios', token: IOS_TOKEN, environment: 'production' });
   const tasks = hostedPush(push, 'tasks');
   await tasks.deliver(tasks.subscriptionsOf([ana.id]), { title: 'T', url: '/?list=4', tag: 'lista-4' });
-  await tasks.sendTo([ana.id], { title: 'T', url: '/?list=5', tag: 'lista-5' });
+  await tasks.deliver(tasks.subscriptionsOf([ana.id]), { title: 'T', url: '/?list=5', tag: 'lista-5' });
   assert.deepEqual(fake.sent.map((s) => [s.notice.data.url, s.notice.module, s.notice.tag]), [
     ['/tasks/?list=4', 'tasks', 'tasks-lista-4'], ['/tasks/?list=5', 'tasks', 'tasks-lista-5'],
   ]);
@@ -848,20 +870,20 @@ test('a reminder’s notice skips only the phones that show it themselves, never
   // The same instant within a minute either way; outside it, another reminder.
   for (const [at, skipped] of [[later(AT, 59), 1], [later(AT, -60), 1], [later(AT, 61), 0], [later(AT, -90), 0]]) {
     reset();
-    assert.equal((await push.sendTo([ana.id], notice, { reminder: { module: 'tasks', id: '7', at } })).skipped, skipped, at);
+    assert.equal((await push.deliver(push.subscriptionsOf([ana.id]), notice, { reminder: { module: 'tasks', id: '7', at } })).skipped, skipped, at);
   }
   // Another id, another module, or none: not what the phone shows.
   for (const reminder of [{ module: 'tasks', id: '8', at: AT }, { module: 'projects', id: '7', at: AT }, { id: '7', at: AT }]) {
     reset();
-    const result = await push.sendTo([ana.id], notice, { reminder });
+    const result = await push.deliver(push.subscriptionsOf([ana.id]), notice, { reminder });
     assert.deepEqual([result.sent, result.skipped], [3, 0], JSON.stringify(reminder));
   }
   // A reminder that can't be read skips nothing, and says nothing of skipping.
   reset();
-  assert.deepEqual(await push.sendTo([ana.id], notice, { reminder: { id: 7, at: 'soon' } }), { sent: 3, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ana.id]), notice, { reminder: { id: 7, at: 'soon' } }), { sent: 3, gone: 0, failed: 0 });
   // Without the option, every phone, and the answer as before.
   reset();
-  assert.deepEqual(await push.sendTo([ana.id], notice), { sent: 3, gone: 0, failed: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([ana.id]), notice), { sent: 3, gone: 0, failed: 0 });
   assert.deepEqual(platforms(), ['android', 'ios']);
   // send() to the phone itself: skipped, nothing sent.
   reset();
@@ -872,11 +894,11 @@ test('a reminder’s notice skips only the phones that show it themselves, never
   assert.equal(fake.sent.length, 1);
   // Bea's phone reported nothing: hers always arrives.
   reset();
-  assert.deepEqual(await push.sendTo([bea.id], notice, { reminder: { module: 'tasks', id: '7', at: AT } }), { sent: 1, gone: 0, failed: 0, skipped: 0 });
+  assert.deepEqual(await push.deliver(push.subscriptionsOf([bea.id]), notice, { reminder: { module: 'tasks', id: '7', at: AT } }), { sent: 1, gone: 0, failed: 0, skipped: 0 });
   // Without push.native, the option changes nothing.
   const webOnly = createPush({ database, vapid: { ...generateVapidKeys(), subject: 'mailto:a@b.c' }, fetch, log: () => {} });
   reset();
-  assert.deepEqual(await webOnly.sendTo([ana.id], notice, { reminder: { module: 'tasks', id: '7', at: AT } }), { sent: 1, gone: 0, failed: 0 });
+  assert.deepEqual(await webOnly.deliver(webOnly.subscriptionsOf([ana.id]), notice, { reminder: { module: 'tasks', id: '7', at: AT } }), { sent: 1, gone: 0, failed: 0 });
 });
 
 test('in a host, the reminder a module names is the module’s, with or without the one worker', async (t) => {
@@ -893,17 +915,20 @@ test('in a host, the reminder a module names is the module’s, with or without 
     const projects = wrap(push, 'projects');
     // The module says only its id and time: the host says whose (over whatever the module says).
     assert.equal((await tasks.deliver(tasks.subscriptionsOf([ana.id]), notice, { reminder: { id: 7, at: AT } })).skipped, 1, wrap.name);
-    assert.equal((await tasks.sendTo([ana.id], notice, { reminder: { id: '7', at: AT, module: 'projects' } })).skipped, 1, wrap.name);
-    assert.equal((await tasks.send(tasks.subscriptionsOf([ana.id])[0], notice, { reminder: { id: '7', at: AT } })).skipped, true, wrap.name);
-    assert.equal((await projects.sendTo([ana.id], notice, { reminder: { id: '7', at: AT } })).skipped, 0, wrap.name);
+    assert.equal((await tasks.deliver(tasks.subscriptionsOf([ana.id]), notice, { reminder: { id: '7', at: AT, module: 'projects' } })).skipped, 1, wrap.name);
+    assert.equal((await tasks.deliver([tasks.subscriptionsOf([ana.id])[0]], notice, { reminder: { id: '7', at: AT } })).skipped, 1, wrap.name);
+    // Only deliver: a send to one row, spread from the host's push, would go out unmarked (audit sc-host-7).
+    assert.equal(tasks.send, undefined, wrap.name);
+    assert.equal(tasks.sendTo, undefined, wrap.name);
+    assert.equal((await projects.deliver(projects.subscriptionsOf([ana.id]), notice, { reminder: { id: '7', at: AT } })).skipped, 0, wrap.name);
     // Without the option, as before.
-    assert.deepEqual(await tasks.sendTo([ana.id], notice), { sent: 1, gone: 0, failed: 0 }, wrap.name);
+    assert.deepEqual(await tasks.deliver(tasks.subscriptionsOf([ana.id]), notice), { sent: 1, gone: 0, failed: 0 }, wrap.name);
   }
   assert.equal(fake.sent.length, 4);
   // Without the one worker, the notice itself is left as the module wrote it.
   const plain = moduleReminderPush(push, 'tasks');
   fake.sent.length = 0;
-  await plain.sendTo([ana.id], { title: 'T', url: '/?list=4', tag: 'lista-4' });
+  await plain.deliver(plain.subscriptionsOf([ana.id]), { title: 'T', url: '/?list=4', tag: 'lista-4' });
   assert.deepEqual([fake.sent[0].notice.data.url, fake.sent[0].notice.tag, fake.sent[0].notice.module], ['/?list=4', 'lista-4', null]);
   assert.equal(plain.publicKey, push.publicKey);
 });

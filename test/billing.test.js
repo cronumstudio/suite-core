@@ -306,6 +306,46 @@ test('what waited for someone since before the guard was on is foreign when they
   assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 0);
 });
 
+test('a login whose id changed (relinked) keeps its renewals: the subscription’s person, else its customer’s, before waiting (audit billing-16)', (t) => {
+  const { database, entitlements, accounts, clock } = setup(t);
+  const provider = signedProvider({ id: 'paddle', secret: SECRET });
+  const bea = accounts.create({ username: 'bea' });
+  // WorkOS knew her as user_OLD when she bought; then it forgot that id, and the same verified
+  // email signed in again as user_NEW (accounts.relinkIdentity): user_OLD is nobody's here now.
+  const known = new Map([['user_OLD', bea.id]]);
+  const billing = createBilling({
+    database, entitlements, provider, products: PRODUCTS, clock: () => clock.now, log: () => {},
+    identities: { of: () => null, user: (p, subject) => known.get(subject) ?? null },
+  });
+  const old = { provider: 'workos', subject: 'user_OLD' };
+  const sub = (id, periodEnd, extra = {}) => billing.apply({
+    id, type: 'subscription', ref: 'sub_bea', identity: old, customer: 'cus_bea', product: 'pro-monthly', status: 'active',
+    periodEnd, occurredAt: new Date(clock.now).toISOString(), ...extra,
+  });
+  assert.equal(sub('r1', '2026-06-01T10:00:00Z'), 'granted');
+  known.delete('user_OLD');
+  known.set('user_NEW', bea.id);
+
+  clock.now += 31 * DAY;
+  assert.equal(sub('r2', '2026-07-01T10:00:00Z'), 'extended', 'the renewal is hers: it no longer waits for user_OLD');
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM billing_pending').n, 0);
+  clock.now = Date.parse('2026-06-20T00:00:00Z');
+  assert.equal(planOf(entitlements, bea), 'pro', 'Pro while she pays');
+
+  // Another purchase of the same customer, under the old id: the person the customer is linked to.
+  assert.equal(billing.apply({
+    id: 'r3', type: 'purchase', ref: 'order_bea', identity: old, customer: 'cus_bea', product: 'pro-lifetime',
+    occurredAt: new Date(clock.now).toISOString(),
+  }), 'granted');
+  assert.equal(entitlements.of(bea).ends, null);
+
+  // Someone who hasn't opened this app yet: nothing here is theirs, so it waits, as before.
+  assert.equal(billing.apply({
+    id: 'r4', type: 'subscription', ref: 'sub_cat', identity: { provider: 'workos', subject: 'user_CAT' }, customer: 'cus_cat',
+    product: 'pro-monthly', status: 'active', periodEnd: '2026-07-01T10:00:00Z',
+  }), 'pending');
+});
+
 test('the guard\'s options are checked; the checkout tells the provider which app sells, only when there is one', async (t) => {
   const { database, entitlements, ada } = setup(t);
   const seen = [];

@@ -28,6 +28,7 @@ import { productSeatsProblem } from './billing.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
 import { organizationKinds } from './organizations.js';
+import { DEFAULT_LIMITS } from './rate-limit.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -303,9 +304,11 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
 
   const rl = isObject(p.rateLimits) ? p.rateLimits : {};
-  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, code: 5, importTo: 10, devices: 30, ...rl };
+  // The limiter's own list (rate-limit.js), once: a copy here had drifted, and refused `billing`
+  // and `devicesRefused`, which the limiter takes (audit sc-host-6).
+  const rateLimits = { ...DEFAULT_LIMITS, ...rl };
   for (const [key, value] of Object.entries(rateLimits)) {
-    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup', 'code', 'importTo', 'devices'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
+    if (!Object.hasOwn(DEFAULT_LIMITS, key)) errors.push(`rateLimits.${key} is not a limit`);
     else if (!wholeNumber(value, 1, 100000)) errors.push(`rateLimits.${key} must be a whole number`);
   }
 
@@ -338,6 +341,11 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // Without an audience any token of the AuthKit environment opens this app's MCP, also one
     // a person gave to another app of the suite. A warning and not an error: an install that
     // starts requiring it must first have its Resource Indicator set in WorkOS.
+    // Under WorkOS the first administrator is whoever signs in with ADMIN_EMAIL verified: without
+    // it everyone who signs in is a user, and nobody reaches the admin panel (audit work-srv-10).
+    if (!String(env.ADMIN_EMAIL || '').trim()) {
+      warnings.push('ADMIN_EMAIL is not set: with AUTH_PROVIDER=workos it is the verified address that administers, and without it nobody who signs in becomes an administrator');
+    }
     if (modules.mcp && !env.WORKOS_MCP_AUDIENCE) {
       warnings.push(`WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to ${String(env.BASE_URL || 'BASE_URL').replace(/\/+$/, '')}/mcp, with that resource in WorkOS`);
     }
@@ -407,6 +415,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
         if (billing && billing.provider !== provider.id) throw new Error(`billing provider "${provider.id}": fromEnv() names "${billing.provider}"`);
       }
     }
+    // EARLY_ACCESS_UNTIL is the first day after the early access (2027-01-01 keeps 31 December in it).
     // Who joined before this date pays the founder's price of the products that have one; with
     // FOUNDER_OFFER_UNTIL, only until that date, and after it the regular price, founders too.
     // FOUNDER_JOIN_UNTIL gives more time to join at that price, past the end of the early access.
@@ -439,7 +448,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   let earlyAccess = null;
   if (env.EARLY_ACCESS_PLAN) {
     const until = Date.parse(env.EARLY_ACCESS_UNTIL || '');
-    if (Number.isNaN(until)) errors.push('EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL, the date the early access ends (2026-12-31)');
+    // The date is the first day after the early access, as everything that reads it takes it
+    // (`now < until`), and as Work's .env.example says (audit work-srv-10).
+    if (Number.isNaN(until)) errors.push('EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL, the first day after the early access (2027-01-01 keeps 31 December in it)');
     else earlyAccess = { plan: env.EARLY_ACCESS_PLAN, until: new Date(until).toISOString() };
   }
   const own = withCatalog(p, billing, errors);

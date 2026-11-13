@@ -824,8 +824,9 @@ test('a module’s notices with the host’s one worker open at its path (host-w
   assert.equal(tasks.publicKey, 'k');
   await tasks.deliver([], { title: 'List', url: '/?list=4', tag: 'lista-4', list_id: 4 });
   await tasks.deliver([], (sub) => ({ title: sub.lang }));
-  await tasks.send({}, { title: 'x', url: '/tasks/?list=5' });
-  await tasks.send({}, 'plain text');
+  await tasks.deliver([], { title: 'x', url: '/tasks/?list=5' });
+  await tasks.deliver([], 'plain text');
+  assert.equal(tasks.send, undefined, 'only deliver (audit sc-host-7)');
   assert.deepEqual(sent, [
     { title: 'List', url: '/tasks/?list=4', tag: 'tasks-lista-4', list_id: 4, module: 'tasks' },
     { title: 'es', url: '/tasks/', tag: 'tasks-notice', module: 'tasks' },
@@ -872,6 +873,38 @@ test('a module’s jobs stop when the host closes', async () => {
   const alpha = await import(list[0].entry.href);
   assert.equal(alpha.events.stopped, 1);
   assert.equal(alpha.events.flushed, 1, 'what its stop still had to do (the notices grouped), done before close() is');
+});
+
+test('a module whose start throws leaves the others served, and its jobs report to the alerts (audit sc-host-4, work-srv-4)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  const list = modules();
+  const lines = [];
+  const host = await createHost({
+    config: HOST, modules: list, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' },
+    handleSignals: false, exitOnError: false, log: (line) => lines.push(line),
+  });
+  const alpha = await import(list[0].entry.href);
+  // What the host's failed() reports, which goes to the alerts (ALERT_EMAIL) with the same name.
+  const reported = () => lines.filter((line) => / failed: Error: /.test(line)).map((line) => line.match(/^\[work\] (.+) failed: Error: ([^\n]+)/).slice(1));
+  alpha.events.throwOnStart = true;
+  try {
+    const server = await host.listen();
+    assert.deepEqual(reported(), [['alpha start', 'alpha could not start its jobs']]);
+    const base = `http://127.0.0.1:${server.address().port}`;
+    assert.match(await (await fetch(`${base}/beta/`)).text(), /<title>Beta<\/title>/, 'the others are served');
+
+    // What the host gives a module's start for its own jobs: under the module's name, to the alerts.
+    const { failed, safely, uses } = alpha.events.jobs;
+    assert.equal(typeof uses, 'function');
+    failed('reminders')(new Error('no database'));
+    safely('sweep', () => { throw new Error('EACCES'); })();
+    assert.equal(safely('fine', () => 1)(), undefined, 'what works says nothing');
+    assert.deepEqual(reported().slice(1), [['alpha reminders', 'no database'], ['alpha sweep', 'EACCES']]);
+  } finally {
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('what a host can’t run stops it, and says why', async () => {
@@ -1442,6 +1475,56 @@ test('payments are the host\'s in every module: its routes at a module that sell
   assert.ok(Date.parse(noted) >= before - 1000 && Date.parse(noted) <= Date.now() + 1000, noted);
   assert.equal((await call('PATCH', '/api/me', { prefs: { lang: 'en' } })).data.user.prefs.founder_notice_at, noted, 'another preference leaves it');
   assert.equal((await call('GET', '/api/auth/me')).data.user.prefs.founder_notice_at, noted);
+});
+
+test('back from a checkout bought in a module’s window: the host’s shell with that window, never the module’s page alone (audit billing-8)', async (t) => {
+  const run = async (options) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-billing-'));
+    const host = await createHost({
+      config: {
+        ...HOST, modules: { live: true, billing: true },
+        plans: { free: { name: 'Free', features: {} }, pro: { name: 'Pro', features: {} } }, defaultPlan: 'free',
+        products: { 'pro-yearly': { plan: 'pro', kind: 'subscription', amount: 35, currency: 'EUR' } },
+      },
+      modules: modules(),
+      env: {
+        DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+        BILLING_PROVIDER: 'remote', BILLING_SECRET: 'a-shared-secret-of-the-accounts-service',
+      },
+      version: '9.9.9', handleSignals: false, exitOnError: false, log: () => {}, ...options,
+    });
+    const server = await host.listen();
+    const base = `http://127.0.0.1:${server.address().port}`;
+    let cookie = '';
+    const call = async (method, pathname, body) => {
+      const res = await fetch(base + pathname, {
+        method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('work_sid='));
+      if (set) cookie = set.split(';')[0];
+      return { status: res.status, data: await res.json().catch(() => null) };
+    };
+    try {
+      await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+      const back = async (pathname) => {
+        const answer = await call('POST', pathname, { product: 'pro-yearly' });
+        assert.equal(answer.status, 200, pathname);
+        return new URL(answer.data.url, 'http://accounts.invalid').searchParams.get('return');
+      };
+      return { module: await back('/alpha/api/billing/checkout'), root: await back('/api/billing/checkout') };
+    } finally {
+      await host.close();
+      host.suite.database.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  assert.deepEqual(await run({ pages: [{ at: '/w/', dir: pageFolder(t), root: { except: ['modules'] } }] }), {
+    module: 'http://127.0.0.1/?open=%2Falpha%2F&billing=done', root: 'http://127.0.0.1/?billing=done',
+  }, 'with a shell at the root, the shell opens the module’s window and thanks (billingReturn)');
+  assert.deepEqual(await run({}), {
+    module: 'http://127.0.0.1/alpha/?billing=done', root: 'http://127.0.0.1/?billing=done',
+  }, 'without one, the module’s page as before');
 });
 
 /* ------------------- a page that shows several modules ------------------- */

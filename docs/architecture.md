@@ -57,6 +57,7 @@ suite-core/
   config.js             done   loads and validates suite.config.js + the environment
   app.js                done   createSuite() wires the modules; createApp() dispatches in the order of §11
   host.js               done   createHost(): several apps as one, each a module at its own path (§21)
+  runtime.js            done   what both run the same way: the server, the install's jobs, signals, listening
   legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
   watcher.js            done   hot reload by polling, for code mounted over SMB
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
@@ -1260,6 +1261,11 @@ group a copy carries:
   last member goes —they leave or are removed (`removeMember`; the last member, even an owner, can
   then leave), or their account is deleted (`forgetUser`)— the group is deleted instead of
   archived: `organizations.remove(id)` with the reason `empty`.
+- A group of a kind kept when empty (`onEmpty: 'archive'`) that its last member's account deletion
+  leaves with nobody is archived, with an `org.archive` audit entry (`reason: 'empty'`), and, with
+  `modules.billing`, its own subscriptions stop renewing at the end of the period they paid for
+  (v0.288.0, `organizations.whenArchived` → `billing.organizationArchived`, who wants it: `empty`):
+  nobody is left to cancel them.
 - `organizations.remove(id, { reason, by })` deletes a group whatever it holds: its plan grants
   (which name it by id), invitations, memberships and the row, in one transaction, with an
   `org.delete` audit entry (its other entries keep their target, without the reference).
@@ -1519,7 +1525,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   of a home network); gone ones (404, 410) and ones that fail three times pruned. The routes are
   `/api/push/config`, `/api/push/subscribe` (POST, DELETE), `/api/push/devices` and
   `/api/push/test`; the app composes the real messages and chooses who gets them
-  (`suite.push.sendTo(userIds, payload | (subscription) => payload)`), as Tasks batches other
+  (`suite.push.deliver(suite.push.subscriptionsOf(userIds), payload | (subscription) => payload)`), as Tasks batches other
   people's changes to a shared list.
 - **Push to an app's own devices** (v0.81.0, for Focus' paired tablets): a device that belongs to
   the app and has no account behind it (a child's profile, a kiosk) keeps its subscription in the
@@ -1559,7 +1565,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
     migration 26**, hanging on `device_tokens` with `ON DELETE CASCADE`), never exported; it goes
     when the device is revoked (by its owner, by itself signing out, by the admin) and on
     `DELETE /api/devices/push`. A send names its reminder in its options:
-    `deliver(subs, payload, { reminder: { id, at } })` (and `send`, `sendTo`), `id` a text or a
+    `deliver(subs, payload, { reminder: { id, at } })` (and `send`), `id` a text or a
     number, `at` an ISO-8601 text, a Date or milliseconds; in a host, `hostedPush` (and a host
     without the one worker too) sets `reminder.module` to the module's path, and an app on its own
     may give `module` itself (else null). A native target whose device reported the same `module`
@@ -1570,8 +1576,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   - **Sending**: `subscriptionsOf(userIds)` also gives the people's phones (rows with
     `native: true`, `platform`, `lang`, `user_id`), and `deliver()` sends each where it goes; given
     Web Push rows only (an app that reads `push_subscriptions` itself, as Tasks does), it also sends
-    to those people's phones. Each phone once per delivery. `sendTo`, `send` and the host's
-    `hostedPush` (the module's path in `url`, its `module` and tag) go the same way, and
+    to those people's phones. Each phone once per delivery. `send` and the host's
+    `hostedPush` (which has `deliver` only: since v0.288.0 neither it nor `push` has `sendTo`) (the module's path in `url`, its `module` and tag) go the same way, and
     `/api/push/test` reaches the phones too. What a Web Push payload becomes: `title` and `body`
     the alert's texts (the body, then the title, shortened to fit 4 KB, never refused); `badge`
     when it is a whole number (on the web it is an image, and ignored); `category` (the actions the
@@ -2007,6 +2013,14 @@ const app = createApp({ suite, ...parts, mcp });
 const stop = parts.start?.({ day, uses });   // in a host: its daily summary (or null) and who uses each module
 await app.listen();
 ```
+
+In a host, `start()` gets two more things (v0.288.0), so that the module's own jobs (reminders, its
+notices, its file clean-ups) reach the alerts as the host's do: `failed(name)`, a function for a
+promise's `catch` that logs what was thrown and reports it to `ALERT_EMAIL` as `<mount> <name>`,
+and `safely(name, fn)`, a function that runs `fn` and does the same with what it throws, for a
+`setInterval`. A module on its own gets neither, and keeps its own log-only fallback
+(`failed ?? ((name) => (err) => console.error(...))`). A `start()` that throws is reported as
+`<mount> start` and the host goes on serving the other modules, without that module's stop.
 
 A host and its modules run **one copy of suite-core**: an `HttpError` thrown by a module must be
 the one the host's `createApp()` knows. A module whose `server/suite` is another copy, or that
