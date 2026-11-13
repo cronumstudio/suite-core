@@ -24,12 +24,13 @@
  *   second at 168; past 230 px the row comes harder, a quarter of the finger's way. With nothing
  *   that way the row doesn't move that way. `left` and `right` are arrays, or functions asked when
  *   the swipe starts, so the words say what the row is now («Fijar» or «Quitar»).
- * - Right to left it is mirrored, as windows.js mirrors its swipe: `right` is towards the line's
- *   end, where a reader of that language reads on.
- * - The row keeps the finger whatever it has: `data-own-swipe` (Cronum Work's windows don't switch
- *   module from it, windows.js) and `touch-action: pan-y` (kit.css), and once it is a swipe the
- *   touch's moves are kept from the browser. Not for what lies in something that scrolls sideways
- *   (Next's line, the Gantt): there `pan-y` would take that scroll away.
+ * - Right to left it is mirrored: `right` is towards the line's end, where a reader of that
+ *   language reads on.
+ * - The row keeps the finger whatever it has: `data-own-swipe` (a sign that its sideways finger is
+ *   its own; Cronum Work's windows read it while a swipe changed module on a phone, until 0.285.0)
+ *   and `touch-action: pan-y` (kit.css), and once it is a swipe the touch's moves are kept from the
+ *   browser. Not for what lies in something that scrolls sideways (Next's line, the Gantt): there
+ *   `pan-y` would take that scroll away.
  * - Letting go after a swipe is not a click: the row doesn't open.
  * - While a row is swiped `<html>` has `data-kit-swiping` and the document hears `kit-swipestart`
  *   and `kit-swipeend`: `redrawInPlace` (drag.js) waits for the end, as it waits for a drag's, and

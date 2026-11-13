@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.285.0 — 2026-11-14
+
+- **On a phone, a sideways swipe no longer changes module** (`windows.js`; Martin, 14/11, after a
+  tester on Android: in most views a sideways finger already does something of its own, a row to
+  the trash or its toggle, Next's line, the Gantt, so a swipe between modules served almost
+  nowhere and came in by mistake). The tabs at the bottom are the one way to another module; a
+  sideways finger in a window is the module's, and nothing keeps its touchmoves from the browser
+  any more. Gone with it: the exports `OWN_SWIPE` and `swipeHolds()` (Work's shell and the modules
+  import neither), the desk's `data-swiping` and `onGesture`'s `'swipe'`. A row still says
+  `data-own-swipe` (`rowSwipe()`, `keepSwipe()`), now read by nothing of the kit's.
+
 ## 0.284.0 — 2026-11-14
 
 Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
