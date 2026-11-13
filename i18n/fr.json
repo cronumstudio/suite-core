@@ -507,7 +507,7 @@
   "features.attachments": "Photos et fichiers joints",
   "features.activity": "Journal d’activité",
   "features.lists.max": "Listes à soi",
-  "features.projects.max": "Projets actifs",
+  "features.projects.max": "Projets ouverts",
   "features.notebooks.max": "Carnets",
   "features.history.days": "Jours de conservation des versions précédentes",
   "features.files.per_note": "Fichiers dans une note",
