@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.275.0 — 2026-11-13
+## 0.283.0 — 2026-11-14
 
 Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
 routes; measured on the audit's database (301 accounts, ~37 000 tasks, 14 000 notes), numbers in
@@ -56,6 +56,41 @@ the pull request.
   written 2 000 rows at a time (`jsonOfRows()`, byte for byte what `JSON.stringify` wrote).
   `prepareExport()` stays as it was, for the command line and the tests; without a file to open a
   second connection on (`:memory:`), the routes use it.
+
+## 0.279.0 — 2026-11-14
+
+- **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
+  0.255.0 added `push_subscriptions.session_key` inside suite migration 13, which every existing
+  database had already applied, so there the column never came. `POST /api/push/subscribe` failed with
+  `no such column: session_key`, and so did the suite's clean-up (`push.purgeSessions()`). Migration 30
+  runs `pushSchema` again, which only adds what a table lacks; new databases are unchanged.
+
+## 0.277.1 — 2026-11-14
+
+- **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
+  `links.js`, `calendar.js` and `mcp.js`): `destructiveHint: false` and `idempotentHint: true` besides
+  `readOnlyHint: true` and `openWorldHint: false`. OpenAI's plugin portal flags a tool whose
+  `readOnlyHint`, `destructiveHint` and `openWorldHint` are not all explicit booleans; in Cronum Work,
+  the 28 that read.
+
+## 0.277.0 — 2026-11-13
+
+- **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`;
+  audit of 6/11: tasks-srv-22, tasks-web-16, notes-srv-13, notes-web-13, next-srv-16). Tasks, Notes,
+  Next and Projects each had their own copy of the read-only link, and they had drifted apart.
+  `createPublicPage({ db, entitlements, table, publicUrl, find, ownerOf, changed })` now keeps it in
+  one place: the token, on and off, a read that never turns it on, the plan's `publish` checked again
+  when the page is served, an owner whose account is disabled (`disabled_at`) answering 404,
+  `embed` only with the plan's `embed` (403 `embed_not_allowed`), the owner's own display name
+  only (`publicOwnerName`: never the username nor the start of the email), `unpublish()` for
+  hand-overs, no-store and noindex headers (`publicHeaders`) and `routes()`.
+  - `web/public-page.js`: `publicDialog()` and `embedCode()`: the dialog reads the page with a GET,
+    shows «Embed» once the plan is known, and copying says so once. `web/public-page.css`: the
+    page's frame (bar, footer, embedded, refused, gone), whose bar stays inside a 320–430 px phone in
+    every language. `kit.public.*`, `errors.public_not_found` and `errors.embed_not_allowed` in
+    five languages; `.kit-public*` in kit.css; both files in the service worker's kit copy.
+  - `time.js`: `dayStart(zone, day)` and `daySpan(zone, day)`, which Next and Notes had word for word.
+  - Only additions: nothing that was exported changes.
 
 ## 0.274.0 — 2026-11-12
 

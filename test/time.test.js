@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   knownTimeZone, SERVER_TIME_ZONE, zoneOf, inZoneOf, currentZone, dayIn, addDays, todayIn, todayFor, daysSince,
+  dayStart, daySpan,
 } from '../time.js';
 
 test('knownTimeZone canonicalises IANA names and refuses the rest', () => {
@@ -68,4 +69,20 @@ test('daysSince counts days on the calendar of the zone', () => {
   assert.equal(daysSince(new Date(), zone), 0);
   assert.equal(daysSince(Date.parse(`${todayIn(zone, -1)}T23:59:00Z`), zone), 1);
   assert.equal(daysSince(Date.parse(`${todayIn(zone, 2)}T00:01:00Z`), zone), -2);
+});
+
+test('dayStart and daySpan: a day from its first instant in the zone, also when the clocks move', () => {
+  assert.equal(new Date(dayStart('Europe/Madrid', '2026-10-20')).toISOString(), '2026-10-19T22:00:00.000Z');
+  // The day summer time ends is 25 hours long; the day it starts, 23.
+  assert.deepEqual(daySpan('Europe/Madrid', '2026-10-25'), { from: '2026-10-24T22:00:00.000Z', to: '2026-10-25T23:00:00.000Z' });
+  assert.deepEqual(daySpan('Europe/Madrid', '2026-03-29'), { from: '2026-03-28T23:00:00.000Z', to: '2026-03-29T22:00:00.000Z' });
+  assert.deepEqual(daySpan('UTC', '2026-10-20'), { from: '2026-10-20T00:00:00.000Z', to: '2026-10-21T00:00:00.000Z' });
+  // The far ends of the clock, and a zone whose clocks jump at midnight.
+  for (const zone of ['Pacific/Kiritimati', 'Etc/GMT+12', 'America/Havana', 'Asia/Kolkata', 'America/St_Johns']) {
+    for (const date of ['2026-03-08', '2026-11-01', '2026-10-20']) {
+      const first = dayStart(zone, date);
+      assert.equal(dayIn(zone, first), date, `${zone} ${date}`);
+      assert.ok(dayIn(zone, first - 1) < date, `${zone} ${date}, a moment before`);
+    }
+  }
 });
