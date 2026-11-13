@@ -4,7 +4,7 @@
  *
  * A module's page is a few lines of HTML whose code comes in modules: main.js
  * imports a dozen files, which import others, and those others; then the
- * catalog in English, the person's language, the install's settings. Each step
+ * person's language (with English under it), the install's settings. Each step
  * waited for the one before, one trip to the server each: going from one
  * module to another in a host (Cronum Work) showed an empty screen for over
  * half a second on a computer and a second on a phone, then the frame. With
@@ -100,10 +100,11 @@ export function createPageHints() {
     if (graph.includes('/suite/update.js')) links.push(`<${at('/js/app-version.js')}>; rel=modulepreload`);
     // The kit reads them with fetch(): `crossorigin` is what makes a preload match it.
     const fetched = (p) => `<${p}>; rel=preload; as=fetch; crossorigin`;
+    // One catalog: English, or the language with English under it (`?en`), as the kit's i18n.js
+    // asks for it since 0.285.0, where it was English and then the language.
     if (graph.includes('/suite/i18n.js')) {
-      links.push(fetched(at('/i18n/en.json')));
       const lang = languageOf(req.headers['accept-language'], languages);
-      if (lang && lang !== 'en') links.push(fetched(at(`/i18n/${lang}.json`)));
+      links.push(fetched(at(lang && lang !== 'en' ? `/i18n/${lang}.json?en` : '/i18n/en.json')));
     }
     // What every module asks before it draws, and the host's list of modules for the rail. Who
     // the person is: what the module says it asks first (`createModule().preload`, its own GET

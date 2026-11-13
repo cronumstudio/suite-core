@@ -90,7 +90,7 @@ suite-core/
   storage.js            done   the storage a plan allows (storage.mb): check(user, adding, { payer }), the apps' 402
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's;
-                               isoInstant(stamp): a stored instant as ISO (0.280.0)
+                               isoInstant(stamp): a stored instant as ISO (0.286.0)
   prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
   mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
@@ -1964,7 +1964,9 @@ await host.listen();
   (a Map by user, `GROUP BY` the owner) answers a whole batch at once; without them, or for an id
   they leave out, it is asked one by one (v0.166.0). `/admin › Users` shows both. `GET /api/me/usage` answers the same of the person
   signed in, and only of them (Settings › Plan › Your usage); like every `/api` route it knows the
-  web's session only, never an assistant's token.
+  web's session only, never an assistant's token. Only the dialog of one account shows `active_at`:
+  everywhere else `usage(userId, { activity: false })` and `usageAll(userIds, { activity: false })`
+  are asked, a module may skip finding it, and the answer's `active_at` is null (v0.284.0).
 - **What each module's plans allow** (`GET /api/admin/plans/modules`, the admin's only): the
   host's `/api/admin/plans` is its own catalog (its one MCP's calls); this one says, per module
   with a feature of its own, its declared features and each plan's values for them. A feature the
@@ -2161,19 +2163,19 @@ without it. A search's cards are shown as the module's `search` gives them, none
   `gone`, with its last title only to whoever linked it. A link shows while the person uses both
   modules, and nothing of a module they turned off can be linked or created (403 `module_off`).
   That last title is kept as whoever linked it sees it (`createLinks({ userOf })`, the host's: a
-  side they no longer see keeps the last title they saw, never a rename after it; 0.280.0).
+  side they no longer see keeps the last title they saw, never a rename after it; 0.286.0).
   Erased data leaves nothing here: after someone's data is erased in a module, once an account's
   removal is done, and every six hours (a minute after the host starts, then with its clean-up;
-  0.280.0), `links.prune()` drops the title of each side that is gone and removes a link whose two
+  0.286.0), `links.prune()` drops the title of each side that is gone and removes a link whose two
   sides are (v0.64.0).
 - **Created where it lives**: `POST /api/links/new { from, module, type, data, together }` asks the
   other module to create it, by its own rules, and links it in the same transaction ("Send to
   Tasks"); `GET /api/links/search?module&type&q` lists what may be linked, `{ items, places,
   creates }`, with the places to create in; `&places=0` leaves them out (`places: []`), as the kit's
   "Link existing…" asks at each key: only "Add to…" shows them, and they cost the module a query
-  for each list (0.280.0). `POST /api/links
+  for each list (0.286.0). `POST /api/links
   { from, to, together }` links what exists: 201 `{ link }`, or, for a pair linked already, 200
-  `{ link, existed: true }` with that link as it was (`together` unchanged; 0.280.0), so a page
+  `{ link, existed: true }` with that link as it was (`together` unchanged; 0.286.0), so a page
   says «already linked» and offers no undo (`linkItems()` → `{ link, existed }`; `links.connect()`
   on the server, `links.link()` the link alone). `PATCH /api/links/:id { together }` and `DELETE
   /api/links/:id` change or remove a link, never the things.
@@ -2205,7 +2207,7 @@ has with a date, next to its `cards`:
 calendar: {
   // What `user` sees with a date in [from, to] (both 'YYYY-MM-DD', included): an item is there
   // when its span overlaps them. The same permissions as the module's own pages; [] for nothing.
-  // `limit` (CALENDAR_MODULE_MAX, 2000; 0.280.0): the most the host keeps, the earliest.
+  // `limit` (CALENDAR_MODULE_MAX, 2000; 0.286.0): the most the host keeps, the earliest.
   range: (user, { from, to, limit }) => [item…],   // or a promise of them
 },
 ```
@@ -2215,7 +2217,7 @@ module's own kind of thing (`task`, `phase`, `milestone`, `daily`), the row's id
 last day (the same for one day; without `end`, one day), what shows under the title (a list, a
 project › phase, a notebook), its url relative to the module as a card's (`?list=3&task=9`),
 and whether it is the person's. Nothing has a time of day: the `time` the contract once named no
-module ever gave, and it is no longer kept (0.280.0, audit of 6/11, sc-feat-8).
+module ever gave, and it is no longer kept (0.286.0, audit of 6/11, sc-feat-8).
 
 - **`GET /api/calendar?from=&to=`** at the root (401 signed out; 400 `field_invalid` naming `from`
   or `to` for a date that isn't one, `to` before `from`, or more than 366 days with both ends)
@@ -2279,12 +2281,12 @@ day: {
   // host calls it inside inZoneOf); overdue is before it. What they planned for today without a
   // date (Tasks' My Day) comes with `planned: true` and today's date. Only their own ("mine",
   // as each module counts it), with the same permissions as the module's pages.
-  // `limit` (DAY_MODULE_MAX, 200; 0.280.0) is the most the host keeps of each of the overdue and
+  // `limit` (DAY_MODULE_MAX, 200; 0.286.0) is the most the host keeps of each of the overdue and
   // today's: so ask for the oldest `limit` overdue and today's up to `limit`, apart, not `limit`
   // of both together (the overdue would push today's out: audit of 6/11, sc-feat-5).
   agenda: (user, { today, limit }) => [item…]      // or a promise of either
     | { items: [item…], overdueTotal },            // overdueTotal: how many are overdue in all,
-                                                   // when it gives fewer (0.280.0)
+                                                   // when it gives fewer (0.286.0)
   // What `user` did on `day` (their zone): what they completed, logged or wrote; the latest `limit`.
   done: (user, { day, limit }) => [item…],
 },
@@ -2294,16 +2296,16 @@ An agenda item is `{ type, id, title, date, where, url, planned? }`; a done one
 `{ type, id, title, at, where, url, kind }`, `at` an ISO instant and `kind` `completed` (a task
 finished), `logged` (a step logged in Next) or `written` (a note created or edited). `type`, `id`,
 `title`, `where` and `url` are the calendar's; anything else is left out (`mine` and a `time` of
-day, which no page read: 0.280.0). The host keeps of each module its 200 oldest overdue, all of
+day, which no page read: 0.286.0). The host keeps of each module its 200 oldest overdue, all of
 today's up to 200, and its latest 200 done, each thing once.
 
-**`overdueTotal`** (0.280.0): the number of the module's open things for the person dated before
+**`overdueTotal`** (0.286.0): the number of the module's open things for the person dated before
 `today`, counted as its agenda counts them (the same lists, the same "theirs") but without its
 `LIMIT`: what it would list with no cap. A whole number; anything else counts as none. The host
 counts each module's overdue as the larger of that and the overdue items it gave, sums them as
 `overdue_total` and says that number in the morning notice («230 vencidas»). A module that gives
 every overdue thing it has needs no `overdueTotal`, and can keep answering a list. One that wants
-to work with a host before 0.280.0 too gives the object only when its args carry `limit` (an
+to work with a host before 0.286.0 too gives the object only when its args carry `limit` (an
 older host took only a list).
 
 - **`GET /api/day?date=`** at the root (401 signed out; 400 `field_invalid` naming `date` for one
@@ -2311,10 +2313,10 @@ older host took only a list).
   that has a part of it, all at once, and answers `{ date, modules: [{ mount, name, color, icon }],
   overdue, overdue_total, today, done, failed? }`: each item with its `module` and its url under
   the module's path; `overdue_total` how many are overdue in all, which may be more than `overdue`
-  lists (0.280.0). `overdue` the oldest first, `today` and `done` (the latest first) each then in
+  lists (0.286.0). `overdue` the oldest first, `today` and `done` (the latest first) each then in
   the modules' order and each module's own. Whether the person uses each module is asked once a
   module for the whole answer, from its row of `host_modules` (it was all of `/api/modules` for
-  each, three times over: 0.280.0, sc-host-11). What can't be shown is left out (no type or
+  each, three times over: 0.286.0, sc-host-11). What can't be shown is left out (no type or
   id, no day, a day after the one asked, no instant, a kind that isn't one). A module whose part
   throws, or gives no list, is logged and named in `failed`, never a 500. The page may be framed by
   the host's own pages (`pages`), as the calendar's.
@@ -2339,12 +2341,12 @@ older host took only a list).
   time (every zone is a whole number of quarter hours from UTC; a check that comes a step after the
   last one that looked looks all the same): only the accounts with a device are read
   (`push.peopleWithDevices()`, browsers subscribed and phones with the app; then
-  `push.subscriptionsOf` for the devices themselves), each zone's minute once (0.280.0: every
+  `push.subscriptionsOf` for the devices themselves), each zone's minute once (0.286.0: every
   account was read every minute, audit of 6/11 sc-feat-1). A notice is due from its time until three
   hours after it on their day in their zone (`prefs.tz`), never past their midnight. It is claimed
   first in `host_day_notices` (host migration 8: one row a person, notice and day, its `outcome`
   `sent`, `empty` or `failed`; read by its day, host migration 12; forgotten once a day after
-  `DAY_LOG_DAYS`, 3 days since 0.280.0, 60 before), so two checks never both send it; then its
+  `DAY_LOG_DAYS`, 3 days since 0.286.0, 60 before), so two checks never both send it; then its
   lists are asked of the modules and, with nothing in them, nothing is sent, the day counting as
   done all the same. They go through the host's own push, in the person's language (their choice,
   the device's, their browser's last one, their account's): `{ title, body, tag, url }`, the
@@ -2479,6 +2481,19 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
   most four modules stay mounted: beyond that `onEvict(module)` names the least recently used one
   that doesn't show, for the shell to unmount.
+- **Live notices while put away** (Work 0.109.0). The shell holds the one live channel
+  (`/api/events?all`, §21.7) for a module while its window is out of view: from `onPause(module,
+  true, { hidden: true })` until `onPause(module, false, { hidden: true })`, which comes after the
+  module's `resume()`, the module's own `connectLive()` subscription gets no `onChange` and no
+  `onResync`, only `onState` and `onAccount`. The shell notes that it missed something and, once the
+  module is back and resumed, sends it a single `onResync()`, however many notices came (none if
+  nothing came). Meanwhile the module's copy on the device is kept by the shell's own background
+  subscription (Work's fresh.js, through the module's `refreshDevice`). So `pause()`/`resume()` need
+  not note live notices themselves, and a paused module must not reload on `visibilitychange`: the
+  page coming back into view does not bring a put-away window into view. A module whose `resume()`
+  reloads what it shows anyway gets the resync on top of it, so it should reload in one place only,
+  the resync. A window paused only while it is resized (`{ resizing: true }`) keeps hearing its
+  notices.
 - **Kept** in this browser as `work.layout`, one layout for every width (`{ all }`): the columns
   that don't fit a narrower desk stack where there is room, the layout kept as chosen until it
   fits again, and a phone (< 768 px) shows its focused window, its tabs moving that focus or
@@ -2537,6 +2552,7 @@ const host = await createHost({
   (`notes=<boot>.<n>,next=<boot>.<n>`), so a browser coming back gets what it missed module by
   module (live.js `subscribeAll()`, over each channel's `relay()`). It counts as one of the person's
   channels in each module, and ends with any of them: revoked sessions (`account` said first),
+  asked once a heartbeat by the stream itself (`createLiveAll()`, v0.284.0) rather than by every module,
   the host closing, a reader that stopped reading. The modules' own channels stay as they are.
   In the browser, `connectLive()` of a module in the shell's page goes through the shell's
   registry (`workRegistry().live.subscribe(module, handlers)`) and gives back the same object.

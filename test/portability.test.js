@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
-import { describeData, selectRows, ownership } from '../portability.js';
+import { describeData, selectRows, ownership, jsonOfRows } from '../portability.js';
 import { openDatabase } from '../db.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { runDataCli } from '../tools/data-cli.js';
@@ -198,6 +198,65 @@ test('the declaration is checked against the database: a mistake stops the start
     /"teams" is groups's old name too/);
   assert.throws(() => describeData(database, { tables: { groups: { was: 'Bad Name', refs: { user_id: 'users' } } } }), /is not a table's name/);
   database.close();
+});
+
+test('a table’s JSON written a slice at a time is JSON.stringify’s, byte for byte (perf-srv-14)', async () => {
+  const rows = Array.from({ length: 4321 }, (_, i) => ({
+    id: i + 1, title: i % 7 ? `Task ${i}` : 'two\nlines, "quoted" \\ and ✓ ünïcode', done: i % 3 === 0 ? 1 : 0, at: i % 5 ? null : '2026-11-13T10:00:00Z',
+    ...(i % 11 === 0 ? { blob: { $blob: 'AAEC' } } : {}), score: i / 3,
+  }));
+  rows.push({});
+  const map = (row) => Object.fromEntries(Object.entries(row).filter(([k]) => k !== 'done'));
+  assert.equal(await jsonOfRows(rows, map), JSON.stringify(rows.map(map), null, 1));
+  assert.equal(await jsonOfRows(rows.slice(0, 3)), JSON.stringify(rows.slice(0, 3), null, 1));
+  assert.equal(await jsonOfRows([]), JSON.stringify([], null, 1));
+  // Others are answered while a big one is written.
+  let answered = false;
+  setImmediate(() => { answered = true; });
+  await jsonOfRows(rows);
+  assert.ok(answered);
+});
+
+test('an export read on its own connection lets others in, writes the same copy, and is of one moment (perf-srv-14)', async (t) => {
+  const box = install(t);
+  const s = seedSource(box);
+  // Enough tasks for it to pause in the middle of a table, not only between tables.
+  box.db.tx(() => {
+    for (let i = 0; i < 4500; i++) box.db.run('INSERT INTO tasks (list_id, title, created_at) VALUES (?, ?, ?)', s.l1, `Task ${i}`, '2026-02-01T00:00:00Z');
+  });
+  const read = async (job, name) => {
+    const file = path.join(box.dir, `${name}.zip`);
+    await job.write(fs.createWriteStream(file));
+    const { json } = await readZip(t, file);
+    const manifest = await json('manifest.json');
+    return { manifest, tasks: await json('data/tasks.json'), users: await json('data/users.json'), lists: await json('data/lists.json') };
+  };
+  for (const options of [{ scope: 'account', userId: s.ana.id }, { scope: 'install' }]) {
+    const at = read(box.portability.prepareExport(options), `sync-${options.scope}`);
+    // While it reads, someone else is answered, and what they write isn't in the copy.
+    let answered = 0;
+    let wrote = false;
+    const other = setImmediate(function again() {
+      answered += 1;
+      if (!wrote) {
+        box.db.run("INSERT INTO tasks (list_id, title, created_at) VALUES (?, 'written meanwhile', '2026-03-01T00:00:00Z')", s.l1);
+        box.db.run("UPDATE lists SET name = 'Renamed meanwhile' WHERE id = ?", s.l1);
+        wrote = true;
+      }
+    });
+    const job = await box.portability.prepareExportAsync(options);
+    clearImmediate(other);
+    assert.ok(answered >= 1, `${options.scope}: someone else was answered while it read`);
+    const before = await at;
+    const after = await read(job, `async-${options.scope}`);
+    assert.deepEqual(after.manifest.tables, before.manifest.tables, `${options.scope}: the same rows`);
+    assert.deepEqual(after.tasks, before.tasks, `${options.scope}: the same tasks`);
+    assert.deepEqual(after.users, before.users);
+    assert.ok(!after.tasks.some((task) => task.title === 'written meanwhile'), 'what came in later is not in it');
+    assert.ok(after.lists.some((list) => list.name === 'Shopping'), 'what changed later is as it was');
+    box.db.run("DELETE FROM tasks WHERE title = 'written meanwhile'");
+    box.db.run("UPDATE lists SET name = 'Shopping' WHERE id = ?", s.l1);
+  }
 });
 
 test('a copy made before a table was renamed comes in under its new name', async (t) => {
@@ -419,7 +478,8 @@ test('“replace” passes on what the person shares, says so first, and their c
   assert.notEqual(hers[0].id, s.l1);
   assert.equal(box.db.get('SELECT COUNT(*) AS n FROM shares WHERE list_id = ?', hers[0].id).n, 0, 'not shared with anyone');
   assert.equal(result.replaced.lists, undefined, 'nothing of hers was left to empty but the group');
-  assert.deepEqual(box.events.filter((e) => e.event === 'resync').map((e) => e.audience), [null], 'everyone resyncs: a list has a new owner');
+  // She and whoever shares with her resync: a list has a new owner. Carl, who shares nothing with her, is left alone (perf-srv-11).
+  assert.deepEqual(box.events.filter((e) => e.event === 'resync').map((e) => [...e.audience].sort()), [[s.ana.id, s.ben.id].sort()]);
   assert.deepEqual(erasedFor, [s.ana.id], 'what keeps something of it elsewhere (a host’s links) is told');
 });
 
@@ -518,7 +578,8 @@ test('erasing one’s data: what others share passes on first, then goes what th
   assert.equal(box.db.get('SELECT COUNT(*) AS n FROM shares WHERE list_id = ? AND user_id = ?', s.l2, s.ana.id).n, 1,
     'ben’s Garden is still shared with her: what others share is left alone');
   assert.ok(box.suite.accounts.byId(s.ana.id), 'the account stays');
-  assert.deepEqual(box.events.map((e) => [e.event, e.audience]), [['resync', null]], 'everyone resyncs: a list changed hands');
+  // She and Ben resync, a list changed hands; Carl shares nothing with her and is left alone (perf-srv-11).
+  assert.deepEqual(box.events.map((e) => [e.event, [...e.audience].sort()]), [['resync', [s.ana.id, s.ben.id].sort()]]);
   assert.equal(box.suite.audit.list({ action: 'data.erase' })[0].meta.rows, 4);
 });
 

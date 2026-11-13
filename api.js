@@ -775,14 +775,31 @@ export function registerAdminApi(router, {
   };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
-  const withPlan = (user) => {
+  // `known`, for the list of every account: what withPlans() asked of all of them at once.
+  const withPlan = (user, known = null) => {
     // Where the account signs in besides its password (workos, oidc…).
-    const view = { ...accounts.publicUser(user), providers: accounts.identitiesOf(user.id).map((i) => i.provider) };
+    const providers = known ? known.providers.get(user.id) ?? [] : accounts.identitiesOf(user.id).map((i) => i.provider);
+    const view = { ...accounts.publicUser(user), providers };
     if (!entitlements) return view;
-    const { plan, ends, unlimited } = entitlements.of(user);
+    const planned = known?.plans?.get(user.id);
+    const { plan, ends, unlimited } = planned ? planned.entitled : entitlements.of(user);
     // Where it comes from: the install's default plan must never read as one that was given.
-    const source = entitlements.sourceOf?.(user);
+    const source = planned ? planned.source : entitlements.sourceOf?.(user);
     return { ...view, plan, plan_ends: ends, unlimited, ...(source ? { plan_source: source } : {}) };
+  };
+  /**
+   * withPlan() of every account, in a few queries for all of them (their logins elsewhere, their
+   * groups, their grants) instead of four or more for each one (audit of 6/11, perf-srv-9).
+   */
+  const withPlans = (users) => {
+    const ids = users.map((user) => user.id);
+    const known = {
+      providers: typeof accounts.providersOfMany === 'function' ? accounts.providersOfMany(ids) : null,
+      plans: entitlements && typeof entitlements.plansOfMany === 'function' && typeof entitlements.sourceOf === 'function'
+        ? entitlements.plansOfMany(users) : null,
+    };
+    if (!known.providers) return users.map((user) => withPlan(user));
+    return users.map((user) => withPlan(user, known));
   };
   /** The admin's reason for a plan, as the grant and the log keep it: short text, or null. */
   const noteOf = (note) => (typeof note === 'string' && note.trim() ? note.trim().slice(0, 200) : null);
@@ -806,7 +823,7 @@ export function registerAdminApi(router, {
     // With phones connected (modules.devices), how many each account has that still work.
     const connected = devices?.activeCounts();
     sendJson(ctx.res, 200, {
-      users: accounts.list().map((user) => (connected ? { ...withPlan(user), devices: connected.get(user.id) ?? 0 } : withPlan(user))),
+      users: withPlans(accounts.list()).map((view) => (connected ? { ...view, devices: connected.get(view.id) ?? 0 } : view)),
     });
   });
 

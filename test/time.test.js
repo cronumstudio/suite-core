@@ -23,6 +23,19 @@ test('isoInstant: a stored instant as ISO, an SQLite stamp being UTC (audit of 6
   for (const nothing of [null, undefined, '', 'yesterday']) assert.equal(isoInstant(nothing), null, String(nothing));
 });
 
+test('knownTimeZone answers the same when asked again, and keeps no more than its cap of names', () => {
+  // Kept after the first time (perf-srv-1): the second answer is the first one, valid or not.
+  for (let i = 0; i < 2; i++) {
+    assert.equal(knownTimeZone('america/new_york'), 'America/New_York');
+    assert.equal(knownTimeZone('Nowhere/Land'), null);
+  }
+  // Hundreds of names nobody uses (prefs.tz is the client's) push the oldest out, never the answers.
+  for (let i = 0; i < 1200; i++) assert.equal(knownTimeZone(`Nowhere/Place${i}`), null);
+  assert.equal(knownTimeZone('europe/madrid'), 'Europe/Madrid');
+  assert.equal(knownTimeZone('Asia/Tokyo'), 'Asia/Tokyo');
+  assert.equal(dayIn('Asia/Tokyo', new Date('2026-11-04T20:00:00Z')), '2026-11-05');
+});
+
 test('zoneOf reads prefs.tz as text or object, else the server\'s', () => {
   assert.equal(zoneOf({ prefs: '{"tz":"America/New_York"}' }), 'America/New_York');
   assert.equal(zoneOf({ prefs: { tz: 'asia/tokyo' } }), 'Asia/Tokyo');

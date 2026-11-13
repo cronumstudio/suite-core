@@ -1060,6 +1060,24 @@ test('the sidebar folds only where it sits beside the views, and the device reme
   assert.doesNotMatch(`${css}\n${shell}`, /kit-bar__create/, 'what creates stays the floating button, folded or not (0.247.0)');
 });
 
+test('a module’s start leaves out of the kit what only Settings, the sign-in screen and updates use (0.285.0, perf-web-4)', () => {
+  // What a module's main.js imports of the kit (Tasks, Projects, Notes and Next), and all they import.
+  const seen = new Set();
+  const queue = ['shell.js', 'signin.js', 'update.js', 'share.js', 'links.js', 'i18n.js', 'ui.js', 'drag.js', 'swipe.js',
+    'outbox.js', 'live.js', 'local.js', 'images.js', 'icons.js', 'keyboard.js', 'time-zone.js', 'celebrate.js', 'native.js', 'markdown.js'];
+  while (queue.length) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const [, name] of code.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+'\.\/([\w.-]+\.js)'/gm)) queue.push(name);
+  }
+  for (const late of ['plan.js', 'signin-form.js', 'worker.js', 'settings.js']) {
+    assert.ok(!seen.has(late), `${late} is loaded when it is used, not with a module's start`);
+  }
+  assert.ok(seen.has('plan-return.js') && seen.has('settings-queue.js'), 'what the start needs stays');
+});
+
 test('every file the service worker caches for the kit exists', () => {
   const sw = fs.readFileSync(new URL('../web/sw-core.js', import.meta.url), 'utf8');
   const files = [.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
@@ -1095,7 +1113,7 @@ test('the kit finds its base by itself: / on its own, the module’s path in a h
   assert.equal(pathAt('/tasks/', '//cdn.example/x'), '//cdn.example/x');
   assert.equal(pathAt('/tasks/', 'https://x.example/y'), 'https://x.example/y');
   // What the kit asks the server goes through it; nothing fetches a path of the site directly.
-  for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin.js']) {
+  for (const file of ['api.js', 'i18n.js', 'live.js', 'update.js', 'settings.js', 'shell.js', 'signin-form.js']) {
     const code = fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
     assert.match(code, /import \{ at(?:, BASE)?(?:, FRAMED)?(?:, SETTINGS(?:_SHOWN)?_EVENT)?(?:, SETTINGS_GOTO_EVENT)?(?:, DRAWER_EVENT)?(?:, LOOKS)?(?:, applyLook)?(?:, LOOK_KEY)?(?:, hostModules)?(?:, installed)?(?:, installedAlone)? \} from '\.\/base\.js'/, file);
     // Only the host's own routes are asked at the root: which modules someone uses and in what order, their look and their calendar's button.
@@ -3067,10 +3085,11 @@ test('in Work\'s shell, Settings cover the whole page and another module\'s sect
 
 test('in a frame, signing in or out, paying and leaving with the account take the whole window', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
-  assert.match(read('signin.js'), /href: login\(\), target: FRAMED \? '_top' : null/);
+  // The sign-in screen is signin-form.js, which signin.js loads when it is drawn (0.285.0).
+  assert.match(read('signin-form.js'), /href: login\(\), target: FRAMED \? '_top' : null/);
   // And back to the whole window's page, not the frame's: a module installed on its own stays in its app.
-  assert.match(read('signin.js'), /\(FRAMED \? window\.top : window\)\.location; here = page\.pathname \+ page\.search;/);
-  assert.match(read('signin.js'), /return=\$\{encodeURIComponent\(here\)\}/);
+  assert.match(read('signin-form.js'), /\(FRAMED \? window\.top : window\)\.location; here = page\.pathname \+ page\.search;/);
+  assert.match(read('signin-form.js'), /return=\$\{encodeURIComponent\(here\)\}/);
   assert.match(read('signin.js'), /const page = FRAMED \? window\.top : window;/);
   // Leaving with the account goes the way signing out does (signin.js leave()).
   assert.match(read('settings.js'), /await leave\(\{ answer: done \}\);/);

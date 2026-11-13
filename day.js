@@ -30,7 +30,7 @@
  * `id`, `title`, `where` and `url` say what they say in the calendar (calendar.js). Anything else
  * an item carries (`mine`, a `time` of day) is left out: no page reads it.
  *
- * `limit` came with 0.280.0 (audit of 6/11, sc-feat-14): a module that sees it in its args knows
+ * `limit` came with 0.286.0 (audit of 6/11, sc-feat-14): a module that sees it in its args knows
  * the host also takes `{ items, overdueTotal }`; one before it took only the list (sc-feat-5).
  *
  * Only the modules the person uses are asked, all at once and in their zone. One that fails is
@@ -485,7 +485,8 @@ export function createDayNotices({
   async function run(now) {
     // Whose notice is due now, each on their own day and at their own time.
     const due = [];
-    // The minute and the day of `now` in each zone, read once a zone rather than once a person.
+    // The minute and the day of `now` in each zone, read once a zone rather than once a person:
+    // with every account in one stretch each minute, that was most of it (audit of 6/11, perf-srv-1).
     const clockOf = new Map();
     const inZone = (zone) => {
       if (!clockOf.has(zone)) clockOf.set(zone, { minute: minuteIn(zone, now), day: dayIn(zone, now) });
