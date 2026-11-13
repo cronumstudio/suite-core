@@ -3,6 +3,66 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.280.0 — 2026-11-14
+
+- **The MCP layer, after the audit of 6/11** (`mcp.js`, `host.js`, `calendar.js`, `links.js`,
+  `mcp-files.js`, `oauth.js`, `mcp-kit.js`, `web/agents.js`; sc-mcp-6, -10, -11, -12, -15, -16,
+  -17, -19, -20, -22, -23, claims-ai-4).
+  - **Arguments reach a tool as its schema says them** (`coerceArguments`, sc-mcp-6): the check
+    let `"false"`, `"true"`, `0`/`1` through for a boolean and `"30"` for a number, and the tools
+    read `args.apply === true` and `Number.isInteger(args.days)`: `projects_reschedule
+    { apply: "false" }` moved the dates and `tasks_get_agenda { days: "30" }` was a week. Now they
+    become `false` and `30`, in nested objects and lists too. A number where a text goes stays as it
+    came (some tools tell an id from a title by its type), and so does what the schema doesn't name
+    or names with `anyOf`. With `checkArgs: false`, nothing changes.
+  - **`GET /mcp` answers 405** (sc-mcp-15), after the token as before (a client without one still
+    gets the 401 that starts the sign-in): it held an SSE channel and a 25 s timer open for good per
+    request, with nothing ever sent on it. Streamable HTTP lets a server say it has no such channel.
+    The `sessions` map, written and never read, and `bearerToken`'s unused `url` are gone;
+    `Access-Control-Allow-Methods` and `Allow` say `POST, DELETE, OPTIONS`.
+  - **An unexpected error says nothing of itself** (sc-mcp-20): the assistant read the internal
+    message (SQLite's, with tables and columns); now «Something went wrong running X; it was noted.
+    Tell the user, and don't retry it as it is.», the error in the log. `params: null` is no params
+    (it gave an HTTP 500), params that aren't an object are `-32602`, and a method that throws is
+    that message's `-32603`, not a 500 for the whole batch.
+  - **The host's own tools answer in sentences** (sc-mcp-11): `hostMcp` gives a `describeError` over
+    the suite's catalog (`errors.<code>` in English), for what neither a module nor the host
+    described; `work_calendar` had `field_invalid` for a span of over 366 days or a date that isn't
+    one. Its `from` and `to` carry `format: 'date'`, and it says what it takes («"to" must be on or
+    after "from" and at most 366 days from it»).
+  - **A module's answers name its tools with the host's prefix** (sc-mcp-12, with `namesInText`):
+    «give it one with edit_step» is `next_edit_step`, in what a tool answers and in its errors, as
+    in its description already. Not in what a tool that only reads answers: that carries the
+    person's own words (a note's body, a step's detail), which may go back whole in an edit.
+  - **The instructions that don't fit are named** (sc-mcp-17): `hostInstructions` takes
+    `onLeftOut(mounts)`, `hostMcp` gives `instructionsLeftOut(principal?)`, and a host says at start
+    which modules' part it leaves out (`[mcp] warning: the instructions leave out …`). Cronum Work's
+    are 2 038 of 2 048 characters today, every module in.
+  - **Upload links have a ceiling per account** (`MAX_UPLOAD_LINKS_PER_USER`, 10; sc-mcp-16): one
+    account asking a hundred times made everyone else's pending links go; now it only pushes out its
+    own. The module's ceiling (100) stays.
+  - **Limits in the host's schemas** (sc-mcp-22): `work_link_item`'s `create.title` (500) and
+    `create.place` (200); the door's `names` takes as many as there are behind it (it said 30 with 31
+    there), and its two tools' own arguments go through the check as any tool's.
+  - **Built-in OAuth** (`AUTH_PROVIDER=local` only; sc-mcp-19, the 23/10's sc-oauth-mcp-3 to -7):
+    the sign-in posted to `/oauth/authorize` without a session is taken only from this site's pages
+    (`Sec-Fetch-Site`, else `Origin`: login CSRF); a Basic header that doesn't decode is
+    `invalid_client`, not a 500 and an alert; a grant's `last_used_at` is written once a minute at
+    most; a refresh token once used is kept a week, not its 60 days; a client document (CIMD) that
+    has to be fetched counts against the address as a registration does, and one that couldn't be
+    read isn't fetched again for a minute.
+  - **`mcp-kit.js` without what nobody used** (sc-mcp-23): `tool()` and `S.number` are gone (no
+    module, Work, Focus or Tracker called them), and its header no longer counts tokens.
+  - **Your AI offers the web's agents** (`web/agents.js`, claims-ai-4): Grok and Perplexity, with the
+    steps cronumstudio.com/work/ gives; Gemini is gone (web#60: custom connectors only for adults
+    with a personal account in the US). Claude's and ChatGPT's steps are the web's of 11/11
+    (Customize › Connectors; Plugins › Add custom MCP server), ChatGPT's last one too.
+    `kit.agents.grok.*`, `kit.agents.perplexity.open` and `kit.agents.addSignIn` in five languages;
+    `kit.agents.gemini.*` and `kit.agents.paste` gone.
+  - **Settings › Your AI's switch says what the door does without counting** (`kit.ai.toolsHint`,
+    sc-mcp-10): «about a quarter less» was a third, and the list in brackets had drifted (sharing
+    is not behind it since 0.243.0).
+
 ## 0.277.1 — 2026-11-14
 
 - **Tools that only read say every hint** (`READS` in `mcp-kit.js`, and the read tools of `host.js`,
