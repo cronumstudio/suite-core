@@ -57,6 +57,16 @@ the pull request.
   `prepareExport()` stays as it was, for the command line and the tests; without a file to open a
   second connection on (`:memory:`), the routes use it.
 
+- **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
+  `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
+  optional `permissions`: the same `[{ value, label, offered? }]` list `shareDialog` takes, broadest
+  first, or a function of the item when the roles differ from one item to another. With two roles
+  they are buttons, with more a list to pick from; a role with `offered: false` is shown in words, never
+  given, changed or taken back there (a project's manager, to whoever isn't its owner). Without the
+  option nothing changes: can view, can edit. Projects uses it for its three roles.
+- **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
+  claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
+  paused ones: «Open projects» now, in the five languages.
 ## 0.279.0 — 2026-11-14
 
 - **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
