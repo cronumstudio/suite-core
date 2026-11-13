@@ -586,7 +586,8 @@ its own (RFC 8252); the person signs in there as on the web and says yes; the pa
 code of five minutes and sends the browser back with it (`redirect_to`, with the `state`); the app
 exchanges the code, its verifier and the address at `POST /api/devices/token` for a token that
 starts with `devices.prefix` (never `tokens.prefix` nor the built-in OAuth's `mcpat_`, `mcprt_`,
-`oc_`, `ocs_`), shown once and kept as a hash. A code is spent by its first exchange, right or
+`oc_`, `ocs_`), shown once and kept as a hash; the answer also names the account it acts for
+(`user_id`), so the app can tell the same account signing in again from another one. A code is spent by its first exchange, right or
 wrong. One that comes back after that with its verifier and its address means the verifier got out
 too (or the app retries an answer it lost), and the device it gave is revoked (OAuth 2.1 §4.1.3);
 without them it is only refused, so whoever saw the code in a history or a log can't disconnect the
