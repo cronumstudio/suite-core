@@ -213,6 +213,13 @@ export const HOST_MIGRATIONS = Object.freeze([
       chosen_at TEXT NOT NULL
     )`),
   },
+  {
+    version: 12,
+    name: 'day-notices-by-day',
+    // The notices sent are read by their day every check, and forgotten by it: the key starts by
+    // the person (audit of 6/11, sc-feat-1).
+    up: (d) => d.exec('CREATE INDEX IF NOT EXISTS ix_host_day_notices_day ON host_day_notices (day)'),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -1168,11 +1175,23 @@ export async function createHost({
     return [...listed].sort((a, b) => at(a) - at(b));
   }
 
-  /** Whether someone uses a module: every one until they choose. */
-  const uses = (user, mount) => modulesOf(user).modules.some((m) => m.mount === mount && m.active);
+  const mounts = new Set(listed.map((m) => m.mount));
+  /**
+   * Whether someone uses a module: every one until they choose, then the ones they kept on, and
+   * one the host added since. What modulesOf() says of it, from its own row: it read all of
+   * modulesOf (five queries and the order) for each module asked (audit of 6/11, sc-host-11).
+   */
+  const uses = (user, mount) => {
+    if (!mounts.has(mount)) return false;
+    if (!user) return true;
+    const row = suite.database.get('SELECT active FROM host_modules WHERE user_id = ? AND module = ?', user.id, mount);
+    return row ? Boolean(row.active) : true;
+  };
 
   links = createLinks({
     database: suite.database, modules: () => joined, uses,
+    // A side's title is kept as whoever made the link sees it (links.js remember).
+    userOf: (id) => suite.accounts.byId(id),
     // A notice in the module's own channel, for its open tabs to repaint the link.
     notify: (mount, audience, data) => byMount.get(mount)?.view.live.publish({ audience, event: 'links', data }),
   });
@@ -1759,8 +1778,13 @@ export async function createHost({
       root.portability?.purge();
       for (const m of joined) m.app.portability?.purge();
     });
+    // The links forget what was deleted for good, its title too (links.js prune): it waited for an
+    // account to go (audit of 6/11, sc-feat-16). Apart, so a failure there leaves the rest done.
+    const pruneLinks = safely('links clean-up', () => links.prune());
     cleanUp();
     timers.push(setInterval(cleanUp, 6 * HOUR).unref());
+    timers.push(setTimeout(pruneLinks, MINUTE_BEFORE_SWEEP).unref());
+    timers.push(setInterval(pruneLinks, 6 * HOUR).unref());
     if (suite.oauth) {
       const purgeOAuth = safely('OAuth clean-up', () => suite.oauth.purge());
       purgeOAuth();
@@ -1794,6 +1818,8 @@ export async function createHost({
       const notices = createDayNotices({
         database: suite.database, push: suite.push, day: daily, texts: suite.texts, page: day, log,
         userById: (id) => suite.accounts.byId(id), languages: config.app.languages,
+        // Asked every minute, it looks every five: the step of a notice's time.
+        everyMinutes: 5,
       });
       const tell = () => notices.check().catch(failed('daily summary'));
       timers.push(setInterval(tell, MINUTE_BEFORE_SWEEP).unref());

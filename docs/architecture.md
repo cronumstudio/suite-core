@@ -89,7 +89,8 @@ suite-core/
                                storeChecked: the cap per record and storage.mb before and after the file arrives
   storage.js            done   the storage a plan allows (storage.mb): check(user, adding, { payer }), the apps' 402
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
-  time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
+  time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's;
+                               isoInstant(stamp): a stored instant as ISO (0.280.0)
   prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
   mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
@@ -2134,6 +2135,7 @@ cards: {
                                                     // optional: read() of many at once, in a fixed
                                                     // number of queries (IN (…) by batches of ≤ 500)
     search: (user, text) => [card…],                // what this person may link, as read() shows it
+                                                    // (a LIKE on the text: likeOf(text), ESCAPE '\')
     create: (user, { title, place }) => id,         // optional: "Add to Tasks", by the module's rules
     places: (user) => [{ id, name }],               // optional: where create() may put it
     complete: (user, id, done) => {},               // optional: what "done together" does here
@@ -2157,14 +2159,22 @@ without it. A search's cards are shown as the module's `search` gives them, none
   could already see it: something they can't open is `hidden`, with no title; something deleted is
   `gone`, with its last title only to whoever linked it. A link shows while the person uses both
   modules, and nothing of a module they turned off can be linked or created (403 `module_off`).
-  Erased data leaves nothing here: after someone's data is erased in a module, and once an
-  account's removal is done, `links.prune()` drops the title of each side that is gone and removes
-  a link whose two sides are (v0.64.0).
+  That last title is kept as whoever linked it sees it (`createLinks({ userOf })`, the host's: a
+  side they no longer see keeps the last title they saw, never a rename after it; 0.280.0).
+  Erased data leaves nothing here: after someone's data is erased in a module, once an account's
+  removal is done, and every six hours (a minute after the host starts, then with its clean-up;
+  0.280.0), `links.prune()` drops the title of each side that is gone and removes a link whose two
+  sides are (v0.64.0).
 - **Created where it lives**: `POST /api/links/new { from, module, type, data, together }` asks the
   other module to create it, by its own rules, and links it in the same transaction ("Send to
-  Tasks"); `GET /api/links/search?module&type&q` lists what may be linked and the places to create
-  in. `POST /api/links { from, to, together }` links what exists; `PATCH /api/links/:id
-  { together }` and `DELETE /api/links/:id` change or remove a link, never the things.
+  Tasks"); `GET /api/links/search?module&type&q` lists what may be linked, `{ items, places,
+  creates }`, and with `&places=1` the places to create in (without it `places` is `[]`: only "Add
+  to…" shows them, and they cost the module a query for each list; 0.280.0). `POST /api/links
+  { from, to, together }` links what exists: 201 `{ link }`, or, for a pair linked already, 200
+  `{ link, existed: true }` with that link as it was (`together` unchanged; 0.280.0), so a page
+  says «already linked» and offers no undo (`linkItems()` → `{ link, existed }`; `links.connect()`
+  on the server, `links.link()` the link alone). `PATCH /api/links/:id { together }` and `DELETE
+  /api/links/:id` change or remove a link, never the things.
 - **Done together** is per link. The module calls, where it completes something,
   `suite.links?.done('task', id, true, { user })` inside its own transaction, and the other side's
   `complete()` runs in it; a chain of such links completes once each. `suite.links?.changed(type,
@@ -2193,15 +2203,17 @@ has with a date, next to its `cards`:
 calendar: {
   // What `user` sees with a date in [from, to] (both 'YYYY-MM-DD', included): an item is there
   // when its span overlaps them. The same permissions as the module's own pages; [] for nothing.
-  range: (user, { from, to }) => [item…],          // or a promise of them
+  // `limit` (CALENDAR_MODULE_MAX, 2000; 0.280.0): the most the host keeps, the earliest.
+  range: (user, { from, to, limit }) => [item…],   // or a promise of them
 },
 ```
 
-An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine?, time? }`: the
+An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine? }`: the
 module's own kind of thing (`task`, `phase`, `milestone`, `daily`), the row's id, its first and
 last day (the same for one day; without `end`, one day), what shows under the title (a list, a
 project › phase, a notebook), its url relative to the module as a card's (`?list=3&task=9`),
-whether it is the person's, and `HH:MM` when it has a real time of day.
+and whether it is the person's. Nothing has a time of day: the `time` the contract once named no
+module ever gave, and it is no longer kept (0.280.0, audit of 6/11, sc-feat-8).
 
 - **`GET /api/calendar?from=&to=`** at the root (401 signed out; 400 `field_invalid` naming `from`
   or `to` for a date that isn't one, `to` before `from`, or more than 366 days with both ends)
@@ -2265,24 +2277,42 @@ day: {
   // host calls it inside inZoneOf); overdue is before it. What they planned for today without a
   // date (Tasks' My Day) comes with `planned: true` and today's date. Only their own ("mine",
   // as each module counts it), with the same permissions as the module's pages.
-  agenda: (user, { today }) => [item…],           // or a promise of them
-  // What `user` did on `day` (their zone): what they completed, logged or wrote.
-  done: (user, { day }) => [item…],
+  // `limit` (DAY_MODULE_MAX, 200; 0.280.0) is the most the host keeps of each of the overdue and
+  // today's: so ask for the oldest `limit` overdue and today's up to `limit`, apart, not `limit`
+  // of both together (the overdue would push today's out: audit of 6/11, sc-feat-5).
+  agenda: (user, { today, limit }) => [item…]      // or a promise of either
+    | { items: [item…], overdueTotal },            // overdueTotal: how many are overdue in all,
+                                                   // when it gives fewer (0.280.0)
+  // What `user` did on `day` (their zone): what they completed, logged or wrote; the latest `limit`.
+  done: (user, { day, limit }) => [item…],
 },
 ```
 
-An agenda item is `{ type, id, title, date, where, url, mine?, time?, planned? }`; a done one
+An agenda item is `{ type, id, title, date, where, url, planned? }`; a done one
 `{ type, id, title, at, where, url, kind }`, `at` an ISO instant and `kind` `completed` (a task
 finished), `logged` (a step logged in Next) or `written` (a note created or edited). `type`, `id`,
-`title`, `where` and `url` are the calendar's. Each module gives 200 of each at most (the oldest
-of what is open, the latest of what was done) and each thing once.
+`title`, `where` and `url` are the calendar's; anything else is left out (`mine` and a `time` of
+day, which no page read: 0.280.0). The host keeps of each module its 200 oldest overdue, all of
+today's up to 200, and its latest 200 done, each thing once.
+
+**`overdueTotal`** (0.280.0): the number of the module's open things for the person dated before
+`today`, counted as its agenda counts them (the same lists, the same "theirs") but without its
+`LIMIT`: what it would list with no cap. A whole number; anything else counts as none. The host
+counts each module's overdue as the larger of that and the overdue items it gave, sums them as
+`overdue_total` and says that number in the morning notice («230 vencidas»). A module that gives
+every overdue thing it has needs no `overdueTotal`, and can keep answering a list. One that wants
+to work with a host before 0.280.0 too gives the object only when its args carry `limit` (an
+older host took only a list).
 
 - **`GET /api/day?date=`** at the root (401 signed out; 400 `field_invalid` naming `date` for one
   that isn't a day; without it, the person's today in their zone) asks every module the person uses
   that has a part of it, all at once, and answers `{ date, modules: [{ mount, name, color, icon }],
-  overdue, today, done, failed? }`: each item with its `module` and its url under the module's path.
-  `overdue` the oldest first, `today` by time of day (those with one first), `done` the latest first,
-  each then in the modules' order and each module's own. What can't be shown is left out (no type or
+  overdue, overdue_total, today, done, failed? }`: each item with its `module` and its url under
+  the module's path; `overdue_total` how many are overdue in all, which may be more than `overdue`
+  lists (0.280.0). `overdue` the oldest first, `today` and `done` (the latest first) each then in
+  the modules' order and each module's own. Whether the person uses each module is asked once a
+  module for the whole answer, from its row of `host_modules` (it was all of `/api/modules` for
+  each, three times over: 0.280.0, sc-host-11). What can't be shown is left out (no type or
   id, no day, a day after the one asked, no instant, a kind that isn't one). A module whose part
   throws, or gives no list, is logged and named in `failed`, never a 500. The page may be framed by
   the host's own pages (`pages`), as the calendar's.
@@ -2303,15 +2333,21 @@ of what is open, the latest of what was done) and each thing once.
   notice something (when there are two or more), and a button to its page, for a host with push. A
   module with nothing for a part leaves that function out of its `day` (Next and Notes have no
   `agenda`), so it isn't offered there.
-- **The notices**, with push, are checked every minute: for each person with a device
-  (`push.subscriptionsOf`, phones with the app included), a notice is due from its time until three
+- **The notices**, with push, are asked every minute and look every five, the step of a notice's
+  time (every zone is a whole number of quarter hours from UTC; a check that comes a step after the
+  last one that looked looks all the same): only the accounts with a device are read
+  (`push.peopleWithDevices()`, browsers subscribed and phones with the app; then
+  `push.subscriptionsOf` for the devices themselves), each zone's minute once (0.280.0: every
+  account was read every minute, audit of 6/11 sc-feat-1). A notice is due from its time until three
   hours after it on their day in their zone (`prefs.tz`), never past their midnight. It is claimed
   first in `host_day_notices` (host migration 8: one row a person, notice and day, its `outcome`
-  `sent`, `empty` or `failed`, forgotten after 60 days), so two checks never both send it; then its
+  `sent`, `empty` or `failed`; read by its day, host migration 12; forgotten once a day after
+  `DAY_LOG_DAYS`, 3 days since 0.280.0, 60 before), so two checks never both send it; then its
   lists are asked of the modules and, with nothing in them, nothing is sent, the day counting as
   done all the same. They go through the host's own push, in the person's language (their choice,
   the device's, their browser's last one, their account's): `{ title, body, tag, url }`, the
-  morning's «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para hoy: «A», «B» y 3 más» at
+  morning's «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para hoy: «A», «B» y 3 más»
+  (the overdue counted as `overdueTotal` says) at
   `/today/`, the evening's «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota» at
   `/today/?v=done`, with `tag` and push `topic` `day-morning` or `day-evening`.
 - **A module learns that the host says the morning's summary** from its suite: `suite.daySummary`

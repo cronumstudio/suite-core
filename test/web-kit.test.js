@@ -2357,7 +2357,7 @@ test('links: linking, unlinking and creating linked, at the host’s root, as th
     sent.push({ path, method: init.method, credentials: init.credentials, type: init.headers['Content-Type'], body: init.body && JSON.parse(init.body) });
     return { ok: answer.status < 300, status: answer.status, json: async () => answer.body };
   };
-  assert.deepEqual(await linkItems('notes:note:6', 'next:step:12', { together: true, fetch }), { link: { id: 9, together: true } });
+  assert.deepEqual(await linkItems('notes:note:6', 'next:step:12', { together: true, fetch }), { link: { id: 9, together: true }, existed: false });
   assert.deepEqual(await createLinked('next:step:12', { module: 'notes', type: 'note', data: { title: 'Ship it' }, fetch }),
     { link: { id: 9, together: true } });
   answer = { status: 200, body: { ok: true } };

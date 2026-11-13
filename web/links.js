@@ -56,11 +56,12 @@ const fetcherOf = (given) => given || ((...args) => globalThis.fetch(...args));
 /**
  * Links two things of two modules, each as `module:type:id`; `together`, done and undone
  * together. The host checks that the person can see both.
- * @returns {Promise<{ link: object }>} the link, as the host made it
+ * @returns {Promise<{ link: object, existed: boolean }>} the link, as the host made it; `existed`
+ *   when the two were linked already, and `link` is that one (nothing to undo)
  */
 export async function linkItems(from, to, { together = false, fetch: given = null } = {}) {
   const answer = await hostCall(fetcherOf(given), 'POST', '/api/links', { from, to, together: Boolean(together) });
-  return { link: answer?.link ?? null };
+  return { link: answer?.link ?? null, existed: answer?.existed === true };
 }
 
 /** Takes a link away (its Undo, or "Remove link"). */
@@ -361,7 +362,7 @@ export function linksRow({
     name.focus?.();
     // Where it may go, when that module has places (lists, notebooks, projects).
     try {
-      const found = await call('GET', `/api/links/search?module=${encodeURIComponent(kind.module)}&type=${encodeURIComponent(kind.type)}&q=`);
+      const found = await call('GET', `/api/links/search?module=${encodeURIComponent(kind.module)}&type=${encodeURIComponent(kind.type)}&q=&places=1`);
       for (const option of found?.places || []) place.append(el('option', { value: option.id, text: option.name }));
       placeField.hidden = !(found?.places || []).length;
     } catch {

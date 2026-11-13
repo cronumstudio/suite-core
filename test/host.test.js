@@ -436,7 +436,12 @@ test('links between modules: each sees what they could see, created where it liv
     ref: 'beta:item:1', module: 'beta', type: 'item', app: 'Beta', color: '#7C3AED',
     title: 'Review it', state: 'open', where: 'Items', url: '/beta/?item=1',
   });
-  assert.equal((await call('POST', '/api/links', { from: 'beta:item:1', to: 'alpha:item:1' })).data.link.id, made.data.link.id, 'the same pair, once');
+  assert.equal(made.data.existed, undefined, 'a new one');
+  // The same pair again: that one, said so, with a 200 (audit of 6/11, sc-feat-11).
+  const again = await call('POST', '/api/links', { from: 'beta:item:1', to: 'alpha:item:1' });
+  assert.equal(again.status, 200);
+  assert.equal(again.data.existed, true);
+  assert.equal(again.data.link.id, made.data.link.id, 'the same pair, once');
   assert.equal((await call('GET', '/api/links?ref=beta:item:1')).data.links[0].item.title, 'Write the proposal', 'seen from both sides');
   assert.equal((await call('POST', '/api/links', { from: 'alpha:item:1', to: 'gamma:item:1' })).data.error, 'field_invalid');
 
@@ -447,7 +452,8 @@ test('links between modules: each sees what they could see, created where it liv
   assert.equal(added.data.link.together, true);
   const found = await call('GET', '/api/links/search?module=beta&type=item&q=Rev');
   assert.deepEqual(found.data.items.map((i) => i.title), ['Review it']);
-  assert.deepEqual(found.data.places, [{ id: 'inbox', name: 'Inbox' }]);
+  assert.deepEqual(found.data.places, [], 'where to create it only when asked: "Add to…" (audit of 6/11, sc-feat-15)');
+  assert.deepEqual((await call('GET', '/api/links/search?module=beta&type=item&q=&places=1')).data.places, [{ id: 'inbox', name: 'Inbox' }]);
 
   // Done together: completing one side completes the other in the same transaction; a plain link only shows it.
   const told = [];
@@ -1210,8 +1216,9 @@ test('a host with a daily summary: the root answers what each person has for tod
   assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, {
     date: '2026-11-04',
     modules: [{ mount: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1' }],
-    overdue: [item(1, 'Dentist', { date: '2026-11-03', mine: true })],
-    today: [item(2, 'Call Ana', { date: '2026-11-04', mine: true }), item(3, 'Water plants', { date: '2026-11-04', planned: true })],
+    overdue: [item(1, 'Dentist', { date: '2026-11-03' })],
+    overdue_total: 1,
+    today: [item(2, 'Call Ana', { date: '2026-11-04' }), item(3, 'Water plants', { date: '2026-11-04', planned: true })],
     done: [{ ...item(4, 'Later'), at: '2026-11-04T12:00:00.000Z', kind: 'completed' }],
   }, 'alpha\'s, under its path; beta has no summary');
   assert.deepEqual((await call('GET', '/api/day?date=2026-11-31')).data, { error: 'field_invalid', field: 'date' });
@@ -1230,7 +1237,7 @@ test('a host with a daily summary: the root answers what each person has for tod
 
   // A module turned off leaves the summary too.
   await call('PUT', '/api/me/modules', { active: ['beta'] });
-  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, { date: '2026-11-04', modules: [], overdue: [], today: [], done: [] });
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, { date: '2026-11-04', modules: [], overdue: [], overdue_total: 0, today: [], done: [] });
 });
 
 test('a host with a daily summary and push checks its notices every minute (day.js has the rest)', async (t) => {
@@ -1255,6 +1262,58 @@ test('a host with a daily summary and push checks its notices every minute (day.
   t.mock.timers.tick(1_000);
   await new Promise((resolve) => { setImmediate(resolve); });
   assert.equal(host.suite.database.get('SELECT COUNT(*) AS n FROM host_day_notices').n, 0, 'a minute later, checked');
+});
+
+test('the daily summary asks whether someone uses each module from its own row, once a module (audit of 6/11, sc-host-11)', async (t) => {
+  const { host, call } = await startHost(t, { day: '/today/' });
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  const seen = [];
+  const get = host.suite.database.get;
+  const all = host.suite.database.all;
+  host.suite.database.get = (sql, ...params) => { if (/host_modules/.test(sql)) seen.push(sql); return get(sql, ...params); };
+  host.suite.database.all = (sql, ...params) => { if (/host_modules/.test(sql)) seen.push(sql); return all(sql, ...params); };
+  t.after(() => { host.suite.database.get = get; host.suite.database.all = all; });
+  assert.equal((await call('GET', '/api/day?date=2026-11-04')).status, 200);
+  assert.equal(seen.length, 1, `alpha, the one module with a summary, asked once (${seen.length})`);
+  // And it says what modulesOf says: off once chosen off, on for one the host added since.
+  host.suite.database.get = get;
+  host.suite.database.all = all;
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data.modules, []);
+  host.suite.database.run("DELETE FROM host_modules WHERE module = 'alpha'");
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data.modules.map((m) => m.mount), ['alpha'], 'chosen before alpha came: on');
+});
+
+test('a host forgets the titles of what was deleted for good a minute after it starts and every six hours (audit of 6/11, sc-feat-16)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const host = await createHost({
+    config: HOST, modules: modules(), env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' },
+    handleSignals: false, exitOnError: false, log: () => {},
+  });
+  await host.listen();
+  t.after(async () => {
+    t.mock.timers.reset();
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const admin = host.suite.database.get("SELECT * FROM users WHERE username = 'admin'");
+  host.suite.database.run("INSERT INTO alpha_items (user_id, text) VALUES (?, 'Plan')", admin.id);
+  host.suite.database.run("INSERT INTO beta_items (user_id, text) VALUES (?, 'Old task')", admin.id);
+  host.links.link(admin, 'alpha:item:1', 'beta:item:1');
+  const title = () => host.suite.database.get('SELECT b_title FROM host_links').b_title;
+  assert.equal(title(), 'Old task');
+  host.suite.database.run('DELETE FROM beta_items WHERE id = 1');
+  t.mock.timers.tick(59_000);
+  assert.equal(title(), 'Old task', 'not before a minute');
+  t.mock.timers.tick(1_000);
+  assert.equal(title(), null, 'a minute later, forgotten');
+  host.suite.database.run("INSERT INTO beta_items (id, user_id, text) VALUES (2, ?, 'Another')", admin.id);
+  host.links.link(admin, 'alpha:item:1', 'beta:item:2');
+  host.suite.database.run('DELETE FROM beta_items WHERE id = 2');
+  t.mock.timers.tick(6 * 3600 * 1000);
+  assert.equal(host.suite.database.get("SELECT b_title FROM host_links WHERE b_id = '2'").b_title, null, 'and six hours later');
 });
 
 test('a host without a daily summary has none of it, and its modules say their own morning notices', async (t) => {

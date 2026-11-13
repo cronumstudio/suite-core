@@ -89,3 +89,17 @@ export function daysSince(instant, zone = currentZone()) {
   const to = Date.parse(`${dayIn(zone)}T12:00:00Z`);
   return Math.round((to - from) / 86400000);
 }
+
+/**
+ * A stored instant as ISO (`2026-11-04T10:00:00.000Z`), or null for what isn't one. ISO with its
+ * zone is read as it says; an SQLite stamp (`YYYY-MM-DD HH:MM:SS`, `datetime('now')`) and ISO
+ * without a zone are UTC, as SQLite writes them. (Tasks' and Projects' day.js had it twice, word
+ * for word, as `isoOf`: audit of 6/11, sc-feat-14.)
+ */
+export function isoInstant(stamp) {
+  if (stamp == null || stamp === '') return null;
+  const text = String(stamp);
+  const zoned = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text);
+  const ms = Date.parse(zoned ? text : `${text.replace(' ', 'T')}Z`);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
