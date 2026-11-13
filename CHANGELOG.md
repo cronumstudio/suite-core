@@ -3,6 +3,60 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.284.0 — 2026-11-14
+
+Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
+routes; measured on the audit's database (301 accounts, ~37 000 tasks, 14 000 notes), numbers in
+the pull request.
+
+- **Time zones read once** (`time.js`, `day.js`; perf-srv-1): `knownTimeZone()` built a formatter
+  to check a zone each time it was asked, ~100–250 µs, and every `dayIn()`, `daysSince()` and
+  request asks: it keeps what each name resolves to (500 names at most, the oldest going first;
+  `prefs.tz` is the client's). `dayIn()` 102 → 1.6 µs. The check of the daily notices every minute
+  reads each person's preferences once and the minute and day once a zone, not once a person:
+  1 000 accounts 103 → 2 ms, 10 000 1.5 s → 17 ms, during which nobody else was answered.
+- **Statements kept prepared, and statistics for the planner** (`db.js`; perf-srv-6):
+  `all/get/run` prepared their SQL every time, up to half of a route's CPU. Each handle keeps the
+  last 500 texts of reads and writes (never a PRAGMA nor DDL) prepared; a call binds every
+  parameter anew, SQLite prepares one again when the schema changes, and `close()` lets them go.
+  A connection whose `prepare` was replaced on it (the modules' tests that count statements)
+  prepares each one, as before.
+  New `optimize({ first })`: `PRAGMA optimize` (0x10002 the first time: whole tables that have no
+  statistics yet), run with the clean-ups, at the start and every 6 hours (`host.js`, `app.js`).
+  Never sampled (`analysis_limit`): sampled statistics made My Day's queries ten times slower.
+  `synchronous` is as it was.
+- **Usage without the dates nobody sees** (`usage.js`, `host.js`; perf-srv-5): `active_at` is
+  shown only in the admin's dialog of one account (`GET /api/admin/users/:id/usage`, which asks
+  with `{ activity: true }`). Settings › Plan (`/api/me/usage`) and the admin's list
+  (`/api/admin/usage`) ask the modules' `usage(id, { activity: false })` and
+  `usageAll(ids, { activity: false })`, and answer `active_at: null`: a module may skip the MAX of
+  dates over whole tables that was ~90 % of both routes. The modules don't read the option yet;
+  until they do, they still compute it.
+- **The admin's list of accounts in a few queries** (`api.js`, `entitlements.js`, `accounts.js`;
+  perf-srv-9): `GET /api/admin/users` asked four or more queries an account (905 for 301), now 6
+  for all of them, with the same answer: `entitlements.plansOfMany(users)` (of() and sourceOf()
+  of each, from ofMany()'s queries) and `accounts.providersOfMany(ids)`.
+- **One session check a heartbeat for each stream of every module** (`live.js`, `host.js`;
+  perf-srv-10): the host's `GET /api/events?all` was asked about by every module's heartbeat, the
+  same session four times. `createLiveAll({ stillIn })` opens them (`subscribe()`) and asks each
+  once a heartbeat itself, and at once when that person's sessions close (`recheck(userId)`); the
+  modules' relays are opened with `checked: false`, so their heartbeats leave them out (`dropUser`
+  still keeps the session kept). `subscribeAll()` takes `stillIn` and `onEnd` and returns
+  `{ userId, recheck }`; without `stillIn` it is as it was. 9 tabs, 55 s: 72 → 18 checks.
+- **Erasing one's data or importing with "replace" reloads only who it concerns**
+  (`portability.js`; perf-srv-11): the `resync` went to every connected tab. Now to the person,
+  everyone their rows share something with (whom their lists are shared with, who shared one with
+  them, the other members of their groups: `peopleNear()`, read before anything is handed over),
+  and with groups that changed, their members. A whole install's import still tells everyone.
+- **Exporting lets everyone else in** (`portability.js`; perf-srv-14): a copy was read whole in
+  one synchronous transaction, and its tables turned into JSON in one go. `prepareExportAsync()`
+  (what `/api/me/export` and `/api/admin/export` use) reads on a second, read-only connection, in
+  its own read transaction (one moment of the data, whatever is written meanwhile), pausing between
+  tables and every 2 000 rows (`selectingRows()`, the steps of `selectRows()`); each table's JSON is
+  written 2 000 rows at a time (`jsonOfRows()`, byte for byte what `JSON.stringify` wrote).
+  `prepareExport()` stays as it was, for the command line and the tests; without a file to open a
+  second connection on (`:memory:`), the routes use it.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
@@ -15,6 +69,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
   claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
   paused ones: «Open projects» now, in the five languages.
+
 ## 0.279.0 — 2026-11-14
 
 - **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):

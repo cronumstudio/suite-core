@@ -455,7 +455,7 @@ test('“replace” hands a family others share over to them, whole, and empties
   assert.deepEqual(target.db.all('SELECT text FROM fam_notes ORDER BY id').map((n) => n.text), ['partner’s', 'Ben’s own']);
   const [{ organization_id: newOrg }] = result.organizations;
   assert.deepEqual(membersOf(target, newOrg), [['me', 'owner']], 'the copy’s family is theirs');
-  assert.ok(target.events.some((e) => e.event === 'resync' && e.audience === null), 'the partner’s tabs reload too');
+  assert.ok(target.events.some((e) => e.event === 'resync' && e.audience?.includes(partner.id) && e.audience.includes(me.id)), 'the partner’s tabs reload too');
 
   // A family of one: emptied, kept with its plan, and the copy goes into it.
   const solo = install(t);
