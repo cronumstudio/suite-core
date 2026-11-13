@@ -1,0 +1,108 @@
+/* A public page (a module's shared.html: a list, a note, a project, for anyone with its link),
+   over the kit's tokens and base (tokens.css, kit.css), the same in every module (audit of 6/11,
+   tasks-web-8, tasks-web-16): the page's ground, its column, the bar over it with the way to start
+   one's own, the footer under it, and what it says when it isn't there or can't be embedded. The
+   module's own sheet, linked after this one, draws what its page shows, and may set:
+     --sp-glow    the glow at the top (the yolk of "now", by default)
+     --sp-accent  the colour the footer's link takes under the pointer (the module's, by default)
+   One column on any width, and nothing scrolls sideways between 320 and 430 px in any language. */
+
+/* The page scrolls as any page does (the app's sheet, not linked here, fixes it to the screen). */
+html, body { height: auto; overflow: visible; overscroll-behavior: auto; }
+
+.sp-body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 420px at 50% -120px, var(--sp-glow, color-mix(in oklab, var(--kit-now) 16%, transparent)), transparent 70%),
+    var(--kit-bg);
+  color: var(--kit-text);
+  font-family: var(--cr-font-text);
+  -webkit-text-size-adjust: 100%;
+}
+
+.sp {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+.sp *, .sp *::before, .sp *::after { box-sizing: border-box; }
+.sp-loading { color: var(--kit-muted); text-align: center; margin-top: 30vh; }
+
+@media (min-width: 640px) {
+  .sp { padding-top: calc(24px + env(safe-area-inset-top)); }
+}
+
+/* ---------------------------------- bar ---------------------------------- */
+
+/* What the page is made with, and the way to start one's own: at the top, easy to find. */
+.sp-bar {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 0 28px; padding: 8px; padding-inline-start: 14px;
+  background: color-mix(in oklab, var(--kit-panel) 82%, transparent);
+  border: 1px solid var(--kit-border);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  min-width: 0;
+}
+.sp-bar__brand { display: inline-flex; align-items: center; gap: 8px; color: var(--kit-text); text-decoration: none; flex: none; }
+.sp-bar__name { font-family: var(--cr-font-display); font-weight: 700; font-size: 15px; }
+.sp-bar__pitch { color: var(--kit-muted); font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-bar__cta {
+  margin-inline-start: auto; flex: none;
+  padding: 8px 16px; border-radius: 999px;
+  background: var(--cr-ink); color: var(--cr-cream);
+  font-weight: 600; font-size: 14px; text-decoration: none; white-space: nowrap;
+  transition: box-shadow .15s ease;
+}
+.sp-bar__cta:hover { box-shadow: 0 0 0 3px color-mix(in oklab, var(--kit-now) 60%, transparent); }
+:root[data-theme="dark"] .sp-bar__cta { background: var(--cr-cream); color: var(--cr-ink); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sp-bar__cta { background: var(--cr-cream); color: var(--cr-ink); }
+}
+@media (max-width: 520px) { .sp-bar__pitch { display: none; } }
+/* On a phone the brand keeps its icon and the button its whole text: «Commencer gratuitement»
+   beside «Cronum Work» took some 400 px, and the page moved sideways (tasks-web-8). The button
+   may still shrink and cut its text rather than push past the screen. */
+@media (max-width: 420px) {
+  .sp-bar { gap: 8px; }
+  .sp-bar__name { display: none; }
+  .sp-bar__cta { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* --------------------------------- footer --------------------------------- */
+
+.sp-foot {
+  margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--kit-border);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 13px; color: var(--kit-muted);
+}
+.sp-foot__made { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.sp-foot__link {
+  color: var(--kit-text); font-weight: 600; text-decoration: none;
+  padding: 7px 14px; border-radius: 999px; border: 1px solid var(--kit-border); background: var(--kit-panel);
+}
+.sp-foot__link:hover { border-color: var(--sp-accent, var(--kit-accent)); }
+
+/* -------------------------------- embedded -------------------------------- */
+
+/* In another site's frame: as tall as it needs, without the glow, closer to the frame's edges. */
+.sp-embedded .sp-body { min-height: 0; background: var(--kit-bg); }
+.sp-embedded .sp { padding: 16px 16px 20px; }
+
+/* Framed where its owner's plan doesn't embed: a small card, and the way to the page itself. */
+.sp-refused {
+  max-width: 360px; margin: 40px auto; padding: 22px 20px;
+  display: grid; justify-items: center; gap: 12px; text-align: center;
+  background: var(--kit-panel); border: 1px solid var(--kit-border); border-radius: 16px;
+}
+.sp-refused p { margin: 0; color: var(--kit-muted); font-size: 15px; line-height: 1.45; }
+
+/* ---------------------------------- gone ---------------------------------- */
+
+/* A page nobody has, or turned off; or one the server couldn't give just now. */
+.sp-gone { text-align: center; padding-top: 18vh; }
+.sp-gone__dot, .sp-gone .sp-hero__dot { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--kit-now); }
+.sp-gone h1 { font-family: var(--cr-font-display); font-size: 28px; margin: 16px 0 8px; overflow-wrap: anywhere; }
+.sp-gone p { color: var(--kit-muted); margin: 0; }
