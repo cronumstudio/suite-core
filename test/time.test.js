@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isoInstant } from '../time.js';
 import {
   knownTimeZone, SERVER_TIME_ZONE, zoneOf, inZoneOf, currentZone, dayIn, addDays, todayIn, todayFor, daysSince,
   dayStart, daySpan,
@@ -12,6 +13,14 @@ test('knownTimeZone canonicalises IANA names and refuses the rest', () => {
   assert.equal(knownTimeZone(''), null);
   assert.equal(knownTimeZone(42), null);
   assert.equal(knownTimeZone('x'.repeat(65)), null);
+});
+
+test('isoInstant: a stored instant as ISO, an SQLite stamp being UTC (audit of 6/11, sc-feat-14)', () => {
+  assert.equal(isoInstant('2026-11-04T10:00:00.000Z'), '2026-11-04T10:00:00.000Z');
+  assert.equal(isoInstant('2026-11-04T10:00:00+02:00'), '2026-11-04T08:00:00.000Z', 'its zone, as it says');
+  assert.equal(isoInstant('2026-11-04 10:00:00'), '2026-11-04T10:00:00.000Z', "datetime('now'): UTC");
+  assert.equal(isoInstant('2026-11-04T10:00:00'), '2026-11-04T10:00:00.000Z', 'no zone: UTC');
+  for (const nothing of [null, undefined, '', 'yesterday']) assert.equal(isoInstant(nothing), null, String(nothing));
 });
 
 test('knownTimeZone answers the same when asked again, and keeps no more than its cap of names', () => {

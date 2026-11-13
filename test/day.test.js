@@ -67,8 +67,8 @@ test('the summary asks each module someone uses, and lists what is overdue, what
   const day = createDay({ modules: () => [tasks, projects, next, notes, calendarOnly], uses: (user, mount) => mount !== 'notes' });
 
   const answer = await day.summary(ana, { date: '2026-11-04' });
-  assert.deepEqual(asked, [['tasks agenda', 1, { today: '2026-11-04' }], ['tasks done', 1, { day: '2026-11-04' }]],
-    'each part once, with the day asked');
+  assert.deepEqual(asked, [['tasks agenda', 1, { today: '2026-11-04', limit: DAY_MODULE_MAX }], ['tasks done', 1, { day: '2026-11-04', limit: DAY_MODULE_MAX }]],
+    'each part once, with the day asked and the most the host keeps of each list');
   assert.equal(answer.date, '2026-11-04');
   assert.deepEqual(answer.modules, [
     { mount: 'tasks', name: 'Tasks', color: '#550000', icon: '/icons/tasks.svg' },
@@ -80,16 +80,17 @@ test('the summary asks each module someone uses, and lists what is overdue, what
     '2026-10-01 tasks Pay rent',
     '2026-11-02 projects Design review',
   ], 'the oldest first, however old');
-  assert.deepEqual(answer.today.map((item) => `${item.time || '-'} ${item.module} ${item.title}`), [
-    '09:30 projects Launch call',
-    '17:00 tasks Dentist',
-    '- tasks Call Ana',
-    '- tasks Water plants',
-  ], 'by their time of day, those with one first, then in the modules\' order and each module\'s');
-  assert.deepEqual(answer.today[2], {
-    module: 'tasks', type: 'task', id: 9, title: 'Call Ana', date: '2026-11-04', where: 'Inbox', url: '/tasks/?list=3&task=9', mine: true,
-  }, 'its url under the module\'s path');
-  assert.equal(answer.today[3].planned, true, 'planned for today without a date');
+  assert.deepEqual(answer.today.map((item) => `${item.module} ${item.title}`), [
+    'tasks Call Ana',
+    'tasks Water plants',
+    'tasks Dentist',
+    'projects Launch call',
+  ], 'in the modules\' order and each module\'s: no time of day (audit of 6/11, sc-feat-8)');
+  assert.deepEqual(answer.today[0], {
+    module: 'tasks', type: 'task', id: 9, title: 'Call Ana', date: '2026-11-04', where: 'Inbox', url: '/tasks/?list=3&task=9',
+  }, 'its url under the module\'s path; neither `mine` nor `time`, which no page reads');
+  assert.equal(answer.today[1].planned, true, 'planned for today without a date');
+  assert.equal(answer.overdue_total, 2, 'as many overdue as listed');
   assert.deepEqual(answer.done.map((item) => `${item.at} ${item.module} ${item.kind} ${item.title}`), [
     '2026-11-04T16:30:00.000Z tasks completed Send invoice',
     '2026-11-04T11:00:00.000Z next logged Login fixed',
@@ -138,7 +139,7 @@ test('what a module gives that can\'t be shown is left out, each thing once, and
   assert.deepEqual(answer.overdue.map((item) => item.id), [7, 2]);
   assert.deepEqual(answer.today.map((item) => item.id), [1]);
   assert.deepEqual(answer.today[0], { module: 'tasks', type: 'task', id: 1, title: 'Fine', date: '2026-11-04', where: '' },
-    'no url that leaves the module, no time that isn\'t one, mine only when true or false');
+    'no url that leaves the module, nor a time or mine');
   assert.equal(answer.overdue[1].title.length, 300, 'a title cut');
   assert.equal(answer.overdue[1].where.length, 300);
   assert.equal(answer.overdue[0].planned, undefined, 'kept where it is overdue');
@@ -148,8 +149,10 @@ test('what a module gives that can\'t be shown is left out, each thing once, and
   const lots = Array.from({ length: DAY_MODULE_MAX + 50 }, (_, i) => ({ type: 'task', id: i, title: `D${i}`, at: new Date(Date.UTC(2026, 10, 4, 0, i)).toISOString(), kind: 'completed' }));
   const busy = createDay({ modules: () => [moduleOf('tasks', 'Tasks', { agenda: () => many, done: () => lots })] });
   const full = await busy.summary(ana, { date: '2026-11-04' });
-  assert.equal(full.overdue.length + full.today.length, DAY_MODULE_MAX, 'a module gives 200 at most');
+  assert.equal(full.overdue.length, DAY_MODULE_MAX, 'a module gives 200 overdue at most');
   assert.equal(full.overdue[0].id, DAY_MODULE_MAX + 49, 'its oldest');
+  assert.equal(full.overdue_total, DAY_MODULE_MAX + 49, 'and says how many there were');
+  assert.deepEqual(full.today.map((item) => item.id), [0], 'today\'s still there');
   assert.equal(full.done.length, DAY_MODULE_MAX);
   assert.equal(full.done[0].id, DAY_MODULE_MAX + 49, 'its latest');
 });
@@ -424,7 +427,7 @@ test('claimed before sending: two checks at once send it once, and a failure los
   assert.match(lines[0], /^\[day\] tasks agenda: not now$/);
 });
 
-test('the notices sent are forgotten after 60 days', async () => {
+test('the notices sent are forgotten after DAY_LOG_DAYS days', async () => {
   const setup = setUp([{ prefs: madrid, devices: ['es'] }]);
   const old = addDays('2026-11-04', -DAY_LOG_DAYS - 1);
   setup.database.run("INSERT INTO host_day_notices (user_id, kind, day, claimed_at) VALUES (1, 'morning', ?, '2026-01-01T00:00:00Z')", old);
@@ -440,4 +443,45 @@ test('every: what was done counts the modules taken out of the evening notice to
   const ana = { id: 1, prefs: JSON.stringify({ day: { evening: { modules: { tasks: false } } } }) };
   assert.deepEqual((await day.done(ana, { day: '2026-11-04' })).done, [], 'as the notice says');
   assert.equal((await day.done(ana, { day: '2026-11-04', every: true })).done.length, 1, 'and for whoever asks for all of it');
+});
+
+test('with 200 overdue or more, today\'s things stay, and the notice counts every overdue one (audit of 6/11, sc-feat-5)', async () => {
+  const late = Array.from({ length: 230 }, (_, i) => ({ type: 'task', id: i + 1, title: `Late ${i + 1}`, date: addDays('2026-11-04', -1 - i) }));
+  const today = [1, 2, 3].map((n) => ({ type: 'task', id: 1000 + n, title: `Today ${n}`, date: '2026-11-04' }));
+  // As Tasks gives it: the oldest first, a list.
+  const listed = createDay({ modules: () => [moduleOf('tasks', 'Tasks', { agenda: () => [...late].reverse().concat(today) })] });
+  const answer = await listed.summary(ana, { date: '2026-11-04' });
+  assert.equal(answer.overdue.length, DAY_MODULE_MAX, 'the oldest 200 overdue');
+  assert.equal(answer.overdue[0].id, 230);
+  assert.deepEqual(answer.today.map((item) => item.title), ['Today 1', 'Today 2', 'Today 3'], 'and every one of today\'s');
+  assert.equal(answer.overdue_total, 230, 'how many there were');
+  // A module that gives fewer than it has says how many: `{ items, overdueTotal }`.
+  const counted = createDay({
+    modules: () => [moduleOf('tasks', 'Tasks', { agenda: (user, { limit }) => ({ items: [...late.slice(-limit)].reverse().concat(today), overdueTotal: 512 }) })],
+  });
+  const agenda = await counted.agenda(ana, { today: '2026-11-04' });
+  assert.equal(agenda.overdue.length, DAY_MODULE_MAX);
+  assert.equal(agenda.today.length, 3);
+  assert.equal(agenda.overdueTotal, 512);
+  assert.equal(dayNotice('morning', agenda, say('en')).body, '512 overdue · 3 for today: “Today 1”, “Today 2”, and 1 more',
+    'the real count, and today\'s titles');
+  assert.equal(dayNotice('morning', { overdue: items(2, 'Old '), overdueTotal: 9 }, say('en')).body, '9 overdue: “Old 1”, “Old 2”, and 7 more');
+  // Whatever else a module says there is no count.
+  for (const overdueTotal of [-1, 1.5, '700', null]) {
+    const odd = createDay({ modules: () => [moduleOf('tasks', 'Tasks', { agenda: () => ({ items: today, overdueTotal }) })] });
+    assert.equal((await odd.agenda(ana, { today: '2026-11-04' })).overdueTotal, 0, String(overdueTotal));
+  }
+  const broken = createDay({ modules: () => [moduleOf('tasks', 'Tasks', { agenda: () => ({ overdueTotal: 3 }) })] });
+  assert.deepEqual((await broken.agenda(ana, { today: '2026-11-04' })).failed, ['tasks'], 'no list: that module failed');
+});
+
+test('whether someone uses each module is asked once a module for the whole summary (audit of 6/11, sc-host-11)', async () => {
+  const asked = [];
+  const part = { agenda: () => [], done: () => [] };
+  const day = createDay({
+    modules: () => [moduleOf('tasks', 'Tasks', part), moduleOf('projects', 'Projects', part), moduleOf('next', 'Next', { done: () => [] })],
+    uses: (user, mount) => { asked.push(mount); return true; },
+  });
+  await day.summary(ana, { date: '2026-11-04' });
+  assert.deepEqual(asked.sort(), ['next', 'projects', 'tasks'], 'it was 2 + 3 + 3');
 });

@@ -8,19 +8,30 @@
  * Each module says what it has, in its `createModule()`:
  *
  *   day: {
- *     agenda(user, { today }) → [item…]   (or a promise of them: the open things of `user` dated on
- *                                          or before `today`, 'YYYY-MM-DD' in their zone, overdue
+ *     agenda(user, { today, limit }) → [item…] | { items: [item…], overdueTotal }
+ *                                          (or a promise of either: the open things of `user` dated
+ *                                          on or before `today`, 'YYYY-MM-DD' in their zone, overdue
  *                                          being before it; and what they planned for today without
  *                                          a date, `planned: true` with today's date. Only their
- *                                          own, with the same permissions as the module's pages)
- *     done(user, { day }) → [item…]        (what `user` did on `day`, 'YYYY-MM-DD' in their zone)
+ *                                          own, with the same permissions as the module's pages.
+ *                                          `limit` (DAY_MODULE_MAX) is the most the host keeps of
+ *                                          each of the two, the overdue and today's: the oldest of
+ *                                          the overdue, all of today's up to it, so a module asks
+ *                                          for no more than that of each. `overdueTotal`, when it
+ *                                          gives fewer overdue things than it has: how many it has
+ *                                          (the notice says that number, not the length))
+ *     done(user, { day, limit }) → [item…] (what `user` did on `day`, 'YYYY-MM-DD' in their zone;
+ *                                          the host keeps the latest `limit`)
  *   }
  *
- * An agenda item is `{ type, id, title, date, where, url, mine?, time?, planned? }`; a done one
+ * An agenda item is `{ type, id, title, date, where, url, planned? }`; a done one
  * `{ type, id, title, at, where, url, kind }`, `at` an ISO instant and `kind` 'completed' (a task
  * finished), 'logged' (a step logged, in Next) or 'written' (a note created or edited). `type`,
- * `id`, `title`, `where` and `url` say what they say in the calendar (calendar.js); `time` is
- * 'HH:MM' when it has a real time of day.
+ * `id`, `title`, `where` and `url` say what they say in the calendar (calendar.js). Anything else
+ * an item carries (`mine`, a `time` of day) is left out: no page reads it.
+ *
+ * `limit` came with 0.286.0 (audit of 6/11, sc-feat-14): a module that sees it in its args knows
+ * the host also takes `{ items, overdueTotal }`; one before it took only the list (sc-feat-5).
  *
  * Only the modules the person uses are asked, all at once and in their zone. One that fails is
  * left out and named (`failed`), never the whole answer, as in the calendar.
@@ -29,7 +40,11 @@ import { badRequest, unauthorized, sendJson, isoDate } from './http.js';
 import { inZoneOf, todayFor, zoneOf, dayIn, addDays } from './time.js';
 import { readPrefs } from './prefs.js';
 
-/** The most a module gives for one list: its oldest of what is open, its latest of what was done. */
+/**
+ * The most kept of a module for one list: its oldest overdue things, its things for today (all of
+ * them, up to this: the overdue never push them out, audit of 6/11, sc-feat-5) and its latest of
+ * what was done. Passed to the modules as `limit`.
+ */
 export const DAY_MODULE_MAX = 200;
 /** What a thing done can be. */
 export const DONE_KINDS = Object.freeze(['completed', 'logged', 'written']);
@@ -48,12 +63,15 @@ const MOUNT = /^[a-z][a-z0-9-]{1,30}$/;
 const MODULES_MAX = 40;
 /** How long after its time a notice is still sent: a server down at eight still says it at nine. */
 export const DAY_WINDOW_MINUTES = 180;
-/** How long the notices sent are remembered: long past any day still being asked about. */
-export const DAY_LOG_DAYS = 60;
+/**
+ * How long the notices sent are remembered, in days before today in UTC: past any day still being
+ * asked about (every zone's today is within a day of UTC's), and a couple more to see what went.
+ * Forgotten once a day. It was 60 days, read every minute (audit of 6/11, sc-feat-1).
+ */
+export const DAY_LOG_DAYS = 3;
 const TITLE_MAX = 300;
 /** A title in a notice: the start of it, enough to know which it is. */
 const NOTICE_TITLE_MAX = 80;
-const TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 /** A notice's time: every five minutes, as the time field steps. */
 const STEP = /^(?:[01]\d|2[0-3]):[0-5][05]$/;
 /** People whose devices are asked for at once. */
@@ -151,9 +169,7 @@ function agendaItemOf(m, raw, today) {
   return {
     module: m.mount, type: raw.type, id, title: String(raw.title ?? '').slice(0, TITLE_MAX), date,
     where: String(raw.where ?? '').slice(0, TITLE_MAX),
-    ...(url ? { url } : {}), ...(typeof raw.mine === 'boolean' ? { mine: raw.mine } : {}),
-    ...(typeof raw.time === 'string' && TIME.test(raw.time) ? { time: raw.time } : {}),
-    ...(raw.planned === true ? { planned: true } : {}),
+    ...(url ? { url } : {}), ...(raw.planned === true ? { planned: true } : {}),
   };
 }
 
@@ -177,8 +193,8 @@ function doneItemOf(m, raw) {
 const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 /** Latest first. */
 const byLatest = (a, b) => (a.at > b.at ? -1 : a.at < b.at ? 1 : 0);
-/** By the time of day, the ones with one first; the module's own order among the rest. */
-const byTime = (a, b) => (a.time && b.time ? (a.time < b.time ? -1 : a.time > b.time ? 1 : 0) : a.time ? -1 : b.time ? 1 : 0);
+/** A count a module gave: a whole number, not below zero. */
+const countOf = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 
 /**
  * Each thing of a module once, in a list already in its order: the first of it there, so a task
@@ -205,20 +221,33 @@ export function createDay({ modules, uses = () => true, icon = (m) => m.config.a
   /** Whether someone keeps a module in the notice of a part (Settings › Daily summary): yes unless they took it out. */
   const kept = (user, part, m) => dayPrefsOf(user?.prefs)[DAY_PARTS[part]].modules[m.mount] !== false;
   /**
+   * Whether someone uses each module, asked once a module for one summary or notice: GET /api/day
+   * asked it of every module three times over (audit of 6/11, sc-host-11).
+   */
+  const usingOf = (user) => {
+    const known = new Map();
+    return (mount) => {
+      if (!known.has(mount)) known.set(mount, uses(user, mount));
+      return known.get(mount);
+    };
+  };
+  /**
    * The modules with a part of the summary that someone uses, in the host's order; for one part,
    * only those they keep in its notice, which is what its page shows too.
    */
-  const sourcesOf = (user, part = null, every = false) => modules()
-    .filter((m) => (part ? has(m, part) && (every || kept(user, part, m)) : has(m, 'agenda') || has(m, 'done')) && uses(user, m.mount));
+  const sourcesOf = (user, part = null, every = false, using = usingOf(user)) => modules()
+    .filter((m) => (part ? has(m, part) && (every || kept(user, part, m)) : has(m, 'agenda') || has(m, 'done')) && using(m.mount));
 
-  /** What each module gives for one part, in the person's zone: its items, or null where it failed. */
-  async function ask(user, part, args, itemOf, order, max = DAY_MODULE_MAX, every = false) {
-    const sources = sourcesOf(user, part, every);
+  /**
+   * What each module gives for one part, in the person's zone: what `keep` makes of its answer, or
+   * null where it failed.
+   */
+  async function ask(user, part, args, keep, { every = false, using } = {}) {
+    const sources = sourcesOf(user, part, every, using);
     const answers = await Promise.all(sources.map(async (m) => {
       try {
-        const given = await inZoneOf(user, () => m.parts.day[part](user, { ...args }));
-        if (!Array.isArray(given)) throw new Error(`its ${part} gave no list`);
-        return once(given.map((raw) => itemOf(m, raw)).filter(Boolean).sort(order)).slice(0, max);
+        const given = await inZoneOf(user, () => m.parts.day[part](user, { ...args, limit: DAY_MODULE_MAX }));
+        return keep(m, given);
       } catch (error) {
         // One module that fails leaves its part empty, not everyone's summary.
         log(`[day] ${m.mount} ${part}: ${error?.message || error}`);
@@ -227,23 +256,35 @@ export function createDay({ modules, uses = () => true, icon = (m) => m.config.a
     }));
     const rank = new Map(sources.map((m, i) => [m.mount, i]));
     return {
-      items: answers.flatMap((given) => given || []),
+      answers: answers.filter(Boolean),
       rank: (item) => rank.get(item.module),
       failed: sources.filter((m, i) => answers[i] === null).map((m) => m.mount),
     };
   }
 
   /**
-   * What someone has open on or before `today`: `{ overdue, today, failed }`, overdue the oldest
-   * first, today's by their time of day (those with one first), each then in the modules' order.
+   * What someone has open on or before `today`: `{ overdue, today, overdueTotal, failed }`, overdue
+   * the oldest first, each day's then in the modules' order and each module's own order.
+   * `overdueTotal` is how many are overdue, past what the modules gave (their `overdueTotal`).
    */
-  async function agenda(user, { today }) {
-    const asked = await ask(user, 'agenda', { today }, (m, raw) => agendaItemOf(m, raw, today), byDate);
-    const inOrder = (by) => (a, b) => by(a, b) || asked.rank(a) - asked.rank(b);
-    const items = asked.items.sort(inOrder(byDate));
+  async function agenda(user, { today }, { using } = {}) {
+    const asked = await ask(user, 'agenda', { today }, (m, given) => {
+      const list = Array.isArray(given) ? given : isPlain(given) && Array.isArray(given.items) ? given.items : null;
+      if (!list) throw new Error('its agenda gave no list');
+      const items = once(list.map((raw) => agendaItemOf(m, raw, today)).filter(Boolean).sort(byDate));
+      // Its oldest overdue and all of today's, each up to the cap: the overdue never push today's out.
+      const overdue = items.filter((item) => item.date < today);
+      return {
+        overdue: overdue.slice(0, DAY_MODULE_MAX),
+        today: items.filter((item) => item.date === today).slice(0, DAY_MODULE_MAX),
+        total: Math.max(overdue.length, countOf(Array.isArray(given) ? 0 : given.overdueTotal)),
+      };
+    }, { using });
+    const inOrder = (a, b) => byDate(a, b) || asked.rank(a) - asked.rank(b);
     return {
-      overdue: items.filter((item) => item.date < today),
-      today: items.filter((item) => item.date === today).sort(inOrder(byTime)),
+      overdue: asked.answers.flatMap((one) => one.overdue).sort(inOrder),
+      today: asked.answers.flatMap((one) => one.today).sort(inOrder),
+      overdueTotal: asked.answers.reduce((sum, one) => sum + one.total, 0),
       failed: asked.failed,
     };
   }
@@ -253,36 +294,39 @@ export function createDay({ modules, uses = () => true, icon = (m) => m.config.a
    * `every` counts the modules they took out of the evening's notice too: for a module that asks
    * what was done, for its own ends, and not to write that notice.
    */
-  async function done(user, { day, every = false }) {
-    const asked = await ask(user, 'done', { day }, doneItemOf, byLatest, DAY_MODULE_MAX, every);
-    return { done: asked.items.sort((a, b) => byLatest(a, b) || asked.rank(a) - asked.rank(b)), failed: asked.failed };
+  async function done(user, { day, every = false }, { using } = {}) {
+    const asked = await ask(user, 'done', { day }, (m, given) => {
+      if (!Array.isArray(given)) throw new Error('its done gave no list');
+      return once(given.map((raw) => doneItemOf(m, raw)).filter(Boolean).sort(byLatest)).slice(0, DAY_MODULE_MAX);
+    }, { every, using });
+    return { done: asked.answers.flat().sort((a, b) => byLatest(a, b) || asked.rank(a) - asked.rank(b)), failed: asked.failed };
   }
 
   /**
-   * The page's answer for `date` (the person's today without it): `{ date, modules, overdue, today,
-   * done, failed? }`, `modules` those asked, for the page to draw each one's things with its name,
-   * colour and icon. A date that isn't one is a 400 naming `date`.
+   * The page's answer for `date` (the person's today without it): `{ date, modules, overdue,
+   * overdue_total, today, done, failed? }`, `modules` those asked, for the page to draw each one's
+   * things with its name, colour and icon; `overdue_total` how many are overdue, which may be more
+   * than the overdue listed. A date that isn't one is a 400 naming `date`.
    */
   async function summary(user, { date = null } = {}) {
     const day = date == null || date === '' ? todayFor(user) : isoDate(date);
     if (!day) throw badRequest('field_invalid', { field: 'date' });
-    const [open, finished] = await Promise.all([agenda(user, { today: day }), done(user, { day })]);
-    const sources = sourcesOf(user);
+    const using = usingOf(user);
+    const [open, finished] = await Promise.all([agenda(user, { today: day }, { using }), done(user, { day }, { using })]);
+    const sources = sourcesOf(user, null, false, using);
     const failed = sources.map((m) => m.mount).filter((mount) => open.failed.includes(mount) || finished.failed.includes(mount));
     return {
       date: day,
       modules: sources.map((m) => ({ mount: m.mount, name: m.config.app.name, color: m.config.app.color, icon: icon(m) })),
       overdue: open.overdue,
+      overdue_total: open.overdueTotal,
       today: open.today,
       done: finished.done,
       ...(failed.length ? { failed } : {}),
     };
   }
 
-  /** Whether any module has a part of the summary: without one, the host has nothing to say. */
-  const any = () => modules().some((m) => has(m, 'agenda') || has(m, 'done'));
-
-  return { agenda, done, summary, any, names: () => new Map(modules().map((m) => [m.mount, m.config.app.name])) };
+  return { agenda, done, summary, names: () => new Map(modules().map((m) => [m.mount, m.config.app.name])) };
 }
 
 /** The host's route for its page, at its root: `GET /api/day?date=`. */
@@ -310,19 +354,25 @@ const cut = (text) => (text.length > NOTICE_TITLE_MAX ? `${text.slice(0, NOTICE_
  *   the titles named being today's, or the overdue ones when nothing is for today;
  * - evening: «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota», the steps by module.
  *
+ * The overdue are counted as `overdueTotal` says when it is more than those listed (a module
+ * that gave its oldest only: audit of 6/11, sc-feat-5).
+ *
  * `page` is the host's page of the summary (`/today/`): the evening opens it on what was done.
  */
-export function dayNotice(kind, { overdue = [], today = [], done = [] } = {}, { t, lang = 'en', page = '/today/', names = new Map() } = {}) {
+export function dayNotice(kind, {
+  overdue = [], today = [], done = [], overdueTotal = 0,
+} = {}, { t, lang = 'en', page = '/today/', names = new Map() } = {}) {
   const join = (parts) => listOf(lang).format(parts);
   if (kind === 'morning') {
-    if (!overdue.length && !today.length) return null;
+    const late = Math.max(overdue.length, countOf(overdueTotal));
+    if (!late && !today.length) return null;
     const counts = [
-      overdue.length ? t('kit.day.notice.overdue', { n: overdue.length }) : null,
+      late ? t('kit.day.notice.overdue', { n: late }) : null,
       today.length ? t('kit.day.notice.today', { n: today.length }) : null,
     ].filter(Boolean).join(' · ');
     const named = today.length ? today : overdue;
     const shown = named.slice(0, 2).map((item) => t('kit.day.notice.quoted', { title: cut(item.title || '…') }));
-    const more = named.length - shown.length;
+    const more = shown.length ? (today.length ? today.length : late) - shown.length : 0;
     return {
       title: t('kit.day.notice.morningTitle'),
       body: t('kit.day.notice.morningBody', { counts, titles: join(more > 0 ? [...shown, t('kit.day.notice.more', { n: more })] : shown) }),
@@ -375,15 +425,18 @@ const minutesOf = (at) => Number(at.slice(0, 2)) * 60 + Number(at.slice(3, 5));
  *
  * @param {object} options
  * @param {object} options.database
- * @param {object} options.push            the host's (push.js): subscriptionsOf, deliver
+ * @param {object} options.push            the host's (push.js): subscriptionsOf, deliver, and
+ *   peopleWithDevices when it has it (only those accounts are read)
  * @param {object} options.day             createDay()
  * @param {Function} options.texts         (req, user) → { lang, t }: the host's texts (i18n.js createTexts)
  * @param {(id) => object} options.userById  the whole row of an account, as the modules get it
  * @param {string} [options.page]          the host's page of the summary (`/today/`)
  * @param {Array} [options.languages]      the host's
+ * @param {number} [options.everyMinutes]  look only at the checks of a UTC minute of this step (5:
+ *   the step of a notice's time), or one that comes a step after the last that looked. 1, every one
  */
 export function createDayNotices({
-  database, push, day, texts, userById, page = '/today/', languages = ['en'], log = () => {},
+  database, push, day, texts, userById, page = '/today/', languages = ['en'], log = () => {}, everyMinutes = 1,
 }) {
   /** The language someone reads a notice in: their choice, the device's, the one their browser last used, their account's. */
   const languageOf = (user, device) => {
@@ -407,6 +460,28 @@ export function createDayNotices({
     return day.done(user, { day: onDay });
   }
 
+  /**
+   * The accounts a notice could reach: with push.peopleWithDevices(), only those with a device
+   * (a person without one was read, and asked for devices, every minute of both their windows:
+   * audit of 6/11, sc-feat-1); without it, every account on, as before. Their rows, by id.
+   */
+  function candidates() {
+    if (typeof push.peopleWithDevices !== 'function') {
+      return database.all('SELECT id, prefs FROM users WHERE disabled_at IS NULL ORDER BY id');
+    }
+    const ids = [...new Set(push.peopleWithDevices().map(Number))].filter(Number.isSafeInteger).sort((a, b) => a - b);
+    const rows = [];
+    for (let i = 0; i < ids.length; i += PEOPLE_AT_ONCE) {
+      const batch = ids.slice(i, i + PEOPLE_AT_ONCE);
+      rows.push(...database.all(`SELECT id, prefs FROM users WHERE disabled_at IS NULL AND id IN (${batch.map(() => '?').join(', ')})
+        ORDER BY id`, ...batch));
+    }
+    return rows;
+  }
+
+  /** The UTC day the notices sent were last forgotten on: once a day, not every minute. */
+  let forgotten = null;
+
   async function run(now) {
     // Whose notice is due now, each on their own day and at their own time.
     const due = [];
@@ -417,7 +492,7 @@ export function createDayNotices({
       if (!clockOf.has(zone)) clockOf.set(zone, { minute: minuteIn(zone, now), day: dayIn(zone, now) });
       return clockOf.get(zone);
     };
-    for (const row of database.all('SELECT id, prefs FROM users WHERE disabled_at IS NULL ORDER BY id')) {
+    for (const row of candidates()) {
       // Their preferences read once, for the zone and for the notices.
       const stored = readPrefs(row.prefs);
       const { minute, day: today } = inZone(zoneOf({ prefs: stored }));
@@ -468,14 +543,28 @@ export function createDayNotices({
         }
       }
     }
-    database.run('DELETE FROM host_day_notices WHERE day < ?', addDays(dayIn('UTC', now), -DAY_LOG_DAYS));
+    const utcDay = dayIn('UTC', now);
+    if (forgotten !== utcDay) {
+      database.run('DELETE FROM host_day_notices WHERE day < ?', addDays(utcDay, -DAY_LOG_DAYS));
+      forgotten = utcDay;
+    }
     return result;
   }
 
   // One check at a time: a slow one (many people at eight, a slow module) isn't joined by the next minute's.
   let running = null;
+  /** When the last check that looked ran (ms), for `everyMinutes`. */
+  let looked = null;
   function check({ now = new Date() } = {}) {
     if (running) return running;
+    // Every notice's time is on a five-minute step (STEP), and every zone today is a whole number
+    // of quarter hours from UTC, so a notice can only come due at a UTC minute of that step: the
+    // checks between look at nothing. One that comes later than a step since the last one looked
+    // (a busy minute, a slow check) looks all the same.
+    const at = now.getTime();
+    if (everyMinutes > 1 && looked !== null && Math.floor(at / 60000) % everyMinutes !== 0
+      && at - looked < everyMinutes * 60000) return Promise.resolve({ sent: 0, empty: 0 });
+    looked = at;
     running = run(now).finally(() => { running = null; });
     return running;
   }

@@ -3,6 +3,56 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.286.0 — 2026-11-14
+
+Daily summary, calendar and links findings of the 6/11 audit. Additive for every module: what a
+module gives today keeps working as it does.
+
+- **The daily notices read only who has a device** (`day.js`, `push.js`, `host.js`; sc-feat-1,
+  sc-host-1). Every minute the scheduler read every account, its preferences and zone, and asked
+  for the devices of everyone in a window, phone or not. Now `push.peopleWithDevices()` (one query:
+  browsers subscribed, phones with a token on a device not revoked) says whose rows to read; each
+  zone's minute and day are read once; the host looks every five minutes (`createDayNotices({
+  everyMinutes: 5 })`: every notice's time is on a five-minute step and every zone is whole
+  quarter hours from UTC; a check that comes a step after the last one that looked looks anyway).
+  `host_day_notices` is read by its day through an index (host migration 12) and forgotten once a
+  day, after `DAY_LOG_DAYS` = 3 days (it was 60, every minute). Without `peopleWithDevices` (a
+  push of another shape) the scheduler reads every account, as before. One check, 5 % of accounts
+  with a device, on this PC: 1 000 accounts 135 → 5 ms, 10 000 accounts 1 170 → 39 ms.
+- **Whether someone uses a module is one row** (`host.js`, `day.js`; sc-host-11). `uses()` read
+  all of `/api/modules` (five queries, a JSON parse and a sort) for each module asked; it reads its
+  row of `host_modules` now, with the same answer. The summary and each notice ask it once a module
+  (GET /api/day asked it of every module three times over).
+- **Today's things no longer vanish behind 200 overdue ones** (`day.js`; sc-feat-5). The host
+  kept a module's 200 oldest of everything, so with 200 overdue nothing of today was left and the
+  notice counted 200. It keeps the 200 oldest overdue and today's (up to 200) apart, and a module
+  may answer `{ items, overdueTotal }`: `overdueTotal`, how many it has overdue past its own cap,
+  goes into `GET /api/day`'s new `overdue_total` and the morning notice's count. A list, as
+  before, still works.
+- **The caps go to the modules** (`day.js`, `calendar.js`; sc-feat-14): `agenda` and `done` get
+  `limit` (DAY_MODULE_MAX) in their args, the calendar's `range` its `limit`
+  (CALENDAR_MODULE_MAX), so they need not repeat them. `time.js` `isoInstant(stamp)` (Tasks' and
+  Projects' `isoOf`) and `links.js` `likeOf(text)` (the LIKE escaping in three cards.js), for the
+  modules to adopt. (`dayStart`/`daySpan` came with 0.277.0.)
+- **No more time of day** (`day.js`, `calendar.js`; sc-feat-8). No module gives one: `time` is no
+  longer kept from an agenda or calendar item, the summary no longer sorts by it, and
+  `work_calendar` no longer says "at HH:MM". The summary's items also leave out `mine`, which no
+  page reads (sc-feat-17); the calendar keeps it.
+- **Linking a pair linked already says so** (`links.js`, `web/links.js`; sc-feat-11). `POST
+  /api/links` answers 200 `{ link, existed: true }` for it (201 `{ link }` for a new one, as
+  before), and `linkItems()` gives `{ link, existed }`; `links.connect()` on the server.
+- **Places only for "Add to…"** (`links.js`, `web/links.js`; sc-feat-15). `GET
+  /api/links/search?places=0` leaves out the places to create in (`places: []`), and the kit's
+  "Link existing…" sends it: it asked them at every key and never showed them. Without it, as
+  before.
+- **Titles of deleted things** (`links.js`, `host.js`; sc-feat-16). `links.prune()` runs a minute
+  after the host starts and every six hours, not only when an account goes; and a side's title is
+  kept as whoever linked it sees it (`createLinks({ userOf })`): a rename after they lost sight of
+  it never reaches them when it is deleted.
+- **Unused options out** (`day.js`, `links.js`; sc-feat-17): `day.any()`, `ask()`'s `max`, and
+  `cardOf`, `cardsOf`, `parseRef`, `formatRef` on what `createLinks()` returns (`parseRef` and
+  `formatRef` stay exported from `links.js`). `?date=` stays: Work's tests read another day.
+
 ## 0.285.0 — 2026-11-14
 
 - **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,

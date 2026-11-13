@@ -56,11 +56,12 @@ const fetcherOf = (given) => given || ((...args) => globalThis.fetch(...args));
 /**
  * Links two things of two modules, each as `module:type:id`; `together`, done and undone
  * together. The host checks that the person can see both.
- * @returns {Promise<{ link: object }>} the link, as the host made it
+ * @returns {Promise<{ link: object, existed: boolean }>} the link, as the host made it; `existed`
+ *   when the two were linked already, and `link` is that one (nothing to undo)
  */
 export async function linkItems(from, to, { together = false, fetch: given = null } = {}) {
   const answer = await hostCall(fetcherOf(given), 'POST', '/api/links', { from, to, together: Boolean(together) });
-  return { link: answer?.link ?? null };
+  return { link: answer?.link ?? null, existed: answer?.existed === true };
 }
 
 /** Takes a link away (its Undo, or "Remove link"). */
@@ -407,8 +408,9 @@ export function linksRow({
       const ask = ++asked;
       let found;
       try {
+        // No places: this dialog never shows them, and each key would ask them again (sc-feat-15).
         found = await call('GET', `/api/links/search?module=${encodeURIComponent(kind.module)}&type=${encodeURIComponent(kind.type)}`
-          + `&q=${encodeURIComponent(query.value.trim())}`);
+          + `&q=${encodeURIComponent(query.value.trim())}&places=0`);
       } catch (err) {
         if (ask === asked) clear(results).append(el('p', { class: 'kit-error', text: errorMessage(err) }));
         return;
