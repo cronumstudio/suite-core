@@ -1649,3 +1649,15 @@ button.kit-chip:hover { background: var(--kit-hover); }
 /* An empty view: the blank message alone in the middle of the page, with a heading of its own. */
 .kit-blank--page { max-width: 460px; margin: 10vh auto 0; }
 .kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-title3, 19px); }
+
+/* ------------------------------- public page ------------------------------ */
+
+/* A public page's dialog (public-page.js): what it shows, its link and the code to embed it. */
+.kit-public .kit-hint { margin: 0; }
+.kit-public__list { margin: 0; padding-inline-start: 18px; color: var(--kit-muted); display: grid; gap: 4px; }
+.kit-public__row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.kit-public__link { flex: 1 1 220px; min-width: 0; font-family: var(--kit-font-mono); font-size: 13px; }
+/* The code to embed it in a website, folded under the link. */
+.kit-public__embed { border-top: 1px solid var(--kit-border); padding-top: 10px; display: grid; gap: 10px; }
+.kit-public__embed summary { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; width: max-content; max-width: 100%; }
+.kit-public__code { width: 100%; resize: vertical; font-family: var(--kit-font-mono); font-size: 12px; line-height: 1.45; word-break: break-all; }
