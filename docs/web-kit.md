@@ -25,7 +25,8 @@ next to what is saved.
 ## Same in every module
 
 Martin's rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
-(v0.248.0), for the search (v0.249.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that
+(v0.248.0), for the search (v0.249.0), for deleting and dialogs (v0.245.0, v0.246.0), and for the
+sidebar's entries and the keys (v0.285.0), so that
 going from one module to the next in Cronum Work nothing moves:
 
 1. **An item is never created from the sidebar.** A note, a step: the floating + button over the
@@ -68,7 +69,51 @@ going from one module to the next in Cronum Work nothing moves:
    line, as tall in each, reading «Buscar» in the kit's faint colour; the module's own words
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
-   never in its words (they wouldn't fit), and goes while the field has the focus or text.
+   never in its words (they wouldn't fit), and goes while the field has the focus or text. It runs
+   the same way everywhere (`search: { onSearch, wait, min }`): 220 ms after the last key, from the
+   first letter, at once with Enter or when emptied; opening a collection from the sidebar empties
+   it (`shell.clearSearch()`).
+10. **The sidebar's entries are the kit's** (`navItem()`, v0.285.0): a view with the kit's icon
+   and its count (every module counts its views), a collection with its own emoji (`emoji`, as wide
+   as a view's icon, so every label starts in line) or its colour, shared ones with the kit's one
+   mark (`shared`, «Compartido · de Ana» when it is someone else's), a long name told to a pointer
+   (`title`). A right-click or a long press on an entry opens the same menu as its «…» (`menu`
+   or `onMenu`), and on a group's head the group's menu; collections are put in order by dragging
+   them, and the order a drop makes is the kit's (`orderAfterDrop()`, drag.js). The collection
+   open shows its emoji loose before the head's title, with no box (`head({ icon })`), in every
+   module that has one.
+11. **The same keys in every module**: «/» to the search, «n» for a new item (`createShell({ onNew })`:
+   a task, a note, a step), Escape to close what is open. Settings › About lists them, and words
+   that tell a shortcut with a letter say ⌘ on a Mac and Ctrl elsewhere (`modKey()`, keyboard.js).
+
+**Which icon for what** (`icons.js`): the same thing has the same icon in every module.
+
+| What | Icon |
+| --- | --- |
+| A view of everything (all notes, all projects, the overview) | `grid` |
+| Today, My day (with `now`) | `sun` |
+| What comes next | `clock` |
+| Important, starred | `star` |
+| Shared with me | `users` |
+| A new list, a new notebook | `list`, `book` |
+| A group | `folder` |
+| Edit, configure | `edit` |
+| Categories, tags | `tag` |
+| Notices | `bell` |
+| Share | `users` |
+| Public page | `globe` |
+| Earlier versions | `history` |
+| Print | `print` |
+| Leave something shared («Salir») | `logout` |
+| Delete, the trash | `trash` |
+| Close, take away | `x` |
+| Move up, move down | `chevron-up`, `chevron-down` |
+| Zoom in, zoom out | `zoom-in`, `zoom-out` |
+| Drawing tools (Notes) | `pen`, `marker`, `highlighter`, `eraser` |
+| A branch, a finished path (Next) | `fork`, `flag` |
+
+An emoji goes only where the person chose it (a list's, a project's, a group's); no menu entry or
+button writes a character (✕, ↑, ‹, 🗑) in place of an icon.
 
 ## A page
 
@@ -122,7 +167,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
-| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
+| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes, `emoji`, `shared`, `marks`, `title` and `menu`/`onMenu`), `sharedMark({ owner })`, `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
@@ -144,7 +189,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
-| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
+| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `menuOnPress(node, open)`: a right-click or a long press opens a menu; `orderAfterDrop(ids, moved, target, zone)`; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `swipe.js` | `rowSwipe(row, { content, left, right, ignore })`: a finger across a row, to the trash to the left and the module's quick toggle to the right (v0.248.0); `keepSwipe(row)`, a row with nothing to do that keeps the finger; `trashAction(run)`; `swipeAction`, `swipeStretch`, `SWIPE_IGNORE` |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter |
@@ -260,12 +305,16 @@ answers. From one module to another one page fades into the next (`@view-transit
 have view transitions and not for whoever asks for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
 `setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
 
-**The module's search** (`search: { label, onInput(text), onSubmit?(text) }`) is the sidebar's
+**The module's search** (`search: { label, onSearch?(text), wait?, min?, onInput?(text), onSubmit?(text) }`) is the sidebar's
 first line, the same in every module (rule 9, v0.249.0). Its field reads the kit's «Buscar»
 (`kit.side.search`) in `--kit-faint`, in either theme and look, and `label`, the module's own words,
 is its `aria-label`: as the words in it they were cut short. `placeholder` would replace the word;
 no module of the suite gives one. Its line height is its own (1.45), so the page's doesn't make it
-taller in one module than in another. Escape empties it; Enter in a phone's drawer closes the
+taller in one module than in another. `onSearch` is told the search to run: `wait` ms (220)
+after the last key, once the text has `min` letters (1; shorter is told as ''), and at once with
+Enter or Escape or when emptied; `onInput` is still told every key. `shell.clearSearch()` empties
+the field without telling anyone, for a module that opens a collection from the sidebar. Escape
+empties it; Enter in a phone's drawer closes the
 drawer, so the results show. «/» goes to it, and its key (`kbd.kit-side__search-key`, hidden from a
 screen reader) says so at the field's end only where a keyboard is likely: a pointer that hovers and
 is fine, and the sidebar beside the views; never while the field has the focus or text. On the
@@ -315,14 +364,15 @@ brings it over the views as a drawer, as on a phone. An app that lays out its ow
 960 px (Tasks, Projects) gives their `[data-folded]` version too; on a phone nothing of this
 applies, whatever was chosen on a computer.
 
-**A view's head** (`shell.head({ pane, title, lead, actions, below })`) is the same in every
+**A view's head** (`shell.head({ pane, title, lead, icon, actions, below })`) is the same in every
 app: the view's title and, at its end, the view's «…» (`actions: moreButton(items)`), and,
 wherever the sidebar isn't beside the views (a phone, or folded away), ☰ at its start; over a
 phone's detail (`pane: 'detail'`), ← instead. Nothing in it creates (v0.247.0): that is the
 floating button. It returns `{ element, setTitle }`; the app puts `element`
 at the top of its view (it sticks there while the view scrolls) and makes a new one when it draws
 the view again. A pane showing a head takes the bar's place: one line less, and the same layout in
-every app and on any screen. `lead` goes before the title (a list's icon, a note's notebook),
+every app and on any screen. `icon`, the collection's own emoji, goes loose before the title, at
+the title's size and with no box (`.kit-head__icon`; `setIcon(value)` changes it). `lead` goes before it (a note's notebook),
 `below` under its line, inside the head (a search, chips, a toolbar). An app that shows no head
 in a pane keeps the bar there, as before.
 
@@ -820,7 +870,9 @@ sidebar in the same drag: its places are all of them, and `check` says which is 
   needs holding (`handle` is the same, but the only way to pick it up).
 - `onHold(item)`: a finger that held a row and let go without moving it didn't drag it, it pressed
   long, and `onHold` does what a long press does there (its menu). So the whole row can be what
-  picks up, with no grip to look for, and the long press keeps its job.
+  picks up, with no grip to look for, and the long press keeps its job. Without `onHold` the row
+  is told (a `kit:hold` event): a sidebar's entry made with `navItem({ menu })`, or any node given
+  to `menuOnPress(node, open)`, opens its menu then, so a module needs nothing of its own.
 - `drawer: 'tabs'` (or `(item) → 'tabs' | 'open'`): on a phone the drawer doesn't open as it is
   picked up, because there is somewhere to put it in the list. A tab shows at the start edge; held
   there, the drawer opens. With the drawer open, a tab at the end edge, beside it, closes it again,

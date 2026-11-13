@@ -2627,12 +2627,13 @@ test('the drawer opened by a finger takes the focus itself, with no ring on the 
 test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing one doesn\'t show the bar', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, actions: own = \[\], below = null, close = true \} = \{\}\)/);
+  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, icon: glyph = null, actions: own = \[\], below = null, close = true \} = \{\}\)/);
   assert.match(shell, /if \(pane === 'detail'\) start = backToggle\(\);/, '← over a detail, ☰ over a list');
   // Its line ends with the app's «…», and a detail's with its × (0.248.0): what creates is the
   // floating button, at every width (0.247.0).
   assert.match(shell, /const end = pane === 'detail' && close \? closeToggle\(\) : null;/, 'a detail\'s ×, unless it must not close');
-  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, heading, el\('div', \{ class: 'kit-head__actions' \}, own\), end\),/);
+  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, mark, heading, el\('div', \{ class: 'kit-head__actions' \}, own\), end\),/);
+  assert.match(shell, /let mark = glyph \? iconNode\(glyph\) : null;/, 'the collection\'s own emoji only when given: a head without one is as before');
   assert.doesNotMatch(shell, /createButton/);
   assert.match(shell, /element, nav, list, detail, actions, banners, head: viewHead,/, 'the shell gives it');
   assert.match(shell, /if \(showing\('\.kit-bar__back'\)\) return/, 'a swipe from the edge finds the button that shows, in the bar or a head');
@@ -3530,4 +3531,212 @@ test('a group folded stays open with the collection open in it; without a menu i
   assert.match(css, /\.kit-nav-group__toggle\[aria-expanded="true"\] \.kit-icon \{ transform: rotate\(90deg\); \}/);
   assert.match(css, /\.kit-nav-group__body \{[^}]*padding-inline-start: 12px; \}/);
   assert.match(css, /:root\[data-look="clean"\] \.kit-nav-group__head \{\s*min-height: 40px;[^}]*border-inline-start: 0; background: transparent; color: var\(--kit-text\);/);
+});
+
+/* ---------------------- the sidebar's entries (0.285.0) ---------------------- */
+
+test('an entry of the sidebar: its own emoji as wide as an icon, the kit\'s one shared mark, its title, its menu', async () => {
+  const { page, win, restore } = await framePage();
+  try {
+    const { navItem, sharedMark } = await import('../web/shell.js');
+    const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+    const plain = navItem({ label: 'Inbox', iconName: 'inbox' });
+    assert.equal(plain.children.length, 2, 'without the new options, as before: the icon and the label');
+    assert.equal(plain.hasAttribute('data-kit-menu'), false);
+    const mine = navItem({ label: 'Groceries', emoji: '🛒', count: 3, title: 'Groceries' });
+    const [emoji, label] = mine.children;
+    assert.equal(emoji.getAttribute('class'), 'kit-nav__emoji');
+    assert.equal(emoji.textContent, '🛒');
+    assert.equal(label.getAttribute('title'), 'Groceries');
+    const theirs = navItem({ label: 'Trip', color: '#C8372D', shared: { owner: 'Ana' }, marks: [page.createElement('span')] });
+    const lead = theirs.children[0];
+    assert.equal(lead.getAttribute('class'), 'kit-nav__lead', 'the swatch and its marks in one box, as wide as an icon');
+    assert.equal(lead.children[0].getAttribute('class'), 'kit-nav__swatch');
+    const mark = lead.children[1];
+    assert.equal(mark.getAttribute('class'), 'kit-nav__shared');
+    assert.equal(mark.getAttribute('role'), 'img');
+    assert.equal(mark.getAttribute('aria-label'), mark.getAttribute('title'), 'said in words, and the same to a pointer');
+    assert.equal(lead.children.length, 3, 'the module\'s own marks after it (a public page\'s globe)');
+    assert.equal(sharedMark().getAttribute('class'), 'kit-nav__shared');
+    assert.match(css, /\.kit-nav__emoji \{ display: inline-grid; place-items: center; width: 17px;/, 'as wide as a view\'s icon: every label starts in line');
+    assert.match(css, /\.kit-nav__item \.kit-icon \{ color: var\(--kit-muted\); width: 17px; height: 17px; \}/);
+    assert.match(css, /\.kit-nav__item \{\n[^}]*line-height: 1\.45;/, 'its own line height: 36 px in every module');
+    assert.match(css, /\.kit-nav-group__head \{\n[^}]*line-height: 1\.45;/);
+    assert.match(css, /\.kit-icon-btn\[aria-pressed="true"\] \{ background: var\(--kit-accent-soft\); color: var\(--kit-accent\); \}/);
+
+    // Its menu: the same as its «…», with a right-click at the pointer, and from a long press.
+    const opened = [];
+    const entry = navItem({ label: 'Work', onMenu: (at, node) => opened.push([at, node]) });
+    assert.equal(entry.hasAttribute('data-kit-menu'), true);
+    let prevented = false;
+    entry.dispatch('contextmenu', { clientX: 40, clientY: 90, preventDefault: () => { prevented = true; } });
+    assert.ok(prevented, 'not the browser\'s menu');
+    assert.deepEqual(opened, [[{ x: 40, y: 90 }, entry]]);
+    page.documentElement.setAttribute('data-kit-dragging', '');
+    entry.dispatch('contextmenu', { clientX: 40, clientY: 90, preventDefault: () => {} });
+    page.documentElement.removeAttribute('data-kit-dragging');
+    assert.equal(opened.length, 1, 'not while something is carried');
+    entry.dispatch('kit:hold');
+    assert.equal(opened.length, 2, 'a drag held and let go where it was tells the entry, which opens it');
+    // A finger: held still for HOLD_MS and let go opens it; moved, it was a scroll.
+    const { HOLD_MS } = await import('../web/drag.js');
+    const realNow = performance.now;
+    let now = 1000;
+    performance.now = () => now;
+    try {
+      const touch = { pointerType: 'touch', button: 0, isPrimary: true, pointerId: 3, clientX: 10, clientY: 10 };
+      entry.dispatch('pointerdown', touch);
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'a long press opens it under the entry');
+      entry.dispatch('pointerdown', touch);
+      win.dispatch('pointermove', { pointerId: 3, clientX: 10, clientY: 60 });
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'moved: a scroll, no menu');
+      entry.dispatch('pointerdown', touch);
+      now += 100;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'a tap opens the entry, not its menu');
+      entry.dispatch('pointerdown', touch);
+      page.dispatch('kit-dragstart');
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'picked up by the hold: the drag answers it (kit:hold), not twice');
+      entry.dispatch('pointerdown', { ...touch, pointerType: 'mouse' });
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'a mouse held is no long press: its right button is');
+    } finally {
+      performance.now = realNow;
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('a group\'s head opens its menu with a right-click too, as its name does', async () => {
+  const { restore } = await framePage();
+  try {
+    const { navGroup } = await import('../web/shell.js');
+    const named = [];
+    const group = navGroup({ name: 'Home', onName: (event, name) => named.push([event.clientX, name]) });
+    const head = group.children[0];
+    head.dispatch('contextmenu', { clientX: 12, clientY: 30, preventDefault: () => {} });
+    assert.equal(named.length, 1);
+    assert.equal(named[0][0], 12);
+    assert.equal(named[0][1].getAttribute('class'), 'kit-nav-group__name', 'told the name, as a tap on it does');
+    assert.equal(navGroup({ name: 'Plain' }).children[0].hasAttribute('data-kit-menu'), false, 'without a menu, the browser\'s');
+  } finally {
+    restore();
+  }
+});
+
+test('a sidebar\'s order after a drop is the kit\'s, the same in every module', async () => {
+  const { orderAfterDrop } = await import('../web/drag.js');
+  assert.deepEqual(orderAfterDrop([1, 2, 3], 3, 1, 'before'), [3, 1, 2]);
+  assert.deepEqual(orderAfterDrop([1, 2, 3], 1, 3, 'after'), [2, 3, 1]);
+  assert.equal(orderAfterDrop([1, 2, 3], 1, 2, 'before'), null, 'nothing changes');
+  assert.equal(orderAfterDrop([1, 2, 3], 1, 9, 'before'), null, 'the target isn\'t there');
+  const drag = fs.readFileSync(new URL('../web/drag.js', import.meta.url), 'utf8');
+  assert.match(drag, /if \(onHold\) \{ onHold\(item\); return; \}\s*item\.dispatchEvent\?\.\(new CustomEvent\('kit:hold'\)\);/, 'without onHold the entry is told');
+});
+
+test('«n» makes a new item in every module (`onNew`), under the same conditions as «/»', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    let made = 0;
+    const shell = createShell({ ...frameOptions(), onNew: () => { made += 1; } });
+    const field = shell.detail.appendChild(page.createElement('input'));
+    const press = (target, extra = {}) => page.dispatch('keydown', { key: 'n', target, preventDefault: () => {}, ...extra });
+    press(page.body);
+    assert.equal(made, 1);
+    press(field);
+    for (const extra of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { defaultPrevented: true }, { key: 'm' }]) press(page.body, extra);
+    assert.equal(made, 1, 'typed in a field; with a modifier, composing, answered or another key, nothing');
+    shell.destroy();
+    press(page.body);
+    assert.equal(made, 1, 'gone with the frame');
+    const quiet = createShell(frameOptions());
+    press(page.body);
+    assert.equal(made, 1, 'without onNew «n» is the page\'s');
+    quiet.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('the search waits the same in every module (`onSearch`, `wait`, `min`), Enter runs it at once, and clearSearch() empties it', async () => {
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const runs = [];
+    const shell = createShell({ ...frameOptions(), search: { label: 'Search', onSearch: (text) => runs.push(text), wait: 5, min: 2 } });
+    const type = (value) => { shell.search.value = value; shell.search.dispatch('input'); };
+    const pause = () => new Promise((done) => { setTimeout(done, 25); });
+    type('a');
+    await pause();
+    assert.deepEqual(runs, [], 'shorter than min: no search, and nothing to tell');
+    type('ab');
+    type('abc');
+    await pause();
+    assert.deepEqual(runs, ['abc'], 'once, a moment after the last key');
+    type('abcd');
+    shell.search.dispatch('keydown', { key: 'Enter', preventDefault: () => {} });
+    assert.deepEqual(runs, ['abc', 'abcd'], 'Enter at once');
+    await pause();
+    assert.equal(runs.length, 2, 'and not again when the wait ends');
+    type('');
+    assert.equal(runs.at(-1), '', 'emptied, at once');
+    type('xyz');
+    shell.clearSearch();
+    await pause();
+    assert.equal(shell.search.value, '');
+    assert.equal(runs.at(-1), '', 'cleared before its wait ended: nothing runs');
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('in Work\'s shell, its ☰ folds the sidebar where it sits beside the views, and opens the drawer on a phone', async () => {
+  const { page, win, restore } = await framePage();
+  const realLocal = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { DRAWER_EVENT } = await import('../web/base.js');
+    const phone = createShell({ ...frameOptions(), embedded: true });
+    page.body.dispatch(DRAWER_EVENT);
+    assert.ok(phone.element.hasAttribute('data-drawer'), 'a phone: the drawer');
+    phone.destroy();
+    globalThis.innerWidth = 700;
+    win.innerWidth = 700;
+    const tablet = createShell({ ...frameOptions(), embedded: true });
+    page.body.dispatch(DRAWER_EVENT);
+    assert.ok(tablet.element.hasAttribute('data-folded'), '700 px: folded away');
+    assert.ok(!tablet.element.hasAttribute('data-drawer'));
+    page.body.dispatch(DRAWER_EVENT);
+    assert.ok(!tablet.element.hasAttribute('data-folded'), 'and back');
+    tablet.destroy();
+    // A module in Work's shell without a search keeps its sidebar's head, with the button that folds it.
+    const bare = createShell({ ...frameOptions(), embedded: true });
+    assert.equal(bare.element.querySelector('.kit-side__fold')?.parentElement?.getAttribute('class'), 'kit-side__head', 'no search: the fold has its own line');
+    bare.destroy();
+  } finally {
+    globalThis.localStorage = realLocal;
+    restore();
+  }
+});
+
+test('the key a shortcut takes is the device\'s: ⌘ on Apple\'s, Ctrl elsewhere; Settings › About lists the keys', async () => {
+  const { modKey } = await import('../web/keyboard.js');
+  assert.equal(modKey({ platform: 'MacIntel' }), '⌘');
+  assert.equal(modKey({ userAgentData: { platform: 'macOS' } }), '⌘');
+  assert.equal(modKey({ platform: 'iPhone' }), '⌘');
+  assert.equal(modKey({ platform: 'Win32' }), 'Ctrl');
+  assert.equal(modKey({}), 'Ctrl');
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  assert.match(settings, /block\(t\('kit\.about\.keys'\), shortcuts\(\)\),/);
 });

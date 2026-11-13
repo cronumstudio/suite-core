@@ -262,6 +262,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-icon-btn:hover { background: var(--kit-hover); color: var(--kit-text); }
 .kit-icon-btn .kit-icon { width: 20px; height: 20px; }
+/* A toggle that is on (a note's pin, a card's pencil while its edit is open): the same in every module. */
+.kit-icon-btn[aria-pressed="true"] { background: var(--kit-accent-soft); color: var(--kit-accent); }
 
 .kit-spinner {
   width: 15px; height: 15px; border-radius: 50%; border: 2px solid currentColor; border-inline-end-color: transparent;
@@ -810,6 +812,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* «/» goes to the search (shell.js): its key, beside the word and never in it (it wouldn't fit), only on a
    big screen with a mouse or a trackpad, the sidebar beside the views; gone while the field has the focus
    or something typed. */
+/* A key, where Settings › About lists them. */
+.kit-keys { display: inline-flex; gap: 4px; flex: none; }
+.kit-key { min-width: 22px; padding: 0 6px; border: 1px solid var(--kit-border); border-radius: 5px; color: var(--kit-text); font: 500 12px/20px var(--kit-font-mono); text-align: center; }
 .kit-side__search-key {
   display: none; flex: none; min-width: 20px; padding: 0 5px; border: 1px solid var(--kit-border); border-radius: 5px;
   color: var(--kit-faint); font: 500 12px/18px var(--kit-font-mono); text-align: center;
@@ -850,8 +855,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-nav__fold-chevron { width: 12px; height: 12px; flex: none; transition: transform .3s ease; }
 .kit-nav__fold[aria-expanded="true"] .kit-nav__fold-chevron { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .kit-nav__fold-chevron { transition: none; } }
+/* Its own line height, as the search's: the page's (1.5 in the kit, 1.45 in some modules) made an entry 36.5 px tall in one module and 36 in the others. */
 .kit-nav__item {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: var(--look-item-y, 7px) 8px; border-radius: var(--look-r-sm, 8px);
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; line-height: 1.45; padding: var(--look-item-y, 7px) 8px; border-radius: var(--look-r-sm, 8px);
   border: 0; background: none; color: var(--kit-text); text-decoration: none; text-align: start; cursor: pointer;
 }
 .kit-nav__item:hover { background: var(--kit-hover); }
@@ -867,6 +873,19 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-nav__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kit-nav__count { font: 400 var(--look-footnote, 12px) var(--kit-font-mono); color: var(--kit-muted); font-variant-numeric: tabular-nums; }
 .kit-nav__swatch { width: 10px; height: 10px; border-radius: var(--look-r-xs, 3px); flex: none; margin-inline: 3px; }
+/* A collection's own emoji, as wide as a view's icon: every label of the sidebar starts in line (navItem). */
+.kit-nav__emoji { display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; font-size: var(--look-callout, 16px); line-height: 1; overflow: visible; }
+/* Its icon with marks on its corners: a shared one's, a public page's (navItem `shared`, `marks`). */
+.kit-nav__lead { position: relative; display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; }
+.kit-nav__lead > .kit-nav__swatch { margin: 0; }
+/* Shared: two people on the bottom corner, the same in every module (sharedMark). */
+.kit-nav__shared {
+  position: absolute; inset-inline-end: -6px; inset-block-end: -4px; width: 14px; height: 14px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--kit-side); box-shadow: 0 0 0 1px var(--kit-border-strong);
+}
+.kit-nav__item .kit-nav__shared .kit-icon, .kit-nav__shared .kit-icon { width: 9px; height: 9px; color: var(--kit-muted); stroke-width: 2.6; }
+/* An entry with a menu (menuOnPress): a long press is its menu, not the browser's nor a selection. */
+[data-kit-menu] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
 /*
  * A group of collections (shell.js navGroup), the same in every module: its head in the group's
@@ -875,7 +894,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
  */
 .kit-nav-group { display: grid; grid-template-columns: minmax(0, 1fr); margin-block: 6px 2px; }
 .kit-nav-group__head {
-  display: flex; align-items: center; gap: 2px; min-height: 36px; padding-inline: 2px 4px; margin-block-end: 2px;
+  display: flex; align-items: center; gap: 2px; min-height: 36px; line-height: 1.45; padding-inline: 2px 4px; margin-block-end: 2px;
   border-radius: var(--look-r-sm, 8px); border-inline-start: 3px solid var(--group-color, var(--kit-muted));
   background: color-mix(in oklab, var(--group-color, var(--kit-muted)) 12%, transparent);
   color: color-mix(in oklab, var(--group-color, var(--kit-muted)) 50%, var(--kit-text));
@@ -1091,6 +1110,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   flex: 1; min-width: 0; margin: 0; font: 700 var(--look-large-title, 21px)/1.2 var(--kit-font-display); letter-spacing: -.02em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* The collection open's own emoji, loose before the title (head({ icon })), the same in every module. */
+.kit-head__icon { flex: none; font-size: var(--look-title1, 24px); line-height: 1; }
+.kit-head__icon[hidden] { display: none; }
 .kit-head__actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .kit-head__actions:empty { display: none; }
 /* A detail's ×, last on its line: only where ← doesn't show, the list and its detail side by side (below). */

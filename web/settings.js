@@ -2345,6 +2345,7 @@ export function openSettings(options) {
       // In a host, a card for each module in use, with its version: the whole app updates as one.
       ...(host ? [block(t('kit.about.modulesTitle'), hint(t('kit.about.modulesHint', { app: host.name })), cards)] : []),
       ...(options.aboutExtra && !host ? [options.aboutExtra()] : []),
+      block(t('kit.about.keys'), shortcuts()),
       block(null, el('div', { class: 'kit-signature' }, signature())),
     ];
   }
@@ -2428,6 +2429,19 @@ function benefitText(feature, value) {
 }
 
 const numberText = (n) => new Intl.NumberFormat(currentLanguage(), { maximumFractionDigits: 1 }).format(n);
+
+/**
+ * The keys every module answers (shell.js), the same in each: «/» to the search, «n» for a new item,
+ * Escape to close what is open.
+ */
+function shortcuts() {
+  const row = (keys, label) => el('div', { class: 'kit-fact' }, el('span', { text: label }),
+    el('span', { class: 'kit-keys' }, keys.map((key) => el('kbd', { class: 'kit-key', text: key }))));
+  return el('div', { class: 'kit-facts' },
+    row(['/'], t('kit.about.keySearch')),
+    row(['n'], t('kit.about.keyNew')),
+    row(['Esc'], t('kit.about.keyClose')));
+}
 
 function fact(label, value, detail = '') {
   return el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value }), detail ? el('small', { text: detail }) : null);

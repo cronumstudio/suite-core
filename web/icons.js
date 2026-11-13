@@ -20,6 +20,7 @@ export const PATHS = Object.freeze({
   check: 'M5 12.5l4.5 4.5L19 7',
   chevron: 'M9 18l6-6-6-6',
   'chevron-down': 'M6 9l6 6 6-6',
+  'chevron-up': 'M6 15l6-6 6 6',
   clip: 'M20.5 11.5l-8.2 8.2a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   'code-xml': 'M18 16l4-4-4-4M6 8l-4 4 4 4M14.5 4l-5 16',
@@ -27,11 +28,16 @@ export const PATHS = Object.freeze({
   device: 'M3 5h18v11H3zM8 20h8M12 16v4',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  // Lucide's eraser, highlighter, marker and pen: Notes' drawing tools.
+  eraser: 'M7 21l-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21M22 21H7M5 11l9 9',
   external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   'eye-off': 'M3 3l18 18M10.6 5.1A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2',
   filter: 'M4 5h16l-6 7.5V19l-4 2v-8.5z',
+  flag: 'M4 22v-7M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z',
   folder: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
+  // A branch out of another (Next).
+  fork: 'M6 3v12M21 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM18 9a9 9 0 0 1-9 9',
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18',
   grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
   // Six dots: what picks a row up to put it in order.
@@ -40,6 +46,9 @@ export const PATHS = Object.freeze({
   'heading-1': 'M4 12h8M4 18V6M12 18V6M17 12l3-2v8',
   'heading-2': 'M4 12h8M4 18V6M12 18V6M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1',
   'heading-3': 'M4 12h8M4 18V6M12 18V6M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2',
+  highlighter: 'M9 11l-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4',
+  // A clock going back: earlier versions.
+  history: 'M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5M12 7v5l3 2',
   home: 'M4 11l8-7 8 7v9h-5v-6H9v6H4z',
   // Lucide's image: the frame (a rounded rect), the sun and the hill, in one path.
   image: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 9a2 2 0 1 0 4 0 2 2 0 1 0-4 0M21 15l-3.1-3.1a2 2 0 0 0-2.8 0L6 21',
@@ -60,6 +69,7 @@ export const PATHS = Object.freeze({
   'layout-4': 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM12 4v16M4 12h16',
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   logout: 'M15 4h4v16h-4M10 17l5-5-5-5M15 12H3',
+  marker: 'M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z',
   mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
   // A window over the whole desk, and back (windows.js).
   maximize: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
@@ -68,9 +78,11 @@ export const PATHS = Object.freeze({
   moon: 'M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   notes: 'M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 8h6M9 12h6M9 16h3',
+  pen: 'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z',
   phone: 'M7 2h10v20H7zM11 18h2',
   pin: 'M12 16v6M8 3h8l-1.5 6L18 12.5V15H6v-2.5L9.5 9z',
   plus: 'M12 5v14M5 12h14',
+  print: 'M6 9V3h12v6M6 18H4v-7h16v7h-2M6 14h12v7H6z',
   'redo-2': 'M15 14l5-5-5-5M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   restore: 'M9 4v5H4M15 4v5h5M20 15h-5v5M4 15h5v5',
@@ -91,6 +103,8 @@ export const PATHS = Object.freeze({
   users: 'M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM22 20v-1a4 4 0 0 0-3-3.9M16 4.1a3.5 3.5 0 0 1 0 6.8',
   'wifi-off': 'M3 3l18 18M8.5 16.5a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.8M19 12.9a10 10 0 0 0-2.4-1.7M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 11 5M12 20h.01',
   x: 'M6 6l12 12M18 6L6 18',
+  'zoom-in': 'M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM20 20l-3.5-3.5M8 11h6M11 8v6',
+  'zoom-out': 'M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM20 20l-3.5-3.5M8 11h6',
 });
 
 /** Icons drawn as dots, which need a thicker stroke to be seen. */

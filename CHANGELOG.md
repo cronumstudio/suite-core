@@ -3,6 +3,33 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.285.0 — 2026-11-14
+
+- **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
+  `web/kit.css`, `docs/web-kit.md` rule 10; audit of 6/11, ux-menus-4, ux-menus-13,
+  ux-compartir-13, ui-dialogos-6, ui-medidas-15, ui-medidas-17). `navItem()` takes `emoji` (a
+  collection's own, in a box as wide as a view's icon, so every label starts in line), `shared`
+  (the kit's one mark, `sharedMark({ owner })`, «Compartido · de {name}» in words), `marks`, `title`,
+  `style`, `className`, and `menu` or `onMenu`: a right-click or a long press opens the same menu as
+  the entry's «…» (`menuOnPress(node, open)` in drag.js, which a drag that holds the entry answers
+  with a `kit:hold` event when it has no `onHold`). A group's head opens its menu with a right-click
+  too. `orderAfterDrop()` is the kit's (drag.js), as three modules had it. Entries and group heads
+  have their own line height (1.45): 36 px in every module, 36.5 in Notes before.
+- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 11; ux-acciones-16): under
+  the same conditions as «/». Settings › About lists the keys (`kit.about.keys`), and `modKey()`
+  (keyboard.js) gives ⌘ or Ctrl for words that tell a shortcut.
+- **The search runs the same way everywhere** (`search: { onSearch, wait, min }`; ux-menus-5): 220 ms
+  after the last key, from the first letter, at once with Enter, Escape or when emptied;
+  `shell.clearSearch()` empties it. `onInput` and `onSubmit` are unchanged.
+- **The open collection's emoji in the head** (`head({ icon })`, `.kit-head__icon`; ux-menus-7,
+  ui-medidas-8, Martin's decision 7): loose before the title, at its size, with no box; `setIcon()`.
+  `.kit-icon-btn[aria-pressed="true"]` is the kit's (Notes and Next had it each).
+- **In Work's shell, its ☰ folds the sidebar where the sidebar sits beside the views** (ux-menus-10):
+  from 640 to 768 px Work shows its ☰, and as a drawer there it did nothing.
+- **Icons** (`web/icons.js`; ux-menus-3, ux-menus-12): `chevron-up`, `eraser`, `flag`, `fork`,
+  `highlighter`, `history`, `marker`, `pen`, `print`, `zoom-in`, `zoom-out`; web-kit.md has a table
+  of which icon for what.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,

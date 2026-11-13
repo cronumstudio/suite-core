@@ -75,6 +75,76 @@ const EDGE_SHARE = 0.3;   // of a row that also takes things inside, the top and
 const CONTROLS = 'button, a, input, select, textarea, label, [contenteditable=""], [contenteditable="true"]';
 
 /**
+ * Right-click and a long press on `node` (a sidebar's entry, a group's head) call `open({ x, y })`,
+ * the same in every module: what its «…» opens there. A right-click opens it at the pointer; a
+ * finger held still (`HOLD_MS`, moving less than `SLOP`) and let go opens it under the entry, and
+ * the click that follows opens nothing. Where the entry is also picked up by holding (drag.js), the
+ * drag answers the hold: let go without moving, it tells the entry (`kit:hold`), and this opens it.
+ * The browser's own long-press menu doesn't come. → `node`.
+ */
+export function menuOnPress(node, open) {
+  let press = null;
+  const below = () => {
+    const box = node.getBoundingClientRect();
+    return { x: box.left + Math.min(box.width / 2, 48), y: box.bottom };
+  };
+  const swallow = (click) => { click.stopPropagation(); click.preventDefault(); };
+  node.setAttribute('data-kit-menu', '');
+  node.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    // A finger's hold is answered when it lets go (Android shows this while it still holds).
+    if (press || document.documentElement.hasAttribute('data-kit-dragging')) return;
+    ev.stopPropagation?.();
+    open(ev.clientX || ev.clientY ? { x: ev.clientX, y: ev.clientY } : below());
+  });
+  node.addEventListener('kit:hold', () => open(below()));
+  node.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType === 'mouse' || ev.button || !ev.isPrimary) return;
+    const started = performance.now();
+    const x0 = ev.clientX;
+    const y0 = ev.clientY;
+    let dragged = false;
+    const onDrag = () => { dragged = true; };
+    const done = (up) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', done);
+      window.removeEventListener('pointercancel', done);
+      document.removeEventListener('kit-dragstart', onDrag);
+      const held = press && up?.type === 'pointerup' && !dragged && performance.now() - started >= HOLD_MS;
+      press = null;
+      if (!held) return;
+      window.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+      open(below());
+    };
+    const onMove = (move) => {
+      if (move.pointerId === ev.pointerId && Math.hypot(move.clientX - x0, move.clientY - y0) > SLOP) done(null);
+    };
+    press = { id: ev.pointerId };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', done);
+    window.addEventListener('pointercancel', done);
+    // Picked up by the hold: the drag answers it (`kit:hold`), not this.
+    document.addEventListener('kit-dragstart', onDrag);
+  });
+  return node;
+}
+
+/**
+ * The order of `ids` once `movedId` is dropped before or after `targetId` (`zone`, 'before' or
+ * 'after'), or null when nothing changes or the target isn't there: what a sidebar sends after a
+ * drop between its collections or its groups, the same in every module.
+ */
+export function orderAfterDrop(ids, movedId, targetId, zone) {
+  const order = ids.filter((id) => id !== movedId);
+  const at = order.indexOf(targetId);
+  if (at < 0) return null;
+  order.splice(zone === 'before' ? at : at + 1, 0, movedId);
+  const same = order.length === ids.length && order.every((id, i) => id === ids[i]);
+  return same ? null : order;
+}
+
+/**
  * How fast a box scrolls with the pointer at `y`: towards the nearer edge,
  * faster the closer, nothing outside the strips. The nearer edge wins, not the
  * top one for being first: in a box shorter than both strips they overlap.
@@ -242,7 +312,8 @@ export function redrawInPlace(container, draw) {
  *                                           said ok; x and y where it was let go, top that of the gap
  *                                           (null without one): where it lands, to keep it in sight
  * @param {Function} [options.onHold]      (item) → a finger that held it and let go without moving
- *                                           didn't drag it: what a long press does there (its menu)
+ *                                           didn't drag it: what a long press does there (its menu);
+ *                                           without it the item gets a `kit:hold` event
  * @returns {{ destroy: Function }}
  */
 export function makeDraggable(container, {
@@ -519,7 +590,11 @@ export function makeDraggable(container, {
     window.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
     // Held and let go where it was: a long press, not a move (as on a phone's home screen).
-    if (holding && !carried && onHold) { onHold(item); return; }
+    // Without an `onHold`, the entry is told (`kit:hold`): a sidebar's opens its menu (menuOnPress).
+    if (holding && !carried) {
+      if (onHold) { onHold(item); return; }
+      item.dispatchEvent?.(new CustomEvent('kit:hold'));
+    }
     if (!place || !verdict?.ok) return;
     // On a shared place, what letting go does is that place's, not this list's.
     if (shared?.place === place) shared.drop.onDrop(item, place, { zone, x: ev.clientX, y: ev.clientY, top });
