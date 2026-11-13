@@ -1650,6 +1650,81 @@ button.kit-chip:hover { background: var(--kit-hover); }
 .kit-blank--page { max-width: 460px; margin: 10vh auto 0; }
 .kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-title3, 19px); }
 
+/* -------------------------------- a search -------------------------------- */
+
+/* What a search found (ui.js searchResults): each kind under its heading, with how many. */
+.kit-results__section:first-child .kit-results__title { margin-block-start: 4px; }
+.kit-results__count { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--kit-faint); }
+.kit-results--none .kit-blank { max-width: 460px; margin: 10vh auto 0; }
+/* The words found, in every module's rows (ui.js highlight). */
+mark.kit-mark { background: var(--kit-accent-soft); color: var(--kit-text); border-radius: var(--look-r-xs, 3px); padding: 0 1px; }
+
+/* ------------------------------ photos and files ----------------------------- */
+
+/* An item's «Archivos» (files.js attachments): photos as squares that fill the row, as many as
+   fit, and a PDF as a row of its own with its name and size. */
+.kit-files { margin-block-start: 18px; }
+.kit-files__title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: var(--look-footnote, 13px); font-weight: 500; color: var(--kit-muted); }
+.kit-files__count { font-variant-numeric: tabular-nums; color: var(--kit-faint); }
+.kit-files__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; margin-block: 0 10px; }
+.kit-files__none { margin: 0 0 10px; }
+.kit-files__add .kit-icon { width: 16px; height: 16px; }
+.kit-files__drop { margin: 6px 0 0; }
+/* «or drop one here» only where a file can be dragged: a mouse. */
+@media not ((hover: hover) and (pointer: fine)) { .kit-files__drop { display: none; } }
+.kit-file { position: relative; min-width: 0; }
+.kit-file__open { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: var(--look-r-md, 10px); }
+.kit-file--photo img {
+  display: block; width: 100%; aspect-ratio: 1; object-fit: cover;
+  border-radius: var(--look-r-md, 10px); border: 1px solid var(--kit-border); background: var(--kit-hover);
+}
+.kit-file--doc { grid-column: 1 / -1; }
+.kit-file__link {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; padding-inline-end: 36px;
+  border: 1px solid var(--kit-border); border-radius: var(--look-r-md, 10px); background: var(--kit-hover);
+  color: inherit; text-decoration: none;
+}
+.kit-file__link .kit-icon { width: 18px; height: 18px; flex: none; color: var(--kit-muted); }
+.kit-file__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-file__size { flex: none; font-size: var(--look-footnote, 12px); color: var(--kit-faint); font-variant-numeric: tabular-nums; }
+.kit-files__remove {
+  position: absolute; inset-block-start: 4px; inset-inline-end: 4px; width: 24px; height: 24px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; cursor: pointer; padding: 0;
+}
+.kit-file--doc .kit-files__remove { inset-block-start: 50%; transform: translateY(-50%); }
+.kit-files__remove .kit-icon { width: 14px; height: 14px; }
+.kit-files__remove:hover { background: rgba(0, 0, 0, .78); }
+/* With a mouse the × shows on the file it is over; a finger has no hover, so there it always shows. */
+@media (hover: hover) and (pointer: fine) {
+  .kit-files__remove { opacity: 0; transition: opacity .15s; }
+  .kit-file:is(:hover, :focus-within) .kit-files__remove { opacity: 1; }
+}
+/* A detail with a file carried over it: where it will land. */
+.kit-files-over { outline: 2px dashed var(--kit-accent); outline-offset: -6px; }
+
+/* The photo viewer (files.js photoViewer): the photo rules, and never leaves the screen. */
+.kit-viewer { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* The frame crops the enlarged photo; the gesture is the viewer's, not the page's scroll. */
+.kit-viewer__frame {
+  width: 100%; height: min(76dvh, 820px); display: flex; align-items: center; justify-content: center; overflow: hidden;
+  border-radius: var(--look-r-sm, 8px); background: var(--kit-hover); touch-action: none; cursor: zoom-in;
+}
+.kit-viewer__frame--zoomed { cursor: grab; }
+.kit-viewer__frame--zoomed:active { cursor: grabbing; }
+.kit-viewer__photo {
+  max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; will-change: transform;
+  user-select: none; -webkit-user-drag: none;
+}
+/* As tall with a magnification or without: the photo doesn't jump while it is looked at. */
+.kit-viewer__bar { display: flex; align-items: center; gap: 10px; min-height: 26px; }
+.kit-viewer__counter { font-size: var(--look-footnote, 13px); color: var(--kit-muted); font-variant-numeric: tabular-nums; }
+.kit-viewer__zoom { min-width: 34px; font-size: var(--look-caption, 12px); color: var(--kit-faint); font-variant-numeric: tabular-nums; }
+.kit-viewer__help { color: var(--kit-faint); text-align: center; }
+/* With a mouse there is no pinch: it says what does work (its words in data-wheel-hint, files.js). */
+@media (hover: hover) and (pointer: fine) {
+  .kit-viewer__help::after { content: ' ' attr(data-wheel-hint); }
+}
+
 /* ------------------------------- public page ------------------------------ */
 
 /* A public page's dialog (public-page.js): what it shows, its link and the code to embed it. */

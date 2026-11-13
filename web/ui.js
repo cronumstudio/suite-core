@@ -199,6 +199,96 @@ export function blank({ iconName = 'inbox', title, text = null, action = null })
       action.iconName ? icon(action.iconName) : null, action.label) : null);
 }
 
+/* --------------------------------- search --------------------------------- */
+
+/** A letter as a search compares it: no accents, no case ("Á" and "a" are the same). */
+const folded = (char) => char.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+/**
+ * `text` with each word of `query` in it marked (`<mark class="kit-mark">`), whatever its accents
+ * and case: what a search's results show, the same in every module. Nodes and strings for el() or
+ * append(), never HTML. Without a query, the text as it is.
+ */
+export function highlight(text, query) {
+  const source = String(text ?? '');
+  const words = String(query ?? '').split(/\s+/).map((word) => [...word].map(folded).join('')).filter(Boolean);
+  if (!source || !words.length) return [source];
+  // The folded text, and for each of its letters the place of the letter it came from.
+  let flat = '';
+  const from = [];
+  let at = 0;
+  for (const char of source) {
+    const plain = folded(char);
+    for (let i = 0; i < plain.length; i += 1) from.push(at);
+    flat += plain;
+    at += char.length;
+  }
+  from.push(source.length);
+  const ranges = [];
+  for (const word of words) {
+    for (let i = flat.indexOf(word); i >= 0; i = flat.indexOf(word, i + word.length)) {
+      ranges.push([from[i], from[i + word.length] ?? source.length]);
+    }
+  }
+  if (!ranges.length) return [source];
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [start, end] of ranges) {
+    const last = merged.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  const out = [];
+  let done = 0;
+  for (const [start, end] of merged) {
+    if (start > done) out.push(source.slice(done, start));
+    out.push(el('mark', { class: 'kit-mark', text: source.slice(start, end) }));
+    done = end;
+  }
+  if (done < source.length) out.push(source.slice(done));
+  return out;
+}
+
+/** The kit's title of a search's results, «Resultados», the same in every module's head. */
+export const searchTitle = () => t('kit.search.results');
+
+/**
+ * One kind of what a search found (projects, tasks, steps): its heading with how many, then its
+ * rows, which the module draws (a list, a <ul>…: `list`, the node the rows go in, a <div> by
+ * default). Nothing when none was found.
+ */
+export function searchSection(title, rows, { list = null, count = null } = {}) {
+  const items = (rows || []).filter(Boolean);
+  if (!items.length) return null;
+  return el('section', { class: 'kit-results__section' },
+    el('h2', { class: 'kit-group-title kit-results__title' },
+      el('span', { text: title }),
+      el('span', { class: 'kit-results__count', text: String(count ?? items.length) })),
+    append(list || el('div', { class: 'kit-results__rows' }), items));
+}
+
+/**
+ * What a search found, the same screen in every module (audit of 6/11, ui-dialogos-8): under the
+ * head «Resultados» (searchTitle), each kind with its heading and how many (`sections`, from
+ * searchSection or { title, rows, list }), the words found marked in each row (highlight), and
+ * when nothing was found the kit's blank with the search's icon: «Sin resultados» and «Nada
+ * coincide con «x».» (`hint` says something else there: Notes' filters). Each module draws its
+ * own rows.
+ */
+export function searchResults({ query = '', sections = [], hint = null } = {}) {
+  const drawn = (sections || []).map((section) => (section && !section.nodeType
+    ? searchSection(section.title, section.rows, section) : section)).filter(Boolean);
+  if (drawn.length) return el('div', { class: 'kit-results' }, drawn);
+  return searchBlank(query, hint);
+}
+
+/** Nothing found: the kit's blank, with the search's icon. */
+export function searchBlank(query = '', hint = null) {
+  const text = String(query ?? '').trim();
+  return el('div', { class: 'kit-results kit-results--none' },
+    blank({ iconName: 'search', title: t('kit.search.none'), text: hint || (text ? t('kit.search.noneText', { query: text }) : null) }));
+}
+
 /** The initials of a name on a circle: what stands for a person. */
 export function avatar(name = '') {
   const initials = String(name).trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
@@ -715,6 +805,75 @@ export function undoToast(text, onUndo) {
   return toast(text, { action: { label: t('kit.undo'), onClick: onUndo } });
 }
 
+/* ------------------------------ floating boxes ----------------------------- */
+
+/**
+ * Where a node drawn with `position: fixed` really goes, and the room it has. In Cronum Work a
+ * module's window keeps what is fixed inside it (windows.css, `contain: layout paint` on
+ * `.cw-win__body`): its (0, 0) is the window's corner and not the screen's, and what leaves the
+ * window is cut off. So `origin` is where (0, 0) lands now on the screen (a window being moved, or
+ * a sheet rising, moves it too), and `frame` the box it may use: the window, or the screen; a modal
+ * dialog is drawn above everything, so what is in one has the screen. The node is put at (0, 0)
+ * and without a transform to measure it.
+ */
+export function fixedRoom(node) {
+  node.style.left = '0px';
+  node.style.top = '0px';
+  const origin = node.getBoundingClientRect();
+  const clip = node.parentElement?.closest?.('dialog[open], .cw-win__body');
+  const frame = clip && clip.tagName !== 'DIALOG' ? clip.getBoundingClientRect()
+    : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  return { origin: { left: origin.left, top: origin.top }, frame };
+}
+
+/**
+ * Puts a node drawn with `position: fixed`, already on the page, next to `anchor`: under it when it
+ * fits, else above (`above: true` the other way round), its start at the anchor's start (`center:
+ * true`, centred on it), `gap` px away, never closer than `margin` px to the edge of its room, and
+ * scrolling when it is taller than its room. Its room is the screen, or in Cronum Work the module's
+ * window (fixedRoom): what menu() does, for every box that floats over a module (a quantity's
+ * editor, a dot's bubble). `at` ({ x, y }, a pointer's place) puts it there instead of by the
+ * anchor; `width` sets its width, `minWidth` a width it takes at least; both stay within the room.
+ * → { left, top } where it went, on the screen.
+ */
+export function placeFixed(node, anchor, {
+  at = null, gap = 6, margin = 8, width = null, minWidth = null, above = false, center = false,
+} = {}) {
+  const { origin, frame } = fixedRoom(node);
+  const room = frame.right - frame.left - 2 * margin;
+  // A pointer's place is a box of no size; a keyboard's click (at 0, 0) goes by the anchor.
+  const point = at && (at.x || at.y) ? at : null;
+  const box = point ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
+    : anchor?.getBoundingClientRect?.()
+      || { left: frame.left + margin, right: frame.left + margin, top: frame.top + margin, bottom: frame.top + margin };
+  let wide = node.offsetWidth;
+  if (width != null || minWidth != null) {
+    wide = Math.min(width ?? Math.max(wide, minWidth), room);
+    node.style.width = `${wide}px`;
+  } else if (wide > room) {
+    wide = room;
+    node.style.width = `${wide}px`;
+  }
+  const start = center ? (box.left + box.right) / 2 - wide / 2 : box.left;
+  const left = Math.min(Math.max(frame.left + margin, start), frame.right - wide - margin);
+  node.style.left = `${left - origin.left}px`;
+  // Longer than its room (a short window), it scrolls.
+  if (node.offsetHeight > frame.bottom - frame.top - 2 * margin) {
+    node.style.maxHeight = `${frame.bottom - frame.top - 2 * margin}px`;
+    node.style.overflowY = 'auto';
+  }
+  const height = node.offsetHeight;
+  const space = point ? 0 : gap;
+  const fitsBelow = box.bottom + space + height + margin <= frame.bottom;
+  const fitsAbove = box.top - space - height - margin >= frame.top;
+  const up = above ? fitsAbove || !fitsBelow && box.top - frame.top > frame.bottom - box.bottom
+    : !fitsBelow && box.top - frame.top > height + margin;
+  const top = up ? box.top - height - space
+    : Math.max(frame.top + margin, Math.min(box.bottom + space, frame.bottom - height - margin));
+  node.style.top = `${top - origin.top}px`;
+  return { left, top };
+}
+
 /* ---------------------------------- menus --------------------------------- */
 
 let openMenuNode = null;
@@ -771,35 +930,8 @@ export function menu(anchor, items, { header = null, at = null, parent = null, b
   (anchor?.closest?.('dialog[open]') || parent || document.body).append(markOwned(node));
   openMenuNode = node;
 
-  // Below the anchor when it fits, else above; never off the screen. Measured from where (0, 0)
-  // lands, as a dialog that moves (a sheet rising) is the menu's frame and not the window.
-  node.style.left = '0px';
-  node.style.top = '0px';
-  const origin = node.getBoundingClientRect();
-  // Its room: the screen, or in Cronum Work the module's window, which cuts off whatever leaves it
-  // (windows.css). A modal dialog is drawn above everything, so a menu in one has the screen.
-  const clip = node.parentElement.closest('dialog[open], .cw-win__body');
-  const frame = clip && clip.tagName !== 'DIALOG' ? clip.getBoundingClientRect()
-    : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
-  // A pointer's place is a box of no size; a keyboard's click (at 0, 0) goes by the anchor.
-  const point = at && (at.x || at.y) ? at : null;
-  const box = point ? { left: point.x, top: point.y, bottom: point.y }
-    : anchor?.getBoundingClientRect?.() || { left: frame.left + 8, top: frame.top + 8, bottom: frame.top + 8 };
-  const width = Math.min(Math.max(node.offsetWidth, 220), frame.right - frame.left - 16);
-  node.style.width = `${width}px`;
-  node.style.left = `${Math.min(Math.max(frame.left + 8, box.left), frame.right - width - 8) - origin.left}px`;
-  // Longer than its room (a short window), it scrolls.
-  if (node.offsetHeight > frame.bottom - frame.top - 16) {
-    node.style.maxHeight = `${frame.bottom - frame.top - 16}px`;
-    node.style.overflowY = 'auto';
-  }
-  const height = node.offsetHeight;
-  const gap = point ? 0 : 6;
-  if (box.bottom + height + 8 > frame.bottom && box.top - frame.top > height + 8) {
-    node.style.top = `${box.top - height - gap - origin.top}px`;
-  } else {
-    node.style.top = `${Math.max(frame.top + 8, Math.min(box.bottom + gap, frame.bottom - height - 8)) - origin.top}px`;
-  }
+  // Below the anchor when it fits, else above; never out of its room (the screen, or the window).
+  placeFixed(node, anchor, { at, minWidth: 220 });
   anchor?.setAttribute?.('aria-expanded', 'true');
 
   const focusable = () => [...node.querySelectorAll('[role="menuitem"]')];

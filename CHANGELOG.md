@@ -3,6 +3,32 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.291.0 — 2026-11-14
+
+- **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,
+  ux-acciones-17, ux-acciones-18, ui-dialogos-8). Only additions: what was exported behaves as before.
+  - `web/ui.js` `placeFixed(node, anchor, { at, gap, margin, width, minWidth, above, center })` and
+    `fixedRoom(node)`: what `menu()` did to stay inside a window of Cronum Work (whose
+    `contain: layout paint` makes `position: fixed` start at the window's corner and cuts off what
+    leaves it), for any box that floats: Tasks' quantity editor, Projects' drag label, Next's bubble.
+    `menu()` uses it, unchanged.
+  - `web/ui.js` `highlight(text, query)` (`<mark class="kit-mark">`, accents and case aside),
+    `searchTitle()` («Resultados»), `searchSection(title, rows, { list })` (a heading with how many)
+    and `searchResults({ query, sections, hint })`, with the kit's blank and the search's icon when
+    nothing is found: one results screen, each module drawing its own rows. `kit.search.*`.
+  - `web/files.js` (new, in the service worker's kit copy): `attachments({ files, editable, mayRemove,
+    fileUrl, upload, onUploaded, remove, restore, max, maxBytes, dropTarget, accept })`, an item's
+    «Archivos»: photos as thumbnails, a PDF as a row with its name and size, added with the button,
+    by dropping a file on the detail or pasting one, one notice for several, the room left said
+    first, and taking one away to the trash with Undo. `photoViewer({ photos, start, fileUrl })`, a
+    kit dialog with Tasks' zoom (`makeZoomable`), so in Cronum Work it covers the screen.
+    `kit.files.*`, `kit.photo.*`; `.kit-files*`, `.kit-file*`, `.kit-viewer*` in kit.css.
+  - `web/i18n.js` `shortDate(value)` («14 mar», with the year when not this one; a YYYY-MM-DD is the
+    local day it names), `timeText(value)` (Intl's short time: one way per language),
+    `shortStamp(value, { time })` (the time today, the date before) and `timeAgo(value, { short })`.
+  - `docs/web-kit.md`: rule 9 adds the results screen; new rules 10 (files), 11 (what floats) and
+    12 (dates).
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,

@@ -69,6 +69,27 @@ going from one module to the next in Cronum Work nothing moves:
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text.
+   **What it found is one screen too** (`searchResults()`, v0.291.0): the head says «Resultados»
+   (`searchTitle()`), each kind sits under its heading with how many (`searchSection()`), the words
+   found are marked in each row (`highlight(text, query)`, `<mark class="kit-mark">`, whatever their
+   accents and case), and nothing found is the kit's blank with the search's icon, «Sin resultados»
+   and «Nada coincide con «x».» (a module's own hint may take that line: Notes' filters). Each
+   module draws its own rows.
+10. **An item's files are one section** (`attachments()` in `files.js`, v0.291.0): «Archivos» with
+   how many, photos as squares that open the kit's viewer (`photoViewer()`, a kit dialog with zoom,
+   so in Cronum Work it covers the screen and not just the window), a PDF as a row with its name and
+   size. They are added with the button, by dropping a file on the detail or pasting one into it;
+   several going up say so on the button and once at the end; the room left is said before
+   uploading. Taking one away goes to the trash with Undo (rule 7). Notes keeps its files in the
+   note and deletes them for good, with the question (`deleteDialog()`).
+11. **What floats over a module stays in its window** (`placeFixed(node, anchor)`, v0.291.0): a menu,
+   a quantity's editor, a dot's bubble, a drag's label. In Cronum Work a window keeps what is
+   `position: fixed` inside it (`contain: layout paint`), so a box placed by the screen's numbers
+   lands off its anchor or is cut off; `placeFixed` measures where its (0, 0) really is and keeps it
+   in its room (`fixedRoom()`).
+12. **A date reads the same in every module** (`i18n.js`, v0.291.0): `shortDate()` «14 mar» (with the
+   year when it isn't this one), `timeText()` the language's own short time («15:52», «3:52 PM»),
+   `shortStamp()` the time today and the date before, and `timeAgo()` «hace 3 días».
 
 ## A page
 
