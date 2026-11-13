@@ -1,17 +1,19 @@
 /**
  * What every module's MCP tools are written with.
  *
- * mcp.js is the transport; the tools themselves are each module's. Their
- * skeleton was copied four times (audit 2026-10-23, mcp-cross-3): the `text`
- * result, the `S` schema helpers, the READS/ADDS/SETS/DESTRUCTIVE annotations
- * and a describeError with the same "Options:" block, and the copies had
- * started to drift (no DESTRUCTIVE in Next, three wordings of one error). They
- * live here once; each module's mcp-tools.js keeps only what is its own.
+ * mcp.js is the transport; the tools themselves are each module's, each
+ * written out whole in its mcp-tools.js (name, inputSchema, annotations). What
+ * their skeleton shares was copied four times (audit 2026-10-23,
+ * mcp-cross-3): the `text` result, the `S` schema helpers, the
+ * READS/ADDS/SETS/DESTRUCTIVE annotations and a describeError with the same
+ * "Options:" block, and the copies had started to drift (no DESTRUCTIVE in
+ * Next, three wordings of one error). Those live here once.
  *
  * And what every conversation pays for: `tools/list` goes whole into the
- * assistant's context on most clients, ≈17 500 tokens for Cronum Work's tools,
- * a fifth of them parameter descriptions repeated word for word in several
- * tools. `trimRepeats` keeps the first in full and the first sentence after.
+ * assistant's context on most clients, thousands of tokens for Cronum Work's
+ * tools, some of them parameter descriptions repeated word for word in
+ * several tools. `trimRepeats` keeps the first in full and the first sentence
+ * after; `toolsListSize` is what a module's budget test measures.
  */
 import { ResolveError, resolveErrorText } from './resolve.js';
 
@@ -25,7 +27,6 @@ export const S = Object.freeze({
   string: (description, extra = {}) => ({ type: 'string', description, ...extra }),
   bool: (description, extra = {}) => ({ type: 'boolean', description, ...extra }),
   int: (description, extra = {}) => ({ type: 'integer', description, ...extra }),
-  number: (description, extra = {}) => ({ type: 'number', description, ...extra }),
   list: (description, items, extra = {}) => ({ type: 'array', description, items, ...extra }),
 });
 
@@ -43,24 +44,6 @@ export const READS = Object.freeze({ readOnlyHint: true, openWorldHint: false })
 export const ADDS = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
 export const SETS = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
 export const DESTRUCTIVE = Object.freeze({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
-
-const KINDS = { read: READS, add: ADDS, set: SETS, destroy: DESTRUCTIVE };
-
-/**
- * A tool from what makes it differ: `kind` ('read', 'add', 'set', 'destroy')
- * gives its annotations, `params` and `required` its inputSchema, closed to
- * other properties. Anything else (feature, legacyNames…) passes through.
- */
-export function tool({ kind, params = {}, required = [], openWorld = false, ...rest }) {
-  if (!KINDS[kind]) throw new Error(`tool ${rest.name}: kind must be one of ${Object.keys(KINDS).join(', ')}`);
-  return {
-    ...rest,
-    annotations: { ...KINDS[kind], ...(openWorld && { openWorldHint: true }) },
-    inputSchema: {
-      type: 'object', properties: params, ...(required.length && { required }), additionalProperties: false,
-    },
-  };
-}
 
 /**
  * The usual describeError for createMcpServer: a ResolveError (any module's:

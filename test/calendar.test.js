@@ -213,8 +213,10 @@ test('assistants get work_calendar: what has a date, said by day, for whoever us
   const today = todayFor(ana);
   const empty = mcpOf({ modules: [moduleOf('tasks', 'Tasks', () => [])] });
   assert.equal(await call(empty, ana, {}), `Nothing has a date from ${today} to ${addDays(today, 6)}.`, 'from today, in their zone, without from');
-  await assert.rejects(call(mcp, ana, { from: 'tomorrow' }), (error) => error.extra?.field === 'from');
-  await assert.rejects(call(mcp, ana, { from: '2026-11-01', to: '2028-01-01' }), (error) => error.extra?.field === 'to');
+  // What it can't take, said so the assistant can correct it (sc-mcp-11), not a bare field_invalid.
+  assert.equal(await call(mcp, ana, { from: 'tomorrow' }), '"from" must be a date as YYYY-MM-DD.');
+  assert.equal(await call(mcp, ana, { from: '2026-11-01', to: '2028-01-01' }),
+    '"to" must be on or after "from" (2026-11-01) and at most 366 days from it, both included. Ask for a shorter span.');
 });
 
 test('work_calendar says which modules it couldn\'t read, and a host with links names both in its instructions', async () => {

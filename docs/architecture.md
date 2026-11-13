@@ -91,7 +91,7 @@ suite-core/
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
   time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
   prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
-  mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
+  mcp-kit.js            done   what the tools are written with: text, S, the annotations, describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
@@ -1337,7 +1337,11 @@ just say what changed (Tasks' lists): the app chooses.
 `mcp.js` is the Streamable HTTP transport the three apps already share: JSON-RPC 2.0 on `/mcp`,
 protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, SSE answers when the client only accepts
 them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` when AuthKit cannot
-be reached, and the token brake. The app hands in its tools, prompts and instructions:
+be reached, and the token brake. `GET /mcp` answers `405` (after the token): the server sends
+nothing on its own, so it opens no server→client channel (v0.280.0). Arguments are checked against
+each tool's `inputSchema` and reach it as the schema says (`"false"` a `false`, `"30"` a `30`); an
+unexpected error reaches the assistant as a plain sentence, its message only in the log. The app
+hands in its tools, prompts and instructions:
 
 ```js
 { name, title, description, inputSchema, annotations?, feature?, handler(principal, args) }

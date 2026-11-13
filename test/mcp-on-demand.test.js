@@ -95,6 +95,13 @@ test('tools kept on demand: out of the list, named by the door, read and run thr
   assert.match(more.description, /: add_subtask, share_list\. When the user asks/, 'the door names what is behind it');
   assert.deepEqual(more.annotations, { title: 'More tools', readOnlyHint: true, openWorldHint: false });
   assert.equal(list.find((t) => t.name === 'work_use_tool').annotations.destructiveHint, false, 'nothing destructive goes through it');
+  // sc-mcp-22: as many names as there are behind it, and the door's own arguments checked as any tool's.
+  assert.equal(more.inputSchema.properties.names.maxItems, 2);
+  assert.match(said(await mcp.callTool(ADA, 'work_more_tools', { names: ['add_subtask', 'share_list', 'list_items'] })),
+    /^Invalid arguments for work_more_tools: "names" can have at most 2 items/);
+  assert.match(said(await mcp.callTool(ADA, 'work_more_tools', { names: { evil: true } })), /^Invalid arguments for work_more_tools/);
+  assert.match(said(await mcp.callTool(ADA, 'work_use_tool', { name: 'x'.repeat(200) })), /^Invalid arguments for work_use_tool: "name" must be at most 128/);
+  assert.match(said(await mcp.callTool(ADA, 'work_more_tools', { names: 'add_subtask' })), /^add_subtask — Add a subtask/, 'one name for a list, as any tool');
 
   // A line each, then what one named does and takes.
   const lines = said(await mcp.callTool(ADA, 'work_more_tools', {}));

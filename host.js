@@ -72,6 +72,7 @@ import { createLive, subscribeAll } from './live.js';
 import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
+import { describeErrorWith } from './mcp-kit.js';
 import { createTexts } from './i18n.js';
 import { createShareMail } from './share-mail.js';
 import { createPortability } from './portability.js';
@@ -320,29 +321,37 @@ const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
  * its instructions). Whole parts only, as many as fit. `instead` may give a
  * module's part in place of its brief (why its tools are not there).
  * `hostDoes` says what the host's own tools (`<hostId>_…`) are for.
+ * A part that doesn't fit is left out whole, so the text never says more than
+ * `max`: `log` says so, and `onLeftOut(mounts)` is given the modules it left
+ * out (`null` for the host's own line), for a host to warn at start and its
+ * tests to see it (hostMcp's `instructionsLeftOut`).
  */
 export function hostInstructions({
   modules, hostName, hostId = null, hostDoes = 'link things between modules', max = MCP_TEXT_MAX, log = () => {}, instead = () => null,
+  onLeftOut = null,
 }) {
   if (!modules.length) return '';
   const names = modules.map((m) => m.config.app.name);
   const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
-  const parts = [`${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
+  const parts = [{ mount: null, text: `${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
     + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')})`
-    + `${hostId ? `, or with ${hostId}_ for the ones that ${hostDoes}` : ''}.`];
+    + `${hostId ? `, or with ${hostId}_ for the ones that ${hostDoes}` : ''}.` }];
   for (const m of modules) {
     const spec = m.parts.mcp;
     const name = (tool) => `${m.mount}_${tool}`;
-    parts.push(instead(m) ?? (typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions)));
+    parts.push({ mount: m.mount, text: instead(m) ?? (typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions)) });
   }
   let text = '';
   const left = [];
-  for (const part of parts.filter(Boolean)) {
-    const next = text ? `${text}\n\n${part}` : part;
+  for (const part of parts.filter((p) => p.text)) {
+    const next = text ? `${text}\n\n${part.text}` : part.text;
     if (next.length <= max) text = next;
-    else left.push(part.slice(0, 40));
+    else left.push(part);
   }
-  if (left.length) log(`[mcp] the instructions don't fit in ${max} characters; left out: ${left.join(' | ')}…`);
+  if (left.length) {
+    log(`[mcp] the instructions don't fit in ${max} characters; left out: ${left.map((p) => p.mount ?? 'the host’s line').join(', ')} (${left.map((p) => p.text.slice(0, 40)).join(' | ')}…)`);
+    onLeftOut?.(left.map((p) => p.mount));
+  }
   return text;
 }
 
@@ -369,6 +378,32 @@ function schemaSaying(schema, say) {
 }
 
 /**
+ * A tool's answer with `say` applied to its texts: "give it one with edit_step" is
+ * `next_edit_step` in the host, as in its description. Not the answer of a tool that only
+ * reads, unless it is an error: that one carries the person's own words (a note's body, a
+ * step's detail), which may go back whole in an edit, and a word of theirs that is a tool's
+ * name would come back changed.
+ */
+function resultSaying(result, say, { reads = false } = {}) {
+  if (!Array.isArray(result?.content) || (reads && !result.isError)) return result;
+  return {
+    ...result,
+    content: result.content.map((part) => (part?.type === 'text' && typeof part.text === 'string'
+      ? { ...part, text: say(part.text) } : part)),
+  };
+}
+
+/** The suite's sentence for an error's code, in English as every tool text, or null when it has none. */
+let suiteEnglish = null;
+function suiteErrorSentence(code, extra = {}) {
+  suiteEnglish ??= createTexts()({ headers: { 'accept-language': 'en' } }).t;
+  const t = suiteEnglish;
+  const field = extra.field ? t(`fields.${extra.field}`) : null;
+  const sentence = t(`errors.${code}`, { ...extra, ...(field ? { field: field === `fields.${extra.field}` ? extra.field : field } : {}) });
+  return sentence === `errors.${code}` ? null : sentence;
+}
+
+/**
  * One MCP for every module of a host, at the host's /mcp: each module's tools
  * with its path before their name (`tasks_add_task`), checked against that
  * module's plan features, and only those of the modules each person uses in
@@ -381,8 +416,13 @@ function schemaSaying(schema, say) {
  *   the instructions says it, and `<host>_plan_info` tells what to pass on.
  * · `onDemand` ({ mount: [tool names] }): tools kept out of the list and
  *   reached through the door (mcp.js), unless `allTools(principal)`.
- * · `namesInText`: a module's tool names in its descriptions and prompts with
- *   its prefix (prefixNames).
+ * · `namesInText`: a module's tool names in its descriptions, prompts and
+ *   answers with its prefix (prefixNames; not in what a reading tool answers,
+ *   resultSaying).
+ *
+ * What a tool throws reads as its module says (its `describeError`), else as
+ * the suite's catalog says (`errors.<code>` in English): the host's own tools
+ * too, so `field_invalid` is never all an assistant gets.
  * · `record(principal, tool)`: after each call that changed something.
  * · `maxResultChars`: the most text an answer carries (mcp.js capResult).
  * · `calendar` (calendar.js createCalendar): `<host>_calendar`, what has a
@@ -416,15 +456,18 @@ export function hostMcp({
       module: m.mount,
       ...(feature ? { feature } : {}),
       ...(namesInText ? { description: say(tool.description), inputSchema: schemaSaying(tool.inputSchema, say) } : {}),
-      // A module's errors read as that module says, for the assistant to pass on.
+      // A module's errors read as that module says, for the assistant to pass on; with
+      // `namesInText`, its answers name its tools as the host does.
       handler: async (principal, args) => {
+        let result;
         try {
-          return await tool.handler(principal, args);
+          result = await tool.handler(principal, args);
         } catch (error) {
           const text = m.parts.mcp.describeError?.(error);
-          if (text) return { isError: true, content: [{ type: 'text', text }] };
-          throw error;
+          if (!text) throw error;
+          result = { isError: true, content: [{ type: 'text', text }] };
         }
+        return namesInText ? resultSaying(result, say, { reads: tool.annotations?.readOnlyHint === true }) : result;
       },
     };
   });
@@ -554,19 +597,31 @@ export function hostMcp({
     },
   } : null;
 
-  const instructions = (principal) => {
+  const instructionsWith = (principal, { quiet = false, onLeftOut = null } = {}) => {
     const instead = principal ? new Map(blocked(principal).map(({ m, why }) => [m.mount, `${m.config.app.name}: ${upgrade(why)}`])) : new Map();
     const linksOn = linkable.length >= 2 && (!principal || linking(principal));
     const calendarOn = datable.length > 0 && (!principal || dating(principal));
     return hostInstructions({
-      modules: modules.filter((m) => m.parts?.mcp && (!principal || using(principal, m.mount))), hostName, log,
+      modules: modules.filter((m) => m.parts?.mcp && (!principal || using(principal, m.mount))), hostName, log: quiet ? () => {} : log,
       hostId: linksOn || calendarOn ? hostId : null,
       hostDoes: [linksOn && 'link things between modules', calendarOn && 'show what has a date in them'].filter(Boolean).join(' or '),
       instead: (m) => instead.get(m.mount) ?? null,
+      onLeftOut,
     });
   };
+  const instructions = (principal) => instructionsWith(principal);
+  /**
+   * The modules whose part of the instructions doesn't fit (hostInstructions), for someone
+   * or, without a principal, for whoever uses them all: [] when every one is there.
+   */
+  const instructionsLeftOut = (principal = null) => {
+    let left = [];
+    instructionsWith(principal, { quiet: true, onLeftOut: (mounts) => { left = mounts; } });
+    return left;
+  };
   return {
-    instructions, tools, prompts, allows, visible,
+    instructions, instructionsLeftOut, tools, prompts, allows, visible,
+    describeError: describeErrorWith({ errorSentence: suiteErrorSentence }),
     ...(kept.size ? { onDemand: (principal, tool) => kept.has(tool.name) && !allTools(principal), door: hostId } : {}),
     ...(record ? { recordChange: record } : {}),
     ...(maxResultChars ? { maxResultChars } : {}),
@@ -1216,6 +1271,12 @@ export async function createHost({
   });
   // The same as the root says of itself (createApp): on, and with tools or links to serve.
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
+  // A module's part of the instructions that doesn't fit is left out whole: said once at start,
+  // for whoever reads the log (and a host's tests), not only on each conversation.
+  const leftOut = hostOffersMcp ? mcp.instructionsLeftOut() : [];
+  if (leftOut.length) {
+    log(`[mcp] warning: the instructions leave out ${leftOut.map((mount) => mount ?? 'the host’s line').join(', ')}: their part doesn't fit in ${MCP_TEXT_MAX} characters`);
+  }
 
   // The apps' old addresses, while the bridge is up: empty, nothing of it runs.
   const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl });
