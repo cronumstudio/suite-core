@@ -22,7 +22,7 @@ const { showModal, close } = FakeElement.prototype;
 FakeElement.prototype.showModal = function showOpen() { showModal.call(this); this.setAttribute('open', ''); };
 FakeElement.prototype.close = function closeOpen() { this.removeAttribute('open'); close.call(this); };
 
-const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, QUESTION_WIDTH, menu, closeMenu, moreButton } = await import('../web/ui.js');
+const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, trashKeeps, QUESTION_WIDTH, menu, closeMenu, moreButton } = await import('../web/ui.js');
 const { el } = await import('../web/dom.js');
 
 const buttonsOf = (node) => node.find('button').filter((b) => (b.getAttribute('class') || '').includes('kit-btn'));
@@ -337,6 +337,12 @@ test('deleteDialog and undoToast: the question with its name and a red button, a
   assert.equal(undo.textContent, 'kit.undo');
   await press(undo);
   assert.deepEqual(undone, [true]);
+});
+
+test('trashKeeps: the plan\'s days above a trash\'s rows, or until it is emptied', () => {
+  assert.equal(trashKeeps(30), 'kit.trash.keepDays');
+  assert.equal(trashKeeps(null), 'kit.trash.keepForever', 'a plan that keeps it all');
+  assert.equal(trashKeeps(undefined), 'kit.trash.keepForever');
 });
 
 /* ---------------------------------- menus --------------------------------- */

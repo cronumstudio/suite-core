@@ -715,6 +715,16 @@ export function undoToast(text, onUndo) {
   return toast(text, { action: { label: t('kit.undo'), onClick: onUndo } });
 }
 
+/**
+ * How long a trash keeps what is in it, said the same in every module above its rows: the plan's
+ * days (`retention.days`, which the module's server sends as `days`), or, with `null`, until it is
+ * emptied. The rest of a trash's words are the kit's too (`kit.restore`, `kit.deleteForever`,
+ * `kit.cantUndo`, `kit.trash.*`; web-kit.md, rule 10).
+ */
+export function trashKeeps(days) {
+  return days == null ? t('kit.trash.keepForever') : t('kit.trash.keepDays', { n: days });
+}
+
 /* ---------------------------------- menus --------------------------------- */
 
 let openMenuNode = null;

@@ -69,6 +69,16 @@ going from one module to the next in Cronum Work nothing moves:
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text.
+10. **A trash speaks the same words in every module** (v0.290.0), the kit's: its title «Papelera»
+   (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
+   things above its rows whenever it holds some, from the plan the server sends as `days`
+   (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
+   (`kit.deleteForever`) on a row, «Esto no se puede deshacer.» (`kit.cantUndo`) where it asks,
+   and «Vaciar papelera» (`kit.trash.emptyAction`) at the start of the dialog's foot, «Cerrar» plain
+   at its end. «Vaciar» is offered only for what the person may empty, and its question counts only
+   that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
+   Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
+   (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
 
 ## A page
 

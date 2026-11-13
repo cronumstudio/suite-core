@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.290.0 — 2026-11-14
+
+- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 10; audit of
+  6/11: ux-textos-3, ux-textos-8, ui-dialogos-4, ux-acciones-13). Tasks, Notes and Projects each said
+  their trash their own way: «Recuperar» and «Restaurar», «Borrar del todo» and «Borrar para siempre»,
+  «permanently» and «for good», four ways of saying it can't be undone, two Englishes for how long it
+  keeps things, and an emoji in some titles. The kit now has the words, in the five languages:
+  `kit.restore`, `kit.deleteForever` («Borrar para siempre» / «Delete for good»), `kit.cantUndo`
+  («Esto no se puede deshacer.»), and `kit.trash.*`: `title` (no emoji), `empty`, `keepDays`,
+  `keepForever`, `emptyAction`, `emptyAsk`, `emptyConfirm`, and the notices `moved` («"X" a la
+  papelera»), `restored` («"X" ha vuelto»), `deleted` («"X" se ha borrado para siempre») and
+  `emptied` («N elementos borrados para siempre»). New `trashKeeps(days)` says how long a trash keeps
+  what is in it, from the plan's days its server sends, or until it is emptied (`null`). Additive: the
+  modules move to them and delete their own copies.
+- **Erasing a module's data says it can't be undone in the same words** (`kit.data.eraseText`): «…
+  todo lo que tienes en {app}. Esto no se puede deshacer.» in place of «sin vuelta atrás», in the five
+  languages.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
