@@ -32,7 +32,7 @@ const moduleOf = (mount, name, { gated = false, range = null } = {}) => ({
     mcp: {
       tools: [{
         name: 'list_items', title: 'List items', description: 'Lists the items.',
-        annotations: { readOnlyHint: true, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: { type: 'object', properties: {} }, handler: () => ({ content: [{ type: 'text', text: '[]' }] }),
       }],
       prompts: {
