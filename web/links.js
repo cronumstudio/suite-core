@@ -362,7 +362,7 @@ export function linksRow({
     name.focus?.();
     // Where it may go, when that module has places (lists, notebooks, projects).
     try {
-      const found = await call('GET', `/api/links/search?module=${encodeURIComponent(kind.module)}&type=${encodeURIComponent(kind.type)}&q=&places=1`);
+      const found = await call('GET', `/api/links/search?module=${encodeURIComponent(kind.module)}&type=${encodeURIComponent(kind.type)}&q=`);
       for (const option of found?.places || []) place.append(el('option', { value: option.id, text: option.name }));
       placeField.hidden = !(found?.places || []).length;
     } catch {
@@ -408,8 +408,9 @@ export function linksRow({
       const ask = ++asked;
       let found;
       try {
+        // No places: this dialog never shows them, and each key would ask them again (sc-feat-15).
         found = await call('GET', `/api/links/search?module=${encodeURIComponent(kind.module)}&type=${encodeURIComponent(kind.type)}`
-          + `&q=${encodeURIComponent(query.value.trim())}`);
+          + `&q=${encodeURIComponent(query.value.trim())}&places=0`);
       } catch (err) {
         if (ask === asked) clear(results).append(el('p', { class: 'kit-error', text: errorMessage(err) }));
         return;

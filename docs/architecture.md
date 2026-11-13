@@ -2169,8 +2169,9 @@ without it. A search's cards are shown as the module's `search` gives them, none
 - **Created where it lives**: `POST /api/links/new { from, module, type, data, together }` asks the
   other module to create it, by its own rules, and links it in the same transaction ("Send to
   Tasks"); `GET /api/links/search?module&type&q` lists what may be linked, `{ items, places,
-  creates }`, and with `&places=1` the places to create in (without it `places` is `[]`: only "Add
-  to…" shows them, and they cost the module a query for each list; 0.280.0). `POST /api/links
+  creates }`, with the places to create in; `&places=0` leaves them out (`places: []`), as the kit's
+  "Link existing…" asks at each key: only "Add to…" shows them, and they cost the module a query
+  for each list (0.280.0). `POST /api/links
   { from, to, together }` links what exists: 201 `{ link }`, or, for a pair linked already, 200
   `{ link, existed: true }` with that link as it was (`together` unchanged; 0.280.0), so a page
   says «already linked» and offers no undo (`linkItems()` → `{ link, existed }`; `links.connect()`

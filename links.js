@@ -376,12 +376,12 @@ export function createLinks({
   }
 
   /**
-   * What someone may link in a module: its search, and with `places`, where it may create
-   * something. Only "Add to…" shows those, and they cost the module a query or two for each list
-   * or notebook: asked at every key of "Link existing…" they were never shown (audit of 6/11,
-   * sc-feat-15). Without `places`, `places` is [].
+   * What someone may link in a module: its search, and where it may create something. Only "Add
+   * to…" shows those, and they cost the module a query or two for each list or notebook: asked at
+   * every key of "Link existing…" they were never shown, so that one says `places: false` and gets
+   * `places: []` (audit of 6/11, sc-feat-15).
    */
-  function search(user, module, type, text, { places: withPlaces = false } = {}) {
+  function search(user, module, type, text, { places: withPlaces = true } = {}) {
     const ref = refOf({ module, type, id: 'x' }, 'module');
     if (!uses(user, ref.module)) return { items: [], places: [] };
     const provider = providerOf(ref);
@@ -492,10 +492,10 @@ export function registerLinksApi(api, { links }) {
     // `can_link`: whether this person may link from it (or add something new); the page offers it only then.
     sendJson(ctx.res, 200, { links: links.of(user, ref), can_link: links.canLink(user, ref) });
   });
-  // `places=1`: where "Add to…" may put it too (search's `places`).
+  // `places=0`: without where "Add to…" may put it (search's `places`), for a search that never shows them.
   api.get('/api/links/search', (ctx) => sendJson(ctx.res, 200,
     links.search(who(ctx), ctx.query.get('module'), ctx.query.get('type'), ctx.query.get('q'),
-      { places: ctx.query.get('places') === '1' })));
+      { places: ctx.query.get('places') !== '0' })));
   // 201 and the new link; a pair linked already, 200 with that link and `existed: true`.
   api.post('/api/links', async (ctx) => {
     const body = await readJson(ctx.req);

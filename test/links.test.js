@@ -273,15 +273,15 @@ test('linking a pair linked already says so, and hands that link (audit of 6/11,
   assert.equal(links.link(ana, 'alpha:item:1', 'beta:item:1').id, made.link.id, 'link() still gives the link alone');
 });
 
-test('a search gives where to create only when asked: "Link existing…" never shows them (audit of 6/11, sc-feat-15)', (t) => {
+test('a search may leave out where to create: "Link existing…" never shows them (audit of 6/11, sc-feat-15)', (t) => {
   const { database, links, modules } = setup(t);
   database.run("INSERT INTO beta_items (id, user_id, text) VALUES (1, 1, 'Review')");
   let asked = 0;
   const places = modules[1].parts.cards.item.places;
   modules[1].parts.cards.item.places = (user) => { asked += 1; return places(user); };
-  for (const text of ['R', 'Re', 'Rev']) assert.deepEqual(links.search(ana, 'beta', 'item', text).places, []);
+  for (const text of ['R', 'Re', 'Rev']) assert.deepEqual(links.search(ana, 'beta', 'item', text, { places: false }).places, []);
   assert.equal(asked, 0, 'not at every key');
-  assert.deepEqual(links.search(ana, 'beta', 'item', '', { places: true }).places, [{ id: 'inbox', name: 'Inbox' }]);
+  assert.deepEqual(links.search(ana, 'beta', 'item', '').places, [{ id: 'inbox', name: 'Inbox' }], 'by default, as before');
   assert.equal(asked, 1);
 });
 

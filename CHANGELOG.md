@@ -42,8 +42,9 @@ module gives today keeps working as it does.
   /api/links` answers 200 `{ link, existed: true }` for it (201 `{ link }` for a new one, as
   before), and `linkItems()` gives `{ link, existed }`; `links.connect()` on the server.
 - **Places only for "Add to…"** (`links.js`, `web/links.js`; sc-feat-15). `GET
-  /api/links/search` computes the places to create in only with `places=1`, which the kit's create
-  dialog sends; "Link existing…" asked them at every key and never showed them.
+  /api/links/search?places=0` leaves out the places to create in (`places: []`), and the kit's
+  "Link existing…" sends it: it asked them at every key and never showed them. Without it, as
+  before.
 - **Titles of deleted things** (`links.js`, `host.js`; sc-feat-16). `links.prune()` runs a minute
   after the host starts and every six hours, not only when an account goes; and a side's title is
   kept as whoever linked it sees it (`createLinks({ userOf })`): a rename after they lost sight of

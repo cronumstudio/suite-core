@@ -452,8 +452,9 @@ test('links between modules: each sees what they could see, created where it liv
   assert.equal(added.data.link.together, true);
   const found = await call('GET', '/api/links/search?module=beta&type=item&q=Rev');
   assert.deepEqual(found.data.items.map((i) => i.title), ['Review it']);
-  assert.deepEqual(found.data.places, [], 'where to create it only when asked: "Add to…" (audit of 6/11, sc-feat-15)');
-  assert.deepEqual((await call('GET', '/api/links/search?module=beta&type=item&q=&places=1')).data.places, [{ id: 'inbox', name: 'Inbox' }]);
+  assert.deepEqual(found.data.places, [{ id: 'inbox', name: 'Inbox' }]);
+  assert.deepEqual((await call('GET', '/api/links/search?module=beta&type=item&q=Rev&places=0')).data.places, [],
+    'places=0: none, for "Link existing…" (audit of 6/11, sc-feat-15)');
 
   // Done together: completing one side completes the other in the same transaction; a plain link only shows it.
   const told = [];
