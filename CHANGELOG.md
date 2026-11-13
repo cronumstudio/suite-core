@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.283.0 — 2026-11-14
+## 0.284.0 — 2026-11-14
 
 Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
 routes; measured on the audit's database (301 accounts, ~37 000 tasks, 14 000 notes), numbers in
@@ -57,6 +57,8 @@ the pull request.
   `prepareExport()` stays as it was, for the command line and the tests; without a file to open a
   second connection on (`:memory:`), the routes use it.
 
+## 0.283.0 — 2026-11-14
+
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
   `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
   optional `permissions`: the same `[{ value, label, offered? }]` list `shareDialog` takes, broadest
@@ -67,6 +69,7 @@ the pull request.
 - **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
   claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
   paused ones: «Open projects» now, in the five languages.
+
 ## 0.279.0 — 2026-11-14
 
 - **Turning notices on works again on databases from before 0.255.0** (`schema.js`, suite migration 30):
