@@ -85,7 +85,7 @@ import {
 } from './http.js';
 import { fingerprint } from './host-worker.js';
 import { watchCode } from './watcher.js';
-import { SUITE_CATALOGS, mergeCatalogs } from './i18n.js';
+import { SUITE_CATALOGS, mergeCatalogs, CATALOG_FALLBACK } from './i18n.js';
 
 const HOUR = 3600 * 1000;
 const MINUTE_BEFORE_SWEEP = 60 * 1000;
@@ -944,7 +944,22 @@ export function createApp({
    */
   const catalogDir = publicDir ? path.join(publicDir, 'i18n') : null;
   const catalogs = new Map();
-  function catalogFor(lang, { all = false } = {}) {
+  const etagOf = (body) => `W/"${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"`;
+  function catalogFor(lang, { all = false, english = false } = {}) {
+    // `english` (`?en`): the language with English under it, every key it lacks English's (the kit's
+    // i18n.js asks for this one alone, where it asked for English and then the language). The
+    // catalog itself stays as it was: the conformance check reads what a language lacks there.
+    if (english && lang !== 'en') {
+      const base = catalogFor('en', { all });
+      const own = catalogFor(lang, { all });
+      const key = `${lang}${all ? '+all' : ''}+en`;
+      const cached = catalogs.get(key);
+      if (cached && cached.from === own && cached.under === base) return cached;
+      const body = JSON.stringify({ ...mergeCatalogs(base.catalog, own.catalog), [CATALOG_FALLBACK]: 'en' });
+      const entry = { from: own, under: base, body, etag: etagOf(body) };
+      catalogs.set(key, entry);
+      return entry;
+    }
     const key = all ? `${lang}+all` : lang;
     const file = catalogDir ? path.join(catalogDir, `${lang}.json`) : null;
     let mtime = -1;
@@ -960,8 +975,9 @@ export function createApp({
       }
     }
     const suite = SUITE_CATALOGS[lang] || {};
-    const body = JSON.stringify(mergeCatalogs(all ? suite : clientTexts(suite), own));
-    const entry = { mtime, body, etag: `W/"${crypto.createHash('sha1').update(body).digest('hex').slice(0, 16)}"` };
+    const catalog = mergeCatalogs(all ? suite : clientTexts(suite), own);
+    const body = JSON.stringify(catalog);
+    const entry = { mtime, catalog, body, etag: etagOf(body) };
     catalogs.set(key, entry);
     return entry;
   }
@@ -1110,7 +1126,7 @@ export function createApp({
           sendText(res, 404, 'Not found');
           return;
         }
-        const { body, etag } = catalogFor(wanted, { all: url.searchParams.has('all') });
+        const { body, etag } = catalogFor(wanted, { all: url.searchParams.has('all'), english: url.searchParams.has('en') });
         if (req.headers['if-none-match'] === etag) {
           res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
           res.end();

@@ -160,6 +160,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(catalog.data['alpha.title'], 'Alpha');
   assert.equal(catalog.data.errors?.username_taken ?? catalog.data['errors.username_taken'], 'That username is already taken.');
   assert.equal((await call('GET', '/alpha/i18n/es.json')).status, 200);
+  const alphaUnder = (await call('GET', '/alpha/i18n/es.json?en')).data;
+  assert.equal(alphaUnder['$meta.fallback'], 'en', 'a module’s catalog with English under it, at its path (0.276.0)');
+  assert.equal(alphaUnder['alpha.title'] ?? alphaUnder.alpha?.title, (await call('GET', '/alpha/i18n/es.json')).data['alpha.title'] ?? 'Alpha');
   assert.equal((await call('GET', '/beta/i18n/es.json')).status, 404, 'not a language of beta');
   assert.match((await call('GET', '/alpha/js/app-version.js')).data, /APP_NAME_VERSION = '1\.0\.0'/);
   assert.equal((await call('GET', '/beta/version')).data.app, '2.0.0');

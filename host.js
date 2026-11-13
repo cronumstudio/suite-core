@@ -91,7 +91,7 @@ import { FOUNDER_NOTICE_PREFS } from './billing.js';
 import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
-  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
+  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush, catalogsOverEnglish,
 } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
@@ -1478,14 +1478,14 @@ export async function createHost({
     const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
     const icon = hostWorker.icon || config.app.icon || null;
     const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
-    const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
+    const shell = catalogsOverEnglish([...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
       // The host's own pages' files, at their paths: the new worker brings them with its version.
       ...pageList.flatMap((page) => pageShell(page)),
       // A page that shows several modules loads each one's sheets scoped to its windows (scopedSheets):
       // kept too, or a module opened without a signal on a new copy shows unstyled.
-      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])];
+      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])]);
     // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
-    const optional = [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])];
+    const optional = catalogsOverEnglish([...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])]);
     const options = {
       version: `${config.app.id}-${now.version}`,
       modules: joined.map((m) => `/${m.mount}/`),

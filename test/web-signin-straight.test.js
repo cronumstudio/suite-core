@@ -46,7 +46,9 @@ globalThis.fetch = async (url) => {
 
 const { loadLanguage } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
-const { signIn, straightToProvider, leave } = await import('../web/signin.js');
+const { straightToProvider, leave, signIn: signInLater } = await import('../web/signin.js');
+// The screen itself, drawn at once (signin.js loads it when it is drawn, 0.276.0).
+const { signIn } = await import('../web/signin-form.js');
 
 const app = { name: 'Cronum Work', icon: '/icons/favicon.svg' };
 const workos = { provider: 'workos', name: 'WorkOS' };
@@ -75,6 +77,18 @@ test('with WorkOS and nothing to say first, its page opens at once, coming back 
   assert.deepEqual(went, [`/auth/login?return=${encodeURIComponent('/tasks/?list=3')}`]);
   // In place of the page, not after it: Back from the provider's page doesn't come here.
   assert.deepEqual(card().links, [], 'no card drawn on the way');
+});
+
+test('signin.js signIn draws the same screen, from signin-form.js, loaded when it is drawn (0.276.0)', async () => {
+  at('/tasks/?list=3');
+  signInLater({ app, config: workos });
+  assert.deepEqual(went, [], 'not yet: the code of the screen is on its way');
+  for (let i = 0; i < 20 && !went.length; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(went, [`/auth/login?return=${encodeURIComponent('/tasks/?list=3')}`]);
+  document.body.replaceChildren();
+  signInLater({ app, config: workos });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(card().links, ['Sign in', 'Create an account'], 'the card, the second time in the minute');
 });
 
 test('a second time within the minute the card stays, and its button no longer names WorkOS', () => {
