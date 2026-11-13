@@ -190,11 +190,25 @@ export function shellHashes(urls, { kitDir, places = [], catalogs = '' }) {
     let hash = null;
     if (/^i18n\/[a-z]{2}\.json$/.test(rest)) {
       const own = place.i18nDir ? hashOf(path.join(place.i18nDir, rest.slice('i18n/'.length))) : null;
-      hash = crypto.createHash('sha1').update(`${catalogs}:${own || 'none'}`).digest('hex').slice(0, 16);
+      // With English under it (`?en`, catalogsOverEnglish): the app's English file is in it too.
+      const under = OVER_ENGLISH.test(String(url)) && place.i18nDir ? `:${hashOf(path.join(place.i18nDir, 'en.json')) || 'none'}` : '';
+      hash = crypto.createHash('sha1').update(`${catalogs}:${own || 'none'}${under}`).digest('hex').slice(0, 16);
     } else if (place.dir) hash = hashOf(path.join(place.dir, rest));
     if (hash) found[url] = hash;
   }
   return found;
+}
+
+/** A catalog's address with English under it (app.js catalogFor `english`). */
+const OVER_ENGLISH = /[?&]en(?:&|$)/;
+
+/**
+ * A worker's list of files with every catalog but English's as the kit's i18n.js asks for it since
+ * 0.285.0: the language with English under it (`/tasks/i18n/es.json?en`), one catalog where it
+ * was two. The copy keeps what the page reads: a weak signal waits for no catalog, as before.
+ */
+export function catalogsOverEnglish(urls) {
+  return [...new Set(urls.map((url) => (typeof url === 'string' && /\/i18n\/(?!en\.json)[a-z]{2}\.json$/.test(url) ? `${url}?en` : url)))];
 }
 
 /** The worker's script: sw-core.js from the host's kit, and what it keeps. */

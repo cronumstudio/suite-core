@@ -3,6 +3,52 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.285.0 — 2026-11-14
+
+- **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,
+  `page-hints.js`, `host-worker.js`, `host.js`; audit of 6/11, perf-web-5). Every copy of the kit
+  asked for English and then the person's language, one after the other, though English only
+  stood in for a key the language lacked: in Cronum Work, two catalogs per module, most of their
+  bytes the kit's texts twice.
+  - `GET /i18n/<lang>.json?en` (also with `?all`): the language with English under it, every key
+    it lacks English's, and `$meta.fallback: "en"` saying so (`CATALOG_FALLBACK`). Each key reads as
+    before, English's where the language has none; `/i18n/<lang>.json` is the language alone, as it
+    was (the conformance check reads what it lacks), and English is still `/i18n/en.json`.
+  - The kit asks for that one alone (`catalogPath(lang)`): English only for English. A catalog
+    that comes without the mark (an older server, a copy kept before) has English asked for too,
+    as before; none at all (no signal and no copy), English stands in, as it did.
+  - A module page's `Link` names that one catalog (`es.json?en`, or `en.json`), and a host's worker
+    keeps every other language's as the kit asks for it (`catalogsOverEnglish`), its hash with the
+    app's English file in it too (`shellHashes`): a weak signal waits for no catalog.
+  - Measured on a local Work in Spanish (every key of every module's catalog, and the shell's, in
+    every language, reads the same both ways): a module's catalogs are 1 request where they were 2,
+    and Tasks' 108 KB where they were 212 (Notes 83/162, Projects 88/172, Next 81/159, the shell 68/133);
+    with the four modules and the shell, 5 catalogs and 428 KB where there were 10 and 838 KB.
+- **A module's start no longer evaluates the sign-in screen, Settings' plan and the worker**
+  (`web/signin.js`, `web/signin-form.js`, `web/plan.js`, `web/plan-return.js`, `web/shell.js`,
+  `web/update.js`, `web/sw-core.js`; audit of 6/11, perf-web-4). Each module mounted in Cronum Work
+  loads the kit from its own address and evaluated its own copy whole, with code that inside Work
+  never runs or runs only on a tap.
+  - The sign-in screen is `signin-form.js`, which `signIn()` loads when it draws it: a page with a
+    session never evaluates it. `signin.js` keeps every export (signing out, `pendingChanges`,
+    `confirmEmailFromLink`, `straightToProvider`…); `signIn()` resolves as before, the screen a
+    moment later than before (its file, from the worker's copy).
+  - `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, which the frame (shell.js)
+    takes them from; `plan.js`, Settings' plan section, comes only with Settings, and still names
+    all three.
+  - `update.js` asks for worker.js (and with it push.js) only when a check needs the host's worker:
+    a module in a window of Work, which never watches for updates itself, doesn't evaluate them.
+  - The worker's copy keeps the two new files.
+  - Measured from the static imports of each module's main.js (what Work mounts): the kit a module
+    evaluates goes from 402 to 337 KB in Tasks, 388 to 314 in Projects, 405 to 331 in Notes and 382
+    to 308 in Next, 1 577 to 1 289 KB with the four; the shell's own copy from 299 to 288 KB. In the
+    test Chrome, with no worker, cold: Tasks' window 27 kit files and 372 KB where it was 28 and 422
+    (the four, 108 files and 1 674 KB → 101 and 1 446 KB; parsed, 1 595 → 1 372 KB).
+- **Docs: live notices while a module is put away** (`docs/architecture.md` §21.6; audit of 6/11,
+  perf-web-2): the mount contract says what the shell does with a hidden module's notices since Work
+  0.109.0 (held, then one `onResync()` after `resume()`), and that a paused module doesn't reload on
+  `visibilitychange`.
+
 ## 0.284.0 — 2026-11-14
 
 Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
