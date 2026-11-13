@@ -13,13 +13,19 @@
  *     leave: async (item) => {},                 // decline it, or leave it, when it is shared with me
  *     accept: async (item) => {},                // take up an invitation (optional)
  *     open: (item, { close }) => {},             // go to it (optional; `close` closes Settings)
+ *     permissions: [{ value, label, offered }],  // the app's own roles (optional), as the share dialog's
  *   })] });
  *
  * An item: { kind, id, name, color, icon, path }. What the person shares
  * (`mine`) carries `people: [{ user: { id, name, email }, permission, accepted }]`;
  * what is shared with them (`withMe`), `owner: { name }`, `permission` and
- * `accepted`. A permission is 'view' or 'edit'. After every change the section
- * asks `load()` again, so what it shows is always the server's.
+ * `accepted`. A permission is 'view' or 'edit', unless the app has roles of its
+ * own for the people of what it shares: `permissions`, broadest first, the same
+ * list the share dialog takes (Projects: manages, can edit, read only), or a
+ * function of the item when they differ from one to another (naming a manager
+ * is a project's owner's alone). What is shared with the person still says
+ * 'view' or 'edit'. After every change the section asks `load()` again, so what
+ * it shows is always the server's.
  */
 import { el, clear } from './dom.js';
 import { t } from './i18n.js';
@@ -44,7 +50,9 @@ export function sharedSection(options) {
 }
 
 /** The page itself, for an app that shows it somewhere else too. */
-export function sharedPage({ load, kinds = {}, setPermission, remove, leave, accept = null, open = null, close = () => {} }) {
+export function sharedPage({
+  load, kinds = {}, setPermission, remove, leave, accept = null, open = null, close = () => {}, permissions = null,
+}) {
   const page = el('div', { class: 'kit-shared', 'aria-busy': 'true' });
   const kindOf = (item) => kinds[item.kind] || { label: '', iconName: 'folder' };
 
@@ -79,19 +87,45 @@ export function sharedPage({ load, kinds = {}, setPermission, remove, leave, acc
       el('span', { class: 'kit-shared__title' }, name, where ? el('small', { text: where }) : null), ...after);
   };
 
-  const permissionChoice = (value, onChange) => segmented(
-    [{ value: 'view', label: t('kit.shared.view') }, { value: 'edit', label: t('kit.shared.edit') }], value, onChange);
+  /** The roles of the app for this item's people (`permissions`), or null for the kit's two. */
+  const rolesOf = (item) => {
+    const roles = typeof permissions === 'function' ? permissions(item) : permissions;
+    return Array.isArray(roles) && roles.length ? roles : null;
+  };
+
+  /**
+   * What a person may do, changed there: the kit's two (can view, can edit) as buttons, or the
+   * app's roles, as buttons when they are two and as a list when they are more, as the share
+   * dialog has them. A role with `offered: false` is never one of the choices.
+   */
+  const permissionChoice = (roles, value, onChange) => {
+    if (!roles) {
+      return segmented([{ value: 'view', label: t('kit.shared.view') }, { value: 'edit', label: t('kit.shared.edit') }], value, onChange);
+    }
+    const offered = roles.filter((role) => role.offered !== false);
+    if (roles.length <= 2) return segmented(offered, value, onChange);
+    const list = el('select', { class: 'kit-input kit-share__permission', 'aria-label': t('kit.share.permission') },
+      ...offered.map((role) => el('option', { value: role.value, text: role.label, selected: role.value === value })));
+    list.addEventListener('change', () => onChange(list.value));
+    return list;
+  };
 
   function mineItem(item) {
+    const roles = rolesOf(item);
     const people = (item.people || []).map((person) => {
       const who = person.user?.name || person.user?.email || '—';
       const email = person.user?.email && person.user.email !== who ? person.user.email : null;
+      // Someone with a role not offered here (a manager, to whoever isn't the owner) keeps it as it
+      // is, said in words: whoever may not give it may not change it nor take it back either.
+      const role = roles?.find((r) => r.value === person.permission);
+      const kept = role?.offered === false;
       return el('div', { class: 'kit-shared__person' },
         avatar(who),
         el('span', { class: 'kit-shared__who' }, el('span', { text: who }), email ? el('small', { text: email }) : null),
         person.accepted ? null : el('span', { class: 'kit-badge kit-badge--warn', text: t('kit.shared.pending') }),
-        permissionChoice(person.permission, (permission) => change(() => setPermission(item, person, permission))()),
-        el('button', {
+        kept ? el('span', { class: 'kit-share__role', text: role.label })
+          : permissionChoice(roles, person.permission, (permission) => change(() => setPermission(item, person, permission))()),
+        kept ? null : el('button', {
           type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.shared.remove', { name: who }), title: t('kit.shared.remove', { name: who }),
           onClick: async () => {
             const sure = await confirmDialog(t('kit.shared.removeConfirm', { name: who, item: item.name }), { confirm: t('kit.shared.stop') });
