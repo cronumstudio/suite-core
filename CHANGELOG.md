@@ -3,6 +3,28 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.289.0 — 2026-11-14
+
+- **One palette and one set of icons for every module** (`web/palette.js`, `web/pickers.js`,
+  `kit.css`, `i18n`, `docs/web-kit.md` rule 10; audit of 6/11, ui-dialogos-9). Tasks offered 13
+  colours, Notes 12, Projects 10 and Next 8 by name, in other orders and other blues; Tasks showed
+  164 emojis at once, Projects 20, Next 16. Now `KIT_COLORS`: twelve colours by name (blue, cyan,
+  teal, green, olive, brown, pink, plum, violet, indigo, steel, slate), each with the hex a module
+  stores (white reads on it, 4.5:1; it shows on the dark page, 3:1) and a lighter step for the dark,
+  the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as })`
+  proposes the first free one, five apart around the wheel. `KIT_ICONS` are twenty in view and
+  `KIT_MORE_ICONS` the rest of Tasks' 164 (none lost). `colorPicker()` and `iconPicker()` offer them,
+  each colour named in words for a screen reader (`kit.colors.*`), «Más…» unfolding the icons
+  (`kit.icons.*`), with what a collection has from before kept, offered first and chosen; options for
+  a field to type any emoji (`typed`), for no colour or no icon (`none`) and for names instead of
+  hexes (`as: 'name'`). New keys in the five languages; nothing that exists changes.
+- **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`; audit of 6/11, dup-css-3):
+  `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,
+  `#BA3429`, from `#1F8A57`, `#A86200`, `#C8372D`), so that each reads 4.5:1 on the page, a panel
+  and its soft tint (the badges'); before, «ok» gave 4.10:1 on the page and «warn» 4.26:1 on its
+  tint. The test now measures those pairs in light and dark. Modules write their states in words
+  with these tokens, keeping their own vivid colours for bars and borders.
+
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,

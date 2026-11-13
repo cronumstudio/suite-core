@@ -69,6 +69,13 @@ going from one module to the next in Cronum Work nothing moves:
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text.
+10. **A collection's colour and icon come from the kit** (`colorPicker()`, `iconPicker()`,
+   `palette.js`; v0.289.0): the same twelve colours, by name, for a list, a notebook, a project
+   and their groups, and the same twenty icons in view with «Más…» for the rest. A colour or an
+   icon it has from before, that the palette no longer offers, is kept as it is and offered first.
+   A state written in words (overdue, at risk, stuck) is the kit's `--kit-danger`, `--kit-warn` or
+   `--kit-ok`, which read on the page, a panel and their soft tint; a module's own vivid state
+   colours stay for bars, dots and borders.
 
 ## A page
 
@@ -120,6 +127,8 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
+| `palette.js` | `KIT_COLORS` (twelve `{ name, hex, dark }`: the hex a module stores, the name's `--kit-color-<name>` token, lighter in the dark), `KIT_COLOR_NAMES`, `kitColor(nameOrHex)`, `suggestedColor(used, { as })` (the first free one, five apart around the wheel), `KIT_ICONS` (twenty in view), `KIT_MORE_ICONS` (behind «Más…»). No DOM: a server loads it too |
+| `pickers.js` | `colorPicker({ value, as: 'hex' \| 'name', label, none, paint, nameOf, onPick })` and `iconPicker({ value, label, typed, none, frequent, more, onPick })` → `{ node, value() }`: the palette as swatches named in words, the icons with «Más…»; what it has from before kept first |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
 | `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
@@ -159,7 +168,8 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 | `kit-btn` (`--primary`, `--quiet`, `--danger`, `--danger-quiet`, `--small`, `--block`), `kit-icon-btn` (`--small`, 34 px in a row), `kit-link` | Buttons |
 | `kit-field` (`> label`, or `> .kit-field__label` for a group), `kit-input`, `kit-hint`, `kit-error`, `kit-check` | Fields, as `field()` makes them |
 | `kit-chip` (`--tint` with `--kit-chip`, `--large`; a `button` with `aria-pressed`) | Something said of an item, or a filter to press |
-| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`) | A colour to choose |
+| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`; `--kept`), `kit-swatch-none` | A colour to choose, as `colorPicker()` makes it; no colour |
+| `kit-icons` > `kit-icons__grid` > `kit-icon-pick` (`aria-pressed`), `kit-icons__more`, `kit-icons__typed` | An icon to choose, as `iconPicker()` makes it |
 | `kit-round-check` (`--done` or `aria-pressed`; `--kit-tick-lift` for another size) | A task's round check |
 | `kit-group-title` | The heading of a group in a list |
 | `kit-avatar` (`--tiny` 20, `--small` 26, `--large` 34 px) | A person, as `avatar()` makes it |
@@ -169,7 +179,7 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
 has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
 `--kit-panel`, `--kit-hover`, `--kit-text`, `--kit-muted`, `--kit-faint`, `--kit-border`,
-`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-shadow`,
+`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-color-<name>`, `--kit-shadow`,
 `--kit-radius` (10 px), `--kit-radius-small` (8 px), `--kit-radius-large`. An app keeps names of
 its own only for its domain (a list's colour, a project's state). Layouts change at the brand's
 widths, `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px): `@media` and `@container` read no

@@ -935,6 +935,30 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
+test('a state as text reads (ok, warn, danger): on the page, a panel and its soft tint, light and dark', () => {
+  // A module's states written in words take these (Projects' overdue, at risk; Next's fresh,
+  // stalled, stuck): their own vivid colours stay for bars and borders (audit of 6/11, dup-css-3).
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  const block = (re) => re.exec(css)[1];
+  const themes = {
+    light: { body: block(/^:root \{([\s\S]*?)\n\}/m), grounds: ['#FFFFFF', '#FAF8F4'] },
+    dark: { body: block(/^:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/m), grounds: ['#1C1914', '#14120E'] },
+  };
+  const mix = (a, b, share) => `#${[1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * share
+    + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, '0')).join('')}`;
+  for (const [theme, { body, grounds }] of Object.entries(themes)) {
+    const token = (name) => new RegExp(`--kit-${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(body)?.[1];
+    for (const state of ['ok', 'warn', 'danger']) {
+      const ink = token(state);
+      // Its soft ground: the kit's own, or the 14 % tint a badge of it gets (.kit-badge--on).
+      const soft = token(`${state}-soft`) || mix(ink, grounds[0], 0.14);
+      for (const ground of [...grounds, soft]) {
+        assert.ok(contrast(ink, ground) >= 4.5, `${theme} ${state} on ${ground}: ${contrast(ink, ground).toFixed(2)}`);
+      }
+    }
+  }
+});
+
 test('one frame: no button for the person at the sidebar\'s foot, and no top bar with tabs', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
