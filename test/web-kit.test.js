@@ -916,9 +916,17 @@ const contrast = (a, b) => {
 
 test('every product’s accent reads: 4.5:1 with its text, light and dark', () => {
   const css = fs.readFileSync(new URL('../web/tokens.css', import.meta.url), 'utf8');
-  const products = [...css.matchAll(/:root\[data-app="(\w+)"\]\s*\{([^}]*)\}/g)];
-  assert.equal(products.length, 6, 'Tasks, Projects, Next, Focus, Notes and Tracker');
-  for (const [, id, body] of products) {
+  // In Work's shell the kit's accent is worked out again from the module's, inside its windows, light and dark.
+  const kit = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(kit, /:root\[data-app="work"\] :is\(\[data-module\], \[data-owner\]\) \{\n\s+--kit-hue: var\(--app, #7A7064\);\n\s+--kit-accent: var\(--app-accent, var\(--app, #16130E\)\);\n\s+--kit-on-accent: var\(--app-on, #FFFFFF\);/);
+  assert.match(kit, /:root\[data-app="work"\]\[data-theme="dark"\] :is\(\[data-module\], \[data-owner\]\) \{\n\s+--kit-accent: var\(--app-accent-dark,/);
+  // A product's own page and, for a module of Cronum Work, its windows and pieces in Work's shell (audit of 6/11, work-web-3).
+  const products = [...css.matchAll(/:root\[data-app="(\w+)"\](?:, :root\[data-app="work"\] :is\(\[data-module="(\w+)"\], \[data-owner="(\w+)"\]\))?\s*\{([^}]*)\}/g)]
+    .map(([, id, inWork, owner, body]) => [id, inWork ?? null, owner ?? null, body]);
+  assert.deepEqual(products.map(([id]) => id), ['tasks', 'projects', 'next', 'focus', 'notes', 'tracker', 'work']);
+  assert.deepEqual(products.filter(([, inWork]) => inWork).map(([id, inWork, owner]) => [id, inWork, owner]),
+    ['tasks', 'projects', 'next', 'notes'].map((id) => [id, id, id]), 'each module of Work in its own accent inside Work');
+  for (const [id, , , body] of products) {
     const token = (name) => new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(body)?.[1];
     assert.equal(token('app').toLowerCase(), new RegExp(`--cr-product-${id}:\\s*(#[0-9A-Fa-f]{6})`).exec(css)[1].toLowerCase(), `${id}: the icon's colour`);
     assert.ok(contrast(token('app-accent'), token('app-on')) >= 4.5, `${id} light: ${contrast(token('app-accent'), token('app-on')).toFixed(2)}`);
@@ -2144,7 +2152,8 @@ test('the section another module sent the person to is read off the address, and
 
 test('the rail\'s top is the host\'s mark, not a way out to the page that chooses the modules', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
-  assert.match(shell, /el\('span', \{ class: 'kit-rail__home', role: 'img', 'aria-label': host\.name \|\| t\('kit\.modules\.rail'\) \}/);
+  // A span; where the host's app is its one-document page, a link back to it (audit of 6/11, work-web-7).
+  assert.match(shell, /el\(host\.shell \? 'a' : 'span', \{\n\s+class: 'kit-rail__home', \.\.\.\(host\.shell \? \{ href: '\/', title: host\.name \|\| null \} : \{ role: 'img' \}\), 'aria-label': host\.name \|\| t\('kit\.modules\.rail'\),/);
   assert.doesNotMatch(shell, /href: '\/\?modules'/);
 });
 
@@ -3054,7 +3063,7 @@ test('in a frame, the split view opens the module\'s Settings, and hears when th
   assert.match(settings, /if \(!FRAMED\) return;/);
   assert.match(settings, /new window\.parent\.CustomEvent\(SETTINGS_SHOWN_EVENT, \{ detail: \{ open, source: window \} \}\)/);
   assert.match(settings, /shown\(true\);/);
-  assert.match(settings, /overlay\.remove\(\);\s*shown\(false\);/);
+  assert.match(settings, /overlay\.remove\(\);\s*layer\?\.close\(\);\s*shown\(false\);/);
 });
 
 test('in Work\'s shell, Settings cover the whole page and another module\'s section opens in its window', () => {

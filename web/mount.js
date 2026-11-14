@@ -12,7 +12,6 @@
  * - `markOwned(node)`: what this copy hangs on the page's body (toasts, dialogs, menus, the drag
  *   ghost) says whose it is, with the page's theme, look and language, so the module's sheet
  *   scoped to its windows (`?scope=work`) reaches it. Only in the shell's page.
- * - `standaloneCtx()`: the ctx of an app on its own page, from its address and its history.
  */
 import { BASE } from './base.js';
 
@@ -44,40 +43,4 @@ export function markOwned(node, { base = BASE, doc = globalThis.document } = {})
     else node.setAttribute(name, value);
   }
   return node;
-}
-
-/**
- * The ctx of an app on its own page: its route is its address after its base (`#/n/55`,
- * `list/12`), moved with the history; it always has the keyboard; a link elsewhere is a page.
- * @param {object} [options]
- * @param {string} [options.base]  the app's base
- * @param {boolean} [options.hash] the app's routes live in the hash (Notes, Next)
- */
-export function standaloneCtx({ base = BASE, hash = false, win = globalThis.window } = {}) {
-  const loc = () => win.location;
-  const route = () => (hash ? loc().hash : loc().pathname.slice(base.length) + loc().search + loc().hash);
-  return {
-    embedded: false,
-    module: ownerOf(base),
-    base,
-    root: win.document.body,
-    signal: undefined,
-    route,
-    navigate(next, { replace = false } = {}) {
-      if (route() === next) return;
-      if (hash && !replace) { loc().hash = next; return; }
-      const url = hash ? next : base + String(next).replace(/^\//, '');
-      win.history[replace ? 'replaceState' : 'pushState'](null, '', url);
-    },
-    onRoute(fn, { signal } = {}) {
-      const on = () => fn(route());
-      win.addEventListener(hash ? 'hashchange' : 'popstate', on, { signal });
-    },
-    active: () => true,
-    open(target) {
-      if (typeof target === 'string' && target.startsWith('/')) { loc().assign(target); return Promise.resolve(true); }
-      return Promise.resolve(false);
-    },
-    services: undefined,
-  };
 }

@@ -858,9 +858,12 @@ export function createShell({
     const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
       // The host's mark, and nothing more: as a link to the page that chooses the modules it only
-      // took people out of what they were doing, and the modules are chosen in Settings.
-      el('span', { class: 'kit-rail__home', role: 'img', 'aria-label': host.name || t('kit.modules.rail') },
-        host.icon ? el('img', { src: host.icon, alt: '', width: 32, height: 32 }) : icon('grid')),
+      // took people out of what they were doing, and the modules are chosen in Settings. Where the
+      // host's app is its one-document page (`host.shell`, Cronum Work's at /), a link to it: a
+      // module's page alone (`?alone`) had no way back to the windows (audit of 6/11, work-web-7).
+      el(host.shell ? 'a' : 'span', {
+        class: 'kit-rail__home', ...(host.shell ? { href: '/', title: host.name || null } : { role: 'img' }), 'aria-label': host.name || t('kit.modules.rail'),
+      }, host.icon ? el('img', { src: host.icon, alt: '', width: 32, height: 32 }) : icon('grid')),
       ...shown.map((m) => el('a', {
         class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,
         style: m.color ? `--module: ${m.color}` : null,

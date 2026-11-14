@@ -243,3 +243,110 @@ export function focusOnTap(area, { focus = null, skip = null } = {}) {
     ev.preventDefault();
   }, { passive: false });
 }
+
+/* ------------------------------ a sheet on the keyboard ----------------------------- */
+
+/** How a sheet goes up and down with the keyboard: about its time and its curve. */
+const RIDE = 'translate .28s cubic-bezier(.38, .7, .125, 1)';
+/**
+ * Where the last climb a sheet made on this screen is kept (the keyboard's height, less the home
+ * bar's): by the page's width and its height with the keyboard down, which stay as they are.
+ */
+const riseKey = (full) => `cw-keyboard-rise:${window.innerWidth}x${full}`;
+
+/**
+ * A sheet that goes up and down with the keyboard in Work's iPhone app, top and bottom together
+ * (ui.js formDialog `typing`; Work's shell had it for its Feedback alone, audit of 6/11, sc-shell-19).
+ * There the web view ends where the keyboard starts, and the page takes about a second to be laid
+ * out at its new size while the keyboard comes up in a quarter of one: a sheet left to the layout
+ * climbed in jumps, or stayed behind the keyboard, and grew taller (Martin's iPhone, 0.73.0–0.74.2).
+ *
+ * So while the keyboard moves, the sheet is held out of the layout's way (`data-riding`) and slides
+ * on its own, in the keyboard's time, by the climb it made the last time on this screen (a guess
+ * from the screen's height the first time); once the page has its size, the layout takes it back
+ * from where it is seen, and the climb it made is kept.
+ */
+export function rideKeyboard(dialog, field) {
+  let rest = 0;        // its top with the keyboard down, as laid out
+  let tall = 0;        // its height then
+  let pad = 0;         // the home bar's room under it then, which the keyboard takes
+  let full = 0;        // the page's height then
+  let rise = 0;
+  let waiting = 0;
+  const box = () => dialog.getBoundingClientRect();
+  const free = () => {
+    dialog.removeAttribute('data-riding');
+    dialog.style.removeProperty('transition');
+    dialog.style.removeProperty('translate');
+  };
+  const glide = (from, to, how) => {
+    dialog.style.transition = 'none';
+    dialog.style.translate = `0 ${from - to}px`;
+    dialog.getBoundingClientRect();
+    dialog.style.transition = how;
+    dialog.style.translate = '0 0';
+  };
+  /** Held where it is seen, at `top` and `height` from now on, with `bottom` under its foot. */
+  const hold = (top, height, bottom) => {
+    const seen = box().top;
+    dialog.style.setProperty('--ride-top', `${top}px`);
+    dialog.style.setProperty('--ride-height', `${height}px`);
+    dialog.style.setProperty('--ride-pad', `${bottom}px`);
+    dialog.setAttribute('data-riding', '');
+    glide(seen, top, RIDE);
+  };
+  function go(up) {
+    if (!dialog.open) return;
+    if (!dialog.hasAttribute('data-riding') && window.innerHeight >= full - KEYBOARD_MIN) {
+      // Down and laid out: where it rests, and what the climb will be.
+      const now = box();
+      rest = now.top;
+      tall = now.height;
+      pad = Number.parseFloat(getComputedStyle(dialog).paddingBottom) || 0;
+      full = window.innerHeight;
+      if (!rise) {
+        try { rise = Number(localStorage.getItem(riseKey(full))) || 0; } catch { rise = 0; }
+      }
+      // An iPhone's keyboard with its suggestions is about 39 % of the screen's height.
+      if (!rise) rise = Math.round(screen.height * 0.394) - pad;
+    }
+    if (up) hold(rest - rise, tall - pad, 0);
+    else hold(rest, tall, pad);
+    settle();
+  }
+  /** Once the page has kept its size a moment, the layout takes it back from where it is seen. */
+  function settle() {
+    cancelAnimationFrame(waiting);
+    const start = performance.now();
+    let height = window.innerHeight;
+    let still = 0;
+    const frame = () => {
+      if (!dialog.open) return;
+      if (window.innerHeight !== height) {
+        height = window.innerHeight;
+        still = 0;
+      } else still += 1;
+      const waited = performance.now() - start;
+      if ((waited > 320 && still >= 10) || waited > 2500) land();
+      else waiting = requestAnimationFrame(frame);
+    };
+    waiting = requestAnimationFrame(frame);
+  }
+  function land() {
+    const seen = box().top;
+    free();
+    const top = box().top;
+    if (full - window.innerHeight > KEYBOARD_MIN) {
+      rise = rest - top;
+      try { localStorage.setItem(riseKey(full), String(Math.round(rise))); } catch { /* this time only */ }
+    }
+    if (Math.abs(seen - top) < 1) return;
+    glide(seen, top, 'translate .15s ease-out');
+    dialog.addEventListener('transitionend', () => {
+      if (!dialog.hasAttribute('data-riding')) free();
+    }, { once: true });
+  }
+  field.addEventListener('focus', () => go(true));
+  field.addEventListener('blur', () => go(false));
+  dialog.addEventListener('close', () => cancelAnimationFrame(waiting));
+}

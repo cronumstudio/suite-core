@@ -90,6 +90,30 @@
 }
 
 /*
+ * Cronum Work's one-document shell: the page is Work's, and each module keeps its accent inside
+ * its windows and the pieces it hangs on the page (`data-module`, `data-owner`): its --app…
+ * from tokens.css there, and the kit's accent from them again, since what :root gave is already
+ * worked out in Work's colour. The greys stay the page's.
+ */
+:root[data-app="work"] :is([data-module], [data-owner]) {
+  --kit-hue: var(--app, #7A7064);
+  --kit-accent: var(--app-accent, var(--app, #16130E));
+  --kit-on-accent: var(--app-on, #FFFFFF);
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 12%, #FFFFFF);
+}
+:root[data-app="work"][data-theme="dark"] :is([data-module], [data-owner]) {
+  --kit-accent: var(--app-accent-dark, color-mix(in oklab, var(--app, #FFC21A) 55%, #FFF7E6));
+  --kit-on-accent: var(--app-on-dark, #16130E);
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 18%, #1C1914);
+}
+:root[data-app="work"][data-look="clean"]:not([data-theme="dark"]) :is([data-module], [data-owner]) {
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 10%, #FFFFFF);
+}
+:root[data-app="work"][data-look="clean"][data-theme="dark"] :is([data-module], [data-owner]) {
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 18%, #1C1C1E);
+}
+
+/*
  * The Clean look (<html data-look="clean">, a host's choice for each person:
  * theme.js and shell.js): white and greys with no hue in them, hairline
  * borders, soft shadows and Inter everywhere. The product's accent stays, as
@@ -1473,6 +1497,12 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 :root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - 16px); translate: 0 -100%; }
 @media (max-width: 640px) {
   :root[data-kit-keyboard] dialog:modal { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
+}
+/* A sheet going up or down with the keyboard in the suite's iPhone app (keyboard.js rideKeyboard):
+   held where it slides to, out of the page's layout, which comes a moment later. */
+.kit-dialog[data-riding] {
+  box-sizing: border-box; inset-block: var(--ride-top) auto; margin: 0;
+  height: var(--ride-height); max-height: none; padding-bottom: var(--ride-pad);
 }
 
 /* ------------------------------- signature -------------------------------- */

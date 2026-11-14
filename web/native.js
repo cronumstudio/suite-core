@@ -126,15 +126,69 @@ export function can(capability, win = globalThis.window) {
  * `/?open=<its path>`, which the shell opens as a notice tapped on the web does (sw-core.js
  * `holds`). A notice tapped on the phone opens its module's address (host-worker.js
  * `hostedPush`), and the app's web view loaded it as a page of its own: the module alone, its
- * switcher in the header and no tabs (Martin, 4/11). → that address, or null to stay where it is:
- * outside the app, in a frame (the shell's own frames), in a host without that page, or anywhere
- * but under a module's path.
+ * switcher in the header and no tabs (Martin, 4/11).
+ *
+ * In a browser's tab too, and in the host's own installed app (audit of 6/11, work-web-7): an
+ * invitation's mail, a bookmark, an old domain or the way back from paying landed on the module
+ * alone, with another bar and no way to the windows. Not where the page was asked for alone
+ * (`?alone`, the module's own install and the shell's «Open … on its own»: kept for the tab), nor
+ * in an installed app the shell never ran in (`SHELL_WINDOW_KEY`): that is the module installed on
+ * its own, whose app shows only itself. Back from paying (`?billing=`) comes with the shell's
+ * address, as the shell reads it there. → that address, or null to stay where it is: in a frame
+ * (the shell's own frames), in a host without that page, or anywhere but under a module's path.
  */
 export function hostShellAddress(host, win = globalThis.window) {
-  if (!host?.shell || !win?.location || !inApp(win) || framedIn(win)) return null;
+  if (!host?.shell || !win?.location || framedIn(win)) return null;
   const url = loadedAddress(win);
   if (!url || !/^\/[a-z][a-z0-9-]{1,30}\//.test(url.pathname) || /^\/(devices|auth)\//.test(url.pathname)) return null;
-  return `/?open=${encodeURIComponent(url.pathname + url.search + url.hash)}`;
+  if (!inApp(win) && !shellWay(win)) return null;
+  const billing = url.searchParams.get('billing');
+  url.searchParams.delete('billing');
+  return `/?open=${encodeURIComponent(url.pathname + url.search + url.hash)}${billing ? `&billing=${encodeURIComponent(billing)}` : ''}`;
+}
+
+/** Kept in a tab's sessionStorage: its module's page was asked for alone (`?alone`), and stays so in it. */
+export const ALONE_KEY = 'host.alone';
+/** Kept in a window's sessionStorage by the host's one-document page: this installed app is the host's. */
+export const SHELL_WINDOW_KEY = 'host.shellWindow';
+
+/**
+ * The host's one-document page says this window is its own (Cronum Work's shell, as it starts): a
+ * module's page loaded in it from now on goes back to it, though one was asked alone before.
+ */
+export function markShellWindow(win = globalThis.window) {
+  try {
+    win.sessionStorage.setItem(SHELL_WINDOW_KEY, '1');
+    win.sessionStorage.removeItem(ALONE_KEY);
+  } catch { /* private mode: as before */ }
+}
+
+/** A module's page as the shell's «on its own» links it: `?alone` in its address. */
+export function aloneAddress(path, base = globalThis.location?.href) {
+  const here = (() => { try { return new URL(String(base)); } catch { return new URL('http://localhost/'); } })();
+  const url = new URL(path, here);
+  url.searchParams.set('alone', '');
+  return url.origin === here.origin ? url.pathname + url.search + url.hash : url.href;
+}
+
+/** Outside the app, whether a module's page goes to the host's shell: a tab, or the host's own installed app; never one asked alone. */
+function shellWay(win) {
+  const storage = (() => { try { return win.sessionStorage; } catch { return null; } })();
+  const asked = [win.location.href, firstEntry(win)].some((href) => {
+    try { return new URL(String(href)).searchParams.has('alone'); } catch { return false; }
+  });
+  try { if (asked) storage?.setItem(ALONE_KEY, '1'); } catch { /* private mode: this page only */ }
+  let kept = false;
+  try { kept = asked || storage?.getItem(ALONE_KEY) === '1'; } catch { kept = asked; }
+  if (kept) return false;
+  const standalone = win.navigator?.standalone === true || Boolean(win.matchMedia?.('(display-mode: standalone)')?.matches);
+  if (!standalone) return true;
+  try { return storage?.getItem(SHELL_WINDOW_KEY) === '1'; } catch { return false; }
+}
+
+/** The address of the page's navigation, as it was loaded. */
+function firstEntry(win) {
+  try { return win.performance?.getEntriesByType?.('navigation')?.[0]?.name ?? null; } catch { return null; }
 }
 
 /**
@@ -146,7 +200,7 @@ function loadedAddress(win) {
   let now;
   try { now = new URL(String(win.location.href)); } catch { return null; }
   let first = null;
-  try { first = new URL(String(win.performance?.getEntriesByType?.('navigation')?.[0]?.name ?? '')); } catch { /* none */ }
+  try { first = new URL(String(firstEntry(win) ?? '')); } catch { /* none */ }
   return first && first.origin === now.origin && first.pathname === now.pathname ? first : now;
 }
 

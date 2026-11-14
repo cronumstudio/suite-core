@@ -78,8 +78,8 @@ test('screen classes and how many columns of 320 px fit', () => {
 test('normalizeLayout: columns of one or two, four windows at most, each module once', () => {
   assert.deepEqual(normalizeLayout({ cols: [{ w: 2, wins: ['notes'] }, { w: 1, wins: ['next', 'tasks'], h: 0.3 }], focus: 'tasks' }),
     { cols: [{ w: 2, wins: ['notes'] }, { w: 1, wins: ['next', 'tasks'], h: 0.3 }], focus: 'tasks' });
-  assert.deepEqual(normalizeLayout({ slots: [{ module: 'next', w: 1.5 }, { module: 'notes', w: 0.5 }], focus: 'notes' }),
-    { cols: [{ w: 1.5, wins: ['next'] }, { w: 0.5, wins: ['notes'] }], focus: 'notes' }, 'the prototype’s slots');
+  // The prototype's `{ slots }`, which nothing writes (audit of 6/11, sc-shell-17): nothing.
+  assert.deepEqual(normalizeLayout({ slots: [{ module: 'next', w: 1.5 }], focus: 'next' }).cols, []);
   assert.deepEqual(normalizeLayout({ cols: [{ wins: [{ module: 'tasks', route: 'list/12' }] }] }),
     { cols: [{ w: 1, wins: ['tasks'] }], focus: 'tasks' }, 'a window with its route (ventanas.md)');
   const many = normalizeLayout({ cols: [
@@ -314,8 +314,6 @@ test('kept once for every width, read back whatever shape it has, never failing'
   writeLayout(storage, L('a'));
   assert.deepEqual(JSON.parse(data.get(KEY)).all, L('a'), 'the old ones go');
   assert.equal(JSON.parse(data.get(KEY)).wide, undefined);
-  data.set(KEY, JSON.stringify({ wide: { slots: [{ module: 'next', w: 1 }], focus: 'next' } }));
-  assert.deepEqual(readLayout(storage, 'wide'), L('next'), 'the prototype’s');
   data.set(KEY, '{not json');
   assert.equal(readLayout(storage, 'wide'), null);
   writeLayout(storage, L('a'));
@@ -395,7 +393,7 @@ function setup({ width = 1400, modules = ['next', 'notes', 'tasks', 'projects', 
 
 test('windows: one that goes out of view closes the dialogs open in it, or the page stays inert under them', () => {
   const { made, windows } = setup();
-  windows.restore({ cols: [{ w: 1, wins: ['notes'] }] });
+  windows.set({ cols: [{ w: 1, wins: ['notes'] }] });
   const dialog = document.createElement('dialog');
   dialog.setAttribute('open', '');
   let closed = 0;
@@ -409,7 +407,7 @@ test('windows: one that goes out of view closes the dialogs open in it, or the p
 
 test('windows: placed by grid column only, the others hidden, inert and paused, the layout kept', () => {
   const { desk, told, made, windows, data } = setup();
-  windows.restore({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });
+  windows.set({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });
   assert.deepEqual(told, [['made', 'notes'], ['show', 'notes'], ['made', 'next'], ['show', 'next'], ['focus', 'notes']]);
   assert.equal(desk.style.gridTemplateColumns, 'minmax(320px, var(--cw-col-1)) 8px minmax(320px, var(--cw-col-2))');
   assert.equal(desk.style['--cw-col-1'], '1fr');
@@ -471,7 +469,6 @@ test('windows: four mounted at most, the least recently used given back', () => 
   windows.show('work');
   assert.deepEqual(told.filter(([what]) => what === 'evict'), [['evict', 'next']], 'the least recently used');
   assert.equal(made.has('next'), false);
-  assert.deepEqual(windows.recent, ['work', 'projects', 'tasks', 'notes']);
   told.length = 0;
   windows.show('next');
   assert.deepEqual(told.slice(0, 3), [['pause', 'work', 'hidden'], ['made', 'next'], ['show', 'next']], 'made again');
@@ -490,7 +487,6 @@ test('drop: a module turned off leaves the layout, the kept one and the phone’
   assert.equal(windows.layout.focus, 'notes');
   assert.deepEqual(told.filter(([what]) => what === 'evict'), [['evict', 'tasks']]);
   assert.equal(made.has('tasks'), false);
-  assert.equal(windows.recent.includes('tasks'), false);
   assert.equal(JSON.stringify(JSON.parse(data.get(KEY)).all).includes('tasks'), false, 'gone from the layout kept');
   told.length = 0;
   windows.drop('tasks');
@@ -507,7 +503,7 @@ test('drop: a module turned off leaves the layout, the kept one and the phone’
 test('drop: on a phone its tab goes at once', () => {
   const list = ['next', 'notes', 'tasks'];
   const { desk, windows } = setup({ width: 390, modules: () => list });
-  windows.restore({ cols: [{ wins: ['tasks'] }] });
+  windows.set({ cols: [{ wins: ['tasks'] }] });
   windows.show('notes');
   const tabs = () => desk.querySelector('.cw-tabs').children.map((b) => b.getAttribute('data-tab'));
   assert.deepEqual(tabs(), ['next', 'notes', 'tasks']);
@@ -523,7 +519,7 @@ test('phone: the tabs step aside while a keyboard that made the page shorter is 
   const root = { clientHeight: 800 };
   win.document = Object.assign(new FakeEventTarget(), { documentElement: root, activeElement: null });
   const { desk, windows } = setup({ width: 390, win });
-  windows.restore({ cols: [{ wins: ['tasks'] }] });
+  windows.set({ cols: [{ wins: ['tasks'] }] });
   assert.equal(desk.hasAttribute('data-keyboard'), false);
   win.document.activeElement = { tagName: 'INPUT', type: 'text' };
   root.clientHeight = 460;
@@ -792,7 +788,7 @@ test('keyboard: Alt and an arrow on a head move its window; focusing inside a wi
 
 test('phones: one window, a tab per module, switching by tab or by swipe, the edges left alone', () => {
   const { desk, made, windows, told, press } = setup({ width: 390 });
-  windows.restore({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
   assert.equal(desk.getAttribute('data-screen'), 'narrow');
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['notes']], 'one window at a time');
   assert.equal(desk.style.gridTemplateColumns, 'minmax(0, 1fr)');
@@ -876,7 +872,7 @@ test('phones: one window, a tab per module, switching by tab or by swipe, the ed
 
 test('phones: what has a swipe of its own keeps it, and a sideways finger in any list is the swipe\'s, not the browser\'s', () => {
   const { desk, made, windows, press } = setup({ width: 390 });
-  windows.restore({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
+  windows.set({ cols: [{ wins: ['notes'] }, { wins: ['next'] }] });
   desk.dispatch('click', { target: desk.querySelector('.cw-tabs').children[0] });
   assert.equal(windows.layout.focus, 'next');
 
@@ -941,7 +937,8 @@ test('screen class: wider, the layout comes back; narrower, the focused window a
 test('screen class: the same windows at every width, whatever was kept per class before', () => {
   const { desk, win, data, windows } = setup({ width: 1000 });
   data.set(KEY, JSON.stringify({ wide: { cols: [{ wins: ['next'] }] }, mid: { cols: [{ wins: ['tasks'] }, { wins: ['notes'] }] } }));
-  windows.restore();
+  // What the shell does as it starts (work.js firstLayout): the layout kept on this device.
+  windows.set(readLayout({ getItem: (key) => data.get(key) ?? null }, windows.screen));
   assert.equal(windows.screen, 'mid');
   assert.deepEqual(windows.layout.cols.map((c) => c.wins), [['tasks'], ['notes']], 'this width’s, the first time');
   win.innerWidth = 1400;

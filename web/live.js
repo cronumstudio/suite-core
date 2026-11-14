@@ -88,66 +88,47 @@ function throughShell(shared, owner, { onChange = () => {}, onResync = () => {},
   };
 }
 
-/** The module's own channel: its `/api/events`. */
-function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () => {}, onState = () => {} } = {}, {
-  url = at('/api/events'), events = [], EventSource: Source = globalThis.EventSource, timers = globalThis,
+/**
+ * The machine of a live channel, shared by a module's own channel (below) and Cronum Work's one
+ * channel for every module (its shell's live-hub.js, audit of 6/11, sc-shell-22): one EventSource at
+ * `url`, the last id it saw (`?last=` when it opens again), its state, and, closed for good, opened
+ * again after a wait that grows up to a minute. What each message means is the caller's: `onEvent(name,
+ * message)` for each of `names` (and `listen(name)` later); a `hello` it reads is told to `hello(info)`,
+ * which says whether what is shown must be read again (a cut the server couldn't replay, or another
+ * person's channel). `ready()`: whether it may open now.
+ * @returns {{ open, close, listen, hello, reset, readonly state }}
+ */
+export function liveSource({
+  url, names = [], onEvent = () => {}, onState = () => {}, ready = () => true,
+  EventSource: Source = globalThis.EventSource, timers = globalThis,
 } = {}) {
   let source = null;
   let state = 'closed';
   let waited = 0;
   let retry = null;
-  let groupTimer = null;
-  let pending = [];
   let opened = false;   // a hello after the first one means a cut: things may have been missed
   let lastId = '';      // the last id the server gave: where to come back from
   let who = null;       // whose channel it was, from hello
-  let stopped = false;
+  const listened = new Set(names);
 
   const setState = (next) => {
     if (next === state) return;
     state = next;
     onState(next);
   };
-
-  const flush = () => {
-    groupTimer = null;
-    const batch = pending;
-    pending = [];
-    if (batch.length) onChange(batch);
-  };
-
-  const receive = (name) => (message) => {
-    let data = null;
-    try { data = message.data ? JSON.parse(message.data) : null; } catch { data = message.data; }
+  const hear = (name) => (message = {}) => {
     if (message.lastEventId) lastId = message.lastEventId;
-    pending.push({ event: name, id: message.lastEventId || null, data });
-    if (!groupTimer) groupTimer = timers.setTimeout(flush, GROUP_MS);
+    onEvent(name, message);
   };
 
   function open() {
-    if (stopped) return;
-    if (!Source) return;   // no EventSource: the app works the same, without live changes
+    if (!Source || !ready()) return;   // no EventSource: the app works the same, without live changes
     close();
     setState('connecting');
     // A new EventSource can't send Last-Event-ID: the id it would have sent goes in the address.
     const address = lastId ? `${url}${url.includes('?') ? '&' : '?'}last=${encodeURIComponent(lastId)}` : url;
     source = new Source(address, { withCredentials: true });
-    source.addEventListener('hello', (message = {}) => {
-      let data = null;
-      try { data = message.data ? JSON.parse(message.data) : null; } catch { data = null; }
-      if (message.lastEventId) lastId = message.lastEventId;
-      waited = 0;
-      setState('open');
-      // Back after a cut: what was missed came before this hello, unless the server couldn't say.
-      const someoneElse = who != null && data?.user_id != null && String(data.user_id) !== who;
-      if (opened && (!data?.replayed || someoneElse)) onResync();
-      if (data?.user_id != null) who = String(data.user_id);
-      opened = true;
-    });
-    source.addEventListener('change', receive('change'));
-    for (const name of events) source.addEventListener(name, receive(name));
-    source.addEventListener('resync', () => onResync());
-    source.addEventListener('account', () => onAccount());
+    for (const name of listened) source.addEventListener(name, hear(name));
     source.addEventListener('error', () => {
       if (!source) return;
       // CONNECTING: EventSource is retrying on its own, with Last-Event-ID.
@@ -172,20 +153,87 @@ function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () =
     }
   }
 
-  open();
-
   return {
     get state() { return state; },
+    /** Whether a channel is open now, or waiting to open again. */
+    get running() { return Boolean(source || retry); },
+    /** Whether a channel is open now (not only waiting to). */
+    get connected() { return Boolean(source); },
+    setState,
+    open,
+    close,
+    /** Another name heard from now on, on the channel open now too. */
+    listen(name) {
+      if (listened.has(name)) return;
+      listened.add(name);
+      source?.addEventListener(name, hear(name));
+    },
+    /** The channel's hello (its data): open, and whether what is shown must be read again. */
+    hello(info) {
+      waited = 0;
+      setState('open');
+      // Back after a cut: what was missed came before this hello, unless the server couldn't say.
+      const someoneElse = who != null && info?.user_id != null && String(info.user_id) !== who;
+      const cut = opened && (!info?.replayed || someoneElse);
+      if (info?.user_id != null) who = String(info.user_id);
+      opened = true;
+      return cut;
+    },
+    /** From scratch: no wait, and nothing to come back from (a "Retry", a sign-in again). */
+    reset() {
+      waited = 0;
+      lastId = '';
+    },
+  };
+}
+
+/** The module's own channel: its `/api/events`. */
+function ownChannel({ onChange = () => {}, onResync = () => {}, onAccount = () => {}, onState = () => {} } = {}, {
+  url = at('/api/events'), events = [], EventSource: Source = globalThis.EventSource, timers = globalThis,
+} = {}) {
+  let groupTimer = null;
+  let pending = [];
+  let stopped = false;
+
+  const flush = () => {
+    groupTimer = null;
+    const batch = pending;
+    pending = [];
+    if (batch.length) onChange(batch);
+  };
+
+  const read = (message) => {
+    try { return message.data ? JSON.parse(message.data) : null; } catch { return undefined; }
+  };
+  const channel = liveSource({
+    url, names: ['hello', 'change', ...events, 'resync', 'account'], onState, ready: () => !stopped, EventSource: Source, timers,
+    onEvent(name, message) {
+      if (name === 'hello') {
+        if (channel.hello(read(message) ?? null)) onResync();
+      } else if (name === 'resync') onResync();
+      else if (name === 'account') onAccount();
+      else {
+        const data = read(message);
+        pending.push({ event: name, id: message.lastEventId || null, data: data === undefined ? message.data : data });
+        if (!groupTimer) groupTimer = timers.setTimeout(flush, GROUP_MS);
+      }
+    },
+  });
+
+  channel.open();
+
+  return {
+    get state() { return channel.state; },
     /** Open again now (a "Retry" button, or after signing in again): from scratch, everything reloaded. */
-    reconnect: () => { stopped = false; waited = 0; lastId = ''; open(); },
+    reconnect: () => { stopped = false; channel.reset(); channel.open(); },
     /** Closes for good (signing out). */
     stop: () => {
       stopped = true;
-      close();
+      channel.close();
       if (groupTimer) timers.clearTimeout(groupTimer);
       groupTimer = null;
       pending = [];
-      setState('closed');
+      channel.setState('closed');
     },
   };
 }

@@ -139,10 +139,10 @@ test('Settings › Modules: the modules in order with their lines, and under the
     const state = (row) => row.all().find((node) => node.className === 'kit-switch').getAttribute('aria-checked');
     assert.deepEqual(buttons.map(state), ['false', 'true', 'true']);
 
-    // Installing: the modules on their own, never Croc.
+    // Installing: the modules on their own (`?alone`: else a browser takes them on to the shell), never Croc.
     const installs = page.all().filter((node) => node.tagName === 'A').map((node) => node.getAttribute('href'));
-    assert.ok(installs.includes('/tasks/') && installs.includes('/notes/'));
-    assert.ok(!installs.includes('/croc/'), 'a door is not installed alone');
+    assert.ok(installs.includes('/tasks/?alone=') && installs.includes('/notes/?alone='), installs.join());
+    assert.ok(!installs.some((href) => href.startsWith('/croc/')), 'a door is not installed alone');
 
     // Both modules off with Croc on: the second stays on, saying why.
     const switchOf = (mount) => page.all().find((node) => node.className === 'kit-switch' && node.dataset.mount === mount);

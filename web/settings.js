@@ -74,11 +74,11 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateForm
 import { api, errorMessage, Offline } from './api.js';
 import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
+import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
-import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal } from './native.js';
+import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { devicePushSubscription, pushSupport, noticesOnHere, markNoticesOn, markNoticesOff } from './push.js';
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
@@ -569,6 +569,14 @@ export function openSettings(options) {
     } catch { /* the view went */ }
   };
   shown(true);
+  // In Work's shell the system's Back closes them as their ← does: on a phone from a section to the
+  // list, then out. With no entry of their own in the history, Android's Back changed the window
+  // under them, or left the app (audit of 6/11, work-web-8).
+  const layer = workRegistry() ? backLayer(() => {
+    const stays = !wide() && frame.hasAttribute('data-open');
+    back();
+    return stays ? 'stay' : null;
+  }) : null;
 
   const items = new Map();
   // Each group's heading and what it folds, by its name, to slide one open and the other shut.
@@ -699,6 +707,7 @@ export function openSettings(options) {
     document.removeEventListener('keydown', onKey);
     for (const cleanup of cleanups.splice(0)) cleanup();
     overlay.remove();
+    layer?.close();
     shown(false);
     options.onClose?.();
   }
@@ -1305,7 +1314,8 @@ export function openSettings(options) {
       // module, so it can be installed from there.
       if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
       // A door (Croc) is a button of the whole app's, never installed alone.
-      for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(m.path, m.icon, m.name));
+      // Each module on its own (`?alone`): else, in a browser, its page goes on to the host's shell (native.js hostShellAddress).
+      for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(aloneAddress(m.path), m.icon, m.name));
     };
     // Without a signal, the modules of last time (with the changes kept for later): they can still
     // be turned on and off, and put in order.
