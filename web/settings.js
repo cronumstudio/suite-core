@@ -1957,7 +1957,10 @@ export function openSettings(options) {
       const onPlan = (event) => {
         if (!event?.detail) return;
         reading++;
+        // A new plan: what the other modules include and what is used under it, asked again too.
+        othersFeatures = null;
         paint(event.detail);
+        usage?.read();
       };
       document.addEventListener(PLAN_EVENT, onPlan);
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
@@ -1970,8 +1973,8 @@ export function openSettings(options) {
    * the plan's caps, their storage and their calls from assistants (GET /api/me/usage at the host's
    * root, usage.js), drawn as the admin sees it. Near a cap it says so first, with the way to a
    * bigger plan when there is one here: the plans on offer below (`offer`) or the app's store
-   * (`storeBlock`), as they show; `sync()` looks again once they have. Where nothing answers (an
-   * app on its own, an older host, offline), the block goes.
+   * (`storeBlock`), as they show; `sync()` looks again once they have, and `read()` asks again (a new
+   * plan). Where nothing answers (an app on its own, an older host, offline), the block goes.
    */
   function yourUsage({ offer, storeBlock }) {
     const body = el('div', { class: 'kit-stack' }, hint(t('kit.usage.loading')));
@@ -1984,20 +1987,26 @@ export function openSettings(options) {
     }, 'primary');
     const sync = () => { way.hidden = !((storeBlock && !storeBlock.hidden) || (offer && !offer.hidden)); };
     sync();
-    api.root.get('/api/me/usage').then((usage) => {
-      if (closed) return;
-      // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
-      const capped = atLimit(usage);
-      const level = capped[0]?.level;
-      const alert = level
-        ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
-          el('p', { text: t(`kit.usage.${level}Notice`) }),
-          el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
-            class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
-          }))), way) : null;
-      clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
-    }).catch(() => { node.hidden = true; });
-    return { node, sync };
+    let reading = 0;
+    const read = () => {
+      const turn = ++reading;
+      api.root.get('/api/me/usage').then((usage) => {
+        if (closed || turn !== reading) return;
+        node.hidden = false;
+        // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
+        const capped = atLimit(usage);
+        const level = capped[0]?.level;
+        const alert = level
+          ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
+            el('p', { text: t(`kit.usage.${level}Notice`) }),
+            el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
+              class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
+            }))), way) : null;
+        clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
+      }).catch(() => { if (turn === reading) node.hidden = true; });
+    };
+    read();
+    return { node, sync, read };
   }
 
   /**
@@ -2028,7 +2037,9 @@ export function openSettings(options) {
         .catch(() => null)),
     ])
       .then((answers) => Object.assign({}, ...answers.map((a) => a?.features || {})));
-    othersFeatures.then((more) => { if (!closed && node.isConnected !== false) draw({ ...more, ...own }); });
+    const asked = othersFeatures;
+    // Only the newest: one asked under the plan before mustn't paint over the new one's.
+    asked.then((more) => { if (!closed && asked === othersFeatures && node.isConnected !== false) draw({ ...more, ...own }); });
   }
 
   /* ---------------------------------- data ---------------------------------- */
