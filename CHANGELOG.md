@@ -11,12 +11,13 @@ change an interface and a patch never does. Apps pin a version through the submo
   164 emojis at once, Projects 20, Next 16. Now `KIT_COLORS`: twelve colours by name (blue, cyan,
   teal, green, olive, brown, pink, plum, violet, indigo, steel, slate), each with the hex a module
   stores (white reads on it, 4.5:1; it shows on the dark page, 3:1) and a lighter step for the dark,
-  the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as })`
+  the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as, except })`
   proposes the first free one, five apart around the wheel. `KIT_ICONS` are twenty in view and
   `KIT_MORE_ICONS` the rest of Tasks' 164 (none lost). `colorPicker()` and `iconPicker()` offer them,
   each colour named in words for a screen reader (`kit.colors.*`), «Más…» unfolding the icons
   (`kit.icons.*`), with what a collection has from before kept, offered first and chosen; options for
-  a field to type any emoji (`typed`), for no colour or no icon (`none`) and for names instead of
+  a field to type any emoji (`typed`), for no colour or no icon (`none`), for colours a module leaves
+  out (`except`: Projects', too close to its accent and its states) and for names instead of
   hexes (`as: 'name'`). New keys in the five languages; nothing that exists changes.
 - **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`; audit of 6/11, dup-css-3):
   `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,

@@ -16,12 +16,17 @@ const press = (node, on) => node.setAttribute('aria-pressed', String(Boolean(on)
  * (by default the value itself, a hex) and named with `nameOf(value)` if given.
  * `none: { label, swatch }` adds a choice for no colour (Next's «Automático», a group's «Sin
  * color»), a pill with a dot of `swatch` and the label; chosen, the value is null.
+ * `except` leaves out names a module can't offer (Projects': those too close to its accent and
+ * its states); one of them that a collection has is kept, as one from before.
  * `label` names the group for a screen reader; `onPick(value)` hears each choice.
  * → { node, value() }.
  */
-export function colorPicker({ value = null, as = 'hex', label = null, none = null, paint = null, nameOf = null, onPick = null } = {}) {
+export function colorPicker({
+  value = null, as = 'hex', label = null, none = null, paint = null, nameOf = null, except = [], onPick = null,
+} = {}) {
   const valueOf = (c) => (as === 'name' ? c.name : c.hex);
-  const known = kitColor(value);
+  const offered = KIT_COLORS.filter((c) => !except.includes(c.name));
+  const known = offered.find((c) => c === kitColor(value)) || null;
   let chosen = known ? valueOf(known) : (value || null);
   const node = el('div', { class: 'kit-swatches', role: 'group', 'aria-label': label });
   const choose = (next) => {
@@ -40,7 +45,7 @@ export function colorPicker({ value = null, as = 'hex', label = null, none = nul
       onClick: () => choose(old),
     }));
   }
-  for (const c of KIT_COLORS) {
+  for (const c of offered) {
     const name = t(`kit.colors.${c.name}`);
     node.append(el('button', {
       type: 'button', class: 'kit-swatch', 'data-color': valueOf(c),

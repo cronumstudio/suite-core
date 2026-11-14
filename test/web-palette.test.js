@@ -79,6 +79,8 @@ test('the colour proposed is the first free one, five apart around the wheel', (
   assert.equal(suggestedColor(['#8a6a45', '#DC2626']), '#2564cf');
   const all = KIT_COLORS.map((c) => c.hex);
   assert.equal(suggestedColor(all), KIT_COLORS[0].hex, 'all in use: by count');
+  // A module that leaves some out is never proposed one of them.
+  assert.equal(suggestedColor(['#2564cf'], { except: ['brown', 'pink'] }), KIT_COLORS[10].hex, 'steel, brown being left out');
 });
 
 test('twenty icons in view, the rest behind «Más…», none twice', () => {
@@ -114,6 +116,15 @@ test('colorPicker: a colour from before is kept, first and pressed, and can be c
   assert.equal(picker.value(), '#2564cf');
   press(buttons[0]);
   assert.equal(picker.value(), '#DC2626');
+});
+
+test('colorPicker: what a module leaves out is not offered, and kept where a collection has it', () => {
+  const picker = colorPicker({ value: '#8A6A45', except: ['brown', 'pink'] });
+  const colors = picker.node.find('button').map((b) => b.dataset.color);
+  assert.equal(colors.length, 11, 'kept, and ten');
+  assert.equal(colors[0], '#8A6A45', 'brown, as it is stored');
+  assert.ok(!colors.includes('#8a6a45') && !colors.includes('#c2407c'));
+  assert.equal(picker.value(), '#8A6A45');
 });
 
 test('colorPicker by name (Next): tokens to paint, its own legacy name kept, and no colour', () => {

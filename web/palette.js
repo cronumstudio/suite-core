@@ -55,11 +55,13 @@ const PROPOSED = KIT_COLORS.map((_, i) => KIT_COLORS[(i * STRIDE) % KIT_COLORS.l
 /**
  * A colour to start with, different from the ones in use (`used`: hexes or names, any case, nulls
  * skipped): the first free one along the proposed order, not a counter, so a gap left by a deleted
- * one is used again. With all twelve in use, it goes on by count. `as: 'name'` gives the name.
+ * one is used again. With all twelve in use, it goes on by count. `as: 'name'` gives the name;
+ * `except`, names a module leaves out (Projects', too close to its accent and its states).
  */
-export function suggestedColor(used = [], { as = 'hex' } = {}) {
+export function suggestedColor(used = [], { as = 'hex', except = [] } = {}) {
   const inUse = new Set(used.map(kitColor).filter(Boolean).map((c) => c.name));
-  const free = PROPOSED.find((c) => !inUse.has(c.name)) || PROPOSED[used.filter(Boolean).length % PROPOSED.length];
+  const offered = PROPOSED.filter((c) => !except.includes(c.name));
+  const free = offered.find((c) => !inUse.has(c.name)) || offered[used.filter(Boolean).length % offered.length];
   return as === 'name' ? free.name : free.hex;
 }
 
