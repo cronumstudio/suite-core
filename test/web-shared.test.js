@@ -22,7 +22,9 @@ globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => engli
 
 const { loadLanguage, t } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
-const { sharedSection, sharedPage } = await import('../web/shared.js');
+const { sharedSection } = await import('../web/shared.js');
+// The page as Settings draw it (sharedSection's render).
+const sharedPage = (options) => sharedSection(options).render();
 const { openSettings } = await import('../web/settings.js');
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((done) => setTimeout(done, 0)); };

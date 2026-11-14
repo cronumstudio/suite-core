@@ -268,7 +268,6 @@ const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
  *
  *   settings: {
  *     sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.hintShort' }],
- *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
  *     about: true,   // it says what it is (aboutExtra), out of the list
  *     standing: 'settings.standing.text',   // its instruction for an assistant, in Your AI
  *     standingMore: ['settings.standing.prompt', ['examples.home', 'examples.homeAsk']],   // under it
@@ -297,7 +296,7 @@ export function moduleSettings(declared, { data = false } = {}) {
     .filter((entry) => isKey(entry) || (Array.isArray(entry) && entry.length === 2 && entry.every(isKey)))
     .slice(0, 20);
   return {
-    sections, data: Boolean(data), ai: given.ai === true, about: given.about === true,
+    sections, data: Boolean(data), about: given.about === true,
     ...(typeof given.standing === 'string' && CATALOG_KEY.test(given.standing) ? { standing: given.standing } : {}),
     ...(typeof given.tagline === 'string' && CATALOG_KEY.test(given.tagline) ? { tagline: given.tagline } : {}),
     ...(standingMore.length ? { standingMore } : {}),

@@ -468,16 +468,13 @@ export function openSettings(options) {
   }
 
   /**
-   * This module's group: its sections, drawn here. What it adds to Your AI is out of the list when
-   * Your AI has its instruction (`standing`), and what it is always (About has its card): both are
-   * still opened from there.
+   * This module's group: its sections, drawn here, and its data. What it is is out of the list (About
+   * has its card) and opened from there.
    */
   const thisModule = () => [
     ...own(app.name),
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
       hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => needsConnection(data({ account: false })) } : null,
-    options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'), unlisted: Boolean(options.standing),
-      hint: () => t('kit.settings.moduleAiHint', { app: app.name }), render: () => [options.aiExtra()] } : null,
     options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
       hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
   ];
@@ -504,7 +501,6 @@ export function openSettings(options) {
     return [
       ...declared.sections.filter((s) => say(s.label)).map((s) => go(s.id, s.icon || 'sliders', say(s.label), say(s.hint))),
       declared.data ? go('data', 'box', t('kit.data.title'), t('kit.settings.dataHint', { app: m.name })) : null,
-      declared.ai && !declared.standing ? go('ai-extra', 'spark', t('kit.settings.moduleAi'), t('kit.settings.moduleAiHint', { app: m.name })) : null,
     ];
   }
 
@@ -1441,8 +1437,6 @@ export function openSettings(options) {
       appsBlock,
       instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
-      // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
-      ...(options.aiExtra && !host ? [options.aiExtra()] : []),
     ];
   }
 

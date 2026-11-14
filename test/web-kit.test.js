@@ -2016,9 +2016,9 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
   const asked = [];
   const assigned = [];
   const modules = [
-    { mount: 'tasks', path: '/tasks/', name: 'Tasks', active: true, settings: { sections: [{ id: 'preferences', label: 'settings.prefs.title' }], data: true, ai: true, about: true } },
-    { mount: 'notes', path: '/notes/', name: 'Notes', active: true, settings: { sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.short' }, { id: 'gone', label: 'no.such.key' }], data: true, ai: true, about: false } },
-    { mount: 'next', path: '/next/', name: 'Next', active: false, settings: { sections: [{ id: 'line', label: 'settings.line.title' }], data: true, ai: false, about: false } },
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', active: true, settings: { sections: [{ id: 'preferences', label: 'settings.prefs.title' }], data: true, about: true } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', active: true, settings: { sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.short' }, { id: 'gone', label: 'no.such.key' }], data: true, about: false } },
+    { mount: 'next', path: '/next/', name: 'Next', active: false, settings: { sections: [{ id: 'line', label: 'settings.line.title' }], data: true, about: false } },
   ];
   globalThis.fetch = async (path) => {
     asked.push(path);
@@ -2038,7 +2038,6 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
         app: { modules: { data: true, mcp: true }, host: { id: 'work', name: 'Cronum Work', mount: 'tasks', base: '/tasks/', push: true, plans: true } },
       },
       sections: [{ id: 'preferences', label: 'Preferences', render: () => [] }],
-      aiExtra: () => el('p', { text: 'Paste this' }),
       aboutExtra: () => el('p', { text: 'What Tasks is' }),
     });
     for (let i = 0; i < 4; i++) await settle();
@@ -2057,14 +2056,13 @@ test('in a host, Settings are one for the whole app: the account\'s, a group for
     // the plan is the account's.
     assert.ok(labels.includes(t('kit.notifications.title')));
     assert.equal(labels[labels.indexOf(t('kit.security.sessions')) + 1], t('kit.plan.title'));
-    // This module's own, drawn here: its sections, its data and what it adds to Your AI (it has no
-    // instruction for Your AI to show); what it is goes in About's card.
-    assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 3),
-      ['Preferences', t('kit.data.title'), t('kit.settings.moduleAi')]);
-    assert.equal(labels.at(labels.indexOf('Preferences') + 3), 'Templates');
+    // This module's own, drawn here: its sections and its data; what it is goes in About's card.
+    assert.deepEqual(labels.slice(labels.indexOf('Preferences'), labels.indexOf('Preferences') + 2),
+      ['Preferences', t('kit.data.title')]);
+    assert.equal(labels.at(labels.indexOf('Preferences') + 2), 'Templates');
     // Another's, named from its own catalog; one its catalog doesn't name is left out.
-    assert.deepEqual(labels.slice(labels.indexOf('Templates'), labels.indexOf('Templates') + 3),
-      ['Templates', t('kit.data.title'), t('kit.settings.moduleAi')]);
+    assert.deepEqual(labels.slice(labels.indexOf('Templates'), labels.indexOf('Templates') + 2),
+      ['Templates', t('kit.data.title')]);
     assert.ok(!labels.includes('no.such.key'));
     assert.ok(asked.includes('/notes/i18n/en.json'));
     assert.ok(!asked.some((path) => path.startsWith('/next/')), 'a module not in use isn\'t asked');

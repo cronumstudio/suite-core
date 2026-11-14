@@ -117,9 +117,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
     look: 'cronum',
     modules: [
       { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } },
-        settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], data: false, ai: false, about: true }, active: true },
+        settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], data: false, about: true }, active: true },
       { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', links: { item: { creates: true } },
-        settings: { sections: [], data: false, ai: false, about: false }, active: true },
+        settings: { sections: [], data: false, about: false }, active: true },
     ],
   });
   assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false, billing: false },
@@ -1337,7 +1337,7 @@ test('a split view that isn’t a page of the host stops the start', async () =>
 });
 
 test('a module\'s sections of Settings, as the host lists them for the others: what is well formed', () => {
-  assert.deepEqual(moduleSettings(undefined), { sections: [], data: false, ai: false, about: false }, 'a module that declares none');
+  assert.deepEqual(moduleSettings(undefined), { sections: [], data: false, about: false }, 'a module that declares none');
   const listed = moduleSettings({
     sections: [
       { id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.short' },
@@ -1346,14 +1346,14 @@ test('a module\'s sections of Settings, as the host lists them for the others: w
       { id: 'nolabel' },
       null,
     ],
-    ai: true, about: 'yes',
+    ai: true, about: 'yes',   // `ai`, which no module used, is left out
   }, { data: true });
   assert.deepEqual(listed, {
     sections: [
       { id: 'templates', label: 'templates.title', icon: 'copy', hint: 'templates.short' },
       { id: 'line', label: 'settings.line.title' },
     ],
-    data: true, ai: true, about: false,
+    data: true, about: false,
   });
   // Its instruction for an assistant, a key of its catalog, for Your AI to show; anything else, none.
   assert.equal(moduleSettings({ standing: 'settings.standing.text' }).standing, 'settings.standing.text');

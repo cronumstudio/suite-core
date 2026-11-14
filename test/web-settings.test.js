@@ -25,11 +25,11 @@ test('in a host, Your AI has every module\'s instruction folded under its name w
   const realFetch = globalThis.fetch;
   const assigned = [];
   const modules = [
-    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: true, about: true, standing: 'settings.mcp.standingText' } },
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: true, standing: 'settings.mcp.standingText' } },
     { mount: 'next', path: '/next/', name: 'Next', icon: '/next/icons/favicon.svg', active: true,
-      settings: { sections: [], data: false, ai: false, about: true, standing: 'settings.standing.text', site: 'https://next.example/',
+      settings: { sections: [], data: false, about: true, standing: 'settings.standing.text', site: 'https://next.example/',
         standingMore: ['settings.standing.prompt', ['ex.a', 'ex.aAsk'], ['ex.b', 'ex.bAsk'], 'no.such.key', 'settings.standing.close'] } },
-    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: false } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: false } },
   ];
   globalThis.fetch = async (path) => {
     const data = path === '/api/modules' ? { host: { name: 'Cronum Work', icon: '/icons/favicon.svg?v=2' }, modules }
@@ -54,7 +54,6 @@ test('in a host, Your AI has every module\'s instruction folded under its name w
         standing: 'kit.settings.title',   // a key this catalog has, for the test
         standingMore: ['kit.settings.title', 'no.such.key'],
         site: 'https://tasks.example/',
-        aiExtra: () => el('p', { text: 'Examples' }),
         aboutExtra: () => el('p', { text: 'What Tasks is' }),
         updates: { check: async () => false, loaded: () => loaded, latest: () => loaded },
       });
@@ -63,8 +62,6 @@ test('in a host, Your AI has every module\'s instruction folded under its name w
 
     const ai = open('ai');
     await settle();
-    const labels = ai.all().filter((node) => node.className === 'kit-settings__label').map((node) => node.textContent);
-    assert.ok(!labels.includes(t('kit.settings.moduleAi')), 'with its instruction in Your AI, what it adds there is out of the list');
     const folds = ai.all().filter((node) => node.className === 'kit-fold');
     assert.deepEqual(folds.map((node) => node.find('summary')[0].textContent), ['Tasks', 'Next'], 'one per module with an instruction');
     assert.ok(folds.every((node) => node.dataset.fold === 'kit-standing' && !node.hasAttribute('open')), 'one open at a time, none at first');
@@ -116,8 +113,8 @@ test('in Work’s shell a module passes no watcher: About shows the whole app’
   const REGISTRY = Symbol.for('cronum.work');
   const realFetch = globalThis.fetch;
   const modules = [
-    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: true } },
-    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: true } },
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: true } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: true } },
   ];
   globalThis.fetch = async (path) => {
     const data = path === '/api/modules' ? { host: { name: 'Cronum Work', icon: '/icons/favicon.svg' }, modules }
@@ -213,10 +210,10 @@ test('in a host with one prompt, Your AI has a chip for each agent with its step
   const realFetch = globalThis.fetch;
   const asked = [];
   const modules = [
-    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: true, about: true, standing: 'settings.mcp.standingText' } },
+    { mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: true, standing: 'settings.mcp.standingText' } },
     { mount: 'next', path: '/next/', name: 'Next', icon: '/next/icons/favicon.svg', active: true,
-      settings: { sections: [], data: false, ai: false, about: true, standing: 'settings.standing.text', standingMore: ['settings.standing.close'] } },
-    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: false, settings: { sections: [], data: false, ai: false, about: false } },
+      settings: { sections: [], data: false, about: true, standing: 'settings.standing.text', standingMore: ['settings.standing.close'] } },
+    { mount: 'notes', path: '/notes/', name: 'Notes', icon: '/notes/icons/favicon.svg', active: false, settings: { sections: [], data: false, about: false } },
   ];
   globalThis.fetch = async (path) => {
     asked.push(path);
@@ -315,7 +312,7 @@ test('in a host, «every tool from the start» is kept at the host\'s own route,
   const { openSettings } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');
   const realFetch = globalThis.fetch;
-  const modules = [{ mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: false } }];
+  const modules = [{ mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: false } }];
   const sent = [];
   let kept = 'door';
   globalThis.fetch = async (path, { method = 'GET', body } = {}) => {
@@ -359,7 +356,7 @@ test('in a host with a daily summary, Settings has its two notices, each with it
   const { openSettings } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');
   const realFetch = globalThis.fetch;
-  const modules = [{ mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, ai: false, about: false } }];
+  const modules = [{ mount: 'tasks', path: '/tasks/', name: 'Tasks', icon: '/tasks/icons/favicon.svg', active: true, settings: { sections: [], data: false, about: false } }];
   const sent = [];
   let day = { morning: { on: false, at: '08:00' }, evening: { on: true, at: '19:00' } };
   globalThis.fetch = async (path, { method = 'GET', body } = {}) => {
@@ -446,7 +443,7 @@ test('each notice of the daily summary has a switch for each module that gives i
   const { openSettings } = await import('../web/settings.js');
   const { t } = await import('../web/i18n.js');
   const realFetch = globalThis.fetch;
-  const module = (mount, name, day) => ({ mount, path: `/${mount}/`, name, icon: `/${mount}/icons/favicon.svg`, active: true, day, settings: { sections: [], data: false, ai: false, about: false } });
+  const module = (mount, name, day) => ({ mount, path: `/${mount}/`, name, icon: `/${mount}/icons/favicon.svg`, active: true, day, settings: { sections: [], data: false, about: false } });
   const modules = [module('tasks', 'Tasks', ['agenda', 'done']), module('projects', 'Projects', ['agenda', 'done']), module('notes', 'Notes', ['done']),
     { ...module('next', 'Next', ['done']), active: false }];
   const sent = [];

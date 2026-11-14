@@ -127,11 +127,11 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does |
 | `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`; the module's sheet after it draws the rest |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
@@ -457,8 +457,8 @@ sign-in (two-step verification, sessions), the AI (MCP address, connected apps, 
 notifications (`push: true`), plan (`plan: true`; with `{ billing: true }` it also sells, below), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
-everything else is the suite's. `aiExtra()` and `aboutExtra()` add a block (Next's standing
-instruction, an app's tips). Your data ends with what goes for good: erasing what one has in the
+everything else is the suite's. `aboutExtra()` adds a block (what the app is), and `standing` its
+instruction for an assistant, in Your AI. Your data ends with what goes for good: erasing what one has in the
 app (with `data`) and deleting the account (when the install offers it, `deletion_days`), each
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
@@ -468,8 +468,7 @@ screen offers back an account waiting to be deleted.
 module: the account's sections (with notices and the plan when the host says so,
 `app.host.push` and `app.host.plans` in `/api/auth/config`, whatever the module passes); then a
 group for each module the person uses, in the host's order, with its own sections, its data
-(export, import, erase), what it adds to Your AI (`aiExtra`, its own section) and what it is
-(`aboutExtra`, its own section); last the host's: deleting the account, Administration and About.
+(export, import, erase) and what it is (`aboutExtra`, its own section); last the host's: deleting the account, Administration and About.
 The module open draws its own sections; another's are named from the host's `/api/modules`
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
