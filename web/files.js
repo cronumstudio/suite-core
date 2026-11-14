@@ -71,12 +71,13 @@ const writing = (node) => node?.isContentEditable || node?.tagName === 'TEXTAREA
  * - `dropTarget`: the node a file is dropped on or pasted into to add it (the detail).
  * - `accept`: the kinds of file it takes (photos and PDFs). `errorText(err)`: what went wrong, in words.
  * - `onPhoto(file, photos)`: what a thumbnail opens; the kit's viewer by default.
- * - `notice`: a line under the title (a reason it can't take files now, say).
+ * - `notice`: a line under the title (a reason it can't take files now, say). `parent`: where the
+ *   viewer hangs, as openDialog's.
  */
 export function attachments({
   files = [], editable = false, mayRemove = () => true, fileUrl, upload = null, onUploaded = () => {},
   remove = null, restore = null, max = null, maxBytes = MAX_BYTES, dropTarget = null, accept = FILE_TYPES,
-  errorText = (err) => err?.message || errorMessage(err), onPhoto = null, notice = null,
+  errorText = (err) => err?.message || errorMessage(err), onPhoto = null, notice = null, parent = null,
 }) {
   const list = files || [];
   if (!list.length && !editable) return null;
@@ -88,7 +89,7 @@ export function attachments({
   const section = el('section', { class: 'kit-files' }, title,
     notice ? el('p', { class: 'kit-hint', text: notice }) : null);
 
-  const open = (file) => (onPhoto || ((one) => photoViewer({ photos, start: one, fileUrl })))(file, photos);
+  const open = (file) => (onPhoto || ((one) => photoViewer({ photos, start: one, fileUrl, parent })))(file, photos);
   if (list.length) {
     section.append(el('div', { class: 'kit-files__grid' }, list.map((file) => tile(file, {
       open, fileUrl,
