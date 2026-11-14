@@ -80,7 +80,7 @@ import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
-import { devicePushSubscription, pushSupport, noticesOnHere, markNoticesOn, markNoticesOff } from './push.js';
+import { devicePushSubscription, ensureSubscription, pushSupport, noticesOnHere, markNoticesOff } from './push.js';
 import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
 import { openInWork } from './links.js';
@@ -2480,21 +2480,14 @@ async function pushApi() {
 export async function subscribePush() {
   // Inside the suite's app its own notices are the device's one channel: never Web Push there too.
   if (inApp()) throw new Error('in_app');
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('not_allowed');
-  const push = await pushApi();
-  const { public_key: key } = await push.get('/api/push/config');
-  // The host's one worker where there is one, not a module's about to be retired (worker.js).
-  const registration = await workerRegistration();
-  const raw = atob(key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (key.length % 4)) % 4));
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
+  // The kit's one way (push.js), Tasks' banner's too: permission first, then the key, the
+  // subscription replaced when the key changed, on the host's one worker where there is one.
+  const { subscription } = await ensureSubscription({
+    key: async () => (await (await pushApi()).get('/api/push/config')).public_key,
+    post: async (body) => (await pushApi()).post('/api/push/subscribe', body),
+    lang: currentLanguage(),
+    registration: workerRegistration,
   });
-  const json = subscription.toJSON();
-  const answer = await push.post('/api/push/subscribe', {
-    endpoint: json.endpoint, keys: json.keys, label: navigator.userAgent.slice(0, 120), lang: currentLanguage(),
-  });
-  markNoticesOn(answer?.user_id);
   noticesRenewed();
   return subscription;
 }

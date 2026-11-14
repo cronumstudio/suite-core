@@ -297,6 +297,16 @@ export function createShell({
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); }, { signal });
+  // Left for somewhere else, it closes: Back changed the list behind it (in Work's shell too, whose
+  // history moves its windows: Back, and only that, on its window), or a phone's tab in Work, outside
+  // the scrim, put another window in front, and coming back found it still open (ui-movil-7).
+  window.addEventListener('popstate', () => closeDrawer(), { signal });
+  if (!embedded) window.addEventListener('hashchange', () => closeDrawer(), { signal });
+  const outOfView = embedded && typeof MutationObserver === 'function'
+    ? new MutationObserver(() => { if (element.closest('[hidden]')) closeDrawer(); }) : null;
+  for (let at = outOfView ? root : null; at && at !== document.documentElement; at = at.parentElement) {
+    outOfView.observe(at, { attributes: true, attributeFilter: ['hidden'] });
+  }
   // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
   // opens this module's: the page asks with `kit:settings` on this frame's window, and may name
   // the section (`detail.start`), one of this module's chosen in Settings in another frame.
@@ -846,6 +856,8 @@ export function createShell({
       modulePaths = new Set();
       dropRail();
       asModule(true);
+      // The host's worker opens this module's notices here, in this app (pwa-7).
+      import('./worker.js').then((w) => w.markInstalledAlone(mount)).catch(() => {});
       return null;
     }
     // The host's home opens the module used last.
@@ -1036,6 +1048,7 @@ export function createShell({
     if (destroyed) return;
     destroyed = true;
     listening.abort();
+    outOfView?.disconnect();
     if (openPlan) setPlanOpener(null, { replacing: openPlan });
     for (const swallow of swallowing) document.removeEventListener('click', swallow, { capture: true });
     swallowing.clear();

@@ -95,6 +95,23 @@ export async function workerRegistration() {
   return activeOf(root);
 }
 
+/**
+ * Where a host's module installed as an app of its own says so to the host's one worker, which
+ * reads it (sw-core.js SUITE_ALONE) and opens a notice of this module tapped with no window open
+ * in it, rather than in the host's page, outside this app (pwa-7). Renewed at every start of it.
+ */
+const ALONE = '/.suite-alone';
+
+/** This module (`tasks`) is installed as an app of its own on this device: the host's worker is told. */
+export async function markInstalledAlone(mount, { store = globalThis.caches, now = Date.now } = {}) {
+  if (!mount || !store?.open) return false;
+  try {
+    const cache = await store.open(ALONE);
+    await cache.put(`${ALONE}/${mount}/`, new Response(JSON.stringify({ at: now() }), { headers: { 'Content-Type': 'application/json' } }));
+    return true;
+  } catch { return false; }
+}
+
 /** Whether notices this device had were lost when the modules' workers were retired, and must be turned on again. */
 export function noticesToRenew() {
   return recall(RENEW_KEY) === '1';

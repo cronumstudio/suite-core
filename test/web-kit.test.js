@@ -1032,7 +1032,8 @@ test('a module installed on its own shows only itself: no rail, no other modules
   // Only where the host's own app is its one-document page (`host.shell`): a module's page in an app window is then the module's install.
   assert.match(base, /export const installedAlone = \(host, \{ embedded = false \} = \{\}\) => Boolean\(host\?\.shell\) && !FRAMED && !embedded && installed\(\);/);
   assert.match(shell, /const alone = \(host\) => installedAlone\(host, \{ embedded \}\);/);
-  assert.match(shell, /if \(alone\(host\)\) \{\s*others = \[\];\s*calendarPath = null;\s*modulePaths = new Set\(\);\s*dropRail\(\);\s*asModule\(true\);\s*return null;\s*\}/);
+  assert.match(shell, /if \(alone\(host\)\) \{\s*others = \[\];\s*calendarPath = null;\s*modulePaths = new Set\(\);\s*dropRail\(\);\s*asModule\(true\);\s*\/\/[^\n]*\n\s*import\('\.\/worker\.js'\)\.then\(\(w\) => w\.markInstalledAlone\(mount\)\)\.catch\(\(\) => \{\}\);\s*return null;\s*\}/,
+    'and the host’s worker is told, so it opens this module’s notices in this app (pwa-7)');
   // Checked before the module is kept as the host's last: the host's own app keeps opening on its own.
   assert.ok(shell.indexOf('if (alone(host))') < shell.indexOf("localStorage.setItem('host.module', mount)"));
 });
@@ -1237,7 +1238,9 @@ async function serviceWorker(scope, cacheKeys = []) {
     listeners.fetch({ request: { method: 'GET', url, mode }, respondWith: () => { answered = true; }, waitUntil: () => {} });
     return answered;
   };
-  return { self, fire, answers, deleted, installed, opened };
+  /** The worker's caches from now on (sw-core.js reads `caches` when it needs them). */
+  const setCaches = (next) => { context.caches = next; };
+  return { self, fire, answers, deleted, installed, opened, setCaches };
 }
 
 test('the service worker of an app on its own works as it always did', async () => {
@@ -1810,6 +1813,108 @@ test('a host’s install asks once more for what the network refused, leaves out
   assert.equal((await host.get('https://work.example/?modules', 'navigate')).body, 'the home asked by name');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(store.get('work-b').get('/').body, 'shell', 'the copy’s / is still the shell');
+});
+
+test('a host’s own files are code from its copy, and the network never replaces what the copy holds (sc-shell-9)', async () => {
+  // Work's /w/work.js and /w/shell.css were taken for icons: asked at every start, and the next
+  // release's kept in this one's copy, so a worker that hadn't taken over yet mixed Work's new
+  // shell with the old kit, and the page opened blank.
+  const server = {
+    '/': 'shell', '/w/work.js': 'work v1', '/w/shell.css': 'sheet v1', '/suite/update.js': 'update v1', '/icons/a.png': 'icon v1',
+  };
+  const { worker, fetched, store } = await deployedWorkers('https://work.example/', server);
+  const one = await worker({
+    version: 'work-a', modules: ['/tasks/'], codeFirst: true, sharedKit: true, kit: false,
+    hashes: { '/w/work.js': 'w1', '/w/shell.css': 's1', '/suite/update.js': 'u1' },
+    shell: ['/', '/w/work.js', '/w/shell.css', '/suite/update.js'],
+  });
+  // A deploy: the server has the next release, this worker is still the one in charge.
+  for (const file of ['/w/work.js', '/w/shell.css', '/suite/update.js', '/icons/a.png']) server[file] = server[file].replace('v1', 'v2');
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/w/work.js')).body, 'work v1');
+  assert.equal((await one.get('https://work.example/w/shell.css')).body, 'sheet v1');
+  assert.equal((await one.get('https://work.example/suite/update.js')).body, 'update v1');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(fetched, [], 'not a word to the network for what the copy holds');
+  assert.equal(store.get('work-a').get('/w/work.js').body, 'work v1', 'and the copy is still this release’s');
+
+  // A file outside the shell: from the network once, kept, and then the copy's until the next release.
+  assert.equal((await one.get('https://work.example/icons/a.png')).body, 'icon v2');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  server['/icons/a.png'] = 'icon v3';
+  fetched.length = 0;
+  assert.equal((await one.get('https://work.example/icons/a.png')).body, 'icon v2');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(fetched, [], 'nothing refreshed behind the scenes into the copy');
+
+  // An app on its own keeps refreshing its icons as it always did.
+  const own = { '/': 'page', '/icons/a.png': 'icon v1' };
+  const alone = await deployedWorkers('https://tasks.example/', own);
+  const app = await alone.worker({ version: 'tasks-v1', shell: ['/', '/icons/a.png'], kit: false });
+  own['/icons/a.png'] = 'icon v2';
+  assert.equal((await app.get('https://tasks.example/icons/a.png')).body, 'icon v1', 'the copy at once');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal((await app.get('https://tasks.example/icons/a.png')).body, 'icon v2', 'refreshed for next time');
+});
+
+test('what a host’s copy has only to have offline comes from the old copy while its hash is the same (sc-shell-13)', async () => {
+  const server = { quick: true, '/': 'shell', '/tasks/i18n/es.json?en': 'es v1', '/tasks/icons/icon-192.png': 'icon v1' };
+  const optional = ['/tasks/i18n/es.json?en', '/tasks/icons/icon-192.png', '/tasks/i18n/de.json?en'];
+  const { worker, fetched, store } = await deployedWorkers('https://work.example/', server);
+  const release = (version, hashes) => worker({ version, modules: ['/tasks/'], codeFirst: true, kit: false, shell: ['/'], optional, hashes });
+  const first = { '/tasks/i18n/es.json?en': 'e1', '/tasks/icons/icon-192.png': 'i1', '/tasks/i18n/de.json?en': 'd1' };
+  const one = await release('work-a', first);
+  assert.equal(one.installed, true, 'one the server hasn’t (de) never fails the install');
+  assert.deepEqual(JSON.parse(store.get('work-a').get('/.suite-hashes').body), { '/tasks/i18n/es.json?en': 'e1', '/tasks/icons/icon-192.png': 'i1' },
+    'and the note doesn’t name it');
+
+  // The next release changes only the catalog: the icon stays where it was, the catalog travels.
+  server['/tasks/i18n/es.json?en'] = 'es v2';
+  server['/tasks/icons/icon-192.png'] = 'icon changed without a new hash';
+  fetched.length = 0;
+  const two = await release('work-b', { ...first, '/tasks/i18n/es.json?en': 'e2' });
+  assert.equal(two.installed, true);
+  assert.equal(fetched.includes('/tasks/icons/icon-192.png'), false, 'what has the same hash never travels');
+  assert.ok(fetched.includes('/tasks/i18n/es.json?en'));
+  assert.equal(store.get('work-b').get('/tasks/icons/icon-192.png').body, 'icon v1');
+  assert.equal(store.get('work-b').get('/tasks/i18n/es.json?en').body, 'es v2');
+
+  // A signal that goes for what is only nice to have: the install goes on without it.
+  server.down = (path) => (path.startsWith('/tasks/i18n/') ? 'offline' : undefined);
+  const three = await release('work-c', { ...first, '/tasks/i18n/es.json?en': 'e3' });
+  assert.equal(three.installed, true);
+  assert.equal(store.get('work-c').has('/tasks/i18n/es.json?en'), false);
+  assert.equal(JSON.parse(store.get('work-c').get('/.suite-hashes').body)['/tasks/i18n/es.json?en'], undefined);
+});
+
+test('a notice of a module installed as an app of its own opens in that app, with no window open (pwa-7)', async () => {
+  // The mark its page leaves (worker.js markInstalledAlone, from shell.js), where the host's worker reads it.
+  const { markInstalledAlone } = await import('../web/worker.js');
+  const marks = new Map();
+  const store = { open: async (name) => ({ put: async (key, response) => { marks.set(`${name}|${key}`, response); } }) };
+  assert.equal(await markInstalledAlone('tasks', { store }), true);
+  assert.deepEqual([...marks.keys()], ['/.suite-alone|/.suite-alone/tasks/']);
+  const fresh = JSON.parse(await marks.get('/.suite-alone|/.suite-alone/tasks/').text());
+  assert.ok(Math.abs(fresh.at - Date.now()) < 5000);
+
+  const host = await serviceWorker('https://work.example/', []);
+  host.self.suiteWorker({ version: 'work-new', modules: ['/tasks/', '/notes/'], shell: ['/'], holds: ['/', '/w/'], push: { title: 'Cronum Work', url: '/' } });
+  const holding = (found) => host.setCaches({
+    open: async (name) => ({ match: async (key) => (name === '/.suite-alone' && found[key] ? { json: async () => found[key] } : undefined) }),
+  });
+  const tap = (url) => host.fire('notificationclick', { notification: { close() {}, data: { url } } });
+
+  holding({ '/.suite-alone/tasks/': fresh });
+  await tap('/tasks/?list=4');
+  assert.deepEqual(host.opened, ['/tasks/?list=4'], 'its own page, which opens in that app');
+  await tap('/notes/#/n/5');
+  assert.deepEqual(host.opened.slice(1), [`/?open=${encodeURIComponent('/notes/#/n/5')}`], 'another module’s: the shell, as before');
+  holding({ '/.suite-alone/tasks/': { at: Date.now() - 31 * 86400000 } });
+  await tap('/tasks/?list=6');
+  assert.deepEqual(host.opened.slice(2), [`/?open=${encodeURIComponent('/tasks/?list=6')}`], 'a mark not renewed in a month no longer counts');
+  holding({});
+  await tap('/tasks/?list=7');
+  assert.deepEqual(host.opened.slice(3), [`/?open=${encodeURIComponent('/tasks/?list=7')}`], 'without a mark, the shell');
 });
 
 /* ------------------------------ texts in code ----------------------------- */
@@ -2716,6 +2821,57 @@ test('the frame’s destroy() takes away every listener it added, the menu it op
     assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before);
   } finally {
     restore();
+  }
+});
+
+test('the drawer closes once it is left: its window out of view (a phone’s tab), or the history moved (ui-movil-7)', async () => {
+  const { page, win, restore } = await framePage();
+  const saved = globalThis.MutationObserver;
+  const observers = [];
+  globalThis.MutationObserver = class {
+    constructor(fn) { this.fn = fn; this.targets = []; observers.push(this); }
+    observe(target, options) { this.targets.push([target, options]); }
+    disconnect() { this.gone = true; }
+  };
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const node = document.createElement('section');
+    const body = document.createElement('div');
+    node.append(body);
+    page.body.append(node);
+    const inWork = createShell({ ...frameOptions(), embedded: true, root: body });
+    const open = () => inWork.element.hasAttribute('data-drawer');
+    inWork.openDrawer();
+    assert.equal(open(), true);
+    // Another tab in front: windows.js hides this window.
+    assert.ok(observers[0].targets.some(([target, options]) => target === node && options.attributeFilter.includes('hidden')));
+    node.setAttribute('hidden', '');
+    observers[0].fn([]);
+    assert.equal(open(), false, 'back on its tab, the drawer isn’t there over it');
+    node.removeAttribute('hidden');
+    inWork.openDrawer();
+    observers[0].fn([]);
+    assert.equal(open(), true, 'a change elsewhere leaves it');
+    // Back: Work's shell moves the window's module, and the list behind it changes.
+    win.dispatch('popstate');
+    assert.equal(open(), false);
+    inWork.destroy();
+    assert.equal(observers[0].gone, true, 'nothing left watching');
+
+    // On its own page, Back too.
+    const alone = createShell(frameOptions());
+    alone.openDrawer();
+    win.dispatch('popstate');
+    assert.equal(alone.element.hasAttribute('data-drawer'), false);
+    alone.openDrawer();
+    win.dispatch('hashchange');
+    assert.equal(alone.element.hasAttribute('data-drawer'), false, 'and a route in the hash (Notes, Next)');
+    assert.equal(observers.length, 1, 'only a window of Work’s shell is watched');
+    alone.destroy();
+  } finally {
+    restore();
+    if (saved) globalThis.MutationObserver = saved;
+    else delete globalThis.MutationObserver;
   }
 });
 

@@ -1505,7 +1505,10 @@ export async function createHost({
           ...pageList.map((page) => ({ base: page.at, dir: page.dir }))],
         catalogs: fingerprint(KIT_TEXTS).version,
       }),
-      shell,
+      // The one app-version.js its pages read, the root's, the whole app's (update.js), and not the
+      // modules' own, which none reads here: offline after an update About said «—», and one from the
+      // network said the next release was the one running (pwa-8).
+      shell: [...new Set([...shell.filter((url) => !/^\/[^/]+\/js\/app-version\.js$/.test(url)), '/js/app-version.js'])],
       optional,
       // The app's start holds every module (`pages[].root`, Work's shell): a notice opens in it.
       ...(rootPage ? { holds: ['/', rootPage.at] } : {}),

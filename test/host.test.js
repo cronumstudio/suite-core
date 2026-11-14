@@ -776,6 +776,9 @@ test('a host with one worker: /sw.js for every module, one version for the whole
   for (const kept of ['/', '/index.html', '/split/', '/split/index.html', '/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/beta/']) {
     assert.ok(options.shell.includes(kept), `${kept} in its copy`);
   }
+  // The one app-version.js its pages read, the whole app's at the root, and not a module's own (pwa-8).
+  assert.ok(options.shell.includes('/js/app-version.js'), 'the root’s app-version.js in its copy');
+  assert.equal(options.shell.includes('/alpha/js/app-version.js'), false, 'a module’s own, which nobody reads there, left out');
   assert.deepEqual(options.push, { title: 'Work', icon: '/icons/icon-192.png', url: '/' });
   // Its version is the fingerprint of everything: code from the copy first, the kit once, and each
   // file's hash for the next release to take what didn't change.
@@ -834,7 +837,7 @@ test('a module’s notices with the host’s one worker open at its path (host-w
 test('a module’s shell, read from its own worker, at its path (host-worker.js)', async () => {
   const { moduleShell } = await import('../host-worker.js');
   const dir = new URL('./fixtures/host/alpha/public', import.meta.url);
-  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/alpha/css/app.css'], optional: [], icon: null });
+  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/alpha/js/app-version.js', '/alpha/css/app.css'], optional: [], icon: null });
   assert.deepEqual(moduleShell(null, 'beta'), { shell: ['/beta/', '/beta/index.html'], optional: [] }, 'without a worker, its page');
 });
 

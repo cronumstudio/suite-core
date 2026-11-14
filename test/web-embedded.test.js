@@ -107,7 +107,8 @@ test('a module\'s frame in Work\'s shell: its sidebar and fold, no rail, no pers
   assert.equal(await shell.refreshModules(), null);
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(asked, [], 'neither the modules nor the plan: the shell asks');
-  assert.equal(win.listenerCount(), before[1], 'nothing on the window: resizes, looks and Settings are the shell\'s');
+  assert.equal(win.listenerCount(), before[1] + 1, 'only Back on the window, which closes its drawer (ui-movil-7): resizes, looks and Settings are the shell’s');
+  assert.equal(win.listeners.popstate?.length, 1);
   assert.equal(shell.banners.children.length, 0, 'no founder\'s notice in a window');
   shell.destroy();
   assert.deepEqual(counts(page, win), before);

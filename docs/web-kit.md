@@ -140,10 +140,10 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
-| `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
+| `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()`; `markInstalledAlone(mount)`: a module installed as an app of its own tells the host's worker, which opens its notices there (shell.js calls it) |
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
-| `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
+| `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route; `ensureSubscription({ key, post, lang })`: notices on for the person signed in, the one way Settings and an app's own button (Tasks') turn them on |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `swipe.js` | `rowSwipe(row, { content, left, right, ignore })`: a finger across a row, to the trash to the left and the module's quick toggle to the right (v0.248.0); `keepSwipe(row)`, a row with nothing to do that keeps the finger; `trashAction(run)`; `swipeAction`, `swipeStretch`, `SWIPE_IGNORE` |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
@@ -947,7 +947,11 @@ whose page shows it once.
 ### Notices on a device with no account
 
 Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/config` and posts to
-`/api/push/subscribe`, both behind a session. A device that belongs to the app instead (Focus'
+`/api/push/subscribe`, both behind a session. It goes through `ensureSubscription()` (`push.js`),
+which an app's own button uses too (`{ key, post, lang }`: the key or a function that asks for it
+once permission is given, and how to tell its server), so the device is the same row whoever
+turned notices on: the browser's words for it, the subscription replaced when the install's keys
+changed. A device that belongs to the app instead (Focus'
 child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
 server and hands the subscription to the app:
 
