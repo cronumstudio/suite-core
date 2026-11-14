@@ -178,6 +178,7 @@ const VIEWS = {
   data: renderData, audit: renderAudit,
 };
 
+let showing = 0;
 function show() {
   const wanted = (window.location.hash.match(/^#\/(\w+)/) || [])[1];
   const tab = visibleTabs().some(([id]) => id === wanted) ? wanted : 'users';
@@ -186,7 +187,14 @@ function show() {
     else link.removeAttribute('aria-current');
   }
   const main = clear($('#admin-main'));
-  VIEWS[tab](main).catch(fail);
+  // Drawn apart, once the server has answered, and put in only while it is still the last one
+  // asked for: another tab, or two saves of an account one after the other, draw one view. One that
+  // failed half way shows what it drew, with the error.
+  const turn = ++showing;
+  const view = el('div', {});
+  VIEWS[tab](view).catch((err) => { if (turn === showing) fail(err); }).then(() => {
+    if (turn === showing) clear(main).append(...view.childNodes);
+  });
 }
 
 /* ---------------------------------- users ---------------------------------- */
@@ -218,21 +226,23 @@ async function renderUsers(main) {
     const shown = narrow();
     if (shown.length === 1) userDialog(shown[0].user);
   });
+  const grid = table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
+    hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
+  rows.map(({ row }) => row));
   main.append(
     el('h2', { text: t('admin.users.title') }),
     el('p', { class: 'kit-lead', text: local() ? t('admin.users.leadLocal') : t('admin.users.leadIdp', { provider: state.config.name }) }),
     el('div', { class: 'kit-toolbar' },
       field(t('admin.users.search'), search),
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: () => newUserDialog().catch(fail) })),
-    table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
-      hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
-    rows.map(({ row }) => row)),
+    grid,
     noMatch,
   );
   if (search.value) narrow();
-  paintPeaks(main).catch(() => {
+  // On the table, which goes into the page as it is (show() moves the view's nodes).
+  paintPeaks(grid).catch(() => {
     // An app on its own has no Usage (a host's, usage.js): the column goes.
-    for (const cell of [...[...main.querySelectorAll('th')].slice(-1), ...main.querySelectorAll('[data-usage]')]) cell.remove();
+    for (const cell of [...[...grid.querySelectorAll('th')].slice(-1), ...grid.querySelectorAll('[data-usage]')]) cell.remove();
   });
 }
 
