@@ -127,8 +127,11 @@ export function sharedPage({
           : permissionChoice(roles, person.permission, (permission) => change(() => setPermission(item, person, permission))()),
         kept ? null : el('button', {
           type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.shared.remove', { name: who }), title: t('kit.shared.remove', { name: who }),
+          // As the share dialog (share.js): someone who accepted it is asked about; an invitation
+          // not answered yet goes at once (Martin, 10/11).
           onClick: async () => {
-            const sure = await confirmDialog(t('kit.shared.removeConfirm', { name: who, item: item.name }), { confirm: t('kit.shared.stop') });
+            const sure = !person.accepted || await confirmDialog(t('kit.shared.removeConfirm', { name: who, item: item.name }),
+              { title: t('kit.share.removeAsk', { name: who }), confirm: t('kit.shared.stop') });
             if (sure) await change(() => remove(item, person))();
           },
         }, icon('x')));
@@ -142,7 +145,8 @@ export function sharedPage({
       ? [accept ? button(t('kit.shared.accept'), change(() => accept(item)), 'primary') : null,
         button(t('kit.shared.decline'), change(() => leave(item)), 'quiet')]
       : [button(t('kit.shared.leave'), async () => {
-        const sure = await confirmDialog(t('kit.shared.leaveConfirm', { item: item.name }), { confirm: t('kit.shared.leave') });
+        const sure = await confirmDialog(t('kit.shared.leaveConfirm', { item: item.name }),
+          { title: t('kit.share.leaveAsk', { name: item.name }), confirm: t('kit.shared.leave') });
         if (sure) await change(() => leave(item))();
       }, 'danger-quiet')];
     return el('article', { class: 'kit-shared__item' },

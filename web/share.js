@@ -57,8 +57,9 @@ const fail = (err) => {
  * @param {Function} [options.fixed]  (share) → true for a row whoever manages can't change or take
  *   back (a manager's, for another manager); one's own row always is.
  * @param {Function} [options.confirmRemove]  (share) → the question to ask before taking it back,
- *   or nothing to take it back at once. By default someone who accepted it is asked about
- *   («¿Quitárselo a X?»), and an invitation not answered yet goes at once (Martin, 10/11).
+ *   or nothing to take it back at once. By default someone who accepted it is asked about, as
+ *   Settings › Sharing asks («¿Quitárselo a X?», «X dejará de tener «Y».»), and an invitation not
+ *   answered yet goes at once (Martin, 10/11).
  * @param {Element} [options.parent]  where the dialog and its questions hang, as openDialog's (a
  *   module that keeps its dialogs in its own place, its window in Cronum Work).
  * @param {Function} [options.load]  () → Promise<{ role, owner, shares, manage? }>.
@@ -76,7 +77,9 @@ export async function shareDialog({
   permissions = null, invitePermission = null, fixed = null, confirmRemove = null, parent = null,
 } = {}) {
   const w = (key, vars) => t(words(key), vars);
-  confirmRemove ||= (share) => (share.accepted ? w('removeAsk', { name: share.user.name }) : null);
+  // The kit's question is Settings › Sharing's (shared.js): its title asks, its text says what goes.
+  const kitQuestion = !confirmRemove;
+  confirmRemove ||= (share) => (share.accepted ? t('kit.shared.removeConfirm', { name: share.user.name, item: name }) : null);
   const kinds = permissions?.length ? permissions : [{ value: 'edit', label: w('edit') }, { value: 'view', label: w('view') }];
   // What may be given here: a role with `offered: false` is said on the rows that have it, never chosen.
   const offered = kinds.filter((k) => k.offered !== false);
@@ -138,7 +141,8 @@ export async function shareDialog({
           type: 'button', class: 'kit-icon-btn', 'aria-label': w('remove', { name: share.user.name }), title: w('remove', { name: share.user.name }),
           onClick: async () => {
             const question = confirmRemove?.(share);
-            if (question && !await confirmDialog(question, { confirm: w('takeBack'), parent })) return;
+            const title = kitQuestion ? { title: w('removeAsk', { name: share.user.name }) } : {};
+            if (question && !await confirmDialog(question, { ...title, confirm: w('takeBack'), parent })) return;
             try {
               await remove(share);
               data.shares = data.shares.filter((s) => s !== share);

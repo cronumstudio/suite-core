@@ -106,6 +106,8 @@ test('its owner sees who has it, invites by email and by chips, changes and take
   // Ben had accepted it: asked first, by default.
   const question = openDialogs().at(-1);
   assert.match(question.textContent, new RegExp(t('kit.share.removeAsk', { name: 'Ben' }).replace(/[?]/g, '\\$&')));
+  // In the words of Settings › Sharing (shared.js): what goes, and from whom.
+  assert.ok(question.textContent.includes(t('kit.shared.removeConfirm', { name: 'Ben', item: 'Plans' })));
   assert.equal(calls.find(([m]) => m === 'DELETE'), undefined, 'nothing taken back before the answer');
   button(question, t('kit.share.takeBack')).dispatch('click', { currentTarget: button(question, t('kit.share.takeBack')) });
   await settle();

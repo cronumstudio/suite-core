@@ -97,12 +97,22 @@ test('each change goes through the app and the page asks again', async () => {
   await settle();
   assert.deepEqual(calls, [['permission', 3, 2, 'view'], ['load']]);
 
-  // Taking it back from Ben asks first.
+  // Taking it back from Ana, who accepted it, asks first, as the share dialog does (share.js);
+  // from Ben, whose invitation has no answer, it goes at once (Martin, 10/11).
+  calls.length = 0;
+  const anaAgain = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ana/.test(n.textContent));
+  anaAgain.all().find((n) => n.getAttribute('aria-label') === t('kit.shared.remove', { name: 'Ana' })).dispatch('click');
+  await settle();
+  const question = openDialog();
+  assert.ok(question.textContent.includes(t('kit.share.removeAsk', { name: 'Ana' })), 'the title asks');
+  assert.ok(question.textContent.includes(t('kit.shared.removeConfirm', { name: 'Ana', item: 'Recipes' })), 'the text says what goes');
+  assert.deepEqual(calls, []);
+  buttons(question, t('kit.shared.stop'))[0].dispatch('click');
+  await settle();
+  assert.deepEqual(calls, [['remove', 3, 2], ['load']]);
   calls.length = 0;
   const benRow = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ben/.test(n.textContent));
   benRow.all().find((n) => n.getAttribute('aria-label') === t('kit.shared.remove', { name: 'Ben' })).dispatch('click');
-  await settle();
-  buttons(openDialog(), t('kit.shared.stop'))[0].dispatch('click');
   await settle();
   assert.deepEqual(calls, [['remove', 3, 4], ['load']]);
 
