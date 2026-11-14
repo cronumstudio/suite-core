@@ -72,7 +72,7 @@
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateFormat } from './i18n.js';
 import { api, errorMessage, Offline } from './api.js';
-import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installed, installedAlone } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
 import { makeDraggable } from './drag.js';
@@ -1322,6 +1322,8 @@ export function openSettings(options) {
       clear(icons);
       // In the suite's app each one opens outside it, in the browser, where it can be installed.
       const native = inApp();
+      // Work installed (this window is it, `installed()`), as in the suite's app: no button for it.
+      const workHere = native || installed();
       const link = (href, image, name) => el('a', {
         class: 'kit-btn kit-btn--small', href, target: '_blank', rel: 'noopener',
         onClick: (ev) => { if (native && openExternal(new URL(href, window.location.href).href)) ev.preventDefault(); },
@@ -1329,7 +1331,7 @@ export function openSettings(options) {
       // The host itself first, but not in its own app, which is it installed: one icon for all of it,
       // opening on the module used last. Its page at /?modules stays put instead of going on to a
       // module, so it can be installed from there.
-      if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
+      if (answer.host?.name && !workHere) icons.append(link('/?modules', answer.host.icon, answer.host.name));
       // A door (Croc) is a button of the whole app's, never installed alone.
       for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(m.path, m.icon, m.name));
     };
@@ -1351,12 +1353,15 @@ export function openSettings(options) {
    * Installing on this device: on the web Cronum Work or each module on its own, in the suite's
    * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way,
    * then what installing it gives: it opens as an app and keeps what was seen, for without a signal.
+   * Inside Work installed (a window of its own, `installed()`) as in the suite's app: Work is
+   * installed already, and that window has no tab nor address bar; the module opens in the browser.
    */
   function installing(icons) {
-    const native = inApp();
     const kind = installKind();
-    const pick = native ? 'kit.modules.installPickApp'
-      : kind === 'ios' || kind === 'android' ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
+    const touch = kind === 'ios' || kind === 'android';
+    const native = inApp() || installed();
+    const pick = native ? (touch || inApp() ? 'kit.modules.installPickApp' : 'kit.modules.installPickInstalled')
+      : touch ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
     const how = {
       ios: 'kit.modules.installIos', android: 'kit.modules.installAndroid',
       'mac-safari': 'kit.modules.installMacSafari', firefox: 'kit.modules.installFirefox',

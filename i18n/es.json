@@ -1276,6 +1276,7 @@
   "kit.modules.installPickClick": "Haz clic en el que quieras instalar: se abre en una pestaña nueva.",
   "kit.modules.installPickTap": "Toca el que quieras instalar: se abre en una pestaña nueva.",
   "kit.modules.installPickApp": "Toca el módulo que quieras: se abre en el navegador. Si te pide entrar, usa tu cuenta de siempre.",
+  "kit.modules.installPickInstalled": "Haz clic en el módulo que quieras: se abre en el navegador. Si te pide entrar, usa tu cuenta de siempre.",
   "kit.modules.installIos": "Toca Compartir (el cuadrado con la flecha hacia arriba) y luego «Añadir a pantalla de inicio».",
   "kit.modules.installAndroid": "Abre el menú del navegador (⋮) y toca «Instalar aplicación» o «Añadir a pantalla de inicio».",
   "kit.modules.installMacSafari": "En el menú Archivo, elige «Añadir al Dock».",

@@ -1276,6 +1276,7 @@
   "kit.modules.installPickClick": "Cliquez sur celui que vous voulez installer : il s’ouvre dans un nouvel onglet.",
   "kit.modules.installPickTap": "Touchez celui que vous voulez installer : il s’ouvre dans un nouvel onglet.",
   "kit.modules.installPickApp": "Touchez le module voulu : il s’ouvre dans le navigateur. S’il vous demande de vous connecter, utilisez votre compte habituel.",
+  "kit.modules.installPickInstalled": "Cliquez sur le module voulu : il s’ouvre dans le navigateur. S’il vous demande de vous connecter, utilisez votre compte habituel.",
   "kit.modules.installIos": "Touchez Partager (le carré avec la flèche vers le haut), puis « Sur l’écran d’accueil ».",
   "kit.modules.installAndroid": "Ouvrez le menu du navigateur (⋮) et touchez « Installer l’application » ou « Ajouter à l’écran d’accueil ».",
   "kit.modules.installMacSafari": "Dans le menu Fichier, choisissez « Ajouter au Dock ».",

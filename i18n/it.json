@@ -1276,6 +1276,7 @@
   "kit.modules.installPickClick": "Fai clic su quello che vuoi installare: si apre in una nuova scheda.",
   "kit.modules.installPickTap": "Tocca quello che vuoi installare: si apre in una nuova scheda.",
   "kit.modules.installPickApp": "Tocca il modulo che vuoi: si apre nel browser. Se ti chiede di accedere, usa il tuo solito account.",
+  "kit.modules.installPickInstalled": "Fai clic sul modulo che vuoi: si apre nel browser. Se ti chiede di accedere, usa il tuo solito account.",
   "kit.modules.installIos": "Tocca Condividi (il quadrato con la freccia verso l’alto) e poi «Aggiungi alla schermata Home».",
   "kit.modules.installAndroid": "Apri il menu del browser (⋮) e tocca «Installa app» o «Aggiungi a schermata Home».",
   "kit.modules.installMacSafari": "Nel menu File, scegli «Aggiungi al Dock».",
