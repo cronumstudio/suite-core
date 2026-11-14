@@ -23,8 +23,9 @@
  *
  * Links go only to http, https and mailto, or within the app (a path, a
  * #fragment); anything else (javascript:, data:, vbscript:…) is shown as
- * text. Images load only from the app itself: an image elsewhere becomes a
- * link, so nothing in a note makes the reader's browser call a third party.
+ * text. Images load only from the app's own files (safeImage): an image
+ * elsewhere becomes a link, so nothing in a note makes the reader's browser
+ * call a third party, nor another address of the app.
  */
 import { el } from './dom.js';
 
@@ -45,11 +46,18 @@ export function safeHref(url) {
   return clean;
 }
 
-/** The address an image may load from: only this app (a path with no scheme and no other host). */
+/**
+ * The address an image may load from: only a file of this app's own, a path with no scheme and no
+ * other host that ends in a file's route, `…/files/12` (Notes' `api/note-files/12`, a public page's
+ * `api/public/<token>/files/12`), maybe with a query. Any other address of the app is never asked
+ * for by a picture: `![](/api/admin/export)` in a note shared with an admin became a request
+ * their browser made for them.
+ */
+const FILE_ROUTE = /^\/?(?:[\w.~-]+\/)*[\w-]*files\/\d+(?:\?[^#\s]*)?$/;
 export function safeImage(url) {
   const clean = String(url ?? '').replace(/[\u0000- \u007f]/g, '');
   if (!clean || /^[a-z][a-z0-9+.-]*:/i.test(clean) || /^[\\/]{2}/.test(clean) || /^\/\\/.test(clean)) return null;
-  return clean;
+  return FILE_ROUTE.test(clean) ? clean : null;
 }
 
 /* -------------------------------- inline --------------------------------- */
@@ -367,7 +375,7 @@ function cells(row) {
 
 /**
  * Block content: lines are { text, n }, n being the line's number in the
- * whole note (task items keep it, so ticking one changes that line). `depth`:
+ * whole note (each list item keeps its own, `line`). `depth`:
  * how many quotes and lists it is inside; from MAX_NESTING on, neither is read.
  */
 function parseBlocks(lines, depth = 0) {
@@ -512,15 +520,6 @@ export function parseMarkdown(source) {
 
 /* ------------------------------- the source ------------------------------ */
 
-/** Ticks or unticks the task on line `n` of the source; the rest stays as it was. */
-export function toggleTask(source, n, done) {
-  const lines = String(source).split('\n');
-  const line = lines[n];
-  if (line === undefined) return source;
-  lines[n] = line.replace(/^(\s*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[[ xX]\]/, `$1[${done ? 'x' : ' '}]`);
-  return lines.join('\n');
-}
-
 /**
  * A note's title: its first line with words, without the marks of a heading,
  * and with its escapes and entities undone (an editor writes "\~12", and
@@ -614,11 +613,8 @@ function listItem(item, options) {
     ? [el('span', {}, inlineNodes(item.children[0].children, options)), ...blockNodes(item.children.slice(1), options)]
     : blockNodes(item.children, options);
   if (item.task === null) return el('li', {}, children);
-  const box = el('input', {
-    type: 'checkbox', checked: item.task, 'data-line': String(item.line),
-    disabled: !options.onTaskToggle,
-  });
-  if (options.onTaskToggle) box.addEventListener('change', () => options.onTaskToggle(item.line, box.checked));
+  // Read-only: a note's boxes are ticked in its editor.
+  const box = el('input', { type: 'checkbox', checked: item.task, disabled: true });
   return el('li', { class: `kit-md__task${item.task ? ' kit-md__task--done' : ''}` }, box, children);
 }
 
@@ -626,7 +622,6 @@ function listItem(item, options) {
  * The note as nodes, in a `.kit-md` box.
  * @param {string} source
  * @param {object} [options]
- * @param {Function} [options.onTaskToggle]  (line, done) → a task was ticked; without it, boxes are read-only
  * @param {Function} [options.resolveImage]  (src) → where an image really is (an attachment's address)
  */
 export function renderMarkdown(source, options = {}) {

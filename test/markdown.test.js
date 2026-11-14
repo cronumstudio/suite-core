@@ -11,7 +11,7 @@ import { installFakeDom } from './fake-dom.js';
 
 installFakeDom();
 const {
-  parseMarkdown, parseInline, renderMarkdown, toggleTask, titleOf, plainText, safeHref, safeImage,
+  parseMarkdown, parseInline, renderMarkdown, titleOf, plainText, safeHref, safeImage,
 } = await import('../web/markdown.js');
 
 const types = (nodes) => nodes.map((n) => n.type);
@@ -42,9 +42,6 @@ test('lists: nested, ordered, tasks with their line in the source', () => {
   assert.deepEqual(bullets.items.map((i) => i.line), [0, 2, 3]);
   assert.equal(numbers.ordered, true);
   assert.equal(numbers.start, 3);
-  assert.equal(toggleTask(source, 2, true).split('\n')[2], '- [x] to do');
-  assert.equal(toggleTask(source, 3, false).split('\n')[3], '- [ ] done');
-  assert.equal(toggleTask(source, 0, true), source, 'a line that is no task stays as it was');
 });
 
 test('inline: strong, emphasis, struck, code, links, breaks; snake_case stays', () => {
@@ -70,17 +67,13 @@ test('inline: strong, emphasis, struck, code, links, breaks; snake_case stays', 
   assert.equal(parseInline('go to https://cronumstudio.com.')[1].href, 'https://cronumstudio.com');
 });
 
-test('drawn with el(): the tree as elements, tasks tickable only when asked', () => {
-  const ticks = [];
-  const node = renderMarkdown('# Title\n\n- [ ] call **Ana**\n- plain', { onTaskToggle: (line, done) => ticks.push([line, done]) });
+test('drawn with el(): the tree as elements, tasks as read-only boxes', () => {
+  const node = renderMarkdown('# Title\n\n- [ ] call **Ana**\n- plain');
   assert.equal(node.className, 'kit-md');
   assert.equal(node.find('h1')[0].textContent, 'Title');
   const box = node.find('input')[0];
   assert.equal(box.getAttribute('type'), 'checkbox');
-  assert.equal(box.getAttribute('data-line'), '2');
-  box.checked = true;
-  box.dispatch('change');
-  assert.deepEqual(ticks, [[2, true]]);
+  assert.ok(box.hasAttribute('disabled'));
   assert.equal(node.find('strong')[0].textContent, 'Ana');
   const marks = renderMarkdown('==seen== and ++under++');
   assert.equal(marks.find('mark')[0].textContent, 'seen');
@@ -123,6 +116,16 @@ test('XSS payloads stay text, and links and images only go where they may', () =
   assert.equal(safeHref('mailto:ana@example.com'), 'mailto:ana@example.com');
   assert.equal(safeHref('/?app&note=12'), '/?app&note=12');
   assert.equal(safeImage('/\\evil.example/x.png'), null);
+  // Only the app's own files: no other address of it is asked for by a picture (sc-ui-11).
+  for (const own of ['/api/files/12', '/notes/api/note-files/12', 'api/note-files/12?download=1', 'api/public/aB3_x-9/files/4']) {
+    assert.equal(safeImage(own), own, own);
+  }
+  for (const other of ['/api/admin/export', '/api/admin/export?files/1', '/auth/logout', '/icons/favicon.svg', '/\\evil/files/1']) {
+    assert.equal(safeImage(other), null, other);
+  }
+  const exported = renderMarkdown('![x](/api/admin/export)');
+  assert.equal(exported.find('img').length, 0, 'never a request the reader didn’t make');
+  assert.equal(exported.find('a')[0].getAttribute('href'), '/api/admin/export', 'a link they may follow, or not');
 });
 
 test('titles and plain text for lists and previews', () => {

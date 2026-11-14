@@ -138,7 +138,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
-| `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
+| `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
 | `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
@@ -905,11 +905,12 @@ sentence to show (`kit.images.*`): `uploadLimit(config)` reads the server's limi
 
 ### Markdown
 
-`renderMarkdown(text, { onTaskToggle })` draws a note with `el()` —headings, lists, task lists,
-quotes, code, tables, links and images— and never interprets HTML. Links go to http, https, mailto
-or within the app; images load only from the app (`resolveImage` maps an attachment), so nothing
-in a note makes the reader's browser call a third party. `toggleTask(text, line, done)` ticks the
-box in the source.
+`renderMarkdown(text, { resolveImage })` draws a note with `el()` —headings, lists, task lists
+(read-only boxes), quotes, code, tables, links and images— and never interprets HTML. Links go to
+http, https, mailto or within the app; images load only from the app's own files, a path ending in
+`files/<id>` (`resolveImage` maps an attachment), so nothing in a note makes the reader's browser
+call a third party, nor another address of the app. It reads in linear time, whatever the text, and
+past 32 levels of quotes, lists, marks or links the rest is text.
 
 ### The service worker
 
