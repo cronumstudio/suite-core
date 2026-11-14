@@ -2363,7 +2363,8 @@ export function createPortability({
  * `DELETE /api/me/import/:id`; and the same under `/api/admin/` for the whole
  * install, whose apply takes `{ accounts: [decisions] }`. `POST /api/me/erase`
  * empties someone's own data, asked again who they are (`confirm`, api.js
- * identityCheck).
+ * identityCheck), and so does an import that replaces (`{ replace: true }`
+ * empties the same before it brings the copy in, audit authz-9).
  */
 export function registerPortabilityApi(router, {
   portability, audit = null, limiter = null, confirm = null, log = console.log,
@@ -2422,6 +2423,7 @@ export function registerPortabilityApi(router, {
     const body = await readJson(ctx.req);
     // `hand_over`: the ids of the groups the person was shown "replace" takes them out of (the plan's).
     const shown = Array.isArray(body.hand_over) ? body.hand_over.filter((v) => Number.isSafeInteger(v)) : null;
+    if (body.replace === true && confirm) await confirm(ctx, user, body);
     sendJson(ctx.res, 200, await portability.apply(ctx.params.id, {
       mode: 'account', user, replace: body.replace === true, handOver: shown, req: ctx.req,
     }));
@@ -2434,7 +2436,7 @@ export function registerPortabilityApi(router, {
     router.post('/api/me/erase', async (ctx) => {
       const user = signedIn(ctx);
       const body = await readJson(ctx.req);
-      confirm(ctx, user, body);
+      await confirm(ctx, user, body);
       sendJson(ctx.res, 200, portability.erase(user, { req: ctx.req }));
     });
   }

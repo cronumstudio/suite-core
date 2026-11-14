@@ -23,7 +23,7 @@ const person = (id, username, display_name, email) => ({
 const USERS = [
   person(1, 'ada', 'Ada Lovelace', 'ada@example.com'),
   person(2, 'ben', 'Benjamín Pérez', 'ben@example.com'),
-  person(3, 'fiverr', 'Fiverr testers', 'dev+fiverrtesters@cronumstudio.com'),
+  person(3, 'tester', 'Testers', 'tester@example.com'),
   person(4, 'eve', 'Eve', null),
 ];
 const entry = (id, action, actor, meta = {}) => ({
@@ -83,12 +83,12 @@ test('Accounts: narrowed by email, username or name as it is typed, without acce
   assert.equal(search.getAttribute('placeholder'), t('admin.users.searchHint'));
   const rows = () => page.main().find('tbody')[0].find('tr');
   const shown = () => rows().filter((row) => !row.hidden).map((row) => row.find('small')[0].textContent);
-  assert.deepEqual(shown(), ['@ada', '@ben', '@fiverr', '@eve'], 'everyone before a search');
+  assert.deepEqual(shown(), ['@ada', '@ben', '@tester', '@eve'], 'everyone before a search');
   assert.equal(main.find('th').some((th) => th.textContent === t('admin.users.devices')), false, 'no devices where none connect');
 
   const type = (text) => { search.value = text; search.dispatch('input'); };
-  type('FIVERRTESTERS');
-  assert.deepEqual(shown(), ['@fiverr'], 'by the email, whatever the capitals');
+  type('TESTER@EXAMPLE.COM');
+  assert.deepEqual(shown(), ['@tester'], 'by the email, whatever the capitals');
   type('benjamin');
   assert.deepEqual(shown(), ['@ben'], 'by the name, without its accent');
   type('eve');
@@ -103,10 +103,10 @@ test('Accounts: narrowed by email, username or name as it is typed, without acce
   assert.equal(none.textContent, t('admin.users.noMatch', { query: 'nobody' }));
 
   // Drawn again (an account saved, the tab come back to), the search is still there.
-  type('fiverr');
+  type('tester');
   await page.go('#/users');
-  assert.equal(page.main().find('input').find((node) => node.getAttribute('type') === 'search').value, 'fiverr');
-  assert.deepEqual(shown(), ['@fiverr']);
+  assert.equal(page.main().find('input').find((node) => node.getAttribute('type') === 'search').value, 'tester');
+  assert.deepEqual(shown(), ['@tester']);
 });
 
 test('Accounts: how many devices each account has connected, and in its dialog which, with their app and dates', async () => {
@@ -149,12 +149,12 @@ test('Accounts: Enter opens the one account left, and its dialog opens its activ
   // The Enter goes no further: in a browser it would press the × of the dialog it just opened.
   let kept = 0;
   const enter = { key: 'Enter', preventDefault: () => { kept += 1; } };
-  search.value = 'fiverr';
+  search.value = 'tester';
   search.dispatch('keydown', enter);
   const dialog = document.body.find('dialog').find((d) => d.open);
   assert.ok(dialog, 'the one account opens');
   assert.equal(kept, 1);
-  assert.match(dialog.textContent, /Fiverr testers \(@fiverr\)/);
+  assert.match(dialog.textContent, /Testers \(@tester\)/);
   const link = dialog.find('a').find((node) => node.textContent === t('admin.users.activity'));
   assert.equal(link.getAttribute('href'), '#/audit?actor=3');
   link.click();
@@ -164,14 +164,14 @@ test('Accounts: Enter opens the one account left, and its dialog opens its activ
   page.main().find('tbody')[0].find('tr').find((row) => !row.hidden).dispatch('keydown', enter);
   assert.equal(kept, 2);
   const again = document.body.find('dialog').find((d) => d.open);
-  assert.match(again.textContent, /Fiverr testers \(@fiverr\)/);
+  assert.match(again.textContent, /Testers \(@tester\)/);
   again.close();
 
   await page.go(link.getAttribute('href'));
   assert.equal(page.asked.at(-1).get('actor'), '3');
   const main = page.main();
-  assert.equal(main.find('input').find((node) => node.getAttribute('list')).value, 'dev+fiverrtesters@cronumstudio.com');
-  assert.ok(main.find('p').some((node) => node.textContent === t('admin.audit.onlyOf', { name: 'Fiverr testers (@fiverr)' })));
+  assert.equal(main.find('input').find((node) => node.getAttribute('list')).value, 'tester@example.com');
+  assert.ok(main.find('p').some((node) => node.textContent === t('admin.audit.onlyOf', { name: 'Testers (@tester)' })));
   assert.match(main.find('tbody')[0].textContent, /platform: android/);
 });
 
@@ -195,8 +195,8 @@ test('Activity: by account, by family or one action, and by days, in the address
   assert.deepEqual(last(), { limit: '50', actor: '3', action: 'device.create', exact: '1', since: new Date('2026-11-01T00:00:00').toISOString() });
   assert.equal(select.value, 'device.create');
   assert.equal(since.value, '2026-11-01');
-  assert.equal(who.value, 'dev+fiverrtesters@cronumstudio.com');
-  assert.equal(said(), t('admin.audit.onlyOf', { name: 'Fiverr testers (@fiverr)' }));
+  assert.equal(who.value, 'tester@example.com');
+  assert.equal(said(), t('admin.audit.onlyOf', { name: 'Testers (@tester)' }));
 
   // Each family of what the log holds, then each of its actions.
   const groups = select.find('optgroup');
@@ -231,7 +231,7 @@ test('Activity: by account, by family or one action, and by days, in the address
   const asked = page.asked.length;
   const ben = main.find('tbody')[0].find('button').find((node) => node.textContent === '@ben');
   assert.equal(ben.getAttribute('title'), t('admin.audit.onlyThem'));
-  assert.equal(main.find('tbody')[0].find('button').some((node) => node.textContent === '@fiverr'), false, 'the account shown is no link');
+  assert.equal(main.find('tbody')[0].find('button').some((node) => node.textContent === '@tester'), false, 'the account shown is no link');
   ben.click();
   await settle();
   assert.equal(page.asked.length, asked + 1);
@@ -242,14 +242,14 @@ test('Activity: by account, by family or one action, and by days, in the address
   const type = async (text) => { who.value = text; who.dispatch('change'); await settle(); };
   await type('example');
   assert.equal(page.asked.length, asked + 1);
-  assert.equal(said(), `${english['admin.audit.manyAccounts'].other.replace('{n}', 2)} ${t('admin.audit.onlyOf', { name: 'Benjamín Pérez (@ben)' })}`);
+  assert.equal(said(), `${english['admin.audit.manyAccounts'].other.replace('{n}', 3)} ${t('admin.audit.onlyOf', { name: 'Benjamín Pérez (@ben)' })}`);
   await type('zzz');
   assert.match(said(), new RegExp(`^${t('admin.audit.noAccount', { query: 'zzz' })}`.replace(/[.()]/g, '\\$&')));
   await type('@eve');
   assert.equal(last().actor, '4', 'an account without an email, by its username');
   // The datalist offers each account by its email, or its username without one.
   assert.deepEqual(main.find('datalist')[0].find('option').map((o) => o.getAttribute('value')),
-    ['ada@example.com', 'ben@example.com', 'dev+fiverrtesters@cronumstudio.com', '@eve']);
+    ['ada@example.com', 'ben@example.com', 'tester@example.com', '@eve']);
 
   // Taken off at once.
   const clearButton = main.find('button').find((node) => node.textContent === t('admin.audit.clear'));

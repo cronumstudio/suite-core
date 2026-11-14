@@ -338,7 +338,14 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // Without an audience any token of the AuthKit environment opens this app's MCP, also one
     // a person gave to another app of the suite. A warning and not an error: an install that
     // starts requiring it must first have its Resource Indicator set in WorkOS.
-    if (modules.mcp && !env.WORKOS_MCP_AUDIENCE) {
+    // With the login shared by the suite's products (accounts.sharedIdentity: one WorkOS
+    // environment for Work, Focus, Tracker…), that is not an install that might not have it yet but
+    // the very case it is for: a token someone gave a client for another product would open this
+    // MCP, and make them an account here. It doesn't start without it (audit sc-mcp-2); the
+    // variable workos.js reads, as production sets it.
+    if (modules.mcp && accounts.sharedIdentity && !String(env.WORKOS_MCP_AUDIENCE || '').trim()) {
+      errors.push(`WORKOS_MCP_AUDIENCE is required with accounts.sharedIdentity and the MCP on: without it, MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to ${String(env.BASE_URL || 'BASE_URL').replace(/\/+$/, '')}/mcp, with that resource in WorkOS`);
+    } else if (modules.mcp && !env.WORKOS_MCP_AUDIENCE) {
       warnings.push(`WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to ${String(env.BASE_URL || 'BASE_URL').replace(/\/+$/, '')}/mcp, with that resource in WorkOS`);
     }
   }

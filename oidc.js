@@ -17,6 +17,8 @@
  */
 import crypto from 'node:crypto';
 import { createKeySet, verifyJwt } from './jwt.js';
+import { localPath, signInFlowCookies } from './http.js';
+import { safeEqual } from './crypto.js';
 
 const TIMEOUT_MS = 8000;
 const DISCOVERY_TTL_MS = 3600 * 1000;
@@ -186,32 +188,13 @@ export function createOidcAccounts({
   // One provider per issuer: moving to another one links people again by their email.
   const PROVIDER = `oidc:${new URL(oidc.issuer || 'https://unset').host}`;
 
-  const cookieHeader = (value, maxAge) => [
-    `${stateCookie}=${encodeURIComponent(value)}`, `Max-Age=${maxAge}`, 'Path=/auth',
-    'HttpOnly', 'SameSite=Lax', ...(secureCookies ? ['Secure'] : []),
-  ].join('; ');
-  const addCookie = (res, cookie) => {
-    const previous = res.getHeader('Set-Cookie');
-    res.setHeader('Set-Cookie', previous == null ? cookie : [].concat(previous, cookie));
-  };
-  const cookieValue = (req) => {
-    for (const part of String(req.headers.cookie || '').split(';')) {
-      const i = part.indexOf('=');
-      if (i > 0 && part.slice(0, i).trim() === stateCookie) return decodeURIComponent(part.slice(i + 1).trim());
-    }
-    return null;
-  };
+  // One cookie per sign-in, for 30 minutes, read with the suite's parseCookies (http.js
+  // signInFlowCookies; audit sc-auth-6 and sc-auth-10, as in workos-accounts.js).
+  const flows = signInFlowCookies({ cookie: stateCookie, secure: secureCookies });
   const redirect = (res, target) => {
     res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
     res.end();
   };
-  const same = (a, b) => {
-    const x = Buffer.from(String(a));
-    const y = Buffer.from(String(b));
-    return x.length === y.length && crypto.timingSafeEqual(x, y);
-  };
-  /** Only a path of this app: never another site, whatever the link says. */
-  const localPath = (value) => (typeof value === 'string' && /^\/(?!\/)[^\\\s]*$/.test(value) ? value : '/');
 
   async function handle(req, res, url) {
     if (url.pathname === '/auth/login') {
@@ -220,7 +203,7 @@ export function createOidcAccounts({
         const state = crypto.randomBytes(16).toString('base64url');
         const nonce = crypto.randomBytes(16).toString('base64url');
         const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
-        addCookie(res, cookieHeader([state, verifier, nonce, back].join('.'), 600));
+        flows.start(res, state, [state, verifier, nonce, back].join('.'));
         // `prompt=login` only from the device connect page (device-pages.js), to sign in as someone else.
         const fresh = url.searchParams.get('prompt') === 'login';
         redirect(res, await oidc.authorizationUrl({ redirectUri: REDIRECT, state, challenge, nonce, fresh }));
@@ -232,13 +215,12 @@ export function createOidcAccounts({
     }
 
     if (url.pathname === '/auth/callback') {
-      const [state, verifier, nonce, back] = String(cookieValue(req) || '').split('.');
-      addCookie(res, cookieHeader('', 0));
+      const [state, verifier, nonce, back] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
       const code = url.searchParams.get('code');
       // Without a state matching the cookie's, this return wasn't started by
       // this browser: it could be someone slipping their own account into it.
       if (url.searchParams.get('error') || !code || !state || !verifier || !nonce
-        || !same(state, url.searchParams.get('state') || '')) {
+        || !safeEqual(state, url.searchParams.get('state') || '')) {
         redirect(res, '/?auth_error=failed');
         return true;
       }
