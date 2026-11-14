@@ -343,6 +343,12 @@
   "admin.users.setPlan": "Changer de formule",
   "admin.users.defaultPlan": "Revenir à la formule par défaut",
   "admin.users.signOut": "Déconnecter partout",
+  "admin.users.signOutConfirm": "Tout ce qui donne accès à {name} prend fin : ses sessions, ses jetons d’API, ses assistants connectés et ses téléphones. Il faudra se reconnecter et les reconnecter.",
+  "admin.users.signedOutMore": "Ses jetons d’API, assistants et téléphones ont aussi été déconnectés.",
+  "admin.users.passwordConfirm": "Le mot de passe de {name} change, et tout ce qui lui donne accès prend fin : ses sessions, ses jetons d’API, ses assistants connectés et ses téléphones.",
+  "admin.users.roleAdminConfirm": "{name} pourra administrer {app} : voir et modifier tous les comptes, les formules et les copies de données.",
+  "admin.users.roleUserConfirm": "{name} n’administrera plus {app}.",
+  "admin.users.disableConfirm": "{name} ne pourra plus se connecter, et toutes ses sessions se ferment. Vous pourrez réactiver le compte quand vous voudrez.",
   "admin.users.activity": "Voir son activité",
   "admin.users.devices": "Appareils",
   "admin.users.devicesCount": {

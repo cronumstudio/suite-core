@@ -1119,13 +1119,6 @@ export function openSettings(options) {
     return block(t('kit.twoFactor.title'), body);
   }
 
-  /* ----------------------------------- AI ----------------------------------- */
-
-  /**
-   * Connecting an assistant: the MCP address; with the built-in OAuth or
-   * WorkOS pasting it is enough and the apps connected that way are listed,
-   * each one disconnectable here; manual tokens for clients that can't sign in.
-   */
   /**
    * Which modules of the host this person uses (PUT /api/me/modules at the host's root). One
    * stays on; one turned off keeps its data and only leaves their menus. Each can have its own
@@ -1370,6 +1363,13 @@ export function openSettings(options) {
         el('li', {}, el('p', { text: t('kit.modules.installOffline') }))));
   }
 
+  /* ----------------------------------- AI ----------------------------------- */
+
+  /**
+   * Connecting an assistant: the MCP address; with the built-in OAuth or
+   * WorkOS pasting it is enough and the apps connected that way are listed,
+   * each one disconnectable here; manual tokens for clients that can't sign in.
+   */
   function ai() {
     // What the assistant connects to: in a host, the whole app, at its one /mcp.
     const connected = host?.name || app.name;

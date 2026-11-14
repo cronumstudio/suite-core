@@ -343,6 +343,12 @@
   "admin.users.setPlan": "Tarif ändern",
   "admin.users.defaultPlan": "Zurück zum Standardtarif",
   "admin.users.signOut": "Überall abmelden",
+  "admin.users.signOutConfirm": "Alles, womit {name} hineinkommt, endet: Sitzungen, API-Tokens, verbundene Assistenten und Handys. {name} muss sich neu anmelden und sie neu verbinden.",
+  "admin.users.signedOutMore": "Auch API-Tokens, Assistenten und Handys wurden getrennt.",
+  "admin.users.passwordConfirm": "Das Passwort von {name} ändert sich, und alles, womit {name} hineinkommt, endet: Sitzungen, API-Tokens, verbundene Assistenten und Handys.",
+  "admin.users.roleAdminConfirm": "{name} kann dann {app} verwalten: alle Konten, Tarife und Datenkopien sehen und ändern.",
+  "admin.users.roleUserConfirm": "{name} verwaltet {app} dann nicht mehr.",
+  "admin.users.disableConfirm": "{name} kann sich dann nicht mehr anmelden, und alle Sitzungen werden beendet. Du kannst das Konto jederzeit wieder aktivieren.",
   "admin.users.activity": "Aktivität ansehen",
   "admin.users.devices": "Geräte",
   "admin.users.devicesCount": {

@@ -449,6 +449,13 @@ function userDialog(user) {
         controls: [name, email, role, verified, disabled],
         read: () => ({ name: name.value.trim(), email: email.value.trim(), verified: verified.checked, role: role.value, disabled: disabled.checked }),
         save: async () => {
+          // Making someone an admin or not, or turning their account off, is asked about first.
+          const app = state.config.app?.name || '';
+          const asks = self ? [] : [
+            role.value !== user.role ? t(role.value === 'admin' ? 'admin.users.roleAdminConfirm' : 'admin.users.roleUserConfirm', { name: user.display_name, app }) : null,
+            disabled.checked && !user.disabled ? t('admin.users.disableConfirm', { name: user.display_name }) : null,
+          ].filter(Boolean);
+          if (asks.length && !(await confirmDialog(asks.join(' '), { confirm: t('admin.save'), danger: disabled.checked && !user.disabled }))) return false;
           Object.assign(user, await api.patch(`/api/admin/users/${user.id}`, {
             display_name: name.value.trim(), email: email.value.trim() || null,
             ...(local() ? { email_verified: verified.checked && Boolean(email.value.trim()) } : {}),
@@ -468,6 +475,7 @@ function userDialog(user) {
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
         onClick: async () => {
+          if (!(await confirmDialog(t('admin.users.passwordConfirm', { name: user.display_name }), { confirm: t('admin.users.setPassword') }))) return;
           try {
             await api.patch(`/api/admin/users/${user.id}`, { password: password.value });
             password.value = '';
@@ -495,6 +503,7 @@ function userDialog(user) {
           el('button', {
             type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
             onClick: async () => {
+              if (!(await confirmDialog(t('admin.users.passwordConfirm', { name: user.display_name }), { confirm: t('admin.users.setPassword') }))) return;
               try {
                 await api.put(`/api/admin/users/${user.id}/sign-in/password`, { password: next.value, ...again.body() });
                 next.value = '';
@@ -619,9 +628,11 @@ function userDialog(user) {
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.signOut'),
         onClick: async () => {
+          // It ends more than the sessions (revoke.js): it says so before and after.
+          if (!(await confirmDialog(t('admin.users.signOutConfirm', { name: user.display_name }), { confirm: t('admin.users.signOut') }))) return;
           try {
             const { closed } = await api.delete(`/api/admin/users/${user.id}/sessions`);
-            toast(t('admin.users.signedOut', { n: closed }));
+            toast(`${t('admin.users.signedOut', { n: closed })} ${t('admin.users.signedOutMore')}`);
             // Their phones went with the sessions.
             if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
           } catch (err) { fail(err); }
@@ -774,7 +785,8 @@ function nowOf(details, now) {
  * A Save that can be pressed only with something to save: grey until one of `controls` holds other
  * than what was saved (`read()`, compared as it was), then, once saved, grey again with "Saved"
  * beside it. The account's dialog covers the page, so its own place says so, not only a notice.
- * `dirty`: pressable from the start (the default plan, which Save makes the account's own).
+ * `dirty`: pressable from the start (the default plan, which Save makes the account's own). `save`
+ * answering false saved nothing (a question answered no).
  * → [the button, its state], for a row.
  */
 function saveButton({ label, controls, read, save, dirty = false }) {
@@ -797,7 +809,12 @@ function saveButton({ label, controls, read, save, dirty = false }) {
     status.set('saving');
     status.node.hidden = false;
     try {
-      await save();
+      // false: not saved after all (a question answered no), and it can be pressed again.
+      if (await save() === false) {
+        status.node.hidden = true;
+        check();
+        return;
+      }
       saved = now;
       status.set('saved');
       check();
@@ -904,11 +921,6 @@ async function paintGrants(box, user, now) {
 
 /* ---------------------------------- usage ---------------------------------- */
 
-/**
- * What an account uses (usage-view.js): per module its counts against the plan's caps, then the
- * storage of all of them and the calls from assistants. `now` is the fold's summary: the cap they
- * are nearest to.
- */
 /** A platform as people write it: "Android", "iOS"; any other as the app named it. */
 const platformName = (platform) => ({ android: 'Android', ios: 'iOS', ipados: 'iPadOS', macos: 'macOS', windows: 'Windows', linux: 'Linux' }[
   String(platform || '').toLowerCase()] || platform || '—');
@@ -973,6 +985,11 @@ async function paintDevices(box, user, now) {
         el('td', { text: d.last_used_at ? formatDateTime(d.last_used_at) : t('admin.users.never') })))) : null);
 }
 
+/**
+ * What an account uses (usage-view.js): per module its counts against the plan's caps, then the
+ * storage of all of them and the calls from assistants. `now` is the fold's summary: the cap they
+ * are nearest to.
+ */
 async function paintUsage(box, user, now) {
   const usage = await api.get(`/api/admin/users/${user.id}/usage`);
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');

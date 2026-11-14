@@ -343,6 +343,12 @@
   "admin.users.setPlan": "Cambia piano",
   "admin.users.defaultPlan": "Torna al piano predefinito",
   "admin.users.signOut": "Esci ovunque",
+  "admin.users.signOutConfirm": "Si chiude tutto ciò che dà accesso a {name}: sessioni, token API, assistenti collegati e telefoni. Dovrà accedere di nuovo e ricollegarli.",
+  "admin.users.signedOutMore": "Anche token API, assistenti e telefoni sono stati scollegati.",
+  "admin.users.passwordConfirm": "La password di {name} cambia e si chiude tutto ciò che gli dà accesso: sessioni, token API, assistenti collegati e telefoni.",
+  "admin.users.roleAdminConfirm": "{name} potrà amministrare {app}: vedere e cambiare tutti gli account, i piani e le copie dei dati.",
+  "admin.users.roleUserConfirm": "{name} non amministrerà più {app}.",
+  "admin.users.disableConfirm": "{name} non potrà accedere e tutte le sue sessioni si chiudono. Puoi riattivare l’account quando vuoi.",
   "admin.users.activity": "Vedi la sua attività",
   "admin.users.devices": "Dispositivi",
   "admin.users.devicesCount": {

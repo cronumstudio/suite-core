@@ -343,6 +343,12 @@
   "admin.users.setPlan": "Cambiar de plan",
   "admin.users.defaultPlan": "Volver al plan por defecto",
   "admin.users.signOut": "Cerrar sus sesiones",
+  "admin.users.signOutConfirm": "Se cierra todo lo que deja entrar a {name}: sus sesiones, sus tokens de API, sus asistentes conectados y sus móviles. Tendrá que volver a entrar y conectarlos.",
+  "admin.users.signedOutMore": "Sus tokens de API, asistentes y móviles también se han desconectado.",
+  "admin.users.passwordConfirm": "La contraseña de {name} cambia y se cierra todo lo que le deja entrar: sus sesiones, sus tokens de API, sus asistentes conectados y sus móviles.",
+  "admin.users.roleAdminConfirm": "{name} podrá administrar {app}: ver y cambiar todas las cuentas, los planes y las copias de datos.",
+  "admin.users.roleUserConfirm": "{name} dejará de administrar {app}.",
+  "admin.users.disableConfirm": "{name} no podrá entrar y se cierran todas sus sesiones. Puedes volver a activar la cuenta cuando quieras.",
   "admin.users.activity": "Ver su actividad",
   "admin.users.devices": "Dispositivos",
   "admin.users.devicesCount": {
