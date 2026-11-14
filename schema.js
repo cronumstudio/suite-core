@@ -19,7 +19,7 @@ import { rateLimitSchema } from './rate-limit.js';
 import { entitlementsSchema, entitlementUsageSchema } from './entitlements.js';
 import { usersSchema, identitiesSchema, identityMethodSchema, accountDeletionSchema, identityDeletionSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
-import { auditSchema } from './audit.js';
+import { auditSchema, auditActionSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
 import { OAUTH_SCHEMA } from './oauth.js';
@@ -99,4 +99,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   // push_subscriptions.session_key (0.255.0) went into version 13, which databases from before had
   // already run: pushSchema again, which only adds what is missing.
   { version: 30, name: 'push-session-key', up: pushSchema },
+  // The log by action, for Activity's list of actions and its filter (audit.js).
+  { version: 31, name: 'audit-action-index', up: auditActionSchema },
 ]);

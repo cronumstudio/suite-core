@@ -1749,6 +1749,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   first the app hands over what others share with them (the declaration's `handOver(userId)`: a
   shared list passes to one of the people it is shared with), then goes, in one transaction,
   exactly what their own copy would take and "replace" empties, and its files once committed.
+  Both ask again who it is (api.js `identityCheck`: `confirm: true`, and the password of an account
+  that has one, here or at WorkOS; v0.289.0, audit authz-9), an import with `replace` as erasing does.
 - **Organizations in the copies** (**done**, v0.84.0, for Focus' families and Tracker's fleets; on
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`

@@ -583,17 +583,22 @@ test('deleting one’s account in the app: the app told first, then the site’s
     storage.delete('suite.deletion');
     const view = await settingsPage({}, {
       config: { app: { id: 'demo', modules: {} }, provider: 'workos', deletion_days: 30 },
-      server: { 'POST /api/me/deletion': { data: { ok: true, delete_after: '2026-11-21T10:00:00.000Z', ...answer } } },
+      server: {
+        // Whether they have a password at WorkOS, which the dialog asks for if so (audit authz-9): not with Google.
+        'GET /api/me/sign-in': { data: { method: 'google', password: false } },
+        'POST /api/me/deletion': { data: { ok: true, delete_after: '2026-11-21T10:00:00.000Z', ...answer } },
+      },
       start: 'data',
     });
     click(view.buttons(t('kit.data.deleteButton'))[0]);
+    await settle();
     const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
     const word = dialog.find('input')[0]; // the word only: a provider's account has no password here
     word.value = t('kit.data.confirmWord');
     word.dispatch('input');
     click(dialog.all().find((node) => /\bkit-btn--danger\b/.test(node.className)));
     await settle();
-    assert.deepEqual(asked, ['POST /api/me/deletion'], 'asked of the server, everywhere');
+    assert.deepEqual(asked, ['GET /api/me/sign-in', 'POST /api/me/deletion'], 'asked of the server, everywhere');
     assert.equal(storage.get('suite.deletion'), '2026-11-21T10:00:00.000Z', 'the farewell’s date left for a browser’s sign-in');
     view.settings.close();
   });
@@ -733,6 +738,7 @@ test('deleting one’s account clears every app’s copy on this device, as sign
         start: 'data',
       });
       click(view.buttons(t('kit.data.deleteButton'))[0]);
+      await settle();
       const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
       const word = dialog.find('input')[0];
       word.value = t('kit.data.confirmWord');
@@ -761,4 +767,34 @@ test('installKind: how this device installs a web app, for Settings › Modules'
   assert.equal(kind('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0'), 'desktop');
   assert.equal(kind('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36 CronumWorkApp/0.5.1'), 'android', 'the app on Android');
   assert.equal(kind('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 CronumWorkApp/0.5.1'), 'ios', 'the app on an iPhone');
+});
+
+test('with WorkOS, erasing asks for the password they have there, and only then (audit authz-9)', async () => {
+  const erase = async (signIn) => {
+    let sent = null;
+    const view = await settingsPage({}, {
+      config: { app: { id: 'demo', modules: { data: true } }, provider: 'workos' },
+      server: {
+        ...(signIn ? { 'GET /api/me/sign-in': { data: signIn } } : {}),
+        // Refused, so the page doesn't reload: what was sent is what counts here.
+        'POST /api/me/erase': (body) => { sent = body; return { status: 409, data: { error: 'busy' } }; },
+      },
+      start: 'data',
+    });
+    click(view.buttons(t('kit.data.eraseButton'))[0]);
+    await settle();
+    const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open).at(-1);
+    const word = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-word');
+    word.value = t('kit.data.confirmWord');
+    word.dispatch('input');
+    const pass = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-password');
+    if (pass) pass.value = 'correct horse';
+    click(dialog.all().find((node) => node.className.split(' ').includes('kit-btn--danger')));
+    await settle();
+    view.settings.close();
+    return { asked: Boolean(pass), sent };
+  };
+  assert.deepEqual(await erase({ method: 'password', password: true }), { asked: true, sent: { confirm: true, password: 'correct horse' } });
+  assert.deepEqual(await erase({ method: 'google', password: false }), { asked: false, sent: { confirm: true } }, 'with Google: none to give');
+  assert.equal((await erase(null)).asked, true, 'not knowing (no answer): asked, which the server ignores if it has none');
 });
