@@ -19,9 +19,11 @@ import { SUITE_MIGRATIONS } from '../schema.js';
 import { createRouter } from '../http.js';
 import { createAccounts } from '../accounts.js';
 import { createSessions } from '../sessions.js';
+import { createRateLimiter } from '../rate-limit.js';
 import { workosUsers, signInMethod } from '../workos-accounts.js';
 import { registerWorkosSecurityApi, createFreshSignIns } from '../workos-security.js';
 import { createWorkosClient, WorkosUnavailable } from '../workos.js';
+import { identityCheck } from '../api.js';
 import { base32Decode, totp } from '../two-factor.js';
 
 const now = () => Math.floor(Date.now() / 1000 / 30);
@@ -38,8 +40,11 @@ function fakeWorkos() {
     set down(value) { down = value; },
     add: (id, { email, password = null, identities = [] }) => people.set(id, { email, password, identities, factors: [] }),
     account: async (id) => { fail(); return person(id) ? { id, email: person(id).email } : null; },
-    checkPassword: async ({ email, password }) => {
+    // Where each check came from (`ip`), as WorkOS is told it.
+    checked: [],
+    async checkPassword({ email, password, ip = null }) {
       fail();
+      this.checked.push({ email, ip });
       return [...people.values()].some((p) => p.email === email && p.password && p.password === password);
     },
     setPassword: async (id, password) => {
@@ -66,7 +71,7 @@ function fakeWorkos() {
   };
 }
 
-function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now() } = {}) {
+function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now(), options = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-workos-security-'));
   const database = openDatabase({ dataDir: dir, name: 'test' });
   migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
@@ -87,7 +92,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
   const freshSignIns = createFreshSignIns({ clock });
   const security = registerWorkosSecurityApi(router, {
     workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeAtProvider: (ids) => revoked.push(...ids),
-    ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), freshSignIns, clock,
+    ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), freshSignIns, clock, ...options,
   });
 
   /** Someone who signs in with WorkOS: their account here and at WorkOS, with a session. */
@@ -117,7 +122,7 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
     try {
       await found.handler(ctx);
     } catch (err) {
-      return { status: err.status || 500, body: { error: err.code || err.message } };
+      return { status: err.status || 500, body: { error: err.code || err.message }, extra: err.extra ?? {} };
     }
     return answer;
   }
@@ -520,4 +525,68 @@ test('the client: a user found by email, and one made with a password and its em
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+/* ------------------------------ audit of 6/11 ------------------------------ */
+
+test('the shortest password is this app\'s, said with the refusal, and WorkOS\'s reason too (audit sc-auth-7)', async () => {
+  const { person, call, workos } = start({ options: { minPasswordLength: 10 } });
+  const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
+  const nine = await call('POST', '/api/me/sign-in/password', { as: ada, body: { current_password: 'correct horse', password: 'ninechars' } });
+  assert.deepEqual([nine.status, nine.body.error, nine.extra], [400, 'password_rejected', { n: 10 }]);
+  assert.equal(workos.people.get(ada.workosId).password, 'correct horse', 'WorkOS never asked');
+  assert.equal((await call('POST', '/api/me/sign-in/password', { as: ada, body: { current_password: 'correct horse', password: 'tenchars10' } })).status, 200);
+
+  const before = start();
+  const bob = before.person({ username: 'bob', password: 'correct horse', method: 'Password' });
+  const weak = await before.call('POST', '/api/me/sign-in/password', { as: bob, body: { current_password: 'correct horse', password: 'password1' } });
+  assert.deepEqual([weak.status, weak.body.error, weak.extra], [400, 'password_rejected', { n: 8, detail: 'Password is too common' }],
+    'without minPasswordLength, 8 as before, and why WorkOS refused it');
+  assert.equal(before.security.logins, undefined, 'no logins without adminIdentity');
+  const owner = start({ adminIdentity: true, options: { minPasswordLength: 12 } });
+  assert.equal(owner.security.logins.minPasswordLength, 12, 'the admin\'s new accounts follow it too (api.js)');
+});
+
+test('a password check tells WorkOS where it comes from (audit sc-auth-13)', async () => {
+  const { person, call, workos } = start();
+  const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
+  await call('POST', '/api/me/sign-in/two-factor/setup', { as: ada, body: { password: 'correct horse' } });
+  assert.deepEqual(workos.checked.at(-1), { email: 'ada@example.com', ip: '127.0.0.1' });
+});
+
+test('the codes of the second step at WorkOS have the brake a local one has (audit sc-auth-13)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-workos-brake-'));
+  const database = openDatabase({ dataDir: dir, name: 'brake' });
+  migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
+  const limiter = createRateLimiter({ database, limits: { code: 3 } });
+  const { person, call, workos } = start({ options: { limiter } });
+  const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
+  workos.people.get(ada.workosId).factors.push({ id: 'auth_factor_ada', secret: 'JBSWY3DPEHPK3PXP' });
+  const good = () => totp(base32Decode('JBSWY3DPEHPK3PXP'), now());
+  const wrong = String((Number(good()) + 1) % 1_000_000).padStart(6, '0');
+  for (const code of [wrong, wrong, 'abc']) {
+    const tried = await call('POST', '/api/me/sign-in/two-factor/disable', { as: ada, body: { password: 'correct horse', code } });
+    assert.deepEqual([tried.status, tried.body.error], [400, 'code_invalid']);
+  }
+  const braked = await call('POST', '/api/me/sign-in/two-factor/disable', { as: ada, body: { password: 'correct horse', code: good() } });
+  assert.deepEqual([braked.status, braked.body.error], [429, 'too_many_attempts'], 'not even the right one, until the window passes');
+  assert.ok(braked.extra.retry_after > 0);
+  assert.equal(workos.people.get(ada.workosId).factors.length, 1, 'still on');
+});
+
+test('before what can\'t be undone, the password at WorkOS of whoever has one; Google & co. their session (audit authz-9)', async () => {
+  const { person, security, workos } = start();
+  const ada = person({ username: 'ada', password: 'correct horse', method: 'Password' });
+  const gil = person({ username: 'gil', method: 'GoogleOAuth' });
+  const ctxOf = (who) => ({ req: { headers: {}, socket: { remoteAddress: '127.0.0.1' } }, user: who.user, sessionToken: who.token });
+  // As api.js identityCheck asks it, with WorkOS (createApp's providerPassword).
+  const check = identityCheck({ localPasswords: false, providerPassword: security.confirmIdentity });
+  await assert.rejects(check(ctxOf(ada), ada.user, { password: 'correct horse' }), { code: 'confirm_required' });
+  await assert.rejects(check(ctxOf(ada), ada.user, { confirm: true }), { code: 'wrong_password' }, 'the session alone is not enough');
+  await assert.rejects(check(ctxOf(ada), ada.user, { confirm: true, password: 'nope' }), { code: 'wrong_password' });
+  await check(ctxOf(ada), ada.user, { confirm: true, password: 'correct horse' });
+  await check(ctxOf(gil), gil.user, { confirm: true });
+  assert.ok(!workos.checked.some((c) => c.email === 'gil@example.com'), 'Google\'s: no password asked of WorkOS');
+  workos.down = true;
+  await assert.rejects(check(ctxOf(ada), ada.user, { confirm: true, password: 'correct horse' }), { status: 503, code: 'provider_unavailable' });
 });

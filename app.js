@@ -809,17 +809,23 @@ export function createApp({
       localEmail: localPasswords, accountMail: localPasswords ? accountMail : null,
     });
   }
+  // With WorkOS, the password and the second step from Settings too (made below). Its password
+  // asked again before what can't be undone, as a local one is (identityCheck, audit authz-9).
+  let workosSecurity = null;
+  const providerPassword = install.authProvider === 'workos'
+    ? (ctx, user, password) => workosSecurity?.confirmIdentity?.(ctx, user, password) : null;
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion, push,
-    localPasswords, alsoAt: profile.alsoAt || {},
+    localPasswords, alsoAt: profile.alsoAt || {}, providerPassword,
   });
-  // With WorkOS, the password and the second step from Settings too.
-  let workosSecurity = null;
   if (install.authProvider === 'workos') {
     workosSecurity = registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
       adminIdentity: config.accounts.adminIdentity === true, freshSignIns: suite.freshSignIns ?? null,
+      // The shortest password Settings says and checks before WorkOS is asked (audit sc-auth-7), and
+      // the address a password check comes from, as WorkOS is told it (sc-auth-13).
+      minPasswordLength: config.accounts.minPasswordLength, trustProxy: install.trustProxy,
       // A login the admin makes for a new account carries this app's mark, as a sign-in here gives it.
       mark: config.accounts.sharedIdentity ? identityMark(config.app) : null,
     });
@@ -888,7 +894,7 @@ export function createApp({
   if (suite.uploadLinks) registerUploadLinksApi(api, { uploadLinks: suite.uploadLinks, limiter });
   if (portability) {
     registerPortabilityApi(api, {
-      portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords }),
+      portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords, providerPassword }),
     });
   }
 

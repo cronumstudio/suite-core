@@ -55,6 +55,71 @@ change an interface and a patch never does. Apps pin a version through the submo
   deployment from its repository; the modules' ghcr images were private and nothing pulled them.
   §5 names `SECURITY_CONTACT` and `IMPORT_MAX_MB`.
 
+## 0.289.0 — 2026-11-14
+
+Sign-in and account security (audit of 6/11: sc-auth-5, -6, -7, -10, -11, -12, -13, authz-9,
+sc-mcp-2, deps-ci-11, -12).
+
+- **Straight to the provider, two cases fixed** (`web/signin.js`, `web/signin-form.js`; sc-auth-5).
+  «No, let it go» on the card of an account waiting to be deleted shows the usual card instead of
+  going straight back to AuthKit, which still had a session and brought them to the same card; and
+  with the site's data blocked, merely naming `sessionStorage` threw before the `try`, so `signIn()`
+  failed instead of drawing the card: it is read inside it now.
+- **One state cookie per sign-in, for 30 minutes** (`http.js` `signInFlowCookies`,
+  `workos-accounts.js`, `oidc.js`; sc-auth-6). Every page without a session starts a sign-in by
+  itself since straightToProvider, and the one `<app>_auth` cookie (10 minutes) let a second tab
+  take the first one's place, and an AuthKit page left open over 10 minutes come back to «could
+  not be completed». Each sign-in has `<app>_auth_<first 8 characters of its state>` (Path=/auth,
+  Max-Age 1800, as a phone's connect page waits, `CONNECT_MS`), and the callback reads the one its
+  `state` names. `<app>_auth` is still written with the newest one and read when a flow's own is
+  missing: a sign-in started before this version comes back, and an app's tests that read
+  `<app>_auth=` keep working. `tools/test-kit.mjs` `fakeWorkos().signIn` sends both, as a browser.
+- **A malformed state cookie is a failed sign-in, not a 500** (`workos-accounts.js`, `oidc.js`;
+  sc-auth-10). Their own copies of `cookieValue`, `addCookie` and `safeEqual` are gone for the
+  suite's `parseCookies`, `appendHeader` and `crypto.js` `safeEqual`; `localPath` lives in `http.js`
+  for both. `Cookie: work_auth=%E0%A4%A` threw before the callback's `try`, answered 500 to anyone
+  and counted towards the error-burst alert: now `/?auth_error=failed`.
+- **The shortest password with WorkOS is the app's** (`workos-security.js`, `app.js`, `api.js`,
+  `web/settings.js`, `web/api.js`, i18n; sc-auth-7). `registerWorkosSecurityApi` takes
+  `minPasswordLength` (createApp passes `config.accounts.minPasswordLength`; 8 when nobody says, as
+  before) for Settings' new password and the admin's: Settings said «at least 8» where Work and
+  WorkOS's policy ask for 10. `password_rejected` carries `n`, its sentence says it (`{n}` in
+  `errors.password_rejected` and `kit.security.workosPasswordHint`, five languages; 8 for a server
+  from before), and when WorkOS refused it, WorkOS's reason after it (`kit.security.providerSays`).
+  `/api/auth/config` gives `password_min` with WorkOS too (still null with OIDC), and a login the
+  admin makes for a new account takes the same shortest (`logins.minPasswordLength`).
+- **Every action of the log is a sentence in Activity** (i18n; sc-auth-11):
+  `auth.revoke_everything`, `oauth.connection.revoke`, `billing.customer_unvouched`,
+  `billing.customer_conflict`, and the others nobody had written (`admin.early_access.keep`,
+  `calendar_feed.*`, `billing.refunded`, `.unchanged`, `.unsigned`), plus `org.archive` for the
+  pull request that records it. `test/audit-actions.test.js` reads every action the server code
+  records and checks each has its sentence in every language.
+- **The log by action has an index** (`audit.js`, `schema.js`, suite migration 31
+  `audit-action-index`; sc-auth-12): `ix_audit_action ON audit_log (action, id)`, which Activity's
+  list of actions and one action's newest entries read instead of the whole table.
+- **WorkOS: the second step's codes braked, password checks with their address** (`workos-security.js`;
+  sc-auth-13). `confirmCode` (turning the second step off, the admin's own code) has the limiter's
+  `checkCode`/`codeFailed`/`codeSucceeded`, as a local code has: 429 `too_many_attempts` after five
+  wrong ones. `checkPassword` is told `clientIp(req)` (`trustProxy` from createApp), which went to
+  WorkOS as null. `crypto.js` `decryptText` takes only a whole 16-byte tag (`authTagLength`).
+- **Before what can't be undone, the WorkOS password too; a replacing import asks as erasing does**
+  (`api.js` `identityCheck`, `workos-security.js` `confirmIdentity`, `portability.js`, `app.js`,
+  `web/settings.js`; authz-9). With WorkOS an open session alone erased everything, the bin
+  included: erasing one's data and deleting one's account now ask for the password the person has
+  at WorkOS (not of whoever signs in with Google & co., as before), with the brake of sign-in.
+  `POST /api/me/import/:id` with `replace: true` asks for `confirm: true` and the password, as
+  `/api/me/erase` does, and Settings asks for it with the same dialog (the word typed, the password).
+  `identityCheck` is async now; its callers await it.
+- **A shared login with the MCP doesn't start without `WORKOS_MCP_AUDIENCE`** (`config.js`;
+  sc-mcp-2). With `accounts.sharedIdentity` and `modules.mcp`, a missing (or blank)
+  `WORKOS_MCP_AUDIENCE` is a configuration error instead of a warning: a token someone gave a client
+  for another product of the same WorkOS environment opened this MCP. Without sharedIdentity, the
+  warning as before. The variable is the one `workos.js` reads and production sets.
+- **Test data and ignored files** (deps-ci-11, -12): `test/web-admin-filters.test.js` (and
+  `web-admin-new-account.test.js`) use example data (`tester@example.com`) instead of a real
+  alias; `.gitignore` adds `.claude/`, `CLAUDE.local.md`, `.cloudflare/`, `.dev.vars*`, `*.log`,
+  `*.stackdump`, `tmp/` and `data/`.
+
 ## 0.285.0 — 2026-11-14
 
 - **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,

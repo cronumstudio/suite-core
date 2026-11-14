@@ -913,10 +913,12 @@ export function openSettings(options) {
         return;
       }
       const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
-      const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: '8' });
+      // This app's shortest, as the server checks it before WorkOS is asked (audit sc-auth-7); 8, a server from before.
+      const min = config.password_min || 8;
+      const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: String(min) });
       append(clear(box), block(t('kit.security.password'),
         field(t('kit.security.currentPassword'), revealable(current)),
-        field(t('kit.security.newPassword'), revealable(next), t('kit.security.workosPasswordHint')),
+        field(t('kit.security.newPassword'), revealable(next), t('kit.security.workosPasswordHint', { n: min })),
         row(button(t('kit.security.changePassword'), async () => {
           try {
             await api.post('/api/me/sign-in/password', { current_password: current.value, password: next.value });
@@ -2013,13 +2015,17 @@ export function openSettings(options) {
    * request; while it fails the dialog stays open and says why. Resolves with
    * its answer, or null when the person leaves it.
    */
-  function sure({ title, lines, confirm, run }) {
+  async function sure({ title, lines, confirm, run }) {
+    // With WorkOS, the password they have there, when they sign in with one: the server asks for it
+    // as it asks for a local one (api.js identityCheck, audit authz-9). Not knowing, it is asked.
+    const atWorkos = provider === 'workos'
+      ? await api.get('/api/me/sign-in').then((answer) => answer?.password !== false, () => true) : false;
     return new Promise((resolve) => {
       let answer = null;
       const word = t('kit.data.confirmWord');
       const typed = input({ id: 'kit-sure-word', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' });
       // Not every app tells the browser whether the account has a password: only "none" leaves it out.
-      const pass = local && state.user?.has_password !== false
+      const pass = (local && state.user?.has_password !== false) || atWorkos
         ? input({ id: 'kit-sure-password', type: 'password', autocomplete: 'current-password' }) : null;
       const code = local ? input({ id: 'kit-sure-code', autocomplete: 'one-time-code', autocapitalize: 'none', spellcheck: 'false', maxlength: '12' }) : null;
       const codeRow = code ? field(t('kit.twoFactor.codeOrRecovery'), code) : null;
@@ -2107,20 +2113,32 @@ export function openSettings(options) {
       const sharedNames = answer.shared || [];
       const passesOn = sharedNames.length ? t('kit.data.sharedPassesOn', { names: listFormat({ type: 'conjunction' }).format(sharedNames) }) : '';
       const replace = el('input', { type: 'checkbox', id: 'kit-data-replace' });
+      const post = (body) => api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, body);
+      const done = (result) => {
+        toast(t('kit.data.done', { what: describe(result.imported.tables) }));
+        // Everything shown comes back with what arrived.
+        setTimeout(() => window.location.reload(), 1200);
+      };
       const apply = button(t('kit.data.apply'), async () => {
-        const text = [t('kit.data.replaceText', { what: describe(has) }), handOver, passesOn].filter(Boolean).join(' ');
-        if (replace.checked && !(await confirmDialog(text, {
-          title: t('kit.data.replaceTitle'), confirm: t('kit.data.replaceButton'),
-        }))) return;
+        if (replace.checked) {
+          // Replacing empties what they have here first, as erasing does: asked as erasing is, the
+          // word typed and the password given (the server asks for both, audit authz-9).
+          const text = [t('kit.data.replaceText', { what: describe(has) }), handOver, passesOn].filter(Boolean).join(' ');
+          apply.disabled = true;
+          const result = await sure({
+            title: t('kit.data.replaceTitle'), lines: [text], confirm: t('kit.data.replaceButton'),
+            // The groups as they were shown: if they have changed since, the server says so (409) and nothing is done.
+            run: (asked) => post({
+              ...asked, replace: true, ...(Array.isArray(answer.hand_over) ? { hand_over: shown.map((o) => o.id) } : {}),
+            }),
+          }).catch((err) => { fail(err); return null; });
+          if (result) done(result);
+          else apply.disabled = false;
+          return;
+        }
         apply.disabled = true;
         try {
-          // The groups as they were shown: if they have changed since, the server says so (409) and nothing is done.
-          const result = await api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, {
-            replace: replace.checked, ...(replace.checked && Array.isArray(answer.hand_over) ? { hand_over: shown.map((o) => o.id) } : {}),
-          });
-          toast(t('kit.data.done', { what: describe(result.imported.tables) }));
-          // Everything shown comes back with what arrived.
-          setTimeout(() => window.location.reload(), 1200);
+          done(await post({ replace: false }));
         } catch (err) { fail(err); apply.disabled = false; }
       }, 'primary');
       apply.disabled = Boolean(copy.applied_at);

@@ -183,6 +183,14 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
     assert.equal(attempt.session, null, what);
   }
   assert.equal(suite.accounts.byIdentity(`oidc:${new URL(P).host}`, 'u-mal'), null);
+  // A malformed state cookie is a failed sign-in, not a 500 that anyone could send (audit sc-auth-10).
+  for (const broken of ['demo_oidc=%E0%A4%A', 'demo_oidc_abcdefgh=%E0%A4%A']) {
+    const back = await fetch(`${base}/auth/callback?code=x&state=abcdefghijk`, { redirect: 'manual', headers: { Cookie: broken } });
+    assert.equal(back.status, 302, broken);
+    assert.equal(back.headers.get('location'), '/?auth_error=failed', broken);
+  }
+  // Each sign-in its own cookie, for 30 minutes (audit sc-auth-6).
+  assert.match(ada.out.headers.getSetCookie()[0], /^demo_oidc_[\w-]{8}=[^;]+; Max-Age=1800; Path=\/auth/);
 
   // A disabled account stays out.
   suite.accounts.update(bob.id, { disabled: true });

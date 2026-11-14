@@ -109,7 +109,7 @@ names are the same in every app:
 | `ADMIN_USER`, `ADMIN_PASSWORD` | First administrator; without a password one is generated and printed once |
 | `ADMIN_EMAIL` | With WorkOS: the verified address that administers |
 | `AUTH_PROVIDER` | `local` (default), `workos`, `oidc` |
-| `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_AUTHKIT_DOMAIN`, `WORKOS_MCP_AUDIENCE` | WorkOS AuthKit |
+| `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_AUTHKIT_DOMAIN`, `WORKOS_MCP_AUDIENCE` | WorkOS AuthKit. `WORKOS_MCP_AUDIENCE` (`<BASE_URL>/mcp`, that resource in WorkOS) is required with `accounts.sharedIdentity` and the MCP on: the app doesn't start without it |
 | `WORKOS_TWO_FACTOR` | With WorkOS, who Settings offers two-step verification: `on` (default), `admins`, `off`. AuthKit asks for the code only with Multi-Factor Auth set to **Optional** in WorkOS's dashboard |
 | `MCP_OAUTH` | `off` leaves only manual MCP tokens |
 | `HOT_RELOAD` | Restart when `server/` changes (development and the NAS setup) |
