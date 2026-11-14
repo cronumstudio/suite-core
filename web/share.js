@@ -202,7 +202,11 @@ export async function shareDialog({
       const invite = el('button', { type: 'submit', class: 'kit-btn kit-btn--primary', text: w('invite') });
       const typed = () => (email ? email.value.trim() : '');
       // Nothing to share until there is an email or a chip chosen.
-      const ready = () => { invite.disabled = !online() || (!typed() && !chips.selected().length); };
+      // Offline it stays off too: nothing can be sent.
+      const ready = () => {
+        invite.disabled = !typed() && !chips.selected().length;
+        if (!online()) invite.disabled = true;
+      };
       readyInvite = ready;
       formNet.add(choice);
       // One's people, the kit's chips under the email: one or several at once.
