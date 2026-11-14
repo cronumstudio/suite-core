@@ -148,31 +148,39 @@ function hostModulesKept() {
 /**
  * Another module's words, for naming its sections of Settings here: its catalog in `lang`
  * (`/<module>/i18n/<lang>.json`), asked for once per page and kept. → the words; undefined while
- * they are on their way (`then` is called when they come); null when they couldn't be had, which
- * is asked again the next time Settings opens.
+ * they are on their way (`then` is called once when they come, however many times the same
+ * function asked); null when they couldn't be had, which stays so until Settings open again
+ * (forgetMissingCatalogs): a list painted again while one fails doesn't ask for it again.
  */
 const moduleCatalogs = new Map();
+const catalogWaiters = new Map();
 function moduleWords(m, lang, then) {
   const key = `${m.mount}:${lang}`;
   const known = moduleCatalogs.get(key);
   if (known instanceof Promise) {
-    known.then(then);
+    if (then) catalogWaiters.get(key)?.add(then);
     return undefined;
   }
-  if (known) return known;
-  if (known === null) {
-    moduleCatalogs.delete(key);
-    return null;
-  }
+  if (known !== undefined) return known;
+  const waiters = new Set(then ? [then] : []);
+  catalogWaiters.set(key, waiters);
   const asking = fetch(`${m.path}i18n/${lang}.json`, { credentials: 'same-origin' })
     .then((res) => (res.ok ? res.json() : null))
     .catch(() => null)
     .then((words) => {
       moduleCatalogs.set(key, words && typeof words === 'object' ? words : null);
+      catalogWaiters.delete(key);
+      // One that fails doesn't keep the words from the others.
+      for (const waiter of waiters) {
+        try { waiter(); } catch (err) { queueMicrotask(() => { throw err; }); }
+      }
     });
   moduleCatalogs.set(key, asking);
-  asking.then(then);
   return undefined;
+}
+/** The catalogs that couldn't be had, asked for again: as Settings open. */
+function forgetMissingCatalogs() {
+  for (const [key, words] of moduleCatalogs) if (words === null) moduleCatalogs.delete(key);
 }
 
 /**
@@ -284,6 +292,24 @@ export function openSettings(options) {
   // What is drawn from the modules in use, drawn again when the server's answer comes.
   const onModules = [];
   let closed = false;
+  forgetMissingCatalogs();
+  // Another module's words came (moduleWords): the list painted again once, for all that came together.
+  let repaintAsked = false;
+  const wordsCame = () => {
+    if (closed || repaintAsked) return;
+    repaintAsked = true;
+    queueMicrotask(() => {
+      repaintAsked = false;
+      if (!closed) repaint();
+    });
+  };
+  // A painting function called only while Settings are open, the same one each time for the same
+  // function: moduleWords calls it once however often it is asked.
+  const guarded = new WeakMap();
+  const whileOpen = (fn) => {
+    if (!guarded.has(fn)) guarded.set(fn, () => { if (!closed) fn(); });
+    return guarded.get(fn);
+  };
 
   /* ---------------------------- without a signal ---------------------------- */
 
@@ -463,7 +489,7 @@ export function openSettings(options) {
   function otherModule(m) {
     const declared = m.settings;
     if (!declared || !m.path) return [];
-    const words = moduleWords(m, currentLanguage(), () => { if (!closed) repaint(); });
+    const words = moduleWords(m, currentLanguage(), wordsCame);
     if (words === undefined) return [];   // on its way: painted when it comes
     const go = (id, iconName, label, text = '') => ({
       group: m.name, id: `${m.mount}:${id}`, iconName, label, hint: () => text, go: () => goTo(m, id),
@@ -1490,7 +1516,7 @@ export function openSettings(options) {
     return modulesHere().map((m) => {
       if (m.mount === host.mount) return mine;
       const key = m.settings?.standing;
-      const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) then(); }) : null;
+      const words = key ? moduleWords(m, currentLanguage(), whileOpen(then)) : null;
       const say = (k) => (typeof words?.[k] === 'string' ? words[k] : '');
       return { mount: m.mount, name: m.name, src: m.icon, text: say(key), more: notesOf(m.settings?.standingMore, say) };
     });
@@ -2328,7 +2354,7 @@ export function openSettings(options) {
       hostIcon.setAttribute('src', hostInfo.icon || '/icons/favicon.svg');
       const names = modulesHere().map((m) => (m.mount === host.mount ? app.name : m.name || m.mount));
       hostLine.textContent = t('kit.about.hostTagline', { apps: listFormat({ type: 'conjunction' }).format(names) });
-      clear(cards).append(...modulesHere().map((m) => moduleCard(m)));
+      clear(cards).append(...modulesHere().map((m) => moduleCard(m, paintCards)));
     } : null;
     paintFacts();
     paintCards?.();
@@ -2352,11 +2378,12 @@ export function openSettings(options) {
   /**
    * A module's card in the host's About: its icon, name and line, the version of it this tab runs
    * (the server's until the tab has said), and a link to its website, where what it is is told.
+   * Another module's line comes from its catalog: `repaintCards` (About's) paints them again then.
    */
-  function moduleCard(m) {
+  function moduleCard(m, repaintCards) {
     const here = m.mount === host.mount;
     const name = here ? app.name : m.name || m.mount;
-    const words = here ? null : moduleWords(m, currentLanguage(), () => paintCards());
+    const words = here ? null : moduleWords(m, currentLanguage(), whileOpen(repaintCards));
     const taglineKey = m.settings?.tagline || 'app.tagline';
     const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
     const updates = options.updates || workRegistry()?.updates;
