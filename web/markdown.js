@@ -17,6 +17,10 @@
  * CommonMark, as Obsidian, Bear and Typora write them, because Markdown has
  * no other way to say them: ==highlighted== and ++underlined++.
  *
+ * It reads in time that grows with the text, whatever the text: a mark left
+ * open is looked for once, and quotes, lists, marks and links nested past
+ * MAX_NESTING levels are the text they are.
+ *
  * Links go only to http, https and mailto, or within the app (a path, a
  * #fragment); anything else (javascript:, data:, vbscript:…) is shown as
  * text. Images load only from the app itself: an image elsewhere becomes a
@@ -54,11 +58,14 @@ const PUNCTUATION = /[!-/:-@[-`{-~]/;
 const isSpace = (c) => c === undefined || /\s/.test(c);
 const isWord = (c) => c !== undefined && /[\p{L}\p{N}]/u.test(c);
 
-/** From `[` at `start`: the label, the destination and the title of a link, or null. */
-function readLink(text, start) {
-  let depth = 0;
-  let i = start;
-  for (; i < text.length; i++) {
+/**
+ * Where each `[` of `text` closes: its `]`, the same one counting nested brackets from it would
+ * find, for every one in one pass (escapes and code spans skipped). One left open has none.
+ */
+function bracketPairs(text) {
+  const pairs = new Map();
+  const open = [];
+  for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '\\') { i++; continue; }
     if (c === '`') {
@@ -66,9 +73,18 @@ function readLink(text, start) {
       if (close > 0) i = close;
       continue;
     }
-    if (c === '[') depth++;
-    else if (c === ']' && --depth === 0) break;
+    if (c === '[') open.push(i);
+    else if (c === ']' && open.length) pairs.set(open.pop(), i);
   }
+  return pairs;
+}
+
+/**
+ * From `[` at `start`: the label, the destination and the title of a link, or null. `scan` is the
+ * text's (inlineScan): where its brackets close, and how much of it destinations may still read.
+ */
+function readLink(text, start, scan) {
+  const i = scan.pairs().get(start) ?? text.length;
   if (i >= text.length || text[i + 1] !== '(') return null;
   const label = text.slice(start + 1, i);
   let j = i + 2;
@@ -82,6 +98,8 @@ function readLink(text, start) {
   } else {
     let parens = 0;
     for (; j < text.length; j++) {
+      // Destinations left open read on to the end: past a few times the text, no more links.
+      if (--scan.budget < 0) return null;
       const c = text[j];
       if (c === '\\' && j + 1 < text.length) { href += text[++j]; continue; }
       if (c === '(') parens++;
@@ -103,8 +121,19 @@ function readLink(text, start) {
   return { label, href, title, end: j + 1 };
 }
 
-/** The closing run of `delim` for an opening at `from`, or -1. */
-function findClose(text, from, delim) {
+/**
+ * The closing run of `delim` for an opening at `from`, or -1. `scan` is the text's (inlineScan): a
+ * mark with no close from some place on has none from any later place either, so it is never
+ * looked for twice (`*a ` many times over took seconds).
+ */
+function findClose(text, from, delim, scan) {
+  if (from >= (scan.noClose.get(delim) ?? Infinity)) return -1;
+  const close = closeOf(text, from, delim);
+  if (close < 0) scan.noClose.set(delim, from);
+  return close;
+}
+
+function closeOf(text, from, delim) {
   const char = delim[0];
   for (let j = from; j < text.length; j++) {
     if (text[j] === '\\') { j++; continue; }
@@ -164,8 +193,27 @@ function unescapeText(text) {
 
 const BARE_URL = /^https?:\/\/[^\s<>]*[^\s<>.,:;"')\]!?*_~]/;
 
+/**
+ * How deep marks and links go inside each other, and quotes and lists: past it, the rest is read
+ * as text, so a note made of `>` or of links inside links can't run the page out of stack.
+ */
+const MAX_NESTING = 32;
+
+/** What parsing one text keeps of it: where its brackets close, the marks with no close, the work left. */
+function inlineScan(text) {
+  let pairs = null;
+  return { pairs: () => (pairs ||= bracketPairs(text)), noClose: new Map(), budget: 4 * text.length + 1024 };
+}
+
 /** Inline content as nodes: { type: text | code | em | strong | del | mark | u | link | image | br, … }. */
 export function parseInline(text) {
+  return inline(text, 0);
+}
+
+/** parseInline, `depth` marks and links deep inside others. */
+function inline(text, depth) {
+  if (depth >= MAX_NESTING) return text ? [{ type: 'text', text: unescapeText(text) }] : [];
+  const scan = inlineScan(text);
   const out = [];
   let buffer = '';
   const flush = () => {
@@ -208,7 +256,7 @@ export function parseInline(text) {
     }
 
     if (c === '!' && text[i + 1] === '[') {
-      const link = readLink(text, i + 1);
+      const link = readLink(text, i + 1, scan);
       if (link) {
         flush();
         out.push({ type: 'image', src: link.href, alt: link.label.replace(/[\\*_`~[\]]/g, ''), title: link.title });
@@ -218,10 +266,10 @@ export function parseInline(text) {
     }
 
     if (c === '[') {
-      const link = readLink(text, i);
+      const link = readLink(text, i, scan);
       if (link) {
         flush();
-        out.push({ type: 'link', href: link.href, title: link.title, children: parseInline(link.label) });
+        out.push({ type: 'link', href: link.href, title: link.title, children: inline(link.label, depth + 1) });
         i = link.end;
         continue;
       }
@@ -257,12 +305,12 @@ export function parseInline(text) {
         for (const size of tries) {
           const delim = c.repeat(size);
           const start = i + (run - size);
-          const close = findClose(text, start + size + 1, delim);
+          const close = findClose(text, start + size + 1, delim, scan);
           if (close > start + size) {
             buffer += c.repeat(run - size);
             flush();
             const type = DOUBLE[c] || (size === 2 ? 'strong' : 'em');
-            out.push({ type, children: parseInline(text.slice(start + size, close)) });
+            out.push({ type, children: inline(text.slice(start + size, close), depth + 1) });
             i = close + size;
             matched = true;
             break;
@@ -319,9 +367,10 @@ function cells(row) {
 
 /**
  * Block content: lines are { text, n }, n being the line's number in the
- * whole note (task items keep it, so ticking one changes that line).
+ * whole note (task items keep it, so ticking one changes that line). `depth`:
+ * how many quotes and lists it is inside; from MAX_NESTING on, neither is read.
  */
-function parseBlocks(lines) {
+function parseBlocks(lines, depth = 0) {
   const out = [];
   let i = 0;
   while (i < lines.length) {
@@ -352,7 +401,7 @@ function parseBlocks(lines) {
 
     if (RULE.test(text)) { out.push({ type: 'rule' }); i++; continue; }
 
-    if (QUOTE.test(text)) {
+    if (depth < MAX_NESTING && QUOTE.test(text)) {
       const inner = [];
       while (i < lines.length && !blank(lines[i]) && (QUOTE.test(lines[i].text) || inner.length)) {
         const quoted = QUOTE.exec(lines[i].text);
@@ -361,13 +410,13 @@ function parseBlocks(lines) {
         inner.push({ text: quoted ? quoted[1] : lines[i].text, n: lines[i].n });
         i++;
       }
-      out.push({ type: 'quote', children: parseBlocks(inner) });
+      out.push({ type: 'quote', children: parseBlocks(inner, depth + 1) });
       continue;
     }
 
     const item = ITEM.exec(text);
-    if (item) {
-      const [list, next] = parseList(lines, i);
+    if (item && depth < MAX_NESTING) {
+      const [list, next] = parseList(lines, i, depth);
       out.push(list);
       i = next;
       continue;
@@ -405,7 +454,7 @@ function parseBlocks(lines) {
 }
 
 /** A list from line `start`: its items, each with its own blocks. → [list, next line]. */
-function parseList(lines, start) {
+function parseList(lines, start, depth) {
   const first = ITEM.exec(lines[start].text);
   const ordered = /\d/.test(first[2]);
   const bullet = first[2].slice(-1);
@@ -447,7 +496,7 @@ function parseList(lines, start) {
     }
     const task = TASK.exec(content[0].text);
     if (task) content[0] = { text: content[0].text.slice(task[0].length), n: content[0].n };
-    list.items.push({ task: task ? task[1] !== ' ' : null, line: n, children: parseBlocks(content) });
+    list.items.push({ task: task ? task[1] !== ' ' : null, line: n, children: parseBlocks(content, depth + 1) });
     // A blank line between items ends nothing; another kind of block does.
     while (i < lines.length && blank(lines[i]) && lines[i + 1] && ITEM.test(lines[i + 1].text)) i++;
   }

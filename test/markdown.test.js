@@ -157,3 +157,49 @@ test('nothing in the kit writes HTML from strings', () => {
     assert.doesNotMatch(text, /\.(?:innerHTML|outerHTML)\s*=|insertAdjacentHTML|document\.write\(/, file);
   }
 });
+
+test('a note made to hang the page reads in linear time: marks left open, quotes and links inside each other (sc-ui-10)', { timeout: 60000 }, () => {
+  // A note holds up to 200,000 characters (Notes' BODY_MAX). Before, '*a ' 20,000 times took seconds,
+  // and a quote or a link nested 5,000 deep ran out of stack.
+  const timed = (name, source, check = () => {}) => {
+    const began = performance.now();
+    const doc = parseMarkdown(source);
+    renderMarkdown(doc);
+    plainText(source);
+    const took = performance.now() - began;
+    assert.ok(took < 8000, `${name}: ${Math.round(took)} ms`);
+    check(doc);
+  };
+  for (const unit of ['*a ', '_a ', '**a ', '***a ', '~~a ', '==a ', '++a ']) {
+    timed(JSON.stringify(unit), unit.repeat(Math.floor(200000 / unit.length)), (doc) => {
+      assert.ok(doc.children[0].children.every((n) => n.type === 'text'), 'all of it text: no mark closes');
+    });
+  }
+  timed('[ left open', '['.repeat(200000));
+  timed('[a]( left open', '[a]('.repeat(50000));
+  timed('![a]( left open', '![a]('.repeat(40000));
+  timed('*a _ … _ a*', `${'*a _'.repeat(25000)}b${'_ a*'.repeat(25000)}`);
+  timed('> 10,000 times', `${'>'.repeat(10000)} x`, (doc) => {
+    let depth = 0;
+    for (let node = doc.children[0]; node?.type === 'quote'; node = node.children[0]) depth++;
+    assert.equal(depth, 32, 'quotes up to 32 deep; under them, the rest as text');
+  });
+  timed('> > 10,000 times', `${'> '.repeat(10000)}x`);
+  timed('- 10,000 times', `${'- '.repeat(10000)}x`);
+  timed('5,000 links inside each other', `${'['.repeat(5000)}a${'](u)'.repeat(5000)}`, (doc) => {
+    let depth = 0;
+    for (let node = doc.children[0].children[0]; node?.type === 'link'; node = node.children[0]) depth++;
+    assert.equal(depth, 32, 'links up to 32 deep; inside them, the rest as text');
+  });
+});
+
+test('what notes really nest still reads as before', () => {
+  const quotes = parseMarkdown('> one\n> > two\n> > > three');
+  assert.equal(quotes.children[0].children[1].children[1].type, 'quote');
+  const list = parseMarkdown('- a\n  - b\n    - c');
+  assert.equal(list.children[0].items[0].children[1].items[0].children[1].type, 'list');
+  assert.deepEqual(types(parseInline('[**a [b](c) d**](e) *x* [left [open](f)')), ['link', 'text', 'em', 'text', 'link']);
+  assert.deepEqual(types(parseInline('a *b* c *d')), ['text', 'em', 'text']);
+  assert.equal(parseInline('a *b* c *d').at(-1).text, ' c *d');
+  assert.deepEqual(types(parseInline('*a* *b* **c** *d*')), ['em', 'text', 'em', 'text', 'strong', 'text', 'em']);
+});
