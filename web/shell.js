@@ -53,7 +53,7 @@ import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules, installed, installedAlone } from './base.js';
 import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
 import { nativeReady, hostShellAddress } from './native.js';
-import { billingReturn, lastDay } from './plan.js';
+import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
 

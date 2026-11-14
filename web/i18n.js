@@ -43,9 +43,22 @@ const unspoken = new Set();
 const catalogs = new Map();
 // `?all`: the whole catalog, for the pages that show the suite's admin and connect texts.
 let variant = '';
+/**
+ * Another language comes with English under it (`/i18n/es.json?en`, the server's app.js): one
+ * catalog, one trip, where it was English and then the language, one after the other. The key
+ * it says so with (the server's i18n.js CATALOG_FALLBACK); one without it (a copy kept before)
+ * still has English asked for, as before.
+ */
+const FALLBACK = '$meta.fallback';
+const overEnglish = (catalog) => catalog?.[FALLBACK] === 'en';
+/** The address of a catalog: English on its own, any other with English under it. */
+export const catalogPath = (lang, all = false) => {
+  const query = [all ? 'all' : '', lang === 'en' ? '' : 'en'].filter(Boolean).join('&');
+  return `/i18n/${lang}.json${query ? `?${query}` : ''}`;
+};
 function fetchCatalog(lang) {
   if (!catalogs.has(lang)) {
-    const loading = fetch(at(`/i18n/${lang}.json${variant}`), { credentials: 'same-origin' }).then((res) => {
+    const loading = fetch(at(catalogPath(lang, Boolean(variant))), { credentials: 'same-origin' }).then((res) => {
       if (res.status === 404 && OPTIONAL_LANGUAGES.includes(lang)) unspoken.add(lang);
       if (!res.ok) throw new Error(`i18n ${lang}: ${res.status}`);
       return res.json();
@@ -54,6 +67,25 @@ function fetchCatalog(lang) {
     catalogs.set(lang, loading);
   }
   return catalogs.get(lang);
+}
+
+/** English, once, and again only while it could not be had. */
+async function englishOnce() {
+  if (!Object.keys(english).length) english = await fetchCatalog('en').catch(() => ({}));
+  return english;
+}
+
+/**
+ * A language's texts: English's own; any other's from its one catalog with English under it. One
+ * that came without English under it has English asked for too, as before, and without it (no
+ * signal and no copy) English stands in, as it did.
+ */
+async function dictionaryOf(lang) {
+  if (lang === 'en') return englishOnce();
+  const own = await fetchCatalog(lang).catch(() => null);
+  if (overEnglish(own)) return own;
+  await englishOnce();
+  return own ?? english;
 }
 
 /** Where this browser keeps the choice: `<app>.lang`. */
@@ -99,13 +131,11 @@ export async function loadLanguage(preference = 'auto', { remember = true, all =
     english = {};
   }
   let lang = resolveLanguage(preference);
-  // English once, and again only while it could not be had.
-  if (!Object.keys(english).length) english = await fetchCatalog('en').catch(() => ({}));
-  dictionary = lang === 'en' ? english : await fetchCatalog(lang).catch(() => english);
+  dictionary = await dictionaryOf(lang);
   // A language the app doesn't speak: the one it would have picked without it.
   while (unspoken.has(lang)) {
     lang = resolveLanguage(preference);
-    dictionary = lang === 'en' ? english : await fetchCatalog(lang).catch(() => english);
+    dictionary = await dictionaryOf(lang);
   }
   language = lang;
   forget();

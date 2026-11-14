@@ -256,6 +256,29 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.ok(Object.keys(whole.data).some((key) => key.startsWith('oauth.')));
   assert.notEqual(whole.headers.get('etag'), (await call('GET', '/i18n/es.json')).headers.get('etag'));
   assert.equal((await call('GET', '/i18n/fr.json')).status, 404, 'not a language of this app');
+  // `?en`: the language with English under it, the one catalog the kit's i18n.js asks for (0.285.0).
+  // Every key reads as English then the language read, one key at a time; the plain one stays as it was.
+  const lookup = (dict, key) => dict[key] ?? key.split('.').reduce((node, part) => node?.[part], dict);
+  const english = (await call('GET', '/i18n/en.json')).data;
+  const under = await call('GET', '/i18n/es.json?en');
+  assert.equal(under.status, 200);
+  assert.equal(under.data['$meta.fallback'], 'en', 'it says so');
+  assert.equal(lookup(under.data, 'notes.title'), 'Notes', 'what Spanish lacks, English’s');
+  assert.equal(lookup(under.data, 'errors.not_found'), 'No encontrado.', 'what Spanish has, Spanish’s');
+  const keys = (dict, prefix = '') => Object.entries(dict).flatMap(([k, v]) => (v && typeof v === 'object' && !('other' in v) && !('one' in v) ? keys(v, `${prefix}${k}.`) : [`${prefix}${k}`]));
+  for (const key of new Set([...keys(english), ...keys(spanish)])) {
+    assert.deepEqual(lookup(under.data, key), lookup(spanish, key) ?? lookup(english, key), key);
+  }
+  assert.equal(spanish['$meta.fallback'], undefined, 'the plain catalog says nothing of English');
+  assert.equal(spanish['notes.title'], undefined, 'and has none of it');
+  const underAgain = await fetch(`${base}/i18n/es.json?en`, { headers: { 'If-None-Match': under.headers.get('etag') } });
+  assert.equal(underAgain.status, 304);
+  assert.notEqual(under.headers.get('etag'), (await call('GET', '/i18n/es.json')).headers.get('etag'));
+  const wholeUnder = (await call('GET', '/i18n/es.json?all&en')).data;
+  assert.equal(wholeUnder['admin.title'], whole.data['admin.title'], '`?all` with English under it');
+  assert.equal(lookup(wholeUnder, 'notes.title'), 'Notes');
+  assert.deepEqual((await call('GET', '/i18n/en.json?en')).data, english, 'English is English');
+  assert.equal((await call('GET', '/i18n/fr.json?en')).status, 404, 'not a language of this app, either way');
   // Nothing else under /i18n/ reaches the static files: a case-insensitive disk (Windows, macOS)
   // would answer these with the app's raw en.json, without the suite's texts.
   for (const other of ['/i18n/xx.json', '/i18n/EN.json', '/I18N/en.json', '/i18n/en.json.', '/i18n/en.json::$DATA',
