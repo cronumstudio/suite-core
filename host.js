@@ -74,7 +74,7 @@ import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
 import { createTexts } from './i18n.js';
 import { createShareMail } from './share-mail.js';
-import { createPortability } from './portability.js';
+import { createPortability, withImportCeiling } from './portability.js';
 import {
   sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
 } from './http.js';
@@ -942,7 +942,8 @@ export async function createHost({
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
       app: { id: app.id, name: app.name, version: v }, roles: config.accounts.roles,
-      baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
+      baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
+      limits: withImportCeiling(limits, install.importMaxMb),
       // A copy says how many of the module's own migrations it had: in a host they are under its id.
       migrationScope: app.id,
       // What was erased leaves nothing in the links either (links.js prune).
@@ -1057,6 +1058,10 @@ export async function createHost({
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
+      // Its page answers its own path alone; any other there is a 404 page (audit prod-9): no module
+      // has a route in its path (Tasks and Projects read the query, Notes and Next the hash), and a
+      // deeper one drew nothing, its files asked for under it. One that has some names them.
+      clientRoutes: parts.clientRoutes ?? ['/'],
       portable: parts.portable ?? null, handleSignals: false, log,
       // In the split view (or a page of the host's that frames a module, framedModules) each module
       // is a frame of the host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
@@ -1237,6 +1242,9 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // `/` and its own folders (`/calendar/`); any other address of the root is a 404 page, not the
+    // host's home with its files asked for at the wrong place (audit prod-9).
+    clientRoutes: ['/'],
     // The calendar's page may be framed by the host's own pages (Cronum Work opens it in a window
     // of its shell); every other page of the root, by nobody.
     // So may the daily summary's.
@@ -1532,7 +1540,21 @@ export async function createHost({
       res.end(req.method === 'HEAD' ? undefined : body);
       return true;
     };
-    if (url.pathname === '/sw.js') return send('text/javascript; charset=utf-8', workerBody());
+    if (url.pathname === '/sw.js') {
+      // Revalidated as /js/app-version.js is, by what it holds: the whole app's fingerprint, which
+      // the script is written from, and the host's options in it. A browser that has it gets a 304,
+      // where every check took the whole script again (audit prod-13).
+      const body = workerBody();
+      script.etag ??= `W/"${script.version}-${crypto.createHash('sha1').update(body).digest('hex').slice(0, 8)}"`;
+      const { etag } = script;
+      securityHeaders(res, { https: install.https });
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
+        res.end();
+        return true;
+      }
+      return send('text/javascript; charset=utf-8', body, { ETag: etag });
+    }
     if (url.pathname === '/version') {
       securityHeaders(res, { https: install.https });
       sendJson(res, 200, hostVersion());

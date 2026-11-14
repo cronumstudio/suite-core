@@ -83,9 +83,13 @@ relax these. The design they serve is in [docs/architecture.md](docs/architectur
   request. Pushed history is never rewritten.
 - **Versions**: semantic versioning, `0.x.y` while an app is being validated. The version lives in
   `package.json` and `server/version.js`, and the git tag `vX.Y.Z` must match both: the tests check
-  the first two, the publish workflow the third.
-- **Images**: `ghcr.io/cronumstudio/<app>`, for `linux/amd64` and `linux/arm64`, built by CI when
-  a version tag is pushed and only if the tests pass.
+  the first two, the publish workflow the third when it is run.
+- **Images**: a version tag publishes no image. Tasks, Projects, Next and Notes run as modules of
+  Cronum Work, which its deployment (Dokploy) builds from the `work` repository with the modules as
+  submodules at the commits it pins; nothing pulls `ghcr.io/cronumstudio/<app>`, which was private
+  and so of no use to anyone outside either. A module's publish workflow is only run by hand
+  (`workflow_dispatch`), and the Dockerfile stays to try the module on its own. An app that is
+  deployed from an image builds it where its deployment says, for the platforms it runs on.
 
 ## 5. Configuration
 
@@ -119,6 +123,8 @@ names are the same in every app:
 | `STORE_BILLING` | Purchases in the App Store and Google Play through a store provider registered from outside the repository (the hosted suite's RevenueCat), with variables of its own, next to the web's; off when empty |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 | `ALERT_EMAIL` | Who is emailed when the server fails (an uncaught exception, an unhandled rejection, 5 or more 5xx within 5 minutes, a scheduled job of the suite that threw), at most once per kind every 30 minutes; needs `MAIL_PROVIDER=smtp`. Off when empty, and never `ADMIN_EMAIL` on its own |
+| `SECURITY_CONTACT` | The `Contact` of `/.well-known/security.txt`: a `mailto:` or `https:` address, or an email; `mailto:hello@cronumstudio.com` when empty |
+| `IMPORT_MAX_MB` | The biggest copy of data an import takes over HTTP, for someone's own and the admin's; when empty, 95 behind Cloudflare (`trustProxy: 'cloudflare'`), which cuts any request over 100 MB with a page of its own, and the suite's own limits otherwise (512 and 4096) |
 
 Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`
 (`HOT_RELOAD`) and `PUBLIC_URL` (`BASE_URL`) stop the start with a message that names the new one. Plan ids
@@ -140,7 +146,8 @@ Compose files use only the current names.
 
 ## 6. Deployment and development
 
-- Production runs a published image with a fixed version. While an app is still deployed from its
+- Production runs a fixed version: Cronum Work built from a commit of its repository, with the
+  modules and suite-core at the commits it pins (§4, Images). While an app is still deployed from its
   working folder on the NAS (code mounted, hot reload), that folder is only updated with a
   fast-forward `git pull`: never edit, check out or experiment there, because every saved file is
   live at once.

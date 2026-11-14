@@ -650,6 +650,20 @@ function openReader(file) {
 /* -------------------------------- the service ---------------------------------- */
 
 /**
+ * An app's `limits` with the install's ceiling on what an import takes over HTTP (config.js
+ * `install.importMaxMb`, IMPORT_MAX_MB): what stands before the server may cut a bigger request
+ * with a page of its own (Cloudflare, at 100 MB), which said nothing of the size (audit prod-14).
+ * The lower of the two wins; without one, the app's as they are.
+ */
+export function withImportCeiling(limits = {}, mb = null) {
+  if (!mb) return limits;
+  const ceiling = mb * MB;
+  const own = limits.upload || {};
+  const lower = (value, fallback) => Math.min(Number(value ?? fallback), ceiling);
+  return { ...limits, upload: { ...own, account: lower(own.account, 512 * MB), install: lower(own.install, 4096 * MB) } };
+}
+
+/**
  * @param {object} options
  * @param {object} options.database, options.accounts         the suite's
  * @param {object} [options.uploads]      where attachments live (modules.uploads)
@@ -2236,7 +2250,8 @@ export function createPortability({
     const counter = new Transform({
       transform(chunk, _encoding, done) {
         size += chunk.length;
-        if (size > limit) done(new HttpError(413, 'body_too_large'));
+        // The size it may have, for the page to say it (Settings: errors.file_too_large).
+        if (size > limit) done(new HttpError(413, 'file_too_large', { max_mb: Math.floor(limit / MB) }));
         else done(null, chunk);
       },
     });

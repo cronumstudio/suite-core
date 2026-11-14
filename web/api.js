@@ -140,7 +140,9 @@ async function request(method, path, body, options = {}) {
   wait.done();
   if (cut) return noSignal();
   if (res.ok) return text ? { data, text: raw } : data;
-  const code = data?.error || 'generic';
+  // A 413 without the server's code is what stands before it (Cloudflare cuts a request over
+  // 100 MB with a page of its own): too big, said as such rather than as a failure (audit prod-14).
+  const code = data?.error || (res.status === 413 ? 'upload_too_large' : 'generic');
   if (res.status === 401) throw new SessionExpired(401, code, data);
   const error = new ApiError(res.status, code, data);
   // How long the server (or whatever stands before it) asks to wait, when it says (a 429, a 503).

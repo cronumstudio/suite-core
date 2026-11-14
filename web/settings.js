@@ -71,7 +71,7 @@
  */
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateFormat } from './i18n.js';
-import { api, errorMessage, Offline } from './api.js';
+import { api, errorMessage, Offline, ApiError } from './api.js';
 import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
@@ -2078,6 +2078,14 @@ export function openSettings(options) {
     const check = button(t('kit.data.check'), async () => {
       const chosen = file.files?.[0];
       if (!chosen) return;
+      // Over what this install takes, said before sending it: whatever stands before the server
+      // (Cloudflare, at 100 MB) may cut it with a page of its own, or the connection, which read as
+      // no signal (audit prod-14).
+      const most = Number(config.app?.imports?.max_bytes) || 0;
+      if (most && chosen.size > most) {
+        showError(new ApiError(413, 'file_too_large', { max_mb: Math.floor(most / (1024 * 1024)) }));
+        return;
+      }
       check.disabled = true;
       try {
         showPlan(await api.upload('/api/me/import', chosen));

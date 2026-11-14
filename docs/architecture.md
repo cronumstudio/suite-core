@@ -1287,7 +1287,9 @@ apps learned the hard way:
 1. Security headers on every response.
 2. `/health`, `/version`, `/js/app-version.js` (the fingerprint the PWA compares to offer a reload).
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
-   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it.
+   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it: OAuth's
+   with "No OAuth here", any other `/.well-known/*` with `not_found`, but `security.txt`
+   (RFC 9116, `SECURITY_CONTACT`). `/api` itself is the API's JSON 404 too.
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
@@ -1298,7 +1300,11 @@ apps learned the hard way:
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
-8. The app's static files, then the SPA fallback for paths without an extension.
+8. The app's static files, then its page for paths without an extension; none for a path with a
+   part that starts with a dot (`/.env`). With `clientRoutes` (a host gives `['/']` to itself and
+   to each module) its page only for those paths, a folder with an index.html asked for without its
+   slash goes to it, and any other path is the kit's 404 page (web/not-found.html) in the
+   browser's language, with a link to `/`.
 
 The common API is the same in every app: sign-in (`POST /api/auth/login`, its second step
 `POST /api/auth/login/code`, `POST /api/auth/logout`, `GET /api/auth/config`), the profile

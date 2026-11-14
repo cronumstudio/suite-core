@@ -3,6 +3,58 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.290.0 — 2026-11-14
+
+- **An address nobody has is a 404 page, not the app's page drawing nothing** (`app.js`, `host.js`,
+  `brand.js`, `web/not-found.html`; audit prod-9). `/nope`, `/tasks/nope/deep` or `/.git/config`
+  answered 200 with the app's page; a deep one asked for its files under the wrong path and stayed
+  blank, and `/api` and `/tasks/api` were HTML where a client expects JSON.
+  - `createApp({ clientRoutes })`: the paths its page answers that are no file. Any other path
+    without an extension is the kit's 404 page, in the browser's language (`kit.notFound.*`), with
+    a link to `/`; a folder with its own index.html asked for without its slash (`/calendar`) is a
+    308 to it. A host gives `['/']` to its root and to each module (`createModule().clientRoutes`
+    for one that needs more): no module has a route in its path (Tasks and Projects read the
+    query, Notes and Next the hash). Without the option, as before.
+  - For every app: `/api` itself is the JSON `not_found`, and a path with a part that starts with
+    a dot (`/.env`) is a plain 404, never the page.
+- **`/.well-known/`: only OAuth's say "No OAuth here", and security.txt** (`app.js`, `config.js`;
+  audit prod-10). `/.well-known/openid-configuration`, `security.txt` and the rest answered the
+  OAuth sentence; now `{ "error": "not_found" }`, but for `oauth-protected-resource` and
+  `oauth-authorization-server` (and `/register`, `/authorize`, `/token`, `/oauth`), as before.
+  `/.well-known/security.txt` (RFC 9116): `Contact` from `SECURITY_CONTACT`
+  (`mailto:hello@cronumstudio.com` when empty), `Expires` a little under a year ahead, worked out
+  on each request, `Preferred-Languages: en, es` and `Canonical`.
+- **The host's /sw.js answers 304** (`host.js`; audit prod-13): `ETag: W/"<fingerprint>-<hash>"`,
+  as `/js/app-version.js` has its own; every check took the whole script again.
+- **An import says how big it may be, before and when it is too big** (`config.js`,
+  `portability.js`, `app.js`, `host.js`, `web/settings.js`, `web/api.js`; audit prod-14).
+  Settings said nothing useful for a copy over 100 MB: Cloudflare cuts it with a page of its own
+  before the server sees it, while the import took up to 512 MB.
+  - `IMPORT_MAX_MB`: the most an import takes over HTTP, someone's own and the admin's; when empty,
+    95 behind Cloudflare (`trustProxy: 'cloudflare'`, as Cronum Work's config has it), the suite's
+    own ceilings otherwise. `withImportCeiling(limits, mb)` (portability.js): the lower wins.
+  - Too big at the server is `413 file_too_large { max_mb }`, the sentence files already had,
+    where it was `body_too_large` ("Too much text"). `GET /api/auth/config` says
+    `app.imports.max_bytes`, and Settings says it before sending the file.
+  - The kit's client (`web/api.js`): a 413 without the server's code is `upload_too_large`.
+- **Sharing and public pages in the audit log** (`sharing.js`, `public-page.js`; audit authz-8).
+  Only what an assistant did reached /admin › Activity (`mcp.tool`); from the web, sharing
+  something or making it public left nothing.
+  - `createSharing({ audit, module })`: `share.offer` (a new offer, or one made again while
+    unanswered; an address without an account as `stranger`), `share.permission`,
+    `share.withdraw` (its owner took it back) and `share.leave` (declined or left), with the kind
+    and its id, who it was for (`meta.user`) and the request's address when a route made it;
+    never a name, a title or an email. `auditShare(audit, …)` writes the same line for a module
+    that shares without the engine (Projects' team).
+  - `createPublicPage({ audit, kind, module })`: `public.open` and `public.close`, never the token;
+    `open` and `close` take `{ req }`, as its routes pass it. `auditPublic(audit, …)` for a module
+    whose page doesn't go through it yet.
+  - The modules pass `audit: suite.audit` (and their name) to have them: without it, as before.
+  - Their names in Activity, in the five languages (`admin.actions.share_*`, `public_*`).
+- **CONVENTIONS §4: a version tag publishes no image** (deps-ci-9): Cronum Work is built by its
+  deployment from its repository; the modules' ghcr images were private and nothing pulled them.
+  §5 names `SECURITY_CONTACT` and `IMPORT_MAX_MB`.
+
 ## 0.285.0 — 2026-11-14
 
 - **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,

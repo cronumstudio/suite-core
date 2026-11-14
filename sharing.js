@@ -61,6 +61,33 @@ import { bareAddress } from './mail.js';
 
 export const PERMISSIONS = ['view', 'edit'];
 
+/** What the audit log calls each step of sharing (admin.actions.share_*). */
+export const SHARE_ACTIONS = Object.freeze({
+  offer: 'share.offer', permission: 'share.permission', withdraw: 'share.withdraw', leave: 'share.leave',
+});
+
+/**
+ * One line in the audit log for a step of sharing, the same from every module (audit authz-8):
+ * from the web as from an assistant, who opened something to someone else is in /admin › Activity.
+ * The engine below writes it; a module that shares without the engine (Projects' team) calls it
+ * itself. Who did it, what (the kind and its id) and who it was for (`user`, an account's id; an
+ * address without an account only as `stranger`), never a name, a title or an email.
+ *   step  offer | permission | withdraw (its owner took it back) | leave (they declined or left)
+ */
+export function auditShare(audit, { step, actor, req = null, kind, id, targetId = null, permission = null, stranger = false, module = null }) {
+  const action = SHARE_ACTIONS[step];
+  if (!audit?.record || !action) return;
+  audit.record({
+    action, actor, req, targetType: kind, targetId: id,
+    meta: {
+      ...(module ? { module } : {}),
+      ...(targetId != null ? { user: Number(targetId) } : {}),
+      ...(stranger ? { stranger: true } : {}),
+      ...(permission ? { permission } : {}),
+    },
+  });
+}
+
 /**
  * @param {object} options
  * @param {{ get, all, run }} options.db  the module's database helpers (SQL with `?`).
@@ -96,11 +123,17 @@ export const PERMISSIONS = ['view', 'edit'];
  * @param {object} [options.codes]  { unknown: 'email_not_found', noTarget: null }: the codes of
  *   a person not found and of an offer that names nobody (null: the email is required).
  * @param {Function} [options.log]
+ * @param {object} [options.audit]  the suite's audit log: every offer, change, withdrawal and leave
+ *   goes in it (auditShare), with the request's address when a route made it.
+ * @param {string} [options.module]  the module's name in those lines, where kinds of two modules
+ *   share a name (Next's and Projects' `project`).
  */
 export function createSharing({
   db, kinds, notify = null, push = null, hasPush = null, brake = createShareBrake(), requirePlan = null,
   byUsername = false, codes = {}, clock = () => new Date().toISOString(), log = console.error,
+  audit = null, module = null,
 }) {
+  const noted = (step, details) => auditShare(audit, { ...details, step, module });
   const { get, all, run } = db;
   const UNKNOWN = codes.unknown || 'email_not_found';
   const NO_TARGET = codes.noTarget || null;
@@ -393,9 +426,11 @@ export function createSharing({
     const who = target(userId, body, { kind, thing });
     const permission = permissionOf(body.permission);
     const answer = spec.answer || defaultAnswer;
+    const req = ctx?.req ?? null;
     if (who.ghost) {
       const answered = answer({ kind, userId, thing, target: who, permission, invited: true, ctx });
       tellStranger(kind, thing, userId, who.email, permission);
+      noted('offer', { actor: userId, req, kind, id: thing.id, stranger: true, permission });
       return answered;
     }
     const row = shareRow(kind, thing.id, who.id);
@@ -406,6 +441,10 @@ export function createSharing({
     // without an account does, which counts every time.
     if (invited || !row.accepted) count(userId);
     offerRow(kind, thing.id, userId, who.id, permission);
+    // In the log once it is made: a new offer, or one made again while unanswered; for someone who
+    // accepted, what they may do, when it changed.
+    if (invited || !row.accepted) noted('offer', { actor: userId, req, kind, id: thing.id, targetId: who.id, permission });
+    else if (row.permission !== permission) noted('permission', { actor: userId, req, kind, id: thing.id, targetId: who.id, permission });
     spec.offered?.({ userId, thing, targetId: who.id, permission, invited, ctx });
     if (invited) tell(kind, thing, userId, who.id, permission);
     return answer({ kind, userId, thing, target: who, permission, invited, ctx });
@@ -424,7 +463,7 @@ export function createSharing({
    * accepted yet, the change counts as an offer made again: it tells them as one
    * does (`changed`). By address the module counted it already (countOffer).
    */
-  function setPermission(kind, userId, id, targetId, permission, { byAddress = false } = {}) {
+  function setPermission(kind, userId, id, targetId, permission, { byAddress = false, req = null } = {}) {
     const spec = specOf(kind);
     const thing = spec.own(userId, id);
     const perm = permissionOf(permission);
@@ -434,6 +473,7 @@ export function createSharing({
     if (!row) throw notFound();
     if (!row.accepted && !byAddress) count(userId);
     run(`UPDATE ${table} SET permission = ? WHERE ${key} = ? AND user_id = ?`, perm, thing.id, targetId);
+    if (row.permission !== perm) noted('permission', { actor: userId, req, kind, id: thing.id, targetId, permission: perm });
     spec.changed?.({ userId, thing, targetId, permission: perm });
     return sharesOf(kind, thing.id, { owner: true }).find((s) => s.user.id === targetId);
   }
@@ -448,7 +488,7 @@ export function createSharing({
    * sc-data-6); now every notice a removal sends is for a share an offer made,
    * and offers are what the brake counts.
    */
-  function remove(kind, userId, id, targetId) {
+  function remove(kind, userId, id, targetId, { req = null } = {}) {
     const spec = specOf(kind);
     const { thing, ownerId } = spec.leaving(userId, id, targetId);
     let row = shareRow(kind, thing.id, targetId);
@@ -463,6 +503,7 @@ export function createSharing({
     // Told while they still have it: afterwards their tabs would not hear of it.
     spec.removing?.(info);
     dropShare(kind, thing.id, targetId);
+    noted(Number(targetId) === Number(userId) ? 'leave' : 'withdraw', { actor: userId, req, kind, id: thing.id, targetId });
     spec.removed?.(info);
   }
 
@@ -538,12 +579,12 @@ export function createSharing({
         router.patch(`${at}/:userId`, async (ctx) => {
           const me = user(ctx);
           const body = await readJson(ctx.req);
-          sendJson(ctx.res, 200, setPermission(kind, me.id, id(ctx, 'id'), id(ctx, 'userId'), body.permission));
+          sendJson(ctx.res, 200, setPermission(kind, me.id, id(ctx, 'id'), id(ctx, 'userId'), body.permission, { req: ctx.req }));
         });
       }
       router.delete(`${at}/:userId`, async (ctx) => {
         const me = user(ctx);
-        remove(kind, me.id, id(ctx, 'id'), id(ctx, 'userId'));
+        remove(kind, me.id, id(ctx, 'id'), id(ctx, 'userId'), { req: ctx.req });
         sendJson(ctx.res, 200, { ok: true });
       });
       router.post(`${spec.path}/accept`, async (ctx) => {

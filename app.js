@@ -64,6 +64,7 @@ import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { brandedPage } from './oauth-page.js';
 import { brandedAdmin } from './brand.js';
+import { brandedNotFound } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createRevoker } from './revoke.js';
@@ -73,7 +74,7 @@ import { createNativePush, registerNativePushApi } from './native-push.js';
 import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks, registerUploadLinksApi } from './mcp-files.js';
-import { createPortability, registerPortabilityApi } from './portability.js';
+import { createPortability, registerPortabilityApi, withImportCeiling } from './portability.js';
 import { createMcpServer, dailyLimitText, weeklyLimitText } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
@@ -83,6 +84,7 @@ import { definePrefs, userSerializer } from './prefs.js';
 import {
   HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
 } from './http.js';
+import { staticFile } from './http.js';
 import { fingerprint } from './host-worker.js';
 import { watchCode } from './watcher.js';
 import { SUITE_CATALOGS, mergeCatalogs, CATALOG_FALLBACK } from './i18n.js';
@@ -608,7 +610,9 @@ export function createSuite({
   const portabilityFor = (declaration, { version = null, limits = {}, onErased = null } = {}) => createPortability({
     database, accounts, uploads, entitlements, live, audit,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
-    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits, onErased,
+    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, onErased,
+    // What stands before the server may take less than the app would (IMPORT_MAX_MB, config.js).
+    limits: withImportCeiling(limits, install.importMaxMb),
     // For a declaration whose copies carry organizations (portability.js); null with the module off.
     organizations,
   });
@@ -635,8 +639,27 @@ export function createSuite({
   return made;
 }
 
-/** Paths clients use to negotiate authentication, not part of the web app. */
-const DISCOVERY_PATHS = ['/.well-known', '/register', '/authorize', '/token', '/oauth'];
+/**
+ * Paths clients use to negotiate authentication, not part of the web app: what an MCP client
+ * looks for (RFC 9728, RFC 8414) and OAuth's own. Any other /.well-known/ is a plain not_found:
+ * telling a search for openid-configuration or security.txt "No OAuth here" misled them (audit prod-10).
+ */
+const DISCOVERY_PATHS = ['/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server',
+  '/register', '/authorize', '/token', '/oauth'];
+
+/**
+ * /.well-known/security.txt (RFC 9116): where to write about a security problem. Its Expires is
+ * worked out on each request, a little under a year ahead, so it never goes stale.
+ */
+export function securityTxt({ contact, baseUrl, now = Date.now() }) {
+  const expires = new Date(now + 364 * 24 * 3600 * 1000);
+  expires.setUTCHours(0, 0, 0, 0);
+  return `Contact: ${contact}\nExpires: ${expires.toISOString()}\nPreferred-Languages: en, es\n`
+    + `Canonical: ${baseUrl}/.well-known/security.txt\n`;
+}
+
+/** The kit's 404 page (web/not-found.html), read once: scanners ask for it far more than people. */
+let notFoundTemplate = null;
 
 /**
  * Whether serveStatic would look for `pathname` in the catalogs' folder (public/i18n) on any
@@ -680,6 +703,10 @@ export function clientTexts(flat) {
  *   `prefs`). Without them the app's own `/api/me` answers, as before
  * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
+ * @param {string[]} [options.clientRoutes]  the paths its page answers that are no file (`['/']`): any
+ *   other path without an extension is a 404 page with a link to `/`, and a folder with an
+ *   index.html asked for without its slash goes to it. Without it, as before: every path without
+ *   an extension is the page (a host gives its own and its modules', host.js)
  * @param {string} [options.watchRoot]    the folder hot reload watches (the server's, by default)
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
@@ -717,6 +744,7 @@ export function healthOf(database, versionOf) {
 
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
+  clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
   deviceActions = null, resolveDeviceAction = null, storage = null,
@@ -765,6 +793,8 @@ export function createApp({
       ...(config.host ? { host: config.host } : {}),
       // The most a file may weigh, for the page to say so before spending data (web/images.js).
       ...(suite.uploads ? { uploads: { max_bytes: suite.uploads.maxBytes } } : {}),
+      // And the biggest copy someone may import here, for Settings to say so before sending it.
+      ...(portability ? { imports: { max_bytes: portability.max.upload.account } } : {}),
     },
   });
   if (install.authProvider === 'local') {
@@ -984,6 +1014,17 @@ export function createApp({
 
   /* -------------------------------- dispatch ------------------------------- */
 
+  /** A page nobody has (`clientRoutes`): 404, in the browser's language, with the way to the start. */
+  function notFoundPage(req, res) {
+    const { lang, t } = texts(req);
+    notFoundTemplate ??= fs.readFileSync(path.join(WEB_DIR, 'not-found.html'), 'utf8');
+    const page = brandedNotFound(notFoundTemplate, config.app, {
+      lang, title: t('kit.notFound.title'), text: t('kit.notFound.text'), home: t('kit.notFound.home'),
+    });
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : page);
+  }
+
   /** The route of a request among the suite's and the app's, or what to answer. */
   function route(method, pathname) {
     const found = [api, appApi].map((router) => router?.match(method, pathname)).filter(Boolean);
@@ -1101,6 +1142,21 @@ export function createApp({
         sendJson(res, 404, { error: 'No OAuth here: use a Bearer token' });
         return;
       }
+      if (pathname === '/.well-known/security.txt' && ['GET', 'HEAD'].includes(req.method)) {
+        const body = securityTxt({ contact: install.securityContact, baseUrl: install.baseUrl });
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
+        res.end(req.method === 'HEAD' ? undefined : body);
+        return;
+      }
+      if (pathname === '/.well-known' || pathname.startsWith('/.well-known/')) {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
+      // `/api` itself is the API's too: JSON, never the app's page (audit prod-9).
+      if (pathname === '/api') {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
 
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         sendText(res, 405, 'Method Not Allowed');
@@ -1143,6 +1199,25 @@ export function createApp({
       }
       if (publicDir) {
         if (serveStatic(publicDir, pathname === '/' ? '/index.html' : pathname, res)) return;
+        // A dotfile's path (`/.env`, `/.git/config`) is never the app's: a 404, not its page, which
+        // scanners took for the file (audit prod-9).
+        if (pathname.split('/').some((part) => part.startsWith('.'))) {
+          sendText(res, 404, 'Not found');
+          return;
+        }
+        if (clientRoutes && !path.extname(pathname)) {
+          // A folder with a page of its own (the host's /calendar/), asked for without its slash.
+          if (!pathname.endsWith('/') && staticFile(publicDir, `${pathname}/index.html`)) {
+            res.writeHead(308, { Location: `/${pathname.replace(/^\/+/, '')}/${url.search}`, 'Cache-Control': 'no-store' });
+            res.end();
+            return;
+          }
+          if (clientRoutes.includes(pathname) && serveStatic(publicDir, '/index.html', res)) return;
+          // Anything else is a page that says so, with the way back: the app's page at a path it
+          // doesn't know drew nothing, its files asked for under that path (audit prod-9).
+          notFoundPage(req, res);
+          return;
+        }
         // The SPA's own paths.
         if (!path.extname(pathname) && serveStatic(publicDir, '/index.html', res)) return;
       }

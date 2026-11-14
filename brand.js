@@ -50,3 +50,17 @@ export const brandedAdmin = (template, { id, name = '', color = null, icon = '/i
   .replace('{{app.style}}', appStyle(color))
   .replace('{{app.icon}}', escapeHtml(icon))
   .replace('{{signature}}', SIGNATURE);
+
+/**
+ * The page of an address nobody has (web/not-found.html), in the language the server chose: its
+ * words escaped, as every text that reaches it comes from the catalogs.
+ */
+export const brandedNotFound = (template, { id, color = null, icon = '/icons/favicon.svg' }, { lang, title, text, home }) => template
+  .replace('{{lang}}', () => escapeHtml(lang))
+  .replace('{{app.id}}', () => escapeHtml(id))
+  .replace('{{app.style}}', () => appStyle(color))
+  .replace('{{app.icon}}', () => escapeHtml(icon))
+  .replaceAll('{{title}}', () => escapeHtml(title))
+  .replace('{{text}}', () => escapeHtml(text))
+  .replace('{{home}}', () => escapeHtml(home))
+  .replace('{{signature}}', SIGNATURE);

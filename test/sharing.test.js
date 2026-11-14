@@ -10,11 +10,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
-import { createSharing } from '../sharing.js';
+import { createSharing, auditShare } from '../sharing.js';
 import { createShareBrake, OFFERS_PER_HOUR } from '../share-brake.js';
 import { createRouter, HttpError, notFound, forbidden } from '../http.js';
 
-function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes, addresses = false, clock = () => '2026-10-25T10:00:00.000Z' } = {}) {
+function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes, addresses = false, clock = () => '2026-10-25T10:00:00.000Z', audit = null } = {}) {
   const database = new DatabaseSync(':memory:');
   database.exec(`
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, display_name TEXT, email TEXT);
@@ -90,7 +90,7 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
   };
   const sharing = createSharing({
     db, brake, byUsername, codes, hasPush,
-    clock,
+    clock, audit, module: 'demo',
     notify: notify ?? {
       push: (n) => notices.push(['push', n.kind, n.name, n.actorId, n.targetId, n.permission]),
       email: (n) => notices.push(['email', n.kind, n.name, n.actorId, n.targetId, n.permission]),
@@ -502,4 +502,45 @@ test('the routes keep each kind\'s paths and answers', async () => {
   assert.equal(router.match('PATCH', '/api/lists/30/share/3')?.handler, undefined);
   assert.equal((await call(router, 'POST', '/api/lists/30/accept', { user: { id: 3 } })).data.id, 30);
   assert.deepEqual((await call(router, 'DELETE', '/api/lists/30/share/3', { user: { id: 3 } })).data, { ok: true });
+});
+
+test('every step of sharing is in the audit log, from a route with its request, never a name or an email (authz-8)', async () => {
+  const lines = [];
+  const all = [];
+  const audit = { record: (line) => { lines.push(line); all.push(line); } };
+  const { sharing } = setup({ audit });
+  const router = createRouter();
+  sharing.routes(router, { user: (ctx) => ctx.user, id: (ctx, name) => Number(ctx.params[name]) });
+  const ana = { id: 1 };
+  const ben = { id: 2 };
+  const shown = () => lines.splice(0).map(({ action, actor, targetType, targetId, meta, req }) => [action, actor, targetType, targetId, meta, Boolean(req)]);
+
+  await call(router, 'POST', '/api/boards/10/shares', { user: ana, body: { email: 'ben@example.com', permission: 'view' } });
+  assert.deepEqual(shown(), [['share.offer', 1, 'board', 10, { module: 'demo', user: 2, permission: 'view' }, true]]);
+  sharing.share('board', 1, 10, { email: 'nobody@example.com', permission: 'edit' });
+  assert.deepEqual(shown(), [['share.offer', 1, 'board', 10, { module: 'demo', stranger: true, permission: 'edit' }, false]],
+    'an address without an account: said, never written down');
+  await call(router, 'POST', '/api/boards/10/accept', { user: ben });
+  assert.deepEqual(shown(), [], 'accepting changes nothing anyone else can see');
+  await call(router, 'PATCH', '/api/boards/10/shares/2', { user: ana, body: { permission: 'edit' } });
+  assert.deepEqual(shown(), [['share.permission', 1, 'board', 10, { module: 'demo', user: 2, permission: 'edit' }, true]]);
+  await call(router, 'PATCH', '/api/boards/10/shares/2', { user: ana, body: { permission: 'edit' } });
+  sharing.share('board', 1, 10, { user_id: 2, permission: 'edit' });
+  assert.deepEqual(shown(), [], 'the same permission again is no change');
+  sharing.share('board', 1, 10, { user_id: 2, permission: 'view' });
+  assert.deepEqual(shown().map((line) => line[0]), ['share.permission'], 'offered again to someone who accepted: what they may do');
+  await call(router, 'DELETE', '/api/boards/10/shares/2', { user: ana });
+  assert.deepEqual(shown(), [['share.withdraw', 1, 'board', 10, { module: 'demo', user: 2 }, true]]);
+  sharing.share('board', 1, 10, { email: 'cris@example.com' });
+  sharing.remove('board', 3, 10, 3);
+  assert.deepEqual(shown().map((line) => line.slice(0, 2)), [['share.offer', 1], ['share.leave', 3]], 'declined: by whoever left');
+  assert.throws(() => sharing.share('board', 2, 10, { email: 'cris@example.com' }));
+  assert.deepEqual(shown(), [], 'nothing for what was refused');
+  assert.ok(all.length && all.every((line) => !JSON.stringify(line).includes('@')));
+
+  // Without the engine (Projects' team), the same line from the module itself.
+  auditShare(audit, { step: 'offer', actor: 1, kind: 'project', id: 7, targetId: 2, permission: 'edit', module: 'projects' });
+  auditShare(audit, { step: 'nonsense', actor: 1, kind: 'project', id: 7 });
+  auditShare(null, { step: 'offer', actor: 1, kind: 'project', id: 7 });
+  assert.deepEqual(shown(), [['share.offer', 1, 'project', 7, { module: 'projects', user: 2, permission: 'edit' }, false]]);
 });

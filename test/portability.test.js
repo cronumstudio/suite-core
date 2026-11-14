@@ -16,7 +16,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
-import { describeData, selectRows, ownership, jsonOfRows } from '../portability.js';
+import { describeData, selectRows, ownership, jsonOfRows, withImportCeiling } from '../portability.js';
+import { resolveConfig, CLOUDFLARE_IMPORT_MB } from '../config.js';
+import { Readable } from 'node:stream';
 import { openDatabase } from '../db.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { runDataCli } from '../tools/data-cli.js';
@@ -1147,4 +1149,39 @@ test('the routes: someone’s own data down and up, the whole install for the ad
   for (let i = 0; i < 10; i++) statuses.push((await call(asBen, 'POST', '/api/me/import', Buffer.from('nope'), 'application/zip')).status);
   assert.equal(statuses.at(-1), 429, statuses.join(' '));
   assert.equal((await call(asAna, 'POST', '/api/me/import', Buffer.from('nope'), 'application/zip')).status, 400);
+});
+
+test('what stands before the server cuts big requests: the import takes no more than the install says, and says how much (prod-14)', async (t) => {
+  const MB = 1024 * 1024;
+  // Behind Cloudflare (trustProxy), below its 100 MB; IMPORT_MAX_MB says otherwise; a mistake stops the start.
+  const config = (product, env = {}) => resolveConfig({ ...PRODUCT, ...product }, { DATA_DIR: os.tmpdir(), ...env });
+  assert.equal(config({ trustProxy: 'cloudflare' }).install.importMaxMb, CLOUDFLARE_IMPORT_MB);
+  assert.ok(CLOUDFLARE_IMPORT_MB < 100);
+  assert.equal(config({}).install.importMaxMb, null, 'elsewhere, the suite’s own ceilings');
+  assert.equal(config({ trustProxy: 'cloudflare' }, { IMPORT_MAX_MB: '300' }).install.importMaxMb, 300);
+  assert.equal(config({}, { TRUST_PROXY: 'cloudflare' }).install.importMaxMb, CLOUDFLARE_IMPORT_MB);
+  assert.match(config({}, { IMPORT_MAX_MB: '95.5' }).errors.join(' '), /IMPORT_MAX_MB "95\.5" is not a whole number/);
+
+  // The lower ceiling wins, for someone's copy and the whole install's; nothing given, nothing changes.
+  assert.deepEqual(withImportCeiling({}, 95).upload, { account: 95 * MB, install: 95 * MB });
+  assert.deepEqual(withImportCeiling({ upload: { account: 10 * MB } }, 95).upload, { account: 10 * MB, install: 95 * MB });
+  const own = { data: 1 };
+  assert.equal(withImportCeiling(own, null), own);
+
+  const { suite, portability } = install(t, { IMPORT_MAX_MB: '1' });
+  assert.equal(portability.max.upload.account, MB);
+  assert.equal(portability.max.upload.install, MB);
+  const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password' });
+  const big = Readable.from([Buffer.alloc(MB), Buffer.alloc(MB)]);
+  await assert.rejects(portability.receive(big, { mode: 'account', user: ana }), (err) => {
+    assert.deepEqual([err.status, err.code, err.extra], [413, 'file_too_large', { max_mb: 1 }], 'the sentence Settings has, with the size');
+    return true;
+  });
+
+  // Settings knows it before sending anything (GET /api/auth/config).
+  const app = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {}, portable: DATA });
+  const server = await app.listen();
+  t.after(() => app.close());
+  const answer = await (await fetch(`http://127.0.0.1:${server.address().port}/api/auth/config`)).json();
+  assert.deepEqual(answer.app.imports, { max_bytes: MB });
 });

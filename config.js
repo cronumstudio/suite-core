@@ -484,6 +484,10 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     push,
     // With push.native: { apns, fcm }, each null when its credentials aren't set.
     ...(nativePush ? { nativePush } : {}),
+    // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT).
+    securityContact: securityContactOf(env.SECURITY_CONTACT, warnings),
+    // The biggest copy of data an import takes over HTTP, in MB (IMPORT_MAX_MB); null: portability.js's own.
+    importMaxMb: importMaxMbOf(env.IMPORT_MAX_MB, env.TRUST_PROXY || p.trustProxy, errors),
     hotReload: env.HOT_RELOAD === 'true',
   };
 
@@ -734,4 +738,38 @@ function productsFor(products, billing, errors) {
     out[key] = resolved;
   }
   return out;
+}
+
+/** Cronum Studio's address for reports of a security problem: the suite's own, until an install names its own. */
+export const SECURITY_CONTACT = 'mailto:hello@cronumstudio.com';
+
+/**
+ * SECURITY_CONTACT: a mailto: or https: address (RFC 9116), or a bare email, which becomes a
+ * mailto:. Anything else is said once and the suite's address stands: a typo there must not stop the app.
+ */
+function securityContactOf(value, warnings) {
+  const given = String(value ?? '').trim();
+  if (!given) return SECURITY_CONTACT;
+  if (/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/i.test(given)) return given;
+  if (/^[^\s@:/]+@[^\s@]+\.[^\s@]+$/.test(given)) return `mailto:${given}`;
+  warnings.push(`SECURITY_CONTACT "${given}" is not a mailto: or https: address: ${SECURITY_CONTACT} is used`);
+  return SECURITY_CONTACT;
+}
+
+/**
+ * Cloudflare cuts any request over 100 MB (the plans below Enterprise) with a page of its own,
+ * before it reaches the server: an install behind it takes copies of up to 95 MB, and says so.
+ */
+export const CLOUDFLARE_IMPORT_MB = 95;
+
+/** IMPORT_MAX_MB: a whole number of MB; by default 95 behind Cloudflare (`trustProxy: 'cloudflare'`), else null. */
+function importMaxMbOf(value, trustProxy, errors) {
+  const given = String(value ?? '').trim();
+  if (!given) return String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare' ? CLOUDFLARE_IMPORT_MB : null;
+  const mb = Number(given);
+  if (!wholeNumber(mb, 1, 4096)) {
+    errors.push(`IMPORT_MAX_MB "${given}" is not a whole number of MB between 1 and 4096`);
+    return null;
+  }
+  return mb;
 }
