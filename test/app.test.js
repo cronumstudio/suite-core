@@ -350,7 +350,22 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   assert.match((await call('GET', '/')).data, /<title>Demo<\/title>/);
   assert.match((await call('GET', '/projects/12')).data, /<title>Demo<\/title>/);
   assert.equal((await call('GET', '/missing.png')).status, 404);
-  assert.equal((await call('GET', '/.well-known/openid-configuration')).data.error, 'No OAuth here: use a Bearer token');
+  // Only what an OAuth client looks for says so; any other /.well-known/ is a plain not_found (prod-10).
+  assert.deepEqual((await call('GET', '/.well-known/openid-configuration')).data, { error: 'not_found' });
+  assert.deepEqual((await call('GET', '/.well-known/change-password')).data, { error: 'not_found' });
+  const securityTxt = await call('GET', '/.well-known/security.txt');
+  assert.equal(securityTxt.status, 200);
+  assert.match(securityTxt.headers.get('content-type'), /^text\/plain; charset=utf-8/);
+  assert.match(securityTxt.data, /^Contact: mailto:hello@cronumstudio\.com\nExpires: \d{4}-\d\d-\d\dT00:00:00\.000Z\nPreferred-Languages: en, es\n/);
+  const expires = Date.parse(/Expires: (\S+)/.exec(securityTxt.data)[1]);
+  assert.ok(expires > Date.now() + 360 * 86400e3 && expires < Date.now() + 365 * 86400e3, 'a little under a year ahead');
+  // `/api` itself is JSON, and a dotfile's path is no page of the app's (prod-9). An app that doesn't
+  // name its client routes keeps every other path as its page, as before.
+  assert.deepEqual([(await call('GET', '/api')).status, (await call('GET', '/api')).data], [404, { error: 'not_found' }]);
+  for (const dotted of ['/.env', '/.git/config', '/x/.hidden']) {
+    const answer = await call('GET', dotted);
+    assert.deepEqual([answer.status, answer.data], [404, 'Not found'], dotted);
+  }
 
   // Signing out.
   assert.equal((await call('POST', '/api/auth/logout')).data.ok, true);
@@ -474,4 +489,59 @@ test('an app without an MCP shows AI clients nothing to follow, nor its pages a 
   assert.equal((await toolless('GET', '/.well-known/oauth-protected-resource/mcp')).status, 200,
     'leaving out the tools is not turning the MCP off: modules.mcp: false is');
   assert.match((await toolless('GET', '/mcp')).data, /<title>Demo<\/title>/, 'and its /mcp is the page, as before');
+});
+
+test('security.txt names the install’s contact; an app that names its routes answers any other path with a 404 page (prod-9, prod-10)', async (t) => {
+  // SECURITY_CONTACT: an address of its own, a bare email as mailto:, a mistake said and the suite's kept.
+  const contact = (value) => {
+    const config = resolveConfig(PRODUCT, { DATA_DIR: os.tmpdir(), SECURITY_CONTACT: value });
+    return [config.install.securityContact, config.warnings.some((w) => w.startsWith('SECURITY_CONTACT'))];
+  };
+  assert.deepEqual(contact(''), ['mailto:hello@cronumstudio.com', false]);
+  assert.deepEqual(contact('security@example.com'), ['mailto:security@example.com', false]);
+  assert.deepEqual(contact('https://example.com/security'), ['https://example.com/security', false]);
+  assert.deepEqual(contact('call us'), ['mailto:hello@cronumstudio.com', true]);
+  const { securityTxt } = await import('../app.js');
+  assert.equal(securityTxt({ contact: 'mailto:a@example.com', baseUrl: 'https://x.example', now: Date.parse('2026-11-14T15:00:00Z') }),
+    'Contact: mailto:a@example.com\nExpires: 2027-11-13T00:00:00.000Z\nPreferred-Languages: en, es\nCanonical: https://x.example/.well-known/security.txt\n');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-routes-'));
+  const publicDir = path.join(dir, 'public');
+  fs.mkdirSync(path.join(publicDir, 'calendar'), { recursive: true });
+  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
+  fs.writeFileSync(path.join(publicDir, 'calendar', 'index.html'), '<!DOCTYPE html><title>Calendar</title>');
+  const suite = createSuite({
+    config: PRODUCT, env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', SECURITY_CONTACT: 'security@example.com' },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, publicDir, version: '1.0.0', handleSignals: false, log: () => {}, clientRoutes: ['/', '/board'] });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const get = async (pathname, headers = {}) => {
+    const res = await fetch(base + pathname, { redirect: 'manual', headers });
+    return { status: res.status, type: res.headers.get('content-type'), location: res.headers.get('location'), text: await res.text(), res };
+  };
+
+  assert.match((await get('/.well-known/security.txt')).text, /^Contact: mailto:security@example\.com\n/);
+  assert.match((await get('/')).text, /<title>Demo<\/title>/);
+  assert.match((await get('/board')).text, /<title>Demo<\/title>/, 'a route it names is its page');
+  assert.match((await get('/calendar/')).text, /<title>Calendar<\/title>/);
+  assert.deepEqual([(await get('/calendar?d=1')).status, (await get('/calendar?d=1')).location], [308, '/calendar/?d=1'],
+    'a folder with its page, asked for without its slash, is that page');
+  for (const pathname of ['/nope', '/nope/deep', '/board/12', '/suite/']) {
+    const answer = await get(pathname);
+    assert.equal(answer.status, 404, pathname);
+    assert.match(answer.type, /^text\/html/, pathname);
+    assert.match(answer.text, /<title>This page doesn’t exist<\/title>/, pathname);
+    assert.match(answer.text, /<a class="kit-btn kit-btn--primary" href="\/">Go to the start<\/a>/, `${pathname}: the way back`);
+    assert.equal(answer.res.headers.get('cache-control'), 'no-store');
+    assert.ok(answer.res.headers.get('content-security-policy'), `${pathname}: with the security headers`);
+  }
+  const spanish = await get('/nope', { 'Accept-Language': 'es-ES,es;q=0.9' });
+  assert.match(spanish.text, /<html lang="es"[^>]*>[\s\S]*<h1>Esta página no existe<\/h1>[\s\S]*>Ir al inicio<\/a>/, 'in the browser’s language');
+  const missing = await get('/missing.png');
+  assert.deepEqual([missing.status, missing.text], [404, 'Not found'], 'a file it hasn’t is no page');
+  assert.equal((await get('/.env')).text, 'Not found');
+  assert.deepEqual([(await get('/api')).status, JSON.parse((await get('/api')).text)], [404, { error: 'not_found' }]);
 });

@@ -8,10 +8,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { createPublicPage, publicOwnerName, publicHeaders, PUBLIC_TOKEN, newPublicToken } from '../public-page.js';
+import { createPublicPage, publicOwnerName, publicHeaders, PUBLIC_TOKEN, newPublicToken, auditPublic } from '../public-page.js';
 import { createRouter, HttpError } from '../http.js';
 
-function setup({ find = null } = {}) {
+function setup({ find = null, audit = null, kind = null } = {}) {
   const database = new DatabaseSync(':memory:');
   database.exec(`
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, display_name TEXT, email TEXT, disabled_at TEXT, plan TEXT);
@@ -38,7 +38,7 @@ function setup({ find = null } = {}) {
   const page = createPublicPage({
     db, entitlements, table: 'things',
     publicUrl: (token) => `https://example.com/shared.html?p=${token}`,
-    find,
+    find, audit, kind, module: audit ? 'demo' : null,
     changed: (row, userId) => told.push([row.id, userId]),
   });
   const row = (id) => db.get('SELECT * FROM things WHERE id = ?', id);
@@ -234,4 +234,39 @@ test('publicHeaders: no-store and noindex', () => {
   const res = fakeRes();
   publicHeaders(res);
   assert.deepEqual(res.headers, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex' });
+});
+
+test('turning a page on and off is in the audit log, once each, with the request but never the token (authz-8)', async () => {
+  const lines = [];
+  const all = [];
+  const audit = { record: (line) => { lines.push(line); all.push(line); } };
+  const { page, row } = setup({ audit, kind: 'thing' });
+  const shown = () => lines.splice(0).map(({ action, actor, targetType, targetId, meta, req }) => [action, actor, targetType, targetId, meta, req]);
+  const req = { headers: {} };
+  const { url } = page.open(1, row(10), { req });
+  page.open(1, row(10), { req });
+  assert.deepEqual(shown(), [['public.open', 1, 'thing', 10, { module: 'demo' }, req]], 'on already: no second line');
+  page.read(1, row(10));
+  assert.deepEqual(shown(), [], 'reading it changes nothing');
+  assert.equal(page.close(1, row(10)), true);
+  assert.equal(page.close(1, row(10)), false);
+  assert.deepEqual(shown(), [['public.close', 1, 'thing', 10, { module: 'demo' }, null]]);
+  assert.throws(() => page.open(3, row(12)), /plan_limit|publish/);
+  assert.deepEqual(shown(), [], 'refused by the plan: nothing');
+  const token = new URL(url).searchParams.get('p');
+  page.open(1, row(10));
+  page.unpublish('id = ?', 10);
+  assert.deepEqual(shown().map((line) => line[0]), ['public.open'], 'a hand-over turns it off inside its own change, unlogged');
+  assert.ok(all.length && all.every((line) => !JSON.stringify(line).includes(token)));
+
+  // A module whose page doesn't go through the engine yet: the same line from where it turns one on or off.
+  auditPublic(audit, { open: true, actor: 2, kind: 'list', id: 5, module: 'tasks' });
+  auditPublic(audit, { open: false, actor: 2, kind: 'list', id: 5 });
+  auditPublic(null, { open: true, actor: 2, kind: 'list', id: 5 });
+  assert.deepEqual(shown(), [['public.open', 2, 'list', 5, { module: 'tasks' }, null], ['public.close', 2, 'list', 5, {}, null]]);
+
+  // Without a kind, the table names them.
+  const plain = setup({ audit });
+  plain.page.open(1, plain.row(10));
+  assert.equal(lines.pop().targetType, 'things');
 });

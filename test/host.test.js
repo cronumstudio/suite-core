@@ -76,7 +76,15 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('GET', '/alpha?x=1')).headers.get('location'), '/alpha/?x=1', 'a module’s path ends in a slash');
   assert.match((await call('GET', '/alpha/')).data, /<title>Alpha<\/title>/);
   assert.match((await call('GET', '/beta/')).data, /<title>Beta<\/title>/);
-  assert.match((await call('GET', '/beta/some/view')).data, /<title>Beta<\/title>/, 'its own paths fall back to its page');
+  // A path its page doesn't have is a 404 page with the way to the start, never its page drawing
+  // nothing; its API's own path is JSON (audit prod-9).
+  const deep = await call('GET', '/beta/some/view');
+  assert.equal(deep.status, 404, 'no module has routes in its path');
+  assert.match(deep.data, /<a class="kit-btn kit-btn--primary" href="\/">/);
+  assert.equal((await call('GET', '/beta/nope')).status, 404);
+  assert.deepEqual([(await call('GET', '/alpha/api')).status, (await call('GET', '/alpha/api')).data], [404, { error: 'not_found' }]);
+  assert.equal((await call('GET', '/alpha/.git/config')).data, 'Not found');
+  assert.match((await call('GET', '/beta/?list=12')).data, /<title>Beta<\/title>/, 'its page with its route in the query');
   assert.equal((await call('GET', '/alpha/js/main.js')).data.trim(), "export const where = 'alpha';");
   assert.equal((await call('GET', '/gamma/')).status, 404, 'no module there');
   const security = await call('GET', '/alpha/');
@@ -769,6 +777,24 @@ test('a host with one worker: /sw.js for every module, one version for the whole
   assert.equal(sw.status, 200);
   assert.match(sw.headers.get('content-type'), /javascript/);
   assert.equal(sw.headers.get('cache-control'), 'no-cache');
+  // Revalidated: the browser that has it gets a 304, as for /js/app-version.js (audit prod-13).
+  const etag = sw.headers.get('etag');
+  assert.match(etag, /^W\/"[0-9a-f]{12}-[0-9a-f]{8}"$/);
+  const kept = await call('GET', '/sw.js', undefined, { 'If-None-Match': etag });
+  assert.deepEqual([kept.status, kept.data, kept.headers.get('etag')], [304, '', etag]);
+  assert.ok(kept.headers.get('content-security-policy'), 'with the security headers');
+  assert.equal((await call('GET', '/sw.js', undefined, { 'If-None-Match': 'W/"old"' })).status, 200);
+
+  // The root's own addresses: `/`, its folders, and a 404 page for anything else (audit prod-9).
+  assert.match((await call('GET', '/')).data, /<title>Which one\?<\/title>/);
+  assert.equal((await call('GET', '/split')).headers.get('location'), '/split/');
+  for (const nobody of ['/nope', '/nope/deep', '/suite/']) {
+    const answer = await call('GET', nobody);
+    assert.equal(answer.status, 404, nobody);
+    assert.match(answer.data, /<title>This page doesn’t exist<\/title>/, nobody);
+  }
+  assert.deepEqual((await call('GET', '/api')).data, { error: 'not_found' });
+  assert.equal((await call('GET', '/.env')).data, 'Not found');
   const options = (() => {
     let given = null;
     // The worker as a browser runs it: sw-core's suiteWorker, here only what it is given.

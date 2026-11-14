@@ -12,8 +12,8 @@
  *     changed: (list, userId) => publish({ type: 'list', listId: list.id, by: userId }),
  *   });
  *   page.read(userId, list)      → { url, since, embed }   (url null while off; changes nothing)
- *   page.open(userId, list)      → { url, since, embed }   (turns it on, or the same link if on)
- *   page.close(userId, list)     → whether it was on
+ *   page.open(userId, list, { req })   → { url, since, embed }   (turns it on, or the same link if on)
+ *   page.close(userId, list, { req })  → whether it was on
  *   page.unpublish('id = ?', id) a hand-over: whoever gets it never published it
  *   page.serve(token, { embed }) → { row, owner, name }    (404 public_not_found, 403 embed_not_allowed)
  *   page.routes(api, { path: '/api/lists/:id/public', user: requireUser, own, view })
@@ -34,6 +34,9 @@
  *     off stops showing at once, and no search engine lists them (`X-Robots-Tag: noindex`).
  *   · Something that changes hands loses its page (`unpublish`): the heir never published it, and
  *     their name would be on it.
+ *   · Turning it on and off goes in the audit log (`audit`: public.open, public.close; auditPublic),
+ *     with who did it and the request's address, never the token: "who made this list public?"
+ *     has its answer in /admin › Activity (audit authz-8).
  *
  * Who may turn it on (the owner alone, in every module) and with which code a teammate is refused
  * stay each module's (`own`): those codes are what its web client already knows.
@@ -60,6 +63,19 @@ export function publicOwnerName(owner) {
   return name;
 }
 
+/**
+ * One line in the audit log for a public page turned on (`open: true`) or off: the engine below
+ * writes it, and a module whose page doesn't go through it yet calls it itself where it turns one on
+ * or off. `kind` and `id` name what was published (`list`, 12), never its token or its title.
+ */
+export function auditPublic(audit, { open, actor, req = null, kind, id, module = null }) {
+  if (!audit?.record) return;
+  audit.record({
+    action: open ? 'public.open' : 'public.close', actor, req, targetType: kind, targetId: id,
+    meta: module ? { module } : {},
+  });
+}
+
 /** Neither a browser nor a proxy keeps a page's answer, and no search engine lists it. */
 export function publicHeaders(res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -77,9 +93,16 @@ export function publicHeaders(res) {
  * @param {Function} [options.ownerOf]  (row) → its owner's id (default `row.owner_id`).
  * @param {Function} [options.changed]  (row, userId) after it is turned on or off: the module tells
  *   the owner's other screens (or whoever it tells).
+ * @param {object} [options.audit]  the suite's audit log: each page turned on or off goes in it.
+ * @param {string} [options.kind]  what the log calls the rows (`list`); by default the table's name.
+ * @param {string} [options.module]  the module's name in the log, where kinds of two modules share one.
  */
-export function createPublicPage({ db, entitlements, table, publicUrl, find = null, ownerOf = (row) => row.owner_id, changed = () => {} }) {
+export function createPublicPage({
+  db, entitlements, table, publicUrl, find = null, ownerOf = (row) => row.owner_id, changed = () => {},
+  audit = null, kind = null, module = null,
+}) {
   if (!/^[a-z_][a-z0-9_]*$/i.test(String(table ?? ''))) throw new Error('createPublicPage: table must be a table name');
+  const noted = (open, userId, row, req) => auditPublic(audit, { open, actor: userId, req, kind: kind || table, id: row.id, module });
   const userById = (id) => (id == null ? null : db.get('SELECT * FROM users WHERE id = ?', id));
   const rowById = (id) => db.get(`SELECT public_token, public_since FROM ${table} WHERE id = ?`, id);
   const answer = (user, { public_token: token, public_since: since }) => ({
@@ -95,22 +118,24 @@ export function createPublicPage({ db, entitlements, table, publicUrl, find = nu
     },
 
     /** Turns it on, for its owner whose plan has `publish`; on already, the same link. */
-    open(userId, row) {
+    open(userId, row, { req = null } = {}) {
       const user = userById(userId);
       entitlements.require(user, 'publish');
       const now = rowById(row.id) ?? row;
       if (!now.public_token) {
         db.run(`UPDATE ${table} SET public_token = ?, public_since = ? WHERE id = ?`, newPublicToken(), new Date().toISOString(), row.id);
+        noted(true, userId, row, req);
         changed(row, userId);
       }
       return answer(user, rowById(row.id));
     },
 
     /** Turns it off: the link stops working at once. → whether it was on. */
-    close(userId, row) {
+    close(userId, row, { req = null } = {}) {
       const now = rowById(row.id) ?? row;
       if (!now.public_token) return false;
       db.run(`UPDATE ${table} SET public_token = NULL, public_since = NULL WHERE id = ?`, row.id);
+      noted(false, userId, row, req);
       changed(row, userId);
       return true;
     },
@@ -155,11 +180,11 @@ export function createPublicPage({ db, entitlements, table, publicUrl, find = nu
       });
       api.post(path, async (ctx) => {
         const me = user(ctx);
-        sendJson(ctx.res, 200, page.open(me.id, own(me.id, id(ctx), 'open')));
+        sendJson(ctx.res, 200, page.open(me.id, own(me.id, id(ctx), 'open'), { req: ctx.req }));
       });
       api.delete(path, async (ctx) => {
         const me = user(ctx);
-        page.close(me.id, own(me.id, id(ctx), 'close'));
+        page.close(me.id, own(me.id, id(ctx), 'close'), { req: ctx.req });
         sendJson(ctx.res, 200, { ok: true });
       });
       // Before anything else: a refusal (404, 403) is kept by nobody either.
