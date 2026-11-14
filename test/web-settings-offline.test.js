@@ -296,9 +296,18 @@ test('the queue’s sending: the server in trouble keeps a change, an old one go
       assert.equal(await flushSettings(), 0);
       assert.equal(queuedSettings().length, 1, `${status}: it waits, it wasn’t refused`);
     }
-    globalThis.fetch = server({ 'GET /api/auth/me': { status: 401, body: { error: 'unauthorized' } } });
+    // The session ended: the server's own answer (api.js), and a 401 from a proxy in front of it.
+    for (const signedOut of [{ user: null }, { status: 401, body: { error: 'unauthorized' } }]) {
+      globalThis.fetch = server({ 'GET /api/auth/me': signedOut });
+      assert.equal(await flushSettings(), 0);
+      assert.equal(queuedSettings().length, 1, `kept with whose it is: the same person signing in again still has it (${JSON.stringify(signedOut)})`);
+    }
+    // Someone else signed in on this device: it isn't theirs.
+    const before = memory.get(QUEUE);
+    globalThis.fetch = server({ 'GET /api/auth/me': { user: { id: 8 } } });
     assert.equal(await flushSettings(), 0);
-    assert.equal(queuedSettings().length, 1, 'kept with whose it is: the same person signing in again still has it');
+    assert.deepEqual(queuedSettings(), []);
+    memory.set(QUEUE, before);
 
     // Kept a week ago: changed since, perhaps, on another device; it doesn't come back over that.
     const kept = JSON.parse(memory.get(QUEUE));

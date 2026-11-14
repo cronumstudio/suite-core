@@ -253,10 +253,12 @@ async function sendKept() {
     try {
       who = (await api.request('GET', '/api/auth/me', undefined, { root: true }))?.user?.id ?? null;
     } catch (err) {
-      // No one signed in now: kept with whose it is, for the same person signing in again.
       if (noSignal(err)) connection.noted();
       return 0;
     }
+    // No one signed in now (the server answers `{ user: null }`, api.js): kept with whose it is, for
+    // the same person signing in again. Someone else: it isn't theirs.
+    if (who === null) return 0;
     if (who !== kept.user) { forgetSettings(); return 0; }
     for (;;) {
       // Read again each time: a choice that went straight to the server meanwhile took its own out.
