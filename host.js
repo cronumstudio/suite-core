@@ -927,6 +927,8 @@ export async function createHost({
       features: resolved.features,
       plans: resolved.plans,
       defaultPlan: resolved.defaultPlan,
+      // Which app on a phone opens the site's links is the host's, asked at its root only (app-links.js).
+      appLinks: null,
       install: moduleInstall,
       // Where it is: for what an app does differently inside a host, if anything. Settings are
       // the host's, the same in every module: whether they have notices and a plan is the host's
