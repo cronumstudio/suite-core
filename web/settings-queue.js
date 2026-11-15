@@ -27,6 +27,7 @@
  */
 import { api, Offline, SessionExpired } from './api.js';
 import { at } from './base.js';
+import { watchSignal } from './signal.js';
 
 const KEY = 'suite.settings.queue';
 /** Sent by a page when the modules or the calendar changed: the rails ask again (shell.js). */
@@ -37,45 +38,30 @@ const MODULES_EVENT = 'kit-modules';
 const listeners = new Set();
 let offline = false;
 let listening = false;
-let timer = null;
-let pause = 3000;
 
 function set(now) {
   if (now === offline) return;
   offline = now;
-  if (!now) {
-    clearTimeout(timer);
-    timer = null;
-    pause = 3000;
-    flushSettings();
-  }
+  if (!now) flushSettings();
   for (const fn of [...listeners]) fn(now);
 }
 
-/** Again in a while, a little longer each time, while there is no signal. */
-function later() {
-  if (timer || !offline) return;
-  timer = setTimeout(() => {
-    timer = null;
-    pause = Math.min(pause * 2, 30000);
-    check();
-  }, pause);
-  // Never what keeps a process alive (the tests run this in node).
-  timer.unref?.();
-}
+/**
+ * The kit's one question «is there a signal again?» (signal.js), as every module asks it: the
+ * host's `/version`, from 3 s up to 30 s apart while there is none, without a time limit of its
+ * own, and any answer is one.
+ */
+const watch = watchSignal({ url: '/version', onBack: () => set(false), again: () => offline });
 
 /** Whether the server answers now (any answer counts): `connection` follows. → true when it does. */
 async function check() {
   listen();
-  try {
-    await globalThis.fetch('/version', { cache: 'no-store', credentials: 'same-origin' });
-    set(false);
-    return true;
-  } catch {
+  const back = await watch.check();
+  if (!back) {
     set(true);
-    later();
-    return false;
+    watch.lost();
   }
+  return back;
 }
 
 /** The browser's word, from the first use on: once, and what it says then is where it starts. */
@@ -85,7 +71,7 @@ function listen() {
   offline = globalThis.navigator?.onLine === false;
   if (typeof globalThis.addEventListener === 'function') {
     globalThis.addEventListener('online', () => { check(); });
-    globalThis.addEventListener('offline', () => { set(true); later(); });
+    globalThis.addEventListener('offline', () => { set(true); watch.lost(); });
   }
 }
 
@@ -106,7 +92,7 @@ export const connection = {
     if (err !== undefined && !noSignal(err)) return;
     listen();
     set(true);
-    later();
+    watch.lost();
   },
 };
 
