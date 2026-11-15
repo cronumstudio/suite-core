@@ -47,8 +47,10 @@ test('the calendar asks each module someone uses, and shows their items by day, 
   const calendar = createCalendar({ modules: () => [tasks, projects, notes, next], uses: (user, mount) => mount !== 'notes' });
 
   const answer = await calendar.range(ana, { from: '2026-11-01', to: '2026-11-07' });
-  assert.deepEqual(asked, [['tasks', 1, { from: '2026-11-01', to: '2026-11-07' }], ['projects', 1, { from: '2026-11-01', to: '2026-11-07' }]],
-    'each module someone uses with a calendar, once, with the span');
+  assert.deepEqual(asked, [
+    ['tasks', 1, { from: '2026-11-01', to: '2026-11-07', limit: CALENDAR_MODULE_MAX }],
+    ['projects', 1, { from: '2026-11-01', to: '2026-11-07', limit: CALENDAR_MODULE_MAX }],
+  ], 'each module someone uses with a calendar, once, with the span and the most the host keeps');
   assert.equal(answer.from, '2026-11-01');
   assert.equal(answer.to, '2026-11-07');
   assert.deepEqual(answer.modules, [
@@ -71,7 +73,7 @@ test('the calendar asks each module someone uses, and shows their items by day, 
   assert.equal(answer.items[2].state, 'done');
   assert.equal(answer.items[0].mine, false);
   assert.equal(answer.items[1].mine, undefined, 'mine only when the module says');
-  assert.equal(answer.items[4].time, '09:30');
+  assert.equal('time' in answer.items[4], false, 'no time of day: none is kept (audit of 6/11, sc-feat-8)');
   assert.equal(answer.items[0].id, 'p7', 'an id as the module gives it');
 });
 
@@ -204,7 +206,7 @@ test('assistants get work_calendar: what has a date, said by day, for whoever us
     '2026-11-03, Tuesday',
     '• Tasks task tasks:task:9: "Call Ana" (open) in Inbox',
     '• Projects phase projects:phase:8: "Build" (open, until 2026-11-20) in Website',
-    '• Projects milestone projects:milestone:3: "Launch" (open, at 09:30) in Website',
+    '• Projects milestone projects:milestone:3: "Launch" (open) in Website',
     '',
     '2026-11-05, Thursday',
     '• Tasks task tasks:task:4: "Bake bread" (done) in Home',
