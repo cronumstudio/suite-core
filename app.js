@@ -87,6 +87,7 @@ import {
 } from './http.js';
 import { staticFile } from './http.js';
 import { fingerprint } from './host-worker.js';
+import { createAppLinks } from './app-links.js';
 import { SUITE_CATALOGS, mergeCatalogs, CATALOG_FALLBACK } from './i18n.js';
 
 const HOUR = 3600 * 1000;
@@ -919,6 +920,8 @@ export function createApp({
 
   // The connect page and sessions from a device (device-pages.js), when the app turned them on.
   const devicePages = createDevicePages({ suite });
+  // The files that let a link to the site open the app on a phone (app-links.js), when the app declares it.
+  const appLinks = createAppLinks(config.appLinks);
 
   let appApi = routes;
   if (typeof routes === 'function') {
@@ -1167,6 +1170,9 @@ export function createApp({
         sendJson(res, 404, { error: 'No OAuth here: use a Bearer token' });
         return;
       }
+      // Which app on a phone may open the site's links (suite.config.js `appLinks`): asked by the
+      // phone with no session and followed by no redirect, so answered here, before any page.
+      if (appLinks(req, res, pathname)) return;
       if (pathname === '/.well-known/security.txt' && ['GET', 'HEAD'].includes(req.method)) {
         const body = securityTxt({ contact: install.securityContact, baseUrl: install.baseUrl });
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });

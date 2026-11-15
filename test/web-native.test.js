@@ -186,9 +186,7 @@ test('in the app, a host’s module page on its own goes to the host’s one-doc
   // Known from what the app injected too.
   assert.ok(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, native: { v: 1 }, href: 'https://work.example.com/tasks/' })));
 
-  // It stays: in a browser, in a host without that page, outside a module's path, in the shell's frames.
-  assert.equal(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, href: 'https://work.example.com/tasks/' })), null, 'a browser');
-  assert.equal(hostShellAddress(SHELL, fakeWindow({ userAgent: ANDROID, href: 'https://work.example.com/tasks/' })), null, 'Android’s browser');
+  // It stays: in a host without that page, outside a module's path, in the shell's frames.
   assert.equal(hostShellAddress({}, at('https://work.example.com/tasks/')), null, 'a host whose app is its modules');
   assert.equal(hostShellAddress(null, at('https://work.example.com/tasks/')), null, 'no answer from the host');
   assert.equal(hostShellAddress(undefined, at('https://work.example.com/tasks/')), null);
@@ -200,6 +198,60 @@ test('in the app, a host’s module page on its own goes to the host’s one-doc
   frame.top = top;
   assert.equal(hostShellAddress(SHELL, frame), null, 'a module framed in the shell');
   assert.equal(hostShellAddress(SHELL, null), null);
+});
+
+test('in a browser’s tab and in the host’s own installed app too, a module’s page goes to the shell; asked alone, or installed alone, it stays', () => {
+  const { hostShellAddress, markShellWindow, aloneAddress, ALONE_KEY, SHELL_WINDOW_KEY } = native;
+  const SHELL = { shell: true };
+  /** A browser's page (a tab, or `standalone`: an installed app's window), with its own sessionStorage. */
+  const tab = (href, { userAgent = IPHONE, standalone = false, kept = {} } = {}) => {
+    const win = fakeWindow({ userAgent, href, bridge: false });
+    const store = new Map(Object.entries(kept));
+    win.sessionStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+    win.matchMedia = (query) => ({ matches: standalone && query === '(display-mode: standalone)' });
+    win.store = store;
+    return win;
+  };
+  // A tab: an invitation's mail, a bookmark, an old domain (audit of 6/11, work-web-7).
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/list/12')), `/?open=${encodeURIComponent('/tasks/list/12')}`, 'a browser');
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/notes/#/n/5', { userAgent: ANDROID })), `/?open=${encodeURIComponent('/notes/#/n/5')}`, 'Android’s browser');
+  // Back from paying: the shell reads `billing` in its own address.
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/?billing=done')), `/?open=${encodeURIComponent('/tasks/')}&billing=done`);
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/?view=today&billing=canceled')), `/?open=${encodeURIComponent('/tasks/?view=today')}&billing=canceled`);
+  // Asked alone (`?alone`, the module's own install, the shell's «on its own»): it stays, and so does the tab.
+  const alone = tab('https://work.example.com/tasks/?alone=');
+  assert.equal(hostShellAddress(SHELL, alone), null);
+  assert.equal(alone.store.get(ALONE_KEY), '1');
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/list/3', { kept: { [ALONE_KEY]: '1' } })), null, 'the same tab, further on');
+  // …even after the module took `?alone` off its address: the navigation's address says it.
+  const read = tab('https://work.example.com/tasks/list/3');
+  read.performance = { getEntriesByType: () => [{ name: 'https://work.example.com/tasks/?alone' }] };
+  assert.equal(hostShellAddress(SHELL, read), null);
+  // An installed app: the host's own, where the shell ran in this window, goes back to it; any other is the module installed alone.
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/', { standalone: true })), null, 'Tasks installed on its own');
+  const work = tab('https://work.example.com/', { standalone: true });
+  markShellWindow(work);
+  assert.equal(work.store.get(SHELL_WINDOW_KEY), '1');
+  work.location.href = 'https://work.example.com/tasks/?billing=done';
+  assert.equal(hostShellAddress(SHELL, work), `/?open=${encodeURIComponent('/tasks/')}&billing=done`, 'Work installed');
+  // The shell running in a tab once asked alone: the tab is the shell's again.
+  const back = tab('https://work.example.com/', { kept: { [ALONE_KEY]: '1' } });
+  markShellWindow(back);
+  back.location.href = 'https://work.example.com/tasks/';
+  assert.equal(hostShellAddress(SHELL, back), `/?open=${encodeURIComponent('/tasks/')}`);
+  // Never the shell's frames, a host without the shell, or a path not a module's.
+  assert.equal(hostShellAddress({}, tab('https://work.example.com/tasks/')), null);
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/devices/session?code=x')), null);
+  // The address the shell's «on its own» and Settings' install links use.
+  assert.equal(aloneAddress('/tasks/', 'https://work.example.com/'), '/tasks/?alone=');
+  assert.equal(aloneAddress('/tasks/list/3?task=9#x', 'https://work.example.com/'), '/tasks/list/3?task=9&alone=#x');
+});
+
+test('the kit’s pieces that open a module on its own ask for it alone, and the rail’s mark goes back to the shell', () => {
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  assert.match(settings, /icons\.append\(link\(aloneAddress\(m\.path\), m\.icon, m\.name\)\)/);
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  assert.match(shell, /el\(host\.shell \? 'a' : 'span', \{\n\s+class: 'kit-rail__home', \.\.\.\(host\.shell \? \{ href: '\/'/);
 });
 
 test('createShell leaves for it under a module’s path only, never as a window of the shell, before it draws the rail', () => {

@@ -532,8 +532,9 @@ export function registerDevicesApi(router, {
       if (err instanceof HttpError && err.status < 500) limiter.noteFailure('devices', ctx.req);
       throw err;
     }
-    // The value travels once, here. After that only its hash remains.
-    sendJson(ctx.res, 200, { token: result.token, token_type: 'Bearer', device: result.device });
+    // The value travels once, here. After that only its hash remains. `user_id` is the account the
+    // token acts for, so the app can tell a sign-in of the same account from another's (work-app).
+    sendJson(ctx.res, 200, { token: result.token, token_type: 'Bearer', device: result.device, user_id: result.user.id });
   }));
 
   router.get('/api/me/devices', (ctx) => {

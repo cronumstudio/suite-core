@@ -274,7 +274,6 @@ const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
  *
  *   settings: {
  *     sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.hintShort' }],
- *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
  *     about: true,   // it says what it is (aboutExtra), out of the list
  *     standing: 'settings.standing.text',   // its instruction for an assistant, in Your AI
  *     standingMore: ['settings.standing.prompt', ['examples.home', 'examples.homeAsk']],   // under it
@@ -303,7 +302,7 @@ export function moduleSettings(declared, { data = false } = {}) {
     .filter((entry) => isKey(entry) || (Array.isArray(entry) && entry.length === 2 && entry.every(isKey)))
     .slice(0, 20);
   return {
-    sections, data: Boolean(data), ai: given.ai === true, about: given.about === true,
+    sections, data: Boolean(data), about: given.about === true,
     ...(typeof given.standing === 'string' && CATALOG_KEY.test(given.standing) ? { standing: given.standing } : {}),
     ...(typeof given.tagline === 'string' && CATALOG_KEY.test(given.tagline) ? { tagline: given.tagline } : {}),
     ...(standingMore.length ? { standingMore } : {}),
@@ -927,6 +926,8 @@ export async function createHost({
       features: resolved.features,
       plans: resolved.plans,
       defaultPlan: resolved.defaultPlan,
+      // Which app on a phone opens the site's links is the host's, asked at its root only (app-links.js).
+      appLinks: null,
       install: moduleInstall,
       // Where it is: for what an app does differently inside a host, if anything. Settings are
       // the host's, the same in every module: whether they have notices and a plan is the host's
@@ -1599,7 +1600,10 @@ export async function createHost({
           ...pageList.map((page) => ({ base: page.at, dir: page.dir }))],
         catalogs: fingerprint(KIT_TEXTS).version,
       }),
-      shell,
+      // The one app-version.js its pages read, the root's, the whole app's (update.js), and not the
+      // modules' own, which none reads here: offline after an update About said «—», and one from the
+      // network said the next release was the one running (pwa-8).
+      shell: [...new Set([...shell.filter((url) => !/^\/[^/]+\/js\/app-version\.js$/.test(url)), '/js/app-version.js'])],
       optional,
       // The app's start holds every module (`pages[].root`, Work's shell): a notice opens in it.
       ...(rootPage ? { holds: ['/', rootPage.at] } : {}),

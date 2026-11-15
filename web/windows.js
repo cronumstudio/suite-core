@@ -48,7 +48,7 @@
  *   last time it showed: they are kept for every shape with the layout (`shares`).
  *
  *   const windows = createWindows(desk, { windowOf, onPause, onShow, onEvict, modules, nameOf });
- *   windows.restore({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });
+ *   windows.set({ cols: [{ w: 1, wins: ['notes'] }, { w: 1, wins: ['next'] }] });
  *   windows.columns('2x2');  windows.columns([1, 2]);  windows.show('tasks');  windows.destroy();
  *
  * What decides (the layout and its moves, where the pointer is, what is kept, what is evicted) is
@@ -137,8 +137,8 @@ const round = (n) => Math.round(n * 10000) / 10000;
  * A layout as the windows take it, from whatever was kept or asked: `{ cols: [{ w, wins: [module,
  * module?], h? }], focus }`, with 1–4 columns, two windows a column at most and four in all, each
  * module once; `w` a column's share of the width (fr), `h` the top window's share of a column of
- * two. The prototype's `{ slots: [{ module, w }] }` is read as one window a column, and a window
- * may come as `{ module, route }` (ventanas.md). `modules`, when given, is what may be shown.
+ * two. A window may come as `{ module, route }` (ventanas.md). `modules`, when given, is what
+ * may be shown.
  */
 export function normalizeLayout(input, { modules } = {}) {
   const seen = new Set();
@@ -149,8 +149,7 @@ export function normalizeLayout(input, { modules } = {}) {
     seen.add(module);
     return module;
   };
-  const raw = Array.isArray(input?.cols) ? input.cols
-    : Array.isArray(input?.slots) ? input.slots.map((slot) => ({ w: slot?.w, wins: [slot] })) : [];
+  const raw = Array.isArray(input?.cols) ? input.cols : [];
   const cols = [];
   for (const col of raw) {
     if (cols.length >= MAX_COLS) break;
@@ -1472,11 +1471,6 @@ export function createWindows(desk, {
     apply({ keep: want });
   }
 
-  /** The layout kept, or `fallback` when there is none. */
-  function restore(fallback) {
-    set(readLayout(storage, screen, allowed()) ?? fallback ?? { cols: [] });
-  }
-
   /**
    * The rail's choice of a shape (1–4 columns, '2x2', or the windows each column stacks, `[1, 2]`),
    * with the modules shown now and then `list`'s, and the shares its bars had last time.
@@ -1588,10 +1582,8 @@ export function createWindows(desk, {
   return {
     get layout() { return layout; },
     get screen() { return screen; },
-    /** The mounted modules, the last used first (the shell's choice of a window to reuse). */
-    get recent() { return [...recent]; },
     /** The module whose window has the whole desk, or null. */
     get maximized() { return maxed; },
-    set, restore, columns, show, focus, drop, grab, maximize, relabel, destroy,
+    set, columns, show, focus, drop, grab, maximize, relabel, destroy,
   };
 }

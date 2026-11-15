@@ -27,6 +27,7 @@ import { billingProviderOf, billingProviders, storeProviderOf, storeProviders } 
 import { productSeatsProblem } from './billing.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
+import { appLinksFrom } from './app-links.js';
 import { organizationKinds } from './organizations.js';
 import { DEFAULT_LIMITS } from './rate-limit.js';
 
@@ -51,7 +52,7 @@ export const MODULES = Object.freeze({
 const PRODUCT_KEYS = new Set([
   'app', 'modules', 'accounts', 'sessions', 'organizations', 'tokens', 'rateLimits',
   'features', 'plans', 'defaultPlan', 'products', 'billing', 'trustProxy',
-  'devices', 'stores', 'push',
+  'devices', 'stores', 'push', 'appLinks',
 ]);
 
 /**
@@ -465,6 +466,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const billingRules = billingRulesFor(own.billing, billing, errors, warnings);
   const stores = storesFor(p.stores, products, modules, errors);
   const storeBilling = storeBillingFromEnv(env, { modules, stores, errors });
+  // Links to the site that open the app on a phone (app-links.js): the product's pages and ids,
+  // the install's Team ID and signing certificate.
+  const appLinks = appLinksFrom(p.appLinks, env, errors, warnings);
 
   const install = {
     baseUrl,
@@ -518,6 +522,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     products,
     billing: billingRules,
     stores,
+    appLinks,
     install, errors, warnings,
   };
 }

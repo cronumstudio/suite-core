@@ -72,6 +72,7 @@ suite-core/
   workos-events.js      done   a reset on AuthKit's own page heard from WorkOS's Events API (every minute) → revokeEverything
   devices.js            done   device tokens: an app on a phone, connected through the system browser with PKCE
   device-pages.js       done   the connect page and sessions of the web from a device's token (devices.connectPage, webSessions)
+  app-links.js          done   links to the site that open the phone's app: apple-app-site-association, assetlinks.json (appLinks)
   principal.js                 one resolver: cookie, bearer token, OAuth, AuthKit JWT (never a device token)
   rate-limit.js         done   brute-force brake persisted in the database
   organizations.js      done   organizations, memberships, roles, invitations, seats, kinds an app manages
@@ -199,6 +200,11 @@ export default {
   // With modules.push and modules.devices (off by default): the same notices to the phone's app
   // through APNs and FCM (section 16), APNS_* and FCM_SERVICE_ACCOUNT in the environment.
   // push: { native: true, apnsTopic: 'com.example.app', androidChannel: 'default' },
+  // A link to the site in a mail opens the app on a phone instead of the browser (app-links.js):
+  // /.well-known/apple-app-site-association and /.well-known/assetlinks.json, each only once the
+  // install gives APPLE_TEAM_ID (else APNS_TEAM_ID) or ANDROID_CERT_SHA256 (Play's app-signing
+  // certificate, comma-separated for several). The suite's own addresses never open the app.
+  // appLinks: { paths: ['/', '/tasks/*'], apple: { bundleId: 'com.example.app' }, android: { package: 'com.example.app' } },
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
@@ -263,7 +269,7 @@ Environment variables configure the install, never the product (`config.js` read
 `FOUNDER_OFFER_UNTIL`, `FOUNDER_JOIN_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
-`APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`. Three product settings may be overridden
+`APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`; with `appLinks`, `APPLE_TEAM_ID` and `ANDROID_CERT_SHA256`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
 names the new one, and `BASE_URL` is required when `NODE_ENV=production`.
@@ -588,7 +594,8 @@ its own (RFC 8252); the person signs in there as on the web and says yes; the pa
 code of five minutes and sends the browser back with it (`redirect_to`, with the `state`); the app
 exchanges the code, its verifier and the address at `POST /api/devices/token` for a token that
 starts with `devices.prefix` (never `tokens.prefix` nor the built-in OAuth's `mcpat_`, `mcprt_`,
-`oc_`, `ocs_`), shown once and kept as a hash. A code is spent by its first exchange, right or
+`oc_`, `ocs_`), shown once and kept as a hash; the answer also names the account it acts for
+(`user_id`), so the app can tell the same account signing in again from another one. A code is spent by its first exchange, right or
 wrong. One that comes back after that with its verifier and its address means the verifier got out
 too (or the app retries an answer it lost), and the device it gave is revoked (OAuth 2.1 §4.1.3);
 without them it is only refused, so whoever saw the code in a history or a log can't disconnect the
@@ -1296,7 +1303,9 @@ apps learned the hard way:
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
    does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it: OAuth's
    with "No OAuth here", any other `/.well-known/*` with `not_found`, but `security.txt`
-   (RFC 9116, `SECURITY_CONTACT`). `/api` itself is the API's JSON 404 too.
+   (RFC 9116, `SECURITY_CONTACT`) and, with `appLinks`, the phones' `apple-app-site-association` and
+   `assetlinks.json` (app-links.js: JSON, no session, no redirect, an hour's cache; a host's at its root
+   only, a page that is the root taking only `/`). `/api` itself is the API's JSON 404 too.
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
