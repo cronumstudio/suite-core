@@ -77,16 +77,27 @@ import { icon } from './icons.js';
 import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
-import { usageGroups, atLimit } from './usage-view.js';
 import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { devicePushSubscription, ensureSubscription, pushSupport, noticesOnHere, markNoticesOff } from './push.js';
-import { agentChips, agentSteps, aiPrompt } from './agents.js';
 import { markOwned, workRegistry } from './mount.js';
 import { openInWork } from './links.js';
 import { leave } from './signin.js';
 import { celebratePrefs, setCelebratePref, celebrate } from './celebrate.js';
 import { connection, save, noSignal } from './settings-queue.js';
+
+/**
+ * What only Your AI's agents and prompt (agents.js) and Settings › Plan's usage (usage-view.js)
+ * draw, asked for when those are, once per page: Settings open without them (audit of 6/11,
+ * sc-ui-11). Both stay in the worker's kit (sw-core.js), so without a signal they still come. One
+ * that couldn't be had is asked for again the next time.
+ */
+const later = (load) => {
+  let asked = null;
+  return () => (asked ||= load().catch((err) => { asked = null; throw err; }));
+};
+const agentsCode = later(() => import('./agents.js'));
+const usageCode = later(() => import('./usage-view.js'));
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
 
@@ -1540,12 +1551,16 @@ export function openSettings(options) {
    * module in use says of it (`standingMore`), folded under its name. Hidden in a host without it.
    */
   function hostAgents(endpoint, connected) {
+    // agents.js, asked for the first time the host's prompt is to be shown (agentsCode).
+    let code = null;
+    let asking = false;
+    let missing = false;
     const open = (agent) => openDialog({
       title: t('kit.ai.agentTitle', { agent: agent.name }),
-      content: agentSteps(agent.id, { endpoint, app: connected, last: t('kit.agents.lastSection', { agent: agent.name, app: connected }) }),
+      content: code.agentSteps(agent.id, { endpoint, app: connected, last: t('kit.agents.lastSection', { agent: agent.name, app: connected }) }),
     });
-    const agents = block(t('kit.ai.agentsTitle'), hint(t('kit.ai.agentsHint', { app: connected })),
-      agentChips({ onPick: open, label: t('kit.ai.agentsTitle') }));
+    const chips = el('div', { class: 'kit-contents' });
+    const agents = block(t('kit.ai.agentsTitle'), hint(t('kit.ai.agentsHint', { app: connected })), chips);
     const prompt = el('div');
     const promptBlock = block(t('kit.ai.promptTitle'), hint(t('kit.ai.promptHint', { app: connected })), prompt);
     const folds = el('div', { class: 'kit-folds' });
@@ -1553,14 +1568,26 @@ export function openSettings(options) {
     let drawn = '';
     const paint = () => {
       const path = hostPrompt();
-      agents.hidden = !path;
-      promptBlock.hidden = !path;
+      // One that couldn't be had is asked for again next time Settings open, not on every paint.
+      if (path && !code && !asking && !missing) {
+        asking = true;
+        agentsCode().then((loaded) => {
+          code = loaded;
+          chips.append(code.agentChips({ onPick: open, label: t('kit.ai.agentsTitle') }));
+        }, () => { missing = true; }).finally(() => {
+          asking = false;
+          if (!closed) paint();
+        });
+      }
+      // Without agents.js (offline, not in the worker's copy) there are no chips nor prompt to show.
+      agents.hidden = !path || !code;
+      promptBlock.hidden = !path || !code;
       // The modules: the host's, in its order, the ones in use ticked; drawn again only when they change.
       const list = !path ? [] : inUse.length && !alone() ? inUse : modulesHere();
       const key = path ? `${path}|${list.map((m) => `${m.mount}:${m.active ? 1 : 0}`).join(',')}` : '';
-      if (key !== drawn) {
+      if (key !== drawn && (code || !path)) {
         drawn = key;
-        clear(prompt).append(path ? aiPrompt({ path, modules: list.map((m) => ({ ...m, name: m.name || app.name })) }) : []);
+        clear(prompt).append(path ? code.aiPrompt({ path, modules: list.map((m) => ({ ...m, name: m.name || app.name })) }) : []);
       }
       const shown = path ? saying(paint).filter((a) => a.more.length) : [];
       more.hidden = !shown.length;
@@ -2001,7 +2028,7 @@ export function openSettings(options) {
     let reading = 0;
     const read = () => {
       const turn = ++reading;
-      api.root.get('/api/me/usage').then((usage) => {
+      Promise.all([api.root.get('/api/me/usage'), usageCode()]).then(([usage, { atLimit, usageGroups }]) => {
         if (closed || turn !== reading) return;
         node.hidden = false;
         // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
