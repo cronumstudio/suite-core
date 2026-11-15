@@ -128,18 +128,18 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `signal.js` | `watchSignal({ ask, answered, onBack, active, again, firstMs, maxMs, url, patienceMs })`: the one question «is there a signal again?» every module asks while it has none (`/version`, from 3 s up to 30 s apart): `lost()`, `check()` → whether the server answered, `found()`, `stop()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does |
 | `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`; the module's sheet after it draws the rest |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT`; `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, all a frame's start needs (shell.js), so plan.js comes only with Settings (0.285.0) |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
-| `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
+| `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
 | `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()`; `markInstalledAlone(mount)`: a module installed as an app of its own tells the host's worker, which opens its notices there (shell.js calls it) |
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
@@ -458,8 +458,8 @@ sign-in (two-step verification, sessions), the AI (MCP address, connected apps, 
 notifications (`push: true`), plan (`plan: true`; with `{ billing: true }` it also sells, below), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
-everything else is the suite's. `aiExtra()` and `aboutExtra()` add a block (Next's standing
-instruction, an app's tips). Your data ends with what goes for good: erasing what one has in the
+everything else is the suite's. `aboutExtra()` adds a block (what the app is), and `standing` its
+instruction for an assistant, in Your AI. Your data ends with what goes for good: erasing what one has in the
 app (with `data`) and deleting the account (when the install offers it, `deletion_days`), each
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
@@ -469,8 +469,7 @@ screen offers back an account waiting to be deleted.
 module: the account's sections (with notices and the plan when the host says so,
 `app.host.push` and `app.host.plans` in `/api/auth/config`, whatever the module passes); then a
 group for each module the person uses, in the host's order, with its own sections, its data
-(export, import, erase), what it adds to Your AI (`aiExtra`, its own section) and what it is
-(`aboutExtra`, its own section); last the host's: deleting the account, Administration and About.
+(export, import, erase) and what it is (`aboutExtra`, its own section); last the host's: deleting the account, Administration and About.
 The module open draws its own sections; another's are named from the host's `/api/modules`
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
@@ -908,11 +907,12 @@ sentence to show (`kit.images.*`): `uploadLimit(config)` reads the server's limi
 
 ### Markdown
 
-`renderMarkdown(text, { onTaskToggle })` draws a note with `el()` —headings, lists, task lists,
-quotes, code, tables, links and images— and never interprets HTML. Links go to http, https, mailto
-or within the app; images load only from the app (`resolveImage` maps an attachment), so nothing
-in a note makes the reader's browser call a third party. `toggleTask(text, line, done)` ticks the
-box in the source.
+`renderMarkdown(text, { resolveImage })` draws a note with `el()` —headings, lists, task lists
+(read-only boxes), quotes, code, tables, links and images— and never interprets HTML. Links go to
+http, https, mailto or within the app; images load only from the app's own files, a path ending in
+`files/<id>` (`resolveImage` maps an attachment), so nothing in a note makes the reader's browser
+call a third party, nor another address of the app. It reads in linear time, whatever the text, and
+past 32 levels of quotes, lists, marks or links the rest is text.
 
 ### The service worker
 

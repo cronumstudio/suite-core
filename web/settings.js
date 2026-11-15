@@ -72,7 +72,7 @@
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateFormat } from './i18n.js';
 import { api, errorMessage, Offline, ApiError } from './api.js';
-import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
+import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installed, installedAlone } from './base.js';
 import { icon } from './icons.js';
 import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer } from './ui.js';
 import { makeDraggable } from './drag.js';
@@ -148,31 +148,39 @@ function hostModulesKept() {
 /**
  * Another module's words, for naming its sections of Settings here: its catalog in `lang`
  * (`/<module>/i18n/<lang>.json`), asked for once per page and kept. → the words; undefined while
- * they are on their way (`then` is called when they come); null when they couldn't be had, which
- * is asked again the next time Settings opens.
+ * they are on their way (`then` is called once when they come, however many times the same
+ * function asked); null when they couldn't be had, which stays so until Settings open again
+ * (forgetMissingCatalogs): a list painted again while one fails doesn't ask for it again.
  */
 const moduleCatalogs = new Map();
+const catalogWaiters = new Map();
 function moduleWords(m, lang, then) {
   const key = `${m.mount}:${lang}`;
   const known = moduleCatalogs.get(key);
   if (known instanceof Promise) {
-    known.then(then);
+    if (then) catalogWaiters.get(key)?.add(then);
     return undefined;
   }
-  if (known) return known;
-  if (known === null) {
-    moduleCatalogs.delete(key);
-    return null;
-  }
+  if (known !== undefined) return known;
+  const waiters = new Set(then ? [then] : []);
+  catalogWaiters.set(key, waiters);
   const asking = fetch(`${m.path}i18n/${lang}.json`, { credentials: 'same-origin' })
     .then((res) => (res.ok ? res.json() : null))
     .catch(() => null)
     .then((words) => {
       moduleCatalogs.set(key, words && typeof words === 'object' ? words : null);
+      catalogWaiters.delete(key);
+      // One that fails doesn't keep the words from the others.
+      for (const waiter of waiters) {
+        try { waiter(); } catch (err) { queueMicrotask(() => { throw err; }); }
+      }
     });
   moduleCatalogs.set(key, asking);
-  asking.then(then);
   return undefined;
+}
+/** The catalogs that couldn't be had, asked for again: as Settings open. */
+function forgetMissingCatalogs() {
+  for (const [key, words] of moduleCatalogs) if (words === null) moduleCatalogs.delete(key);
 }
 
 /**
@@ -284,6 +292,24 @@ export function openSettings(options) {
   // What is drawn from the modules in use, drawn again when the server's answer comes.
   const onModules = [];
   let closed = false;
+  forgetMissingCatalogs();
+  // Another module's words came (moduleWords): the list painted again once, for all that came together.
+  let repaintAsked = false;
+  const wordsCame = () => {
+    if (closed || repaintAsked) return;
+    repaintAsked = true;
+    queueMicrotask(() => {
+      repaintAsked = false;
+      if (!closed) repaint();
+    });
+  };
+  // A painting function called only while Settings are open, the same one each time for the same
+  // function: moduleWords calls it once however often it is asked.
+  const guarded = new WeakMap();
+  const whileOpen = (fn) => {
+    if (!guarded.has(fn)) guarded.set(fn, () => { if (!closed) fn(); });
+    return guarded.get(fn);
+  };
 
   /* ---------------------------- without a signal ---------------------------- */
 
@@ -442,16 +468,13 @@ export function openSettings(options) {
   }
 
   /**
-   * This module's group: its sections, drawn here. What it adds to Your AI is out of the list when
-   * Your AI has its instruction (`standing`), and what it is always (About has its card): both are
-   * still opened from there.
+   * This module's group: its sections, drawn here, and its data. What it is is out of the list (About
+   * has its card) and opened from there.
    */
   const thisModule = () => [
     ...own(app.name),
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
       hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => needsConnection(data({ account: false })) } : null,
-    options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'), unlisted: Boolean(options.standing),
-      hint: () => t('kit.settings.moduleAiHint', { app: app.name }), render: () => [options.aiExtra()] } : null,
     options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
       hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
   ];
@@ -463,7 +486,7 @@ export function openSettings(options) {
   function otherModule(m) {
     const declared = m.settings;
     if (!declared || !m.path) return [];
-    const words = moduleWords(m, currentLanguage(), () => { if (!closed) repaint(); });
+    const words = moduleWords(m, currentLanguage(), wordsCame);
     if (words === undefined) return [];   // on its way: painted when it comes
     const go = (id, iconName, label, text = '') => ({
       group: m.name, id: `${m.mount}:${id}`, iconName, label, hint: () => text, go: () => goTo(m, id),
@@ -478,7 +501,6 @@ export function openSettings(options) {
     return [
       ...declared.sections.filter((s) => say(s.label)).map((s) => go(s.id, s.icon || 'sliders', say(s.label), say(s.hint))),
       declared.data ? go('data', 'box', t('kit.data.title'), t('kit.settings.dataHint', { app: m.name })) : null,
-      declared.ai && !declared.standing ? go('ai-extra', 'spark', t('kit.settings.moduleAi'), t('kit.settings.moduleAiHint', { app: m.name })) : null,
     ];
   }
 
@@ -1108,13 +1130,6 @@ export function openSettings(options) {
     return block(t('kit.twoFactor.title'), body);
   }
 
-  /* ----------------------------------- AI ----------------------------------- */
-
-  /**
-   * Connecting an assistant: the MCP address; with the built-in OAuth or
-   * WorkOS pasting it is enough and the apps connected that way are listed,
-   * each one disconnectable here; manual tokens for clients that can't sign in.
-   */
   /**
    * Which modules of the host this person uses (PUT /api/me/modules at the host's root). One
    * stays on; one turned off keeps its data and only leaves their menus. Each can have its own
@@ -1307,6 +1322,8 @@ export function openSettings(options) {
       clear(icons);
       // In the suite's app each one opens outside it, in the browser, where it can be installed.
       const native = inApp();
+      // Work installed (this window is it, `installed()`), as in the suite's app: no button for it.
+      const workHere = native || installed();
       const link = (href, image, name) => el('a', {
         class: 'kit-btn kit-btn--small', href, target: '_blank', rel: 'noopener',
         onClick: (ev) => { if (native && openExternal(new URL(href, window.location.href).href)) ev.preventDefault(); },
@@ -1314,7 +1331,7 @@ export function openSettings(options) {
       // The host itself first, but not in its own app, which is it installed: one icon for all of it,
       // opening on the module used last. Its page at /?modules stays put instead of going on to a
       // module, so it can be installed from there.
-      if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
+      if (answer.host?.name && !workHere) icons.append(link('/?modules', answer.host.icon, answer.host.name));
       // A door (Croc) is a button of the whole app's, never installed alone.
       // Each module on its own (`?alone`): else, in a browser, its page goes on to the host's shell (native.js hostShellAddress).
       for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(aloneAddress(m.path), m.icon, m.name));
@@ -1337,12 +1354,15 @@ export function openSettings(options) {
    * Installing on this device: on the web Cronum Work or each module on its own, in the suite's
    * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way,
    * then what installing it gives: it opens as an app and keeps what was seen, for without a signal.
+   * Inside Work installed (a window of its own, `installed()`) as in the suite's app: Work is
+   * installed already, and that window has no tab nor address bar; the module opens in the browser.
    */
   function installing(icons) {
-    const native = inApp();
     const kind = installKind();
-    const pick = native ? 'kit.modules.installPickApp'
-      : kind === 'ios' || kind === 'android' ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
+    const touch = kind === 'ios' || kind === 'android';
+    const native = inApp() || installed();
+    const pick = native ? (touch || inApp() ? 'kit.modules.installPickApp' : 'kit.modules.installPickInstalled')
+      : touch ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
     const how = {
       ios: 'kit.modules.installIos', android: 'kit.modules.installAndroid',
       'mac-safari': 'kit.modules.installMacSafari', firefox: 'kit.modules.installFirefox',
@@ -1355,6 +1375,13 @@ export function openSettings(options) {
         el('li', {}, el('p', { text: t('kit.modules.installOffline') }))));
   }
 
+  /* ----------------------------------- AI ----------------------------------- */
+
+  /**
+   * Connecting an assistant: the MCP address; with the built-in OAuth or
+   * WorkOS pasting it is enough and the apps connected that way are listed,
+   * each one disconnectable here; manual tokens for clients that can't sign in.
+   */
   function ai() {
     // What the assistant connects to: in a host, the whole app, at its one /mcp.
     const connected = host?.name || app.name;
@@ -1422,8 +1449,6 @@ export function openSettings(options) {
       appsBlock,
       instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
-      // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
-      ...(options.aiExtra && !host ? [options.aiExtra()] : []),
     ];
   }
 
@@ -1502,7 +1527,7 @@ export function openSettings(options) {
     return modulesHere().map((m) => {
       if (m.mount === host.mount) return mine;
       const key = m.settings?.standing;
-      const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) then(); }) : null;
+      const words = key ? moduleWords(m, currentLanguage(), whileOpen(then)) : null;
       const say = (k) => (typeof words?.[k] === 'string' ? words[k] : '');
       return { mount: m.mount, name: m.name, src: m.icon, text: say(key), more: notesOf(m.settings?.standingMore, say) };
     });
@@ -1943,7 +1968,10 @@ export function openSettings(options) {
       const onPlan = (event) => {
         if (!event?.detail) return;
         reading++;
+        // A new plan: what the other modules include and what is used under it, asked again too.
+        othersFeatures = null;
         paint(event.detail);
+        usage?.read();
       };
       document.addEventListener(PLAN_EVENT, onPlan);
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
@@ -1956,8 +1984,8 @@ export function openSettings(options) {
    * the plan's caps, their storage and their calls from assistants (GET /api/me/usage at the host's
    * root, usage.js), drawn as the admin sees it. Near a cap it says so first, with the way to a
    * bigger plan when there is one here: the plans on offer below (`offer`) or the app's store
-   * (`storeBlock`), as they show; `sync()` looks again once they have. Where nothing answers (an
-   * app on its own, an older host, offline), the block goes.
+   * (`storeBlock`), as they show; `sync()` looks again once they have, and `read()` asks again (a new
+   * plan). Where nothing answers (an app on its own, an older host, offline), the block goes.
    */
   function yourUsage({ offer, storeBlock }) {
     const body = el('div', { class: 'kit-stack' }, hint(t('kit.usage.loading')));
@@ -1970,20 +1998,26 @@ export function openSettings(options) {
     }, 'primary');
     const sync = () => { way.hidden = !((storeBlock && !storeBlock.hidden) || (offer && !offer.hidden)); };
     sync();
-    api.root.get('/api/me/usage').then((usage) => {
-      if (closed) return;
-      // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
-      const capped = atLimit(usage);
-      const level = capped[0]?.level;
-      const alert = level
-        ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
-          el('p', { text: t(`kit.usage.${level}Notice`) }),
-          el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
-            class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
-          }))), way) : null;
-      clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
-    }).catch(() => { node.hidden = true; });
-    return { node, sync };
+    let reading = 0;
+    const read = () => {
+      const turn = ++reading;
+      api.root.get('/api/me/usage').then((usage) => {
+        if (closed || turn !== reading) return;
+        node.hidden = false;
+        // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
+        const capped = atLimit(usage);
+        const level = capped[0]?.level;
+        const alert = level
+          ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
+            el('p', { text: t(`kit.usage.${level}Notice`) }),
+            el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
+              class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
+            }))), way) : null;
+        clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
+      }).catch(() => { if (turn === reading) node.hidden = true; });
+    };
+    read();
+    return { node, sync, read };
   }
 
   /**
@@ -2014,7 +2048,9 @@ export function openSettings(options) {
         .catch(() => null)),
     ])
       .then((answers) => Object.assign({}, ...answers.map((a) => a?.features || {})));
-    othersFeatures.then((more) => { if (!closed && node.isConnected !== false) draw({ ...more, ...own }); });
+    const asked = othersFeatures;
+    // Only the newest: one asked under the plan before mustn't paint over the new one's.
+    asked.then((more) => { if (!closed && asked === othersFeatures && node.isConnected !== false) draw({ ...more, ...own }); });
   }
 
   /* ---------------------------------- data ---------------------------------- */
@@ -2364,7 +2400,7 @@ export function openSettings(options) {
       hostIcon.setAttribute('src', hostInfo.icon || '/icons/favicon.svg');
       const names = modulesHere().map((m) => (m.mount === host.mount ? app.name : m.name || m.mount));
       hostLine.textContent = t('kit.about.hostTagline', { apps: listFormat({ type: 'conjunction' }).format(names) });
-      clear(cards).append(...modulesHere().map((m) => moduleCard(m)));
+      clear(cards).append(...modulesHere().map((m) => moduleCard(m, paintCards)));
     } : null;
     paintFacts();
     paintCards?.();
@@ -2388,11 +2424,12 @@ export function openSettings(options) {
   /**
    * A module's card in the host's About: its icon, name and line, the version of it this tab runs
    * (the server's until the tab has said), and a link to its website, where what it is is told.
+   * Another module's line comes from its catalog: `repaintCards` (About's) paints them again then.
    */
-  function moduleCard(m) {
+  function moduleCard(m, repaintCards) {
     const here = m.mount === host.mount;
     const name = here ? app.name : m.name || m.mount;
-    const words = here ? null : moduleWords(m, currentLanguage(), () => paintCards());
+    const words = here ? null : moduleWords(m, currentLanguage(), whileOpen(repaintCards));
     const taglineKey = m.settings?.tagline || 'app.tagline';
     const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
     const updates = options.updates || workRegistry()?.updates;
