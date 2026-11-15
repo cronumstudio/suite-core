@@ -50,6 +50,15 @@ const PLAN = {
   organizations: [{ source: { id: 1, name: 'Casa Andersen', kind: 'family', members: 1 }, choice: { action: 'create' } }],
 };
 
+/** The confirmation of what can't be undone, answered: the word typed and the password given (audit authz-9). */
+function confirmReplace(dialog) {
+  const word = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-word');
+  word.value = t('kit.data.confirmWord');
+  word.dispatch('input');
+  dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-password').value = 'ben-password';
+  dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.replaceButton')).dispatch('click');
+}
+
 async function dataPage(plan) {
   routes = {
     'POST /api/me/import': { data: plan },
@@ -85,11 +94,11 @@ test('“replace” names the groups it hands over, asks again with them, and on
   assert.ok(dialog, 'asked first');
   assert.match(visibleText(dialog), /Shared home and Grandma’s/, 'the confirmation names them too');
   assert.equal(sent.filter((r) => r.path.startsWith('/api/me/import/')).length, 0, 'nothing sent before the answer');
-  dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.replaceButton')).dispatch('click');
+  confirmReplace(dialog);
   await settle();
   await settle();
   const applied = sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`);
-  assert.deepEqual(applied.body, { replace: true, hand_over: [7, 8] }, 'the ids of the groups it showed');
+  assert.deepEqual(applied.body, { confirm: true, password: 'ben-password', replace: true, hand_over: [7, 8] }, 'the ids of the groups it showed');
   settings.close();
 });
 
@@ -110,10 +119,10 @@ test('without groups to hand over, “replace” goes as before; and a cancelled
   apply.dispatch('click');
   await settle();
   dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
-  dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.replaceButton')).dispatch('click');
+  confirmReplace(dialog);
   await settle();
   await settle();
-  assert.deepEqual(sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`).body, { replace: true, hand_over: [] },
+  assert.deepEqual(sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`).body, { confirm: true, password: 'ben-password', replace: true, hand_over: [] },
     'none shown: none, so the server refuses if some are there by now');
   settings.close();
 });
@@ -125,10 +134,10 @@ test('an app whose copies carry no groups sends what it always did', async () =>
   root.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.apply')).dispatch('click');
   await settle();
   const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
-  dialog.all().find((node) => node.tagName === 'BUTTON' && node.textContent === t('kit.data.replaceButton')).dispatch('click');
+  confirmReplace(dialog);
   await settle();
   await settle();
-  assert.deepEqual(sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`).body, { replace: true });
+  assert.deepEqual(sent.find((r) => r.path === `/api/me/import/${PLAN.import_id}`).body, { confirm: true, password: 'ben-password', replace: true });
   settings.close();
 });
 

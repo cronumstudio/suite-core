@@ -650,6 +650,20 @@ function openReader(file) {
 /* -------------------------------- the service ---------------------------------- */
 
 /**
+ * An app's `limits` with the install's ceiling on what an import takes over HTTP (config.js
+ * `install.importMaxMb`, IMPORT_MAX_MB): what stands before the server may cut a bigger request
+ * with a page of its own (Cloudflare, at 100 MB), which said nothing of the size (audit prod-14).
+ * The lower of the two wins; without one, the app's as they are.
+ */
+export function withImportCeiling(limits = {}, mb = null) {
+  if (!mb) return limits;
+  const ceiling = mb * MB;
+  const own = limits.upload || {};
+  const lower = (value, fallback) => Math.min(Number(value ?? fallback), ceiling);
+  return { ...limits, upload: { ...own, account: lower(own.account, 512 * MB), install: lower(own.install, 4096 * MB) } };
+}
+
+/**
  * @param {object} options
  * @param {object} options.database, options.accounts         the suite's
  * @param {object} [options.uploads]      where attachments live (modules.uploads)
@@ -2236,7 +2250,8 @@ export function createPortability({
     const counter = new Transform({
       transform(chunk, _encoding, done) {
         size += chunk.length;
-        if (size > limit) done(new HttpError(413, 'body_too_large'));
+        // The size it may have, for the page to say it (Settings: errors.file_too_large).
+        if (size > limit) done(new HttpError(413, 'file_too_large', { max_mb: Math.floor(limit / MB) }));
         else done(null, chunk);
       },
     });
@@ -2363,7 +2378,8 @@ export function createPortability({
  * `DELETE /api/me/import/:id`; and the same under `/api/admin/` for the whole
  * install, whose apply takes `{ accounts: [decisions] }`. `POST /api/me/erase`
  * empties someone's own data, asked again who they are (`confirm`, api.js
- * identityCheck).
+ * identityCheck), and so does an import that replaces (`{ replace: true }`
+ * empties the same before it brings the copy in, audit authz-9).
  */
 export function registerPortabilityApi(router, {
   portability, audit = null, limiter = null, confirm = null, log = console.log,
@@ -2422,6 +2438,7 @@ export function registerPortabilityApi(router, {
     const body = await readJson(ctx.req);
     // `hand_over`: the ids of the groups the person was shown "replace" takes them out of (the plan's).
     const shown = Array.isArray(body.hand_over) ? body.hand_over.filter((v) => Number.isSafeInteger(v)) : null;
+    if (body.replace === true && confirm) await confirm(ctx, user, body);
     sendJson(ctx.res, 200, await portability.apply(ctx.params.id, {
       mode: 'account', user, replace: body.replace === true, handOver: shown, req: ctx.req,
     }));
@@ -2434,7 +2451,7 @@ export function registerPortabilityApi(router, {
     router.post('/api/me/erase', async (ctx) => {
       const user = signedIn(ctx);
       const body = await readJson(ctx.req);
-      confirm(ctx, user, body);
+      await confirm(ctx, user, body);
       sendJson(ctx.res, 200, portability.erase(user, { req: ctx.req }));
     });
   }

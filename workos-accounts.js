@@ -10,38 +10,17 @@
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
-import { sendJson } from './http.js';
+import { sendJson, localPath, signInFlowCookies } from './http.js';
+import { safeEqual } from './crypto.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
 const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
 /** The metadata is read from browsers too (the MCP inspector, for instance). */
 const CORS = { 'Access-Control-Allow-Origin': '*' };
 
-/** Only a path of this app: never another site, whatever the link says (oidc.js's too). */
-const localPath = (value) => (typeof value === 'string' && /^\/(?!\/)[^\\\s]*$/.test(value) ? value : '/');
-
 function redirect(res, target) {
   res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
   res.end();
-}
-
-function cookieValue(req, name) {
-  for (const part of String(req.headers.cookie || '').split(';')) {
-    const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
-  }
-  return null;
-}
-
-function addCookie(res, cookie) {
-  const previous = res.getHeader('Set-Cookie');
-  res.setHeader('Set-Cookie', previous == null ? cookie : [].concat(previous, cookie));
-}
-
-function safeEqual(a, b) {
-  const x = Buffer.from(String(a));
-  const y = Buffer.from(String(b));
-  return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
 /**
@@ -251,10 +230,10 @@ export function createWorkosAccounts({
   const forThisApp = (resource) => [RESOURCE, BASE_URL].includes(String(resource || '').replace(/\/+$/, ''));
   const ADMIN_EMAIL = String(adminEmail || '').trim().toLowerCase();
 
-  const stateCookieHeader = (value, maxAge) => [
-    `${stateCookie}=${encodeURIComponent(value)}`, `Max-Age=${maxAge}`, 'Path=/auth',
-    'HttpOnly', 'SameSite=Lax', ...(secureCookies ? ['Secure'] : []),
-  ].join('; ');
+  // One cookie per sign-in, for 30 minutes (http.js signInFlowCookies, audit sc-auth-6). Read with
+  // the suite's parseCookies: a malformed cookie is skipped, where a copy without its try threw
+  // before the callback's and answered 500 to anyone (audit sc-auth-10).
+  const flows = signInFlowCookies({ cookie: stateCookie, secure: secureCookies });
 
   /**
    * The app user matching a WorkOS account; created if there is none.
@@ -522,7 +501,7 @@ export function createWorkosAccounts({
       // Back where sign-in began (`return`): a module installed on its own (`/notes/`) back in
       // its own app, not at `/`, which in Cronum Work is the whole of it.
       const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
-      addCookie(res, stateCookieHeader(`${state}.${verifier}.${back}`, 600));
+      flows.start(res, state, `${state}.${verifier}.${back}`);
       redirect(res, workos.signInUrl({
         redirectUri: `${BASE_URL}/auth/callback`,
         state,
@@ -536,8 +515,7 @@ export function createWorkosAccounts({
     }
 
     if (path === '/auth/callback') {
-      const [state, verifier, back] = String(cookieValue(req, stateCookie) || '').split('.');
-      addCookie(res, stateCookieHeader('', 0));
+      const [state, verifier, back] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
       const code = url.searchParams.get('code');
       // Without a state matching the cookie's, this return wasn't started by
       // this browser: it could be someone slipping their own account into the

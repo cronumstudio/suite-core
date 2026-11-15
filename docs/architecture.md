@@ -57,6 +57,7 @@ suite-core/
   config.js             done   loads and validates suite.config.js + the environment
   app.js                done   createSuite() wires the modules; createApp() dispatches in the order of §11
   host.js               done   createHost(): several apps as one, each a module at its own path (§21)
+  runtime.js            done   what both run the same way: the server, the install's jobs, signals, listening
   legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
   watcher.js            done   hot reload by polling, for code mounted over SMB
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
@@ -89,9 +90,10 @@ suite-core/
                                storeChecked: the cap per record and storage.mb before and after the file arrives
   storage.js            done   the storage a plan allows (storage.mb): check(user, adding, { payer }), the apps' 402
   mcp-files.js          done   files an assistant attaches: from a link, or through a one-time upload link
-  time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's
+  time.js               done   whose "today": the person's zone (prefs.tz) through a request, else the server's;
+                               isoInstant(stamp): a stored instant as ISO (0.291.0)
   prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
-  mcp-kit.js            done   what the tools are written with: text, S, tool({ kind }), describeError, trimRepeats
+  mcp-kit.js            done   what the tools are written with: text, S, the annotations, describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
@@ -1260,6 +1262,11 @@ group a copy carries:
   last member goes —they leave or are removed (`removeMember`; the last member, even an owner, can
   then leave), or their account is deleted (`forgetUser`)— the group is deleted instead of
   archived: `organizations.remove(id)` with the reason `empty`.
+- A group of a kind kept when empty (`onEmpty: 'archive'`) that its last member's account deletion
+  leaves with nobody is archived, with an `org.archive` audit entry (`reason: 'empty'`), and, with
+  `modules.billing`, its own subscriptions stop renewing at the end of the period they paid for
+  (v0.293.0, `organizations.whenArchived` → `billing.organizationArchived`, who wants it: `empty`):
+  nobody is left to cancel them.
 - `organizations.remove(id, { reason, by })` deletes a group whatever it holds: its plan grants
   (which name it by id), invitations, memberships and the row, in one transaction, with an
   `org.delete` audit entry (its other entries keep their target, without the reference).
@@ -1287,7 +1294,9 @@ apps learned the hard way:
 1. Security headers on every response.
 2. `/health`, `/version`, `/js/app-version.js` (the fingerprint the PWA compares to offer a reload).
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
-   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it.
+   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it: OAuth's
+   with "No OAuth here", any other `/.well-known/*` with `not_found`, but `security.txt`
+   (RFC 9116, `SECURITY_CONTACT`). `/api` itself is the API's JSON 404 too.
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
@@ -1298,7 +1307,11 @@ apps learned the hard way:
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
-8. The app's static files, then the SPA fallback for paths without an extension.
+8. The app's static files, then its page for paths without an extension; none for a path with a
+   part that starts with a dot (`/.env`). With `clientRoutes` (a host gives `['/']` to itself and
+   to each module) its page only for those paths, a folder with an index.html asked for without its
+   slash goes to it, and any other path is the kit's 404 page (web/not-found.html) in the
+   browser's language, with a link to `/`.
 
 The common API is the same in every app: sign-in (`POST /api/auth/login`, its second step
 `POST /api/auth/login/code`, `POST /api/auth/logout`, `GET /api/auth/config`), the profile
@@ -1338,7 +1351,11 @@ just say what changed (Tasks' lists): the app chooses.
 `mcp.js` is the Streamable HTTP transport the three apps already share: JSON-RPC 2.0 on `/mcp`,
 protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, SSE answers when the client only accepts
 them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` when AuthKit cannot
-be reached, and the token brake. The app hands in its tools, prompts and instructions:
+be reached, and the token brake. `GET /mcp` answers `405` (after the token): the server sends
+nothing on its own, so it opens no server→client channel (v0.292.0). Arguments are checked against
+each tool's `inputSchema` and reach it as the schema says (`"false"` a `false`, `"30"` a `30`); an
+unexpected error reaches the assistant as a plain sentence, its message only in the log. The app
+hands in its tools, prompts and instructions:
 
 ```js
 { name, title, description, inputSchema, annotations?, feature?, handler(principal, args) }
@@ -1519,7 +1536,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   of a home network); gone ones (404, 410) and ones that fail three times pruned. The routes are
   `/api/push/config`, `/api/push/subscribe` (POST, DELETE), `/api/push/devices` and
   `/api/push/test`; the app composes the real messages and chooses who gets them
-  (`suite.push.sendTo(userIds, payload | (subscription) => payload)`), as Tasks batches other
+  (`suite.push.deliver(suite.push.subscriptionsOf(userIds), payload | (subscription) => payload)`), as Tasks batches other
   people's changes to a shared list.
 - **Push to an app's own devices** (v0.81.0, for Focus' paired tablets): a device that belongs to
   the app and has no account behind it (a child's profile, a kiosk) keeps its subscription in the
@@ -1559,7 +1576,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
     migration 26**, hanging on `device_tokens` with `ON DELETE CASCADE`), never exported; it goes
     when the device is revoked (by its owner, by itself signing out, by the admin) and on
     `DELETE /api/devices/push`. A send names its reminder in its options:
-    `deliver(subs, payload, { reminder: { id, at } })` (and `send`, `sendTo`), `id` a text or a
+    `deliver(subs, payload, { reminder: { id, at } })` (and `send`), `id` a text or a
     number, `at` an ISO-8601 text, a Date or milliseconds; in a host, `hostedPush` (and a host
     without the one worker too) sets `reminder.module` to the module's path, and an app on its own
     may give `module` itself (else null). A native target whose device reported the same `module`
@@ -1570,8 +1587,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   - **Sending**: `subscriptionsOf(userIds)` also gives the people's phones (rows with
     `native: true`, `platform`, `lang`, `user_id`), and `deliver()` sends each where it goes; given
     Web Push rows only (an app that reads `push_subscriptions` itself, as Tasks does), it also sends
-    to those people's phones. Each phone once per delivery. `sendTo`, `send` and the host's
-    `hostedPush` (the module's path in `url`, its `module` and tag) go the same way, and
+    to those people's phones. Each phone once per delivery. `send` and the host's
+    `hostedPush` (which has `deliver` only: since v0.293.0 neither it nor `push` has `sendTo`) (the module's path in `url`, its `module` and tag) go the same way, and
     `/api/push/test` reaches the phones too. What a Web Push payload becomes: `title` and `body`
     the alert's texts (the body, then the title, shortened to fit 4 KB, never refused); `badge`
     when it is a whole number (on the web it is an image, and ignored); `category` (the actions the
@@ -1749,6 +1766,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   first the app hands over what others share with them (the declaration's `handOver(userId)`: a
   shared list passes to one of the people it is shared with), then goes, in one transaction,
   exactly what their own copy would take and "replace" empties, and its files once committed.
+  Both ask again who it is (api.js `identityCheck`: `confirm: true`, and the password of an account
+  that has one, here or at WorkOS; v0.289.0, audit authz-9), an import with `replace` as erasing does.
 - **Organizations in the copies** (**done**, v0.84.0, for Focus' families and Tracker's fleets; on
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
@@ -2008,6 +2027,14 @@ const stop = parts.start?.({ day, uses });   // in a host: its daily summary (or
 await app.listen();
 ```
 
+In a host, `start()` gets two more things (v0.293.0), so that the module's own jobs (reminders, its
+notices, its file clean-ups) reach the alerts as the host's do: `failed(name)`, a function for a
+promise's `catch` that logs what was thrown and reports it to `ALERT_EMAIL` as `<mount> <name>`,
+and `safely(name, fn)`, a function that runs `fn` and does the same with what it throws, for a
+`setInterval`. A module on its own gets neither, and keeps its own log-only fallback
+(`failed ?? ((name) => (err) => console.error(...))`). A `start()` that throws is reported as
+`<mount> start` and the host goes on serving the other modules, without that module's stop.
+
 A host and its modules run **one copy of suite-core**: an `HttpError` thrown by a module must be
 the one the host's `createApp()` knows. A module whose `server/suite` is another copy, or that
 never calls `joinHost()`, stops the host's start, saying so. Not yet in the host: push notices
@@ -2137,6 +2164,7 @@ cards: {
                                                     // optional: read() of many at once, in a fixed
                                                     // number of queries (IN (…) by batches of ≤ 500)
     search: (user, text) => [card…],                // what this person may link, as read() shows it
+                                                    // (a LIKE on the text: likeOf(text), ESCAPE '\')
     create: (user, { title, place }) => id,         // optional: "Add to Tasks", by the module's rules
     places: (user) => [{ id, name }],               // optional: where create() may put it
     complete: (user, id, done) => {},               // optional: what "done together" does here
@@ -2160,14 +2188,23 @@ without it. A search's cards are shown as the module's `search` gives them, none
   could already see it: something they can't open is `hidden`, with no title; something deleted is
   `gone`, with its last title only to whoever linked it. A link shows while the person uses both
   modules, and nothing of a module they turned off can be linked or created (403 `module_off`).
-  Erased data leaves nothing here: after someone's data is erased in a module, and once an
-  account's removal is done, `links.prune()` drops the title of each side that is gone and removes
-  a link whose two sides are (v0.64.0).
+  That last title is kept as whoever linked it sees it (`createLinks({ userOf })`, the host's: a
+  side they no longer see keeps the last title they saw, never a rename after it; 0.291.0).
+  Erased data leaves nothing here: after someone's data is erased in a module, once an account's
+  removal is done, and every six hours (a minute after the host starts, then with its clean-up;
+  0.291.0), `links.prune()` drops the title of each side that is gone and removes a link whose two
+  sides are (v0.64.0).
 - **Created where it lives**: `POST /api/links/new { from, module, type, data, together }` asks the
   other module to create it, by its own rules, and links it in the same transaction ("Send to
-  Tasks"); `GET /api/links/search?module&type&q` lists what may be linked and the places to create
-  in. `POST /api/links { from, to, together }` links what exists; `PATCH /api/links/:id
-  { together }` and `DELETE /api/links/:id` change or remove a link, never the things.
+  Tasks"); `GET /api/links/search?module&type&q` lists what may be linked, `{ items, places,
+  creates }`, with the places to create in; `&places=0` leaves them out (`places: []`), as the kit's
+  "Link existing…" asks at each key: only "Add to…" shows them, and they cost the module a query
+  for each list (0.291.0). `POST /api/links
+  { from, to, together }` links what exists: 201 `{ link }`, or, for a pair linked already, 200
+  `{ link, existed: true }` with that link as it was (`together` unchanged; 0.291.0), so a page
+  says «already linked» and offers no undo (`linkItems()` → `{ link, existed }`; `links.connect()`
+  on the server, `links.link()` the link alone). `PATCH /api/links/:id { together }` and `DELETE
+  /api/links/:id` change or remove a link, never the things.
 - **Done together** is per link. The module calls, where it completes something,
   `suite.links?.done('task', id, true, { user })` inside its own transaction, and the other side's
   `complete()` runs in it; a chain of such links completes once each. `suite.links?.changed(type,
@@ -2196,15 +2233,17 @@ has with a date, next to its `cards`:
 calendar: {
   // What `user` sees with a date in [from, to] (both 'YYYY-MM-DD', included): an item is there
   // when its span overlaps them. The same permissions as the module's own pages; [] for nothing.
-  range: (user, { from, to }) => [item…],          // or a promise of them
+  // `limit` (CALENDAR_MODULE_MAX, 2000; 0.291.0): the most the host keeps, the earliest.
+  range: (user, { from, to, limit }) => [item…],   // or a promise of them
 },
 ```
 
-An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine?, time? }`: the
+An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine? }`: the
 module's own kind of thing (`task`, `phase`, `milestone`, `daily`), the row's id, its first and
 last day (the same for one day; without `end`, one day), what shows under the title (a list, a
 project › phase, a notebook), its url relative to the module as a card's (`?list=3&task=9`),
-whether it is the person's, and `HH:MM` when it has a real time of day.
+and whether it is the person's. Nothing has a time of day: the `time` the contract once named no
+module ever gave, and it is no longer kept (0.291.0, audit of 6/11, sc-feat-8).
 
 - **`GET /api/calendar?from=&to=`** at the root (401 signed out; 400 `field_invalid` naming `from`
   or `to` for a date that isn't one, `to` before `from`, or more than 366 days with both ends)
@@ -2268,24 +2307,42 @@ day: {
   // host calls it inside inZoneOf); overdue is before it. What they planned for today without a
   // date (Tasks' My Day) comes with `planned: true` and today's date. Only their own ("mine",
   // as each module counts it), with the same permissions as the module's pages.
-  agenda: (user, { today }) => [item…],           // or a promise of them
-  // What `user` did on `day` (their zone): what they completed, logged or wrote.
-  done: (user, { day }) => [item…],
+  // `limit` (DAY_MODULE_MAX, 200; 0.291.0) is the most the host keeps of each of the overdue and
+  // today's: so ask for the oldest `limit` overdue and today's up to `limit`, apart, not `limit`
+  // of both together (the overdue would push today's out: audit of 6/11, sc-feat-5).
+  agenda: (user, { today, limit }) => [item…]      // or a promise of either
+    | { items: [item…], overdueTotal },            // overdueTotal: how many are overdue in all,
+                                                   // when it gives fewer (0.291.0)
+  // What `user` did on `day` (their zone): what they completed, logged or wrote; the latest `limit`.
+  done: (user, { day, limit }) => [item…],
 },
 ```
 
-An agenda item is `{ type, id, title, date, where, url, mine?, time?, planned? }`; a done one
+An agenda item is `{ type, id, title, date, where, url, planned? }`; a done one
 `{ type, id, title, at, where, url, kind }`, `at` an ISO instant and `kind` `completed` (a task
 finished), `logged` (a step logged in Next) or `written` (a note created or edited). `type`, `id`,
-`title`, `where` and `url` are the calendar's. Each module gives 200 of each at most (the oldest
-of what is open, the latest of what was done) and each thing once.
+`title`, `where` and `url` are the calendar's; anything else is left out (`mine` and a `time` of
+day, which no page read: 0.291.0). The host keeps of each module its 200 oldest overdue, all of
+today's up to 200, and its latest 200 done, each thing once.
+
+**`overdueTotal`** (0.291.0): the number of the module's open things for the person dated before
+`today`, counted as its agenda counts them (the same lists, the same "theirs") but without its
+`LIMIT`: what it would list with no cap. A whole number; anything else counts as none. The host
+counts each module's overdue as the larger of that and the overdue items it gave, sums them as
+`overdue_total` and says that number in the morning notice («230 vencidas»). A module that gives
+every overdue thing it has needs no `overdueTotal`, and can keep answering a list. One that wants
+to work with a host before 0.291.0 too gives the object only when its args carry `limit` (an
+older host took only a list).
 
 - **`GET /api/day?date=`** at the root (401 signed out; 400 `field_invalid` naming `date` for one
   that isn't a day; without it, the person's today in their zone) asks every module the person uses
   that has a part of it, all at once, and answers `{ date, modules: [{ mount, name, color, icon }],
-  overdue, today, done, failed? }`: each item with its `module` and its url under the module's path.
-  `overdue` the oldest first, `today` by time of day (those with one first), `done` the latest first,
-  each then in the modules' order and each module's own. What can't be shown is left out (no type or
+  overdue, overdue_total, today, done, failed? }`: each item with its `module` and its url under
+  the module's path; `overdue_total` how many are overdue in all, which may be more than `overdue`
+  lists (0.291.0). `overdue` the oldest first, `today` and `done` (the latest first) each then in
+  the modules' order and each module's own. Whether the person uses each module is asked once a
+  module for the whole answer, from its row of `host_modules` (it was all of `/api/modules` for
+  each, three times over: 0.291.0, sc-host-11). What can't be shown is left out (no type or
   id, no day, a day after the one asked, no instant, a kind that isn't one). A module whose part
   throws, or gives no list, is logged and named in `failed`, never a 500. The page may be framed by
   the host's own pages (`pages`), as the calendar's.
@@ -2306,15 +2363,21 @@ of what is open, the latest of what was done) and each thing once.
   notice something (when there are two or more), and a button to its page, for a host with push. A
   module with nothing for a part leaves that function out of its `day` (Next and Notes have no
   `agenda`), so it isn't offered there.
-- **The notices**, with push, are checked every minute: for each person with a device
-  (`push.subscriptionsOf`, phones with the app included), a notice is due from its time until three
+- **The notices**, with push, are asked every minute and look every five, the step of a notice's
+  time (every zone is a whole number of quarter hours from UTC; a check that comes a step after the
+  last one that looked looks all the same): only the accounts with a device are read
+  (`push.peopleWithDevices()`, browsers subscribed and phones with the app; then
+  `push.subscriptionsOf` for the devices themselves), each zone's minute once (0.291.0: every
+  account was read every minute, audit of 6/11 sc-feat-1). A notice is due from its time until three
   hours after it on their day in their zone (`prefs.tz`), never past their midnight. It is claimed
   first in `host_day_notices` (host migration 8: one row a person, notice and day, its `outcome`
-  `sent`, `empty` or `failed`, forgotten after 60 days), so two checks never both send it; then its
+  `sent`, `empty` or `failed`; read by its day, host migration 12; forgotten once a day after
+  `DAY_LOG_DAYS`, 3 days since 0.291.0, 60 before), so two checks never both send it; then its
   lists are asked of the modules and, with nothing in them, nothing is sent, the day counting as
   done all the same. They go through the host's own push, in the person's language (their choice,
   the device's, their browser's last one, their account's): `{ title, body, tag, url }`, the
-  morning's «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para hoy: «A», «B» y 3 más» at
+  morning's «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para hoy: «A», «B» y 3 más»
+  (the overdue counted as `overdueTotal` says) at
   `/today/`, the evening's «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota» at
   `/today/?v=done`, with `tag` and push `topic` `day-morning` or `day-evening`.
 - **A module learns that the host says the morning's summary** from its suite: `suite.daySummary`
@@ -2444,6 +2507,19 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
   most four modules stay mounted: beyond that `onEvict(module)` names the least recently used one
   that doesn't show, for the shell to unmount.
+- **Live notices while put away** (Work 0.109.0). The shell holds the one live channel
+  (`/api/events?all`, §21.7) for a module while its window is out of view: from `onPause(module,
+  true, { hidden: true })` until `onPause(module, false, { hidden: true })`, which comes after the
+  module's `resume()`, the module's own `connectLive()` subscription gets no `onChange` and no
+  `onResync`, only `onState` and `onAccount`. The shell notes that it missed something and, once the
+  module is back and resumed, sends it a single `onResync()`, however many notices came (none if
+  nothing came). Meanwhile the module's copy on the device is kept by the shell's own background
+  subscription (Work's fresh.js, through the module's `refreshDevice`). So `pause()`/`resume()` need
+  not note live notices themselves, and a paused module must not reload on `visibilitychange`: the
+  page coming back into view does not bring a put-away window into view. A module whose `resume()`
+  reloads what it shows anyway gets the resync on top of it, so it should reload in one place only,
+  the resync. A window paused only while it is resized (`{ resizing: true }`) keeps hearing its
+  notices.
 - **Kept** in this browser as `work.layout`, one layout for every width (`{ all }`): the columns
   that don't fit a narrower desk stack where there is room, the layout kept as chosen until it
   fits again, and a phone (< 768 px) shows its focused window, its tabs moving that focus or

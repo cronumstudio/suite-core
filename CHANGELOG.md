@@ -3,6 +3,350 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.293.0 — 2026-11-15
+
+Audit of 6/11: the host's runtime, mail, push, the configuration and what was left of billing.
+
+- **A group left with nobody stops renewing** (`organizations.js`, `billing.js`, `app.js`; Martin's
+  decision of 13/11). When an account's deletion leaves a group of a kind kept when empty
+  (`onEmpty: 'archive'`) with nobody in it, the group was archived and its own subscription went on
+  renewing, with nobody to cancel it. Now its live subscriptions stop at the end of the period they
+  paid for, asked of the provider once the deletion's transaction is over and by the hourly sweep if
+  that fails, the same way a group's stop always goes (`billing.organizationArchived`, who wants it:
+  `empty`; each stop asked is `billing.organization.stop` in the log). The archive itself is in the
+  log too (`org.archive`, `reason: 'empty'`). `organizations.whenArchived(hook)` is new. Only with
+  `modules.organizations`, and a provider that can stop one.
+- **A relinked login keeps its renewals** (`billing.js`, billing-16). Someone whose WorkOS id changed
+  (WorkOS forgot it, and the same verified email signed in again) had their subscription's renewals
+  waiting forever for the old id, and lost Pro after the grace days while still paying. An event
+  whose identity nobody has here now goes, before waiting, to the person its subscription (or
+  purchase) is known for here, else to the person its customer is linked to. Someone who hasn't
+  opened this app yet still waits, as before.
+- **Back from a checkout in Work's shell** (`billing.js`, `app.js`, `host.js`, `web/plan-return.js`,
+  billing-8). Buying from a module's window sent the browser back to `/<module>/?billing=done`, the
+  module's page on its own, outside the shell. In a host with a page at its root (Cronum Work's
+  shell), a module's checkout now comes back to `/?open=/<module>/&billing=done` and its portal to
+  `/?open=/<module>/`: the shell opens that module's window and thanks (its `billingReturn()` at the
+  start, as it already does for its own Settings). Without such a page, as before. createApp's new
+  `billingReturn: { checkout, portal }` and registerBillingApi's `returnUrls` say it. The kit keeps
+  the plan from before a checkout under one key for the origin (`host.billing`; `<app>.billing`,
+  the key before, is still read once), so the shell knows it after a module's window began it.
+- **Plan names in every language** (`i18n/*.json`, `web/api.js`, billing-9, billing-11): `Free` and
+  `Team` are keys of the five catalogs («Gratis», «Gratuit»…, as the web says them), and the errors
+  `plan_feature` and `plan_limit` say the plan by that name. `errors.already_subscribed` names the
+  button Settings has now, «Change or cancel plan» (`kit.plan.change`), not «Manage subscription».
+- **/health reads the database file** (`app.js`, work-srv-1). `SELECT 1` read nothing: with the file
+  broken or unreadable underneath, /health still said 200. It now reads a page of the schema, and
+  once more through a read-only connection of its own, since the server's connection keeps its
+  pages in memory: a broken file is a 503. `/version` keeps the modules' versions (deployments are
+  checked with it).
+- **STARTTLS has a deadline, and nothing in clear rides past it** (`mail.js`, sc-host-2). A server
+  that went quiet during the TLS handshake kept the send (and its socket) waiting forever; now the
+  handshake has the same deadline as every reply. A reply sent in the clear behind "220 go ahead"
+  stops the conversation (`MailError`) instead of answering the first encrypted command.
+- **A silent APNs connection is replaced** (`native-push.js`, sc-host-3). A request that timed out
+  left its HTTP/2 session in use, and every next notice to an iPhone timed out on it, 10 s each,
+  until the system dropped the TCP. The session is now destroyed at the timeout, and the next send
+  connects again. `createApnsSender({ timeoutMs })`, 10 s by default.
+- **A module's start can't stop the host, and its jobs reach the alerts** (`host.js`, sc-host-4,
+  work-srv-4). A `start()` that throws is logged and emailed (`<mount> start`) and the other modules
+  are served. `start()` gets `failed(name)` (for a promise's catch) and `safely(name, fn)` (for a
+  timer) besides `day` and `uses`: what a module's own job throws is logged and emailed as the
+  host's jobs are, as `<mount> <name>` (docs/architecture.md, section 21).
+- **The phone's connect page under Work's shell** (`host.js`, sc-host-9): back from a provider's
+  sign-in at `/` with the request's cookie, the browser goes to the connect page again; a host
+  whose own page is its root answered `/` with that page first, and the request was lost.
+- **One runtime for an app and a host** (`runtime.js`, `app.js`, `host.js`, sc-host-12). The server
+  around the handler, the install's jobs (clean-ups, OAuth, account deletion, WorkOS, the groups'
+  stops), the process signals and the lines said on listening were written twice and had started
+  to differ; both use the same ones now. A module's `createApp()` in a host no longer makes an
+  `http.Server` it never listens on (`app.server` makes it when first asked for).
+- **`rateLimits` takes every limit the limiter has** (`config.js`, sc-host-6): the defaults and the
+  names come from `rate-limit.js`'s `DEFAULT_LIMITS`; `rateLimits: { billing: 20 }` stopped the
+  start ("not a limit").
+- **ADMIN_EMAIL with WorkOS** (`config.js`, work-srv-10): a warning at the start when it is empty,
+  since nobody who signs in becomes an administrator. The text for `EARLY_ACCESS_UNTIL` says what
+  the code does: the first day after the early access (2027-01-01 keeps 31 December in it), as
+  Work's `.env.example` says; it said "the date the early access ends".
+- **Removed, nobody called them** (sc-host-5, sc-host-7): `push.sendTo` and the module wrappers'
+  `send` and `sendTo` (`host-worker.js`; a module's push has `deliver` only, and no unmarked `send`
+  spread from the host's); `reload` and `replayed` in the small body that replays an answer too big
+  to keep (`idempotency.js`: `{ id }`, or `{}`; the `Idempotent-Replayed` header says it is a
+  replay). `http.js sendError` stays, used now by createApp's own error answer.
+
+## 0.292.0 — 2026-11-15
+
+- **The MCP layer, after the audit of 6/11** (`mcp.js`, `host.js`, `calendar.js`, `links.js`,
+  `mcp-files.js`, `oauth.js`, `mcp-kit.js`, `web/agents.js`; sc-mcp-6, -10, -11, -12, -15, -16,
+  -17, -19, -20, -22, -23, claims-ai-4).
+  - **Arguments reach a tool as its schema says them** (`coerceArguments`, sc-mcp-6): the check
+    let `"false"`, `"true"`, `0`/`1` through for a boolean and `"30"` for a number, and the tools
+    read `args.apply === true` and `Number.isInteger(args.days)`: `projects_reschedule
+    { apply: "false" }` moved the dates and `tasks_get_agenda { days: "30" }` was a week. Now they
+    become `false` and `30`, in nested objects and lists too. A number where a text goes stays as it
+    came (some tools tell an id from a title by its type), and so does what the schema doesn't name
+    or names with `anyOf`. With `checkArgs: false`, nothing changes.
+  - **`GET /mcp` answers 405** (sc-mcp-15), after the token as before (a client without one still
+    gets the 401 that starts the sign-in): it held an SSE channel and a 25 s timer open for good per
+    request, with nothing ever sent on it. Streamable HTTP lets a server say it has no such channel.
+    The `sessions` map, written and never read, and `bearerToken`'s unused `url` are gone;
+    `Access-Control-Allow-Methods` and `Allow` say `POST, DELETE, OPTIONS`.
+  - **An unexpected error says nothing of itself** (sc-mcp-20): the assistant read the internal
+    message (SQLite's, with tables and columns); now «Something went wrong running X; it was noted.
+    Tell the user, and don't retry it as it is.», the error in the log. `params: null` is no params
+    (it gave an HTTP 500), params that aren't an object are `-32602`, and a method that throws is
+    that message's `-32603`, not a 500 for the whole batch.
+  - **The host's own tools answer in sentences** (sc-mcp-11): `hostMcp` gives a `describeError` over
+    the suite's catalog (`errors.<code>` in English), for what neither a module nor the host
+    described; `work_calendar` had `field_invalid` for a span of over 366 days or a date that isn't
+    one. Its `from` and `to` carry `format: 'date'`, and it says what it takes («"to" must be on or
+    after "from" and at most 366 days from it»).
+  - **A module's answers name its tools with the host's prefix** (sc-mcp-12, with `namesInText`):
+    «give it one with edit_step» is `next_edit_step`, in what a tool answers and in its errors, as
+    in its description already. Not in what a tool that only reads answers: that carries the
+    person's own words (a note's body, a step's detail), which may go back whole in an edit.
+  - **The instructions that don't fit are named** (sc-mcp-17): `hostInstructions` takes
+    `onLeftOut(mounts)`, `hostMcp` gives `instructionsLeftOut(principal?)`, and a host says at start
+    which modules' part it leaves out (`[mcp] warning: the instructions leave out …`). Cronum Work's
+    are 2 038 of 2 048 characters today, every module in.
+  - **Upload links have a ceiling per account** (`MAX_UPLOAD_LINKS_PER_USER`, 10; sc-mcp-16): one
+    account asking a hundred times made everyone else's pending links go; now it only pushes out its
+    own. The module's ceiling (100) stays.
+  - **Limits in the host's schemas** (sc-mcp-22): `work_link_item`'s `create.title` (500) and
+    `create.place` (200); the door's `names` takes as many as there are behind it (it said 30 with 31
+    there), and its two tools' own arguments go through the check as any tool's.
+  - **Built-in OAuth** (`AUTH_PROVIDER=local` only; sc-mcp-19, the 23/10's sc-oauth-mcp-3 to -7):
+    the sign-in posted to `/oauth/authorize` without a session is taken only from this site's pages
+    (`Sec-Fetch-Site`, else `Origin`: login CSRF); a Basic header that doesn't decode is
+    `invalid_client`, not a 500 and an alert; a grant's `last_used_at` is written once a minute at
+    most; a refresh token once used is kept a week, not its 60 days; a client document (CIMD) that
+    has to be fetched counts against the address as a registration does, and one that couldn't be
+    read isn't fetched again for a minute.
+  - **`mcp-kit.js` without what nobody used** (sc-mcp-23): `tool()` and `S.number` are gone (no
+    module, Work, Focus or Tracker called them), and its header no longer counts tokens.
+  - **Your AI offers the web's agents** (`web/agents.js`, claims-ai-4): Grok and Perplexity, with the
+    steps cronumstudio.com/work/ gives; Gemini is gone (web#60: custom connectors only for adults
+    with a personal account in the US). Claude's and ChatGPT's steps are the web's of 11/11
+    (Customize › Connectors; Plugins › Add custom MCP server), ChatGPT's last one too.
+    `kit.agents.grok.*`, `kit.agents.perplexity.open` and `kit.agents.addSignIn` in five languages;
+    `kit.agents.gemini.*` and `kit.agents.paste` gone.
+  - **Settings › Your AI's switch says what the door does without counting** (`kit.ai.toolsHint`,
+    sc-mcp-10): «about a quarter less» was a third, and the list in brackets had drifted (sharing
+    is not behind it since 0.243.0).
+
+## 0.291.0 — 2026-11-15
+
+Daily summary, calendar and links findings of the 6/11 audit. Additive for every module: what a
+module gives today keeps working as it does.
+
+- **The daily notices read only who has a device** (`day.js`, `push.js`, `host.js`; sc-feat-1,
+  sc-host-1). Every minute the scheduler read every account, its preferences and zone, and asked
+  for the devices of everyone in a window, phone or not. Now `push.peopleWithDevices()` (one query:
+  browsers subscribed, phones with a token on a device not revoked) says whose rows to read; each
+  zone's minute and day are read once; the host looks every five minutes (`createDayNotices({
+  everyMinutes: 5 })`: every notice's time is on a five-minute step and every zone is whole
+  quarter hours from UTC; a check that comes a step after the last one that looked looks anyway).
+  `host_day_notices` is read by its day through an index (host migration 12) and forgotten once a
+  day, after `DAY_LOG_DAYS` = 3 days (it was 60, every minute). Without `peopleWithDevices` (a
+  push of another shape) the scheduler reads every account, as before. One check, 5 % of accounts
+  with a device, on this PC: 1 000 accounts 135 → 5 ms, 10 000 accounts 1 170 → 39 ms.
+- **Whether someone uses a module is one row** (`host.js`, `day.js`; sc-host-11). `uses()` read
+  all of `/api/modules` (five queries, a JSON parse and a sort) for each module asked; it reads its
+  row of `host_modules` now, with the same answer. The summary and each notice ask it once a module
+  (GET /api/day asked it of every module three times over).
+- **Today's things no longer vanish behind 200 overdue ones** (`day.js`; sc-feat-5). The host
+  kept a module's 200 oldest of everything, so with 200 overdue nothing of today was left and the
+  notice counted 200. It keeps the 200 oldest overdue and today's (up to 200) apart, and a module
+  may answer `{ items, overdueTotal }`: `overdueTotal`, how many it has overdue past its own cap,
+  goes into `GET /api/day`'s new `overdue_total` and the morning notice's count. A list, as
+  before, still works.
+- **The caps go to the modules** (`day.js`, `calendar.js`; sc-feat-14): `agenda` and `done` get
+  `limit` (DAY_MODULE_MAX) in their args, the calendar's `range` its `limit`
+  (CALENDAR_MODULE_MAX), so they need not repeat them. `time.js` `isoInstant(stamp)` (Tasks' and
+  Projects' `isoOf`) and `links.js` `likeOf(text)` (the LIKE escaping in three cards.js), for the
+  modules to adopt. (`dayStart`/`daySpan` came with 0.277.0.)
+- **No more time of day** (`day.js`, `calendar.js`; sc-feat-8). No module gives one: `time` is no
+  longer kept from an agenda or calendar item, the summary no longer sorts by it, and
+  `work_calendar` no longer says "at HH:MM". The summary's items also leave out `mine`, which no
+  page reads (sc-feat-17); the calendar keeps it.
+- **Linking a pair linked already says so** (`links.js`, `web/links.js`; sc-feat-11). `POST
+  /api/links` answers 200 `{ link, existed: true }` for it (201 `{ link }` for a new one, as
+  before), and `linkItems()` gives `{ link, existed }`; `links.connect()` on the server.
+- **Places only for "Add to…"** (`links.js`, `web/links.js`; sc-feat-15). `GET
+  /api/links/search?places=0` leaves out the places to create in (`places: []`), and the kit's
+  "Link existing…" sends it: it asked them at every key and never showed them. Without it, as
+  before.
+- **Titles of deleted things** (`links.js`, `host.js`; sc-feat-16). `links.prune()` runs a minute
+  after the host starts and every six hours, not only when an account goes; and a side's title is
+  kept as whoever linked it sees it (`createLinks({ userOf })`): a rename after they lost sight of
+  it never reaches them when it is deleted.
+- **Unused options out** (`day.js`, `links.js`; sc-feat-17): `day.any()`, `ask()`'s `max`, and
+  `cardOf`, `cardsOf`, `parseRef`, `formatRef` on what `createLinks()` returns (`parseRef` and
+  `formatRef` stay exported from `links.js`). `?date=` stays: Work's tests read another day.
+
+## 0.290.0 — 2026-11-14
+
+- **An address nobody has is a 404 page, not the app's page drawing nothing** (`app.js`, `host.js`,
+  `brand.js`, `web/not-found.html`; audit prod-9). `/nope`, `/tasks/nope/deep` or `/.git/config`
+  answered 200 with the app's page; a deep one asked for its files under the wrong path and stayed
+  blank, and `/api` and `/tasks/api` were HTML where a client expects JSON.
+  - `createApp({ clientRoutes })`: the paths its page answers that are no file. Any other path
+    without an extension is the kit's 404 page, in the browser's language (`kit.notFound.*`), with
+    a link to `/`; a folder with its own index.html asked for without its slash (`/calendar`) is a
+    308 to it. A host gives `['/']` to its root and to each module (`createModule().clientRoutes`
+    for one that needs more): no module has a route in its path (Tasks and Projects read the
+    query, Notes and Next the hash). Without the option, as before.
+  - For every app: `/api` itself is the JSON `not_found`, and a path with a part that starts with
+    a dot (`/.env`) is a plain 404, never the page.
+- **`/.well-known/`: only OAuth's say "No OAuth here", and security.txt** (`app.js`, `config.js`;
+  audit prod-10). `/.well-known/openid-configuration`, `security.txt` and the rest answered the
+  OAuth sentence; now `{ "error": "not_found" }`, but for `oauth-protected-resource` and
+  `oauth-authorization-server` (and `/register`, `/authorize`, `/token`, `/oauth`), as before.
+  `/.well-known/security.txt` (RFC 9116): `Contact` from `SECURITY_CONTACT`
+  (`mailto:hello@cronumstudio.com` when empty), `Expires` a little under a year ahead, worked out
+  on each request, `Preferred-Languages: en, es` and `Canonical`.
+- **The host's /sw.js answers 304** (`host.js`; audit prod-13): `ETag: W/"<fingerprint>-<hash>"`,
+  as `/js/app-version.js` has its own; every check took the whole script again.
+- **An import says how big it may be, before and when it is too big** (`config.js`,
+  `portability.js`, `app.js`, `host.js`, `web/settings.js`, `web/api.js`; audit prod-14).
+  Settings said nothing useful for a copy over 100 MB: Cloudflare cuts it with a page of its own
+  before the server sees it, while the import took up to 512 MB.
+  - `IMPORT_MAX_MB`: the most an import takes over HTTP, someone's own and the admin's; when empty,
+    95 behind Cloudflare (`trustProxy: 'cloudflare'`, as Cronum Work's config has it), the suite's
+    own ceilings otherwise. `withImportCeiling(limits, mb)` (portability.js): the lower wins.
+  - Too big at the server is `413 file_too_large { max_mb }`, the sentence files already had,
+    where it was `body_too_large` ("Too much text"). `GET /api/auth/config` says
+    `app.imports.max_bytes`, and Settings says it before sending the file.
+  - The kit's client (`web/api.js`): a 413 without the server's code is `upload_too_large`.
+- **Sharing and public pages in the audit log** (`sharing.js`, `public-page.js`; audit authz-8).
+  Only what an assistant did reached /admin › Activity (`mcp.tool`); from the web, sharing
+  something or making it public left nothing.
+  - `createSharing({ audit, module })`: `share.offer` (a new offer, or one made again while
+    unanswered; an address without an account as `stranger`), `share.permission`,
+    `share.withdraw` (its owner took it back) and `share.leave` (declined or left), with the kind
+    and its id, who it was for (`meta.user`) and the request's address when a route made it;
+    never a name, a title or an email. `auditShare(audit, …)` writes the same line for a module
+    that shares without the engine (Projects' team).
+  - `createPublicPage({ audit, kind, module })`: `public.open` and `public.close`, never the token;
+    `open` and `close` take `{ req }`, as its routes pass it. `auditPublic(audit, …)` for a module
+    whose page doesn't go through it yet.
+  - The modules pass `audit: suite.audit` (and their name) to have them: without it, as before.
+  - Their names in Activity, in the five languages (`admin.actions.share_*`, `public_*`).
+- **CONVENTIONS §4: a version tag publishes no image** (deps-ci-9): Cronum Work is built by its
+  deployment from its repository; the modules' ghcr images were private and nothing pulled them.
+  §5 names `SECURITY_CONTACT` and `IMPORT_MAX_MB`.
+
+## 0.289.0 — 2026-11-14
+
+Sign-in and account security (audit of 6/11: sc-auth-5, -6, -7, -10, -11, -12, -13, authz-9,
+sc-mcp-2, deps-ci-11, -12).
+
+- **Straight to the provider, two cases fixed** (`web/signin.js`, `web/signin-form.js`; sc-auth-5).
+  «No, let it go» on the card of an account waiting to be deleted shows the usual card instead of
+  going straight back to AuthKit, which still had a session and brought them to the same card; and
+  with the site's data blocked, merely naming `sessionStorage` threw before the `try`, so `signIn()`
+  failed instead of drawing the card: it is read inside it now.
+- **One state cookie per sign-in, for 30 minutes** (`http.js` `signInFlowCookies`,
+  `workos-accounts.js`, `oidc.js`; sc-auth-6). Every page without a session starts a sign-in by
+  itself since straightToProvider, and the one `<app>_auth` cookie (10 minutes) let a second tab
+  take the first one's place, and an AuthKit page left open over 10 minutes come back to «could
+  not be completed». Each sign-in has `<app>_auth_<first 8 characters of its state>` (Path=/auth,
+  Max-Age 1800, as a phone's connect page waits, `CONNECT_MS`), and the callback reads the one its
+  `state` names. `<app>_auth` is still written with the newest one and read when a flow's own is
+  missing: a sign-in started before this version comes back, and an app's tests that read
+  `<app>_auth=` keep working. `tools/test-kit.mjs` `fakeWorkos().signIn` sends both, as a browser.
+- **A malformed state cookie is a failed sign-in, not a 500** (`workos-accounts.js`, `oidc.js`;
+  sc-auth-10). Their own copies of `cookieValue`, `addCookie` and `safeEqual` are gone for the
+  suite's `parseCookies`, `appendHeader` and `crypto.js` `safeEqual`; `localPath` lives in `http.js`
+  for both. `Cookie: work_auth=%E0%A4%A` threw before the callback's `try`, answered 500 to anyone
+  and counted towards the error-burst alert: now `/?auth_error=failed`.
+- **The shortest password with WorkOS is the app's** (`workos-security.js`, `app.js`, `api.js`,
+  `web/settings.js`, `web/api.js`, i18n; sc-auth-7). `registerWorkosSecurityApi` takes
+  `minPasswordLength` (createApp passes `config.accounts.minPasswordLength`; 8 when nobody says, as
+  before) for Settings' new password and the admin's: Settings said «at least 8» where Work and
+  WorkOS's policy ask for 10. `password_rejected` carries `n`, its sentence says it (`{n}` in
+  `errors.password_rejected` and `kit.security.workosPasswordHint`, five languages; 8 for a server
+  from before), and when WorkOS refused it, WorkOS's reason after it (`kit.security.providerSays`).
+  `/api/auth/config` gives `password_min` with WorkOS too (still null with OIDC), and a login the
+  admin makes for a new account takes the same shortest (`logins.minPasswordLength`).
+- **Every action of the log is a sentence in Activity** (i18n; sc-auth-11):
+  `auth.revoke_everything`, `oauth.connection.revoke`, `billing.customer_unvouched`,
+  `billing.customer_conflict`, and the others nobody had written (`admin.early_access.keep`,
+  `calendar_feed.*`, `billing.refunded`, `.unchanged`, `.unsigned`), plus `org.archive` for the
+  pull request that records it. `test/audit-actions.test.js` reads every action the server code
+  records and checks each has its sentence in every language.
+- **The log by action has an index** (`audit.js`, `schema.js`, suite migration 31
+  `audit-action-index`; sc-auth-12): `ix_audit_action ON audit_log (action, id)`, which Activity's
+  list of actions and one action's newest entries read instead of the whole table.
+- **WorkOS: the second step's codes braked, password checks with their address** (`workos-security.js`;
+  sc-auth-13). `confirmCode` (turning the second step off, the admin's own code) has the limiter's
+  `checkCode`/`codeFailed`/`codeSucceeded`, as a local code has: 429 `too_many_attempts` after five
+  wrong ones. `checkPassword` is told `clientIp(req)` (`trustProxy` from createApp), which went to
+  WorkOS as null. `crypto.js` `decryptText` takes only a whole 16-byte tag (`authTagLength`).
+- **Before what can't be undone, the WorkOS password too; a replacing import asks as erasing does**
+  (`api.js` `identityCheck`, `workos-security.js` `confirmIdentity`, `portability.js`, `app.js`,
+  `web/settings.js`; authz-9). With WorkOS an open session alone erased everything, the bin
+  included: erasing one's data and deleting one's account now ask for the password the person has
+  at WorkOS (not of whoever signs in with Google & co., as before), with the brake of sign-in.
+  `POST /api/me/import/:id` with `replace: true` asks for `confirm: true` and the password, as
+  `/api/me/erase` does, and Settings asks for it with the same dialog (the word typed, the password).
+  `identityCheck` is async now; its callers await it.
+- **A shared login with the MCP doesn't start without `WORKOS_MCP_AUDIENCE`** (`config.js`;
+  sc-mcp-2). With `accounts.sharedIdentity` and `modules.mcp`, a missing (or blank)
+  `WORKOS_MCP_AUDIENCE` is a configuration error instead of a warning: a token someone gave a client
+  for another product of the same WorkOS environment opened this MCP. Without sharedIdentity, the
+  warning as before. The variable is the one `workos.js` reads and production sets.
+- **Test data and ignored files** (deps-ci-11, -12): `test/web-admin-filters.test.js` (and
+  `web-admin-new-account.test.js`) use example data (`tester@example.com`) instead of a real
+  alias; `.gitignore` adds `.claude/`, `CLAUDE.local.md`, `.cloudflare/`, `.dev.vars*`, `*.log`,
+  `*.stackdump`, `tmp/` and `data/`.
+
+## 0.285.0 — 2026-11-14
+
+- **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,
+  `page-hints.js`, `host-worker.js`, `host.js`; audit of 6/11, perf-web-5). Every copy of the kit
+  asked for English and then the person's language, one after the other, though English only
+  stood in for a key the language lacked: in Cronum Work, two catalogs per module, most of their
+  bytes the kit's texts twice.
+  - `GET /i18n/<lang>.json?en` (also with `?all`): the language with English under it, every key
+    it lacks English's, and `$meta.fallback: "en"` saying so (`CATALOG_FALLBACK`). Each key reads as
+    before, English's where the language has none; `/i18n/<lang>.json` is the language alone, as it
+    was (the conformance check reads what it lacks), and English is still `/i18n/en.json`.
+  - The kit asks for that one alone (`catalogPath(lang)`): English only for English. A catalog
+    that comes without the mark (an older server, a copy kept before) has English asked for too,
+    as before; none at all (no signal and no copy), English stands in, as it did.
+  - A module page's `Link` names that one catalog (`es.json?en`, or `en.json`), and a host's worker
+    keeps every other language's as the kit asks for it (`catalogsOverEnglish`), its hash with the
+    app's English file in it too (`shellHashes`): a weak signal waits for no catalog.
+  - Measured on a local Work in Spanish (every key of every module's catalog, and the shell's, in
+    every language, reads the same both ways): a module's catalogs are 1 request where they were 2,
+    and Tasks' 108 KB where they were 212 (Notes 83/162, Projects 88/172, Next 81/159, the shell 68/133);
+    with the four modules and the shell, 5 catalogs and 428 KB where there were 10 and 838 KB.
+- **A module's start no longer evaluates the sign-in screen, Settings' plan and the worker**
+  (`web/signin.js`, `web/signin-form.js`, `web/plan.js`, `web/plan-return.js`, `web/shell.js`,
+  `web/update.js`, `web/sw-core.js`; audit of 6/11, perf-web-4). Each module mounted in Cronum Work
+  loads the kit from its own address and evaluated its own copy whole, with code that inside Work
+  never runs or runs only on a tap.
+  - The sign-in screen is `signin-form.js`, which `signIn()` loads when it draws it: a page with a
+    session never evaluates it. `signin.js` keeps every export (signing out, `pendingChanges`,
+    `confirmEmailFromLink`, `straightToProvider`…); `signIn()` resolves as before, the screen a
+    moment later than before (its file, from the worker's copy).
+  - `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, which the frame (shell.js)
+    takes them from; `plan.js`, Settings' plan section, comes only with Settings, and still names
+    all three.
+  - `update.js` asks for worker.js (and with it push.js) only when a check needs the host's worker:
+    a module in a window of Work, which never watches for updates itself, doesn't evaluate them.
+  - The worker's copy keeps the two new files.
+  - Measured from the static imports of each module's main.js (what Work mounts): the kit a module
+    evaluates goes from 402 to 337 KB in Tasks, 388 to 314 in Projects, 405 to 331 in Notes and 382
+    to 308 in Next, 1 577 to 1 289 KB with the four; the shell's own copy from 299 to 288 KB. In the
+    test Chrome, with no worker, cold: Tasks' window 27 kit files and 372 KB where it was 28 and 422
+    (the four, 108 files and 1 674 KB → 101 and 1 446 KB; parsed, 1 595 → 1 372 KB).
+- **Docs: live notices while a module is put away** (`docs/architecture.md` §21.6; audit of 6/11,
+  perf-web-2): the mount contract says what the shell does with a hidden module's notices since Work
+  0.109.0 (held, then one `onResync()` after `resume()`), and that a paused module doesn't reload on
+  `visibilitychange`.
+
 ## 0.284.0 — 2026-11-14
 
 Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same

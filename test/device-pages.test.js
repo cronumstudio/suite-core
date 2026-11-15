@@ -656,10 +656,11 @@ test('failures count against the address, as the token’s exchange does, and pa
 const fixture = (name, q) => new URL(`./fixtures/host/${name}/module.js${q}`, import.meta.url);
 let fresh = 0;
 
-async function startHost(t, product = {}) {
+async function startHost(t, product = {}, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-device-pages-host-'));
   fresh += 1;
   const host = await createHost({
+    ...options,
     config: { app: { id: 'work', name: 'Work', color: '#3A4660', icon: '/icons/work.svg', languages: ['en', 'es'] }, ...ON, ...product },
     modules: [{ mount: 'alpha', entry: fixture('alpha', `?devices=${fresh}`) }, { mount: 'beta', entry: fixture('beta', `?devices=${fresh}`) }],
     env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' },
@@ -710,6 +711,23 @@ test('at a host’s root: the connect page, the web session with the host’s co
   assert.match(back.headers.get('location'), /^\/devices\/connect\?code_challenge=/);
   assert.ok(back.setCookies.some((c) => /^work_connect=; Max-Age=0/.test(c)));
   assert.equal((await call('GET', '/')).headers.get('location'), '/alpha/', 'without it, as before');
+});
+
+test('at a host whose own page is its root (Work’s shell), `/` with the request’s cookie still goes back to the page (audit sc-host-9)', async (t) => {
+  const pageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-device-pages-shell-'));
+  t.after(() => fs.rmSync(pageDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(pageDir, 'index.html'), '<!doctype html><title>Desk</title>');
+  const { host, call, cookie: session } = await startHost(t, {}, { pages: [{ at: '/w/', dir: pageDir, root: { except: ['modules'] } }] });
+  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+  const cookie = createConnectCookie({ name: 'work_connect', sign: host.suite.sessions.sign, redirectUris: [BACK] });
+  const value = cookie.value(connectRequest(new URLSearchParams(ASK()), { redirectUris: [BACK] }));
+  const back = await call('GET', '/', undefined, { Cookie: `${session()}; work_connect=${value}` });
+  assert.equal(back.status, 302, 'not the shell: the shell answered `/` first and the request was lost');
+  assert.match(back.headers.get('location'), /^\/devices\/connect\?code_challenge=/);
+  assert.ok(back.setCookies.some((c) => /^work_connect=; Max-Age=0/.test(c)));
+  const home = await call('GET', '/');
+  assert.equal(home.status, 200, 'without it, the shell as before');
+  assert.match(home.data, /<title>Desk<\/title>/);
 });
 
 test('a host without the options keeps `/` and /devices/ as they were; a module can’t take that path when they are on', async (t) => {

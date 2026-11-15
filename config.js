@@ -28,6 +28,7 @@ import { productSeatsProblem } from './billing.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
 import { organizationKinds } from './organizations.js';
+import { DEFAULT_LIMITS } from './rate-limit.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -303,9 +304,11 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
 
   const rl = isObject(p.rateLimits) ? p.rateLimits : {};
-  const rateLimits = { account: 10, ip: 60, token: 30, registration: 30, mail: 10, mailTo: 3, signup: 5, code: 5, importTo: 10, devices: 30, ...rl };
+  // The limiter's own list (rate-limit.js), once: a copy here had drifted, and refused `billing`
+  // and `devicesRefused`, which the limiter takes (audit sc-host-6).
+  const rateLimits = { ...DEFAULT_LIMITS, ...rl };
   for (const [key, value] of Object.entries(rateLimits)) {
-    if (!['account', 'ip', 'token', 'registration', 'mail', 'mailTo', 'signup', 'code', 'importTo', 'devices'].includes(key)) errors.push(`rateLimits.${key} is not a limit`);
+    if (!Object.hasOwn(DEFAULT_LIMITS, key)) errors.push(`rateLimits.${key} is not a limit`);
     else if (!wholeNumber(value, 1, 100000)) errors.push(`rateLimits.${key} must be a whole number`);
   }
 
@@ -335,10 +338,22 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     const missing = ['WORKOS_API_KEY', 'WORKOS_CLIENT_ID', 'WORKOS_AUTHKIT_DOMAIN'].filter((name) => !env[name]);
     // With WorkOS half set up nobody could sign in, not even the administrator.
     if (missing.length) errors.push(`AUTH_PROVIDER=workos, but these are missing: ${missing.join(', ')}`);
+    // Under WorkOS the first administrator is whoever signs in with ADMIN_EMAIL verified: without
+    // it everyone who signs in is a user, and nobody reaches the admin panel (audit work-srv-10).
+    if (!String(env.ADMIN_EMAIL || '').trim()) {
+      warnings.push('ADMIN_EMAIL is not set: with AUTH_PROVIDER=workos it is the verified address that administers, and without it nobody who signs in becomes an administrator');
+    }
     // Without an audience any token of the AuthKit environment opens this app's MCP, also one
     // a person gave to another app of the suite. A warning and not an error: an install that
     // starts requiring it must first have its Resource Indicator set in WorkOS.
-    if (modules.mcp && !env.WORKOS_MCP_AUDIENCE) {
+    // With the login shared by the suite's products (accounts.sharedIdentity: one WorkOS
+    // environment for Work, Focus, Tracker…), that is not an install that might not have it yet but
+    // the very case it is for: a token someone gave a client for another product would open this
+    // MCP, and make them an account here. It doesn't start without it (audit sc-mcp-2); the
+    // variable workos.js reads, as production sets it.
+    if (modules.mcp && accounts.sharedIdentity && !String(env.WORKOS_MCP_AUDIENCE || '').trim()) {
+      errors.push(`WORKOS_MCP_AUDIENCE is required with accounts.sharedIdentity and the MCP on: without it, MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to ${String(env.BASE_URL || 'BASE_URL').replace(/\/+$/, '')}/mcp, with that resource in WorkOS`);
+    } else if (modules.mcp && !env.WORKOS_MCP_AUDIENCE) {
       warnings.push(`WORKOS_MCP_AUDIENCE is not set: MCP tokens issued for another app of the same WorkOS environment are accepted here. Set it to ${String(env.BASE_URL || 'BASE_URL').replace(/\/+$/, '')}/mcp, with that resource in WorkOS`);
     }
   }
@@ -407,6 +422,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
         if (billing && billing.provider !== provider.id) throw new Error(`billing provider "${provider.id}": fromEnv() names "${billing.provider}"`);
       }
     }
+    // EARLY_ACCESS_UNTIL is the first day after the early access (2027-01-01 keeps 31 December in it).
     // Who joined before this date pays the founder's price of the products that have one; with
     // FOUNDER_OFFER_UNTIL, only until that date, and after it the regular price, founders too.
     // FOUNDER_JOIN_UNTIL gives more time to join at that price, past the end of the early access.
@@ -439,7 +455,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   let earlyAccess = null;
   if (env.EARLY_ACCESS_PLAN) {
     const until = Date.parse(env.EARLY_ACCESS_UNTIL || '');
-    if (Number.isNaN(until)) errors.push('EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL, the date the early access ends (2026-12-31)');
+    // The date is the first day after the early access, as everything that reads it takes it
+    // (`now < until`), and as Work's .env.example says (audit work-srv-10).
+    if (Number.isNaN(until)) errors.push('EARLY_ACCESS_PLAN needs EARLY_ACCESS_UNTIL, the first day after the early access (2027-01-01 keeps 31 December in it)');
     else earlyAccess = { plan: env.EARLY_ACCESS_PLAN, until: new Date(until).toISOString() };
   }
   const own = withCatalog(p, billing, errors);
@@ -484,6 +502,10 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     push,
     // With push.native: { apns, fcm }, each null when its credentials aren't set.
     ...(nativePush ? { nativePush } : {}),
+    // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT).
+    securityContact: securityContactOf(env.SECURITY_CONTACT, warnings),
+    // The biggest copy of data an import takes over HTTP, in MB (IMPORT_MAX_MB); null: portability.js's own.
+    importMaxMb: importMaxMbOf(env.IMPORT_MAX_MB, env.TRUST_PROXY || p.trustProxy, errors),
     hotReload: env.HOT_RELOAD === 'true',
   };
 
@@ -734,4 +756,38 @@ function productsFor(products, billing, errors) {
     out[key] = resolved;
   }
   return out;
+}
+
+/** Cronum Studio's address for reports of a security problem: the suite's own, until an install names its own. */
+export const SECURITY_CONTACT = 'mailto:hello@cronumstudio.com';
+
+/**
+ * SECURITY_CONTACT: a mailto: or https: address (RFC 9116), or a bare email, which becomes a
+ * mailto:. Anything else is said once and the suite's address stands: a typo there must not stop the app.
+ */
+function securityContactOf(value, warnings) {
+  const given = String(value ?? '').trim();
+  if (!given) return SECURITY_CONTACT;
+  if (/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/i.test(given)) return given;
+  if (/^[^\s@:/]+@[^\s@]+\.[^\s@]+$/.test(given)) return `mailto:${given}`;
+  warnings.push(`SECURITY_CONTACT "${given}" is not a mailto: or https: address: ${SECURITY_CONTACT} is used`);
+  return SECURITY_CONTACT;
+}
+
+/**
+ * Cloudflare cuts any request over 100 MB (the plans below Enterprise) with a page of its own,
+ * before it reaches the server: an install behind it takes copies of up to 95 MB, and says so.
+ */
+export const CLOUDFLARE_IMPORT_MB = 95;
+
+/** IMPORT_MAX_MB: a whole number of MB; by default 95 behind Cloudflare (`trustProxy: 'cloudflare'`), else null. */
+function importMaxMbOf(value, trustProxy, errors) {
+  const given = String(value ?? '').trim();
+  if (!given) return String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare' ? CLOUDFLARE_IMPORT_MB : null;
+  const mb = Number(given);
+  if (!wholeNumber(mb, 1, 4096)) {
+    errors.push(`IMPORT_MAX_MB "${given}" is not a whole number of MB between 1 and 4096`);
+    return null;
+  }
+  return mb;
 }
