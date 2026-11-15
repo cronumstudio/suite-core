@@ -30,7 +30,7 @@
  * `id`, `title`, `where` and `url` say what they say in the calendar (calendar.js). Anything else
  * an item carries (`mine`, a `time` of day) is left out: no page reads it.
  *
- * `limit` came with 0.286.0 (audit of 6/11, sc-feat-14): a module that sees it in its args knows
+ * `limit` came with 0.291.0 (audit of 6/11, sc-feat-14): a module that sees it in its args knows
  * the host also takes `{ items, overdueTotal }`; one before it took only the list (sc-feat-5).
  *
  * Only the modules the person uses are asked, all at once and in their zone. One that fails is

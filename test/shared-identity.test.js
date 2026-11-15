@@ -73,6 +73,8 @@ async function serve(t, workos, { sharedIdentity = true, adminIdentity = true } 
     env: {
       DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'sk_test',
       WORKOS_CLIENT_ID: 'client', WORKOS_AUTHKIT_DOMAIN: workos.url, WORKOS_API_URL: workos.url,
+      // Required with a shared login and the MCP on (config.js, audit sc-mcp-2).
+      WORKOS_MCP_AUDIENCE: 'http://127.0.0.1/mcp',
     },
     log: () => {}, exitOnError: false,
   });
@@ -123,6 +125,21 @@ test('identityMark: app_<id> and the name in ASCII, as WorkOS takes them', () =>
   assert.ok(errors({ sharedIdentity: true, deleteAtProviders: true }).some((e) => e.includes('one or the other')));
 });
 
+test('a shared login with the MCP on does not start without WORKOS_MCP_AUDIENCE; on its own, a warning as before (audit sc-mcp-2)', () => {
+  const ENV = { AUTH_PROVIDER: 'workos', WORKOS_API_KEY: 'k', WORKOS_CLIENT_ID: 'c', WORKOS_AUTHKIT_DOMAIN: 'https://auth.example.com', BASE_URL: 'https://work.example.com' };
+  const resolved = (accounts, env = {}, modules = {}) => resolveConfig({ app: { id: 'demo', name: 'Demo' }, accounts, modules }, { ...ENV, ...env });
+  const missing = resolved({ sharedIdentity: true });
+  assert.ok(missing.errors?.some((e) => e.startsWith('WORKOS_MCP_AUDIENCE is required') && e.includes('https://work.example.com/mcp')), JSON.stringify(missing.errors));
+  assert.ok(resolved({ sharedIdentity: true }, { WORKOS_MCP_AUDIENCE: '  ' }).errors?.some((e) => e.startsWith('WORKOS_MCP_AUDIENCE is required')), 'blank is missing');
+  const set = resolved({ sharedIdentity: true }, { WORKOS_MCP_AUDIENCE: 'https://work.example.com/mcp' });
+  assert.ok(!(set.errors ?? []).some((e) => e.includes('WORKOS_MCP_AUDIENCE')) && !(set.warnings ?? []).some((w) => w.includes('WORKOS_MCP_AUDIENCE')));
+  const alone = resolved({ sharedIdentity: false });
+  assert.ok(!(alone.errors ?? []).some((e) => e.includes('WORKOS_MCP_AUDIENCE')), 'an install with its own login: not an error');
+  assert.ok(alone.warnings?.some((w) => w.startsWith('WORKOS_MCP_AUDIENCE is not set')), 'but the warning, as before');
+  const noMcp = resolved({ sharedIdentity: true }, {}, { mcp: false });
+  assert.ok(!(noMcp.errors ?? []).some((e) => e.includes('WORKOS_MCP_AUDIENCE')), 'without an MCP there is nothing to protect');
+});
+
 test('a shared login: noted at WorkOS, asked about when the person uses another app, deleted with the account only so', async (t) => {
   const workos = await fakeWorkos(t);
   workos.add('user_ana');
@@ -134,6 +151,9 @@ test('a shared login: noted at WorkOS, asked about when the person uses another 
   const ana = person('ana', 'user_ana');
   const bea = person('bea', 'user_bea');
   const cai = person('cai', 'user_cai');
+  // They sign in with Google, as this fake's sign-ins say: no password at WorkOS to give again
+  // before their account goes (api.js identityCheck, audit authz-9).
+  for (const [who, id] of [[ana, 'user_ana'], [bea, 'user_bea'], [cai, 'user_cai']]) suite.workosPeople.signedIn(who.user, { id }, 'GoogleOAuth');
 
   // Whoever was here before this app noted itself is noted once, by its name in ASCII.
   assert.equal(await suite.workos.markAll(), 4);

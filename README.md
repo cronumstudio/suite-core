@@ -216,7 +216,7 @@ const accounts = createWorkosAccounts({
   workos,
   adminEmail: process.env.ADMIN_EMAIL,  // this verified email administers
   secureCookies: true,
-  stateCookie: 'next_auth',             // holds state and PKCE verifier, Path=/auth
+  stateCookie: 'next_auth',             // state and PKCE verifier, Path=/auth, 30 min: next_auth_<state> per sign-in
   users: {
     byWorkosId(id), unlinkedByEmail(email), firstUnlinkedAdmin(),   // → user | null
     link(userId, { workosId, email }), setEmail(userId, email),

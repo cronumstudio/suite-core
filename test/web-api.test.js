@@ -189,3 +189,26 @@ test('api.with: the same client with options on every call, a call\'s own winnin
     net.restore();
   }
 });
+
+test('api: a 413 from whatever stands before the server (Cloudflare\'s page) is too big, not a failure; the server\'s own keeps its code (prod-14)', async () => {
+  const page = {
+    ok: false, status: 413, headers: { get: () => null },
+    json: async () => { throw new SyntaxError('Unexpected token <'); },
+    text: async () => '<html><title>413 Request Entity Too Large</title></html>',
+  };
+  const net = fakeFetch((path) => (path.endsWith('/proxy') ? page : json({ error: 'file_too_large', max_mb: 95 }, { status: 413 })));
+  try {
+    const cut = await api.upload('/api/me/proxy', new Blob(['x'])).catch((err) => err);
+    assert.ok(cut instanceof ApiError);
+    assert.deepEqual([cut.status, cut.code], [413, 'upload_too_large']);
+    // Its sentence, in every catalog (i18n.test.js checks they agree).
+    const { readFileSync } = await import('node:fs');
+    assert.ok(JSON.parse(readFileSync(new URL('../i18n/en.json', import.meta.url), 'utf8'))['errors.upload_too_large']);
+    await assert.rejects(api.upload('/api/me/import', new Blob(['x'])), (err) => {
+      assert.deepEqual([err.status, err.code, err.data.max_mb], [413, 'file_too_large', 95]);
+      return true;
+    });
+  } finally {
+    net.restore();
+  }
+});
