@@ -140,7 +140,9 @@ async function request(method, path, body, options = {}) {
   wait.done();
   if (cut) return noSignal();
   if (res.ok) return text ? { data, text: raw } : data;
-  const code = data?.error || 'generic';
+  // A 413 without the server's code is what stands before it (Cloudflare cuts a request over
+  // 100 MB with a page of its own): too big, said as such rather than as a failure (audit prod-14).
+  const code = data?.error || (res.status === 413 ? 'upload_too_large' : 'generic');
   if (res.status === 401) throw new SessionExpired(401, code, data);
   const error = new ApiError(res.status, code, data);
   // How long the server (or whatever stands before it) asks to wait, when it says (a 429, a 503).
@@ -245,6 +247,13 @@ export function errorMessage(err) {
     else if (data.feature === 'storage.mb') data.limit = t('kit.usage.counted.storage', { size: data.limit });
   }
   const code = err?.code || 'generic';
+  // A password refused says the shortest it takes (a server from before took 8), and why WorkOS
+  // refused it, when it was WorkOS (audit sc-auth-7): «at least 8» to whoever typed 9 said nothing.
+  if (code === 'password_rejected' && data.n == null) data.n = 8;
   const sentence = t(`errors.${code}`, data);
-  return sentence === `errors.${code}` ? t('errors.generic') : sentence;
+  if (sentence === `errors.${code}`) return t('errors.generic');
+  if (code === 'password_rejected' && typeof data.detail === 'string' && data.detail.trim()) {
+    return `${sentence} ${t('kit.security.providerSays', { detail: data.detail.trim() })}`;
+  }
+  return sentence;
 }

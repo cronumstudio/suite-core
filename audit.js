@@ -23,6 +23,15 @@ export function auditSchema(d) {
   CREATE INDEX IF NOT EXISTS ix_audit_actor ON audit_log (actor_user_id)`);
 }
 
+/**
+ * The log by action (migration 31, audit sc-auth-12): Activity's list of the actions there are
+ * (`actions()`) and one action's newest entries (`list({ action, exact })`) read this index, not the
+ * whole table, which grows with every assistant's call (`mcp.tool`) and is kept a year.
+ */
+export function auditActionSchema(d) {
+  d.exec('CREATE INDEX IF NOT EXISTS ix_audit_action ON audit_log (action, id)');
+}
+
 export function createAudit({ database, trustProxy = process.env.TRUST_PROXY, clock = () => Date.now() }) {
   /**
    * Records an action: `auth.login`, `admin.user.create`, `billing.grant`…

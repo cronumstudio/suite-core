@@ -1264,7 +1264,7 @@ group a copy carries:
 - A group of a kind kept when empty (`onEmpty: 'archive'`) that its last member's account deletion
   leaves with nobody is archived, with an `org.archive` audit entry (`reason: 'empty'`), and, with
   `modules.billing`, its own subscriptions stop renewing at the end of the period they paid for
-  (v0.288.0, `organizations.whenArchived` → `billing.organizationArchived`, who wants it: `empty`):
+  (v0.293.0, `organizations.whenArchived` → `billing.organizationArchived`, who wants it: `empty`):
   nobody is left to cancel them.
 - `organizations.remove(id, { reason, by })` deletes a group whatever it holds: its plan grants
   (which name it by id), invitations, memberships and the row, in one transaction, with an
@@ -1293,7 +1293,9 @@ apps learned the hard way:
 1. Security headers on every response.
 2. `/health`, `/version`, `/js/app-version.js` (the fingerprint the PWA compares to offer a reload).
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
-   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it.
+   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it: OAuth's
+   with "No OAuth here", any other `/.well-known/*` with `not_found`, but `security.txt`
+   (RFC 9116, `SECURITY_CONTACT`). `/api` itself is the API's JSON 404 too.
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
@@ -1304,7 +1306,11 @@ apps learned the hard way:
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
-8. The app's static files, then the SPA fallback for paths without an extension.
+8. The app's static files, then its page for paths without an extension; none for a path with a
+   part that starts with a dot (`/.env`). With `clientRoutes` (a host gives `['/']` to itself and
+   to each module) its page only for those paths, a folder with an index.html asked for without its
+   slash goes to it, and any other path is the kit's 404 page (web/not-found.html) in the
+   browser's language, with a link to `/`.
 
 The common API is the same in every app: sign-in (`POST /api/auth/login`, its second step
 `POST /api/auth/login/code`, `POST /api/auth/logout`, `GET /api/auth/config`), the profile
@@ -1577,7 +1583,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
     `native: true`, `platform`, `lang`, `user_id`), and `deliver()` sends each where it goes; given
     Web Push rows only (an app that reads `push_subscriptions` itself, as Tasks does), it also sends
     to those people's phones. Each phone once per delivery. `send` and the host's
-    `hostedPush` (which has `deliver` only: since v0.288.0 neither it nor `push` has `sendTo`) (the module's path in `url`, its `module` and tag) go the same way, and
+    `hostedPush` (which has `deliver` only: since v0.293.0 neither it nor `push` has `sendTo`) (the module's path in `url`, its `module` and tag) go the same way, and
     `/api/push/test` reaches the phones too. What a Web Push payload becomes: `title` and `body`
     the alert's texts (the body, then the title, shortened to fit 4 KB, never refused); `badge`
     when it is a whole number (on the web it is an image, and ignored); `category` (the actions the
@@ -1755,6 +1761,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   first the app hands over what others share with them (the declaration's `handOver(userId)`: a
   shared list passes to one of the people it is shared with), then goes, in one transaction,
   exactly what their own copy would take and "replace" empties, and its files once committed.
+  Both ask again who it is (api.js `identityCheck`: `confirm: true`, and the password of an account
+  that has one, here or at WorkOS; v0.289.0, audit authz-9), an import with `replace` as erasing does.
 - **Organizations in the copies** (**done**, v0.84.0, for Focus' families and Tracker's fleets; on
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
@@ -2014,7 +2022,7 @@ const stop = parts.start?.({ day, uses });   // in a host: its daily summary (or
 await app.listen();
 ```
 
-In a host, `start()` gets two more things (v0.288.0), so that the module's own jobs (reminders, its
+In a host, `start()` gets two more things (v0.293.0), so that the module's own jobs (reminders, its
 notices, its file clean-ups) reach the alerts as the host's do: `failed(name)`, a function for a
 promise's `catch` that logs what was thrown and reports it to `ALERT_EMAIL` as `<mount> <name>`,
 and `safely(name, fn)`, a function that runs `fn` and does the same with what it throws, for a

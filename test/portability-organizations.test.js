@@ -503,13 +503,19 @@ test('someone’s own “replace” answers 409 until they confirm the families 
 
   const plan = await (await call('POST', '/api/me/import', fs.readFileSync(zip), 'application/zip')).json();
   assert.deepEqual(plan.hand_over, [{ id: shared.org.id, name: 'Shared home', kind: 'family' }], 'the plan names them');
-  const refused = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true });
+  // Replacing empties what they have first, as erasing does: asked again who they are (audit authz-9).
+  const unasked = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, hand_over: [shared.org.id] });
+  assert.deepEqual([unasked.status, (await unasked.json()).error], [400, 'confirm_required']);
+  const wrong = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, confirm: true, password: 'nope', hand_over: [shared.org.id] });
+  assert.deepEqual([wrong.status, (await wrong.json()).error], [403, 'wrong_password']);
+  const sure = { replace: true, confirm: true, password: 'me-password' };
+  const refused = await call('POST', `/api/me/import/${plan.import_id}`, sure);
   assert.equal(refused.status, 409);
   assert.deepEqual(await refused.json(), { error: 'import_hand_over', organizations: [{ id: shared.org.id, name: 'Shared home' }] });
-  assert.equal((await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, hand_over: true })).status, 409,
+  assert.equal((await call('POST', `/api/me/import/${plan.import_id}`, { ...sure, hand_over: true })).status, 409,
     'the ids of what was shown, not a yes to whatever it is');
   assert.deepEqual(membersOf({ organizations: suite.organizations }, shared.org.id), [['me', 'owner'], ['partner', 'admin']], 'nothing changed');
-  const applied = await call('POST', `/api/me/import/${plan.import_id}`, { replace: true, hand_over: [shared.org.id] });
+  const applied = await call('POST', `/api/me/import/${plan.import_id}`, { ...sure, hand_over: [shared.org.id] });
   assert.equal(applied.status, 200, 'the upload waited: the same one, confirmed');
   assert.equal((await applied.json()).handed_over[0].heir, partner.id);
   assert.deepEqual(membersOf({ organizations: suite.organizations }, shared.org.id), [['partner', 'owner']]);
