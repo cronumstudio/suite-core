@@ -188,12 +188,12 @@ test('Settings › Modules inside Work installed: no button for Work, which is t
     // In a browser's tab: Work too, and a new tab.
     globalThis.matchMedia = () => ({ matches: false });
     const tab = await steps();
-    assert.deepEqual(tab.links, ['/?modules', '/tasks/', '/notes/']);
+    assert.deepEqual(tab.links, ['/?modules', '/tasks/?alone=', '/notes/?alone=']);
     assert.ok(tab.text.includes(t('kit.modules.installWeb', { host: 'Cronum Work' })) && tab.text.includes(t('kit.modules.installPickClick')));
     // In Work's own window, installed: the modules alone, opening in the browser.
     globalThis.matchMedia = (query) => ({ matches: query === '(display-mode: standalone)' });
     const app = await steps();
-    assert.deepEqual(app.links, ['/tasks/', '/notes/']);
+    assert.deepEqual(app.links, ['/tasks/?alone=', '/notes/?alone=']);
     assert.ok(app.text.includes(t('kit.modules.installApp')), 'the modules on their own');
     assert.ok(app.text.includes(t('kit.modules.installPickInstalled')));
     assert.ok(!app.text.includes(t('kit.modules.installPickClick')), 'no new tab');
