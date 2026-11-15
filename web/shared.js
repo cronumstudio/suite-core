@@ -49,8 +49,8 @@ export function sharedSection(options) {
   };
 }
 
-/** The page itself, as the section draws it. */
-function sharedPage({
+/** The page itself, as the section draws it (Projects' tests draw it alone). */
+export function sharedPage({
   load, kinds = {}, setPermission, remove, leave, accept = null, open = null, close = () => {}, permissions = null,
 }) {
   const page = el('div', { class: 'kit-shared', 'aria-busy': 'true' });
