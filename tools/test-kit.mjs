@@ -547,7 +547,9 @@ export async function fakeWorkos({ accounts = {}, clientId = 'client_test', apiK
   async function signIn(base, id, { app, fresh = false, timeoutMs = REQUEST_MS } = {}) {
     const out = await timed('GET', `${base}/auth/login${fresh ? '?prompt=login' : ''}`, { redirect: 'manual' }, timeoutMs);
     const target = out.headers.get('location');
-    const state = (out.headers.getSetCookie?.() || []).find((c) => c.startsWith(`${app}_auth=`))?.split(';')[0] ?? '';
+    // Every state cookie it set, as a browser sends them: the flow's own (`<app>_auth_<state>`, 0.289.0) and `<app>_auth`.
+    const state = (out.headers.getSetCookie?.() || []).filter((c) => c.startsWith(`${app}_auth=`) || c.startsWith(`${app}_auth_`))
+      .map((c) => c.split(';')[0]).join('; ');
     const code = grant(id, target);
     const back = await timed('GET', `${base}/auth/callback?code=${encodeURIComponent(code)}&state=${new URL(target).searchParams.get('state')}`,
       { redirect: 'manual', headers: { Cookie: state } }, timeoutMs);

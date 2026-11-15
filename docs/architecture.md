@@ -1287,7 +1287,9 @@ apps learned the hard way:
 1. Security headers on every response.
 2. `/health`, `/version`, `/js/app-version.js` (the fingerprint the PWA compares to offer a reload).
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
-   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it.
+   does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it: OAuth's
+   with "No OAuth here", any other `/.well-known/*` with `not_found`, but `security.txt`
+   (RFC 9116, `SECURITY_CONTACT`). `/api` itself is the API's JSON 404 too.
 4. `/mcp`.
 5. The suite's API: `/api/auth/*`, `/api/me/*` (with `/api/me/export` and `/api/me/import`),
    `/api/admin/*` (with `/api/admin/export` and `/api/admin/import`), `/api/orgs/*`, `/api/events`,
@@ -1298,7 +1300,11 @@ apps learned the hard way:
 6. The app's API routes.
 7. `/suite/*` (the web kit), `/admin` (the admin panel, when `modules.admin` is on) and
    `/i18n/<lang>.json` (suite and app catalogs merged).
-8. The app's static files, then the SPA fallback for paths without an extension.
+8. The app's static files, then its page for paths without an extension; none for a path with a
+   part that starts with a dot (`/.env`). With `clientRoutes` (a host gives `['/']` to itself and
+   to each module) its page only for those paths, a folder with an index.html asked for without its
+   slash goes to it, and any other path is the kit's 404 page (web/not-found.html) in the
+   browser's language, with a link to `/`.
 
 The common API is the same in every app: sign-in (`POST /api/auth/login`, its second step
 `POST /api/auth/login/code`, `POST /api/auth/logout`, `GET /api/auth/config`), the profile
@@ -1339,7 +1345,7 @@ just say what changed (Tasks' lists): the app chooses.
 protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, SSE answers when the client only accepts
 them, a `401` with `WWW-Authenticate` pointing at the resource metadata, `503` when AuthKit cannot
 be reached, and the token brake. `GET /mcp` answers `405` (after the token): the server sends
-nothing on its own, so it opens no server→client channel (v0.287.0). Arguments are checked against
+nothing on its own, so it opens no server→client channel (v0.292.0). Arguments are checked against
 each tool's `inputSchema` and reach it as the schema says (`"false"` a `false`, `"30"` a `30`); an
 unexpected error reaches the assistant as a plain sentence, its message only in the log. The app
 hands in its tools, prompts and instructions:
@@ -1753,6 +1759,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   first the app hands over what others share with them (the declaration's `handOver(userId)`: a
   shared list passes to one of the people it is shared with), then goes, in one transaction,
   exactly what their own copy would take and "replace" empties, and its files once committed.
+  Both ask again who it is (api.js `identityCheck`: `confirm: true`, and the password of an account
+  that has one, here or at WorkOS; v0.289.0, audit authz-9), an import with `replace` as erasing does.
 - **Organizations in the copies** (**done**, v0.84.0, for Focus' families and Tracker's fleets; on
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
