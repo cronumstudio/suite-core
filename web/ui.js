@@ -15,6 +15,8 @@ import { errorMessage, planAction } from './api.js';
 import { t } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
+import { focusOnTap, rideKeyboard } from './keyboard.js';
+import { nativeInfo } from './native.js';
 
 /* --------------------------------- notices -------------------------------- */
 
@@ -407,6 +409,95 @@ export function heldBack(target) {
   return top && top.node.contains(target) ? top : null;
 }
 
+/* ------------------------------- Back closes it ------------------------------ */
+
+/** How long the history is given to take a layer's entry back before it is no longer waited for. */
+const LAYER_BACK_MS = 1500;
+
+/**
+ * The layers Back closes, the last one on top, shared by every copy of the kit on the page (Cronum
+ * Work's shell and each module's): one listener for all, before the page's own.
+ */
+function backLayers(win = globalThis.window) {
+  const key = Symbol.for('cronum.backLayers');
+  if (win[key]) return win[key];
+  const layers = { open: [], backing: 0, waiting: [], timer: null, seq: 0 };
+  const settle = () => {
+    clearTimeout(layers.timer);
+    layers.backing = 0;
+    for (const fn of layers.waiting.splice(0)) {
+      try { fn(); } catch (err) { console.error(err); }
+    }
+  };
+  layers.settle = settle;
+  // In the capture phase, so it is heard before the page's own (Work's shell walks its windows back).
+  win.addEventListener('popstate', (ev) => {
+    if (layers.backing) {
+      // A layer closed on its own took its entry back: nothing else moves.
+      ev.stopImmediatePropagation();
+      settle();
+      return;
+    }
+    const top = layers.open.at(-1);
+    if (!top) return;
+    // Back with a layer open: it closes (or steps back inside it), and nothing under it moves.
+    ev.stopImmediatePropagation();
+    let stays = false;
+    try { stays = top.onBack() === 'stay'; } catch (err) { console.error(err); }
+    if (stays) win.history.pushState({ ...(win.history.state || {}), kitLayer: top.id }, '', win.location.href);
+    else {
+      const at = layers.open.indexOf(top);
+      if (at >= 0) layers.open.splice(at, 1);
+    }
+  }, true);
+  win[key] = layers;
+  return layers;
+}
+
+/**
+ * A layer over the page that the system's Back closes, as its × does (audit of 6/11, work-web-8):
+ * Settings, a page's window over Work's desk. On a phone it takes the screen and Back is the
+ * gesture for it; with no entry of its own, Android's Back left the app or moved what was under it.
+ * While it is open it has an entry in the history (the same address); Back closes it (`onBack()`,
+ * which says `'stay'` when it only stepped back inside itself, Settings from a section to the list)
+ * and the page under it hears nothing. Closed otherwise, `close()` takes its entry back.
+ * What the page writes in the history meanwhile waits for that (`afterBackLayers`).
+ * → { close() }
+ */
+export function backLayer(onBack, { win = globalThis.window } = {}) {
+  if (!win?.history?.pushState) return { close() {} };
+  const layers = backLayers(win);
+  const layer = { id: ++layers.seq, onBack };
+  layers.open.push(layer);
+  afterBackLayers(() => win.history.pushState({ ...(win.history.state || {}), kitLayer: layer.id }, '', win.location.href), { win });
+  return {
+    close() {
+      const at = layers.open.indexOf(layer);
+      if (at < 0) return;   // Back closed it already
+      layers.open.splice(at, 1);
+      afterBackLayers(() => {
+        // The address moved on meanwhile (a step of its own replaced the entry): nothing to take back.
+        if (win.history.state?.kitLayer !== layer.id) return;
+        layers.backing += 1;
+        clearTimeout(layers.timer);
+        layers.timer = setTimeout(layers.settle, LAYER_BACK_MS);
+        win.history.back();
+      }, { win });
+    },
+  };
+}
+
+/**
+ * `fn` once no layer is taking its entry back (backLayer's `close()`): what writes the address (Work's
+ * shell, a window opened as a page's closed) comes after it, not before the history goes back.
+ */
+export function afterBackLayers(fn, { win = globalThis.window } = {}) {
+  const layers = win?.[Symbol.for('cronum.backLayers')];
+  if (!layers?.backing) return fn();
+  layers.waiting.push(fn);
+  return undefined;
+}
+
 /* --------------------------------- dialogs -------------------------------- */
 
 /** The kit's dialogs open now, the last one on top: Escape is the top one's alone. */
@@ -613,11 +704,17 @@ export function openDialog({
  * actions it isn't shown. What is written in it isn't thrown away by a tap outside
  * or Escape without asking (frame's `keepTyped`); `keepTyped: false` for one whose
  * fields save themselves. Returns { dialog, form, close, setActions, showError }.
+ *
+ * `typing`: the one field the sheet is for (a message to write). In the suite's iPhone app, whose
+ * web view ends where the keyboard starts, a tap on it while it is empty focuses it without the
+ * phone's slide (keyboard.js focusOnTap) and, on a phone's sheet, the sheet rides on the keyboard
+ * (rideKeyboard): left to the layout it climbed in jumps or stayed behind it. Work's Feedback had
+ * it alone, in the shell (audit of 6/11, sc-shell-19). Anywhere else the phone does as it does.
  */
 export function formDialog({
   title = '', subtitle = '', header = null, tools = null, bar = null, extra = null,
   content = null, actions = [], onSubmit = null, errorText = errorMessage,
-  wide = false, width = null, className = '', parent = null, onClose = null, keepTyped = true, onDiscard = null,
+  wide = false, width = null, className = '', parent = null, onClose = null, keepTyped = true, onDiscard = null, typing = null,
 }) {
   const parts = frame({ title, subtitle, header, tools, bar, wide, width, className: `kit-dialog--form${className ? ` ${className}` : ''}`, parent, onClose, keepTyped, onDiscard });
   const { dialog, close, busy } = parts;
@@ -659,7 +756,23 @@ export function formDialog({
   });
   append(dialog, form);
   parts.show();
+  if (typing) typeOnSheet(dialog, typing);
   return { dialog, form, close, setActions, showError, submit };
+}
+
+/** A sheet's field to type in, in the suite's iPhone app (formDialog `typing`). */
+function typeOnSheet(dialog, field) {
+  if (nativeInfo()?.platform !== 'ios') return;
+  focusOnTap(field, {
+    focus: () => {
+      if (field.value) return false;
+      field.focus({ preventScroll: true });
+      return true;
+    },
+  });
+  const sheet = globalThis.matchMedia?.('(max-width: 640px)')?.matches;
+  const still = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  if (sheet && !still) rideKeyboard(dialog, field);
 }
 
 /**
