@@ -241,13 +241,16 @@ export function hostedPush(push, mount) {
   };
   const each = (payload) => (typeof payload === 'function' ? (sub) => mark(payload(sub)) : mark(payload));
   return {
-    ...push,
-    send: (subscription, payload, options) => push.send(subscription, mark(payload), own(options)),
+    ...withoutSend(push),
     deliver: (subscriptions, payload, options) => push.deliver(subscriptions, each(payload), own(options)),
-    // Through the marked delivery too: spread from `push`, it sent the module's notices unmarked.
-    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), each(payload), own(options)),
   };
 }
+
+/**
+ * The host's push without its `send` to one row: every module sends through `deliver`
+ * (audit sc-host-7), and one spread from the host's would send the module's notices unmarked.
+ */
+const withoutSend = ({ send, sendTo, ...rest }) => rest;
 
 /** A send's options with its `reminder` the module's: a phone says which module's reminder it shows. */
 const withModuleReminders = (mount) => (options) => (options?.reminder && typeof options.reminder === 'object'
@@ -261,9 +264,7 @@ const withModuleReminders = (mount) => (options) => (options?.reminder && typeof
 export function moduleReminderPush(push, mount) {
   const own = withModuleReminders(mount);
   return {
-    ...push,
-    send: (subscription, payload, options) => push.send(subscription, payload, own(options)),
+    ...withoutSend(push),
     deliver: (subscriptions, payload, options) => push.deliver(subscriptions, payload, own(options)),
-    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), payload, own(options)),
   };
 }

@@ -108,8 +108,9 @@
  * One group's stops and their taking back are asked one at a time in this process, in the order
  * they came (a keep waits for a stop on its way, and the other way round).
  * One that fails stays pending and the hourly `sendStops()` asks again. Who wanted each group
- * stopped is kept too (`stop-by:<who>:organization:<id>`, type `stop-by`: `app`, or `members`
- * when all of them are waiting to be deleted): taking it back renews it only when nobody else
+ * stopped is kept too (`stop-by:<who>:organization:<id>`, type `stop-by`: `app`, `members`
+ * when all of them are waiting to be deleted, or `empty` when the group was archived with nobody
+ * left in it, organizationArchived): taking it back renews it only when nobody else
  * still wants it stopped. An event for a group that is no longer here (`organizationGone`) is
  * `'gone'`: nothing is linked, granted or kept for it beyond its id, a subscription row still
  * kept follows its status, and, with `organizationWasDeleted`, a live one of a group deleted here
@@ -641,13 +642,32 @@ export function createBilling({
     }
     if (identity?.provider && identity.subject && identities) {
       const userId = identities.user(String(identity.provider), String(identity.subject));
-      return userId ? { subject: { type: 'user', id: userId }, byIdentity: true } : { waits: identity };
+      if (userId) return { subject: { type: 'user', id: userId }, byIdentity: true };
+      // An identity nobody has here may still be someone's who is here: their login's id changed
+      // after the purchase (WorkOS forgot it and the same verified email signed in again,
+      // accounts.relinkIdentity), and the subscription still carries the old one. What this
+      // subscription is known for here, else the person its customer is linked to, before waiting:
+      // waiting, its renewals would never be claimed, and they would lose Pro while still paying
+      // (audit billing-16). Someone who hasn't opened this app has neither, and waits as before.
+      const ours = knownPerson(event.ref) ?? (linked?.type === 'user' && personHere(linked.id) ? linked : null);
+      return ours ? { subject: ours } : { waits: identity };
     }
     // A customer linked to a group never takes a person's purchase (see the top of this file).
     if (linked?.type === 'user') return { subject: linked };
     // An event that names a person by an identity this app can't look up is not
     // for an id of its own: that would be the id in whichever app made the checkout.
     return { subject: identity?.subject ? null : named };
+  }
+
+  /** Whether an account is here (not deleted). */
+  const personHere = (id) => Boolean(database.get('SELECT 1 FROM users WHERE id = ?', id));
+  /** The person a subscription or purchase is known for here (its row, else its grant), while they are. */
+  function knownPerson(ref) {
+    const row = database.get('SELECT subject_type, subject_id FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, String(ref))
+      ?? database.get(`SELECT subject_type, subject_id FROM entitlement_grants WHERE source = ? AND external_ref = ?
+        ORDER BY id DESC LIMIT 1`, source, String(ref));
+    const id = Number(row?.subject_id);
+    return row?.subject_type === 'user' && Number.isInteger(id) && personHere(id) ? { type: 'user', id } : null;
   }
 
   /** Whether an event's subject is a group that is no longer here (only with `organizationGone`). */
@@ -1393,10 +1413,32 @@ export function createBilling({
     });
   }
 
+  /**
+   * A group archived because nobody was left in it (organizations.whenArchived, hooked by
+   * createSuite), inside its transaction: its live subscriptions stop renewing at the end of the
+   * period they paid for, as `empty` wants it (see the top of this file), sent once the transaction
+   * is over and by the hourly sweep if that fails; each stop asked is audited
+   * (`billing.organization.stop`). Nobody is left to cancel them, or to take it back. A provider
+   * that can't stop one marks nothing. → how many were marked now
+   */
+  function organizationArchived(organizationId) {
+    if (!canStop()) return 0;
+    const id = Number(organizationId);
+    return database.tx(() => {
+      database.run(`INSERT OR IGNORE INTO billing_events (provider, event_id, type, outcome, received_at)
+        VALUES (?, ?, 'stop-by', 'wanted', ?)`, source, originId(id, 'empty'), iso(clock()));
+      const marked = markOrganizationStop(id);
+      // An archive undone (the account's deletion rolled back) leaves no mark, and the sweep finds nothing to send.
+      if (marked) setImmediate(() => sendStops().catch((err) => log(`[billing] ${source}: stopping a group's renewals failed: ${err?.stack || err}`)));
+      return marked;
+    });
+  }
+
   return {
     enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, dashboardUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
     markOrganizationStop, sendStops, sendRefundStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
+    organizationArchived,
     // Whether the provider can stop or end a subscription from here (the remote one can't): the
     // admin is told before a deletion what it cancels (api.js).
     cancels: canStop(),
@@ -1558,9 +1600,13 @@ export function registerBillingAdminApi(router, { instances, entitlements = null
  * group they administer, and the provider's webhook (no cookie: its signature
  * is what counts).
  */
-export function registerBillingApi(router, { billing, organizations = null, baseUrl = '', limiter = null }) {
+export function registerBillingApi(router, { billing, organizations = null, baseUrl = '', limiter = null, returnUrls = null }) {
   if (!billing?.enabled) return;
   const back = (path) => `${String(baseUrl).replace(/\/$/, '')}${path}`;
+  // Where the provider sends the browser back: the app's own page, or what the caller says (a
+  // host's module with the host's shell: the shell, with the module's window, audit billing-8).
+  const checkoutBack = returnUrls?.checkout ?? back('/?billing=done');
+  const portalBack = returnUrls?.portal ?? back('/');
   // Each checkout and portal link is a call to the provider (Paddle: up to three, and a new
   // transaction), on an API quota other apps of the same account share: braked per account.
   const brake = (ctx) => {
@@ -1594,7 +1640,7 @@ export function registerBillingApi(router, { billing, organizations = null, base
     brake(ctx);
     // Only an email that is theirs: the provider may file the purchase under it.
     const email = ctx.user.email && ctx.user.email_verified_at ? ctx.user.email : null;
-    const url = await billing.checkoutUrl(subject, body.product, { email, user: ctx.user, returnUrl: back('/?billing=done') });
+    const url = await billing.checkoutUrl(subject, body.product, { email, user: ctx.user, returnUrl: checkoutBack });
     sendJson(ctx.res, 200, { url });
   });
 
@@ -1602,7 +1648,7 @@ export function registerBillingApi(router, { billing, organizations = null, base
   router.post('/api/billing/portal', answeredOnce(async (ctx) => {
     const { subject } = await subjectOf(ctx);
     brake(ctx);
-    sendJson(ctx.res, 200, { url: await billing.portalUrl(subject, { returnUrl: back('/') }) });
+    sendJson(ctx.res, 200, { url: await billing.portalUrl(subject, { returnUrl: portalBack }) });
   }));
 
   router.get('/api/billing/subscriptions', (ctx) => {

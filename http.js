@@ -41,7 +41,9 @@ export const conflict = (code = 'conflict', extra) => new HttpError(409, code, e
  * the old SSE transport): Avast's Web Shield, with its MCP detection, rewrites one that has a
  * Content-Length into one that says "chunked" and isn't, and every MCP client on that computer
  * fails ("Invalid character in chunk size"), the suite's own tests too. Without the length Node
- * sends it chunked, which Avast lets through.
+ * sends it chunked, which Avast lets through. Nothing here serves /sse any more, but an old
+ * client still asks for it, and Avast breaks the 404 it gets just the same (checked again on
+ * 13/11/2026, audit sc-host-10): it stays.
  */
 const toMcp = (res) => /\/(mcp|sse)\/?$/i.test(String(res.req?.url ?? '').split('?')[0]);
 
