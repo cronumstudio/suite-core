@@ -348,7 +348,7 @@ test('arguments out of the schema: an error to correct, and the tool never runs'
   assert.ok(!logged.some((line) => line.includes('evil')), 'the values are not logged');
 });
 
-test('arguments that fit, and the forms the tools have always read, reach the tool unchanged', async () => {
+test('arguments that fit, and the forms the tools have always read, reach the tool as the schema says them', async () => {
   const { mcp, calls } = schemaServer();
   const ok = async (args) => {
     const result = await mcp.callTool({ id: 1 }, 'add_dependency', args);
@@ -361,7 +361,8 @@ test('arguments that fit, and the forms the tools have always read, reach the to
   await ok({ from: 'a', items: [{ title: 'ham', quantity: 200, unit: 'g' }] });
   await ok({ lag: 1, items: [{ quantity: 1 }] }); // what `required` names is the tool's to ask for
   assert.equal(calls.length, 6);
-  assert.deepEqual(calls[1], { from: 12, lag: '3', done: 'false', quantity: '2.5' }, 'nothing is converted on the way');
+  // sc-mcp-6 (audit 6/11): a tool reads `args.done === true` and `Number.isInteger(args.lag)`; a text stays as it came.
+  assert.deepEqual(calls[1], { from: 12, lag: 3, done: false, quantity: 2.5 }, 'numbers and booleans in quotes become what they say');
 });
 
 test('with checkArgs off, the tool gets whatever was sent, as before', async () => {
@@ -438,4 +439,82 @@ test('an answer to a path ending in /mcp or /sse goes chunked, never with a leng
   for (const pathname of ['/api/me', '/mcp-info', '/mcp/x', '/.well-known/oauth-protected-resource', '/page/view']) {
     assert.equal((await head(pathname)).chunked, false, `${pathname}: with its length, as always`);
   }
+});
+
+test('sc-mcp-6: "false" is false and "30" is 30 for the tool, inside lists too; a text stays a text', async () => {
+  const { coerceArguments } = await import('../mcp.js');
+  const seen = [];
+  const mcp = createMcpServer({
+    serverInfo: { name: 'test', title: 'Test', version: '1.0.0' },
+    tools: [{
+      name: 'reschedule', title: 'Move', description: 'Moves dates, or shows what would move',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' }, apply: { type: 'boolean' }, days: { type: 'integer', minimum: 1, maximum: 366 },
+          steps: { type: 'array', items: { type: 'object', properties: { milestone: { type: 'boolean' }, weight: { type: 'number' } } } },
+          when: { anyOf: [{ type: 'string' }, { type: 'integer' }] },
+        },
+      },
+      handler: (principal, args) => {
+        seen.push(args);
+        return { content: [{ type: 'text', text: args.apply === true ? 'Moved 1 task' : `Preview for ${Number.isInteger(args.days) ? args.days : 7} days` }] };
+      },
+    }],
+    authenticate: async () => null, challenge: () => 'Bearer', log: () => {},
+  });
+  const call = async (args) => (await mcp.callTool({ id: 1 }, 'reschedule', args)).content[0].text;
+  assert.equal(await call({ project: 'Obra', apply: 'false' }), 'Preview for 7 days', 'apply: "false" never applies');
+  assert.equal(await call({ project: 'Obra', apply: 'true', days: '30' }), 'Moved 1 task');
+  assert.equal(await call({ project: 'Obra', days: '30' }), 'Preview for 30 days', 'days: "30" is 30, not a week');
+  await call({ project: 7, apply: 0, steps: [{ milestone: 'false', weight: '1.5' }, { milestone: 1 }], when: '12', other: 'true' });
+  assert.deepEqual(seen.at(-1), {
+    project: 7, apply: false, steps: [{ milestone: false, weight: 1.5 }, { milestone: true }], when: '12', other: 'true',
+  }, 'a number where a text goes, anyOf and what the schema doesn’t name are left as they came');
+  const given = { apply: 'false' };
+  assert.deepEqual(coerceArguments({ type: 'object', properties: { apply: { type: 'boolean' } } }, given), { apply: false });
+  assert.deepEqual(given, { apply: 'false' }, 'the object given is not changed');
+});
+
+test('sc-mcp-15: GET /mcp is a 405 after the token, and DELETE still a 204', async (t) => {
+  const { base } = await start(t);
+  const get = await fetch(`${base}/mcp`, { headers: { Authorization: 'Bearer good-token', Accept: 'text/event-stream' } });
+  assert.equal(get.status, 405, 'no server→client channel held open');
+  assert.equal(get.headers.get('allow'), 'POST, DELETE, OPTIONS');
+  await get.text();
+  const anonymous = await fetch(`${base}/mcp`, { headers: { Accept: 'text/event-stream' } });
+  assert.equal(anonymous.status, 401, 'without a token, the 401 that starts the sign-in');
+  assert.match(anonymous.headers.get('www-authenticate'), /resource_metadata=/);
+  const preflight = await fetch(`${base}/mcp`, { method: 'OPTIONS', headers: { Origin: 'https://claude.ai' } });
+  assert.equal(preflight.headers.get('access-control-allow-methods'), 'POST, DELETE, OPTIONS');
+  assert.equal((await fetch(`${base}/mcp`, { method: 'DELETE', headers: { Authorization: 'Bearer good-token', 'Mcp-Session-Id': 'x' } })).status, 204);
+});
+
+test('sc-mcp-20: params null is no params, a bad one a JSON-RPC error, and an unexpected error says nothing of itself', async (t) => {
+  const logged = [];
+  const { call } = await start(t, {
+    log: (...line) => logged.push(line.join(' ')),
+    tools: [{
+      name: 'broken', title: 'Broken', description: 'Fails',
+      inputSchema: { type: 'object', properties: {} },
+      handler: () => { throw new Error('SQLITE_CONSTRAINT: NOT NULL constraint failed: tasks_items.title'); },
+    }],
+    prompts: { list: () => { throw new Error('the prompts broke'); }, get: () => null },
+  });
+  const nullParams = await call('good-token', { jsonrpc: '2.0', id: 4, method: 'tools/call', params: null });
+  assert.equal(nullParams.status, 200, 'not a 500');
+  assert.deepEqual((await nullParams.json()).error.code, -32602);
+  const listed = await (await call('good-token', { jsonrpc: '2.0', id: 5, method: 'tools/list', params: null })).json();
+  assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['broken']);
+  const wrongParams = await (await call('good-token', { jsonrpc: '2.0', id: 6, method: 'tools/list', params: 'x' })).json();
+  assert.equal(wrongParams.error.code, -32602);
+  const thrown = await call('good-token', [{ jsonrpc: '2.0', id: 7, method: 'prompts/list' }, { jsonrpc: '2.0', id: 8, method: 'ping' }]);
+  assert.equal(thrown.status, 200, 'a method that throws is its own error, not a 500 for the batch');
+  const [failed, pong] = await thrown.json();
+  assert.deepEqual([failed.id, failed.error.code, failed.error.message], [7, -32603, 'Internal error']);
+  assert.deepEqual(pong, { jsonrpc: '2.0', id: 8, result: {} });
+  const broken = await (await call('good-token', { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'broken' } })).json();
+  assert.equal(broken.result.isError, true);
+  assert.equal(broken.result.content[0].text, 'Something went wrong running broken; it was noted. Tell the user, and don\'t retry it as it is.');
+  assert.ok(logged.some((line) => line.includes('SQLITE_CONSTRAINT')), 'the real one is in the log');
 });
