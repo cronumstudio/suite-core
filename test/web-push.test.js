@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateVapidKeys } from '../push.js';
 
-const { pushSupport, devicePushSubscription } = await import('../web/push.js');
+const { pushSupport, devicePushSubscription, ensureSubscription, noticesOnHere } = await import('../web/push.js');
 
 const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36';
 const iphone = (version) => `Mozilla/5.0 (iPhone; CPU iPhone OS ${version} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${version.replace('_', '.')} Mobile/15E148 Safari/604.1`;
@@ -210,6 +210,49 @@ test('a key that isn’t the install’s is the app’s mistake: a TypeError, be
     await assert.rejects(devicePushSubscription(key), TypeError, String(key));
   }
   assert.deepEqual([seen.asked, seen.order], [0, []], 'refused before asking anything');
+});
+
+test('notices on for a person, the one way every app turns them on: asked first, then the key, the browser’s words for the device (pwa-13)', async (t) => {
+  const { publicKey } = generateVapidKeys();
+  const seen = fakeBrowser(t);
+  const posted = [];
+  const order = [];
+  const store = new Map();
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) }, configurable: true, writable: true,
+  });
+  t.after(() => { delete globalThis.localStorage; });
+  const pending = ensureSubscription({
+    // Settings asks the server for the key: only once the tap has been used for the permission.
+    key: async () => { order.push('key'); return publicKey; },
+    post: async (body) => { posted.push(body); return { ok: true, user_id: 7 }; },
+    lang: 'es',
+    registration: async () => { order.push('worker'); return navigator.serviceWorker.ready; },
+  });
+  assert.equal(seen.asked, 1, 'permission first, before anything is awaited');
+  const { subscription, answer } = await pending;
+  assert.deepEqual(order, ['key', 'worker']);
+  assert.equal(subscription.endpoint, 'https://fcm.googleapis.com/fcm/send/new');
+  assert.deepEqual(answer, { ok: true, user_id: 7 });
+  assert.deepEqual(posted, [{
+    endpoint: 'https://fcm.googleapis.com/fcm/send/new', keys: { p256dh: 'BP256dh', auth: 'auth' }, label: navigator.userAgent, lang: 'es',
+  }], 'the device as the browser names it, whichever app turned them on');
+  assert.equal(noticesOnHere(7), true, 'and on here for that person');
+
+  // The install's keys changed: the old subscription reaches nobody, so a new one is made and sent.
+  const other = generateVapidKeys().publicKey;
+  posted.length = 0;
+  seen.subscribed.length = 0;
+  const again = await ensureSubscription({ key: other, post: async (body) => { posted.push(body); return {}; }, registration: async () => navigator.serviceWorker.ready });
+  assert.equal(seen.subscribed.length, 1);
+  assert.deepEqual([...seen.subscribed[0].applicationServerKey], [...bytesOf(other)]);
+  assert.equal(posted[0].endpoint, again.subscription.endpoint);
+
+  // A no: nothing asked of the server, nothing posted.
+  fakeBrowser(t, { permission: 'denied' });
+  await assert.rejects(ensureSubscription({ key: () => assert.fail('no key asked'), post: () => assert.fail('nothing posted') }), /not_allowed/);
+  fakeBrowser(t, { userAgent: iphone('18_0'), push: false });
+  await assert.rejects(ensureSubscription({ key: publicKey, post: () => assert.fail('nothing posted') }), /install/);
 });
 
 test('every test puts the real globals back, however many stand-in browsers it used', () => {

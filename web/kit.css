@@ -1589,6 +1589,11 @@ input, textarea { caret-color: var(--kit-accent); }
 .kit-chip--large { padding: 6px 13px; color: var(--kit-text); font-size: var(--look-subhead, 13.5px); }
 button.kit-chip { cursor: pointer; }
 button.kit-chip:hover { background: var(--kit-hover); }
+/* With a finger, 23 px are below the 24 of WCAG 2.5.8: an invisible margin takes the taps above and below, as the round check's (ui-movil-12). */
+@media (pointer: coarse) {
+  button.kit-chip { position: relative; }
+  button.kit-chip::before { content: ""; position: absolute; inset: -7px 0; }
+}
 .kit-chip[aria-pressed="true"], .kit-chip[aria-pressed="true"]:hover {
   background: var(--kit-accent); border-color: var(--kit-accent); color: var(--kit-on-accent); font-weight: 600;
 }

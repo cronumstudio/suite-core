@@ -31,7 +31,8 @@
  * - Pages: network first, with the cached shell offline (a host's: the copy
  *   first, below). A page asked for outside a navigation (the browser's checks
  *   before installing) is left to it.
- * - Other files (icons): the copy at once, refreshed behind the scenes.
+ * - Other files (icons): the copy at once, refreshed behind the scenes (a host's copy, `codeFirst`
+ *   below, isn't: a file it installed is code there, and the network only fills its holes).
  *
  * Every path above is the app's, read from the worker's scope: an app on its
  * own has `/`, and a module of a host (suite-core host.js) has its own path,
@@ -94,6 +95,15 @@ var SUITE_EXACT_NEVER = ['/version', '/health', '/devices/session', '/devices/co
 var SUITE_WAIT_MS = 4000;
 /** Where a copy notes the hash of each file it holds (`hashes`): a dotfile, never a path the server has. */
 var SUITE_HASHES = '.suite-hashes';
+/**
+ * Where a host's module installed as an app of its own says so (worker.js markInstalledAlone): a
+ * cache of its own, `/.suite-alone`, with `/.suite-alone/<mount>/` → `{ at }`. Named with a slash
+ * and no module's path, so no worker clears it when it takes over. On an iPhone each app on the
+ * home screen has its storage, so the mark is that app's; elsewhere it is the browser's, and one
+ * not renewed in SUITE_ALONE_DAYS (the app uninstalled) no longer counts.
+ */
+var SUITE_ALONE = '/.suite-alone';
+var SUITE_ALONE_DAYS = 30;
 /** How many files a host's worker installs at once: as fast as all at once, measured on Work (3/11). */
 var SUITE_AT_ONCE = 12;
 /**
@@ -269,10 +279,21 @@ function suiteWorker(options) {
     return key !== version && (suiteOwnsCache(key, scope) || moduleOf(key.split('/').slice(0, 2).join('/') + '/') !== null);
   };
 
+  // What the install puts in the copy, by path and query (`/w/work.js`, `/tasks/i18n/es.json?en`).
+  var installs = {};
+  shell.concat(optional).forEach(function (url) { if (typeof url === 'string') installs[url] = true; });
+  var ofTheCopy = function (url) { return installs[url.pathname + url.search] === true; };
+
   var store = function (request, response, key) {
     if (!response || !response.ok) return response;
     var copy = response.clone();
-    caches.open(version).then(function (cache) { cache.put(key || request, copy); });
+    caches.open(version).then(function (cache) {
+      // A host's copy is one release, whole (`codeFirst`): the network's answer only fills a hole
+      // in it, never replaces what it holds, which may be the next release's while this worker is
+      // still the one in charge: the shell of one with the kit of the other opened blank (sc-shell-9).
+      if (!codeFirst) return cache.put(key || request, copy);
+      return cache.match(key || request).then(function (kept) { return kept ? undefined : cache.put(key || request, copy); });
+    });
     return response;
   };
 
@@ -355,8 +376,20 @@ function suiteWorker(options) {
         var load = function (url) { return new Request(url, { cache: 'reload' }); };
         // A host's: file by file, a missing one is left out rather than every module's copy, and a
         // few at a time, so the page loading its modules meanwhile isn't refused on the way.
+        // Nice to have offline, never a reason for the install to fail.
+        var add = function (url) { return cache.add(new Request(url, { cache: 'reload' })).catch(function () {}); };
         var first = modules.length
-          ? previous().then(function (old) { return bringAll(cache, old); }).then(function (left) {
+          ? previous().then(function (old) {
+            return bringAll(cache, old).then(function (left) {
+              // What is only nice to have comes the same way, from the old copy while its hash is the
+              // same: the catalogs and notice icons travelled whole with every release (sc-shell-13).
+              // One that doesn't come is left out, and the note below doesn't name it.
+              return suiteInTurns(optional, function (url) {
+                return bring(cache, old, url).then(function (verdict) { if (verdict !== 'kept') left.push(url); },
+                  function () { left.push(url); });
+              }, SUITE_AT_ONCE).then(function () { return left; });
+            });
+          }).then(function (left) {
             // What this copy holds, for the next one; written last, and only once the copy is whole,
             // so a copy cut short notes nothing and a file left out isn't taken for one it holds.
             if (!hashes) return undefined;
@@ -366,13 +399,8 @@ function suiteWorker(options) {
               headers: { 'Content-Type': 'application/json' },
             }));
           })
-          : cache.addAll(shell.map(load));
-        return first
-          .then(function () {
-            // Nice to have offline, never a reason for the install to fail.
-            var add = function (url) { return cache.add(new Request(url, { cache: 'reload' })).catch(function () {}); };
-            return modules.length ? suiteInTurns(optional, add, SUITE_AT_ONCE) : Promise.all(optional.map(add));
-          });
+          : cache.addAll(shell.map(load)).then(function () { return Promise.all(optional.map(add)); });
+        return first;
       })
       .then(function () { return self.skipWaiting(); })
       .catch(function (err) {
@@ -452,7 +480,9 @@ function suiteWorker(options) {
     // split view had no manifest when installing it from there.
     if (suiteIsPage(local)) return;
 
-    if (suiteIsCode(local) && codeFirst) {
+    // Any file of the copy is code there too: the host's own pages' (Work's /w/work.js, /w/shell.css)
+    // were taken for icons, asked of the network at every start and kept in this release's copy.
+    if (codeFirst && (suiteIsCode(local) || ofTheCopy(url))) {
       // The copy is this release's: whatever changes comes with a new worker, never asked here.
       // A module's kit sheet scoped to its windows (`/notes/suite/kit.css?scope=work`, host.js
       // scopedSheets) is that module's own answer, never the one copy at /suite/.
@@ -482,6 +512,8 @@ function suiteWorker(options) {
     }
 
     event.respondWith(caches.match(request).then(function (cached) {
+      // A host's copy keeps what it has until the next release (store): nothing to refresh.
+      if (cached && codeFirst) return cached;
       var fresh = fetch(request).then(function (response) { return store(request, response); });
       if (!cached) return fresh;
       event.waitUntil(fresh.catch(function () {}));
@@ -608,7 +640,14 @@ function suiteOpenModule(clients, target, data, moduleOf, holds) {
       shell.postMessage({ type: 'notification-open', url: target, data: data });
       return shell.focus();
     }
-    if (!mine.some(top)) return self.clients.openWindow(holds[0] + '?open=' + encodeURIComponent(target));
+    if (!mine.some(top)) {
+      // The module of the notice installed as an app of its own (its page left the mark): its own
+      // page, which opens in that app. `/?open=` is outside its scope: an iPhone showed the whole
+      // of Work in a sheet over it, and Android the browser (pwa-7).
+      return suiteAloneHere(moduleOf(new URL(target, origin).pathname)).then(function (alone) {
+        return self.clients.openWindow(alone ? target : holds[0] + '?open=' + encodeURIComponent(target));
+      });
+    }
   }
   var wanted = moduleOf(new URL(target, origin).pathname);
   var same = wanted ? mine.filter(function (c) { return moduleOf(new URL(c.url).pathname) === wanted; }) : [];
@@ -631,8 +670,20 @@ function suiteOpenModule(clients, target, data, moduleOf, holds) {
   return self.clients.openWindow(target);
 }
 
+/** Whether the module at `module` (`/tasks/`) is installed as an app of its own here (SUITE_ALONE). */
+function suiteAloneHere(module) {
+  if (!module || typeof caches === 'undefined') return Promise.resolve(false);
+  return caches.open(SUITE_ALONE)
+    .then(function (cache) { return cache.match(SUITE_ALONE + module); })
+    .then(function (found) { return found ? found.json() : null; })
+    .then(function (mark) { return Boolean(mark) && Date.now() - Number(mark.at) < SUITE_ALONE_DAYS * 86400000; })
+    .catch(function () { return false; });
+}
+
 self.suiteWorker = suiteWorker;
 self.suiteOpenModule = suiteOpenModule;
+self.suiteAloneHere = suiteAloneHere;
+self.SUITE_ALONE = SUITE_ALONE;
 self.suiteAsAsked = suiteAsAsked;
 self.suiteKeptPage = suiteKeptPage;
 self.suiteScopeOf = suiteScopeOf;
