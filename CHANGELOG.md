@@ -3,6 +3,101 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.294.0 — 2026-11-15
+
+Audit of 6/11: Cronum Work's shell, the browser kit, the installed app (PWA) and the phone app.
+
+### Work's shell and the kit's frame
+- **Work's shell, its modules in their colours** (`web/tokens.css`, `web/kit.css`; work-web-3): tokens.css
+  gives Cronum Work (`data-app="work"`) its ultramarine, and inside Work each module's windows and the
+  pieces it hangs on the page (`data-module`, `data-owner`) keep the module's accent; kit.css works the
+  kit's accent out again there, light, dark and Clean.
+- **A module's page opens the host's shell from anywhere** (`web/native.js`, `web/shell.js`;
+  work-web-7): `hostShellAddress` now also sends a module's page to `/?open=…` in a browser's tab and in
+  the host's own installed app (`markShellWindow()`), never a page asked alone (`?alone`, kept for the
+  tab: `aloneAddress()`) or a module installed on its own; `?billing=` comes with the shell's address.
+  The rail's mark links the shell where there is one, and Settings › Modules installs each module alone.
+- **Back closes layers** (`web/ui.js`, `web/settings.js`; work-web-8): `backLayer(onBack)` gives a layer
+  an entry in the history while it is open, so the system's Back closes it and the page under it hears
+  nothing; `close()` takes the entry back and `afterBackLayers(fn)` waits for it. Settings use it in
+  Work's shell, from a section to the list on a phone, then out.
+- Settings › Modules and About say «modules», and how Work's shell moves between them, in the five
+  languages (work-web-13).
+- `web/live.js` `liveSource()`: the channel's machine (EventSource, last id, waits, hello), shared by the
+  kit's own channel and Work's one channel (sc-shell-22).
+- `web/keyboard.js` `rideKeyboard()` and formDialog `typing`: a sheet's field in the iPhone app is
+  focused without the slide and the sheet rides on the keyboard; it was Work's Feedback's alone
+  (sc-shell-19).
+- `web/signal.js`: one «is there a signal again?» for the whole kit. `watchSignal({ ask, answered,
+  onBack, active, again, firstMs, maxMs, url, patienceMs })` asks /version after 3 s, then twice as long
+  up to 30 s, at once on `check()`, and tells nobody after `stop()`; nothing on import. Tasks, Projects,
+  Notes and Next ask through it, each with its own waits, client and what counts as an answer, and so
+  does Settings' `connection` (settings-queue.js), as before (sc-shell-22). In the worker's kit files.
+- **The drawer closes on Back**, and in Work's shell when its window goes out of view (`web/shell.js`;
+  ui-movil-7). A button chip takes a finger's tap 37 px tall (`web/kit.css`; ui-movil-12).
+- Gone: mount.js `standaloneCtx`, windows.js's `{ slots }` layouts, `restore()` and `recent`
+  (sc-shell-17).
+
+### The service worker and notices
+- **In a host's copy every file it installed is code** served from the copy, Work's `/w/` files
+  included, and the network only fills its holes, never replacing what it holds (`web/sw-core.js`;
+  sc-shell-9). What is only nice to have offline comes from the old copy while its hash is the same
+  (sc-shell-13).
+- A notice of a module installed as an app of its own opens in that app when no window is open
+  (`web/worker.js` `markInstalledAlone`, cache `/.suite-alone`; pwa-7).
+- The host's worker keeps the root `/js/app-version.js` and not the modules' own (`host.js`; pwa-8).
+- `web/push.js` `ensureSubscription()`: the one way to turn notices on for a person; Settings'
+  `subscribePush()` uses it, and so does Tasks (pwa-13).
+
+### Settings, the admin panel, Markdown and sharing
+- **Settings no longer freeze when other modules' catalogs fail** (`web/settings.js`; sc-ui-1): another
+  module's catalog is asked for once while Settings are open, failing or not, and the catalogs that
+  arrive in the same moment trigger one repaint between them. One that failed is asked again the next
+  time Settings open. Two failing catalogs used to repaint tens of thousands of times and hold the tab
+  for seconds.
+- **About's cards get their line** (sc-ui-4): `moduleCard` called `paintCards`, out of its scope.
+- **Signed out, the queue of preferences stays** (`web/settings-queue.js`; sc-ui-3): `/api/auth/me`
+  answers `{ user: null }`, not 401, and `sendKept()` took that for someone else.
+- **Settings › Plan after a new plan** (sc-ui-9): what the other modules include and what is used are
+  asked again with it; an older answer never paints over a newer one (`yourUsage().read()`).
+- **Settings start lighter** (sc-ui-11): `agents.js` and `usage-view.js` are imported when they are
+  drawn, once per page; without a signal they come from the worker's kit as before.
+- **Installing from Work installed** (pwa-6): inside Work's own window (`installed()`) Settings ›
+  Modules talks as in the suite's app: no button for Work, and the module opens in the browser
+  (`kit.modules.installPickInstalled` for a click).
+- **Admin: one view at a time** (`web/admin.js`; sc-ui-5): a view is drawn apart and put in only while
+  it is still the last one asked for.
+- **Admin: words for every audit action** (sc-ui-7), and a test that checks every action the server
+  records.
+- **Admin asks first** (sc-ui-11): making someone an admin or not, turning an account off, setting a
+  password, and «Close their sessions», which ends their tokens, assistants and phones too and now says
+  so before and after. `saveButton`'s `save` may answer false.
+- **Markdown in linear time** (`web/markdown.js`; sc-ui-10): a mark with no close is looked for once,
+  brackets are paired in one pass, a link's destination reads at most a few times the text, and quotes,
+  lists, marks and links past 32 levels are text. 200,000 characters of `*a ` take ~0.1 s (60,000 took
+  15 s); `>` 10,000 times or 5,000 nested links no longer throw.
+- **Pictures only from the app's own files** (sc-ui-11): `safeImage` takes a path ending in
+  `files/<id>`; `![](/api/admin/export)` is a link, never a request.
+- **Sharing speaks one way** (`web/share.js`, `web/shared.js`; sc-ui-2): the dialog asks before taking
+  it back from someone who accepted it in Settings › Sharing's words, and Settings › Sharing takes back
+  an unanswered invitation at once, as the dialog does. The same words in both, in every language.
+- Gone, unused (sc-ui-11): `aiExtra` and a module's `settings.ai` (`moduleSettings` no longer answers
+  `ai`), `toggleTask` and `renderMarkdown`'s `onTaskToggle`, and the keys `kit.settings.moduleAi*`,
+  `admin.confirm`, `admin.areYouSure`. `sharedPage` stays exported (Projects' tests draw it alone).
+
+### The phone app
+- **Links to the site open the app** (`app-links.js`; app-19, Martin's decision of 14/11): suite.config.js
+  `appLinks: { paths, exclude?, apple: { bundleId, teamId? }, android: { package, sha256? } }`, with the
+  install's `APPLE_TEAM_ID` (else `APNS_TEAM_ID`) and `ANDROID_CERT_SHA256` (Play's app-signing
+  certificate, comma-separated for several). `/.well-known/apple-app-site-association` and
+  `/.well-known/assetlinks.json` are served as `application/json`, with no session, no redirect and
+  `Cache-Control: public, max-age=3600`, at a host's root only. A file whose values are missing stays the
+  404, and the start warns. The APIs, `/auth/*`, OAuth's endpoints, `/mcp*`, `/admin*`, `/devices/*`,
+  `/.well-known/*` and any `?billing=` address never open the app.
+- **The device token names its account** (`devices.js`; Martin's decision of 14/11):
+  `POST /api/devices/token` also answers `user_id`, so the app can tell the same account signing in again
+  from another one and keep its unsent changes.
+
 ## 0.293.0 — 2026-11-15
 
 Audit of 6/11: the host's runtime, mail, push, the configuration and what was left of billing.
