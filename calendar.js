@@ -6,18 +6,21 @@
  * Each module says what it has with a date, in its `createModule()`:
  *
  *   calendar: {
- *     range(user, { from, to }) → [item…]   (or a promise of them: what `user` sees with a date in
+ *     range(user, { from, to, limit }) → [item…]
+ *                                           (or a promise of them: what `user` sees with a date in
  *                                            [from, to], both 'YYYY-MM-DD' and included; an item is
  *                                            there when its span [start, end] overlaps them. The same
- *                                            permissions as the module's own pages; [] for nothing)
+ *                                            permissions as the module's own pages; [] for nothing.
+ *                                            `limit` (CALENDAR_MODULE_MAX): the most the host keeps,
+ *                                            the earliest, so a module asks for no more)
  *   }
  *
- * An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine?, time? }`:
+ * An item is `{ type, id, title, start, end, state: 'open' | 'done', where, url, mine? }`:
  * `type` the module's own kind of thing (`task`, `phase`, `daily`), `id` the row's, `start` and
  * `end` its first and last day (the same for one day), `where` what is shown under the title (a
  * list, a project › phase, a notebook), `url` a path of the module's (`?list=3&task=9`) taken under
  * the module's own path here, as the links' cards (links.js), `mine` whether it is the person's
- * (assigned to them), `time` 'HH:MM' when it has a real time of day.
+ * (assigned to them). Nothing has a time of day: a `time` an item carries is left out.
  *
  * Only the modules the person uses are asked, all at once, and of those the ones they keep on the
  * calendar (Settings › Calendar, `host_calendar_modules`): one turned off there leaves its page, its
@@ -32,7 +35,6 @@ export const CALENDAR_MAX_DAYS = 366;
 /** The most items a module gives for one span: its earliest, so a busy module can't drown the rest. */
 export const CALENDAR_MODULE_MAX = 2000;
 const TITLE_MAX = 300;
-const TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 /** Calendar days from one date to another (both YYYY-MM-DD): at noon UTC, no daylight-saving hour moves one. */
 const daysBetween = (from, to) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000);
@@ -84,7 +86,6 @@ export function createCalendar({
       module: m.mount, type: raw.type, id, title: String(raw.title ?? '').slice(0, TITLE_MAX), start, end,
       state: raw.state === 'done' ? 'done' : 'open', where: String(raw.where ?? '').slice(0, TITLE_MAX),
       ...(url ? { url } : {}), ...(typeof raw.mine === 'boolean' ? { mine: raw.mine } : {}),
-      ...(typeof raw.time === 'string' && TIME.test(raw.time) ? { time: raw.time } : {}),
     };
   }
 
@@ -99,7 +100,7 @@ export function createCalendar({
     const sources = sourcesOf(user).filter(only);
     const answers = await Promise.all(sources.map(async (m) => {
       try {
-        const given = await inZoneOf(user, () => m.parts.calendar.range(user, { ...span }));
+        const given = await inZoneOf(user, () => m.parts.calendar.range(user, { ...span, limit: CALENDAR_MODULE_MAX }));
         if (!Array.isArray(given)) throw new Error('its range gave no list');
         return given.map((raw) => itemOf(m, raw, span)).filter(Boolean).sort(byDays).slice(0, CALENDAR_MODULE_MAX);
       } catch (error) {
@@ -201,7 +202,7 @@ const itemLine = (item, names, from) => {
   const span = item.end === item.start ? ''
     : item.start < from ? `, since ${item.start} until ${item.end}` : `, until ${item.end}`;
   return `• ${names.get(item.module) || item.module} ${item.type} ${item.module}:${item.type}:${item.id}: "${item.title}"`
-    + ` (${item.state}${item.time ? `, at ${item.time}` : ''}${span})${item.where ? ` in ${item.where}` : ''}`;
+    + ` (${item.state}${span})${item.where ? ` in ${item.where}` : ''}`;
 };
 
 /**

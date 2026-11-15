@@ -20,7 +20,8 @@
  *                                                      out of the Map, or every id if it throws, is
  *                                                      asked of read() instead)
  *       search(user, text)    → [card…]                 (what this person may link, each card as
- *                                                      read() shows it to them: shown as it comes)
+ *                                                      read() shows it to them: shown as it comes.
+ *                                                      A LIKE on what was typed escapes it: likeOf)
  *       create(user, data)    → id                      (optional: "Add to Tasks…", by the module's rules)
  *       places(user)          → [{ id, name }]          (optional: where create() may put it: lists, notebooks…)
  *       complete(user, id, done)                        (optional: what "done together" does here)
@@ -81,6 +82,11 @@ export function parseRef(ref) {
   return m ? { module: m[1], type: m[2], id: m[3] } : null;
 }
 export const formatRef = ({ module, type, id }) => `${module}:${type}:${id}`;
+/**
+ * What someone typed, for `LIKE ? ESCAPE '\'`: inside it, anywhere, `%`, `_` and `\` as
+ * themselves. (Tasks', Projects' and Next's cards.js had it three times: audit of 6/11, sc-feat-14.)
+ */
+export const likeOf = (text) => `%${String(text ?? '').replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
 const sameRef = (a, b) => a.module === b.module && a.type === b.type && String(a.id) === String(b.id);
 /** The two sides of a link, always in the same order: one row for a pair, whichever way it was made. */
 const ordered = (x, y) => (formatRef(x) < formatRef(y) ? [x, y] : [y, x]);
@@ -91,8 +97,12 @@ const ordered = (x, y) => (formatRef(x) < formatRef(y) ? [x, y] : [y, x]);
  * @param {() => Array} options.modules        the host's mounted modules ({ mount, config, parts })
  * @param {(user, mount) => boolean} options.uses   whether someone uses a module
  * @param {(mount, userIds, data) => void} [options.notify]   a live notice in a module, for some people
+ * @param {(id) => object} [options.userOf]   an account's row: with it, a side's title is kept as
+ *   whoever made the link sees it (remember); without it, as the host reads it
  */
-export function createLinks({ database, modules, uses = () => true, notify = () => {}, clock = () => Date.now() }) {
+export function createLinks({
+  database, modules, uses = () => true, notify = () => {}, clock = () => Date.now(), userOf = null,
+}) {
   const moduleOf = (mount) => modules().find((m) => m.mount === mount) || null;
   const providerOf = (ref) => moduleOf(ref.module)?.parts?.cards?.[ref.type] || null;
   const now = () => new Date(clock()).toISOString();
@@ -245,11 +255,30 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
 
   /**
    * Remembers the titles of some links' sides, for when one is gone: every side read at once, and
-   * a title written only where it changed.
+   * a title written only where it changed. Only its maker is shown that title (present), so with
+   * `userOf` it is read as they see it: a side they no longer see keeps the last title they saw,
+   * and a rename after it never reaches them once it is deleted (audit of 6/11, sc-feat-16). A
+   * link whose maker's account went keeps none to show.
    */
   function remember(rows) {
-    const sides = rows.flatMap((row) => sidesOf(row).map((side) => ({ ...side, row: row.id })));
-    const found = systemRead(sides);
+    const sides = rows.flatMap((row) => sidesOf(row).map((side) => ({ ...side, row: row.id, maker: row.created_by })));
+    let found;
+    if (userOf) {
+      found = new Array(sides.length).fill(null);
+      const byMaker = new Map();
+      sides.forEach((side, i) => {
+        if (side.maker == null) return;
+        if (!byMaker.has(side.maker)) byMaker.set(side.maker, []);
+        byMaker.get(side.maker).push(i);
+      });
+      for (const [maker, places] of byMaker) {
+        let user = null;
+        try { user = userOf(maker); } catch { user = null; }
+        if (!user) continue;
+        const read = readAll(user, places.map((i) => sides[i]));
+        places.forEach((i, n) => { found[i] = read[n]; });
+      }
+    } else found = systemRead(sides);
     sides.forEach((side, i) => {
       const card = found[i];
       if (!card || card === 'gone' || !card.title) return;
@@ -269,8 +298,11 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     }
   }
 
-  /** Links two things someone can see; each pair once. */
-  function link(user, fromValue, toValue, { together = false } = {}) {
+  /**
+   * Links two things someone can see; each pair once. → `{ link, existed }`: `existed` when the
+   * pair was linked already, and `link` is that one, as it was (audit of 6/11, sc-feat-11).
+   */
+  function connect(user, fromValue, toValue, { together = false } = {}) {
     const from = refOf(fromValue, 'from');
     const to = refOf(toValue, 'to');
     if (sameRef(from, to)) throw badRequest('field_invalid', { field: 'to' });
@@ -281,7 +313,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     const [a, b] = ordered(from, to);
     const existing = database.get(`SELECT * FROM host_links WHERE a_module = ? AND a_type = ? AND a_id = ?
       AND b_module = ? AND b_type = ? AND b_id = ?`, a.module, a.type, String(a.id), b.module, b.type, String(b.id));
-    if (existing) return present(user, existing, from);
+    if (existing) return { link: present(user, existing, from), existed: true };
     const { lastInsertRowid } = database.run(`INSERT INTO host_links
       (a_module, a_type, a_id, b_module, b_type, b_id, together, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -289,8 +321,11 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     const row = database.get('SELECT * FROM host_links WHERE id = ?', lastInsertRowid);
     remember([row]);
     announce(row);
-    return present(user, database.get('SELECT * FROM host_links WHERE id = ?', row.id), from);
+    return { link: present(user, database.get('SELECT * FROM host_links WHERE id = ?', row.id), from), existed: false };
   }
+
+  /** Links two things someone can see; each pair once: the link, new or the one there was. */
+  const link = (user, fromValue, toValue, options) => connect(user, fromValue, toValue, options).link;
 
   /**
    * "Add to Tasks…": the other module creates the thing, by its own rules (permissions, plans,
@@ -340,8 +375,13 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     announce(row);
   }
 
-  /** What someone may link in a module: its search, and where it may create something. */
-  function search(user, module, type, text) {
+  /**
+   * What someone may link in a module: its search, and where it may create something. Only "Add
+   * to…" shows those, and they cost the module a query or two for each list or notebook: asked at
+   * every key of "Link existing…" they were never shown, so that one says `places: false` and gets
+   * `places: []` (audit of 6/11, sc-feat-15).
+   */
+  function search(user, module, type, text, { places: withPlaces = true } = {}) {
     const ref = refOf({ module, type, id: 'x' }, 'module');
     if (!uses(user, ref.module)) return { items: [], places: [] };
     const provider = providerOf(ref);
@@ -350,7 +390,9 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     const items = (provider.search?.(user, String(text || '').slice(0, 200)) || []).slice(0, 30)
       .filter((card) => card && typeof card === 'object' && card.id != null && String(card.id) !== '')
       .map((card) => shape({ ...ref, id: String(card.id) }, card));
-    const places = (provider.places?.(user) || []).slice(0, 200).map((p) => ({ id: String(p.id), name: String(p.name) }));
+    const places = withPlaces
+      ? (provider.places?.(user) || []).slice(0, 200).map((p) => ({ id: String(p.id), name: String(p.name) }))
+      : [];
     return { items, places, creates: typeof provider.create === 'function' };
   }
 
@@ -433,7 +475,7 @@ export function createLinks({ database, modules, uses = () => true, notify = () 
     return { forgotten, removed };
   }
 
-  return { of, canLink, link, create, update, remove, search, changed, done, prune, cardOf, cardsOf, parseRef, formatRef };
+  return { of, canLink, link, connect, create, update, remove, search, changed, done, prune };
 }
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -450,11 +492,15 @@ export function registerLinksApi(api, { links }) {
     // `can_link`: whether this person may link from it (or add something new); the page offers it only then.
     sendJson(ctx.res, 200, { links: links.of(user, ref), can_link: links.canLink(user, ref) });
   });
+  // `places=0`: without where "Add to…" may put it (search's `places`), for a search that never shows them.
   api.get('/api/links/search', (ctx) => sendJson(ctx.res, 200,
-    links.search(who(ctx), ctx.query.get('module'), ctx.query.get('type'), ctx.query.get('q'))));
+    links.search(who(ctx), ctx.query.get('module'), ctx.query.get('type'), ctx.query.get('q'),
+      { places: ctx.query.get('places') !== '0' })));
+  // 201 and the new link; a pair linked already, 200 with that link and `existed: true`.
   api.post('/api/links', async (ctx) => {
     const body = await readJson(ctx.req);
-    sendJson(ctx.res, 201, { link: links.link(who(ctx), body.from, body.to, { together: body.together === true }) });
+    const { link, existed } = links.connect(who(ctx), body.from, body.to, { together: body.together === true });
+    sendJson(ctx.res, existed ? 200 : 201, existed ? { link, existed: true } : { link });
   });
   api.post('/api/links/new', async (ctx) => {
     const body = await readJson(ctx.req);
