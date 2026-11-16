@@ -75,6 +75,7 @@ import { createUploadLinks } from './mcp-files.js';
 import { describeErrorWith } from './mcp-kit.js';
 import { createTexts } from './i18n.js';
 import { createShareMail } from './share-mail.js';
+import { createOwnership } from './ownership.js';
 import { createPortability, withImportCeiling } from './portability.js';
 import {
   sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
@@ -1016,6 +1017,23 @@ export async function createHost({
     entry.config = moduleConfig;
     entry.hooks = ownHooks;
     const moduleTexts = ownHooks.texts || createTexts();
+    /**
+     * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
+     * the module —Tasks— over the heading in its colour and in the card with its icon, in the
+     * module's words; the button goes to the module.
+     */
+    const moduleShareMail = createShareMail({
+      mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
+      // To an address without an account: the host's limits, and back at the module once signed up.
+      strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
+      module: {
+        name: app.name, color: app.color || suite.mailBrand.color,
+        icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
+      },
+    });
+    // With the host's one worker, a notice opens at the module's path (host-worker.js).
+    const modulePush = resolved.modules.push && suite.push
+      ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null;
     entry.view = {
       ...suite,
       config: moduleConfig,
@@ -1028,24 +1046,14 @@ export async function createHost({
         ? createUploadLinks({ baseUrl: moduleInstall.baseUrl, accounts: suite.accounts })
         : null,
       texts: moduleTexts,
-      /**
-       * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
-       * the module —Tasks— over the heading in its colour and in the card with its icon, in the
-       * module's words; the button goes to the module.
-       */
-      shareMail: createShareMail({
-        mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
-        // To an address without an account: the host's limits, and back at the module once signed up.
-        strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
-        module: {
-          name: app.name, color: app.color || suite.mailBrand.color,
-          icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
-        },
-      }),
+      shareMail: moduleShareMail,
       portabilityFor,
-      // With the host's one worker, a notice opens at the module's path (host-worker.js).
-      push: resolved.modules.push && suite.push
-        ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null,
+      push: modulePush,
+      // Whose something is, in the module's words, with the host's one brake on deletion notices.
+      ownership: createOwnership({
+        db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
+        texts: (user) => moduleTexts(null, user).t,
+      }),
       organizations: resolved.modules.organizations ? suite.organizations : null,
       // The host's payments in every module, whether the app sells on its own or not: Settings ›
       // Plan is the host's, the same in all of them, and a checkout comes back to the module it left.

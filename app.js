@@ -58,6 +58,8 @@ import { createMailer } from './mail.js';
 import { mailBrand } from './mail-layout.js';
 import { createStrangerInvites, registerUnsubscribeApi } from './stranger-invites.js';
 import { createShareMail } from './share-mail.js';
+import { createShareBrake, SUITE_OFFERS_PER_HOUR } from './share-brake.js';
+import { createOwnership, createGoneBrake } from './ownership.js';
 import { createAlerts } from './alerts.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
@@ -624,11 +626,21 @@ export function createSuite({
     organizations,
   });
 
+  // The email of something offered (share-mail.js), in the app's own clothes.
+  const shareMail = createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log });
+  // One brake on offers and one on deletion notices for everything the install shares: in the host,
+  // every module's (audit sc-data-22), so four modules don't make four limits and four notices.
+  const shareBrake = createShareBrake({ offersPerHour: SUITE_OFFERS_PER_HOUR });
+  const goneBrake = createGoneBrake();
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    // The email of something offered (share-mail.js), in the app's own clothes.
-    shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log }),
+    shareMail, shareBrake, goneBrake,
+    /**
+     * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
+     * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
+     */
+    ownership: createOwnership({ db: database, shareMail, push, texts: (user) => texts(null, user).t, brake: goneBrake, log }),
     mailBrand: brand, strangers, signupUrl,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,

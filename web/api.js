@@ -246,7 +246,9 @@ export function errorMessage(err) {
     if (counted && Number.isFinite(Number(data.limit))) data.limit = t(`kit.usage.counted.${counted}`, { n: Number(data.limit) });
     else if (data.feature === 'storage.mb') data.limit = t('kit.usage.counted.storage', { size: data.limit });
   }
-  const code = err?.code || 'generic';
+  let code = err?.code || 'generic';
+  // Closing what isn't yours asks its owner to close it, not to remove it (audit ownership-15).
+  if (code === 'not_yours' && data.action === 'close') code = 'not_yours_close';
   // A password refused says the shortest it takes (a server from before took 8), and why WorkOS
   // refused it, when it was WorkOS (audit sc-auth-7): «at least 8» to whoever typed 9 said nothing.
   if (code === 'password_rejected' && data.n == null) data.n = 8;
