@@ -15,6 +15,8 @@
  *   suite/billing.json       (whole install) who each account or organization is at the payment
  *                            provider, and its subscriptions, so that payments still find them
  *   suite/invitations.json   (whole install, with organizations) the invitations still waiting
+ *   suite/mail-suppressions.json  (whole install) the addresses that asked for no more invitations
+ *                            (stranger-invites.js): moving the install doesn't write to them again
  *   files/<path>             the attachments, byte for byte
  *
  * The app says what its data is —its tables, which column points at which
@@ -706,6 +708,12 @@ export function createPortability({
     files: byWho(limits.files, 20_000, 1_000_000),
     // Organizations in one copy: someone's own import makes one for each it doesn't map.
     organizations: byWho(limits.organizations, 100, 1_000_000),
+    // What every account's pending imports may take of the disk together (DATA_DIR/imports): a
+    // full disk stops SQLite writing for everyone (audit sc-data-13). The administrator's aren't counted.
+    pending: limits.pending ?? 2048 * MB,
+    // Bytes in a copy that none of its rows refers to (a zip made again, a folder's leftovers): past
+    // this, the copy carries padding and is refused (audit portable-11).
+    unreferenced: limits.unreferenced ?? 4 * MB,
   };
   const iso = () => new Date(clock()).toISOString();
   /** A query's rows from `from` (the database, or an export's own reader): one at a time where it can. */
@@ -1046,6 +1054,7 @@ export function createPortability({
     let orgs = [];
     let memberships = [];
     let invitations = [];
+    let suppressions = [];
     const versions = schemaVersions();
     // Asked before the read transaction: the first time, it is written.
     const install = groups && scope === 'install' ? installId() : null;
@@ -1087,6 +1096,10 @@ export function createPortability({
             external_ref, starts_at, ends_at, created_at, note FROM entitlement_grants
             WHERE subject_type = 'organization' AND revoked_at IS NULL ORDER BY id`).filter((g) => orgIds.has(g.subject_id)));
         }
+      }
+      // Whoever asked for no more invitations by email still wants none after a move (audit sc-data-19).
+      if (scope === 'install' && from.columnsOf('mail_suppressions').length) {
+        suppressions = from.all('SELECT email, created_at FROM mail_suppressions ORDER BY email');
       }
       yield;
       if (scope === 'install' && from.columnsOf('billing_customers').length) {
@@ -1133,6 +1146,7 @@ export function createPortability({
       if (grants.length) await zip.add('suite/grants.json', json(grants));
       if (billing) await zip.add('suite/billing.json', json(billing));
       if (invitations.length) await zip.add('suite/invitations.json', json(invitations));
+      if (suppressions.length) await zip.add('suite/mail-suppressions.json', json(suppressions));
       const files = { count: 0, bytes: 0, missing: 0 };
       const added = new Set();
       for (const table of model.tables.filter((t) => t.file)) {
@@ -1292,6 +1306,17 @@ export function createPortability({
         throw invalidData('grants', { column: 'external_ref' });
       }
       return grant;
+    });
+  }
+
+  /** suite/mail-suppressions.json: addresses (plain text, bounded) with when they asked. */
+  function checkSuppressions(rows) {
+    if (!Array.isArray(rows)) throw invalidData('mail_suppressions');
+    return rows.map((raw) => {
+      const email = isObject(raw) ? raw.email : null;
+      if (typeof email !== 'string' || !email.trim() || email.length > 320) throw invalidData('mail_suppressions', { column: 'email' });
+      const createdAt = raw.created_at == null ? null : String(raw.created_at).slice(0, 40);
+      return { email: email.trim().toLowerCase(), created_at: createdAt };
     });
   }
 
@@ -1469,10 +1494,33 @@ export function createPortability({
       }
       const grants = manifest.scope === 'install' ? checkGrants((await readJsonEntry('suite/grants.json')) ?? []) : [];
       const billing = checkBilling(manifest.scope === 'install' ? await readJsonEntry('suite/billing.json') : null);
-      return { zip, manifest, users, tables, grants, billing, organizations: orgs, memberships, invitations };
+      const suppressions = manifest.scope === 'install' ? checkSuppressions((await readJsonEntry('suite/mail-suppressions.json')) ?? []) : [];
+      refuseUnreferenced(zip, tables);
+      return { zip, manifest, users, tables, grants, billing, organizations: orgs, memberships, invitations, suppressions };
     } catch (err) {
       await zip.close();
       throw err;
+    }
+  }
+
+  /**
+   * A copy is its manifest, its data and the files its rows name: anything else in it waited a day
+   * in DATA_DIR/imports for nothing, and let anyone park up to a copy's size of whatever they liked
+   * there, ten times a quarter of an hour (audits sc-data-13, portable-11). A little is let through,
+   * for a zip someone made again on another computer.
+   */
+  function refuseUnreferenced(zip, tables) {
+    const named = new Set();
+    for (const table of model.tables.filter((t) => t.file)) {
+      for (const row of tables.get(table.name) || []) if (row[table.file.path] != null) named.add(`files/${row[table.file.path]}`);
+    }
+    let loose = 0;
+    for (const entry of zip.entries) {
+      const { name } = entry;
+      if (name === 'manifest.json' || name.endsWith('/') || /^(data|suite)\/[^/]+\.json$/.test(name) || named.has(name)) continue;
+      // What it takes on disk here, or once read: whichever is more.
+      loose += Math.max(entry.size ?? 0, entry.compressed ?? 0);
+      if (loose > max.unreferenced) throw invalidData('files', { reason: 'unreferenced', entry: name });
     }
   }
 
@@ -2097,6 +2145,13 @@ export function createPortability({
           }
         }
 
+        // The addresses that asked for no more invitations, added to those already here.
+        if (mode === 'install' && archive.suppressions?.length && database.columnsOf('mail_suppressions').length) {
+          for (const row of archive.suppressions) {
+            database.run('INSERT OR IGNORE INTO mail_suppressions (email, created_at) VALUES (?, ?)', row.email, row.created_at ?? iso());
+          }
+        }
+
         // Who each account is at the payment provider, under its id here: a renewal finds them by it,
         // not by the id the copy had, which here may be someone else's (audit sc-data-48).
         let billingImported = 0;
@@ -2267,22 +2322,62 @@ export function createPortability({
     }
   }
 
+  /** The bytes waiting in DATA_DIR/imports, of everyone's (`mode`: only that mode's) pending imports. */
+  function pendingBytes() {
+    let bytes = 0;
+    let names = [];
+    try { names = fs.readdirSync(importsDir); } catch { return 0; }
+    for (const name of names) {
+      try {
+        const stat = fs.statSync(path.join(importsDir, name));
+        if (stat.isFile()) bytes += stat.size;
+      } catch { /* gone meanwhile */ }
+    }
+    return bytes;
+  }
+
+  /** The pending imports of this person in this mode but `keep`: one waits at a time (sc-data-13). */
+  function forgetOthers({ mode, user }, keep) {
+    let names = [];
+    try { names = fs.readdirSync(importsDir); } catch { return; }
+    for (const name of names) {
+      const id = /^(.+)\.json$/.exec(name)?.[1];
+      if (!id || id === keep || !TOKEN.test(id)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(importsDir, name), 'utf8'));
+        if (meta?.owner === user.id && meta?.mode === mode) forget(id);
+      } catch { /* not one, or gone */ }
+    }
+  }
+
+  // Uploads under way, one per person (and one for the install): its slot in `begin` is taken only
+  // once the file is on disk, or a slow upload held one of the three for everyone (sc-data-25).
+  const uploading = new Set();
+
   /**
    * Takes an uploaded copy, checks it and answers what importing it would do.
-   * It waits in DATA_DIR/imports for a day, for this person only.
+   * It waits in DATA_DIR/imports for a day, for this person only, and only one: a new one lets the
+   * one before go. Someone's pending copies together may take `max.pending` of the disk.
    */
   async function receive(req, { mode, user }) {
-    const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
+    const key = mode === 'install' ? 'install' : `user:${user.id}`;
+    if (uploading.has(key)) throw conflict('data_busy');
+    if (mode !== 'install' && pendingBytes() > max.pending) throw conflict('data_busy');
+    uploading.add(key);
     const id = randomToken(18);
     const files = pendingFiles(id);
+    let release = null;
     try {
       fs.mkdirSync(importsDir, { recursive: true });
       await receiveFile(req, `${files.zip}.partial`, max.upload[mode]);
+      release = begin(key);
       fs.renameSync(`${files.zip}.partial`, files.zip);
       fs.writeFileSync(files.meta, JSON.stringify({ owner: user.id, mode, created_at: iso() }));
       const archive = await readArchive(files.zip, { by: mode });
       try {
-        return { import_id: id, ...planFor(archive, { mode, user }) };
+        const plan = { import_id: id, ...planFor(archive, { mode, user }) };
+        forgetOthers({ mode, user }, id);
+        return plan;
       } finally {
         await archive.zip.close();
       }
@@ -2290,7 +2385,8 @@ export function createPortability({
       forget(id);
       throw err;
     } finally {
-      release();
+      uploading.delete(key);
+      release?.();
     }
   }
 

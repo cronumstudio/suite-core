@@ -588,6 +588,8 @@ export function createSuite({
    */
   function purge() {
     sessions.purge();
+    // Invitations to addresses without an account, after a year (stranger-invites.js).
+    strangers?.purge?.();
     // The notices of the sessions that just went, after them (pwa-2).
     push?.purgeSessions();
     limiter.purge();

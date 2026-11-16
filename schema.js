@@ -31,7 +31,12 @@ import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
 import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
-import { strangerInvitesSchema } from './stranger-invites.js';
+import { strangerInvitesSchema, strangerInvitesKeepSchema } from './stranger-invites.js';
+
+/** Migration 33: `email = ? COLLATE NOCASE` on users read the whole table (audit sc-data-25). */
+function usersEmailSchema(d) {
+  d.exec('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE)');
+}
 
 /**
  * Migration 19: before 0.48.0 both of Paddle's environments wrote "paddle", and the only Paddle
@@ -101,4 +106,8 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 30, name: 'push-session-key', up: pushSchema },
   // The log by action, for Activity's list of actions and its filter (audit.js).
   { version: 31, name: 'audit-action-index', up: auditActionSchema },
+  // Invitations to addresses without an account outlive whoever sent them (stranger-invites.js).
+  { version: 32, name: 'stranger-invites-keep', up: strangerInvitesKeepSchema },
+  // Accounts by their email, as sign-in, offers by email and imports look for them, in any case.
+  { version: 33, name: 'users-email-index', up: usersEmailSchema },
 ]);

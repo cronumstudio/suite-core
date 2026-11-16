@@ -1185,3 +1185,77 @@ test('what stands before the server cuts big requests: the import takes no more 
   const answer = await (await fetch(`http://127.0.0.1:${server.address().port}/api/auth/config`)).json();
   assert.deepEqual(answer.app.imports, { max_bytes: MB });
 });
+
+/* --------------------------- the data audit of 6/11 --------------------------- */
+
+/** The copy at `file` again, with `extra` entries added: as someone would pad it by hand. */
+async function padded(file, target, extra) {
+  const source = await openZip(file);
+  const writer = createZipWriter(fs.createWriteStream(target));
+  try {
+    for (const { name } of source.entries) await writer.add(name, await source.read(name));
+    for (const [name, bytes] of Object.entries(extra)) await writer.add(name, bytes, { compress: false });
+    await writer.finish();
+  } finally {
+    await source.close();
+  }
+}
+
+test('pending imports: one per person and mode, nothing the copy doesn’t name, a ceiling on the folder (sc-data-13, portable-11)', async (t) => {
+  const MB = 1024 * 1024;
+  const box = install(t);
+  const s = seedSource(box);
+  const file = path.join(box.dir, 'ana.zip');
+  await exportTo(box, file, { scope: 'account', userId: s.ana.id });
+  const imports = path.join(box.dir, 'imports');
+  const zips = () => fs.readdirSync(imports).filter((n) => n.endsWith('.zip')).sort();
+  const send = (from = file, user = s.ana, portability = box.portability) => portability.receive(fs.createReadStream(from), { mode: 'account', user });
+
+  // Three uploads in a row leave one waiting: the last; the first ones are gone.
+  const first = await send();
+  await send();
+  const third = await send();
+  assert.deepEqual(zips(), [`${third.import_id}.zip`]);
+  await rejectsWith(box.portability.apply(first.import_id, { mode: 'account', user: s.ana }), 'import_not_found');
+  // Someone else's waits next to it.
+  const bens = await send(file, s.ben);
+  assert.equal(zips().length, 2);
+  box.portability.discard(bens.import_id, { mode: 'account', user: s.ben });
+
+  // A copy carrying bytes none of its rows names is refused, and nothing of it waits.
+  const fat = path.join(box.dir, 'padded.zip');
+  await padded(file, fat, { 'files/padding.bin': Buffer.alloc(5 * MB) });
+  await assert.rejects(send(fat), (err) => err.code === 'import_invalid_data' && err.extra.reason === 'unreferenced');
+  assert.deepEqual(zips(), [`${third.import_id}.zip`]);
+  // A little is let through (a zip made again elsewhere).
+  const tidy = path.join(box.dir, 'tidy.zip');
+  await padded(file, tidy, { '__MACOSX/._manifest.json': Buffer.alloc(200) });
+  assert.ok((await send(tidy)).import_id);
+
+  // With the folder past its ceiling, an account's upload waits for later; the install's doesn't.
+  const tight = box.suite.portabilityFor(DATA, { version: '1.0.0', limits: { pending: 1 } });
+  await rejectsWith(send(file, s.ben, tight), 'data_busy');
+  assert.ok((await tight.receive(fs.createReadStream(file), { mode: 'install', user: s.ana }).catch((err) => err)).code !== 'data_busy');
+});
+
+test('the whole install’s copy carries the addresses that asked for no more invitations (sc-data-19)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  source.db.run("INSERT INTO mail_suppressions (email, created_at) VALUES ('quiet@example.com', '2026-11-01T00:00:00.000Z')");
+  const file = path.join(source.dir, 'all.zip');
+  await exportTo(source, file, { scope: 'install' });
+  const { json, zip } = await readZip(t, file);
+  assert.deepEqual(await json('suite/mail-suppressions.json'), [{ email: 'quiet@example.com', created_at: '2026-11-01T00:00:00.000Z' }]);
+  // Someone's own copy never carries them.
+  const mine = path.join(source.dir, 'ana.zip');
+  await exportTo(source, mine, { scope: 'account', userId: s.ana.id });
+  assert.equal((await readZip(t, mine)).zip.has('suite/mail-suppressions.json'), false);
+  assert.ok(zip.has('suite/mail-suppressions.json'));
+
+  const target = install(t);
+  target.suite.accounts.create({ username: 'root', displayName: 'Root', role: 'admin' }, { quiet: true });
+  target.db.run("INSERT INTO mail_suppressions (email, created_at) VALUES ('quiet@example.com', '2026-10-01T00:00:00.000Z')");
+  await target.portability.applyFile(file, { mode: 'install' });
+  assert.deepEqual(target.db.all('SELECT email, created_at FROM mail_suppressions').map((r) => ({ ...r })),
+    [{ email: 'quiet@example.com', created_at: '2026-10-01T00:00:00.000Z' }], 'one already here stays as it was');
+});
