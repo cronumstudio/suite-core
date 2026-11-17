@@ -356,7 +356,17 @@ export function createSharing({
     if (createdAt && stamp) { columns.push(createdAt); values.push(clock()); }
     if (byId) { columns.push(byId); values.push(picked ? 1 : 0); }
     // Once picked by id, it stays so: an offer by address made after it changes nothing of that.
-    const keep = byId ? `, ${byId} = MAX(${table}.${byId}, excluded.${byId})` : '';
+    // Picked now after an offer typed to their address: dated now, as a new offer, or its date and
+    // place in the owner's list next to the address's would tell whose address it is.
+    let keep = '';
+    if (byId) {
+      keep = `, ${byId} = MAX(${table}.${byId}, excluded.${byId})`;
+      if (createdAt) {
+        const now = stamp ? `excluded.${createdAt}` : "datetime('now')";
+        keep += `, ${createdAt} = CASE WHEN ${table}.accepted = 0 AND ${table}.${byId} = 0 AND excluded.${byId} = 1
+          THEN ${now} ELSE ${table}.${createdAt} END`;
+      }
+    }
     run(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})
       ON CONFLICT (${key}, user_id) DO UPDATE SET permission = excluded.permission${keep}`, ...values);
   }

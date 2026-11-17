@@ -244,3 +244,13 @@ test('an account that goes takes what was kept of its AI clients; a disconnected
   ]);
   assert.equal(connections.refuses('user_1', 'chatgpt', { iat: Date.parse('2026-11-17T09:00:00Z') / 1000 }), true);
 });
+
+test('byId: picked by id after an address was typed, the offer is dated anew', () => {
+  const { db, sharing } = offering({ byId: true });
+  db.run("INSERT INTO board_shares (board_id, user_id, permission, accepted, by_id, created_at) VALUES (10, 3, 'edit', 0, 0, '2026-01-01T00:00:00.000Z')");
+  db.run("INSERT INTO board_address_offers (board_id, email) VALUES (10, 'cris@example.com')");
+  sharing.share('board', 1, 10, { user_id: 3 });
+  const row = db.get('SELECT by_id, created_at FROM board_shares WHERE board_id = 10 AND user_id = 3');
+  assert.equal(row.by_id, 1);
+  assert.notEqual(row.created_at, '2026-01-01T00:00:00.000Z');
+});

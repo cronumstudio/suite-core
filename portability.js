@@ -188,7 +188,9 @@ export function dataImportsSchema(d) {
  * BLOB (or a column without a type).
  *
  * A table renamed since copies were made says the names it had, `was: ['projects']`,
- * and a copy that has it under one of them still comes in.
+ * and a copy that has it under one of them still comes in. A column dropped since says so,
+ * `dropped: ['merged_into_id']`: a copy that still carries it comes in without it (v0.295.0,
+ * audit portable-18); it can't be a column the table has.
  *
  * A reference to a table declared later, or to the same one, is set after
  * every row exists, so its column must allow NULL. Every table needs a NOT NULL
@@ -302,8 +304,20 @@ export function describeData(database, declaration = {}, { organizationRoles } =
         errors.push(`${name}.onePerOrganization: a table with an integer id and one NOT NULL reference to organizations`);
       } else onePer = toGroups[0].column;
     }
+    // Columns gone since copies were made: still in old copies, read past (portable-18).
+    const dropped = new Set();
+    if (spec.dropped != null) {
+      if (!Array.isArray(spec.dropped)) errors.push(`${name}.dropped: a list of columns`);
+      else {
+        for (const column of spec.dropped) {
+          if (typeof column !== 'string' || !column) errors.push(`${name}.dropped: a list of columns`);
+          else if (columns.has(column)) errors.push(`${name}.dropped: "${column}" is still a column`);
+          else dropped.add(column);
+        }
+      }
+    }
     tables.push({
-      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was, onePer,
+      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was, onePer, dropped,
       types: new Map(info.map((c) => [c.name, affinityOf(c.type)])),
       clean: typeof spec.clean === 'function' ? spec.clean : null,
       limits: limitsOf(spec.limits, columns, name, errors),
@@ -1245,6 +1259,7 @@ export function createPortability({
       if (!isObject(raw)) throw invalidData(table.name);
       const row = {};
       for (const [column, value] of Object.entries(raw)) {
+        if (table.dropped.has(column)) continue;
         if (!table.columns.has(column)) throw invalidData(table.name, { column });
         // What never travels doesn't come in either: a copy made before it was omitted, or one written by hand.
         if (table.omit.has(column)) continue;

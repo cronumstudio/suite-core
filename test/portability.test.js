@@ -1291,3 +1291,32 @@ test('a host’s modules brought in one run, without organizations: each account
   await exportTo(source, later, { scope: 'install' });
   await rejectsWith(target.portability.applyFile(later, { mode: 'install' }), 'import_install_again');
 });
+
+test('a column dropped since says so, and old copies that carry it still come in (portable-18)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const file = path.join(source.dir, 'ana.zip');
+  await exportTo(source, file, { scope: 'account', userId: s.ana.id });
+  const old = path.join(source.dir, 'old.zip');
+  await rewrite(file, old, { 'data/lists.json': (rows) => rows.map((r) => ({ ...r, gone_col: 7 })) });
+  const target = install(t);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  await rejectsWith(target.portability.planFile(old, { mode: 'account', user: me }), 'import_invalid_data');
+  const lists = { ...DATA.tables.lists, dropped: ['gone_col'] };
+  const declared = target.suite.portabilityFor({ ...DATA, tables: { ...DATA.tables, lists } }, { version: '1.0.0' });
+  await declared.applyFile(old, { mode: 'account', user: me });
+  assert.throws(() => target.suite.portabilityFor({ ...DATA, tables: { ...DATA.tables, lists: { ...lists, dropped: ['name'] } } }), /dropped: "name" is still a column/);
+});
+
+/** The copy at `from` again, each JSON entry named in `edits` changed by it. */
+async function rewrite(from, to, edits) {
+  const zip = await openZip(from);
+  const out = createZipWriter(fs.createWriteStream(to));
+  for (const { name } of zip.entries) {
+    const bytes = await zip.read(name);
+    await out.add(name, edits[name] ? Buffer.from(JSON.stringify(edits[name](JSON.parse(bytes.toString('utf8'))))) : bytes);
+  }
+  await out.finish();
+  await zip.close();
+  return to;
+}
