@@ -1711,9 +1711,12 @@ kit's), then Notes is built on it whole, then the others as they move to English
   trash or moving it into something of their own answers **403 `not_yours`** with
   `{ owner, owner_id }` (`requireOwner(userId, ownerId)`), which the kit's `errorMessage` says as
   "This isn't yours: ask Ana to remove it or delete it". Where a module keeps who made something
-  (Tasks' `created_by`, an attachment's uploader) its maker may delete it too
-  (`requireOwnerOrAuthor(userId, { ownerId, authorId })`, `mayDelete`); where it doesn't (Notes,
-  Next) only the owner does. Moving it away answers the same with `copy: true` and `hint: 'copy'`:
+  (Tasks' and Projects' `created_by`, Notes' `notes.created_by`, Next's `entries.logged_by`, an
+  attachment's uploader) its maker may delete it too (`requireOwnerOrAuthor(userId, { ownerId,
+  authorId })`, `mayDelete`); what keeps no maker (a category, a step with none) only its owner.
+  Closing what isn't theirs says "ask Ana to close it" (`requireOwner(…, { action: 'close' })`).
+  The page keeps the button for everyone and, pressed by whoever may not, says whom to ask
+  (`tellNotYours(owner)`, as Projects did; audit of 6/11, ownership-5). Moving it away answers the same with `copy: true` and `hint: 'copy'`:
   the page's `moving(send)` asks "Take a copy?" and sends again with `{ copy: true }`, which makes
   a copy that is theirs and leaves the original; an assistant reads `errors.not_yours` followed by
   `errors.not_yours_copy` (mcp-kit's `describeErrorWith` adds the sentence of `<code>_<hint>`),
@@ -1722,12 +1725,19 @@ kit's), then Notes is built on it whole, then the others as they move to English
   notebook into a shared group): `givesTo(userId, ownerId)` → `{ id, name }` or null says who it
   will be, the page asks first with `confirmGive({ owner, thing })` ("It will be Ana's") and the
   MCP answer says `ownership.given`. When the owner deletes a container they shared,
-  `tellGone({ kind, name, icon, actorId, audience })` tells whoever used it, by push where a device
-  takes one (`ownership.gone.*`) and by email (`suite.shareMail.gone`, `mail.gone.*`), with no copy
-  offered; never the owner, never throwing. When an owner's account goes, `pickHeir(candidates,
-  { prefer })` chooses who inherits what they shared: whoever gave it to them if they still use
-  it, else an editor before a viewer, the longest in it first (Tasks, Notes and Next; Projects will
-  take it up). The check is always the server's; the page only explains it.
+  `tellGone({ kind, name, icon, actorId, audience, id })` tells whoever used it, by push where a
+  device takes one (`ownership.gone.*`, tagged by the thing's id) and by email
+  (`suite.shareMail.gone`, `mail.gone.*`), with no copy offered; never the owner, never throwing,
+  and once a day per sender and person (v0.295.0, audit sc-data-10). When an owner's account goes
+  (or their data is erased, or replaced by a copy), `handOver(userId, { table, candidates, … })`
+  passes each thing someone accepted to its heir, the same in every module (v0.295.0, audits
+  dup-srv-1, ownership-20): `pickHeir(candidates, { prefer })` chooses whoever gave it to them if
+  they still use it, else an editor before a viewer, the longest in it first, an account in use
+  before a disabled one; its `owner_since` is now, which the module's sweeps count from (what the
+  heir's plan keeps less of is not lost at once); its public page goes off; the offers by address
+  its former owner made still wait, and the heir sees their addresses masked (`addressFor`,
+  Martin, 14/11/2026). The suite makes it once: `suite.ownership`, and one brake on offers for the
+  whole install, `suite.shareBrake`. The check is always the server's; the page only explains it.
 - **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
   runs the install hears of the server failing instead of finding it in the log: an uncaught
   exception (the process waits 4 s at most for the email, then exits with 1 as before), an

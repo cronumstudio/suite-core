@@ -336,6 +336,14 @@ export function createSuite({
 
   // The AI clients authorized in AuthKit and disconnected here (idp_connections): the routes' and revoke.js's.
   const workosAiClients = install.authProvider === 'workos' ? workosConnections(database) : null;
+  // An account that goes takes what was kept of its AI clients, read while its identity is still there.
+  if (workosAiClients) {
+    accounts.whenRemoved((userId) => {
+      for (const { subject } of database.all("SELECT subject FROM user_identities WHERE user_id = ? AND provider = 'workos'", userId)) {
+        workosAiClients.forget(subject);
+      }
+    });
+  }
   // Each session a sign-in at WorkOS opens, with when they last actively signed in: what confirms an
   // admin with no password to give (workos-security.js), one for every module of a host.
   const freshSignIns = install.authProvider === 'workos' ? createFreshSignIns() : null;

@@ -208,3 +208,39 @@ test('byId: an offer by email to someone who has it already answers and shows as
   assert.equal(db.get('SELECT permission FROM board_shares WHERE board_id = 10 AND user_id = 3').permission, 'view');
   assert.deepEqual(seen(), { people: [[3, true]], addresses: ['cris@example.com', 'nobody@example.com'] });
 });
+
+test('leftovers: an empty mcp_tokens next to api_tokens goes; one with rows, or alone, stays (portable-18)', async () => {
+  const { dropLeftovers } = await import('../host.js');
+  const { openDatabase } = await import('../db.js');
+  const make = (sql) => { const d = openDatabase({ path: ':memory:' }); d.exec(sql); return d; };
+  const empty = make('CREATE TABLE api_tokens (id INTEGER PRIMARY KEY); CREATE TABLE mcp_tokens (id INTEGER PRIMARY KEY);');
+  dropLeftovers(empty);
+  assert.equal(empty.columnsOf('mcp_tokens').length, 0);
+  const full = make('CREATE TABLE api_tokens (id INTEGER PRIMARY KEY); CREATE TABLE mcp_tokens (id INTEGER PRIMARY KEY); INSERT INTO mcp_tokens VALUES (1);');
+  dropLeftovers(full);
+  assert.ok(full.columnsOf('mcp_tokens').length);
+  const alone = make('CREATE TABLE mcp_tokens (id INTEGER PRIMARY KEY);');
+  dropLeftovers(alone);
+  assert.ok(alone.columnsOf('mcp_tokens').length);
+});
+
+test('an account that goes takes what was kept of its AI clients; a disconnected one stays refused (portable-20)', async () => {
+  const { workosConnections } = await import('../workos-accounts.js');
+  const { connectionsSchema, connectionConsentsSchema } = await import('../workos-accounts.js');
+  const { openDatabase } = await import('../db.js');
+  const d = openDatabase({ path: ':memory:' });
+  connectionsSchema(d);
+  connectionConsentsSchema(d);
+  const connections = workosConnections(d, { clock: () => Date.parse('2026-11-17T10:00:00Z') });
+  connections.used('user_1', 'claude', 'sid-a');
+  connections.used('user_1', 'chatgpt', 'sid-b');
+  connections.revoke('user_1', 'chatgpt');
+  connections.used('user_2', 'claude', 'sid-c');
+  connections.forget('user_1');
+  assert.deepEqual(d.all('SELECT subject, client_id, last_used_at, sid, revoked_at IS NOT NULL AS revoked FROM idp_connections ORDER BY subject, client_id')
+    .map((r) => ({ ...r })), [
+    { subject: 'user_1', client_id: 'chatgpt', last_used_at: null, sid: null, revoked: 1 },
+    { subject: 'user_2', client_id: 'claude', last_used_at: '2026-11-17T10:00:00.000Z', sid: 'sid-c', revoked: 0 },
+  ]);
+  assert.equal(connections.refuses('user_1', 'chatgpt', { iat: Date.parse('2026-11-17T09:00:00Z') / 1000 }), true);
+});

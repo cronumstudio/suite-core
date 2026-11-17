@@ -859,7 +859,8 @@ export async function createHost({
    * database, where the second found the first's table there and went on, with no way back. Null
    * when they can't run there (one that needs more than the database): the copies' tables are still
    * compared, once every module is in. (A table two modules make and neither declares, such as the
-   * old `mcp_tokens` of Tasks and Projects, is no one's data: left as it is.)
+   * old `mcp_tokens` of Tasks and Projects, is no one's data: dropped once every module is in, when
+   * empty and the suite's api_tokens is there; dropLeftovers.)
    */
   function tablesMadeBy(list, scope) {
     let scratch = null;
@@ -1255,6 +1256,7 @@ export async function createHost({
   }
 
   const mounts = new Set(listed.map((m) => m.mount));
+  dropLeftovers(suite.database);
   /**
    * Whether someone uses a module: every one until they choose, then the ones they kept on, and
    * one the host added since. What modulesOf() says of it, from its own row: it read all of
@@ -1960,3 +1962,17 @@ export async function createHost({
     modules: joined.map((m) => ({ mount: m.mount, id: m.config.app.id, suite: m.view, app: m.app })),
   };
 }
+
+/**
+ * A table nothing uses, left by the modules (audit portable-18): Tasks', Projects' and Next's
+ * first migrations make `mcp_tokens`, which the suite renamed to api_tokens where it was the
+ * app's own; in a host the suite's api_tokens came first and theirs stayed, empty. Dropped once
+ * the modules' migrations ran, only when it is empty and api_tokens is there.
+ */
+export function dropLeftovers(database) {
+  const has = (table) => database.columnsOf(table).length > 0;
+  if (has('mcp_tokens') && has('api_tokens') && !database.get('SELECT 1 AS x FROM mcp_tokens LIMIT 1')) {
+    database.exec('DROP TABLE mcp_tokens');
+  }
+}
+
