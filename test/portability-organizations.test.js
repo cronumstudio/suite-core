@@ -1100,8 +1100,9 @@ test('today’s declarations carry nothing of organizations, and refuse a copy t
   const whole = path.join(source.dir, 'today.zip');
   const manifest = await exportTo(source, whole, { scope: 'install' }, today);
   assert.equal(manifest.organizations, undefined);
-  assert.deepEqual(manifest.source, { base_url: 'http://127.0.0.1', auth: 'local' }, 'nor which install it is');
-  assert.equal(source.db.getMeta('suite.install_id'), null, 'nothing written for it');
+  // Which install and run it is, with organizations or without: a host's modules come in one run (portable-13).
+  assert.deepEqual(Object.keys(manifest.source).sort(), ['auth', 'base_url', 'export', 'install']);
+  assert.equal(manifest.source.install, source.db.getMeta('suite.install_id'));
   const { zip, json } = await readZip(t, whole);
   assert.equal(zip.has('data/organizations.json'), false);
   assert.equal(zip.has('suite/invitations.json'), false);

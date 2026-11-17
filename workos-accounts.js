@@ -164,6 +164,15 @@ export function workosConnections(database, { provider = 'workos', clock = () =>
         ON CONFLICT (provider, subject, client_id) DO UPDATE SET revoked_at = excluded.revoked_at, revoked_sid = sid`,
       provider, String(subject), String(clientId), at || iso(clock()));
     },
+    /**
+     * The account of `subject` went (audit portable-20): what was kept of its AI clients goes with it
+     * (when each was last used, its session). A client disconnected here stays refused —only its
+     * revocation is kept—, or its old tokens would work again on an account made later with that login.
+     */
+    forget(subject) {
+      database.run('DELETE FROM idp_connections WHERE provider = ? AND subject = ? AND revoked_at IS NULL', provider, String(subject));
+      database.run('UPDATE idp_connections SET last_used_at = NULL, sid = NULL WHERE provider = ? AND subject = ?', provider, String(subject));
+    },
     /** Whether a token of that client is refused: issued before it was disconnected, or of the consent disconnected. */
     refuses(subject, clientId, { iat = 0, sid = null } = {}) {
       const row = rowOf(subject, clientId);

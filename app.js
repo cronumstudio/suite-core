@@ -58,6 +58,8 @@ import { createMailer } from './mail.js';
 import { mailBrand } from './mail-layout.js';
 import { createStrangerInvites, registerUnsubscribeApi } from './stranger-invites.js';
 import { createShareMail } from './share-mail.js';
+import { createShareBrake, SUITE_OFFERS_PER_HOUR } from './share-brake.js';
+import { createOwnership, createGoneBrake } from './ownership.js';
 import { createAlerts } from './alerts.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
@@ -334,6 +336,14 @@ export function createSuite({
 
   // The AI clients authorized in AuthKit and disconnected here (idp_connections): the routes' and revoke.js's.
   const workosAiClients = install.authProvider === 'workos' ? workosConnections(database) : null;
+  // An account that goes takes what was kept of its AI clients, read while its identity is still there.
+  if (workosAiClients) {
+    accounts.whenRemoved((userId) => {
+      for (const { subject } of database.all("SELECT subject FROM user_identities WHERE user_id = ? AND provider = 'workos'", userId)) {
+        workosAiClients.forget(subject);
+      }
+    });
+  }
   // Each session a sign-in at WorkOS opens, with when they last actively signed in: what confirms an
   // admin with no password to give (workos-security.js), one for every module of a host.
   const freshSignIns = install.authProvider === 'workos' ? createFreshSignIns() : null;
@@ -586,6 +596,8 @@ export function createSuite({
    */
   function purge() {
     sessions.purge();
+    // Invitations to addresses without an account, after a year (stranger-invites.js).
+    strangers?.purge?.();
     // The notices of the sessions that just went, after them (pwa-2).
     push?.purgeSessions();
     limiter.purge();
@@ -624,11 +636,21 @@ export function createSuite({
     organizations,
   });
 
+  // The email of something offered (share-mail.js), in the app's own clothes.
+  const shareMail = createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log });
+  // One brake on offers and one on deletion notices for everything the install shares: in the host,
+  // every module's (audit sc-data-22), so four modules don't make four limits and four notices.
+  const shareBrake = createShareBrake({ offersPerHour: SUITE_OFFERS_PER_HOUR });
+  const goneBrake = createGoneBrake();
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    // The email of something offered (share-mail.js), in the app's own clothes.
-    shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log }),
+    shareMail, shareBrake, goneBrake,
+    /**
+     * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
+     * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
+     */
+    ownership: createOwnership({ db: database, shareMail, push, texts: (user) => texts(null, user).t, brake: goneBrake, log }),
     mailBrand: brand, strangers, signupUrl,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,

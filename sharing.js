@@ -61,6 +61,28 @@ import { bareAddress } from './mail.js';
 
 export const PERMISSIONS = ['view', 'edit'];
 
+/**
+ * An address as whoever didn't type it sees it: its first letter, then dots, then its domain
+ * (`m•••@example.com`). Someone who inherits something shared sees so the addresses its former
+ * owner offered it to, while those offers wait (Martin, 14/11/2026): the offer stays, the address
+ * stays the typist's. Not an address: as it came, cut to a letter.
+ */
+export function maskAddress(email) {
+  const text = String(email ?? '');
+  const at = text.lastIndexOf('@');
+  if (at < 1) return text ? `${text[0]}•••` : '';
+  return `${text[0]}•••${text.slice(at)}`;
+}
+
+/**
+ * The address of an offer waiting under it, as `viewerId` is shown it: whole to whoever made the
+ * offer (`invitedBy`), masked to anyone else, such as whoever inherited the thing (maskAddress).
+ * An offer whose maker is unknown (no column, or their account went) shows masked.
+ */
+export function addressFor(viewerId, email, invitedBy) {
+  return invitedBy != null && Number(invitedBy) === Number(viewerId) ? email : maskAddress(email);
+}
+
 /** What the audit log calls each step of sharing (admin.actions.share_*). */
 export const SHARE_ACTIONS = Object.freeze({
   offer: 'share.offer', permission: 'share.permission', withdraw: 'share.withdraw', leave: 'share.leave',
@@ -110,6 +132,13 @@ export function auditShare(audit, { step, actor, req = null, kind, id, targetId 
  *   addresses: { table, key }   where its offers by email wait under their address (a table with
  *                         an `email` column, `key` naming the thing), when the module keeps
  *                         them and lists them to the owner itself (see the top of the file);
+ *   byId: 'by_id'         with `addresses`, the column (INTEGER 0/1) of an offer row that says it
+ *                         was made by picking the person (by id), not by typing an address. With
+ *                         it, a share waits behind an offer by address only while nobody picked
+ *                         them by id, and an offer by email to someone who has it already (accepted,
+ *                         or picked) waits under its address like one to an address without an
+ *                         account: two leaks of how an address and an account go together close
+ *                         (Martin, 14/11/2026; see the top of the file). Without it, as before;
  *   strictRemove: false   taking back a share that isn't there answers done, not 404;
  *   path, routes: { segment, list, patch }   its routes (see routes()).
  * @param {object|Function} [options.notify]  { push(n), email(n), stranger?(n) }, or one function for every
@@ -179,9 +208,11 @@ export function createSharing({
   function behindAddress(spec, id, targetId) {
     if (!spec.addresses) return false;
     const { table, key } = spec.addresses;
+    // Picked by id too, the owner knows them by name: that offer shows, and so does the address's.
+    const byId = spec.byId ? ` AND s.${spec.byId} = 0` : '';
     return Boolean(get(`SELECT 1 AS x FROM ${spec.table} s JOIN users u ON u.id = s.user_id
       JOIN ${table} a ON a.${key} = s.${spec.key} AND a.email = u.email COLLATE NOCASE
-      WHERE s.${spec.key} = ? AND s.user_id = ? AND s.accepted = 0`, id, targetId));
+      WHERE s.${spec.key} = ? AND s.user_id = ? AND s.accepted = 0${byId}`, id, targetId));
   }
 
   /**
@@ -196,14 +227,15 @@ export function createSharing({
     const { table, key, createdAt } = spec;
     const created = createdAt ? createdAt : 'NULL';
     const typed = owner ? addressesOf(spec, id) : null;
-    return all(`SELECT user_id, permission, accepted, ${created} AS created_at FROM ${table}
+    const picked = spec.byId ? spec.byId : '0';
+    return all(`SELECT user_id, permission, accepted, ${picked} AS by_id, ${created} AS created_at FROM ${table}
       WHERE ${key} = ? ${owner ? '' : 'AND accepted = 1'} ORDER BY accepted DESC, ${createdAt ? `${createdAt}, ` : ''}user_id`, id)
       .flatMap((s) => {
         const share = { permission: s.permission, accepted: Boolean(s.accepted), created_at: s.created_at };
         if (!typed) return [{ user: pendingMask(personOf(s.user_id, { email: owner }), s.accepted), ...share }];
         const person = personOf(s.user_id, { email: true });
         // Waiting behind an offer by address: the module lists that offer in its place.
-        if (!s.accepted && person?.email && typed.has(person.email.toLowerCase())) return [];
+        if (!s.accepted && !s.by_id && person?.email && typed.has(person.email.toLowerCase())) return [];
         // Picked by id, or accepted: by the name the owner already knew, or they showed by
         // accepting. Their email stays theirs.
         return [{ user: person && { id: person.id, name: person.name }, ...share }];
@@ -316,14 +348,27 @@ export function createSharing({
   };
 
   /** An offer, or a new permission for someone it was already offered to: what they accepted stays accepted. */
-  function offerRow(kind, id, userId, targetId, permission) {
-    const { table, key, invitedBy, createdAt, stamp } = specOf(kind);
+  function offerRow(kind, id, userId, targetId, permission, { picked = false } = {}) {
+    const { table, key, invitedBy, createdAt, stamp, byId } = specOf(kind);
     const columns = [key, 'user_id', 'permission', 'accepted'];
     const values = [id, targetId, permission, 0];
     if (invitedBy) { columns.push(invitedBy); values.push(userId); }
     if (createdAt && stamp) { columns.push(createdAt); values.push(clock()); }
+    if (byId) { columns.push(byId); values.push(picked ? 1 : 0); }
+    // Once picked by id, it stays so: an offer by address made after it changes nothing of that.
+    // Picked now after an offer typed to their address: dated now, as a new offer, or its date and
+    // place in the owner's list next to the address's would tell whose address it is.
+    let keep = '';
+    if (byId) {
+      keep = `, ${byId} = MAX(${table}.${byId}, excluded.${byId})`;
+      if (createdAt) {
+        const now = stamp ? `excluded.${createdAt}` : "datetime('now')";
+        keep += `, ${createdAt} = CASE WHEN ${table}.accepted = 0 AND ${table}.${byId} = 0 AND excluded.${byId} = 1
+          THEN ${now} ELSE ${table}.${createdAt} END`;
+      }
+    }
     run(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})
-      ON CONFLICT (${key}, user_id) DO UPDATE SET permission = excluded.permission`, ...values);
+      ON CONFLICT (${key}, user_id) DO UPDATE SET permission = excluded.permission${keep}`, ...values);
   }
 
   const dropShare = (kind, id, targetId) => {
@@ -434,13 +479,26 @@ export function createSharing({
       return answered;
     }
     const row = shareRow(kind, thing.id, who.id);
-    const invited = !row;
+    // By email to someone who has it already —accepted, or picked by id—, nothing of theirs changes:
+    // it waits under the address, as for one without an account, and answers the same. Else the
+    // answer ("accepted", its date) or a permission changing on their row told the owner that the
+    // address they typed is that person's (Martin, 14/11/2026; `byId`).
+    if (spec.byId && who.email && row && (row.accepted || row[spec.byId])) {
+      count(userId);
+      const shadow = { ghost: true, email: who.email };
+      const answered = answer({ kind, userId, thing, target: shadow, permission, invited: true, ctx });
+      noted('offer', { actor: userId, req, kind, id: thing.id, stranger: true, permission });
+      return answered;
+    }
+    const picked = !who.email;
+    // Picked by id after an offer by address only: a new offer to them by name, told as one.
+    const invited = !row || Boolean(spec.byId && picked && !row.accepted && !row[spec.byId]);
     // An offer not yet accepted counts every time, by email as by id: each one tells them
     // (`offered`), and one counted offer by id, made again and again, made their tabs reload
     // without limit (audit sc-data-6). By email it also finds the limit as soon as an address
     // without an account does, which counts every time.
     if (invited || !row.accepted) count(userId);
-    offerRow(kind, thing.id, userId, who.id, permission);
+    offerRow(kind, thing.id, userId, who.id, permission, { picked });
     // In the log once it is made: a new offer, or one made again while unanswered; for someone who
     // accepted, what they may do, when it changed.
     if (invited || !row.accepted) noted('offer', { actor: userId, req, kind, id: thing.id, targetId: who.id, permission });

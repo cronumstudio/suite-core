@@ -75,6 +75,7 @@ import { createUploadLinks } from './mcp-files.js';
 import { describeErrorWith } from './mcp-kit.js';
 import { createTexts } from './i18n.js';
 import { createShareMail } from './share-mail.js';
+import { createOwnership } from './ownership.js';
 import { createPortability, withImportCeiling } from './portability.js';
 import {
   sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
@@ -858,7 +859,8 @@ export async function createHost({
    * database, where the second found the first's table there and went on, with no way back. Null
    * when they can't run there (one that needs more than the database): the copies' tables are still
    * compared, once every module is in. (A table two modules make and neither declares, such as the
-   * old `mcp_tokens` of Tasks and Projects, is no one's data: left as it is.)
+   * old `mcp_tokens` of Tasks and Projects, is no one's data: dropped once every module is in, when
+   * empty and the suite's api_tokens is there; dropLeftovers.)
    */
   function tablesMadeBy(list, scope) {
     let scratch = null;
@@ -1016,6 +1018,23 @@ export async function createHost({
     entry.config = moduleConfig;
     entry.hooks = ownHooks;
     const moduleTexts = ownHooks.texts || createTexts();
+    /**
+     * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
+     * the module —Tasks— over the heading in its colour and in the card with its icon, in the
+     * module's words; the button goes to the module.
+     */
+    const moduleShareMail = createShareMail({
+      mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
+      // To an address without an account: the host's limits, and back at the module once signed up.
+      strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
+      module: {
+        name: app.name, color: app.color || suite.mailBrand.color,
+        icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
+      },
+    });
+    // With the host's one worker, a notice opens at the module's path (host-worker.js).
+    const modulePush = resolved.modules.push && suite.push
+      ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null;
     entry.view = {
       ...suite,
       config: moduleConfig,
@@ -1028,24 +1047,14 @@ export async function createHost({
         ? createUploadLinks({ baseUrl: moduleInstall.baseUrl, accounts: suite.accounts })
         : null,
       texts: moduleTexts,
-      /**
-       * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
-       * the module —Tasks— over the heading in its colour and in the card with its icon, in the
-       * module's words; the button goes to the module.
-       */
-      shareMail: createShareMail({
-        mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
-        // To an address without an account: the host's limits, and back at the module once signed up.
-        strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
-        module: {
-          name: app.name, color: app.color || suite.mailBrand.color,
-          icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
-        },
-      }),
+      shareMail: moduleShareMail,
       portabilityFor,
-      // With the host's one worker, a notice opens at the module's path (host-worker.js).
-      push: resolved.modules.push && suite.push
-        ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null,
+      push: modulePush,
+      // Whose something is, in the module's words, with the host's one brake on deletion notices.
+      ownership: createOwnership({
+        db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
+        texts: (user) => moduleTexts(null, user).t,
+      }),
       organizations: resolved.modules.organizations ? suite.organizations : null,
       // The host's payments in every module, whether the app sells on its own or not: Settings ›
       // Plan is the host's, the same in all of them, and a checkout comes back to the module it left.
@@ -1247,6 +1256,7 @@ export async function createHost({
   }
 
   const mounts = new Set(listed.map((m) => m.mount));
+  dropLeftovers(suite.database);
   /**
    * Whether someone uses a module: every one until they choose, then the ones they kept on, and
    * one the host added since. What modulesOf() says of it, from its own row: it read all of
@@ -1952,3 +1962,17 @@ export async function createHost({
     modules: joined.map((m) => ({ mount: m.mount, id: m.config.app.id, suite: m.view, app: m.app })),
   };
 }
+
+/**
+ * A table nothing uses, left by the modules (audit portable-18): Tasks', Projects' and Next's
+ * first migrations make `mcp_tokens`, which the suite renamed to api_tokens where it was the
+ * app's own; in a host the suite's api_tokens came first and theirs stayed, empty. Dropped once
+ * the modules' migrations ran, only when it is empty and api_tokens is there.
+ */
+export function dropLeftovers(database) {
+  const has = (table) => database.columnsOf(table).length > 0;
+  if (has('mcp_tokens') && has('api_tokens') && !database.get('SELECT 1 AS x FROM mcp_tokens LIMIT 1')) {
+    database.exec('DROP TABLE mcp_tokens');
+  }
+}
+
