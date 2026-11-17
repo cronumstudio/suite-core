@@ -361,6 +361,8 @@ test('someone’s copy goes into another install as new data of the account that
   const other = target.suite.accounts.create({ username: 'zoe', displayName: 'Zoe' });
   target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Zoe list')", other.id);
   const me = target.suite.accounts.create({ username: 'ana.cloud', displayName: 'Ana C', email: 'ana@cloud.example', role: 'user' });
+  // Her account here speaks Italian, in Rome: a module's copy doesn't change that for all of it (portable-14).
+  target.db.run('UPDATE users SET prefs = ? WHERE id = ?', JSON.stringify({ lang: 'it', tz: 'Europe/Rome' }), me.id);
 
   const plan = await target.portability.planFile(file, { mode: 'account', user: me });
   assert.deepEqual(plan.copy.tables, { groups: 1, lists: 1, list_prefs: 1, tasks: 4, files: 2, branches: 2, entries: 3 });
@@ -403,7 +405,7 @@ test('someone’s copy goes into another install as new data of the account that
   const after = target.suite.accounts.byId(me.id);
   assert.deepEqual([after.username, after.email, after.role], ['ana.cloud', 'ana@cloud.example', 'user'], 'who she is here stays');
   assert.deepEqual([after.display_name, after.avatar_color], ['Ana', '#ff0000'], 'her preferences come');
-  assert.deepEqual(JSON.parse(after.prefs), { default_list: list.id, lang: 'es' }, 'ids in the preferences, translated');
+  assert.deepEqual(JSON.parse(after.prefs), { default_list: list.id, lang: 'it', tz: 'Europe/Rome' }, 'ids in the preferences, translated; her language and zone, hers');
   assert.equal(db.get("SELECT COUNT(*) AS n FROM lists WHERE name = 'Zoe list'").n, 1, 'nothing else touched');
   assert.equal(db.get('SELECT COUNT(*) AS n FROM groups WHERE user_id = ?', me.id).n, 2, 'added, not replaced');
   assert.ok(target.events.some((e) => e.event === 'resync' && e.audience?.includes(me.id)), 'her open tabs reload');
@@ -1258,4 +1260,34 @@ test('the whole install’s copy carries the addresses that asked for no more in
   await target.portability.applyFile(file, { mode: 'install' });
   assert.deepEqual(target.db.all('SELECT email, created_at FROM mail_suppressions').map((r) => ({ ...r })),
     [{ email: 'quiet@example.com', created_at: '2026-10-01T00:00:00.000Z' }], 'one already here stays as it was');
+});
+
+test('a host’s modules brought in one run, without organizations: each account and each plan once (portable-13)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const at = '2026-11-01T00:00:00.000Z';
+  // Ben has no email: by email alone, each module's copy made him again (ben2, ben3…).
+  source.db.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, starts_at, created_at)
+    VALUES ('user', ?, 'pro', 'admin', ?, ?)`, s.ben.id, at, at);
+  const OTHER = { tables: { groups: { refs: { user_id: 'users' } } } };
+  const first = path.join(source.dir, 'first.zip');
+  const second = path.join(source.dir, 'second.zip');
+  const job = source.portability.prepareExport({ scope: 'install' });
+  const manifest = await job.write(fs.createWriteStream(first));
+  assert.ok(manifest.source.install && manifest.source.export);
+  await exportTo({ ...source, portability: source.suite.portabilityFor(OTHER, { version: '1.0.0' }) }, second, { scope: 'install', run: manifest.source.export });
+
+  const target = install(t);
+  target.suite.accounts.create({ username: 'root', displayName: 'Root', role: 'admin' }, { quiet: true });
+  await target.portability.applyFile(first, { mode: 'install' });
+  const grantsOf = () => target.db.all("SELECT g.plan FROM entitlement_grants g JOIN users u ON u.id = g.subject_id WHERE g.subject_type = 'user' AND u.username = 'ben' ORDER BY g.plan").map((g) => g.plan);
+  const once = grantsOf();
+  assert.deepEqual(once, ['full', 'pro']);
+  await target.suite.portabilityFor(OTHER, { version: '1.0.0' }).applyFile(second, { mode: 'install' });
+  assert.deepEqual(target.db.all("SELECT username FROM users WHERE username LIKE 'ben%'").map((u) => u.username), ['ben']);
+  assert.deepEqual(grantsOf(), once, 'the second module’s copy gives no plan again');
+  // A copy of another run of that install is refused before anything is written.
+  const later = path.join(source.dir, 'later.zip');
+  await exportTo(source, later, { scope: 'install' });
+  await rejectsWith(target.portability.applyFile(later, { mode: 'install' }), 'import_install_again');
 });

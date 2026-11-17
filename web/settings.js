@@ -2185,6 +2185,10 @@ export function openSettings(options) {
       // What they share with other people passes to them: said too, by the names they know it by.
       const sharedNames = answer.shared || [];
       const passesOn = sharedNames.length ? t('kit.data.sharedPassesOn', { names: listFormat({ type: 'conjunction' }).format(sharedNames) }) : '';
+      // What the copy didn't take because it is shared (portability.js left_out): said, as the
+      // copy promises, so nobody thinks it lost them (audit portable-15).
+      const leftOut = copy.left_out && typeof copy.left_out === 'object' ? copy.left_out : {};
+      const leftCount = Object.values(leftOut).reduce((a, b) => a + (Number(b) || 0), 0);
       const replace = el('input', { type: 'checkbox', id: 'kit-data-replace' });
       const post = (body) => api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, body);
       const done = (result) => {
@@ -2228,6 +2232,8 @@ export function openSettings(options) {
         copy.applied_at ? hint(t('kit.data.applied')) : null,
         owned || leaving.length ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('kit.data.replace', { what: describe(has) }) })) : null,
         leaving.length ? hint(handOver) : null,
+        owned && passesOn ? hint(passesOn) : null,
+        leftCount ? hint(t('kit.data.leftOut', { what: describe(leftOut) })) : null,
         row(discard, apply));
     }
 

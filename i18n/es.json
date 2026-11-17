@@ -850,6 +850,7 @@
   "kit.data.replaceButton": "Sustituir e importar",
   "kit.data.handOver": "También sales de {names}, que se quedan con sus demás miembros y con todo lo que tienen.",
   "kit.data.sharedPassesOn": "Lo que compartes con otras personas ({names}) pasa a ellas con todo lo que tiene, y a ti te queda lo que traiga la copia, sin compartir.",
+  "kit.data.leftOut": "La copia no trae lo que compartes con otras personas ni lo que comparten contigo ({what}): eso sigue donde está.",
   "kit.data.apply": "Importar",
   "kit.data.discard": "Descartar",
   "kit.data.done": "Importado: {what}.",

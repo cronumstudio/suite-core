@@ -39,9 +39,9 @@
  *   whole install's goes, account by account, where the administrator says:
  *   an account already here (the one with the same email, by default), a new
  *   one —with WorkOS it is linked by itself when that person signs in with
- *   that email—, or nowhere. An existing account takes the preferences of the
- *   copy (name shown, theme, language, the app's own) and keeps who it is
- *   (username, email, role). Passwords, second steps, sessions, API tokens,
+ *   that email—, or nowhere. An existing account takes the name shown and the
+ *   app's own preferences of the copy, and keeps who it is (username, email,
+ *   role) and what is the whole account's: its language, time zone and theme. Passwords, second steps, sessions, API tokens,
  *   OAuth grants and push subscriptions never travel: they are made again.
  * · **Organizations** (an app that declares `organizations`, or a table that
  *   points at them). A table can belong to a group instead of a person (a
@@ -116,6 +116,21 @@ const TOKEN = /^[\w-]{16,64}$/;
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const quote = (name) => `"${String(name).replaceAll('"', '""')}"`;
+/**
+ * Preferences of the whole account, not of a module: whichever module's copy comes in, an account
+ * already here keeps its own (audit portable-14: importing Projects' copy turned Carla's Work from
+ * Italian and Rome to Spanish and Madrid).
+ */
+export const ACCOUNT_PREFS = Object.freeze(['lang', 'lang_seen', 'tz']);
+function keepAccountPrefs(prefs, current) {
+  const out = prefs && typeof prefs === 'object' && !Array.isArray(prefs) ? { ...prefs } : {};
+  for (const key of ACCOUNT_PREFS) {
+    if (current && Object.hasOwn(current, key)) out[key] = current[key];
+    else delete out[key];
+  }
+  return out;
+}
+
 const invalidData = (table, extra = {}) => badRequest('import_invalid_data', { table, ...extra });
 
 /** Which copies were imported here, so the same one is never applied twice. */
@@ -941,6 +956,12 @@ export function createPortability({
   const originKey = (install, organizationId) => `suite.organization_origin:${install}:${organizationId}`;
   /** Which export run of an install was brought here (the only one that may be). */
   const installKey = (install) => `suite.install_import:${install}`;
+  /**
+   * Where an account of that install went here, as the first module's copy of the run took it: the
+   * others' copies of the run put theirs into the same account, even one without an email (audit
+   * portable-13: four modules made admin2…admin5 and gave a plan four times).
+   */
+  const userOriginKey = (install, userId) => `suite.user_origin:${install}:${userId}`;
   /** The install a whole install's copy says it is from, when it says one the suite would write. */
   const sourceInstall = (manifest) => (manifest.scope === 'install' && typeof manifest.source?.install === 'string'
     && TOKEN.test(manifest.source.install) ? manifest.source.install : null);
@@ -956,14 +977,14 @@ export function createPortability({
    * who left them and plans revoked since, and take a file's word for a plan's end.
    */
   function checkInstallAgain(manifest) {
-    const from = groups ? sourceInstall(manifest) : null;
+    const from = sourceInstall(manifest);
     if (!from) return;
     const run = database.getMeta(installKey(from));
     if (run != null && run !== sourceRun(manifest)) throw conflict('import_install_again');
   }
   /** Whether another module's copy of this same run came first: then only this module's rows come. */
   const sameRunHere = (manifest) => {
-    const from = groups ? sourceInstall(manifest) : null;
+    const from = sourceInstall(manifest);
     return Boolean(from) && database.getMeta(installKey(from)) === sourceRun(manifest);
   };
 
@@ -1057,7 +1078,8 @@ export function createPortability({
     let suppressions = [];
     const versions = schemaVersions();
     // Asked before the read transaction: the first time, it is written.
-    const install = groups && scope === 'install' ? installId() : null;
+    // With organizations or without (Work has none): a host's modules are brought in one run.
+    const install = scope === 'install' ? installId() : null;
     // The run it is of: the caller's, when its other modules are exported with it; else its own.
     const exportRun = install ? (typeof run === 'string' && TOKEN.test(run) ? run : randomToken(18)) : null;
     if (transaction) database.exec('BEGIN');
@@ -1588,6 +1610,15 @@ export function createPortability({
         throw badRequest('field_invalid', { field: 'accounts' });
       }
     }
+    // An account the first module's copy of this run already brought goes where it went.
+    const from = sourceInstall(archive.manifest);
+    if (from && sameRunHere(archive.manifest)) {
+      for (const source of archive.users) {
+        if (choices.has(source.id)) continue;
+        const id = Number(database.getMeta(userOriginKey(from, source.id)));
+        if (Number.isInteger(id) && id > 0 && accounts.byId(id)) choices.set(source.id, { action: 'map', userId: id, replace: false });
+      }
+    }
     // The rest, by their email; a default never takes what a decision already took,
     // so the plan always opens, and whatever clashes is left for the administrator to say.
     const taken = new Set([...choices.values()].filter((c) => c.action === 'map').map((c) => c.userId));
@@ -1879,6 +1910,8 @@ export function createPortability({
         if (mode === 'install') {
           checkInstallAgain(manifest);
           followUp = sameRunHere(manifest);
+          const from = sourceInstall(manifest);
+          if (from && !followUp) database.setMeta(installKey(from), sourceRun(manifest));
         }
         // Accounts: the ones mapped here, and the new ones, without the app's welcome content.
         const userMap = new Map();
@@ -1912,6 +1945,9 @@ export function createPortability({
           source.created_at ?? null, disabled, verified, ...(model.userColumns.includes('delete_after') ? [goes] : []), account.id);
           userMap.set(sourceId, account.id);
           created.push(account.id);
+        }
+        if (mode === 'install' && sourceInstall(manifest)) {
+          for (const [sourceId, userId] of userMap) database.setMeta(userOriginKey(sourceInstall(manifest), sourceId), String(userId));
         }
 
         // "Replace": what those accounts own goes first, exactly what their own copy would take; a
@@ -2096,16 +2132,19 @@ export function createPortability({
           const isNew = created.includes(userId);
           const sets = {};
           if (typeof source.display_name === 'string' && source.display_name.trim()) sets.display_name = source.display_name.trim().slice(0, 80);
-          if (typeof source.theme === 'string' && model.userColumns.includes('theme')) sets.theme = source.theme.slice(0, 20);
-          if (source.locale !== undefined && model.userColumns.includes('locale')) sets.locale = source.locale ? String(source.locale).slice(0, 16) : null;
+          // The account's language, time zone and look are the whole account's (in Work, every module's):
+          // a module's copy brings them only to an account it makes (audit portable-14).
+          if (isNew && typeof source.theme === 'string' && model.userColumns.includes('theme')) sets.theme = source.theme.slice(0, 20);
+          if (isNew && source.locale !== undefined && model.userColumns.includes('locale')) sets.locale = source.locale ? String(source.locale).slice(0, 16) : null;
           // An empty one keeps what the account has: the app's columns may not allow it.
           for (const column of model.appColumns) if (source[column] != null) sets[column] = source[column];
           // Preferences hold ids of the app's rows: only the app knows where, so without its hook they stay.
           if (model.prefs && model.userColumns.includes('prefs')) {
             const parse = (text) => { try { return JSON.parse(text || '{}'); } catch { return {}; } };
             const current = isNew ? null : parse(database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs);
-            const prefs = model.prefs(parse(source.prefs), { ids, current, created: isNew });
-            sets.prefs = typeof prefs === 'string' ? prefs : JSON.stringify(prefs ?? {});
+            const made = model.prefs(parse(source.prefs), { ids, current, created: isNew });
+            sets.prefs = typeof made === 'string' ? made : JSON.stringify(made ?? {});
+            if (!isNew) sets.prefs = JSON.stringify(keepAccountPrefs(parse(sets.prefs), current));
           }
           const columns = Object.keys(sets);
           if (columns.length) {
