@@ -3,6 +3,63 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.295.0 — 2026-11-17
+
+Audit of 6/11, data: what happens to an account's things when it goes, copies, and what is shared.
+Martin's decisions of 14/11 are in the entries that follow them.
+
+### Whose it is, and who inherits
+- **One hand-over for every module** (`ownership.js` `handOver`, `heirOf`; dup-srv-1, ownership-20,
+  sc-data-22): what someone leaving shared passes to its heir the same way everywhere: its owner is
+  the heir, `owner_since` is now (what the module's sweeps count from), its public page goes off, and
+  the module adds its part through `set` and `moved`. Needs `db.all` and `db.run`.
+- `pickHeir` puts an account nobody can use (disabled, or waiting to be deleted) last; `heirOf` reads
+  it from `users` (portable-17).
+- **Deletion notices braked** (`tellGone`; sc-data-10, sc-data-23): once a day per sender and person,
+  whatever was deleted (deleting and restoring again is one notice); a nameless thing is "Untitled" in
+  the push too; `id` gives each thing's push its own tag. `createGoneBrake`, option `brake`.
+- `suite.ownership` (in the host, one per module in its words), `suite.shareBrake` (one brake on offers
+  for the whole install, 40 an hour: `SUITE_OFFERS_PER_HOUR`) and `suite.goneBrake`.
+- `requireOwner(…, { action: 'close' })` → `not_yours` with `action`, which the kit says «ask Ana to
+  close it» (`errors.not_yours_close`; ownership-15).
+- Kit: `tellNotYours(owner)` for a button pressed by someone who may not (ownership-5);
+  `askCopy`/`moving(…, { files: false })` say the copy goes without its files
+  (`kit.ownership.copyTextNoFiles`; ownership-17).
+
+### Sharing
+- **Inherited invitations by address are masked** (`sharing.js` `maskAddress`, `addressFor`; Martin,
+  14/11/2026): an heir sees `m•••@domain.com` for the addresses its former owner typed; the offer stays.
+- **Picked by id, or typed** (kind option `byId`; Martin, 14/11/2026): with a module's `by_id` column, a
+  share waits behind an offer by address only while nobody picked the person by id, and an offer by
+  email to someone who has it already waits under the address like one to an address without an
+  account. Two leaks close: picking a known person after typing an address no longer tells whether
+  the address is theirs, and an email to an accepted member no longer answers "accepted" nor changes
+  their permission. A share picked after a typed address is dated anew.
+
+### Copies
+- **One pending import per person and mode**, the account imports' folder capped (`limits.pending`,
+  2 GB), bytes no row names refused (`limits.unreferenced`, 4 MB), the busy slot taken once the upload
+  is on disk (sc-data-13, portable-11, sc-data-25).
+- The install's copy carries `mail_suppressions` (`suite/mail-suppressions.json`; sc-data-19).
+- An account already here keeps its language, time zone, theme and locale whichever module's copy
+  comes in (`ACCOUNT_PREFS`; portable-14).
+- A whole install's copy names its install and run with or without organizations: the modules of one
+  run put each account where the first one did and give no plan twice (portable-13).
+- A table's `dropped: [...]` columns are read past in old copies (portable-18).
+- Settings › Your data says what a copy left out because it is shared (`kit.data.leftOut`) and, in the
+  plan, what "replace" passes on (portable-15).
+
+### Invitations to addresses without an account, and the database
+- **Migration 32** `stranger-invites-keep`: `mail_stranger_invites.inviter_id` is `ON DELETE SET NULL`;
+  an email already sent keeps its link to stop them when its sender's account goes (sc-data-18).
+- A send that fails takes its row back (`strangers.forget`; sc-data-20); rows go after a year
+  (`STRANGER_KEEP_DAYS`, `strangers.purge`, in the suite's purge; Martin's #56).
+- **Migration 33** `users-email-index`: `users(email COLLATE NOCASE)` (sc-data-25).
+- `PRAGMA synchronous = NORMAL` with WAL (sc-data-25).
+- An account that goes takes what `idp_connections` kept of its AI clients; a disconnected one stays
+  refused (portable-20). In a host, the modules' empty `mcp_tokens` goes (`dropLeftovers`; portable-18).
+- docs/architecture.md: who deletes what they made in each module, the hand-over, the brakes (ownership-19).
+
 ## 0.294.0 — 2026-11-15
 
 Audit of 6/11: Cronum Work's shell, the browser kit, the installed app (PWA) and the phone app.
