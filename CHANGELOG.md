@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.297.0 — 2026-11-18
+
+/admin › Notifications, compact: one screen where it was three.
+
+### Admin
+- **Notifications in cards**: a head with how things stand (on, paused, no destination), the last
+  delivery, «Send a test» and a «Pause» menu. Where they go is a fold, closed once it is set, that
+  sums it up in a line (`server / topic · token saved`); the channels of each way of sending on one
+  line. One row per group with a segmented choice (at once · summary · no) and how it will read;
+  its pencil opens the words, which start from the default text, with the variables as buttons
+  that insert at the cursor. The default's own words are saved as the default. The daily summary's
+  hour beside its title. The rules of brackets and bursts in one line.
+- **i18n**: `admin.notices.*` gains `state.*`, `modeShort.*`, `viaShort.*`, `rules` and the
+  labels of the new controls; the ones the old panel alone used are gone.
+
 ## 0.296.0 — 2026-11-18
 
 Notices to whoever runs the install of new accounts and payments, set in /admin › Notifications.

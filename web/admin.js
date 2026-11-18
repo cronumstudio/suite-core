@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
@@ -1370,15 +1370,18 @@ const browserZone = () => {
 };
 
 /**
- * Administration › Notifications (admin-notices.js): where notices go (an ntfy topic, an email
- * address), what each group of events does (at once, in the daily summary, nothing), the words of
- * each, a test, and a pause. The server checks it all; this page sends it as a whole.
+ * Administration › Notifications (admin-notices.js), in three cards: where notices go (folded once
+ * it's set: an ntfy topic, an email address), what each group of events does (at once, in the
+ * daily summary, nothing) with how it will read, and the daily summary. Test and pause sit in the
+ * head beside how things stand. The server checks it all; this page sends it as a whole.
  */
 async function renderNotices(main) {
   const view = await api.get('/api/admin/notices');
   const groups = view.groups_order;
   const keys = [...groups, 'digest'];
   const paused = view.paused_until && Date.parse(view.paused_until) > Date.now();
+  const hasNtfy = Boolean(view.ntfy.url && view.ntfy.topic);
+  const hasDestination = hasNtfy || Boolean(view.email);
 
   /* where they go */
   const url = el('input', { type: 'url', value: view.ntfy.url, placeholder: 'https://ntfy.sh/', autocomplete: 'off', spellcheck: 'false' });
@@ -1391,12 +1394,32 @@ async function renderNotices(main) {
   const email = el('input', { type: 'email', value: view.email, autocomplete: 'off', disabled: !view.mail_available });
   const via = Object.fromEntries(['instant', 'digest'].map((when) => [when, Object.fromEntries(view.channels.map((c) => [c,
     el('input', { type: 'checkbox', checked: view.via[when].includes(c), disabled: c === 'email' && !view.mail_available })]))]));
-  const viaRow = (when) => field(t(`admin.notices.via.${when}`), el('div', { class: 'kit-row' },
-    view.channels.map((c) => el('label', { class: 'kit-check' }, via[when][c], el('span', { text: t(`admin.notices.channel.${c}`) })))),
-  null, { groupLabel: true });
+  // Each way of sending, and the channels it goes by: one line, «At once ☑ ntfy ☐ Email · Summary …».
+  const viaLine = el('div', { class: 'kit-notices__via', role: 'group', 'aria-label': t('admin.notices.sendBy') },
+    el('span', { class: 'kit-hint', text: t('admin.notices.sendBy') },),
+    ['instant', 'digest'].map((when) => el('span', { class: 'kit-row' },
+      el('span', { text: t(`admin.notices.viaShort.${when}`) }),
+      view.channels.map((c) => el('label', { class: 'kit-check' }, via[when][c], el('span', { text: t(`admin.notices.channel.${c}`) }))))));
+  const whereNow = hasNtfy
+    ? `${view.ntfy.url.replace(/^https:\/\//, '').replace(/\/$/, '')} / ${view.ntfy.topic}${view.ntfy.has_token ? ` · ${t('admin.notices.tokenSaved')}` : ''}`
+    : view.email || el('small', { class: 'kit-fold__now kit-fold__now--warn', text: t('admin.notices.nowhere') });
+  const where = slidingDetails(el('details', { class: 'kit-fold', open: !hasDestination },
+    el('summary', {}, icon('phone'), el('span', { text: t('admin.notices.where') }),
+      typeof whereNow === 'string' ? el('small', { class: 'kit-fold__now', text: whereNow }) : whereNow,
+      icon('chevron-down', { className: 'kit-fold__chevron' })),
+    el('div', { class: 'kit-fold__body' },
+      el('p', { class: 'kit-hint', text: t('admin.notices.ntfyHow') }),
+      el('div', { class: 'kit-grid kit-grid--3' },
+        field(t('admin.notices.ntfyUrl'), url),
+        field(t('admin.notices.ntfyTopic'), topic),
+        field(t('admin.notices.ntfyToken'), token, t('admin.notices.ntfyTokenHint'))),
+      view.ntfy.has_token ? el('label', { class: 'kit-check' }, forgetToken, el('span', { text: t('admin.notices.forgetToken') })) : null,
+      field(t('admin.notices.email'), email, view.mail_available ? null : t('admin.notices.noMail')),
+      viaLine)));
 
   /* what each group does, and its words */
   const modes = {};
+  const modeBoxes = {};
   const templates = {};
   const previews = {};
   const defaultsOf = (k) => t(`notices.template.${k}`);
@@ -1414,51 +1437,97 @@ async function renderNotices(main) {
     if (mine === turns[k]) previews[k].textContent = text;
   };
   const timers = {};
-  const groupBox = (k) => {
+  /** The words of a group, folded under its row until its pencil opens them: the text, its variables, the default. */
+  const editorOf = (k) => {
     templates[k] = el('textarea', {
       rows: k === 'digest' ? 5 : 2, maxlength: view.template_max, spellcheck: 'true',
-      placeholder: defaultsOf(k),
+      placeholder: defaultsOf(k), 'aria-label': t('admin.notices.wordsOf', { group: t(`admin.notices.group.${k}`) }),
     });
     templates[k].value = view.templates[k] || '';
-    previews[k] = el('p', { class: 'kit-hint', 'aria-live': 'polite' });
     templates[k].addEventListener('input', () => {
       clearTimeout(timers[k]);
       timers[k] = setTimeout(() => paintPreview(k), 300);
     });
+    // A variable pressed goes where the cursor is, as if typed.
+    const insert = (name) => {
+      const box = templates[k];
+      const text = `{${name}}`;
+      const from = box.selectionStart ?? box.value.length;
+      const to = box.selectionEnd ?? from;
+      box.setRangeText(text, from, to, 'end');
+      box.focus();
+      box.dispatchEvent(new Event('input'));
+    };
     const reset = el('button', {
-      type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.notices.useDefault'),
+      type: 'button', class: 'kit-btn kit-btn--quiet kit-btn--small', text: t('admin.notices.useDefault'),
       onClick: () => {
-        templates[k].value = '';
+        templates[k].value = defaultsOf(k);
         templates[k].dispatchEvent(new Event('input'));
       },
     });
-    const top = [];
-    if (k !== 'digest') {
-      modes[k] = el('select', {}, view.modes.map((m) => el('option', { value: m, text: t(`admin.notices.mode.${m}`) })));
-      modes[k].value = view.groups[k];
-      top.push(field(t('admin.notices.when'), modes[k]));
-    }
-    paintPreview(k);
-    return el('section', { class: 'kit-stack' },
-      el('h4', { text: t(`admin.notices.group.${k}`) }),
+    const editor = el('div', { class: 'kit-notices__editor', hidden: true },
       el('p', { class: 'kit-hint', text: t(`admin.notices.about.${k}`) }),
-      ...top,
-      field(t('admin.notices.words'), templates[k],
-        t('admin.notices.variables', { list: view.variables[k].map((v) => `{${v}}`).join(' ') })),
-      el('div', { class: 'kit-row' }, el('span', { class: 'kit-hint', text: t('admin.notices.preview') }), previews[k]),
-      el('div', { class: 'kit-row' }, reset));
+      templates[k],
+      el('div', { class: 'kit-notices__vars', role: 'group', 'aria-label': t('admin.notices.insert') },
+        view.variables[k].map((v) => el('button', { type: 'button', text: `{${v}}`, onClick: () => insert(v) })),
+        reset));
+    return editor;
+  };
+  /** The pencil that opens a group's words, and closes them. */
+  const pencil = (k, editor) => {
+    const button = el('button', {
+      type: 'button', class: 'kit-icon-btn kit-icon-btn--small', 'aria-expanded': 'false',
+      'aria-label': t('admin.notices.editWords', { group: t(`admin.notices.group.${k}`) }),
+      title: t('admin.notices.editWords', { group: t(`admin.notices.group.${k}`) }),
+    }, icon('edit'));
+    button.addEventListener('click', () => {
+      const open = editor.hidden;
+      editor.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+      clear(button).append(icon(open ? 'x' : 'edit'));
+      // The default words to start from, not an empty box: the same words are saved as the default.
+      if (open && !templates[k].value.trim()) templates[k].value = defaultsOf(k);
+      if (open) templates[k].focus();
+    });
+    return button;
+  };
+  const groupRow = (k) => {
+    const editor = editorOf(k);
+    previews[k] = el('p', { class: 'kit-notices__preview', 'aria-live': 'polite' });
+    const row = el('div', { class: 'kit-notices__row', 'data-mode': view.groups[k] });
+    modes[k] = view.groups[k];
+    modeBoxes[k] = segmented(view.modes.map((m) => ({ value: m, label: t(`admin.notices.modeShort.${m}`) })), modes[k], (m) => {
+      modes[k] = m;
+      row.dataset.mode = m;
+      // The Save watches for change, as it does on the inputs.
+      modeBoxes[k].dispatchEvent(new Event('change'));
+    });
+    modeBoxes[k].setAttribute('aria-label', t('admin.notices.whenOf', { group: t(`admin.notices.group.${k}`) }));
+    paintPreview(k);
+    append(row,
+      el('span', { class: 'kit-notices__name', text: t(`admin.notices.group.${k}`) }),
+      modeBoxes[k],
+      pencil(k, editor),
+      previews[k],
+      editor);
+    return row;
   };
 
-  const hour = el('select', {}, Array.from({ length: 24 }, (_, h) => el('option', {
+  const hour = el('select', { 'aria-label': t('admin.notices.hour') }, Array.from({ length: 24 }, (_, h) => el('option', {
     value: String(h), text: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, h)),
   })));
   hour.value = String(view.digest.hour);
   const country = el('input', { type: 'checkbox', checked: view.country, disabled: !view.country_available });
   const totals = el('input', { type: 'checkbox', checked: view.totals });
 
+  const ownWords = (k) => {
+    const words = templates[k].value.trim();
+    return words && words !== defaultsOf(k).trim() ? words : null;
+  };
   const read = () => ({
-    groups: Object.fromEntries(groups.map((g) => [g, modes[g].value])),
-    templates: Object.fromEntries(keys.map((k) => [k, templates[k].value.trim() || null])),
+    groups: Object.fromEntries(groups.map((g) => [g, modes[g]])),
+    // The default's own words are no words of the admin's: kept as the default, in every language.
+    templates: Object.fromEntries(keys.map((k) => [k, ownWords(k)])),
     country: country.checked,
     totals: totals.checked,
     via: Object.fromEntries(['instant', 'digest'].map((when) => [when, view.channels.filter((c) => via[when][c].checked)])),
@@ -1467,19 +1536,24 @@ async function renderNotices(main) {
     email: email.value.trim(),
     lang: panelLanguage(),
   });
+  // The rows exist before the button that watches them.
+  const rows = groups.map(groupRow);
+  const digestEditor = editorOf('digest');
+  previews.digest = el('p', { class: 'kit-notices__preview', 'aria-live': 'polite' });
+  paintPreview('digest');
   const controls = [url, topic, token, forgetToken, email, hour, country, totals,
-    ...Object.values(via).flatMap((row) => Object.values(row)), ...Object.values(templates)];
-  // The selects exist only once the groups are drawn: drawn first, then the button that watches them.
-  const groupBoxes = groups.map(groupBox);
-  const digestBox = groupBox('digest');
+    ...Object.values(via).flatMap((row) => Object.values(row)), ...Object.values(templates), ...Object.values(modeBoxes)];
   const [save, saved] = saveButton({
     label: t('admin.notices.save'),
-    controls: [...controls, ...Object.values(modes)],
+    controls,
     read,
     save: async () => {
-      await api.put('/api/admin/notices', read());
-      // A token given is kept and never shown again: the field empties and says so.
-      if (token.value || forgetToken.checked) show();
+      const sent = read();
+      await api.put('/api/admin/notices', sent);
+      // A new destination is drawn anew: its fold sums it up, and a token given is kept and never
+      // shown again (the field empties and says so). The rest stays as it is, with "Saved".
+      if (token.value || forgetToken.checked || sent.ntfy.url !== view.ntfy.url || sent.ntfy.topic !== view.ntfy.topic
+        || sent.email !== view.email) show();
     },
   });
 
@@ -1497,8 +1571,7 @@ async function renderNotices(main) {
     },
   });
 
-  /* the pause */
-  const pauseFor = el('select', {}, ['hour', 'tomorrow', 'forever'].map((p) => el('option', { value: p, text: t(`admin.notices.pause.${p}`) })));
+  /* the pause: a menu of how long, in the head; paused, a notice that says until when */
   const pauseUntil = (choice) => {
     if (choice === 'hour') return new Date(Date.now() + 3600 * 1000).toISOString();
     if (choice === 'tomorrow') {
@@ -1516,46 +1589,55 @@ async function renderNotices(main) {
     } catch (err) { fail(err); }
   };
   const forever = paused && Date.parse(view.paused_until) > Date.parse('9000-01-01');
+  const pauseButton = el('button', { type: 'button', class: 'kit-btn kit-btn--small', 'aria-haspopup': 'menu', 'aria-expanded': 'false' },
+    el('span', { text: t('admin.notices.pauseNow') }), icon('chevron-down'));
+  pauseButton.addEventListener('click', () => menu(pauseButton, ['hour', 'tomorrow', 'forever'].map((p) => ({
+    label: t(`admin.notices.pause.${p}`), onClick: () => setPause(pauseUntil(p)),
+  }))));
   const pauseBox = paused
     ? el('div', { class: 'kit-notice' },
       el('p', { text: forever ? t('admin.notices.pausedForever') : t('admin.notices.pausedUntil', { date: formatDateTime(view.paused_until) }) }),
       el('button', { type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.notices.resume'), onClick: () => setPause(null) }))
-    : el('div', { class: 'kit-row' }, field(t('admin.notices.pauseFor'), pauseFor),
-      el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.notices.pauseNow'), onClick: () => setPause(pauseUntil(pauseFor.value)) }));
+    : null;
 
+  // How things stand, in a word and the last delivery.
+  const standing = paused ? el('span', { class: 'kit-badge kit-badge--warn', text: t('admin.notices.state.paused') })
+    : hasDestination ? el('span', { class: 'kit-badge kit-badge--ok', text: t('admin.notices.state.on') })
+      : el('span', { class: 'kit-badge', text: t('admin.notices.state.nowhere') });
   const last = view.last
-    ? el('p', { class: 'kit-hint', text: t('admin.notices.last', {
+    ? el('span', { class: 'kit-hint', text: t('admin.notices.last', {
       date: formatDateTime(view.last.at),
       list: view.last.results.map((r) => `${t(`admin.notices.channel.${r.channel}`)} ${r.ok ? '✓' : `✗ ${r.error}`}`).join(' · '),
     }) })
     : null;
 
+  const card = (iconName, title, extra, ...body) => el('section', { class: 'kit-notices__card' },
+    el('div', { class: 'kit-notices__card-head' }, icon(iconName), el('h3', { text: title }), extra),
+    ...body);
+
   append(main,
-    el('h2', { text: t('admin.notices.title') }),
-    el('p', { class: 'kit-lead', text: t('admin.notices.lead') }),
+    el('div', { class: 'kit-notices__head' },
+      el('div', { class: 'kit-row' }, el('h2', { text: t('admin.notices.title') }), standing, last),
+      el('div', { class: 'kit-row' }, test, paused ? null : pauseButton)),
+    el('p', { class: 'kit-hint', text: t('admin.notices.lead') }),
     pauseBox,
-    el('h3', { text: t('admin.notices.where') }),
-    el('p', { class: 'kit-hint', text: t('admin.notices.ntfyHow') }),
-    el('div', { class: 'kit-grid kit-grid--3' },
-      field(t('admin.notices.ntfyUrl'), url),
-      field(t('admin.notices.ntfyTopic'), topic),
-      field(t('admin.notices.ntfyToken'), token, t('admin.notices.ntfyTokenHint'))),
-    view.ntfy.has_token ? el('label', { class: 'kit-check' }, forgetToken, el('span', { text: t('admin.notices.forgetToken') })) : null,
-    el('div', { class: 'kit-grid kit-grid--3' },
-      field(t('admin.notices.email'), email, view.mail_available ? null : t('admin.notices.noMail'))),
-    viaRow('instant'),
-    viaRow('digest'),
-    el('h3', { text: t('admin.notices.what') }),
-    el('p', { class: 'kit-hint', text: t('admin.notices.brackets') }),
-    el('p', { class: 'kit-hint', text: t('admin.notices.burst', { n: view.burst.count, minutes: view.burst.minutes }) }),
-    el('label', { class: 'kit-check' }, country, el('span', { text: t('admin.notices.country') })),
-    view.country_available ? null : el('p', { class: 'kit-hint', text: t('admin.notices.noCountry') }),
-    el('label', { class: 'kit-check' }, totals, el('span', { text: t('admin.notices.totals') })),
-    ...groupBoxes,
-    digestBox,
-    el('div', { class: 'kit-grid kit-grid--3' }, field(t('admin.notices.hour'), hour, t('admin.notices.zone', { zone: browserZone() }))),
-    el('div', { class: 'kit-row' }, save, saved, test),
-    last,
+    el('div', { class: 'kit-notices' },
+      where,
+      card('bell', t('admin.notices.what'),
+        el('div', { class: 'kit-notices__extras' },
+          el('label', { class: 'kit-check' }, country, el('span', { text: t('admin.notices.countryShort') })),
+          el('label', { class: 'kit-check' }, totals, el('span', { text: t('admin.notices.totalsShort') }))),
+        view.country_available ? null : el('p', { class: 'kit-hint', text: t('admin.notices.noCountry') }),
+        el('div', { class: 'kit-notices__rows' }, rows),
+        el('p', { class: 'kit-hint kit-notices__rules', text: t('admin.notices.rules', { n: view.burst.count, minutes: view.burst.minutes }) })),
+      card('calendar', t('admin.notices.group.digest'),
+        el('div', { class: 'kit-notices__hour' },
+          el('span', { class: 'kit-hint', text: t('admin.notices.everyDayAt') }), hour,
+          el('span', { class: 'kit-hint', text: browserZone() }),
+          pencil('digest', digestEditor)),
+        previews.digest,
+        digestEditor),
+      el('div', { class: 'kit-row kit-notices__save' }, saved, save)),
   );
 }
 
