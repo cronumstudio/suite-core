@@ -61,6 +61,8 @@ import { createShareMail } from './share-mail.js';
 import { createShareBrake, SUITE_OFFERS_PER_HOUR } from './share-brake.js';
 import { createOwnership, createGoneBrake } from './ownership.js';
 import { createAlerts } from './alerts.js';
+import { createAdminNotices, registerAdminNoticesApi } from './admin-notices.js';
+import { cloudflareCountry } from './http.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
 import { createTexts } from './i18n.js';
@@ -488,6 +490,21 @@ export function createSuite({
   const alerts = createAlerts({
     to: install.alerts?.to ?? null, mailer, database, app: config.app, baseUrl: install.baseUrl, log,
   });
+  // Notices to whoever runs the install of new accounts and payments (modules.notices,
+  // admin-notices.js): the country of an account only behind Cloudflare (TRUST_PROXY=cloudflare),
+  // as it says it from its own addresses.
+  const behindCloudflare = String(install.trustProxy ?? '').trim().toLowerCase() === 'cloudflare';
+  const notices = config.modules.notices ? createAdminNotices({
+    database, texts, mailer, sign: sessions.sign, appName: config.app.name, baseUrl: install.baseUrl,
+    countryOf: behindCloudflare ? (req) => cloudflareCountry(req, { trustProxy: install.trustProxy }) : null,
+    planName: (id) => entitlements.describe().plans.find((p) => p?.id === id)?.name ?? id,
+    log: (line) => log(`${tag} ${line}`),
+  }) : null;
+  if (notices) {
+    accounts.whenCreated(notices.signedUp);
+    billing?.whenApplied(notices.billed);
+    stores?.whenApplied(notices.billed);
+  }
   // Emails to addresses without an account, offered something (stranger-invites.js): only where one
   // can be made —WorkOS, or sign-up open— and MAIL_STRANGERS_PER_DAY isn't 0. `signupUrl(back)`: where
   // the email's button makes the account, then back at `back` (a module's path in a host).
@@ -652,7 +669,7 @@ export function createSuite({
      */
     ownership: createOwnership({ db: database, shareMail, push, texts: (user) => texts(null, user).t, brake: goneBrake, log }),
     mailBrand: brand, strangers, signupUrl,
-    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
+    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts, notices,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,
     /**
      * What the app keeps of someone against storage.mb, said where it is counted (its files'
@@ -828,6 +845,8 @@ export function createApp({
         organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
         // Only with STORE_BILLING: the app on a phone sells in its store.
         ...(suite.stores?.enabled ? { stores: true } : {}),
+        // With modules.notices, /admin › Notifications (admin-notices.js).
+        ...(suite.notices && config.modules.admin ? { notices: true } : {}),
         // Read each time the config is sent: a host's module learns late whether the host has one.
         get mcp() { return offersConnector(); },
       },
@@ -885,6 +904,7 @@ export function createApp({
         ? (user) => billingOverview(user, { instances: [billing, suite.stores], entitlements, organizations }) : null,
     });
   }
+  if (config.modules.admin && suite.notices) registerAdminNoticesApi(api, { notices: suite.notices, audit });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name, sessionKeyOf: (ctx) => sessions.keyFor(ctx.sessionToken) });
   // The link in an invitation to an address without an account, to get no more (stranger-invites.js).

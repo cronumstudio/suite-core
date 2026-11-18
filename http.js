@@ -154,17 +154,36 @@ export function proxyHops(value) {
 export function clientIp(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
   // Without a request (a script run by whoever runs the install) there is no address.
   if (!req) return '';
+  const address = hopAddress(req, trustProxy);
+  if (String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare') {
+    const cf = String(req.headers['cf-connecting-ip'] || '').trim();
+    if (net.isIP(cf) && fromCloudflare(address)) return cf;
+  }
+  return address;
+}
+
+/** The address of the hop the trusted proxies say brought the request (see clientIp). */
+function hopAddress(req, trustProxy) {
   const hops = proxyHops(trustProxy);
   let address = req.socket?.remoteAddress || '';
   if (hops) {
     const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
     if (chain.length) address = chain[Math.max(0, chain.length - hops)];
   }
-  if (String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare') {
-    const cf = String(req.headers['cf-connecting-ip'] || '').trim();
-    if (net.isIP(cf) && fromCloudflare(address)) return cf;
-  }
   return address;
+}
+
+/**
+ * The country Cloudflare says the request came from (CF-IPCountry, ISO 3166 alpha-2 or its own
+ * XX and T1), believed as CF-Connecting-IP is: only with TRUST_PROXY=cloudflare and only when the
+ * hop that brought it is one of Cloudflare's, since anyone reaching the origin could write it.
+ * → the header's value, or null.
+ */
+export function cloudflareCountry(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
+  if (!req?.headers || String(trustProxy ?? '').trim().toLowerCase() !== 'cloudflare') return null;
+  if (!fromCloudflare(hopAddress(req, trustProxy))) return null;
+  const value = req.headers['cf-ipcountry'];
+  return typeof value === 'string' ? value : null;
 }
 
 /**

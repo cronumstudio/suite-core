@@ -3,6 +3,38 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.296.0 — 2026-11-18
+
+Notices to whoever runs the install of new accounts and payments, set in /admin › Notifications.
+
+### Notifications (`modules.notices`, off by default)
+- **`admin-notices.js`**: a notice to an ntfy topic (the ntfy app on a phone, with no account of the
+  install on it) or to an email address when someone makes an account, buys, renews, or a
+  subscription ends or is refunded. Per group (`signup`, `purchase`, `renewal`, `cancel`): at once,
+  in the daily summary, or nothing. The summary goes once a day at its hour in the admin's time zone,
+  claimed before it is sent, and not at all on a day with nothing. Five of one group within ten
+  minutes and the rest wait for one notice («3 more new accounts…»). A pause: an hour, until
+  tomorrow's summary, or until resumed. A test to every destination; the last delivery's result
+  in the panel.
+- **The admin's own words**: a template per group, `{country}`, `{flag}`, `{users}`, `{plan}`,
+  `{amount}`, `{reason}` (the summary's `{signups}`, `{purchases}`, `{renewals}`, `{cancels}`,
+  `{top_country}`), parts between brackets left out when what they name is unknown; a preview as it
+  is typed. The defaults are in every language (`notices.*`), the panel's when it saves.
+- **Never who**: no email, no name. The country of an account only behind Cloudflare
+  (`TRUST_PROXY=cloudflare`), from CF-IPCountry and only from Cloudflare's own addresses
+  (`http.js` `cloudflareCountry`, as `clientIp` believes CF-Connecting-IP); without it, none. Of a
+  payment, the country and amount its provider's adapter gives (`event.country`, `event.amount`,
+  `event.currency`), or none. Only accounts people make themselves: not the admin's, not one made or
+  imported from `/api/admin/…`, not one a script or the start made.
+- The ntfy token is kept encrypted with a key from the session secret and never sent back.
+- `/api/admin/notices` (GET, PUT), `…/preview` and `…/test`, admins only; `admin.notices.update` in
+  the log, with which fields changed and never what they say. The tab is shown with
+  `app.modules.notices` in `/api/auth/config`. A host's modules have none of their own.
+- `billing.whenApplied(hook)` and the stores' (`{ outcome, event, subject, product, provider }`, after
+  each payment applied, a store's reading that changed something too); `request-scope.js`
+  (`inRequest`, `currentRequest`): every request the suite's server answers runs inside one.
+- Suite migration 34, `admin_notice_events` (what a notice says of each event, kept 40 days).
+
 ## 0.295.0 — 2026-11-17
 
 Audit of 6/11, data: what happens to an account's things when it goes, copies, and what is shared.

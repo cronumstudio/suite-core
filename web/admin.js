@@ -13,7 +13,7 @@ import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js'
 
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
-const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, usersQuery: '' };
+const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, usersQuery: '' };
 
 const TABS = [
   ['users', 'admin.tabs.users'],
@@ -21,6 +21,7 @@ const TABS = [
   ['plans', 'admin.tabs.plans'],
   ['organizations', 'admin.tabs.organizations'],
   ['data', 'admin.tabs.data'],
+  ['notices', 'admin.tabs.notices'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -146,6 +147,8 @@ async function start() {
   state.invitations = local();
   // Copies of the data, when the app says what its data is.
   state.data = Boolean(state.config.app?.modules?.data);
+  // Notices of new accounts and payments, with modules.notices.
+  state.notices = Boolean(state.config.app?.modules?.notices);
 
   const app = state.config.app || {};
   // The app's icon, as the server wrote it into the page (app.icon).
@@ -170,12 +173,13 @@ async function start() {
 
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
-    && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data));
+    && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
+    && (id !== 'notices' || state.notices));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, audit: renderAudit,
+  data: renderData, notices: renderNotices, audit: renderAudit,
 };
 
 let showing = 0;
@@ -1354,6 +1358,205 @@ function paintDone(box, done) {
       text: t('admin.data.leftOutFiles', { missing: files.missing || 0, refused: files.refused || 0, large: files.too_large || 0 }),
     }) : null));
   toast(t('admin.saved'));
+}
+
+/* -------------------------------- notices --------------------------------- */
+
+/** The language the panel is drawn in: what notices are written in when their texts are the default. */
+const panelLanguage = () => (document.documentElement.lang || 'en').slice(0, 2).toLowerCase();
+/** This browser's time zone: the daily summary's hour is read in it. */
+const browserZone = () => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+};
+
+/**
+ * Administration › Notifications (admin-notices.js): where notices go (an ntfy topic, an email
+ * address), what each group of events does (at once, in the daily summary, nothing), the words of
+ * each, a test, and a pause. The server checks it all; this page sends it as a whole.
+ */
+async function renderNotices(main) {
+  const view = await api.get('/api/admin/notices');
+  const groups = view.groups_order;
+  const keys = [...groups, 'digest'];
+  const paused = view.paused_until && Date.parse(view.paused_until) > Date.now();
+
+  /* where they go */
+  const url = el('input', { type: 'url', value: view.ntfy.url, placeholder: 'https://ntfy.sh/', autocomplete: 'off', spellcheck: 'false' });
+  const topic = el('input', { type: 'text', value: view.ntfy.topic, autocomplete: 'off', spellcheck: 'false', maxlength: 64 });
+  const token = el('input', {
+    type: 'password', value: '', autocomplete: 'new-password',
+    placeholder: view.ntfy.has_token ? t('admin.notices.tokenKept') : '',
+  });
+  const forgetToken = el('input', { type: 'checkbox' });
+  const email = el('input', { type: 'email', value: view.email, autocomplete: 'off', disabled: !view.mail_available });
+  const via = Object.fromEntries(['instant', 'digest'].map((when) => [when, Object.fromEntries(view.channels.map((c) => [c,
+    el('input', { type: 'checkbox', checked: view.via[when].includes(c), disabled: c === 'email' && !view.mail_available })]))]));
+  const viaRow = (when) => field(t(`admin.notices.via.${when}`), el('div', { class: 'kit-row' },
+    view.channels.map((c) => el('label', { class: 'kit-check' }, via[when][c], el('span', { text: t(`admin.notices.channel.${c}`) })))),
+  null, { groupLabel: true });
+
+  /* what each group does, and its words */
+  const modes = {};
+  const templates = {};
+  const previews = {};
+  const defaultsOf = (k) => t(`notices.template.${k}`);
+  // Each template's last preview asked for: an answer that comes after a newer one was asked is dropped.
+  const turns = {};
+  const paintPreview = async (k) => {
+    turns[k] = (turns[k] || 0) + 1;
+    const mine = turns[k];
+    let text;
+    try {
+      ({ text } = await api.post('/api/admin/notices/preview', { key: k, template: templates[k].value || null, lang: panelLanguage() }));
+    } catch {
+      text = t('admin.notices.previewBad');
+    }
+    if (mine === turns[k]) previews[k].textContent = text;
+  };
+  const timers = {};
+  const groupBox = (k) => {
+    templates[k] = el('textarea', {
+      rows: k === 'digest' ? 5 : 2, maxlength: view.template_max, spellcheck: 'true',
+      placeholder: defaultsOf(k),
+    });
+    templates[k].value = view.templates[k] || '';
+    previews[k] = el('p', { class: 'kit-hint', 'aria-live': 'polite' });
+    templates[k].addEventListener('input', () => {
+      clearTimeout(timers[k]);
+      timers[k] = setTimeout(() => paintPreview(k), 300);
+    });
+    const reset = el('button', {
+      type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.notices.useDefault'),
+      onClick: () => {
+        templates[k].value = '';
+        templates[k].dispatchEvent(new Event('input'));
+      },
+    });
+    const top = [];
+    if (k !== 'digest') {
+      modes[k] = el('select', {}, view.modes.map((m) => el('option', { value: m, text: t(`admin.notices.mode.${m}`) })));
+      modes[k].value = view.groups[k];
+      top.push(field(t('admin.notices.when'), modes[k]));
+    }
+    paintPreview(k);
+    return el('section', { class: 'kit-stack' },
+      el('h4', { text: t(`admin.notices.group.${k}`) }),
+      el('p', { class: 'kit-hint', text: t(`admin.notices.about.${k}`) }),
+      ...top,
+      field(t('admin.notices.words'), templates[k],
+        t('admin.notices.variables', { list: view.variables[k].map((v) => `{${v}}`).join(' ') })),
+      el('div', { class: 'kit-row' }, el('span', { class: 'kit-hint', text: t('admin.notices.preview') }), previews[k]),
+      el('div', { class: 'kit-row' }, reset));
+  };
+
+  const hour = el('select', {}, Array.from({ length: 24 }, (_, h) => el('option', {
+    value: String(h), text: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, h)),
+  })));
+  hour.value = String(view.digest.hour);
+  const country = el('input', { type: 'checkbox', checked: view.country, disabled: !view.country_available });
+  const totals = el('input', { type: 'checkbox', checked: view.totals });
+
+  const read = () => ({
+    groups: Object.fromEntries(groups.map((g) => [g, modes[g].value])),
+    templates: Object.fromEntries(keys.map((k) => [k, templates[k].value.trim() || null])),
+    country: country.checked,
+    totals: totals.checked,
+    via: Object.fromEntries(['instant', 'digest'].map((when) => [when, view.channels.filter((c) => via[when][c].checked)])),
+    digest: { hour: Number(hour.value), zone: browserZone() },
+    ntfy: { url: url.value.trim(), topic: topic.value.trim(), token: forgetToken.checked ? '' : (token.value.trim() || null) },
+    email: email.value.trim(),
+    lang: panelLanguage(),
+  });
+  const controls = [url, topic, token, forgetToken, email, hour, country, totals,
+    ...Object.values(via).flatMap((row) => Object.values(row)), ...Object.values(templates)];
+  // The selects exist only once the groups are drawn: drawn first, then the button that watches them.
+  const groupBoxes = groups.map(groupBox);
+  const digestBox = groupBox('digest');
+  const [save, saved] = saveButton({
+    label: t('admin.notices.save'),
+    controls: [...controls, ...Object.values(modes)],
+    read,
+    save: async () => {
+      await api.put('/api/admin/notices', read());
+      // A token given is kept and never shown again: the field empties and says so.
+      if (token.value || forgetToken.checked) show();
+    },
+  });
+
+  const test = el('button', {
+    type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.notices.test'),
+    onClick: async () => {
+      test.disabled = true;
+      try {
+        const { results } = await api.post('/api/admin/notices/test', {});
+        const bad = results.filter((r) => !r.ok);
+        if (bad.length) toast(t('admin.notices.testFailed', { list: bad.map((r) => `${t(`admin.notices.channel.${r.channel}`)}: ${r.error}`).join(' · ') }), { error: true });
+        else toast(t('admin.notices.testSent', { list: listFormat({ type: 'conjunction' }).format(results.map((r) => t(`admin.notices.channel.${r.channel}`))) }));
+      } catch (err) { fail(err); }
+      test.disabled = false;
+    },
+  });
+
+  /* the pause */
+  const pauseFor = el('select', {}, ['hour', 'tomorrow', 'forever'].map((p) => el('option', { value: p, text: t(`admin.notices.pause.${p}`) })));
+  const pauseUntil = (choice) => {
+    if (choice === 'hour') return new Date(Date.now() + 3600 * 1000).toISOString();
+    if (choice === 'tomorrow') {
+      const at = new Date();
+      at.setDate(at.getDate() + 1);
+      at.setHours(view.digest.hour, 0, 0, 0);
+      return at.toISOString();
+    }
+    return '9999-12-31T00:00:00.000Z';
+  };
+  const setPause = async (until) => {
+    try {
+      await api.put('/api/admin/notices', { paused_until: until });
+      show();
+    } catch (err) { fail(err); }
+  };
+  const forever = paused && Date.parse(view.paused_until) > Date.parse('9000-01-01');
+  const pauseBox = paused
+    ? el('div', { class: 'kit-notice' },
+      el('p', { text: forever ? t('admin.notices.pausedForever') : t('admin.notices.pausedUntil', { date: formatDateTime(view.paused_until) }) }),
+      el('button', { type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.notices.resume'), onClick: () => setPause(null) }))
+    : el('div', { class: 'kit-row' }, field(t('admin.notices.pauseFor'), pauseFor),
+      el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.notices.pauseNow'), onClick: () => setPause(pauseUntil(pauseFor.value)) }));
+
+  const last = view.last
+    ? el('p', { class: 'kit-hint', text: t('admin.notices.last', {
+      date: formatDateTime(view.last.at),
+      list: view.last.results.map((r) => `${t(`admin.notices.channel.${r.channel}`)} ${r.ok ? '✓' : `✗ ${r.error}`}`).join(' · '),
+    }) })
+    : null;
+
+  append(main,
+    el('h2', { text: t('admin.notices.title') }),
+    el('p', { class: 'kit-lead', text: t('admin.notices.lead') }),
+    pauseBox,
+    el('h3', { text: t('admin.notices.where') }),
+    el('p', { class: 'kit-hint', text: t('admin.notices.ntfyHow') }),
+    el('div', { class: 'kit-grid kit-grid--3' },
+      field(t('admin.notices.ntfyUrl'), url),
+      field(t('admin.notices.ntfyTopic'), topic),
+      field(t('admin.notices.ntfyToken'), token, t('admin.notices.ntfyTokenHint'))),
+    view.ntfy.has_token ? el('label', { class: 'kit-check' }, forgetToken, el('span', { text: t('admin.notices.forgetToken') })) : null,
+    el('div', { class: 'kit-grid kit-grid--3' },
+      field(t('admin.notices.email'), email, view.mail_available ? null : t('admin.notices.noMail'))),
+    viaRow('instant'),
+    viaRow('digest'),
+    el('h3', { text: t('admin.notices.what') }),
+    el('p', { class: 'kit-hint', text: t('admin.notices.brackets') }),
+    el('p', { class: 'kit-hint', text: t('admin.notices.burst', { n: view.burst.count, minutes: view.burst.minutes }) }),
+    el('label', { class: 'kit-check' }, country, el('span', { text: t('admin.notices.country') })),
+    view.country_available ? null : el('p', { class: 'kit-hint', text: t('admin.notices.noCountry') }),
+    el('label', { class: 'kit-check' }, totals, el('span', { text: t('admin.notices.totals') })),
+    ...groupBoxes,
+    digestBox,
+    el('div', { class: 'kit-grid kit-grid--3' }, field(t('admin.notices.hour'), hour, t('admin.notices.zone', { zone: browserZone() }))),
+    el('div', { class: 'kit-row' }, save, saved, test),
+    last,
+  );
 }
 
 /* ---------------------------------- audit ---------------------------------- */
