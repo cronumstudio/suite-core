@@ -1050,6 +1050,8 @@ export async function createHost({
       shareMail: moduleShareMail,
       portabilityFor,
       push: modulePush,
+      // The admin's notices are the host's, set at its root's /admin only.
+      notices: null,
       // Whose something is, in the module's words, with the host's one brake on deletion notices.
       ownership: createOwnership({
         db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,

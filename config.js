@@ -47,6 +47,9 @@ export const MODULES = Object.freeze({
   uploads: false,
   // Tokens for an app on a phone, connected through the system browser (devices.js), and their routes.
   devices: false,
+  // Notices to whoever runs the install of new accounts and payments (admin-notices.js), set in
+  // /admin › Notifications; silent until a destination is given there.
+  notices: false,
 });
 
 const PRODUCT_KEYS = new Set([

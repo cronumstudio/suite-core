@@ -410,6 +410,21 @@ export function createBilling({
   const enabled = Boolean(provider) && !errors.length;
   const source = provider?.id || 'billing';
 
+  // Who hears of each payment applied (whenApplied): the admin's notices (admin-notices.js), once
+  // its transaction is in. A store's reading that changed something counts: it is how a purchase in
+  // a store arrives (stores.js); one that changed nothing has an outcome nobody notes. A hook that
+  // throws is only logged.
+  const appliedHooks = [];
+  const tellApplied = (outcome, event, subject) => {
+    for (const hook of appliedHooks) {
+      try {
+        hook({ outcome, event, subject, product: catalog[event?.product] ?? null, provider: source });
+      } catch (err) {
+        log(`[billing] ${source}: a hook on a payment failed: ${err?.stack || err}`);
+      }
+    }
+  };
+
   const record = (action, subject, meta) => audit?.record({
     action, organizationId: subject?.type === 'organization' ? subject.id : null,
     targetType: subject?.type ?? null, targetId: subject?.id ?? null, meta,
@@ -749,6 +764,7 @@ export function createBilling({
     const at = Date.parse(event.occurredAt);
     const normalized = { ...event, ref: String(event.ref), occurredAt: iso(Number.isNaN(at) ? clock() : at) };
     let refunded = false;
+    let appliedTo = null;
     const applied = database.tx(() => {
       if (database.get('SELECT 1 FROM billing_events WHERE provider = ? AND event_id = ?', source, String(event.id))) return 'duplicate';
       database.run('DELETE FROM billing_pending WHERE received_at < ?', iso(clock() - PENDING_DAYS * DAY));
@@ -792,8 +808,10 @@ export function createBilling({
       if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign', 'gone'].includes(outcome)) {
         record(`billing.${outcome}`, subject, { provider: source, product: normalized.product ?? null, ref: normalized.ref });
       }
+      appliedTo = subject;
       return outcome;
     });
+    if (appliedHooks.length) tellApplied(applied, normalized, appliedTo);
     // Asked once the refund is in; a failure waits for the hourly sweep.
     if (refunded) setImmediate(() => sendRefundStops().catch((err) => log(`[billing] ${source}: ending a refunded subscription failed: ${err?.stack || err}`)));
     return applied;
@@ -818,6 +836,8 @@ export function createBilling({
         if (!['ignored', 'nothing', 'kept', 'stale', 'foreign'].includes(outcome)) {
           record(`billing.${outcome}`, subject, { provider: source, product: event.product ?? null, ref: event.ref });
         }
+        // Inside the sign-in's transaction: the notice itself waits for it (admin-notices.js).
+        if (appliedHooks.length) tellApplied(outcome, event, subject);
         database.run('UPDATE billing_events SET outcome = ? WHERE provider = ? AND event_id = ?', outcome, source, String(event.id));
       } catch (err) {
         log(`[billing] ${source} pending event ${row.id} for user #${userId} could not be applied: ${err.message}`);
@@ -1439,6 +1459,8 @@ export function createBilling({
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
     markOrganizationStop, sendStops, sendRefundStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
     organizationArchived,
+    /** `hook({ outcome, event, subject, product, provider })` after each payment applied. */
+    whenApplied: (hook) => { appliedHooks.push(hook); },
     // Whether the provider can stop or end a subscription from here (the remote one can't): the
     // admin is told before a deletion what it cancels (api.js).
     cancels: canStop(),

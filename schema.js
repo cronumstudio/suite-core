@@ -32,6 +32,7 @@ import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.j
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
 import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
 import { strangerInvitesSchema, strangerInvitesKeepSchema } from './stranger-invites.js';
+import { adminNoticesSchema } from './admin-notices.js';
 
 /** Migration 33: `email = ? COLLATE NOCASE` on users read the whole table (audit sc-data-25). */
 function usersEmailSchema(d) {
@@ -110,4 +111,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 32, name: 'stranger-invites-keep', up: strangerInvitesKeepSchema },
   // Accounts by their email, as sign-in, offers by email and imports look for them, in any case.
   { version: 33, name: 'users-email-index', up: usersEmailSchema },
+  // What the admin's notices say of new accounts and payments, for the daily summary (admin-notices.js).
+  { version: 34, name: 'admin-notice-events', up: adminNoticesSchema },
 ]);

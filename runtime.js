@@ -9,6 +9,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { sendJson } from './http.js';
 import { watchCode } from './watcher.js';
+import { inRequest } from './request-scope.js';
 
 const HOUR = 3600 * 1000;
 /** The jobs that wait a minute after the start, so a start is never slowed by them. */
@@ -22,7 +23,9 @@ export function serverFor(handle, alerts) {
   const server = http.createServer((req, res) => {
     // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, before anything rewrites req.url.
     alerts.watch(req, res);
-    handle(req, res).catch((err) => {
+    // Run as this request's work (request-scope.js): a hook that only gets an account, as the
+    // admin's notices of a new one, can still tell where it came from.
+    inRequest(req, () => handle(req, res)).catch((err) => {
       alerts.noteError(req, err);
       console.error(`[error] ${req.method} ${req.url}`, err);
       if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
@@ -91,6 +94,12 @@ export function startSuiteJobs(suite, { purge, timers, failed, safely }) {
     const resets = () => suite.workosResets.poll();
     timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
     timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
+  }
+  if (suite.notices) {
+    // The admin's notices (admin-notices.js): runs that ended, the daily summary at its hour, old
+    // events. Every minute.
+    const notices = () => suite.notices.tick().catch(failed('notices'));
+    timers.push(setInterval(notices, 60 * 1000).unref());
   }
   if (suite.billing?.enabled) {
     // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).
