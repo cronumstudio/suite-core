@@ -51,7 +51,8 @@ until they move it.
 ## Development
 
 You need Node.js 24 or later and git. There is nothing to install: suite-core has no
-dependencies (and so no lockfile; `npm ci` has nothing to do), and SQLite comes with Node.
+dependencies, so there is no lockfile and no `npm install` or `npm ci` step (`npm ci` refuses to
+run without a lockfile), and SQLite comes with Node.
 
 ```bash
 git clone https://github.com/cronumstudio/suite-core.git

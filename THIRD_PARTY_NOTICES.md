@@ -9,7 +9,7 @@ from other projects, is included in this repository, and stays under its own lic
 | [Geist](https://github.com/vercel/geist-font) and Geist Mono (fonts) | `web/fonts/geist-*.woff2` | Geist 1.800, Geist Mono 1.701 | SIL Open Font License 1.1 |
 | [Inter](https://github.com/rsms/inter) (font) | `web/fonts/inter-*.woff2` | 4.001 | SIL Open Font License 1.1 |
 | [Space Grotesk](https://github.com/floriankarsten/space-grotesk) (font) | `web/fonts/space-grotesk-*.woff2` | 2.000 | SIL Open Font License 1.1 |
-| [Lucide](https://lucide.dev) (icons) | `web/icons.js` | 1.53.0 | ISC; two of the icons used are derived from Feather (MIT) |
+| [Lucide](https://lucide.dev) (icons) | `web/icons.js` | 1.53.0 | ISC; some of the icons derive from Feather (MIT) |
 | [LobeHub Icons](https://github.com/lobehub/lobe-icons), `@lobehub/icons-static-svg` | `web/agents.js` | 1.98.0 | MIT |
 | [Codicons](https://github.com/microsoft/vscode-codicons), `@vscode/codicons` | `web/agents.js` | 0.0.36 | CC BY 4.0 |
 
@@ -81,6 +81,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+Some of the kit's other icons are drawn close to Lucide's or Feather's: `book`, `clip`, `copy`,
+`eye`, `filter`, `globe`, `logout`, `star`, `sun` and `users`. The two licences above cover them
+too.
 
 ## LobeHub Icons
 
