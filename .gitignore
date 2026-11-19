@@ -5,7 +5,7 @@ node_modules
 .env.*
 !.env.example
 # What carries this machine's paths, accounts or secrets, and what tools leave behind: never in a
-# public repository (audit deps-ci-11).
+# public repository.
 .claude/
 CLAUDE.local.md
 .cloudflare/
