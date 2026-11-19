@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.300.0 — 2026-11-19
+
+- **Settings › Sharing without a signal** (`web/shared.js`, after the stale-invitations fix of Next
+  0.96, Tasks 1.168, Notes 0.111 and Projects 0.125): what changes something —accept, decline,
+  leave, what each person may do, taking it back— is off while there is no signal, with the line
+  `kit.offline.actions` above, as the modules' invitation cards have it; on again when it comes
+  back, and the page asks `load()` again then, so an invitation that went meanwhile goes from it
+  too. Settings hands its sections `watchOffline` beside `close` (`section.render({ close,
+  watchOffline })`); `sharedPage()` takes it, and drawn alone, without it, is always on as before.
+
 ## 0.298.0 — 2026-11-19
 
 - **On a phone, a sideways swipe no longer changes module** (`windows.js`; Martin, 14/11, after a

@@ -691,7 +691,7 @@ export function openSettings(options) {
     const section = all.find((s) => s.id === id && !s.href && !s.go);
     if (!section) return false;
     current = id;
-    if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close })));
+    if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close, watchOffline })));
     clear(page).append(built.get(id));
     frame.setAttribute('data-open', '');
     // Its group unfolds in the list, folding the one that was open; one opened from another stays as it was.
