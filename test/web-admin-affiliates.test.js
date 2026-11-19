@@ -37,7 +37,7 @@ test('Affiliates: the tab, and a row per code with its figures', async () => {
           owner: { id: 5, email: 'maria@example.com', display_name: 'María' }, figures: figures({ accounts: 4, pending: 1, confirmed: 3, earned: 1800, paid: 1200, balance: 600 }),
         },
         {
-          id: 1, code: 'WORK-JKMN', kind: 'referral', campaign: null, active: false, cash: null, currency: null,
+          id: 1, code: 'WORKJKMN', kind: 'referral', campaign: null, active: false, cash: null, currency: null,
           owner: null, figures: figures({ accounts: 2, confirmed: 2, months: 2 }),
         },
       ],
@@ -64,7 +64,7 @@ test('Affiliates: the tab, and a row per code with its figures', async () => {
   assert.match(maria[6], /18[.,]00/);
   assert.match(maria[8], /6[.,]00/);
   assert.equal(referral[0], english['admin.affiliates.gone']);
-  assert.equal(referral[3], `WORK-JKMN${english['admin.affiliates.off']}`);
+  assert.equal(referral[3], `WORKJKMN${english['admin.affiliates.off']}`);
   assert.equal(referral[6], '2 months');
   assert.equal(referral[8], '', 'a referral owes no money');
 });

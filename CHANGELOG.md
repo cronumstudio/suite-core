@@ -9,14 +9,14 @@ Affiliates: referral codes and creators' campaigns in one system (Martin's desig
 Off until the app says `affiliates.enabled`.
 
 ### Affiliates (`affiliates.js`, suite migration 35)
-- **Codes**: each account's referral code, made the first time its panel asks (`WORK-7KQ2`: the
+- **Codes**: each account's referral code, made the first time its panel asks (`WORK7KQ2`: the
   app's prefix, `affiliates.referral.prefix`, and four letters nobody misreads), and creators'
   campaigns the admin makes for an account by its email (`MARIA20`), each with its offer, products
   and reward (the program's by default). Each is a discount at the provider when its adapter has
   `createDiscount` (kept per provider and environment, `affiliate_discounts`); without it a code works
   by its link alone.
 - **Who brought whom** (`affiliate_attributions`, one per buyer): `GET /r/<CODE>` and any page opened
-  with `?codigo=<CODE>` leave the `cw_ref` cookie (60 days, on `affiliates.cookieDomain`); an account
+  with `?codigo=<CODE>` leave the `cw_ref` cookie (for the visit, on `affiliates.cookieDomain`; also from `/auth/login?codigo=`); an account
   made with it is the code's (`link`) and the cookie goes, never for the owner nor an account the
   admin makes. A payment's own discount takes the buyer (`checkout`): the paid one wins.
 - **Commissions** (`affiliate_commissions`): on the buyer's first payment that charged something (the

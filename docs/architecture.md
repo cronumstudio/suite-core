@@ -1233,7 +1233,7 @@ stores: {
 
 `affiliates.js` runs with the billing module: people who bring buyers, and what they earn. Two kinds
 of code in one system. A **referral** code is any account's own, made the first time its panel
-asks for it (`WORK-7KQ2`: the app's prefix and four letters nobody misreads); the buyer pays less on
+asks for it (`WORK7KQ2`: the app's prefix and four letters nobody misreads); the buyer pays less on
 their first payment (by default 3,90 € off, the monthly's first month free) and the referrer gets
 a month of the plan for each buyer who pays, up to 12 a calendar year. A **creator** code is a
 campaign the admin makes for a chosen account (`MARIA20`, /admin › Affiliates); its buyers get 20 %

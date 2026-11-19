@@ -1,7 +1,7 @@
 /**
  * Affiliates: people who bring buyers, and what they earn for it. Two kinds of code in one system:
  *
- *   referral  any account's own, made the first time it opens its panel (`WORK-7KQ2`: the app's
+ *   referral  any account's own, made the first time it opens its panel (`WORK7KQ2`: the app's
  *             prefix and four letters nobody misreads). The buyer pays less on their first payment
  *             (a flat amount: the monthly's first month free, a month off the yearly) and the
  *             referrer gets a month of the plan for each buyer who pays, up to `yearlyCap` a year
@@ -16,7 +16,8 @@
  *
  * Who brought whom (an attribution, one per buyer):
  *   link      the code's link (`/r/<CODE>`, or `?codigo=<CODE>` on any page of the app or of the
- *             website) leaves it in the `cw_ref` cookie for 60 days, and an account made with it
+ *             website) leaves it in the `cw_ref` cookie until the browser closes (a session cookie: it
+ *             holds what the visitor brought, as a cart would, so it needs no consent), and an account made with it
  *             in the browser is the code's (`whenCreated`, read from the sign-in's request)
  *   checkout  the provider's `payment` event says which discount the buyer used (typed at the
  *             checkout, or passed by billing.js): that code, which wins over a link, since it is
@@ -71,10 +72,8 @@ const iso = (ms) => new Date(ms).toISOString();
 
 /** The cookie a code's link leaves in the browser (CONTRACT.md §3): the web's pages set it too. */
 export const REF_COOKIE = 'cw_ref';
-/** 60 days. */
-export const REF_COOKIE_SECONDS = 60 * 24 * 3600;
-/** A code: uppercase letters, digits and -, as the provider takes it. */
-export const CODE_PATTERN = /^[A-Z0-9-]{3,32}$/;
+/** A code: uppercase letters and digits, as the provider takes it (Paddle has no dashes in codes). */
+export const CODE_PATTERN = /^[A-Z0-9]{3,32}$/;
 /** Letters nobody misreads on a screen or says wrong out loud: no 0/O, 1/I/L. */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 /** What a referral's reward gives: this many days of the plan, or the next charge this many days later. */
@@ -90,7 +89,8 @@ const AMOUNT_MAX = 10_000_000;
 
 /** The code as the tables keep it, or null when it can't be one. */
 export function normalizeCode(value) {
-  const code = String(value ?? '').trim().toUpperCase();
+  // Said out loud or copied with its dashes and spaces (WORK-7KQ2, «work 7kq2»), it is the same code.
+  const code = String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
   return CODE_PATTERN.test(code) ? code : null;
 }
 
@@ -125,7 +125,7 @@ const productsProblem = (products) => (Array.isArray(products) && products.lengt
 
 /**
  * suite.config.js `affiliates`, resolved over the program's defaults (CONTRACT.md §4). `appId` gives
- * the referral codes' prefix when the app names none (`work` → `WORK-7KQ2`). → { affiliates, errors }
+ * the referral codes' prefix when the app names none (`work` → `WORK7KQ2`). → { affiliates, errors }
  */
 export function resolveAffiliates(given, { appId = 'app' } = {}) {
   const errors = [];
@@ -424,7 +424,7 @@ export function createAffiliates({
     return String(made.id);
   }
 
-  const randomCode = () => `${settings.referral.prefix}-${Array.from({ length: 4 }, () => ALPHABET[random(ALPHABET.length)]).join('')}`;
+  const randomCode = () => `${settings.referral.prefix}${Array.from({ length: 4 }, () => ALPHABET[random(ALPHABET.length)]).join('')}`;
   const making = new Map();
 
   /**
@@ -499,8 +499,8 @@ export function createAffiliates({
   const cookieHeader = (value, maxAge) => serializeCookie(REF_COOKIE, value, {
     maxAge, path: '/', httpOnly: false, sameSite: 'Lax', secure: secureCookies, domain: settings.cookieDomain,
   });
-  /** The code's cookie, for 60 days, on the domain the website shares (`cookieDomain`). */
-  const setCookie = (res, code) => appendHeader(res, 'Set-Cookie', cookieHeader(code, REF_COOKIE_SECONDS));
+  /** The code's cookie, for the visit, on the domain the website shares (`cookieDomain`). */
+  const setCookie = (res, code) => appendHeader(res, 'Set-Cookie', cookieHeader(code, undefined));
 
   /** A live code by what a link or a cookie says, or null. */
   function liveCode(value) {
@@ -530,13 +530,17 @@ export function createAffiliates({
     }
   }
 
-  /** `?codigo=<CODE>` on a page of the app: its cookie, once per request. */
+  /**
+   * `?codigo=<CODE>` on a page of the app: its cookie, once per request. Also on `/auth/login`, where
+   * the website's «Sign up» links go (`/auth/login?signup=1&codigo=…`): the cookie rides on its
+   * redirect to the sign-in and is read when the account is made.
+   */
   const seen = new WeakSet();
   function refFromQuery(req, res, url) {
     if (!enabled || seen.has(req)) return;
     seen.add(req);
     if (!['GET', 'HEAD'].includes(req.method)) return;
-    if (/^\/(api|auth|oauth|mcp|\.well-known)(\/|$)/.test(url.pathname)) return;
+    if (url.pathname !== '/auth/login' && /^\/(api|auth|oauth|mcp|\.well-known)(\/|$)/.test(url.pathname)) return;
     const value = url.searchParams.get('codigo');
     if (!value) return;
     const code = liveCode(value);

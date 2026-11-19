@@ -156,7 +156,10 @@ test('the configuration: the program’s defaults, off; what is given replaces t
     .errors.some((e) => e.includes('affiliates.enabeld')));
   assert.equal(normalizeCode(' maria20 '), 'MARIA20');
   assert.equal(normalizeCode('MA'), null);
-  assert.equal(normalizeCode('MARIA 20'), null);
+  // Spaces and dashes go (Paddle has no dashes in codes): said out loud, it is the same code.
+  assert.equal(normalizeCode('MARIA 20'), 'MARIA20');
+  assert.equal(normalizeCode('work-7kq2'), 'WORK7KQ2');
+  assert.equal(normalizeCode('MARIA_20'), null);
 });
 
 /* ---------------------------------- codes ---------------------------------- */
@@ -165,7 +168,7 @@ test('a referral code: made the first time it is asked for, at the provider firs
   const { affiliates, person, calls, database } = setup(t);
   const ana = person('ana');
   const [first, again] = await Promise.all([affiliates.referralOf(ana), affiliates.referralOf(ana)]);
-  assert.match(first.code, /^WORK-[A-HJ-NP-Z2-9]{4}$/);
+  assert.match(first.code, /^WORK[A-HJ-NP-Z2-9]{4}$/);
   assert.equal(again.code, first.code, 'two tabs at once make one code');
   const made = calls.filter(([what]) => what === 'createDiscount');
   assert.equal(made.length, 1);
@@ -182,10 +185,10 @@ test('a referral code: made the first time it is asked for, at the provider firs
 });
 
 test('a referral code the provider already has is never kept: another is made', async (t) => {
-  // The first random code (WORK-JKMN) is taken there already.
-  const { affiliates, person, calls } = setup(t, { adapter: { taken: ['WORK-JKMN'] } });
+  // The first random code (WORKJKMN) is taken there already.
+  const { affiliates, person, calls } = setup(t, { adapter: { taken: ['WORKJKMN'] } });
   const made = await affiliates.referralOf(person('ana'));
-  assert.equal(made.code, 'WORK-PQRS');
+  assert.equal(made.code, 'WORKPQRS');
   assert.equal(calls.filter(([what]) => what === 'createDiscount').length, 2);
 });
 
@@ -567,14 +570,14 @@ test('routes: /r/<CODE> and ?codigo= leave the cookie on the shared domain; the 
   const mine = await ana('GET', '/api/affiliates/me');
   assert.equal(mine.status, 200);
   const [own] = mine.data.codes;
-  assert.match(own.code, /^DEMO-[A-Z2-9]{4}$/);
+  assert.match(own.code, /^DEMO[A-Z2-9]{4}$/);
   assert.equal(own.link, `http://127.0.0.1/r/${own.code}`);
 
   const link = await raw(`/r/${own.code.toLowerCase()}`);
   assert.equal(link.status, 302);
   assert.equal(link.headers.get('location'), '/');
   assert.equal(link.headers.getSetCookie().find((c) => c.startsWith(`${REF_COOKIE}=`)),
-    `${REF_COOKIE}=${own.code}; Max-Age=5184000; Path=/; Domain=.example.test; SameSite=Lax`);
+    `${REF_COOKIE}=${own.code}; Path=/; Domain=.example.test; SameSite=Lax`);
   const unknown = await raw('/r/NOPE-1234');
   assert.equal(unknown.status, 302);
   assert.equal(unknown.headers.getSetCookie().some((c) => c.startsWith(`${REF_COOKIE}=`)), false);
@@ -582,6 +585,12 @@ test('routes: /r/<CODE> and ?codigo= leave the cookie on the shared domain; the 
   assert.ok(page.headers.getSetCookie().some((c) => c.startsWith(`${REF_COOKIE}=${own.code};`)));
   assert.equal((await raw(`/api/auth/config?codigo=${own.code}`)).headers.getSetCookie().some((c) => c.startsWith(`${REF_COOKIE}=`)), false,
     'never on the API');
+  // The website's «Sign up» goes to /auth/login with the code: the cookie rides on its redirect to the sign-in.
+  const signup = await raw(`/auth/login?signup=1&codigo=${own.code}`);
+  assert.ok(signup.headers.getSetCookie().some((c) => c.startsWith(`${REF_COOKIE}=${own.code};`)), 'from /auth/login');
+  // Said with a dash or in lower case, it is the same code.
+  const dashed = `${own.code.slice(0, 4)}-${own.code.slice(4).toLowerCase()}`;
+  assert.ok((await raw(`/?codigo=${dashed}`)).headers.getSetCookie().some((c) => c.startsWith(`${REF_COOKIE}=${own.code};`)), dashed);
 
   const panelPage = await raw('/afiliados');
   assert.equal(panelPage.status, 200);

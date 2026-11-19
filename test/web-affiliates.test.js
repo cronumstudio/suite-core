@@ -31,7 +31,7 @@ test('the panel: each code with its link and figures, how to be paid, the rules'
     'GET /api/affiliates/me': {
       codes: [
         {
-          code: 'WORK-JKMN', kind: 'referral', campaign: null, active: true, link: 'https://work.example/r/WORK-JKMN', discount: true,
+          code: 'WORKJKMN', kind: 'referral', campaign: null, active: true, link: 'https://work.example/r/WORKJKMN', discount: true,
           offer: { type: 'flat', amount: 390, currency: 'EUR' }, products: ['pro-monthly', 'pro-yearly'], reward: 'pro_month',
           figures: figures({ accounts: 3, confirmed: 2, months: 2, months_this_year: 2 }),
         },
@@ -64,7 +64,7 @@ test('the panel: each code with its link and figures, how to be paid, the rules'
     english['affiliates.payoutNote.title'], english['affiliates.rules.title'],
   ]);
   const codes = root.find('code').map((c) => c.textContent);
-  assert.deepEqual(codes, ['WORK-JKMN', 'https://work.example/r/WORK-JKMN', 'MARIA20', 'https://work.example/r/MARIA20']);
+  assert.deepEqual(codes, ['WORKJKMN', 'https://work.example/r/WORKJKMN', 'MARIA20', 'https://work.example/r/MARIA20']);
   const facts = root.all().filter((n) => n.getAttribute?.('class') === 'kit-fact').map((f) => f.childNodes.map((n) => n.textContent));
   assert.ok(facts.some(([label, value]) => label === english['affiliates.figures.months'] && value === '2 months'));
   assert.ok(facts.some(([label, value]) => label === english['affiliates.figures.thisYear'] && value === '2 of 12'));

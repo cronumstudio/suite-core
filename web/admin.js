@@ -1903,7 +1903,7 @@ function campaignDialog(view) {
   const defaults = view.rules.creator;
   const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
   const code = el('input', { autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '32', placeholder: 'MARIA20' }); // i18n-exempt: a code, the same in every language
-  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); });
+  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   const campaign = el('input', { maxlength: '80', autocomplete: 'off' });
   const offerType = el('select', {},
     el('option', { value: 'percent', text: t('admin.affiliates.offerPercent') }),
