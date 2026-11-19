@@ -25,6 +25,7 @@ import { nativePushFromEnv } from './native-push.js';
 import { STORE_FIELDS } from './stores.js';
 import { billingProviderOf, billingProviders, storeProviderOf, storeProviders } from './providers.js';
 import { productSeatsProblem } from './billing.js';
+import { resolveAffiliates } from './affiliates.js';
 import { redirectUriProblem } from './devices.js';
 import { OAUTH_PREFIXES } from './oauth.js';
 import { appLinksFrom } from './app-links.js';
@@ -55,7 +56,7 @@ export const MODULES = Object.freeze({
 const PRODUCT_KEYS = new Set([
   'app', 'modules', 'accounts', 'sessions', 'organizations', 'tokens', 'rateLimits',
   'features', 'plans', 'defaultPlan', 'products', 'billing', 'trustProxy',
-  'devices', 'stores', 'push', 'appLinks',
+  'devices', 'stores', 'push', 'appLinks', 'affiliates',
 ]);
 
 /**
@@ -467,6 +468,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const own = withCatalog(p, billing, errors);
   const products = productsFor(own.products, billing, errors);
   const billingRules = billingRulesFor(own.billing, billing, errors, warnings);
+  // The affiliates' program (affiliates.js): off until the app says `enabled`, the rest its defaults.
+  const affiliates = resolveAffiliates(p.affiliates, { appId: app.id });
+  errors.push(...affiliates.errors);
   const stores = storesFor(p.stores, products, modules, errors);
   const storeBilling = storeBillingFromEnv(env, { modules, stores, errors });
   // Links to the site that open the app on a phone (app-links.js): the product's pages and ids,
@@ -524,6 +528,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     defaultPlan: p.defaultPlan ?? null,
     products,
     billing: billingRules,
+    affiliates: affiliates.affiliates,
     stores,
     appLinks,
     install, errors, warnings,

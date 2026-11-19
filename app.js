@@ -48,6 +48,7 @@ import {
   founderPriceOpen, joinedEarly,
 } from './billing.js';
 import { billingProviderOf, storeProviderOf } from './providers.js';
+import { createAffiliates, registerAffiliatesApi } from './affiliates.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
@@ -315,6 +316,24 @@ export function createSuite({
     database, entitlements, provider: storeProvider, products: config.stores.products, audit, log,
     ignoreUnknownProducts: config.billing?.ignoreUnknownProducts ?? false,
   }) : null;
+  // The affiliates' program (affiliates.js), with the billing module, whether `affiliates.enabled` or
+  // not: the admin makes creators' campaigns before it opens. Each discount id is kept under the
+  // provider and its environment (a sandbox's ids aren't the live account's); a provider without
+  // createDiscount leaves the codes to their links.
+  const environment = install.billing ? billingProviderOf(install.billing.provider)?.environment?.(install.billing) ?? 'production' : null;
+  const affiliates = billing ? createAffiliates({
+    database, billing, provider: billing.enabled ? billingProvider : null,
+    discountKey: install.billing ? `${install.billing.provider}:${environment}` : null,
+    entitlements, accounts, audit, config: config.affiliates, baseUrl: install.baseUrl, secureCookies: install.secureCookies, log,
+  }) : null;
+  if (affiliates) {
+    billing.whenPaid(affiliates.paid);
+    billing.whenRefunded(affiliates.refunded);
+    billing.discountWith(affiliates.discountFor);
+    // Made with a code's cookie in the browser: that code's, read from the sign-in's request.
+    accounts.whenCreated(affiliates.attributeLink);
+    accounts.whenRemoved((userId) => affiliates.forget(userId));
+  }
   // An account that goes lets go of its links, subscriptions and grants here, never of its login.
   if (config.billing?.forgetOnRemove && (billing || stores)) {
     accounts.whenRemoved((userId) => {
@@ -662,7 +681,7 @@ export function createSuite({
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    shareMail, shareBrake, goneBrake,
+    shareMail, shareBrake, goneBrake, affiliates,
     /**
      * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
      * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
@@ -847,6 +866,10 @@ export function createApp({
         ...(suite.stores?.enabled ? { stores: true } : {}),
         // With modules.notices, /admin › Notifications (admin-notices.js).
         ...(suite.notices && config.modules.admin ? { notices: true } : {}),
+        // With payments, /admin › Affiliates (affiliates.js), whether the program is on or not.
+        ...(suite.affiliates && config.modules.admin ? { affiliates: true } : {}),
+        // The program on: Settings links to the person's panel (/afiliados), on the web only.
+        ...(suite.affiliates?.enabled ? { recommend: true } : {}),
         // Read each time the config is sent: a host's module learns late whether the host has one.
         get mcp() { return offersConnector(); },
       },
@@ -905,6 +928,8 @@ export function createApp({
     });
   }
   if (config.modules.admin && suite.notices) registerAdminNoticesApi(api, { notices: suite.notices, audit });
+  // The affiliate's own panel and, for the admin, every code (affiliates.js).
+  if (suite.affiliates) registerAffiliatesApi(api, { affiliates: suite.affiliates, audit, admin: config.modules.admin });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name, sessionKeyOf: (ctx) => sessions.keyFor(ctx.sessionToken) });
   // The link in an invitation to an address without an account, to get no more (stranger-invites.js).
@@ -1129,6 +1154,8 @@ export function createApp({
       // A write that rides on the session cookie must come from the app's own
       // pages: another site can make a browser send the cookie, not the Origin.
       checkOrigin(req, { baseUrl: install.baseUrl, cookieName: sessions.cookieName });
+      // A page opened with `?codigo=<CODE>`: the code's cookie, whatever answers it (affiliates.js).
+      suite.affiliates?.refFromQuery(req, res, url);
 
       // Up means the database answers too. No uptime: anyone may ask, and when the process last
       // started is nobody's business.
@@ -1237,8 +1264,17 @@ export function createApp({
       }
       // Before the app's pages: `/` back from the provider to the connect page, and the pages themselves.
       if (devicePages && (devicePages.back(req, res, url) || devicePages.handle(req, res, url))) return;
+      // A code's link (`/r/<CODE>`): its cookie, then the app's page (affiliates.js).
+      if (suite.affiliates && pathname.startsWith('/r/') && suite.affiliates.redirect(req, res, pathname)) return;
       // The suite's browser code (the web kit) and its admin panel.
       if (pathname.startsWith('/suite/') && serveStatic(WEB_DIR, pathname.slice('/suite'.length), res)) return;
+      // The person's affiliate panel, the program's page: in the app's clothes, as the admin panel.
+      if (suite.affiliates && (pathname === '/afiliados' || pathname === '/afiliados/')) {
+        const page = brandedAdmin(fs.readFileSync(path.join(WEB_DIR, 'affiliates.html'), 'utf8'), config.app);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+        res.end(req.method === 'HEAD' ? undefined : page);
+        return;
+      }
       if (config.modules.admin && (pathname === '/admin' || pathname === '/admin/')) {
         // Read on every request: it is small, and a new suite-core is served without a restart.
         const page = brandedAdmin(fs.readFileSync(path.join(WEB_DIR, 'admin.html'), 'utf8'), config.app);

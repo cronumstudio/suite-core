@@ -401,6 +401,12 @@ export function openSettings(options) {
   // The plan is the account's: what it is and what it includes, with the account's other things.
   const planSection = (group) => (options.plan || host?.plans ? { group, id: 'plan', iconName: 'card', label: t('kit.plan.title'),
     hint: () => t('kit.plan.hint'), render: () => needsServer(plan) } : null);
+  // The affiliates' panel (/afiliados, affiliates.js), where the program is on: a page of the server's,
+  // as Administration is. Never inside the suite's app on a phone: no rewards nor prices there (the
+  // stores' rules, Apple's 3.1), so it is left out of the list, not hidden behind a tap.
+  const recommendSection = (group) => ((host ? host.recommend === true : modules.recommend === true) && !inApp()
+    ? { group, id: 'recommend', iconName: 'star', label: t('kit.recommend.title', { app: host?.name || app.name }),
+      hint: () => t('kit.recommend.hint'), href: '/afiliados' } : null);
   // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
   const aiSection = (group) => (modules.mcp !== false ? { group, id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
     hint: () => t('kit.ai.hint'), render: () => needsServer(ai) } : null);
@@ -415,6 +421,7 @@ export function openSettings(options) {
     securitySection(t('kit.settings.groups.account')),
     appearanceSection(t('kit.settings.groups.account')),
     planSection(t('kit.settings.groups.account')),
+    recommendSection(t('kit.settings.groups.account')),
     aiSection(t('kit.settings.groups.connections')),
     notificationsSection(t('kit.settings.groups.connections')),
     sessionsSection(t('kit.settings.groups.connections')),
@@ -462,6 +469,7 @@ export function openSettings(options) {
     securitySection(t('kit.settings.groups.account')),
     sessionsSection(t('kit.settings.groups.account')),
     planSection(t('kit.settings.groups.account')),
+    recommendSection(t('kit.settings.groups.account')),
     deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
       hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => needsConnection(data({ module: false })) } : null,
     // A group of its own name: the list shows it as one row, at the foot, under no other.

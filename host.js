@@ -118,6 +118,8 @@ const MOUNT = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED = new Set([
   'api', 'suite', 'i18n', 'admin', 'auth', 'oauth', 'mcp', 'mcp-info', 'health', 'version', 'register',
   'authorize', 'token', 'js', 'css', 'icons', 'fonts',
+  // The affiliate's panel (affiliates.js), the root's.
+  'afiliados',
 ]);
 /** Scopes migrations already use: a module's app id can't be one of them. */
 const TAKEN_SCOPES = new Set(['app', 'suite', 'host']);
@@ -941,6 +943,8 @@ export async function createHost({
         billing: Boolean(suite.billing?.enabled),
         // Whether the host sells in the app on a phone (STORE_BILLING): its store's way to buy, in every module.
         ...(suite.stores?.enabled ? { stores: true } : {}),
+        // The host's affiliates' program on (affiliates.js): Settings links to the panel at its root, on the web only.
+        ...(suite.affiliates?.enabled ? { recommend: true } : {}),
         // The host's one worker: the module's page registers it and retires its own (web/worker.js).
         ...(hostWorker ? { worker: '/sw.js' } : {}),
         // The host's daily summary: its page, and Settings' section of it in every module.
@@ -1052,6 +1056,9 @@ export async function createHost({
       push: modulePush,
       // The admin's notices are the host's, set at its root's /admin only.
       notices: null,
+      // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
+      // opened with ?codigo= still gets the cookie, from the host's own handle).
+      affiliates: null,
       // Whose something is, in the module's words, with the host's one brake on deletion notices.
       ownership: createOwnership({
         db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
@@ -1767,6 +1774,8 @@ export async function createHost({
     } catch {
       return root.handle(req, res);   // a target no URL can be made of: the root answers 400
     }
+    // A page of any module, or of the host, opened with `?codigo=<CODE>`: the code's cookie (affiliates.js).
+    suite.affiliates?.refFromQuery(req, res, url);
     // An app's old address: its connector as it was, everything else to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
