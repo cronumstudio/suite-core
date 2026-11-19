@@ -6,14 +6,17 @@
  */
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
-import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
+import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, numberFormat } from './i18n.js';
 import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
-const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, usersQuery: '' };
+const state = {
+  config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, affiliates: false,
+  affiliateMinimum: null, usersQuery: '',
+};
 
 const TABS = [
   ['users', 'admin.tabs.users'],
@@ -22,6 +25,7 @@ const TABS = [
   ['organizations', 'admin.tabs.organizations'],
   ['data', 'admin.tabs.data'],
   ['notices', 'admin.tabs.notices'],
+  ['affiliates', 'admin.tabs.affiliates'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -149,6 +153,8 @@ async function start() {
   state.data = Boolean(state.config.app?.modules?.data);
   // Notices of new accounts and payments, with modules.notices.
   state.notices = Boolean(state.config.app?.modules?.notices);
+  // Referrals and creators' campaigns, with payments (affiliates.js): whether the program is on or not.
+  state.affiliates = Boolean(state.config.app?.modules?.affiliates);
 
   const app = state.config.app || {};
   // The app's icon, as the server wrote it into the page (app.icon).
@@ -174,12 +180,12 @@ async function start() {
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
     && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
-    && (id !== 'notices' || state.notices));
+    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, notices: renderNotices, audit: renderAudit,
+  data: renderData, notices: renderNotices, affiliates: renderAffiliates, audit: renderAudit,
 };
 
 let showing = 0;
@@ -1822,6 +1828,237 @@ async function renderAudit(main) {
     el('div', { class: 'kit-row', style: null }, more),
   );
   await load(true);
+}
+
+/* -------------------------------- affiliates ------------------------------- */
+
+/** Cents as money, in the panel's language. */
+const money = (cents, currency) => numberFormat({ style: 'currency', currency: currency || 'EUR' }).format((Number(cents) || 0) / 100);
+/** What a code takes off: `3,90 € off the first payment`, `20 % off the first year`. */
+const offerText = (offer) => (offer?.type === 'flat'
+  ? t('affiliates.offer.flat', { amount: money(offer.amount, offer.currency) })
+  : t('affiliates.offer.percent', { percent: offer?.percent ?? 0 }));
+/** Euros as typed (`6`, `6,50`, `6.50`) in cents, or null. */
+const centsOf = (text) => {
+  const value = Number(String(text || '').trim().replace(',', '.'));
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) : null;
+};
+
+/**
+ * Administration › Affiliates (affiliates.js): every code, a referral's or a creator's, with its
+ * owner, the accounts it brought, its sales by state, what it earned, what was paid and what is
+ * owed; filtered by kind. A row opens its commissions; a creator's campaign is made here, and the
+ * payouts made to them noted.
+ */
+async function renderAffiliates(main) {
+  const kind = hashQuery().get('kind') || '';
+  const view = await api.get(`/api/admin/affiliates${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`);
+  const filter = segmented([
+    { value: '', label: t('admin.affiliates.all') },
+    { value: 'referral', label: t('affiliates.kind.referral') },
+    { value: 'creator', label: t('affiliates.kind.creator') },
+  ], kind, (value) => { window.location.hash = value ? `#/affiliates?kind=${value}` : '#/affiliates'; });
+  filter.setAttribute('aria-label', t('admin.affiliates.filter'));
+  // What a payout is noted against: the program's least, said in its dialog.
+  state.affiliateMinimum = view.rules.creator.payout_minimum ?? null;
+  const earnedOf = (code) => (code.cash ? money(code.figures.earned, code.currency) : t('affiliates.months', { n: code.figures.months }));
+  const rows = view.codes.map((code) => el('tr', {},
+    el('td', {}, el('strong', { text: code.owner?.display_name || t('admin.affiliates.gone') }), el('small', { text: code.owner?.email || '' })),
+    el('td', { text: t(`affiliates.kind.${code.kind}`) }),
+    el('td', { text: code.campaign || '' }),
+    el('td', {}, el('code', { class: 'kit-mono', text: code.code }),
+      code.active ? null : el('span', { class: 'kit-badge kit-badge--warn', text: t('admin.affiliates.off') })),
+    el('td', { text: String(code.figures.accounts) }),
+    el('td', { text: `${code.figures.pending} / ${code.figures.confirmed} / ${code.figures.reversed}` }),
+    el('td', { text: earnedOf(code) }),
+    el('td', { text: code.cash ? money(code.figures.paid, code.currency) : '' }),
+    el('td', { text: code.cash ? money(code.figures.balance, code.currency) : '' }),
+    el('td', {}, el('button', {
+      type: 'button', class: 'kit-link', text: t('admin.affiliates.open'),
+      onClick: () => affiliateDialog(code.id).catch(fail),
+    }))));
+  append(main,
+    el('h2', { text: t('admin.affiliates.title') }),
+    el('p', { class: 'kit-lead', text: t(view.enabled ? 'admin.affiliates.leadOn' : 'admin.affiliates.leadOff') }),
+    view.discounts ? null : el('p', { class: 'kit-notice', text: t('admin.affiliates.noDiscounts') }),
+    el('div', { class: 'kit-toolbar' },
+      filter,
+      el('button', {
+        type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.affiliates.new'),
+        onClick: () => campaignDialog(view),
+      }),
+      el('a', {
+        class: 'kit-btn', href: `/api/admin/affiliates/export${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`, download: '',
+        text: t('admin.affiliates.export'),
+      })),
+    view.codes.length ? table([
+      t('admin.affiliates.owner'), t('fields.kind'), t('fields.campaign'), t('fields.code'), t('admin.affiliates.accounts'),
+      t('admin.affiliates.sales'), t('admin.affiliates.earned'), t('admin.affiliates.paid'), t('admin.affiliates.balance'), '',
+    ], rows) : el('p', { class: 'kit-empty', text: t('admin.affiliates.none') }),
+  );
+}
+
+/** A creator's campaign: whose (by email), its code and name, what the buyer gets and what it earns. */
+function campaignDialog(view) {
+  const defaults = view.rules.creator;
+  const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
+  const code = el('input', { autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '32', placeholder: 'MARIA20' }); // i18n-exempt: a code, the same in every language
+  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  const campaign = el('input', { maxlength: '80', autocomplete: 'off' });
+  const offerType = el('select', {},
+    el('option', { value: 'percent', text: t('admin.affiliates.offerPercent') }),
+    el('option', { value: 'flat', text: t('admin.affiliates.offerFlat') }));
+  offerType.value = defaults.offer.type;
+  const offerValue = el('input', {
+    inputmode: 'decimal', autocomplete: 'off',
+    value: defaults.offer.type === 'flat' ? String(defaults.offer.amount / 100) : String(defaults.offer.percent),
+  });
+  const products = (view.products.length ? view.products : defaults.products).map((key) => {
+    const box = el('input', { type: 'checkbox', value: key });
+    box.checked = defaults.products.includes(key);
+    return box;
+  });
+  const reward = el('input', { inputmode: 'decimal', autocomplete: 'off', value: String(defaults.reward.cash / 100) });
+  const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
+  formDialog({
+    title: t('admin.affiliates.new'),
+    content: [
+      el('p', { class: 'kit-hint', text: t('admin.affiliates.newLead') }),
+      el('div', { class: 'kit-grid' },
+        field(t('fields.email'), email, t('admin.affiliates.emailHint')),
+        field(t('fields.code'), code, t('admin.affiliates.codeHint')),
+        field(t('fields.campaign'), campaign)),
+      el('div', { class: 'kit-grid' },
+        field(t('fields.offer'), offerType),
+        field(t('admin.affiliates.offerValue'), offerValue),
+        field(t('fields.reward'), reward, t('admin.affiliates.rewardHint', { currency: defaults.reward.currency }))),
+      el('div', { class: 'kit-field', role: 'group', 'aria-label': t('fields.products') },
+        el('span', { text: t('fields.products') }),
+        products.map((box) => el('label', { class: 'kit-check' }, box, el('span', { text: box.value })))),
+      field(t('fields.note'), note),
+    ],
+    actions: [
+      { label: t('admin.cancel') },
+      { label: t('admin.affiliates.create'), primary: true, submit: true },
+    ],
+    onSubmit: async () => {
+      const flat = offerType.value === 'flat';
+      const body = {
+        email: email.value.trim(), code: code.value.trim(), campaign: campaign.value.trim() || null, note: note.value.trim() || null,
+        offer: flat ? { type: 'flat', amount: centsOf(offerValue.value), currency: defaults.reward.currency }
+          : { type: 'percent', percent: Math.round(Number(offerValue.value.replace(',', '.'))) },
+        products: products.filter((box) => box.checked).map((box) => box.value),
+        reward: { cash: centsOf(reward.value), currency: defaults.reward.currency },
+      };
+      const { code: made } = await api.post('/api/admin/affiliates', body);
+      toast(t(made.discount || !view.discounts ? 'admin.affiliates.created' : 'admin.affiliates.createdNoDiscount', { code: made.code }));
+      show();
+      return true;
+    },
+  });
+  email.focus();
+}
+
+/** A code's commissions and payouts, switched on or off, and a payout noted for a creator's. */
+async function affiliateDialog(id) {
+  const { code, commissions, payouts } = await api.get(`/api/admin/affiliates/${id}/commissions`);
+  const currency = code.currency;
+  const statusBadge = (row) => el('span', {
+    class: `kit-badge kit-badge--${{ pending: 'accent', confirmed: 'ok', paid: 'ok', reversed: 'warn' }[row.status] || 'accent'}`,
+    text: t(`affiliates.status.${row.status}`),
+  });
+  const what = (row) => (row.entry === 'adjustment' ? t('admin.affiliates.adjustment')
+    : row.reason === 'yearly_cap' ? t('admin.affiliates.capped') : row.refunded_at ? t('admin.affiliates.refundedLate') : '');
+  const facts = el('div', { class: 'kit-facts' },
+    el('div', { class: 'kit-fact' }, el('span', { text: t('admin.affiliates.owner') }),
+      el('strong', { text: [code.owner?.display_name, code.owner?.email].filter(Boolean).join(' · ') || t('admin.affiliates.gone') })),
+    el('div', { class: 'kit-fact' }, el('span', { text: t('fields.offer') }), el('strong', { text: offerText(code.offer) })),
+    el('div', { class: 'kit-fact' }, el('span', { text: t('fields.products') }), el('strong', { text: code.products.join(', ') })),
+    el('div', { class: 'kit-fact' }, el('span', { text: t('fields.reward') }),
+      el('strong', { text: code.cash ? money(code.cash, currency) : t('affiliates.reward.month') })),
+    code.cash ? el('div', { class: 'kit-fact' }, el('span', { text: t('admin.affiliates.balance') }), el('strong', { text: money(code.figures.balance, currency) })) : null,
+    code.payout_note ? el('div', { class: 'kit-fact' }, el('span', { text: t('fields.payout_note') }), el('strong', { text: code.payout_note })) : null,
+    code.note ? el('div', { class: 'kit-fact' }, el('span', { text: t('fields.note') }), el('strong', { text: code.note })) : null);
+  const list = commissions.length ? table([
+    t('admin.affiliates.paidOn'), t('admin.affiliates.buyer'), t('admin.affiliates.product'), t('admin.affiliates.state'), t('fields.amount'), '',
+  ], commissions.map((row) => el('tr', {},
+    el('td', {}, el('span', { text: formatDate(row.paid_at) }),
+      row.status === 'pending' ? el('small', { text: t('admin.affiliates.confirmsOn', { date: formatDate(row.confirm_after) }) }) : null),
+    el('td', { text: row.buyer.email || row.buyer.display_name || `#${row.buyer.id}` }),
+    el('td', { text: row.product || '' }),
+    el('td', {}, statusBadge(row)),
+    el('td', { text: row.reward === 'pro_month' ? t('affiliates.reward.month') : money(row.amount, row.currency) }),
+    el('td', { text: what(row) }))))
+    : el('p', { class: 'kit-empty', text: t('admin.affiliates.noSales') });
+  const paidList = payouts.length ? table([t('admin.affiliates.paidOn'), t('fields.amount'), t('fields.method'), t('fields.reference')],
+    payouts.map((p) => el('tr', {}, el('td', { text: formatDate(p.paid_at) }), el('td', { text: money(p.amount, p.currency) }),
+      el('td', { text: p.method || '' }), el('td', { text: p.reference || '' })))) : null;
+  const dialog = openDialog({
+    title: code.campaign ? `${code.code} · ${code.campaign}` : code.code,
+    wide: true,
+    content: [
+      facts,
+      el('h3', { text: t('admin.affiliates.commissions') }), list,
+      code.cash ? el('h3', { text: t('admin.affiliates.payouts') }) : null,
+      code.cash ? paidList || el('p', { class: 'kit-empty', text: t('admin.affiliates.noPayouts') }) : null,
+    ],
+    actions: [
+      {
+        label: t(code.active ? 'admin.affiliates.turnOff' : 'admin.affiliates.turnOn'), danger: code.active,
+        onClick: async () => {
+          try {
+            await api.put(`/api/admin/affiliates/${code.id}`, { active: !code.active });
+            show();
+            return true;
+          } catch (err) { fail(err); return false; }
+        },
+      },
+      code.cash ? {
+        label: t('admin.affiliates.recordPayout'), primary: true,
+        onClick: () => { payoutDialog(code); return true; },
+      } : null,
+    ].filter(Boolean),
+  });
+  return dialog;
+}
+
+/** A payout made to a creator, noted: how much (what is owed, by default), how and its reference. */
+function payoutDialog(code) {
+  const minimum = state.affiliateMinimum;
+  const amount = el('input', { inputmode: 'decimal', autocomplete: 'off', value: String(Math.max(0, code.figures.balance) / 100) });
+  const method = el('input', { maxlength: '80', autocomplete: 'off', placeholder: t('admin.affiliates.methodHint') });
+  const reference = el('input', { maxlength: '120', autocomplete: 'off' });
+  const day = el('input', { type: 'date', value: new Date().toISOString().slice(0, 10) });
+  const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
+  formDialog({
+    title: t('admin.affiliates.recordPayout'),
+    content: [
+      el('p', { class: 'kit-hint', text: t('admin.affiliates.payoutLead', { balance: money(code.figures.balance, code.currency) }) }),
+      code.payout_note ? el('p', { class: 'kit-notice', text: code.payout_note }) : null,
+      minimum && code.figures.balance < minimum
+        ? el('p', { class: 'kit-warning', text: t('admin.affiliates.belowMinimum', { minimum: money(minimum, code.currency) }) }) : null,
+      el('div', { class: 'kit-grid' },
+        field(t('fields.amount'), amount),
+        field(t('fields.paid_at'), day),
+        field(t('fields.method'), method),
+        field(t('fields.reference'), reference)),
+      field(t('fields.note'), note),
+    ],
+    actions: [
+      { label: t('admin.cancel') },
+      { label: t('admin.affiliates.savePayout'), primary: true, submit: true },
+    ],
+    onSubmit: async () => {
+      await api.post(`/api/admin/affiliates/${code.id}/payouts`, {
+        amount: centsOf(amount.value), method: method.value.trim() || null, reference: reference.value.trim() || null,
+        note: note.value.trim() || null, paid_at: day.value ? new Date(`${day.value}T12:00:00`).toISOString() : null,
+      });
+      toast(t('admin.affiliates.payoutSaved'));
+      show();
+      return true;
+    },
+  });
+  amount.focus();
 }
 
 start().catch(fail);

@@ -25,7 +25,7 @@ export function serverFor(handle, alerts) {
     alerts.watch(req, res);
     // Run as this request's work (request-scope.js): a hook that only gets an account, as the
     // admin's notices of a new one, can still tell where it came from.
-    inRequest(req, () => handle(req, res)).catch((err) => {
+    inRequest(req, () => handle(req, res), res).catch((err) => {
       alerts.noteError(req, err);
       console.error(`[error] ${req.method} ${req.url}`, err);
       if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
@@ -100,6 +100,12 @@ export function startSuiteJobs(suite, { purge, timers, failed, safely }) {
     // events. Every minute.
     const notices = () => suite.notices.tick().catch(failed('notices'));
     timers.push(setInterval(notices, 60 * 1000).unref());
+  }
+  if (suite.affiliates) {
+    // The affiliates' commissions past their days confirmed, and the referrals' months given: every hour.
+    const affiliates = () => suite.affiliates.sweep().catch(failed('affiliates'));
+    timers.push(setTimeout(affiliates, MINUTE_BEFORE_SWEEP).unref());
+    timers.push(setInterval(affiliates, HOUR).unref());
   }
   if (suite.billing?.enabled) {
     // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).

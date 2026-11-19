@@ -225,6 +225,8 @@ export function serializeCookie(name, value, options = {}) {
   const parts = [`${name}=${encodeURIComponent(value)}`];
   if (options.maxAge != null) parts.push(`Max-Age=${Math.floor(options.maxAge)}`);
   parts.push(`Path=${options.path || '/'}`);
+  // Shared with the other hosts of one site (affiliates.js `cw_ref` on `.example.com`); left out, this host's alone.
+  if (options.domain) parts.push(`Domain=${options.domain}`);
   if (options.httpOnly !== false) parts.push('HttpOnly');
   parts.push(`SameSite=${options.sameSite || 'Lax'}`);
   if (options.secure) parts.push('Secure');
