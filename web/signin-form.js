@@ -200,6 +200,9 @@ export async function signIn({ app, config = null, root = document.body }) {
      * the button to take it back as it was. Leaving it, it goes on that day.
      */
     function takeBack(ticket, when) {
+      // This card is the first one: leaving it for the usual one is someone choosing to, not a page
+      // to skip (audit sc-auth-5: AuthKit, its session still open, would bring them straight back here).
+      first = false;
       dropParam('account_deletion');
       dropParam('until');
       const error = errorLine();

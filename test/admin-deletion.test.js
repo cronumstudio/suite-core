@@ -169,6 +169,31 @@ test('the admin deleting someone who pays: their own subscription ends first, at
     'and goes on, Bob its owner');
 });
 
+test('a group left with nobody in it is archived, and its own subscription stops renewing at its period’s end (Martin, 13/11)', async (t) => {
+  const { suite, provider, admin } = await serve(t);
+  // Ada alone in her group, which pays its own.
+  const ada = suite.accounts.create({ username: 'ada', displayName: 'Ada', password: 'ada-password' });
+  subscribe(suite.billing, { type: 'user', id: ada.id }, { ref: 'sub_ada', product: 'pro-web-yearly' });
+  const team = suite.organizations.create({ name: 'Team', ownerId: ada.id });
+  subscribe(suite.billing, { type: 'organization', id: team.id }, { ref: 'sub_team', product: 'team-web-yearly' });
+  provider.asked.length = 0;
+  assert.equal((await admin('DELETE', `/api/admin/users/${ada.id}`)).status, 200);
+  // The group's stop is asked once the deletion's transaction is over.
+  for (let i = 0; i < 50 && provider.asked.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(provider.asked, [
+    'POST /subscriptions/sub_ada/cancel {"at":"now"}',
+    'POST /subscriptions/sub_team/cancel {"at":"period_end"}',
+  ], 'hers now; the group’s at the end of what it paid for, nobody being left to cancel it');
+  const row = suite.database.get('SELECT archived_at FROM organizations WHERE id = ?', team.id);
+  assert.ok(row?.archived_at, 'archived, not deleted');
+  assert.deepEqual(suite.audit.list({ action: 'org.archive' }).map((e) => [e.target_id, e.meta]), [[String(team.id), { kind: null, reason: 'empty' }]]);
+  assert.equal(suite.audit.list({ action: 'billing.organization.stop' }).length, 1, 'the stop asked, in the log');
+  assert.deepEqual(suite.billing.stopOriginsOf(team.id), ['empty']);
+  // The hourly sweep finds nothing more to ask.
+  assert.deepEqual(await suite.billing.sendStops(), { requested: 0, waiting: 0 });
+  assert.equal(provider.asked.length, 2);
+});
+
 test('someone who cancelled already, which the provider won’t end now: the account goes all the same; what still renews ends first', async (t) => {
   const { suite, provider, admin } = await serve(t);
   // Cai cancelled Pro in the portal and in Google Play: neither renews, as their webhooks said.

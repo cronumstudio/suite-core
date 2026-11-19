@@ -23,8 +23,8 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { resolveConfig } from './config.js';
 import { openDatabase } from './db.js';
@@ -38,6 +38,7 @@ import {
   createDevices, registerDevicesApi, deviceActionOf, deviceActionsProblem,
 } from './devices.js';
 import { createDevicePages, connectAfterSignIn } from './device-pages.js';
+import { serverFor, jobRunner, startSuiteJobs, handleProcessSignals, listenAndSay, MINUTE_BEFORE_SWEEP } from './runtime.js';
 import { createAudit } from './audit.js';
 import { createRateLimiter } from './rate-limit.js';
 import { createEntitlements } from './entitlements.js';
@@ -57,13 +58,18 @@ import { createMailer } from './mail.js';
 import { mailBrand } from './mail-layout.js';
 import { createStrangerInvites, registerUnsubscribeApi } from './stranger-invites.js';
 import { createShareMail } from './share-mail.js';
+import { createShareBrake, SUITE_OFFERS_PER_HOUR } from './share-brake.js';
+import { createOwnership, createGoneBrake } from './ownership.js';
 import { createAlerts } from './alerts.js';
+import { createAdminNotices, registerAdminNoticesApi } from './admin-notices.js';
+import { cloudflareCountry } from './http.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { brandedPage } from './oauth-page.js';
 import { brandedAdmin } from './brand.js';
+import { brandedNotFound } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
 import { createLive } from './live.js';
 import { createRevoker } from './revoke.js';
@@ -73,7 +79,7 @@ import { createNativePush, registerNativePushApi } from './native-push.js';
 import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks, registerUploadLinksApi } from './mcp-files.js';
-import { createPortability, registerPortabilityApi } from './portability.js';
+import { createPortability, registerPortabilityApi, withImportCeiling } from './portability.js';
 import { createMcpServer, dailyLimitText, weeklyLimitText } from './mcp.js';
 import {
   registerAuthApi, registerAccountMailApi, registerProfileApi, registerAdminApi, registerOrganizationsApi, registerPushApi,
@@ -81,14 +87,14 @@ import {
 } from './api.js';
 import { definePrefs, userSerializer } from './prefs.js';
 import {
-  HttpError, badRequest, createRouter, sendJson, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
+  HttpError, badRequest, createRouter, sendJson, sendError, sendText, serveStatic, securityHeaders, checkOrigin, unauthorized,
 } from './http.js';
+import { staticFile } from './http.js';
 import { fingerprint } from './host-worker.js';
-import { watchCode } from './watcher.js';
+import { createAppLinks } from './app-links.js';
 import { SUITE_CATALOGS, mergeCatalogs, CATALOG_FALLBACK } from './i18n.js';
 
 const HOUR = 3600 * 1000;
-const MINUTE_BEFORE_SWEEP = 60 * 1000;
 /** The suite's browser code, served at /suite/. */
 const WEB_DIR = fileURLToPath(new URL('./web/', import.meta.url));
 
@@ -289,6 +295,13 @@ export function createSuite({
       stop: config.billing?.stopOnOrganizationDeleted === true, forget: config.billing?.forgetOnRemove === true,
     }), { last: true });
   }
+  // A group archived with nobody left in it (its last member's account deleted, a kind kept when
+  // empty): its own subscriptions stop renewing at the end of their period, since nobody is left to
+  // cancel them (Martin's decision of 13/11/2026). Only with organizations, and a provider that can
+  // stop one.
+  if (organizations && billing?.enabled) {
+    organizations.whenArchived(({ organization }) => billing.organizationArchived(organization.id));
+  }
   // What was paid for before someone had an account here is theirs when they arrive.
   if (billing?.enabled && identities) {
     accounts.whenLinked(({ userId, provider, subject }) => billing.claim(provider, subject, userId));
@@ -325,6 +338,14 @@ export function createSuite({
 
   // The AI clients authorized in AuthKit and disconnected here (idp_connections): the routes' and revoke.js's.
   const workosAiClients = install.authProvider === 'workos' ? workosConnections(database) : null;
+  // An account that goes takes what was kept of its AI clients, read while its identity is still there.
+  if (workosAiClients) {
+    accounts.whenRemoved((userId) => {
+      for (const { subject } of database.all("SELECT subject FROM user_identities WHERE user_id = ? AND provider = 'workos'", userId)) {
+        workosAiClients.forget(subject);
+      }
+    });
+  }
   // Each session a sign-in at WorkOS opens, with when they last actively signed in: what confirms an
   // admin with no password to give (workos-security.js), one for every module of a host.
   const freshSignIns = install.authProvider === 'workos' ? createFreshSignIns() : null;
@@ -469,6 +490,21 @@ export function createSuite({
   const alerts = createAlerts({
     to: install.alerts?.to ?? null, mailer, database, app: config.app, baseUrl: install.baseUrl, log,
   });
+  // Notices to whoever runs the install of new accounts and payments (modules.notices,
+  // admin-notices.js): the country of an account only behind Cloudflare (TRUST_PROXY=cloudflare),
+  // as it says it from its own addresses.
+  const behindCloudflare = String(install.trustProxy ?? '').trim().toLowerCase() === 'cloudflare';
+  const notices = config.modules.notices ? createAdminNotices({
+    database, texts, mailer, sign: sessions.sign, appName: config.app.name, baseUrl: install.baseUrl,
+    countryOf: behindCloudflare ? (req) => cloudflareCountry(req, { trustProxy: install.trustProxy }) : null,
+    planName: (id) => entitlements.describe().plans.find((p) => p?.id === id)?.name ?? id,
+    log: (line) => log(`${tag} ${line}`),
+  }) : null;
+  if (notices) {
+    accounts.whenCreated(notices.signedUp);
+    billing?.whenApplied(notices.billed);
+    stores?.whenApplied(notices.billed);
+  }
   // Emails to addresses without an account, offered something (stranger-invites.js): only where one
   // can be made —WorkOS, or sign-up open— and MAIL_STRANGERS_PER_DAY isn't 0. `signupUrl(back)`: where
   // the email's button makes the account, then back at `back` (a module's path in a host).
@@ -577,6 +613,8 @@ export function createSuite({
    */
   function purge() {
     sessions.purge();
+    // Invitations to addresses without an account, after a year (stranger-invites.js).
+    strangers?.purge?.();
     // The notices of the sessions that just went, after them (pwa-2).
     push?.purgeSessions();
     limiter.purge();
@@ -608,18 +646,30 @@ export function createSuite({
   const portabilityFor = (declaration, { version = null, limits = {}, onErased = null } = {}) => createPortability({
     database, accounts, uploads, entitlements, live, audit,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
-    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits, onErased,
+    baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, onErased,
+    // What stands before the server may take less than the app would (IMPORT_MAX_MB, config.js).
+    limits: withImportCeiling(limits, install.importMaxMb),
     // For a declaration whose copies carry organizations (portability.js); null with the module off.
     organizations,
   });
 
+  // The email of something offered (share-mail.js), in the app's own clothes.
+  const shareMail = createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log });
+  // One brake on offers and one on deletion notices for everything the install shares: in the host,
+  // every module's (audit sc-data-22), so four modules don't make four limits and four notices.
+  const shareBrake = createShareBrake({ offersPerHour: SUITE_OFFERS_PER_HOUR });
+  const goneBrake = createGoneBrake();
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    // The email of something offered (share-mail.js), in the app's own clothes.
-    shareMail: createShareMail({ mailer, texts, brand, baseUrl: install.baseUrl, strangers, signupUrl: signupUrl('/'), log }),
+    shareMail, shareBrake, goneBrake,
+    /**
+     * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
+     * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
+     */
+    ownership: createOwnership({ db: database, shareMail, push, texts: (user) => texts(null, user).t, brake: goneBrake, log }),
     mailBrand: brand, strangers, signupUrl,
-    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts,
+    portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts, notices,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,
     /**
      * What the app keeps of someone against storage.mb, said where it is counted (its files'
@@ -635,8 +685,27 @@ export function createSuite({
   return made;
 }
 
-/** Paths clients use to negotiate authentication, not part of the web app. */
-const DISCOVERY_PATHS = ['/.well-known', '/register', '/authorize', '/token', '/oauth'];
+/**
+ * Paths clients use to negotiate authentication, not part of the web app: what an MCP client
+ * looks for (RFC 9728, RFC 8414) and OAuth's own. Any other /.well-known/ is a plain not_found:
+ * telling a search for openid-configuration or security.txt "No OAuth here" misled them (audit prod-10).
+ */
+const DISCOVERY_PATHS = ['/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server',
+  '/register', '/authorize', '/token', '/oauth'];
+
+/**
+ * /.well-known/security.txt (RFC 9116): where to write about a security problem. Its Expires is
+ * worked out on each request, a little under a year ahead, so it never goes stale.
+ */
+export function securityTxt({ contact, baseUrl, now = Date.now() }) {
+  const expires = new Date(now + 364 * 24 * 3600 * 1000);
+  expires.setUTCHours(0, 0, 0, 0);
+  return `Contact: ${contact}\nExpires: ${expires.toISOString()}\nPreferred-Languages: en, es\n`
+    + `Canonical: ${baseUrl}/.well-known/security.txt\n`;
+}
+
+/** The kit's 404 page (web/not-found.html), read once: scanners ask for it far more than people. */
+let notFoundTemplate = null;
 
 /**
  * Whether serveStatic would look for `pathname` in the catalogs' folder (public/i18n) on any
@@ -680,6 +749,10 @@ export function clientTexts(flat) {
  *   `prefs`). Without them the app's own `/api/me` answers, as before
  * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
+ * @param {string[]} [options.clientRoutes]  the paths its page answers that are no file (`['/']`): any
+ *   other path without an extension is a 404 page with a link to `/`, and a folder with an
+ *   index.html asked for without its slash goes to it. Without it, as before: every path without
+ *   an extension is the page (a host gives its own and its modules', host.js)
  * @param {string} [options.watchRoot]    the folder hot reload watches (the server's, by default)
  * @param {object} [options.portable]     what the app's data is (portability.js): with it, people
  *   download and import their data, and the admin the whole install
@@ -697,6 +770,10 @@ export function clientTexts(flat) {
  * @param {'none'|'self'|Function} [options.frames]  who may frame its pages: nobody (default), or pages of
  *   the same site, a host's module in its split view (host.js `split`); or, by path, `(pathname) =>`
  *   either (a host's calendar, in a window of its own page)
+ * @param {{checkout: string, portal: string}} [options.billingReturn]   where the payment provider
+ *   sends the browser back from a checkout and from its portal; by default the app's page
+ *   (`/?billing=done`, `/`). A host with a shell passes its modules the shell's address with the
+ *   module's window (host.js).
  * @param {string[]} [options.embeds]  the paths of its pages any site may frame, whatever `frames`
  *   says: pages that only show, without a session, made to be embedded elsewhere (Next's
  *   /shared.html, a project's public page). A host passes its module's, at the module's own paths
@@ -707,7 +784,16 @@ export function clientTexts(flat) {
  */
 export function healthOf(database, versionOf) {
   try {
-    database.get('SELECT 1 AS one');
+    // `SELECT 1` opened no transaction and read nothing: it answered with the file broken or
+    // unreadable underneath (audit work-srv-1). A page of the schema is read here, and, since the
+    // server's own connection keeps its pages in memory (WAL), once more by a connection of its
+    // own, read-only (it never makes a file that went missing): one page from the disk, a
+    // millisecond, for a check that runs every half a minute.
+    database.get('SELECT 1 AS one FROM sqlite_master LIMIT 1');
+    if (database.path && database.path !== ':memory:') {
+      const probe = new DatabaseSync(database.path, { readOnly: true });
+      try { probe.prepare('SELECT 1 AS one FROM sqlite_master LIMIT 1').get(); } finally { probe.close(); }
+    }
   } catch {
     return [503, { ok: false }];
   }
@@ -717,9 +803,10 @@ export function healthOf(database, versionOf) {
 
 export function createApp({
   suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
+  clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
-  deviceActions = null, resolveDeviceAction = null, storage = null,
+  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -758,6 +845,8 @@ export function createApp({
         organizations: Boolean(organizations), billing: Boolean(billing?.enabled), data: Boolean(portability),
         // Only with STORE_BILLING: the app on a phone sells in its store.
         ...(suite.stores?.enabled ? { stores: true } : {}),
+        // With modules.notices, /admin › Notifications (admin-notices.js).
+        ...(suite.notices && config.modules.admin ? { notices: true } : {}),
         // Read each time the config is sent: a host's module learns late whether the host has one.
         get mcp() { return offersConnector(); },
       },
@@ -765,6 +854,8 @@ export function createApp({
       ...(config.host ? { host: config.host } : {}),
       // The most a file may weigh, for the page to say so before spending data (web/images.js).
       ...(suite.uploads ? { uploads: { max_bytes: suite.uploads.maxBytes } } : {}),
+      // And the biggest copy someone may import here, for Settings to say so before sending it.
+      ...(portability ? { imports: { max_bytes: portability.max.upload.account } } : {}),
     },
   });
   if (install.authProvider === 'local') {
@@ -779,17 +870,23 @@ export function createApp({
       localEmail: localPasswords, accountMail: localPasswords ? accountMail : null,
     });
   }
+  // With WorkOS, the password and the second step from Settings too (made below). Its password
+  // asked again before what can't be undone, as a local one is (identityCheck, audit authz-9).
+  let workosSecurity = null;
+  const providerPassword = install.authProvider === 'workos'
+    ? (ctx, user, password) => workosSecurity?.confirmIdentity?.(ctx, user, password) : null;
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion, push,
-    localPasswords, alsoAt: profile.alsoAt || {},
+    localPasswords, alsoAt: profile.alsoAt || {}, providerPassword,
   });
-  // With WorkOS, the password and the second step from Settings too.
-  let workosSecurity = null;
   if (install.authProvider === 'workos') {
     workosSecurity = registerWorkosSecurityApi(api, {
       workos: suite.workosClient, users: suite.workosPeople, accounts, sessions, limiter, audit,
       appName: config.app.name, twoFactor: install.workos?.twoFactor, revokeEverything: suite.revokeEverything,
       adminIdentity: config.accounts.adminIdentity === true, freshSignIns: suite.freshSignIns ?? null,
+      // The shortest password Settings says and checks before WorkOS is asked (audit sc-auth-7), and
+      // the address a password check comes from, as WorkOS is told it (sc-auth-13).
+      minPasswordLength: config.accounts.minPasswordLength, trustProxy: install.trustProxy,
       // A login the admin makes for a new account carries this app's mark, as a sign-in here gives it.
       mark: config.accounts.sharedIdentity ? identityMark(config.app) : null,
     });
@@ -807,6 +904,7 @@ export function createApp({
         ? (user) => billingOverview(user, { instances: [billing, suite.stores], entitlements, organizations }) : null,
     });
   }
+  if (config.modules.admin && suite.notices) registerAdminNoticesApi(api, { notices: suite.notices, audit });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) registerPushApi(api, { push, texts, appName: config.app.name, sessionKeyOf: (ctx) => sessions.keyFor(ctx.sessionToken) });
   // The link in an invitation to an address without an account, to get no more (stranger-invites.js).
@@ -818,7 +916,7 @@ export function createApp({
       live.subscribe(ctx.req, ctx.res, ctx.user, { sessionToken: ctx.sessionToken ?? null });
     });
   }
-  if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl, limiter });
+  if (billing?.enabled) registerBillingApi(api, { billing, organizations, baseUrl: install.baseUrl, limiter, returnUrls: billingReturn });
   if (suite.stores?.enabled) {
     // Only the app on the phone buys in a store: with stores.devices, its device token is taken here.
     const storeDevices = config.stores.devices ? suite.devices : null;
@@ -858,12 +956,14 @@ export function createApp({
   if (suite.uploadLinks) registerUploadLinksApi(api, { uploadLinks: suite.uploadLinks, limiter });
   if (portability) {
     registerPortabilityApi(api, {
-      portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords }),
+      portability, audit, limiter, log, confirm: identityCheck({ limiter, twoFactor, localPasswords, providerPassword }),
     });
   }
 
   // The connect page and sessions from a device (device-pages.js), when the app turned them on.
   const devicePages = createDevicePages({ suite });
+  // The files that let a link to the site open the app on a phone (app-links.js), when the app declares it.
+  const appLinks = createAppLinks(config.appLinks);
 
   let appApi = routes;
   if (typeof routes === 'function') {
@@ -984,6 +1084,17 @@ export function createApp({
 
   /* -------------------------------- dispatch ------------------------------- */
 
+  /** A page nobody has (`clientRoutes`): 404, in the browser's language, with the way to the start. */
+  function notFoundPage(req, res) {
+    const { lang, t } = texts(req);
+    notFoundTemplate ??= fs.readFileSync(path.join(WEB_DIR, 'not-found.html'), 'utf8');
+    const page = brandedNotFound(notFoundTemplate, config.app, {
+      lang, title: t('kit.notFound.title'), text: t('kit.notFound.text'), home: t('kit.notFound.home'),
+    });
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : page);
+  }
+
   /** The route of a request among the suite's and the app's, or what to answer. */
   function route(method, pathname) {
     const found = [api, appApi].map((router) => router?.match(method, pathname)).filter(Boolean);
@@ -1101,6 +1212,24 @@ export function createApp({
         sendJson(res, 404, { error: 'No OAuth here: use a Bearer token' });
         return;
       }
+      // Which app on a phone may open the site's links (suite.config.js `appLinks`): asked by the
+      // phone with no session and followed by no redirect, so answered here, before any page.
+      if (appLinks(req, res, pathname)) return;
+      if (pathname === '/.well-known/security.txt' && ['GET', 'HEAD'].includes(req.method)) {
+        const body = securityTxt({ contact: install.securityContact, baseUrl: install.baseUrl });
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
+        res.end(req.method === 'HEAD' ? undefined : body);
+        return;
+      }
+      if (pathname === '/.well-known' || pathname.startsWith('/.well-known/')) {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
+      // `/api` itself is the API's too: JSON, never the app's page (audit prod-9).
+      if (pathname === '/api') {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
 
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         sendText(res, 405, 'Method Not Allowed');
@@ -1143,6 +1272,25 @@ export function createApp({
       }
       if (publicDir) {
         if (serveStatic(publicDir, pathname === '/' ? '/index.html' : pathname, res)) return;
+        // A dotfile's path (`/.env`, `/.git/config`) is never the app's: a 404, not its page, which
+        // scanners took for the file (audit prod-9).
+        if (pathname.split('/').some((part) => part.startsWith('.'))) {
+          sendText(res, 404, 'Not found');
+          return;
+        }
+        if (clientRoutes && !path.extname(pathname)) {
+          // A folder with a page of its own (the host's /calendar/), asked for without its slash.
+          if (!pathname.endsWith('/') && staticFile(publicDir, `${pathname}/index.html`)) {
+            res.writeHead(308, { Location: `/${pathname.replace(/^\/+/, '')}/${url.search}`, 'Cache-Control': 'no-store' });
+            res.end();
+            return;
+          }
+          if (clientRoutes.includes(pathname) && serveStatic(publicDir, '/index.html', res)) return;
+          // Anything else is a page that says so, with the way back: the app's page at a path it
+          // doesn't know drew nothing, its files asked for under that path (audit prod-9).
+          notFoundPage(req, res);
+          return;
+        }
         // The SPA's own paths.
         if (!path.extname(pathname) && serveStatic(publicDir, '/index.html', res)) return;
       }
@@ -1152,59 +1300,28 @@ export function createApp({
         res.end();
         return;
       }
-      if (err instanceof HttpError) {
-        if (err.status >= 500) alerts.noteError(req, err);
-        sendJson(res, err.status, { error: err.code, ...err.extra }, err.headers);
-        return;
-      }
-      alerts.noteError(req, err);
-      console.error(`[error] ${req.method} ${pathname} (${Date.now() - start}ms)`, err);
-      sendJson(res, 500, { error: 'internal' });
+      // An HttpError is its code; anything else is `internal`, logged with its stack (http.js sendError).
+      const coded = err instanceof HttpError;
+      if (!coded || err.status >= 500) alerts.noteError(req, err);
+      if (!coded) console.error(`[error] ${req.method} ${pathname} (${Date.now() - start}ms)`, err);
+      sendError(res, err);
     }
   }
 
-  // handle() catches what a route throws; this is for whatever escapes it, so
-  // that one request can never leave a rejection nobody awaits.
-  const server = http.createServer((req, res) => {
-    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, before anything rewrites req.url.
-    alerts.watch(req, res);
-    handle(req, res).catch((err) => {
-      alerts.noteError(req, err);
-      console.error(`[error] ${req.method} ${req.url}`, err);
-      if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
-      else res.end();
-    });
-  });
-  server.headersTimeout = 65000;
-  // Receiving the request, not answering it: a live channel stays open all the same.
-  server.requestTimeout = 600_000;
+  // handle() catches what a route throws; the server (runtime.js) is for whatever escapes it. Made
+  // when it is first asked for: a module's createApp() in a host never listens (the host's does),
+  // so it never needs one (audit sc-host-12).
+  let server = null;
+  const serverOf = () => (server ??= serverFor(handle, alerts));
 
   const timers = [];
-
-  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
-  const failed = (name) => (err) => {
-    log(`${tag} ${name} failed: ${err?.stack || err}`);
-    alerts.jobFailed(name, err);
-  };
-  /** A clean-up that fails must not take the server down. */
-  const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { failed(name)(err); }
-  };
+  const { failed, safely } = jobRunner({ log, tag, alerts });
 
   /** Creates the first administrator if needed, starts the clean-ups and listens. */
   function listen() {
     alerts.setVersion(version);
     suite.ensureAdmin();
-    const purge = safely('clean-up', () => { suite.purge(); portability?.purge(); });
-    // With the clean-ups, the planner's statistics (db.js optimize): every table at the start, then what changed.
-    let first = true;
-    const optimize = safely('optimize', () => {
-      suite.database.optimize?.({ first });
-      first = false;
-    });
-    const cleanUp = () => { purge(); optimize(); };
-    cleanUp();
-    timers.push(setInterval(cleanUp, 6 * HOUR).unref());
+    startSuiteJobs(suite, { purge: () => { suite.purge(); portability?.purge(); }, timers, failed, safely });
     if (sweep) {
       // What a plan keeps for a while only (entitlements.cutoff): the app's own sweep, a minute
       // after the start so a start is never slowed by it, and then with the clean-ups.
@@ -1215,74 +1332,9 @@ export function createApp({
       timers.push(setTimeout(sweepPlans, MINUTE_BEFORE_SWEEP).unref());
       timers.push(setInterval(sweepPlans, 6 * HOUR).unref());
     }
-    if (oauth) {
-      const purgeOAuth = safely('OAuth clean-up', () => oauth.purge());
-      purgeOAuth();
-      timers.push(setInterval(purgeOAuth, HOUR).unref());
-    }
-    if (deletion) {
-      // The accounts whose owners asked to delete them, once their days are over: every hour.
-      const sweepAccounts = () => deletion.sweep().catch(failed('account deletion'));
-      timers.push(setTimeout(sweepAccounts, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(sweepAccounts, HOUR).unref());
-    }
-    if (suite.workos?.markAll) {
-      // Who signed in before this app noted itself on their WorkOS user: told once, a minute after starting.
-      const markAll = () => suite.workos.markAll().catch(failed('noting this app at WorkOS'));
-      timers.push(setTimeout(markAll, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (suite.workosResets) {
-      // Passwords reset on AuthKit's own page: everything that let that person in here, revoked. Every minute.
-      const resets = () => suite.workosResets.poll();
-      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (billing?.enabled) {
-      // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).
-      const sendStops = () => billing.sendStops().catch(failed("stopping groups' renewals"));
-      timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(sendStops, HOUR).unref());
-    }
-    if (handleSignals) {
-      // close() also ends the live channels, which would otherwise keep the server open until the timeout.
-      // `waitFor`: the crash's alert, which gives itself less than those 5 s (alerts.js).
-      const shutdown = (reason, code = 0, waitFor = null) => {
-        log(`${tag} ${reason}, closing…`);
-        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
-        setTimeout(() => process.exit(code), 5000).unref();
-      };
-      process.once('SIGTERM', () => shutdown('SIGTERM received'));
-      process.once('SIGINT', () => shutdown('SIGINT received'));
-      // A rejection that nothing awaited belongs to one task (a notice, a timer): it is
-      // logged and the rest goes on. An exception that reached the top leaves the process
-      // in a state nobody knows: it is logged and the process ends, for Docker to start it again.
-      // Both are emailed with ALERT_EMAIL.
-      process.on('unhandledRejection', (err) => {
-        log(`${tag} unhandled rejection: ${err?.stack || err}`);
-        alerts.report('rejection', err);
-      });
-      process.once('uncaughtException', (err) => {
-        log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1, alerts.crashed(err));
-      });
-    }
-    return new Promise((resolve) => {
-      server.listen(install.port, install.host, () => {
-        log(`${tag} listening on http://${install.host}:${server.address().port}`);
-        log(`${tag} public URL: ${install.baseUrl}`);
-        // Whether mail can go out, said once at the start: a wrong MAIL_* shows
-        // up here instead of in the first message that never arrives.
-        if (suite.mailer?.provider === 'smtp') {
-          suite.mailer.verify().then(
-            () => log(`[mail] SMTP ready: ${install.mail.host}:${install.mail.port} (${install.mail.secure})`),
-            (err) => log(`[mail] SMTP check failed, nothing will be sent until MAIL_* are fixed: ${err.message}`),
-          );
-        }
-        if (install.hotReload) {
-          timers.push(watchCode({ root: watchRoot || path.dirname(path.resolve(process.argv[1] || '.')), log }));
-        }
-        resolve(server);
-      });
+    if (handleSignals) handleProcessSignals({ log, tag, alerts, close });
+    return listenAndSay(serverOf(), {
+      install, mailer: suite.mailer, log, tag, timers, watchRoot, lines: [`${tag} public URL: ${install.baseUrl}`],
     });
   }
 
@@ -1293,8 +1345,12 @@ export function createApp({
     // Open tabs would keep the server from closing.
     live.close();
     suite.nativePush?.close();
+    if (!server) return Promise.resolve();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
-  return { server, api, mcp: mcpServer, portability, handle, listen, close, devicePages };
+  return {
+    get server() { return serverOf(); },
+    api, mcp: mcpServer, portability, handle, listen, close, devicePages,
+  };
 }

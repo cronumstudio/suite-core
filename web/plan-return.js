@@ -16,15 +16,23 @@ export const PLAN_EVENT = 'kit-plan';
 /** After the checkout the provider's webhook may come a moment after the person: asked again meanwhile. */
 const RETURN_WAITS = Object.freeze([0, 1500, 3000, 5000, 10000]);
 
-/** Where the browser keeps the plan from before a checkout, to tell when the new one arrives (plan.js remembers it). */
-export const storageKey = () => `${globalThis.document?.documentElement?.dataset?.app || 'app'}.billing`;
+/**
+ * Where the browser keeps the plan from before a checkout, to tell when the new one arrives (plan.js
+ * remembers it): one key for the whole origin, since in a host the checkout starts in a module's
+ * window (`tasks`) and comes back to the host's shell (`work`), which must read it (audit
+ * billing-8). An app on its own has its origin to itself. The key named after the page's app, as
+ * before, is still read once: a checkout begun before this version.
+ */
+export const storageKey = () => 'host.billing';
+const oldStorageKey = () => `${globalThis.document?.documentElement?.dataset?.app || 'app'}.billing`;
 export const mark = (answer) => JSON.stringify([answer?.plan?.id ?? answer?.plan ?? null, answer?.ends ?? null]);
 
 /** The plan kept before a checkout, taken. */
 export function recall() {
   try {
-    const kept = sessionStorage.getItem(storageKey());
+    const kept = sessionStorage.getItem(storageKey()) ?? sessionStorage.getItem(oldStorageKey());
     sessionStorage.removeItem(storageKey());
+    sessionStorage.removeItem(oldStorageKey());
     return kept;
   } catch { return null; }
 }

@@ -7,13 +7,13 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat } from './i18n.js';
-import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
-const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, usersQuery: '' };
+const state = { config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, usersQuery: '' };
 
 const TABS = [
   ['users', 'admin.tabs.users'],
@@ -21,6 +21,7 @@ const TABS = [
   ['plans', 'admin.tabs.plans'],
   ['organizations', 'admin.tabs.organizations'],
   ['data', 'admin.tabs.data'],
+  ['notices', 'admin.tabs.notices'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -146,6 +147,8 @@ async function start() {
   state.invitations = local();
   // Copies of the data, when the app says what its data is.
   state.data = Boolean(state.config.app?.modules?.data);
+  // Notices of new accounts and payments, with modules.notices.
+  state.notices = Boolean(state.config.app?.modules?.notices);
 
   const app = state.config.app || {};
   // The app's icon, as the server wrote it into the page (app.icon).
@@ -170,14 +173,16 @@ async function start() {
 
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
-    && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data));
+    && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
+    && (id !== 'notices' || state.notices));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, audit: renderAudit,
+  data: renderData, notices: renderNotices, audit: renderAudit,
 };
 
+let showing = 0;
 function show() {
   const wanted = (window.location.hash.match(/^#\/(\w+)/) || [])[1];
   const tab = visibleTabs().some(([id]) => id === wanted) ? wanted : 'users';
@@ -186,7 +191,14 @@ function show() {
     else link.removeAttribute('aria-current');
   }
   const main = clear($('#admin-main'));
-  VIEWS[tab](main).catch(fail);
+  // Drawn apart, once the server has answered, and put in only while it is still the last one
+  // asked for: another tab, or two saves of an account one after the other, draw one view. One that
+  // failed half way shows what it drew, with the error.
+  const turn = ++showing;
+  const view = el('div', {});
+  VIEWS[tab](view).catch((err) => { if (turn === showing) fail(err); }).then(() => {
+    if (turn === showing) clear(main).append(...view.childNodes);
+  });
 }
 
 /* ---------------------------------- users ---------------------------------- */
@@ -218,21 +230,23 @@ async function renderUsers(main) {
     const shown = narrow();
     if (shown.length === 1) userDialog(shown[0].user);
   });
+  const grid = table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
+    hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
+  rows.map(({ row }) => row));
   main.append(
     el('h2', { text: t('admin.users.title') }),
     el('p', { class: 'kit-lead', text: local() ? t('admin.users.leadLocal') : t('admin.users.leadIdp', { provider: state.config.name }) }),
     el('div', { class: 'kit-toolbar' },
       field(t('admin.users.search'), search),
       el('button', { type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.users.new'), onClick: () => newUserDialog().catch(fail) })),
-    table([t('admin.users.name'), t('admin.users.email'), t('admin.users.role'), t('admin.users.plan'), t('admin.users.lastSignIn'),
-      hasDevices(users) ? t('admin.users.devices') : null, t('admin.users.usage')].filter(Boolean),
-    rows.map(({ row }) => row)),
+    grid,
     noMatch,
   );
   if (search.value) narrow();
-  paintPeaks(main).catch(() => {
+  // On the table, which goes into the page as it is (show() moves the view's nodes).
+  paintPeaks(grid).catch(() => {
     // An app on its own has no Usage (a host's, usage.js): the column goes.
-    for (const cell of [...[...main.querySelectorAll('th')].slice(-1), ...main.querySelectorAll('[data-usage]')]) cell.remove();
+    for (const cell of [...[...grid.querySelectorAll('th')].slice(-1), ...grid.querySelectorAll('[data-usage]')]) cell.remove();
   });
 }
 
@@ -439,6 +453,13 @@ function userDialog(user) {
         controls: [name, email, role, verified, disabled],
         read: () => ({ name: name.value.trim(), email: email.value.trim(), verified: verified.checked, role: role.value, disabled: disabled.checked }),
         save: async () => {
+          // Making someone an admin or not, or turning their account off, is asked about first.
+          const app = state.config.app?.name || '';
+          const asks = self ? [] : [
+            role.value !== user.role ? t(role.value === 'admin' ? 'admin.users.roleAdminConfirm' : 'admin.users.roleUserConfirm', { name: user.display_name, app }) : null,
+            disabled.checked && !user.disabled ? t('admin.users.disableConfirm', { name: user.display_name }) : null,
+          ].filter(Boolean);
+          if (asks.length && !(await confirmDialog(asks.join(' '), { confirm: t('admin.save'), danger: disabled.checked && !user.disabled }))) return false;
           Object.assign(user, await api.patch(`/api/admin/users/${user.id}`, {
             display_name: name.value.trim(), email: email.value.trim() || null,
             ...(local() ? { email_verified: verified.checked && Boolean(email.value.trim()) } : {}),
@@ -458,6 +479,7 @@ function userDialog(user) {
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
         onClick: async () => {
+          if (!(await confirmDialog(t('admin.users.passwordConfirm', { name: user.display_name }), { confirm: t('admin.users.setPassword') }))) return;
           try {
             await api.patch(`/api/admin/users/${user.id}`, { password: password.value });
             password.value = '';
@@ -485,6 +507,7 @@ function userDialog(user) {
           el('button', {
             type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.setPassword'),
             onClick: async () => {
+              if (!(await confirmDialog(t('admin.users.passwordConfirm', { name: user.display_name }), { confirm: t('admin.users.setPassword') }))) return;
               try {
                 await api.put(`/api/admin/users/${user.id}/sign-in/password`, { password: next.value, ...again.body() });
                 next.value = '';
@@ -609,9 +632,11 @@ function userDialog(user) {
       el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.users.signOut'),
         onClick: async () => {
+          // It ends more than the sessions (revoke.js): it says so before and after.
+          if (!(await confirmDialog(t('admin.users.signOutConfirm', { name: user.display_name }), { confirm: t('admin.users.signOut') }))) return;
           try {
             const { closed } = await api.delete(`/api/admin/users/${user.id}/sessions`);
-            toast(t('admin.users.signedOut', { n: closed }));
+            toast(`${t('admin.users.signedOut', { n: closed })} ${t('admin.users.signedOutMore')}`);
             // Their phones went with the sessions.
             if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
           } catch (err) { fail(err); }
@@ -764,7 +789,8 @@ function nowOf(details, now) {
  * A Save that can be pressed only with something to save: grey until one of `controls` holds other
  * than what was saved (`read()`, compared as it was), then, once saved, grey again with "Saved"
  * beside it. The account's dialog covers the page, so its own place says so, not only a notice.
- * `dirty`: pressable from the start (the default plan, which Save makes the account's own).
+ * `dirty`: pressable from the start (the default plan, which Save makes the account's own). `save`
+ * answering false saved nothing (a question answered no).
  * → [the button, its state], for a row.
  */
 function saveButton({ label, controls, read, save, dirty = false }) {
@@ -787,7 +813,12 @@ function saveButton({ label, controls, read, save, dirty = false }) {
     status.set('saving');
     status.node.hidden = false;
     try {
-      await save();
+      // false: not saved after all (a question answered no), and it can be pressed again.
+      if (await save() === false) {
+        status.node.hidden = true;
+        check();
+        return;
+      }
       saved = now;
       status.set('saved');
       check();
@@ -894,11 +925,6 @@ async function paintGrants(box, user, now) {
 
 /* ---------------------------------- usage ---------------------------------- */
 
-/**
- * What an account uses (usage-view.js): per module its counts against the plan's caps, then the
- * storage of all of them and the calls from assistants. `now` is the fold's summary: the cap they
- * are nearest to.
- */
 /** A platform as people write it: "Android", "iOS"; any other as the app named it. */
 const platformName = (platform) => ({ android: 'Android', ios: 'iOS', ipados: 'iPadOS', macos: 'macOS', windows: 'Windows', linux: 'Linux' }[
   String(platform || '').toLowerCase()] || platform || '—');
@@ -963,6 +989,11 @@ async function paintDevices(box, user, now) {
         el('td', { text: d.last_used_at ? formatDateTime(d.last_used_at) : t('admin.users.never') })))) : null);
 }
 
+/**
+ * What an account uses (usage-view.js): per module its counts against the plan's caps, then the
+ * storage of all of them and the calls from assistants. `now` is the fold's summary: the cap they
+ * are nearest to.
+ */
 async function paintUsage(box, user, now) {
   const usage = await api.get(`/api/admin/users/${user.id}/usage`);
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
@@ -1327,6 +1358,287 @@ function paintDone(box, done) {
       text: t('admin.data.leftOutFiles', { missing: files.missing || 0, refused: files.refused || 0, large: files.too_large || 0 }),
     }) : null));
   toast(t('admin.saved'));
+}
+
+/* -------------------------------- notices --------------------------------- */
+
+/** The language the panel is drawn in: what notices are written in when their texts are the default. */
+const panelLanguage = () => (document.documentElement.lang || 'en').slice(0, 2).toLowerCase();
+/** This browser's time zone: the daily summary's hour is read in it. */
+const browserZone = () => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+};
+
+/**
+ * Administration › Notifications (admin-notices.js), in three cards: where notices go (folded once
+ * it's set: an ntfy topic, an email address), what each group of events does (at once, in the
+ * daily summary, nothing) with how it will read, and the daily summary. Test and pause sit in the
+ * head beside how things stand. The server checks it all; this page sends it as a whole.
+ */
+async function renderNotices(main) {
+  const view = await api.get('/api/admin/notices');
+  const groups = view.groups_order;
+  const keys = [...groups, 'digest'];
+  const paused = view.paused_until && Date.parse(view.paused_until) > Date.now();
+  const hasNtfy = Boolean(view.ntfy.url && view.ntfy.topic);
+  const hasDestination = hasNtfy || Boolean(view.email);
+
+  /* where they go */
+  const url = el('input', { type: 'url', value: view.ntfy.url, placeholder: 'https://ntfy.sh/', autocomplete: 'off', spellcheck: 'false' });
+  const topic = el('input', { type: 'text', value: view.ntfy.topic, autocomplete: 'off', spellcheck: 'false', maxlength: 64 });
+  const token = el('input', {
+    type: 'password', value: '', autocomplete: 'new-password',
+    placeholder: view.ntfy.has_token ? t('admin.notices.tokenKept') : '',
+  });
+  const forgetToken = el('input', { type: 'checkbox' });
+  const email = el('input', { type: 'email', value: view.email, autocomplete: 'off', disabled: !view.mail_available });
+  const via = Object.fromEntries(['instant', 'digest'].map((when) => [when, Object.fromEntries(view.channels.map((c) => [c,
+    el('input', { type: 'checkbox', checked: view.via[when].includes(c), disabled: c === 'email' && !view.mail_available })]))]));
+  // Each way of sending, and the channels it goes by: one line, «At once ☑ ntfy ☐ Email · Summary …».
+  const viaLine = el('div', { class: 'kit-notices__via', role: 'group', 'aria-label': t('admin.notices.sendBy') },
+    el('span', { class: 'kit-hint', text: t('admin.notices.sendBy') },),
+    ['instant', 'digest'].map((when) => el('span', { class: 'kit-row' },
+      el('span', { text: t(`admin.notices.viaShort.${when}`) }),
+      view.channels.map((c) => el('label', { class: 'kit-check' }, via[when][c], el('span', { text: t(`admin.notices.channel.${c}`) }))))));
+  const whereNow = hasNtfy
+    ? `${view.ntfy.url.replace(/^https:\/\//, '').replace(/\/$/, '')} / ${view.ntfy.topic}${view.ntfy.has_token ? ` · ${t('admin.notices.tokenSaved')}` : ''}`
+    : view.email || el('small', { class: 'kit-fold__now kit-fold__now--warn', text: t('admin.notices.nowhere') });
+  const where = slidingDetails(el('details', { class: 'kit-fold', open: !hasDestination },
+    el('summary', {}, icon('phone'), el('span', { text: t('admin.notices.where') }),
+      typeof whereNow === 'string' ? el('small', { class: 'kit-fold__now', text: whereNow }) : whereNow,
+      icon('chevron-down', { className: 'kit-fold__chevron' })),
+    el('div', { class: 'kit-fold__body' },
+      el('p', { class: 'kit-hint', text: t('admin.notices.ntfyHow') }),
+      el('div', { class: 'kit-grid kit-grid--3' },
+        field(t('admin.notices.ntfyUrl'), url),
+        field(t('admin.notices.ntfyTopic'), topic),
+        field(t('admin.notices.ntfyToken'), token, t('admin.notices.ntfyTokenHint'))),
+      view.ntfy.has_token ? el('label', { class: 'kit-check' }, forgetToken, el('span', { text: t('admin.notices.forgetToken') })) : null,
+      field(t('admin.notices.email'), email, view.mail_available ? null : t('admin.notices.noMail')),
+      viaLine)));
+
+  /* what each group does, and its words */
+  const modes = {};
+  const modeBoxes = {};
+  const templates = {};
+  const previews = {};
+  const defaultsOf = (k) => t(`notices.template.${k}`);
+  // Each template's last preview asked for: an answer that comes after a newer one was asked is dropped.
+  const turns = {};
+  const paintPreview = async (k) => {
+    turns[k] = (turns[k] || 0) + 1;
+    const mine = turns[k];
+    let text;
+    try {
+      ({ text } = await api.post('/api/admin/notices/preview', { key: k, template: templates[k].value || null, lang: panelLanguage() }));
+    } catch {
+      text = t('admin.notices.previewBad');
+    }
+    if (mine === turns[k]) previews[k].textContent = text;
+  };
+  const timers = {};
+  /** The words of a group, folded under its row until its pencil opens them: the text, its variables, the default. */
+  const editorOf = (k) => {
+    templates[k] = el('textarea', {
+      rows: k === 'digest' ? 5 : 2, maxlength: view.template_max, spellcheck: 'true',
+      placeholder: defaultsOf(k), 'aria-label': t('admin.notices.wordsOf', { group: t(`admin.notices.group.${k}`) }),
+    });
+    templates[k].value = view.templates[k] || '';
+    templates[k].addEventListener('input', () => {
+      clearTimeout(timers[k]);
+      timers[k] = setTimeout(() => paintPreview(k), 300);
+    });
+    // A variable pressed goes where the cursor is, as if typed.
+    const insert = (name) => {
+      const box = templates[k];
+      const text = `{${name}}`;
+      const from = box.selectionStart ?? box.value.length;
+      const to = box.selectionEnd ?? from;
+      box.setRangeText(text, from, to, 'end');
+      box.focus();
+      box.dispatchEvent(new Event('input'));
+    };
+    const reset = el('button', {
+      type: 'button', class: 'kit-btn kit-btn--quiet kit-btn--small', text: t('admin.notices.useDefault'),
+      onClick: () => {
+        templates[k].value = defaultsOf(k);
+        templates[k].dispatchEvent(new Event('input'));
+      },
+    });
+    const editor = el('div', { class: 'kit-notices__editor', hidden: true },
+      el('p', { class: 'kit-hint', text: t(`admin.notices.about.${k}`) }),
+      templates[k],
+      el('div', { class: 'kit-notices__vars', role: 'group', 'aria-label': t('admin.notices.insert') },
+        view.variables[k].map((v) => el('button', { type: 'button', text: `{${v}}`, onClick: () => insert(v) })),
+        reset));
+    return editor;
+  };
+  /** The pencil that opens a group's words, and closes them. */
+  const pencil = (k, editor) => {
+    const button = el('button', {
+      type: 'button', class: 'kit-icon-btn kit-icon-btn--small', 'aria-expanded': 'false',
+      'aria-label': t('admin.notices.editWords', { group: t(`admin.notices.group.${k}`) }),
+      title: t('admin.notices.editWords', { group: t(`admin.notices.group.${k}`) }),
+    }, icon('edit'));
+    button.addEventListener('click', () => {
+      const open = editor.hidden;
+      editor.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+      clear(button).append(icon(open ? 'x' : 'edit'));
+      // The default words to start from, not an empty box: the same words are saved as the default.
+      if (open && !templates[k].value.trim()) templates[k].value = defaultsOf(k);
+      if (open) templates[k].focus();
+    });
+    return button;
+  };
+  const groupRow = (k) => {
+    const editor = editorOf(k);
+    previews[k] = el('p', { class: 'kit-notices__preview', 'aria-live': 'polite' });
+    const row = el('div', { class: 'kit-notices__row', 'data-mode': view.groups[k] });
+    modes[k] = view.groups[k];
+    modeBoxes[k] = segmented(view.modes.map((m) => ({ value: m, label: t(`admin.notices.modeShort.${m}`) })), modes[k], (m) => {
+      modes[k] = m;
+      row.dataset.mode = m;
+      // The Save watches for change, as it does on the inputs.
+      modeBoxes[k].dispatchEvent(new Event('change'));
+    });
+    modeBoxes[k].setAttribute('aria-label', t('admin.notices.whenOf', { group: t(`admin.notices.group.${k}`) }));
+    paintPreview(k);
+    append(row,
+      el('span', { class: 'kit-notices__name', text: t(`admin.notices.group.${k}`) }),
+      modeBoxes[k],
+      pencil(k, editor),
+      previews[k],
+      editor);
+    return row;
+  };
+
+  const hour = el('select', { 'aria-label': t('admin.notices.hour') }, Array.from({ length: 24 }, (_, h) => el('option', {
+    value: String(h), text: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, h)),
+  })));
+  hour.value = String(view.digest.hour);
+  const country = el('input', { type: 'checkbox', checked: view.country, disabled: !view.country_available });
+  const totals = el('input', { type: 'checkbox', checked: view.totals });
+
+  const ownWords = (k) => {
+    const words = templates[k].value.trim();
+    return words && words !== defaultsOf(k).trim() ? words : null;
+  };
+  const read = () => ({
+    groups: Object.fromEntries(groups.map((g) => [g, modes[g]])),
+    // The default's own words are no words of the admin's: kept as the default, in every language.
+    templates: Object.fromEntries(keys.map((k) => [k, ownWords(k)])),
+    country: country.checked,
+    totals: totals.checked,
+    via: Object.fromEntries(['instant', 'digest'].map((when) => [when, view.channels.filter((c) => via[when][c].checked)])),
+    digest: { hour: Number(hour.value), zone: browserZone() },
+    ntfy: { url: url.value.trim(), topic: topic.value.trim(), token: forgetToken.checked ? '' : (token.value.trim() || null) },
+    email: email.value.trim(),
+    lang: panelLanguage(),
+  });
+  // The rows exist before the button that watches them.
+  const rows = groups.map(groupRow);
+  const digestEditor = editorOf('digest');
+  previews.digest = el('p', { class: 'kit-notices__preview', 'aria-live': 'polite' });
+  paintPreview('digest');
+  const controls = [url, topic, token, forgetToken, email, hour, country, totals,
+    ...Object.values(via).flatMap((row) => Object.values(row)), ...Object.values(templates), ...Object.values(modeBoxes)];
+  const [save, saved] = saveButton({
+    label: t('admin.notices.save'),
+    controls,
+    read,
+    save: async () => {
+      const sent = read();
+      await api.put('/api/admin/notices', sent);
+      // A new destination is drawn anew: its fold sums it up, and a token given is kept and never
+      // shown again (the field empties and says so). The rest stays as it is, with "Saved".
+      if (token.value || forgetToken.checked || sent.ntfy.url !== view.ntfy.url || sent.ntfy.topic !== view.ntfy.topic
+        || sent.email !== view.email) show();
+    },
+  });
+
+  const test = el('button', {
+    type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.notices.test'),
+    onClick: async () => {
+      test.disabled = true;
+      try {
+        const { results } = await api.post('/api/admin/notices/test', {});
+        const bad = results.filter((r) => !r.ok);
+        if (bad.length) toast(t('admin.notices.testFailed', { list: bad.map((r) => `${t(`admin.notices.channel.${r.channel}`)}: ${r.error}`).join(' · ') }), { error: true });
+        else toast(t('admin.notices.testSent', { list: listFormat({ type: 'conjunction' }).format(results.map((r) => t(`admin.notices.channel.${r.channel}`))) }));
+      } catch (err) { fail(err); }
+      test.disabled = false;
+    },
+  });
+
+  /* the pause: a menu of how long, in the head; paused, a notice that says until when */
+  const pauseUntil = (choice) => {
+    if (choice === 'hour') return new Date(Date.now() + 3600 * 1000).toISOString();
+    if (choice === 'tomorrow') {
+      const at = new Date();
+      at.setDate(at.getDate() + 1);
+      at.setHours(view.digest.hour, 0, 0, 0);
+      return at.toISOString();
+    }
+    return '9999-12-31T00:00:00.000Z';
+  };
+  const setPause = async (until) => {
+    try {
+      await api.put('/api/admin/notices', { paused_until: until });
+      show();
+    } catch (err) { fail(err); }
+  };
+  const forever = paused && Date.parse(view.paused_until) > Date.parse('9000-01-01');
+  const pauseButton = el('button', { type: 'button', class: 'kit-btn kit-btn--small', 'aria-haspopup': 'menu', 'aria-expanded': 'false' },
+    el('span', { text: t('admin.notices.pauseNow') }), icon('chevron-down'));
+  pauseButton.addEventListener('click', () => menu(pauseButton, ['hour', 'tomorrow', 'forever'].map((p) => ({
+    label: t(`admin.notices.pause.${p}`), onClick: () => setPause(pauseUntil(p)),
+  }))));
+  const pauseBox = paused
+    ? el('div', { class: 'kit-notice' },
+      el('p', { text: forever ? t('admin.notices.pausedForever') : t('admin.notices.pausedUntil', { date: formatDateTime(view.paused_until) }) }),
+      el('button', { type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('admin.notices.resume'), onClick: () => setPause(null) }))
+    : null;
+
+  // How things stand, in a word and the last delivery.
+  const standing = paused ? el('span', { class: 'kit-badge kit-badge--warn', text: t('admin.notices.state.paused') })
+    : hasDestination ? el('span', { class: 'kit-badge kit-badge--ok', text: t('admin.notices.state.on') })
+      : el('span', { class: 'kit-badge', text: t('admin.notices.state.nowhere') });
+  const last = view.last
+    ? el('span', { class: 'kit-hint', text: t('admin.notices.last', {
+      date: formatDateTime(view.last.at),
+      list: view.last.results.map((r) => `${t(`admin.notices.channel.${r.channel}`)} ${r.ok ? '✓' : `✗ ${r.error}`}`).join(' · '),
+    }) })
+    : null;
+
+  const card = (iconName, title, extra, ...body) => el('section', { class: 'kit-notices__card' },
+    el('div', { class: 'kit-notices__card-head' }, icon(iconName), el('h3', { text: title }), extra),
+    ...body);
+
+  append(main,
+    el('div', { class: 'kit-notices__head' },
+      el('div', { class: 'kit-row' }, el('h2', { text: t('admin.notices.title') }), standing, last),
+      el('div', { class: 'kit-row' }, test, paused ? null : pauseButton)),
+    el('p', { class: 'kit-hint', text: t('admin.notices.lead') }),
+    pauseBox,
+    el('div', { class: 'kit-notices' },
+      where,
+      card('bell', t('admin.notices.what'),
+        el('div', { class: 'kit-notices__extras' },
+          el('label', { class: 'kit-check' }, country, el('span', { text: t('admin.notices.countryShort') })),
+          el('label', { class: 'kit-check' }, totals, el('span', { text: t('admin.notices.totalsShort') }))),
+        view.country_available ? null : el('p', { class: 'kit-hint', text: t('admin.notices.noCountry') }),
+        el('div', { class: 'kit-notices__rows' }, rows),
+        el('p', { class: 'kit-hint kit-notices__rules', text: t('admin.notices.rules', { n: view.burst.count, minutes: view.burst.minutes }) })),
+      card('calendar', t('admin.notices.group.digest'),
+        el('div', { class: 'kit-notices__hour' },
+          el('span', { class: 'kit-hint', text: t('admin.notices.everyDayAt') }), hour,
+          el('span', { class: 'kit-hint', text: browserZone() }),
+          pencil('digest', digestEditor)),
+        previews.digest,
+        digestEditor),
+      el('div', { class: 'kit-row kit-notices__save' }, saved, save)),
+  );
 }
 
 /* ---------------------------------- audit ---------------------------------- */

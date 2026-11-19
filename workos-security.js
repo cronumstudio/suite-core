@@ -26,7 +26,7 @@
  */
 import crypto from 'node:crypto';
 import { base32Encode, base32Decode, matchStep, totp } from './two-factor.js';
-import { HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int } from './http.js';
+import { HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int, clientIp } from './http.js';
 import { answeredOnce } from './idempotency.js';
 import { WorkosUnavailable } from './workos.js';
 
@@ -107,12 +107,20 @@ export function createFreshSignIns({ clock = () => Date.now() } = {}) {
  * @param {object} [deps.freshSignIns]  from createFreshSignIns(), which createSuite fills from each
  *   sign-in at WorkOS: an admin with no password to give is confirmed by a fresh one. Without it,
  *   nothing counts as one and such an admin is always asked to sign in again.
+ * @param {number} [deps.minPasswordLength]  the shortest password taken here before WorkOS is
+ *   asked (config.accounts.minPasswordLength, which createApp passes): the one Settings says, and
+ *   the one WorkOS's own policy should have. 8 when nobody says, as before.
+ * @param {*} [deps.trustProxy]  see proxyHops() in http.js: the address WorkOS is told a password
+ *   check comes from (its sign-in log and its brakes).
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'on',
   revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, mark = null, freshSignIns = null,
-  clock = () => Date.now(),
+  minPasswordLength = 8, trustProxy = process.env.TRUST_PROXY, clock = () => Date.now(),
 }) {
+  // `n`: the shortest it takes, which the sentence says (errors.password_rejected), WorkOS's reason
+  // too when it refuses one (`detail`): the person is told what to change (audit sc-auth-7).
+  const rejected = (detail) => badRequest('password_rejected', { n: minPasswordLength, ...(detail ? { detail } : {}) });
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
   const requireUser = (ctx) => {
@@ -167,6 +175,8 @@ export function registerWorkosSecurityApi(router, {
     const account = await workos.account(workosId(user));
     const right = await workos.checkPassword({
       email: account?.email, password: String(password ?? ''),
+      // Where it comes from, which WorkOS logs and brakes by (audit sc-auth-13: it went as null).
+      ip: clientIp(ctx.req, { trustProxy }) || null,
       userAgent: String(ctx.req.headers?.['user-agent'] || '').slice(0, 300) || null,
     });
     if (!right) {
@@ -175,13 +185,25 @@ export function registerWorkosSecurityApi(router, {
     }
   }
 
-  /** A code of the authenticator app they have at WorkOS. */
-  async function confirmCode(id, code) {
+  /**
+   * A code of the authenticator app they have at WorkOS (`id`), given by whoever is signed in: with
+   * the brake of the second step's codes (rate-limit.js checkCode, per account and address), as a
+   * local one has. A million values and an open session (or the admin's password known) were no
+   * reason to let them be tried without limit (audit sc-auth-13).
+   */
+  async function confirmCode(ctx, id, code) {
+    const allowed = limiter ? limiter.checkCode(ctx.req, ctx.user.id) : { allowed: true };
+    if (!allowed.allowed) throw new HttpError(429, 'too_many_attempts', { retry_after: allowed.retryAfter });
     const clean = String(code ?? '').replace(/\s/g, '');
-    if (!/^\d{6}$/.test(clean)) throw badRequest('code_invalid');
-    for (const factor of await workos.factors(id)) {
-      if (await workos.checkCode(factor.id, clean)) return;
+    if (/^\d{6}$/.test(clean)) {
+      for (const factor of await workos.factors(id)) {
+        if (await workos.checkCode(factor.id, clean)) {
+          limiter?.codeSucceeded(ctx.req, ctx.user.id);
+          return;
+        }
+      }
     }
+    limiter?.codeFailed(ctx.req, ctx.user.id);
     throw badRequest('code_invalid');
   }
 
@@ -207,6 +229,18 @@ export function registerWorkosSecurityApi(router, {
     revokeAtProvider(atProvider);
   };
 
+  /**
+   * Before what can't be undone from the account (erasing its data, a copy that replaces it,
+   * deleting it; api.js identityCheck): the password they have at WorkOS, when they sign in with
+   * one, with the brake of sign-in. Whoever signs in with Google & co. has none to give: their
+   * open session, as before. Without one it erased everything (audit authz-9).
+   */
+  async function confirmIdentity(ctx, user, password) {
+    const id = users.workosIdOf(user.id);
+    if (!id || ELSEWHERE.includes(await methodOf(user, id))) return;
+    await confirmPassword(ctx, user, password);
+  }
+
   const ensureHere = async (user) => {
     const id = workosId(user);
     if (ELSEWHERE.includes(await methodOf(user, id))) throw badRequest('password_elsewhere');
@@ -223,10 +257,10 @@ export function registerWorkosSecurityApi(router, {
     const body = await readJson(ctx.req);
     const id = await ensureHere(user);
     const next = String(body.password ?? '');
-    if (next.length < 8) throw badRequest('password_rejected');
+    if (next.length < minPasswordLength) throw rejected();
     await confirmPassword(ctx, user, body.current_password);
     const done = await workos.setPassword(id, next);
-    if (done.refused) throw badRequest('password_rejected', { detail: done.refused });
+    if (done.refused) throw rejected(done.refused);
     outEverywhere(ctx, user, ctx.sessionToken, 'password');
     record(ctx, 'auth.password', 'user', user.id, { provider: 'workos' });
     sendJson(ctx.res, 200, { ok: true });
@@ -285,7 +319,7 @@ export function registerWorkosSecurityApi(router, {
     const id = workosId(user);
     await confirmPassword(ctx, user, body.password);
     if (!(await workos.factors(id)).length) throw conflict('two_factor_off');
-    await confirmCode(id, body.code);
+    await confirmCode(ctx, id, body.code);
     await removeFactors(id);
     record(ctx, 'auth.two_factor.disable', 'user', user.id, { provider: 'workos' });
     sendJson(ctx.res, 200, { enabled: false });
@@ -356,7 +390,7 @@ export function registerWorkosSecurityApi(router, {
     }
     if (recent && body?.admin_password == null) throw new HttpError(403, 'admin_confirm_required', { reauth: kind });
     await confirmPassword(ctx, ctx.user, body?.admin_password);
-    if (kind === 'password_code') await confirmCode(id, body?.admin_code);
+    if (kind === 'password_code') await confirmCode(ctx, id, body?.admin_code);
     remember(ctx);
   }
 
@@ -382,7 +416,9 @@ export function registerWorkosSecurityApi(router, {
 
   // Changing someone's WorkOS identity changes it in every product: only the install that owns
   // the identities does it, and only with the admin's own password (and code) again.
-  if (!adminIdentity) return {};
+  // The password again, for api.js identityCheck: WorkOS not answering is a 503, as here.
+  const identity = (ctx, user, password) => route(() => confirmIdentity(ctx, user, password))(ctx);
+  if (!adminIdentity) return { confirmIdentity: identity };
 
   /**
    * The admin's own password (and code) given apart, when a request answered `admin_confirm_required`:
@@ -421,11 +457,11 @@ export function registerWorkosSecurityApi(router, {
     const user = someone(ctx);
     const body = await readJson(ctx.req);
     const next = String(body.password ?? '');
-    if (next.length < 8) throw badRequest('password_rejected');
+    if (next.length < minPasswordLength) throw rejected();
     const id = await ensureHere(user);
     await confirmAdmin(ctx, body);
     const done = await workos.setPassword(id, next);
-    if (done.refused) throw badRequest('password_rejected', { detail: done.refused });
+    if (done.refused) throw rejected(done.refused);
     const self = user.id === ctx.user.id;
     outEverywhere(ctx, user, self ? ctx.sessionToken : null, 'admin_password');
     accounts.changed?.(user.id);
@@ -454,6 +490,8 @@ export function registerWorkosSecurityApi(router, {
    */
   const logins = {
     provider: 'workos', name: 'WorkOS',
+    // The shortest password one takes (api.js checks it before asking WorkOS).
+    minPasswordLength,
     taken: (email) => answered(async () => Boolean(await workos.userByEmail(email))),
     make: ({ email, password, displayName = null }) => answered(async () => {
       const done = await workos.createUser({
@@ -463,12 +501,12 @@ export function registerWorkosSecurityApi(router, {
       if (done.refused) {
         // Someone took the email between the question and now: said as the question would have.
         if (await workos.userByEmail(email)) throw conflict('email_taken_provider', { provider: 'WorkOS' });
-        throw badRequest('password_rejected', { detail: done.refused });
+        throw rejected(done.refused);
       }
       return done.user.id;
     }),
     undo: (id) => workos.deleteUser(id),
   };
 
-  return { confirmAdmin: (ctx, body, options) => route(() => confirmAdmin(ctx, body, options))(ctx), logins };
+  return { confirmAdmin: (ctx, body, options) => route(() => confirmAdmin(ctx, body, options))(ctx), logins, confirmIdentity: identity };
 }

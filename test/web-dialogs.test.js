@@ -458,3 +458,18 @@ test('menu: in a window of Cronum Work, inside that window, which cuts off whate
     await settle();
   }
 });
+
+test('a sheet’s field to type in rides on the keyboard in the iPhone app, as Work’s Feedback did alone', async () => {
+  const fs = await import('node:fs');
+  const ui = fs.readFileSync(new URL('../web/ui.js', import.meta.url), 'utf8');
+  const keyboard = fs.readFileSync(new URL('../web/keyboard.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(ui, /if \(typing\) typeOnSheet\(dialog, typing\);/);
+  assert.match(ui, /function typeOnSheet\(dialog, field\) \{\n\s+if \(nativeInfo\(\)\?\.platform !== 'ios'\) return;\n\s+focusOnTap\(field,/);
+  assert.match(ui, /if \(sheet && !still\) rideKeyboard\(dialog, field\);/);
+  assert.match(keyboard, /export function rideKeyboard\(dialog, field\) \{/);
+  // One threshold for what a keyboard is, and the climb kept under the key it always had.
+  assert.equal((keyboard.match(/const KEYBOARD_MIN = /g) || []).length, 1);
+  assert.match(keyboard, /const riseKey = \(full\) => `cw-keyboard-rise:\$\{window\.innerWidth\}x\$\{full\}`;/);
+  assert.match(css, /\.kit-dialog\[data-riding\] \{/);
+});

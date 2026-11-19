@@ -1,9 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  text, S, READS, ADDS, SETS, DESTRUCTIVE, tool, describeErrorWith, trimRepeats, toolsListSize, ResolveError,
+  text, S, READS, ADDS, SETS, DESTRUCTIVE, describeErrorWith, trimRepeats, toolsListSize, ResolveError,
 } from '../mcp-kit.js';
+import * as kit from '../mcp-kit.js';
 import { schemaProblems } from '../mcp.js';
+
+/** A tool as the modules write theirs, for trimRepeats to read. */
+const tool = ({ name, params = {}, required = [] }) => ({
+  name, annotations: READS,
+  inputSchema: { type: 'object', properties: params, ...(required.length && { required }), additionalProperties: false },
+});
 
 test('text, S and the annotations', () => {
   assert.deepEqual(text('hi'), { content: [{ type: 'text', text: 'hi' }] });
@@ -16,22 +23,10 @@ test('text, S and the annotations', () => {
   assert.throws(() => { READS.readOnlyHint = false; }, TypeError);
 });
 
-test('tool() builds the schema and the annotations from what makes it differ', () => {
-  const handler = () => text('ok');
-  const built = tool({
-    name: 'add_task', title: 'Add a task', description: 'Adds one.', kind: 'add', feature: 'mcp',
-    params: { title: S.string('Title') }, required: ['title'], handler,
-  });
-  assert.deepEqual(built.inputSchema, {
-    type: 'object', properties: { title: { type: 'string', description: 'Title' } }, required: ['title'], additionalProperties: false,
-  });
-  assert.deepEqual(built.annotations, ADDS);
-  assert.equal(built.feature, 'mcp');
-  assert.equal(built.handler, handler);
-  assert.equal(tool({ name: 'x', kind: 'read' }).inputSchema.required, undefined);
-  assert.equal(tool({ name: 'fetch', kind: 'add', openWorld: true }).annotations.openWorldHint, true);
-  assert.throws(() => tool({ name: 'x', kind: 'maybe' }), /kind must be one of/);
-  assert.deepEqual(schemaProblems([built]), []);
+test('what no module used is gone: tool() and S.number', () => {
+  assert.equal(kit.tool, undefined);
+  assert.equal(S.number, undefined);
+  assert.deepEqual(Object.keys(S), ['string', 'bool', 'int', 'list']);
 });
 
 test('describeErrorWith: options for a ResolveError, a sentence for an HttpError, null for the rest', () => {
@@ -55,9 +50,9 @@ test('trimRepeats says a long parameter description in full once, then its first
   const REF = S.string('The task: its number as the tools show it ("#59" or "59"), or its title. '
     + 'An approximate title works; a bare number is only ever the number, never part of a title.');
   const tools = [
-    tool({ name: 'get_task', kind: 'read', params: { task: REF } }),
-    tool({ name: 'update_task', kind: 'set', params: { task: REF, title: S.string('Title') }, required: ['task'] }),
-    tool({ name: 'add_tasks', kind: 'add', params: { items: S.list('Tasks', { type: 'object', properties: { task: REF } }) } }),
+    tool({ name: 'get_task', params: { task: REF } }),
+    tool({ name: 'update_task', params: { task: REF, title: S.string('Title') }, required: ['task'] }),
+    tool({ name: 'add_tasks', params: { items: S.list('Tasks', { type: 'object', properties: { task: REF } }) } }),
   ];
   const trimmed = trimRepeats(tools);
   assert.equal(trimmed[0].inputSchema.properties.task.description, REF.description);
@@ -75,6 +70,6 @@ test('trimRepeats says a long parameter description in full once, then its first
 
 test('trimRepeats leaves a one-sentence description whole', () => {
   const ONE = S.string('A single long sentence that says what the parameter is about without any full stop in the middle of it');
-  const trimmed = trimRepeats([tool({ name: 'a', kind: 'read', params: { x: ONE } }), tool({ name: 'b', kind: 'read', params: { x: ONE } })]);
+  const trimmed = trimRepeats([tool({ name: 'a', params: { x: ONE } }), tool({ name: 'b', params: { x: ONE } })]);
   assert.equal(trimmed[1].inputSchema.properties.x.description, ONE.description);
 });

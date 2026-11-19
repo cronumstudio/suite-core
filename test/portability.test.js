@@ -16,7 +16,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
-import { describeData, selectRows, ownership, jsonOfRows } from '../portability.js';
+import { describeData, selectRows, ownership, jsonOfRows, withImportCeiling } from '../portability.js';
+import { resolveConfig, CLOUDFLARE_IMPORT_MB } from '../config.js';
+import { Readable } from 'node:stream';
 import { openDatabase } from '../db.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { runDataCli } from '../tools/data-cli.js';
@@ -359,6 +361,8 @@ test('someone’s copy goes into another install as new data of the account that
   const other = target.suite.accounts.create({ username: 'zoe', displayName: 'Zoe' });
   target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Zoe list')", other.id);
   const me = target.suite.accounts.create({ username: 'ana.cloud', displayName: 'Ana C', email: 'ana@cloud.example', role: 'user' });
+  // Her account here speaks Italian, in Rome: a module's copy doesn't change that for all of it (portable-14).
+  target.db.run('UPDATE users SET prefs = ? WHERE id = ?', JSON.stringify({ lang: 'it', tz: 'Europe/Rome' }), me.id);
 
   const plan = await target.portability.planFile(file, { mode: 'account', user: me });
   assert.deepEqual(plan.copy.tables, { groups: 1, lists: 1, list_prefs: 1, tasks: 4, files: 2, branches: 2, entries: 3 });
@@ -401,7 +405,7 @@ test('someone’s copy goes into another install as new data of the account that
   const after = target.suite.accounts.byId(me.id);
   assert.deepEqual([after.username, after.email, after.role], ['ana.cloud', 'ana@cloud.example', 'user'], 'who she is here stays');
   assert.deepEqual([after.display_name, after.avatar_color], ['Ana', '#ff0000'], 'her preferences come');
-  assert.deepEqual(JSON.parse(after.prefs), { default_list: list.id, lang: 'es' }, 'ids in the preferences, translated');
+  assert.deepEqual(JSON.parse(after.prefs), { default_list: list.id, lang: 'it', tz: 'Europe/Rome' }, 'ids in the preferences, translated; her language and zone, hers');
   assert.equal(db.get("SELECT COUNT(*) AS n FROM lists WHERE name = 'Zoe list'").n, 1, 'nothing else touched');
   assert.equal(db.get('SELECT COUNT(*) AS n FROM groups WHERE user_id = ?', me.id).n, 2, 'added, not replaced');
   assert.ok(target.events.some((e) => e.event === 'resync' && e.audience?.includes(me.id)), 'her open tabs reload');
@@ -1148,3 +1152,171 @@ test('the routes: someone’s own data down and up, the whole install for the ad
   assert.equal(statuses.at(-1), 429, statuses.join(' '));
   assert.equal((await call(asAna, 'POST', '/api/me/import', Buffer.from('nope'), 'application/zip')).status, 400);
 });
+
+test('what stands before the server cuts big requests: the import takes no more than the install says, and says how much (prod-14)', async (t) => {
+  const MB = 1024 * 1024;
+  // Behind Cloudflare (trustProxy), below its 100 MB; IMPORT_MAX_MB says otherwise; a mistake stops the start.
+  const config = (product, env = {}) => resolveConfig({ ...PRODUCT, ...product }, { DATA_DIR: os.tmpdir(), ...env });
+  assert.equal(config({ trustProxy: 'cloudflare' }).install.importMaxMb, CLOUDFLARE_IMPORT_MB);
+  assert.ok(CLOUDFLARE_IMPORT_MB < 100);
+  assert.equal(config({}).install.importMaxMb, null, 'elsewhere, the suite’s own ceilings');
+  assert.equal(config({ trustProxy: 'cloudflare' }, { IMPORT_MAX_MB: '300' }).install.importMaxMb, 300);
+  assert.equal(config({}, { TRUST_PROXY: 'cloudflare' }).install.importMaxMb, CLOUDFLARE_IMPORT_MB);
+  assert.match(config({}, { IMPORT_MAX_MB: '95.5' }).errors.join(' '), /IMPORT_MAX_MB "95\.5" is not a whole number/);
+
+  // The lower ceiling wins, for someone's copy and the whole install's; nothing given, nothing changes.
+  assert.deepEqual(withImportCeiling({}, 95).upload, { account: 95 * MB, install: 95 * MB });
+  assert.deepEqual(withImportCeiling({ upload: { account: 10 * MB } }, 95).upload, { account: 10 * MB, install: 95 * MB });
+  const own = { data: 1 };
+  assert.equal(withImportCeiling(own, null), own);
+
+  const { suite, portability } = install(t, { IMPORT_MAX_MB: '1' });
+  assert.equal(portability.max.upload.account, MB);
+  assert.equal(portability.max.upload.install, MB);
+  const ana = suite.accounts.create({ username: 'ana', displayName: 'Ana', password: 'ana-password' });
+  const big = Readable.from([Buffer.alloc(MB), Buffer.alloc(MB)]);
+  await assert.rejects(portability.receive(big, { mode: 'account', user: ana }), (err) => {
+    assert.deepEqual([err.status, err.code, err.extra], [413, 'file_too_large', { max_mb: 1 }], 'the sentence Settings has, with the size');
+    return true;
+  });
+
+  // Settings knows it before sending anything (GET /api/auth/config).
+  const app = createApp({ suite, version: '1.0.0', handleSignals: false, log: () => {}, portable: DATA });
+  const server = await app.listen();
+  t.after(() => app.close());
+  const answer = await (await fetch(`http://127.0.0.1:${server.address().port}/api/auth/config`)).json();
+  assert.deepEqual(answer.app.imports, { max_bytes: MB });
+});
+
+/* --------------------------- the data audit of 6/11 --------------------------- */
+
+/** The copy at `file` again, with `extra` entries added: as someone would pad it by hand. */
+async function padded(file, target, extra) {
+  const source = await openZip(file);
+  const writer = createZipWriter(fs.createWriteStream(target));
+  try {
+    for (const { name } of source.entries) await writer.add(name, await source.read(name));
+    for (const [name, bytes] of Object.entries(extra)) await writer.add(name, bytes, { compress: false });
+    await writer.finish();
+  } finally {
+    await source.close();
+  }
+}
+
+test('pending imports: one per person and mode, nothing the copy doesn’t name, a ceiling on the folder (sc-data-13, portable-11)', async (t) => {
+  const MB = 1024 * 1024;
+  const box = install(t);
+  const s = seedSource(box);
+  const file = path.join(box.dir, 'ana.zip');
+  await exportTo(box, file, { scope: 'account', userId: s.ana.id });
+  const imports = path.join(box.dir, 'imports');
+  const zips = () => fs.readdirSync(imports).filter((n) => n.endsWith('.zip')).sort();
+  const send = (from = file, user = s.ana, portability = box.portability) => portability.receive(fs.createReadStream(from), { mode: 'account', user });
+
+  // Three uploads in a row leave one waiting: the last; the first ones are gone.
+  const first = await send();
+  await send();
+  const third = await send();
+  assert.deepEqual(zips(), [`${third.import_id}.zip`]);
+  await rejectsWith(box.portability.apply(first.import_id, { mode: 'account', user: s.ana }), 'import_not_found');
+  // Someone else's waits next to it.
+  const bens = await send(file, s.ben);
+  assert.equal(zips().length, 2);
+  box.portability.discard(bens.import_id, { mode: 'account', user: s.ben });
+
+  // A copy carrying bytes none of its rows names is refused, and nothing of it waits.
+  const fat = path.join(box.dir, 'padded.zip');
+  await padded(file, fat, { 'files/padding.bin': Buffer.alloc(5 * MB) });
+  await assert.rejects(send(fat), (err) => err.code === 'import_invalid_data' && err.extra.reason === 'unreferenced');
+  assert.deepEqual(zips(), [`${third.import_id}.zip`]);
+  // A little is let through (a zip made again elsewhere).
+  const tidy = path.join(box.dir, 'tidy.zip');
+  await padded(file, tidy, { '__MACOSX/._manifest.json': Buffer.alloc(200) });
+  assert.ok((await send(tidy)).import_id);
+
+  // With the folder past its ceiling, an account's upload waits for later; the install's doesn't.
+  const tight = box.suite.portabilityFor(DATA, { version: '1.0.0', limits: { pending: 1 } });
+  await rejectsWith(send(file, s.ben, tight), 'data_busy');
+  assert.ok((await tight.receive(fs.createReadStream(file), { mode: 'install', user: s.ana }).catch((err) => err)).code !== 'data_busy');
+});
+
+test('the whole install’s copy carries the addresses that asked for no more invitations (sc-data-19)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  source.db.run("INSERT INTO mail_suppressions (email, created_at) VALUES ('quiet@example.com', '2026-11-01T00:00:00.000Z')");
+  const file = path.join(source.dir, 'all.zip');
+  await exportTo(source, file, { scope: 'install' });
+  const { json, zip } = await readZip(t, file);
+  assert.deepEqual(await json('suite/mail-suppressions.json'), [{ email: 'quiet@example.com', created_at: '2026-11-01T00:00:00.000Z' }]);
+  // Someone's own copy never carries them.
+  const mine = path.join(source.dir, 'ana.zip');
+  await exportTo(source, mine, { scope: 'account', userId: s.ana.id });
+  assert.equal((await readZip(t, mine)).zip.has('suite/mail-suppressions.json'), false);
+  assert.ok(zip.has('suite/mail-suppressions.json'));
+
+  const target = install(t);
+  target.suite.accounts.create({ username: 'root', displayName: 'Root', role: 'admin' }, { quiet: true });
+  target.db.run("INSERT INTO mail_suppressions (email, created_at) VALUES ('quiet@example.com', '2026-10-01T00:00:00.000Z')");
+  await target.portability.applyFile(file, { mode: 'install' });
+  assert.deepEqual(target.db.all('SELECT email, created_at FROM mail_suppressions').map((r) => ({ ...r })),
+    [{ email: 'quiet@example.com', created_at: '2026-10-01T00:00:00.000Z' }], 'one already here stays as it was');
+});
+
+test('a host’s modules brought in one run, without organizations: each account and each plan once (portable-13)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const at = '2026-11-01T00:00:00.000Z';
+  // Ben has no email: by email alone, each module's copy made him again (ben2, ben3…).
+  source.db.run(`INSERT INTO entitlement_grants (subject_type, subject_id, plan, source, starts_at, created_at)
+    VALUES ('user', ?, 'pro', 'admin', ?, ?)`, s.ben.id, at, at);
+  const OTHER = { tables: { groups: { refs: { user_id: 'users' } } } };
+  const first = path.join(source.dir, 'first.zip');
+  const second = path.join(source.dir, 'second.zip');
+  const job = source.portability.prepareExport({ scope: 'install' });
+  const manifest = await job.write(fs.createWriteStream(first));
+  assert.ok(manifest.source.install && manifest.source.export);
+  await exportTo({ ...source, portability: source.suite.portabilityFor(OTHER, { version: '1.0.0' }) }, second, { scope: 'install', run: manifest.source.export });
+
+  const target = install(t);
+  target.suite.accounts.create({ username: 'root', displayName: 'Root', role: 'admin' }, { quiet: true });
+  await target.portability.applyFile(first, { mode: 'install' });
+  const grantsOf = () => target.db.all("SELECT g.plan FROM entitlement_grants g JOIN users u ON u.id = g.subject_id WHERE g.subject_type = 'user' AND u.username = 'ben' ORDER BY g.plan").map((g) => g.plan);
+  const once = grantsOf();
+  assert.deepEqual(once, ['full', 'pro']);
+  await target.suite.portabilityFor(OTHER, { version: '1.0.0' }).applyFile(second, { mode: 'install' });
+  assert.deepEqual(target.db.all("SELECT username FROM users WHERE username LIKE 'ben%'").map((u) => u.username), ['ben']);
+  assert.deepEqual(grantsOf(), once, 'the second module’s copy gives no plan again');
+  // A copy of another run of that install is refused before anything is written.
+  const later = path.join(source.dir, 'later.zip');
+  await exportTo(source, later, { scope: 'install' });
+  await rejectsWith(target.portability.applyFile(later, { mode: 'install' }), 'import_install_again');
+});
+
+test('a column dropped since says so, and old copies that carry it still come in (portable-18)', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const file = path.join(source.dir, 'ana.zip');
+  await exportTo(source, file, { scope: 'account', userId: s.ana.id });
+  const old = path.join(source.dir, 'old.zip');
+  await rewrite(file, old, { 'data/lists.json': (rows) => rows.map((r) => ({ ...r, gone_col: 7 })) });
+  const target = install(t);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  await rejectsWith(target.portability.planFile(old, { mode: 'account', user: me }), 'import_invalid_data');
+  const lists = { ...DATA.tables.lists, dropped: ['gone_col'] };
+  const declared = target.suite.portabilityFor({ ...DATA, tables: { ...DATA.tables, lists } }, { version: '1.0.0' });
+  await declared.applyFile(old, { mode: 'account', user: me });
+  assert.throws(() => target.suite.portabilityFor({ ...DATA, tables: { ...DATA.tables, lists: { ...lists, dropped: ['name'] } } }), /dropped: "name" is still a column/);
+});
+
+/** The copy at `from` again, each JSON entry named in `edits` changed by it. */
+async function rewrite(from, to, edits) {
+  const zip = await openZip(from);
+  const out = createZipWriter(fs.createWriteStream(to));
+  for (const { name } of zip.entries) {
+    const bytes = await zip.read(name);
+    await out.add(name, edits[name] ? Buffer.from(JSON.stringify(edits[name](JSON.parse(bytes.toString('utf8'))))) : bytes);
+  }
+  await out.finish();
+  await zip.close();
+  return to;
+}

@@ -41,7 +41,9 @@ export const conflict = (code = 'conflict', extra) => new HttpError(409, code, e
  * the old SSE transport): Avast's Web Shield, with its MCP detection, rewrites one that has a
  * Content-Length into one that says "chunked" and isn't, and every MCP client on that computer
  * fails ("Invalid character in chunk size"), the suite's own tests too. Without the length Node
- * sends it chunked, which Avast lets through.
+ * sends it chunked, which Avast lets through. Nothing here serves /sse any more, but an old
+ * client still asks for it, and Avast breaks the 404 it gets just the same (checked again on
+ * 13/11/2026, audit sc-host-10): it stays.
  */
 const toMcp = (res) => /\/(mcp|sse)\/?$/i.test(String(res.req?.url ?? '').split('?')[0]);
 
@@ -152,17 +154,36 @@ export function proxyHops(value) {
 export function clientIp(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
   // Without a request (a script run by whoever runs the install) there is no address.
   if (!req) return '';
+  const address = hopAddress(req, trustProxy);
+  if (String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare') {
+    const cf = String(req.headers['cf-connecting-ip'] || '').trim();
+    if (net.isIP(cf) && fromCloudflare(address)) return cf;
+  }
+  return address;
+}
+
+/** The address of the hop the trusted proxies say brought the request (see clientIp). */
+function hopAddress(req, trustProxy) {
   const hops = proxyHops(trustProxy);
   let address = req.socket?.remoteAddress || '';
   if (hops) {
     const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
     if (chain.length) address = chain[Math.max(0, chain.length - hops)];
   }
-  if (String(trustProxy ?? '').trim().toLowerCase() === 'cloudflare') {
-    const cf = String(req.headers['cf-connecting-ip'] || '').trim();
-    if (net.isIP(cf) && fromCloudflare(address)) return cf;
-  }
   return address;
+}
+
+/**
+ * The country Cloudflare says the request came from (CF-IPCountry, ISO 3166 alpha-2 or its own
+ * XX and T1), believed as CF-Connecting-IP is: only with TRUST_PROXY=cloudflare and only when the
+ * hop that brought it is one of Cloudflare's, since anyone reaching the origin could write it.
+ * → the header's value, or null.
+ */
+export function cloudflareCountry(req, { trustProxy = process.env.TRUST_PROXY } = {}) {
+  if (!req?.headers || String(trustProxy ?? '').trim().toLowerCase() !== 'cloudflare') return null;
+  if (!fromCloudflare(hopAddress(req, trustProxy))) return null;
+  const value = req.headers['cf-ipcountry'];
+  return typeof value === 'string' ? value : null;
 }
 
 /**
@@ -215,6 +236,50 @@ export function appendHeader(res, name, value) {
   const previous = res.getHeader(name);
   if (previous == null) res.setHeader(name, value);
   else res.setHeader(name, Array.isArray(previous) ? [...previous, value] : [previous, value]);
+}
+
+/** Only a path of this app (`/…`): never another site (`//host`, `/\host`), whatever a link says; else `/`. */
+export const localPath = (value) => (typeof value === 'string' && /^\/(?!\/)[^\\\s]*$/.test(value) ? value : '/');
+
+/** How long a sign-in at the provider may take: as long as a phone's connect page waits (device-pages.js CONNECT_MS). */
+export const SIGN_IN_FLOW_SECONDS = 30 * 60;
+
+/**
+ * The cookie that carries one sign-in to the provider and back (`/auth/login` → `/auth/callback`,
+ * workos-accounts.js and oidc.js): one per flow, `<cookie>_<the first 8 characters of its state>`,
+ * at /auth, for 30 minutes (audit sc-auth-6). With one cookie for all of them, a second tab that
+ * loaded without a session (a browser restoring its tabs, the installed app and a tab), which since
+ * straightToProvider starts a sign-in by itself, took the first one's place, and whoever signed in
+ * on the first came back to «could not be completed»; so did a provider's page left open longer
+ * than its 10 minutes.
+ *
+ * `<cookie>` itself is still written, with the newest flow, and read when a flow's own is missing:
+ * a sign-in started before one cookie per flow (0.289.0) comes back with it, and whatever reads
+ * `<cookie>=` (an app's tests) finds it. Its newest flow is the only one it can hold, as before.
+ *
+ * → { start(res, state, value), take(req, res, state) → the value, or null }; `take` clears what it read.
+ */
+export function signInFlowCookies({ cookie, secure = false, maxAge = SIGN_IN_FLOW_SECONDS }) {
+  const header = (name, value, age) => serializeCookie(name, value, { maxAge: age, path: '/auth', secure });
+  // A state is base64url (randomBytes): anything else from a URL never names a cookie.
+  const nameOf = (state) => {
+    const key = String(state ?? '').slice(0, 8);
+    return /^[A-Za-z0-9_-]{8}$/.test(key) ? `${cookie}_${key}` : null;
+  };
+  return {
+    start(res, state, value) {
+      const own = nameOf(state);
+      if (own) appendHeader(res, 'Set-Cookie', header(own, value, maxAge));
+      appendHeader(res, 'Set-Cookie', header(cookie, value, maxAge));
+    },
+    take(req, res, state) {
+      const cookies = parseCookies(req);
+      const own = nameOf(state);
+      if (own && cookies[own] != null) appendHeader(res, 'Set-Cookie', header(own, '', 0));
+      appendHeader(res, 'Set-Cookie', header(cookie, '', 0));
+      return (own && cookies[own]) || cookies[cookie] || null;
+    },
+  };
 }
 
 /* --------------------------------- router --------------------------------- */

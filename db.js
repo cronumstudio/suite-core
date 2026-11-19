@@ -23,6 +23,9 @@ export function openDatabase({ path, name = 'app', dataDir = process.env.DATA_DI
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL');
+  // With WAL, NORMAL never corrupts the file; a power cut may lose the last commits, not the base
+  // (audit sc-data-25). FULL synced every commit to the disk.
+  db.exec('PRAGMA synchronous = NORMAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
   return wrapDatabase(db, { path: file });
