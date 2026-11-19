@@ -1696,7 +1696,7 @@
   },
   "admin.affiliates.title": "Partner",
   "admin.affiliates.leadOn": "Die Codes der Konten und die Kampagnen der Creator: wen sie gebracht haben, welche Verkäufe ausstehen oder bestätigt sind und was offen ist.",
-  "admin.affiliates.leadOff": "Das Programm ist deaktiviert (affiliates.enabled): Noch niemand hat einen Code oder ein Konto dafür. Creator-Kampagnen lassen sich schon vorbereiten, und ein beim Bezahlen eingegebener Creator-Code zählt bereits.",
+  "admin.affiliates.leadOff": "Empfehlungen sind noch geschlossen: Noch niemand hat einen eigenen Code. Creator funktionieren schon: Jeder sieht sein Konto, und sein Code und sein Link zählen.",
   "admin.affiliates.noDiscounts": "Der Zahlungsanbieter dieser Installation erstellt keine Rabatte: Codes funktionieren nur über ihren Link, ohne Nachlass für den Käufer.",
   "admin.affiliates.all": "Alle",
   "admin.affiliates.filter": "Anzeigen",

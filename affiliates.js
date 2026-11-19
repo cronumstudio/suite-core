@@ -49,10 +49,11 @@
  * Only `yearlyCap` months a calendar year: a commission confirmed past them is confirmed with
  * `reason: 'yearly_cap'` and gives nothing.
  *
- * The program is off until the app says `affiliates.enabled` (config.js): no referral codes, no
- * link, no discount passed at a checkout, no panel. The admin can still make creator campaigns and
- * see the tab, and a discount typed at the provider's checkout (one of a campaign made in Admin)
- * still earns: that buyer did use the creator's code. Payments are noted whatever it says (who
+ * The program is off until the app says `affiliates.enabled` (config.js): no referral codes, and
+ * nobody's «Recommend» in Settings. Creators' campaigns work already, so creators can be signed up
+ * before the launch: the admin makes them, their owner sees the panel (their creator codes only),
+ * their link leaves its cookie and brings accounts, a checkout gets their discount, and a discount
+ * typed at the provider's checkout earns. Payments are noted whatever it says (who
  * paid for the first time), so that turning it on later knows who is not a first buyer.
  *
  *   const affiliates = createAffiliates({ database, billing, provider, entitlements, accounts, audit, config });
@@ -506,7 +507,7 @@ export function createAffiliates({
   function liveCode(value) {
     const text = normalizeCode(value);
     const code = text ? byCode(text) : null;
-    return code?.active ? code : null;
+    return code?.active && (enabled || code.kind === 'creator') ? code : null;
   }
 
   /**
@@ -515,7 +516,7 @@ export function createAffiliates({
    * it never throws; never for an account the admin makes (the admin's own browser may carry one).
    */
   function attributeLink(user) {
-    if (!enabled || !user?.id) return;
+    if (!user?.id) return;
     const scope = currentRequest();
     if (!scope?.req || scope.path.startsWith('/api/admin/')) return;
     try {
@@ -537,7 +538,7 @@ export function createAffiliates({
    */
   const seen = new WeakSet();
   function refFromQuery(req, res, url) {
-    if (!enabled || seen.has(req)) return;
+    if (seen.has(req)) return;
     seen.add(req);
     if (!['GET', 'HEAD'].includes(req.method)) return;
     if (url.pathname !== '/auth/login' && /^\/(api|auth|oauth|mcp|\.well-known)(\/|$)/.test(url.pathname)) return;
@@ -553,7 +554,7 @@ export function createAffiliates({
     if (!match) return false;
     let value = '';
     try { value = decodeURIComponent(match[1]); } catch { /* none */ }
-    const code = enabled ? liveCode(value) : null;
+    const code = liveCode(value);
     if (code) setCookie(res, code.code);
     seen.add(req);
     res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
@@ -584,10 +585,11 @@ export function createAffiliates({
    * the code's, at this provider, when it is live, covers the product and isn't their own.
    */
   function discountFor({ subject, product }) {
-    if (!enabled || subject?.type !== 'user') return null;
+    if (subject?.type !== 'user') return null;
     const brought = attributionOf(subject.id);
     const code = brought ? byId(brought.code_id) : null;
-    if (!code?.active || code.user_id === subject.id || !code.products.includes(product)) return null;
+    if (!code?.active || (!enabled && code.kind !== 'creator')) return null;
+    if (code.user_id === subject.id || !code.products.includes(product)) return null;
     if (paidBefore(subject.id)) return null;
     return discountOf(code.id);
   }
@@ -631,8 +633,8 @@ export function createAffiliates({
         buyer.id, event.occurredAt ?? iso(clock()), event.id ?? null);
       const brought = attributionOf(buyer.id);
       const code = brought ? byId(brought.code_id) : null;
-      // Off, only a creator's code typed at the checkout earns: that buyer did use it.
-      if (!code?.active || (!enabled && !(brought.source === 'checkout' && code.kind === 'creator'))) return 'noted';
+      // Off, only a creator's code earns: creators' campaigns run before the launch.
+      if (!code?.active || (!enabled && code.kind !== 'creator')) return 'noted';
       if (!code.products.includes(String(event.product ?? ''))) return 'noted';
       const own = ownBuyer(code, buyer, event);
       if (own) {
@@ -847,9 +849,12 @@ export function createAffiliates({
 
   /** What `/afiliados` shows the person: their codes, each with its link and figures, and the rules. */
   async function me(user) {
-    if (!enabled) throw notFound('affiliates_off');
-    await referralOf(user);
-    const codes = database.all(`SELECT * FROM affiliate_codes WHERE user_id = ? ORDER BY kind = 'referral' DESC, id`, user.id).map(shape);
+    // While the program is off, only a creator sees it: their campaigns, and no referral code made.
+    const creator = Boolean(database.get("SELECT 1 FROM affiliate_codes WHERE user_id = ? AND kind = 'creator'", user.id));
+    if (!enabled && !creator) throw notFound('affiliates_off');
+    if (enabled) await referralOf(user);
+    const codes = database.all(`SELECT * FROM affiliate_codes WHERE user_id = ? ${enabled ? '' : "AND kind = 'creator'"}
+      ORDER BY kind = 'referral' DESC, id`, user.id).map(shape);
     return {
       codes: codes.map((code) => ({
         code: code.code, kind: code.kind, campaign: code.campaign, active: code.active, link: linkOf(code.code),
@@ -863,7 +868,6 @@ export function createAffiliates({
 
   /** The creator's own note of how they want to be paid, on each of their campaigns. */
   function setPayoutNote(user, note) {
-    if (!enabled) throw notFound('affiliates_off');
     if (note != null && typeof note !== 'string') throw badRequest('field_invalid', { field: 'payout_note' });
     const text = String(note ?? '').trim();
     if (text.length > NOTE_MAX) throw badRequest('field_too_long', { field: 'payout_note', max: NOTE_MAX });

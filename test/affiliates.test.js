@@ -203,21 +203,28 @@ test('without createDiscount a code still works by its link: no discount kept, t
   assert.equal(made.discount, false);
 });
 
-test('the program off: no codes nor panel, but the admin makes campaigns and a creator’s code typed at checkout earns', async (t) => {
-  const { affiliates, person, pay, commissions } = setup(t, { enabled: false });
+test('the program off: no referral codes, but creators work already: their panel, their link, their code', async (t) => {
+  const { affiliates, person, pay, commissions, database } = setup(t, { enabled: false });
   const ana = person('ana');
   assert.equal(await code(() => affiliates.me(ana)), '404 affiliates_off');
   const campaign = await affiliates.createCampaign({ email: 'ana@example.com', code: 'MARIA20', campaign: 'YouTube' }, null);
+  // Her panel, with her creator code only: no referral code is made while off.
+  const panel = await affiliates.me(ana);
+  assert.deepEqual(panel.codes.map((c) => [c.code, c.kind]), [['MARIA20', 'creator']]);
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM affiliate_codes WHERE kind = 'referral'").n, 0);
+  assert.equal(await code(() => affiliates.me(person('zoe'))), '404 affiliates_off', 'nobody else');
+  // Typed at the checkout: it earns.
   const bob = person('bob');
   pay(bob, { discount: 'dsc_maria20', amount: 2800 });
   const [sale] = commissions();
   assert.equal(sale.code_id, campaign.id);
   assert.equal(sale.amount, 600);
   assert.equal(sale.status, 'pending');
-  // A link while off: nothing noted.
+  // Her link brings accounts too.
   const { req, res } = browser(`${REF_COOKIE}=MARIA20`);
-  inRequest(req, () => person('cat'), res);
-  assert.equal(affiliates.figuresOf(campaign.id).accounts, 1, 'only bob, by the checkout');
+  const cat = inRequest(req, () => person('cat'), res);
+  assert.equal(affiliates.figuresOf(campaign.id).accounts, 2, 'bob by the checkout, cat by the link');
+  assert.equal(database.get('SELECT source FROM affiliate_attributions WHERE user_id = ?', cat.id).source, 'link');
 });
 
 /* ------------------------------ who brought whom ----------------------------- */

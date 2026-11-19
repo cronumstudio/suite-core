@@ -1696,7 +1696,7 @@
   },
   "admin.affiliates.title": "Afiliados",
   "admin.affiliates.leadOn": "Los códigos de cada cuenta y las campañas de creadores: a quién trajeron, qué ventas hay pendientes o confirmadas y cuánto se debe.",
-  "admin.affiliates.leadOff": "El programa está desactivado (affiliates.enabled): nadie tiene aún su código ni su panel. Las campañas de creadores se pueden preparar ya, y un código de creador escrito en el pago ya cuenta.",
+  "admin.affiliates.leadOff": "Las recomendaciones de los usuarios aún están cerradas: nadie tiene su código. Los creadores ya funcionan: cada uno ve su panel, y su código y su enlace cuentan.",
   "admin.affiliates.noDiscounts": "El proveedor de pagos de esta instalación no crea descuentos: los códigos funcionan solo con su enlace, sin rebaja para el comprador.",
   "admin.affiliates.all": "Todos",
   "admin.affiliates.filter": "Mostrar",

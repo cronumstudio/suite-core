@@ -1696,7 +1696,7 @@
   },
   "admin.affiliates.title": "Affiliates",
   "admin.affiliates.leadOn": "Every account’s code and the creators’ campaigns: whom they brought, which sales are pending or confirmed and what is owed.",
-  "admin.affiliates.leadOff": "The program is off (affiliates.enabled): nobody has a code or a panel yet. Creators’ campaigns can be set up already, and a creator’s code typed at checkout already counts.",
+  "admin.affiliates.leadOff": "Referrals are still closed: nobody has their own code yet. Creators already work: each sees their panel, and their code and link count.",
   "admin.affiliates.noDiscounts": "This installation’s payment provider doesn’t make discounts: codes work through their link alone, with nothing off for the buyer.",
   "admin.affiliates.all": "All",
   "admin.affiliates.filter": "Show",
