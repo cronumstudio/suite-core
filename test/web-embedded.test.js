@@ -338,8 +338,8 @@ test('every script and sheet of the kit is in the service worker\'s copy, but th
   // left out, the installed app opened blank without a signal.
   const sw = fs.readFileSync(new URL('sw-core.js', WEB), 'utf8');
   const cached = new Set([.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'\/suite\/([^']+)'/g)].map((m) => m[1]));
-  // The worker itself, and pages never opened offline: admin and connecting a device.
-  const ownPages = new Set(['sw-core.js', 'admin.js', 'connect.js', 'oauth.css']);
+  // The worker itself, and pages never opened offline: admin, connecting a device and the affiliate's panel.
+  const ownPages = new Set(['sw-core.js', 'admin.js', 'connect.js', 'oauth.css', 'affiliates.js']);
   const files = fs.readdirSync(WEB).filter((name) => /\.(js|css)$/.test(name) && !ownPages.has(name));
   assert.deepEqual(files.filter((name) => !cached.has(name)), []);
 });
