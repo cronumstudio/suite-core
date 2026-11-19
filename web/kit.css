@@ -1380,6 +1380,9 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-shared__person .kit-icon-btn { width: 32px; height: 32px; flex: none; }
 .kit-shared__about { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .kit-shared__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
+/* Without a signal (shared.js): what changes something is off, greyed as the kit's buttons are. */
+.kit-shared > .kit-settings__offline-hint { margin-bottom: 10px; }
+.kit-shared .kit-icon-btn[disabled], .kit-shared .kit-segmented button[disabled], .kit-shared select[disabled] { opacity: .55; cursor: default; pointer-events: none; }
 /* What can be bought (plan.js): on a narrow phone the button goes under the name, not over it. */
 .kit-plan__offer .kit-list__row { flex-wrap: wrap; row-gap: 8px; }
 .kit-plan__offer .kit-list__text { flex: 1 1 150px; }
