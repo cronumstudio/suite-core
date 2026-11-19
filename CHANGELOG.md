@@ -3,6 +3,71 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.299.0 — 2026-11-19
+
+Affiliates: referral codes and creators' campaigns in one system (Martin's design of 19/11/2026).
+Off until the app says `affiliates.enabled`.
+
+### Affiliates (`affiliates.js`, suite migration 35)
+- **Codes**: each account's referral code, made the first time its panel asks (`WORK-7KQ2`: the
+  app's prefix, `affiliates.referral.prefix`, and four letters nobody misreads), and creators'
+  campaigns the admin makes for an account by its email (`MARIA20`), each with its offer, products
+  and reward (the program's by default). Each is a discount at the provider when its adapter has
+  `createDiscount` (kept per provider and environment, `affiliate_discounts`); without it a code works
+  by its link alone.
+- **Who brought whom** (`affiliate_attributions`, one per buyer): `GET /r/<CODE>` and any page opened
+  with `?codigo=<CODE>` leave the `cw_ref` cookie (60 days, on `affiliates.cookieDomain`); an account
+  made with it is the code's (`link`) and the cookie goes, never for the owner nor an account the
+  admin makes. A payment's own discount takes the buyer (`checkout`): the paid one wins.
+- **Commissions** (`affiliate_commissions`): on the buyer's first payment that charged something (the
+  monthly's free first month waits for its second), one per buyer ever, never for one who paid here
+  before, only for the code's products (a creator's: the yearly); never the owner's own (the same
+  account, the same customer at the provider, the same email, `+tags` left out: audited as
+  `affiliates.self_referral`). Pending for `confirmDays` (30), then confirmed by the hourly sweep. A
+  refund before reverses it; after, a creator's earns a negative entry (`adjustment`), a referral's
+  month stays and the refund is noted (`refunded_at`).
+- **A referral's month** (`affiliate_rewards`, queued as billing's stops are, retried hourly, failed
+  after 48 refusals): a grant of 30 days of the plan (`source: 'referral'`) chained after the last, or,
+  for someone with a live web subscription that renews, its next charge 30 days later
+  (`postponeRenewal`). Up to `yearlyCap` (12) a calendar year; past it the sale is confirmed with
+  `reason: 'yearly_cap'`.
+- **Payouts** (`affiliate_payouts`): noted by the admin for a creator's code, never more than the
+  confirmed balance; one that covers it all marks the sales `paid`.
+- **Off** (the default): no referral codes, links, discounts at a checkout or panel; the admin still
+  makes campaigns, and a creator's code typed at the provider's checkout still earns. Payments are
+  noted either way, so turning it on knows who already paid.
+- An account that goes: who brought it and its first payment are forgotten; its codes stop (at the
+  provider too) and stay, with their sales and payouts, for the books.
+
+### Billing (`billing.js`)
+- **The `payment` event**: money that came in (`ref` the transaction, `subscription`, `first`, `discount`,
+  `amount`, `currency`), kept once (outcome `paid`, no audit entry), who paid worked out as for any event
+  (a payment of a subscription is whoever's the subscription is), nothing granted. Waits for its
+  person like the rest. Unsigned, it counts only for a subscription known here.
+- **`whenPaid(hook)`, `whenRefunded(hook)`**: `hook({ user, organization, event })` once the event's
+  transaction is in (a refund with whom it is known for here); one that throws is logged.
+- **`discountWith(fn)`**: the discount a checkout gets, passed to the adapter's `checkoutUrl` as
+  `discount`, only on a product's regular price (never a founder's).
+- The adapter's new optional members, documented at the top of billing.js: `createDiscount`,
+  `setDiscountActive`, `postponeRenewal`.
+
+### HTTP and pages
+- `GET/PUT /api/affiliates/me` (the person's codes, links, figures, rules; a creator's payout note) and
+  `/api/admin/affiliates` (list with totals and `?kind=`, `POST` a campaign, `PUT /:id` on or off,
+  `GET /:id/commissions`, `POST /:id/payouts`, `GET /export` as CSV), administrators only, guarded as
+  the rest of /api/admin. A host serves them at its root only.
+- **/admin › Affiliates**: a row per code (owner, kind, campaign, code, accounts, pending / confirmed /
+  reversed sales, earned, paid, balance), filtered by kind; a code's sales and payouts; «New
+  campaign»; «Record payout»; the CSV.
+- **/afiliados** (`web/affiliates.html`): the person's codes with their link to copy, their figures,
+  a creator's payouts and payout note, the rules and the press kit (`affiliates.pressKitUrl`).
+- **Settings › Recommend**: a link to it where the program is on (`modules.recommend`, or a host's
+  `host.recommend`), never inside the suite's app on a phone (Apple's 3.1).
+- `/api/auth/config` says `modules.affiliates` (the admin's tab) and `modules.recommend`.
+- `serializeCookie` takes a `domain`; `request-scope.js` keeps the request's answer too
+  (`currentRequest().res`), for a hook that clears a cookie. A host reserves the mount `afiliados`.
+- **i18n**: `affiliates.*`, `admin.affiliates.*`, `kit.recommend.*`, their fields, errors and log actions.
+
 ## 0.298.0 — 2026-11-19
 
 - **On a phone, a sideways swipe no longer changes module** (`windows.js`; Martin, 14/11, after a

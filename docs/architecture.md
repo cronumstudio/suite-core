@@ -80,6 +80,7 @@ suite-core/
   billing.js            done   payments turned into grants: provider interface, signed webhooks
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
   stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
+  affiliates.js         done   referral codes and creators' campaigns: who brought whom, commissions, months given, payouts
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -1228,6 +1229,35 @@ stores: {
   someone joins or leaves (`whenMemberAdded` / `whenMemberRemoved`), renews again as soon as it
   no longer goes, and the final deletion finds the stop already asked and asks none more.
 
+### 9.1 Affiliates: referrals and creators (v0.299.0)
+
+`affiliates.js` runs with the billing module: people who bring buyers, and what they earn. Two kinds
+of code in one system. A **referral** code is any account's own, made the first time its panel
+asks for it (`WORK-7KQ2`: the app's prefix and four letters nobody misreads); the buyer pays less on
+their first payment (by default 3,90 € off, the monthly's first month free) and the referrer gets
+a month of the plan for each buyer who pays, up to 12 a calendar year. A **creator** code is a
+campaign the admin makes for a chosen account (`MARIA20`, /admin › Affiliates); its buyers get 20 %
+off the first yearly, and the creator earns 6 € per yearly paid, recorded here and paid by hand
+(a payout the admin notes down). The amounts are `suite.config.js` `affiliates`, the program is off
+until `affiliates.enabled`, and the admin can always make campaigns.
+
+Each code is a discount at the provider when its adapter can make one (`createDiscount`, billing.js),
+restricted to the products' regular prices and their first payment, so it can be typed at the
+provider's checkout; billing.js passes it to the checkout of someone a code brought who never paid
+(`discountWith`). Who brought whom: the code's link (`/r/<CODE>`, `?codigo=<CODE>`) leaves it in the
+`cw_ref` cookie on the domain the website shares (`affiliates.cookieDomain`), and an account made
+with it is the code's; a payment's own discount (the provider's `payment` event) wins over it. A
+commission is the buyer's first payment that charged something, one per buyer ever, pending for
+`confirmDays` (30) and then confirmed by the hourly sweep; a refund before reverses it, after it a
+creator's earns a negative entry and a referral's month stays. Nobody refers themselves: not the
+same account, the same customer at the provider or the same email. A referral's month is a grant
+of 30 days chained after the last (`source: 'referral'`), or, for someone who pays on the web, their
+next renewal 30 days later (`postponeRenewal`), queued and retried as billing's stops are.
+
+The person's panel is `/afiliados` (`web/affiliates.html`), linked from Settings on the web only:
+the suite's app on a phone says nothing of rewards or prices (the stores' rules). In a host it is the
+root's, with `/r/` and the admin's tab; a module's page opened with `?codigo=` still gets the cookie.
+
 ## 10. Organizations
 
 An organization answers "whose is this and who pays": a group of people who share data, roles and
@@ -1950,6 +1980,7 @@ first, then Tasks, then the rest.
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
 | `billing.js`, `stripe.js`, `providers.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options; v0.208.0: providers by registration; v0.209.0: Paddle outside the repository) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
 | `stores.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`; v0.209.0: RevenueCat outside the repository) | Tracker sells Pro in the App Store and Google Play (its step A12) |
+| `affiliates.js` | done (v0.299.0: referral codes and creators' campaigns, the `payment` event, /afiliados, /admin › Affiliates) | Cronum Work's program, from 1/12/2026 |
 
 ## 21. Several apps as one: the host
 
