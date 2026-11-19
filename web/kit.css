@@ -1412,6 +1412,59 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-fold__list strong { color: var(--kit-text); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .kit-fold__chevron { transition: none; } }
 
+/* Administration › Notifications (admin.js renderNotices): a head with how things stand, then
+   cards — where they go (a fold), one row per group (when, how it reads, its words), the summary. */
+.kit-notices__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.kit-notices__head h2 { margin: 0; }
+/* minmax(0, …): the destination's one-line summary (nowrap) mustn't widen the page on a phone. */
+.kit-notices { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 14px; }
+.kit-notices > .kit-fold > summary > .kit-icon,
+.kit-notices__card-head > .kit-icon { width: 20px; height: 20px; color: var(--kit-muted); flex: none; }
+/* The destination's title whole, and its summary after it, cut short when the line is short. */
+.kit-notices > .kit-fold > summary > span { flex: none; }
+.kit-notices > .kit-fold > summary > .kit-fold__now { flex: 1 1 auto; text-align: end; }
+.kit-notices__card {
+  display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--kit-border);
+  border-radius: var(--look-r-lg, 12px); background: var(--kit-panel);
+}
+.kit-notices__card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 32px; }
+.kit-notices__card-head h3 { margin: 0; font-size: inherit; font-weight: 600; flex: 1 1 auto; }
+.kit-notices__extras { display: flex; flex-wrap: wrap; gap: 16px; }
+.kit-notices__via { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; }
+.kit-notices__via > .kit-row { gap: 14px; }
+.kit-notices__rows { display: grid; }
+.kit-notices__row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px 12px;
+  grid-template-areas: "name mode edit" "preview preview preview" "editor editor editor";
+  padding: 10px 0; border-top: 1px solid var(--kit-border);
+}
+.kit-notices__name { grid-area: name; font-weight: 500; }
+.kit-notices__row > .kit-segmented { grid-area: mode; }
+.kit-notices__row > .kit-icon-btn { grid-area: edit; }
+.kit-notices__row > .kit-notices__preview { grid-area: preview; }
+.kit-notices__row > .kit-notices__editor { grid-area: editor; }
+.kit-notices__row .kit-segmented button { min-height: 30px; padding: 4px 11px; font-size: var(--look-footnote, 13px); }
+.kit-notices__preview { margin: 0; color: var(--kit-muted); font-size: var(--look-footnote, 13px); overflow-wrap: anywhere; }
+.kit-notices__row[data-mode="off"] .kit-notices__preview { text-decoration: line-through; opacity: .6; }
+.kit-notices__editor { display: grid; gap: 8px; padding-top: 4px; }
+.kit-notices__editor textarea { width: 100%; box-sizing: border-box; }
+.kit-notices__vars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kit-notices__vars > button:not(.kit-btn) {
+  font-family: var(--kit-font-mono); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--kit-border); background: var(--kit-hover); color: var(--kit-text);
+}
+.kit-notices__vars > button:not(.kit-btn):hover { border-color: var(--kit-muted); }
+.kit-notices__vars > .kit-btn { margin-inline-start: auto; }
+.kit-notices__rules { padding-top: 8px; border-top: 1px solid var(--kit-border); }
+.kit-notices__hour { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kit-notices__hour select { width: auto; }
+.kit-notices__save { justify-content: flex-end; }
+@media (max-width: 560px) {
+  .kit-notices__row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name edit" "mode mode" "preview preview" "editor editor"; }
+  .kit-notices__row > .kit-segmented { display: flex; }
+  .kit-notices__row > .kit-segmented button { flex: 1; }
+}
+
 /* The plan: its own card, then what it includes, a check for what is in, a dash for what isn't. */
 .kit-plan-card {
   display: grid; gap: 6px; padding: 20px 22px; border: 1px solid var(--kit-border); border-radius: 14px;
