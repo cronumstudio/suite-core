@@ -57,6 +57,7 @@ import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
+import { paintLive } from './live.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -1127,9 +1128,7 @@ export function createShell({
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
-    live.dataset.state = state;
-    live.title = t(`kit.live.${state}`);
-    live.setAttribute('aria-label', t(`kit.live.${state}`));
+    paintLive(live, state);
   }
 
   /* -------------------------------- teardown -------------------------------- */

@@ -10,6 +10,8 @@
  * - `askedSettings({ ready, open })`: Settings at the section another module sent the person to
  *   (`?settings=`, settings.js settingsAsked), opened once the module is ready for them.
  * - `markCroppedCanvas()`: an iPhone's Home Screen app drawn short of the screen, marked on `<html>`.
+ * - `rgbOf(color)` and `PAINT_ATTRIBUTES`: a page's ground as a theme-color takes it, and the
+ *   attributes that say how a page is painted.
  *
  *   applyAppTheme('notes', user.theme, place);
  *   followSystemTheme('notes', { theme: () => user.theme, signal });
@@ -26,6 +28,9 @@ import { watchUpdates, applyUpdate } from './update.js';
 /** The themes a person chooses from in Settings: 'system' follows the device's. */
 export const THEMES = Object.freeze(['light', 'dark', 'system']);
 
+/** The attributes of `<html>` that say how a page is painted: its theme and its look (kit.css). */
+export const PAINT_ATTRIBUTES = Object.freeze(['data-theme', 'data-look']);
+
 const darkScreen = () => globalThis.matchMedia?.('(prefers-color-scheme: dark)') ?? null;
 
 /** The theme this browser keeps for an app (`<app>.theme`, the one theme.js paints first): 'system' with none. */
@@ -37,9 +42,9 @@ export function savedTheme(app) {
  * A theme chosen ('light', 'dark' or 'system'; anything else is 'system'). On an app's own page,
  * `<html data-theme>` resolved to light or dark, never "system", and the choice kept as
  * `<app>.theme`, which theme.js reads before the first paint of the next start. In a window of
- * Cronum Work (`embedded`) the page's theme is the shell's, one for every window: it is told
- * (`services.theme`), and paints it and keeps it itself; with `ifOther`, only a theme other than
- * the one it has. `place` is the module's own (its `embedded` and `services`).
+ * Cronum Work (`embedded`) the page's theme is the shell's, one for every window: the shell is told
+ * (`services.theme`), and paints and keeps it; with `ifOther`, only a theme other than the one it
+ * has. `place` is the module's own (its `embedded` and `services`).
  * @returns {string} the theme chosen
  */
 export function applyAppTheme(app, theme, { embedded = false, services = null, ifOther = false } = {}) {
@@ -63,6 +68,20 @@ export function applyAppTheme(app, theme, { embedded = false, services = null, i
  */
 export function followSystemTheme(app, { theme = () => savedTheme(app), signal } = {}) {
   darkScreen()?.addEventListener('change', () => { if (theme() === 'system') applyAppTheme(app, 'system'); }, { signal });
+}
+
+/**
+ * A colour as `rgb()`, as a theme-color takes it (the kit's grounds are mixed in oklab, which it
+ * may not). A colour with nothing of it showing gives `transparent`: by default null, nothing to
+ * paint.
+ */
+export function rgbOf(color, { transparent = null } = {}) {
+  const pen = globalThis.document?.createElement('canvas').getContext?.('2d', { willReadFrequently: true });
+  if (!pen) return null;
+  pen.fillStyle = color;
+  pen.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = pen.getImageData(0, 0, 1, 1).data;
+  return a ? `rgb(${r}, ${g}, ${b})` : transparent;
 }
 
 /* ----------------------------- a new version ------------------------------ */
