@@ -37,7 +37,7 @@ function onTop(box) {
 }
 
 /**
- * The notices rise over an add bar in sight below them (addBar(), rule 17), never onto it: measured
+ * The notices rise over an add bar in sight below them (addBar(), rule 16), never onto it: measured
  * each time one shows, from the bars that reach under where the notices go (the middle of the
  * page), as the distance from the foot of the screen in view to the bar's top and a gap
  * (`--kit-toast-floor`, kit.css). With none, they stay where they always were.
@@ -109,7 +109,7 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
 }
 
 /**
- * The banner of a module without a signal, the same in every module (web-kit.md, rule 19): shown
+ * The banner of a module without a signal, the same in every module (web-kit.md, rule 18): shown
  * the moment the browser says the signal went (`offline`), not once a request has failed, and
  * looked at again when it says it is back (`online`). Offline it says what is shown is the last
  * thing loaded and how many changes wait on this device, with a discreet «Reintentar» when the
@@ -374,7 +374,7 @@ export function segmented(options, value, onChange) {
 
 /**
  * A centred message for a place with nothing in it yet, with what to do about it: the same in every
- * module (rules 14 and 16 of web-kit.md), one size of title in all of them.
+ * module (rule 14 of web-kit.md), one size of title in all of them.
  *
  * - `iconName`, the kit's icon in its box; `glyph`, a text in its place (the emoji a person chose
  *   for a Tasks list).
@@ -500,7 +500,7 @@ export function searchBlank(query = '', hint = null) {
 
 /**
  * The bar that adds an item at the foot of a list (Tasks, Projects): a card with a +, the field and
- * «Añadir», the same in both (rule 17 of web-kit.md). The notices rise over it (toast).
+ * «Añadir», the same in both (rule 16 of web-kit.md). The notices rise over it (toast).
  *
  * - `placeholder`, and `label` for the button (the kit's «Añadir» by default).
  * - `tools`: the module's own buttons, between the field and «Añadir» (Tasks' history, its category).
@@ -1271,7 +1271,7 @@ export function placeFixed(node, anchor, {
  * How long a trash keeps what is in it, said the same in every module above its rows: the plan's
  * days (`retention.days`, which the module's server sends as `days`), or, with `null`, until it is
  * emptied. The rest of a trash's words are the kit's too (`kit.restore`, `kit.deleteForever`,
- * `kit.cantUndo`, `kit.trash.*`; web-kit.md, rule 21).
+ * `kit.cantUndo`, `kit.trash.*`; web-kit.md, rule 20).
  */
 export function trashKeeps(days) {
   return days == null ? t('kit.trash.keepForever') : t('kit.trash.keepDays', { n: days });

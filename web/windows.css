@@ -106,7 +106,8 @@
 .cw-bar:hover::after, .cw-bar:focus-visible::after, .cw-desk[data-resizing] .cw-bar::after { background: var(--kit-muted); }
 .cw-bar:focus-visible { outline: none; }
 
-/* Where a carried window would land, when it isn't a column's place (that one is taken live). */
+/* Where a carried window would land, when it isn't a column's place (that one is taken live): its
+   left and top are the pointer's, physical on purpose (windows.js). */
 .cw-drop {
   position: absolute; left: 0; top: 0; z-index: 4; pointer-events: none; box-sizing: border-box;
   border: 2px dashed color-mix(in srgb, var(--kit-accent) 60%, transparent); border-radius: 12px;
