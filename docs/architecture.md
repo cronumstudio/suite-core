@@ -91,6 +91,7 @@ suite-core/
                                sending to an app's own devices, with no user behind them
   native-push.js        done   the same notices to the suite's phone app, straight to APNs (HTTP/2) and FCM v1;
                                reminders the phone shows itself are not pushed to it
+  notice-groups.js      done   notices grouped by key for a few seconds, then one for all; sent at once on stop
   uploads.js            done   file storage checked by content, serving, orphan sweep with brakes; a file from a link;
                                storeChecked: the cap per record and storage.mb before and after the file arrives
   storage.js            done   the storage a plan allows (storage.mb): check(user, adding, { payer }), the apps' 402
