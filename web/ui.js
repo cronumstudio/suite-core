@@ -12,7 +12,7 @@
  */
 import { el, $, append, clear } from './dom.js';
 import { errorMessage, planAction } from './api.js';
-import { t } from './i18n.js';
+import { t, dateFormat, relativeDay, currentLanguage, instant } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
 import { focusOnTap, rideKeyboard } from './keyboard.js';
@@ -127,6 +127,56 @@ export function saveState(initial = 'saved') {
   return { node, set };
 }
 
+/* --------------------------------- stamps --------------------------------- */
+
+const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+/**
+ * When something was done, as an item's detail says it: «hoy a las 15:52», «ayer a las 09:10»,
+ * «12 mar a las 14:00» (a year only when it isn't this one), in the interface language. Two-digit
+ * hours, except in English («9:10 AM»). A moment from the server, ISO or SQLite's; '' for none.
+ */
+export function stampTime(value) {
+  const date = instant(value);
+  if (!date) return '';
+  const time = dateFormat(currentLanguage() === 'en' ? { hour: 'numeric', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
+    .format(date);
+  const now = new Date();
+  const day = localDay(date);
+  if (day === localDay(now)) return t('kit.stamps.at', { day: relativeDay(0), time });
+  if (day === localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) {
+    return t('kit.stamps.at', { day: relativeDay(-1), time });
+  }
+  const label = dateFormat(date.getFullYear() === now.getFullYear()
+    ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  return t('kit.stamps.at', { day: label, time });
+}
+
+/**
+ * Who made an item and who changed it last, the same words under its detail in every module
+ * (kit.stamps.*, a task's: «Creada por Ana · hoy a las 15:52», «Modificada por Luis · ayer a las
+ * 09:10»). `author` and `editor` are names, `createdVia` and `updatedVia` the assistant it was done
+ * through, `created`, `updated` and `completed` the moments (`format` writes them: stampTime). The
+ * change is said only when it isn't the creation, the completion only when given.
+ * → the lines, in order, for a `.kit-stamps` block.
+ */
+export function stamps({
+  author = null, createdVia = null, created = null, editor = null, updatedVia = null, updated = null, completed = null,
+} = {}, { format = stampTime } = {}) {
+  const by = (name, via) => (name && via ? t('kit.stamps.via', { name, via }) : name);
+  const name = by(author, createdVia);
+  const when = created ? format(created) : '';
+  const lines = [name && when ? t('kit.stamps.createdByAt', { name, when })
+    : name ? t('kit.stamps.createdBy', { name })
+      : when ? t('kit.stamps.createdAt', { when }) : t('kit.stamps.created')];
+  if (updated && updated !== created) {
+    const at = format(updated);
+    lines.push(editor ? t('kit.stamps.modifiedBy', { name: by(editor, updatedVia), when: at }) : t('kit.stamps.modified', { when: at }));
+  }
+  if (completed) lines.push(t('kit.stamps.completed', { when: format(completed) }));
+  return lines;
+}
+
 /* --------------------------------- fields --------------------------------- */
 
 /** What a <label for> can name; anything else (a palette of buttons, a group) is not a control. */
@@ -154,7 +204,8 @@ export function field(label, control, hint = null, options = {}) {
   }
   const hintNode = hint ? el(hintTag, { class: hintClass, id: id && `${id}-hint`, text: hint }) : null;
   if (hintNode && id) target.setAttribute('aria-describedby', `${id}-hint`);
-  const header = labelable ? el('label', { for: id, text: label }) : el('span', { text: label });
+  // Over a group, a span with the label's measure (kit.css .kit-field__label), as a <label>'s.
+  const header = labelable ? el('label', { for: id, text: label }) : el('span', { class: 'kit-field__label', text: label });
   return el('div', { class: className }, header, control, hintNode);
 }
 
@@ -308,10 +359,28 @@ export function inkOn(color) {
   return onInk > onWhite ? INK : '#fff';
 }
 
-/** The initials of a name on a circle: what stands for a person. */
-export function avatar(name = '') {
-  const initials = String(name).trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
-  return el('span', { class: 'kit-avatar', 'aria-hidden': 'true', text: initials || '·' });
+/** A person's own colour, as accounts keep it (`users.avatar_color`): "#rrggbb", else none. */
+const AVATAR_COLOR = /^#[0-9a-f]{6}$/i;
+const AVATAR_SIZES = new Set(['tiny', 'small', 'large']);
+
+/**
+ * The initials of a name on a circle: what stands for a person. Given the person itself
+ * ({ name | display_name | username, avatar_color | color }) it takes their name and the colour
+ * they chose, the same in every module; without one, the kit's neutral. `size`: 'tiny', 'small'
+ * or 'large' (kit.css); `title`: the name on hover, where the circle stands alone for it.
+ */
+export function avatar(who = '', { color = null, size = null, title = null } = {}) {
+  const person = who && typeof who === 'object' ? who : null;
+  const name = person ? (person.name || person.display_name || person.username || '') : who;
+  const initials = String(name ?? '').trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
+  const paint = [color, person?.avatar_color, person?.color].find((value) => AVATAR_COLOR.test(String(value ?? '')));
+  return el('span', {
+    class: `kit-avatar${AVATAR_SIZES.has(size) ? ` kit-avatar--${size}` : ''}`,
+    'aria-hidden': 'true',
+    style: paint ? { background: paint } : null,
+    title: title || null,
+    text: initials || '·',
+  });
 }
 
 /** "by Cronum Studio": the brand that signs every app, in English in every language. */
