@@ -56,6 +56,7 @@ import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
+import { paintLive } from './live.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -1027,17 +1028,38 @@ export function createShell({
   /* --------------------------------- notices -------------------------------- */
 
   const shown = new Map();
-  /** A banner under the header, one per id: showing the same id again replaces it. */
-  function showBanner(id, options) {
-    hideBanner(id);
+  /** The banners given as a function: id → { write, words }, what wrote it and the words it drew. */
+  const written = new Map();
+  /** Draws a banner in place of the one of its id. */
+  function drawBanner(id, options) {
+    shown.get(id)?.remove();
     const node = bannerNode({ ...options, onClose: options.onClose ? () => { shown.delete(id); options.onClose(); } : null });
     shown.set(id, node);
     banners.append(node);
     return node;
   }
+  /**
+   * A banner under the header, one per id: showing the same id again replaces it. `options` may be
+   * a function that writes them, in the language of the moment: asked now, and shown again with the
+   * same words (its text and its action's) the one on screen stays as it is. The frame keeps it
+   * until it is closed or hidden (`keptBanners()`), for a frame drawn again in a new language.
+   */
+  function showBanner(id, options) {
+    if (typeof options !== 'function') {
+      written.delete(id);
+      return drawBanner(id, options);
+    }
+    const value = options();
+    const words = `${value.text}|${value.action?.label || ''}`;
+    const same = shown.has(id) && written.get(id)?.words === words;
+    written.set(id, { write: options, words });
+    if (same) return shown.get(id);
+    return drawBanner(id, { ...value, onClose: value.onClose ? () => { written.delete(id); value.onClose(); } : null });
+  }
   function hideBanner(id) {
     shown.get(id)?.remove();
     shown.delete(id);
+    written.delete(id);
   }
 
   /**
@@ -1072,9 +1094,7 @@ export function createShell({
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
-    live.dataset.state = state;
-    live.title = t(`kit.live.${state}`);
-    live.setAttribute('aria-label', t(`kit.live.${state}`));
+    paintLive(live, state);
   }
 
   /* -------------------------------- teardown -------------------------------- */
@@ -1171,6 +1191,8 @@ export function createShell({
     // Accepted, and does nothing: the modules still call it, and who is signed in is Settings' to say.
     setUser: () => {},
     setLive, showBanner, hideBanner, refreshModules, destroy,
+    /** The banners on screen that were given as a function: id → it, for a frame drawn anew to show them again. */
+    keptBanners: () => new Map([...written].map(([id, { write }]) => [id, write])),
   };
 }
 

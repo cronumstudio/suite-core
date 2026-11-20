@@ -24,12 +24,12 @@ import { el, clear } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { BASE, FRAMED, OPEN_EVENT, hostModules } from './base.js';
-import { workRegistry } from './mount.js';
+import { workRegistry, ownerOf } from './mount.js';
 import { ApiError, SessionExpired, Offline, errorMessage } from './api.js';
 import { toast, menu, openDialog, field, switchRow } from './ui.js';
 
-/** The module a page belongs to, from its base (`/tasks/` → tasks), as shell.js reads it; null on its own. */
-export const mountOf = (base) => /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(base)?.[1] || null;
+/** The module a page belongs to, from its base (`/tasks/` → tasks), as mount.js ownerOf reads it; null on its own. */
+export const mountOf = (base) => ownerOf(base ?? '');
 
 /** The host's API, at its root: links are the host's, not the module's (no at()). */
 async function hostCall(fetcher, method, path, body) {

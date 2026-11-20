@@ -82,7 +82,7 @@ import { icon } from './icons.js';
 import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer, offlineNotice } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
-import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress } from './native.js';
+import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress, openAddress } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { devicePushSubscription, ensureSubscription, pushSupport, noticesOnHere, markNoticesOff } from './push.js';
 import { markOwned, workRegistry } from './mount.js';
@@ -1826,7 +1826,7 @@ export function openSettings(options) {
     const link = (url, iconName, text) => {
       const shell = hostInfo.shell && !workRegistry();
       return el('a', {
-        class: 'kit-btn kit-btn--small kit-day__see', href: shell ? `/?open=${encodeURIComponent(url)}` : url,
+        class: 'kit-btn kit-btn--small kit-day__see', href: shell ? openAddress(url) : url,
         onClick: (ev) => { if (openInWork(ev)) close(); },
       }, icon(iconName), el('span', { text }));
     };
