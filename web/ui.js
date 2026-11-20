@@ -178,7 +178,8 @@ export function field(label, control, hint = null, options = {}) {
   }
   const hintNode = hint ? el(hintTag, { class: hintClass, id: id && `${id}-hint`, text: hint }) : null;
   if (hintNode && id) target.setAttribute('aria-describedby', `${id}-hint`);
-  const header = labelable ? el('label', { for: id, text: label }) : el('span', { text: label });
+  // Over a group, a span with the label's measure (kit.css .kit-field__label), as a <label>'s.
+  const header = labelable ? el('label', { for: id, text: label }) : el('span', { class: 'kit-field__label', text: label });
   return el('div', { class: className }, header, control, hintNode);
 }
 

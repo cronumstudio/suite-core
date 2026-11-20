@@ -25,6 +25,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   15:52», «Modificada por Luis · …», as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
   has the button that does the first thing) and 12 (an item's detail: the kit's labels, `saveState()`,
   its stamps) in `docs/web-kit.md`.
+- **A field's label over a group** (`field(…, { groupLabel: true })`, a palette of colours or icons): its
+  span takes `.kit-field__label`, the 13/500 of every field's label, as Projects and Next added by hand.
 
 ## 0.300.0 — 2026-11-19
 
