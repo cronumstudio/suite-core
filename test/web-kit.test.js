@@ -3715,7 +3715,7 @@ test('a group folded stays open with the collection open in it; without a menu i
   assert.match(css, /:root\[data-look="clean"\] \.kit-nav-group__head \{\s*min-height: 40px;[^}]*border-inline-start: 0; background: transparent; color: var\(--kit-text\);/);
 });
 
-/* ---------------------- the sidebar's entries (0.285.0) ---------------------- */
+/* ---------------------- the sidebar's entries (0.302.0) ---------------------- */
 
 test('an entry of the sidebar: its own emoji as wide as an icon, the kit\'s one shared mark, its title, its menu', async () => {
   const { page, win, restore } = await framePage();
@@ -3740,6 +3740,18 @@ test('an entry of the sidebar: its own emoji as wide as an icon, the kit\'s one 
     assert.equal(mark.getAttribute('aria-label'), mark.getAttribute('title'), 'said in words, and the same to a pointer');
     assert.equal(lead.children.length, 3, 'the module\'s own marks after it (a public page\'s globe)');
     assert.equal(sharedMark().getAttribute('class'), 'kit-nav__shared');
+    // Something under its name, in its column (a project's progress), and what its count means.
+    const bar = page.createElement('span');
+    const project = navItem({ label: 'House', emoji: '🏠', under: bar, count: 2, countTitle: '2 overdue' });
+    const [, body, count] = project.children;
+    assert.equal(body.getAttribute('class'), 'kit-nav__body');
+    assert.deepEqual([...body.children].map((node) => node.getAttribute('class')), ['kit-nav__label', null]);
+    assert.equal(body.children[1], bar);
+    assert.equal(count.getAttribute('title'), '2 overdue');
+    assert.equal(mine.children[2].getAttribute('title'), null, 'a count says nothing more without it');
+    assert.match(css, /\.kit-nav__body \{ position: relative; flex: 1; min-width: 0; display: grid; \}/);
+    assert.match(css, /\.kit-nav__lead:has\(> \.kit-nav__swatch\) \{ width: 16px; \}/, 'a shared colour’s label in line with the rest');
+    assert.match(css, /\.kit-nav-group__name > \.kit-nav__shared \{ position: static; flex: none; \}/, 'after a group’s name');
     assert.match(css, /\.kit-nav__emoji \{ display: inline-grid; place-items: center; width: 17px;/, 'as wide as a view\'s icon: every label starts in line');
     assert.match(css, /\.kit-nav__item \.kit-icon \{ color: var\(--kit-muted\); width: 17px; height: 17px; \}/);
     assert.match(css, /\.kit-nav__item \{\n[^}]*line-height: 1\.45;/, 'its own line height: 36 px in every module');

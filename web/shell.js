@@ -1299,7 +1299,8 @@ export function sharedMark({ owner = null, label = null } = {}) {
  * label starts in line), a `count` on the right; `now` paints it yolk (today,
  * my day). `shared` puts the kit's mark on its icon: true, or `{ owner }` when
  * it is someone else's; `marks` are more nodes there (a public page's globe).
- * `title` is said by a pointer resting on it (a long name, cut). `menu` (its
+ * `title` is said by a pointer resting on it (a long name, cut); `under`, a node
+ * under the name (a project's progress), and `countTitle`, what the count means. `menu` (its
  * items, or a function that returns them) or `onMenu(at, node)`: what its «…»
  * opens, there too with a right-click or a long press (`menuOnPress`). `data`
  * becomes data-* attributes: `{ drop: '', notebook: 7 }` makes it a place to
@@ -1308,7 +1309,7 @@ export function sharedMark({ owner = null, label = null } = {}) {
 export function navItem({
   label, iconName = null, color = null, emoji = null, count = null, current = false, now = false, href = null,
   onClick = null, data = null, shared = null, marks = null, title = null, menu: items = null, onMenu = null,
-  style = null, className = '',
+  style = null, className = '', under = null, countTitle = null,
 }) {
   const props = {
     class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}${className ? ` ${className}` : ''}`,
@@ -1322,10 +1323,12 @@ export function navItem({
       : iconName ? icon(iconName) : null;
   const corner = [shared ? sharedMark(shared === true ? {} : shared) : null, ...[marks].flat()].filter(Boolean);
   if (corner.length) lead = el('span', { class: 'kit-nav__lead' }, lead, corner);
+  const name = el('span', { class: 'kit-nav__label', text: label, title });
   const children = [
     lead,
-    el('span', { class: 'kit-nav__label', text: label, title }),
-    count != null ? el('span', { class: 'kit-nav__count', text: String(count) }) : null,
+    // `under`: a node under the name, in its column (a project's progress), the entry as tall.
+    under ? el('span', { class: 'kit-nav__body' }, name, under) : name,
+    count != null ? el('span', { class: 'kit-nav__count', text: String(count), title: countTitle }) : null,
   ];
   const node = href ? el('a', { ...props, href }, children) : el('button', { ...props, type: 'button' }, children);
   if (items || onMenu) {
