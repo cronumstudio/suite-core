@@ -1776,7 +1776,7 @@ export async function createHost({
     }
     // A page of any module, or of the host, opened with `?codigo=<CODE>`: the code's cookie (affiliates.js).
     suite.affiliates?.refFromQuery(req, res, url);
-    // An app's old address: its connector as it was, everything else to its module here.
+    // An app's old address: its /mcp names this one's, everything else goes to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
     // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else:

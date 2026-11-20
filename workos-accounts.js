@@ -331,12 +331,10 @@ export function createWorkosAccounts({
    * The user of an MCP OAuth token, or null if the token isn't valid. The
    * first time someone connects a client without ever opening the web app,
    * their account is created here, with what WorkOS says about them.
-   * `audience`: the address the token must be for, when it isn't this app's
-   * (an old address a host answers, legacy-domains.js).
    * @throws {WorkosUnavailable} if the token can't be checked right now.
    */
-  async function userFromToken(token, { audience = null } = {}) {
-    const data = await workos.verifyToken(token, audience ? { audience } : undefined);
+  async function userFromToken(token) {
+    const data = await workos.verifyToken(token);
     if (!data) return null;
     // Disconnected in the app: what AuthKit issued before that, or since with the same consent, is no one.
     if (connections && data.client_id && connections.refuses(data.sub, data.client_id, data)) return null;
@@ -599,9 +597,6 @@ export function createWorkosAccounts({
 
   return {
     id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser,
-    // The metadata for another address of the app (legacy-domains.js): this one's is handle()'s.
-    resourceMetadata: (resource, name) => workos.resourceMetadata({ resource, name }),
-    authorizationServerMetadata: () => workos.authorizationServerMetadata(),
     ...(users.workosIdOf ? { connectionsOf, revokeConnection, revokeAllConnections, deleteIdentity } : {}),
     ...(mark && users.workosIdOf ? { markAll, otherApps, unmark } : {}),
     signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,
