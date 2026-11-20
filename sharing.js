@@ -44,7 +44,11 @@
  * notice); its owner's list shows each by its address under the offer's id made
  * negative, and PATCH and DELETE …/<segment>/-<id> change it or take it back, with
  * the account waiting behind it; whoever signs up with the address, once it is
- * confirmed, finds the invitation; it goes when they answer it (`offerGoes`).
+ * confirmed, finds the invitation. It goes only when the invitation it brought is
+ * answered —accepted or declined— or its owner takes it back. Nothing else an
+ * account does moves it: accepting or declining what it was offered by name,
+ * leaving, a permission given it by name. Gone or changed then, it would tell its
+ * owner whose address it is: so it is in every module.
  *
  * The brake (share-brake.js, or the module's own with the same two methods):
  * every address without an account, and every offer to someone who hasn't
@@ -221,9 +225,6 @@ export function createAddressOffers({
     dropOf: (kind, thingId, userId) => drop(kind, thingId, get('SELECT email FROM users WHERE id = ?', userId)?.email ?? null),
     /** An offer taken back, by its id. */
     withdraw: (offerId) => run(`DELETE FROM ${table} WHERE id = ?`, offerId),
-    /** The offer waiting under someone's address takes what their share lets them do now. */
-    follow: (kind, thingId, userId, value) => run(`UPDATE ${table} SET ${permission} = ?
-      WHERE ${keyOf(kind)} = ? AND email = (SELECT email FROM users WHERE id = ?)`, value, thingId, userId),
     claim,
   };
 }
@@ -286,11 +287,6 @@ export function auditShare(audit, { step, actor, req = null, kind, id, targetId 
  *                         (Martin, 14/11/2026; see the top of the file). Without it, as before;
  *   addressOffers         the module's createAddressOffers, with this kind: the engine keeps its
  *                         offers by email itself (see the top of the file), `addresses` from it;
- *   offerGoes: 'theirs'   with addressOffers, the offer under someone's address goes whenever they
- *                         accept, decline or leave (Tasks), not only when they answer the invitation
- *                         it brought, which one picked by id never was (default 'answered');
- *   offerFollows: true    with addressOffers, that offer takes the new permission of their share,
- *                         given by name to whoever wasn't picked by id, waiting or a member (Notes);
  *   strictRemove: false   taking back a share that isn't there answers done, not 404;
  *   path, routes: { segment, list, patch }   its routes (see routes()).
  * @param {object|Function} [options.notify]  { push(n), email(n), stranger?(n) }, or one function for every
@@ -320,7 +316,7 @@ export function createSharing({
   const NO_TARGET = codes.noTarget || null;
 
   const KINDS = Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, {
-    invitedBy: 'invited_by', createdAt: 'created_at', stamp: true, offerGoes: 'answered',
+    invitedBy: 'invited_by', createdAt: 'created_at', stamp: true,
     ...(spec.addressOffers ? { addresses: { table: spec.addressOffers.table, key: spec.addressOffers.keyOf(kind) } } : {}),
     ...spec,
   }]));
@@ -695,7 +691,6 @@ export function createSharing({
     // accepted, what they may do, when it changed.
     if (invited || !row.accepted) noted('offer', { actor: userId, req, kind, id: thing.id, targetId: who.id, permission });
     else if (row.permission !== permission) noted('permission', { actor: userId, req, kind, id: thing.id, targetId: who.id, permission });
-    follow(spec, kind, thing, who.id, permission);
     spec.offered?.({ userId, thing, targetId: who.id, permission, invited, ctx });
     if (invited) tell(kind, thing, userId, who.id, permission);
     // By email it waits under the address as well, as for an address without an account; accepted
@@ -705,16 +700,6 @@ export function createSharing({
       else spec.addressOffers.keep(kind, thing.id, userId, who.email, permission);
     }
     return answer({ kind, userId, thing, target: who, permission, invited, ctx });
-  }
-
-  /**
-   * With `offerFollows`, the offer under someone's address takes the permission their share was
-   * given by name, unless they were picked by id: that offer is another, of their name.
-   */
-  function follow(spec, kind, thing, targetId, permission) {
-    if (!spec.offerFollows || !spec.addressOffers || !targetId) return;
-    if (spec.byId && shareRow(kind, thing.id, targetId)?.[spec.byId]) return;
-    spec.addressOffers.follow(kind, thing.id, targetId, permission);
   }
 
   /** Who has something: its owner and whoever it was offered to (and, for its owner, its offers by address). → { role, owner, shares }. */
@@ -743,7 +728,6 @@ export function createSharing({
     if (!row.accepted && !byAddress) count(userId);
     run(`UPDATE ${table} SET permission = ? WHERE ${key} = ? AND user_id = ?`, perm, thing.id, targetId);
     if (row.permission !== perm) noted('permission', { actor: userId, req, kind, id: thing.id, targetId, permission: perm });
-    follow(spec, kind, thing, targetId, perm);
     spec.changed?.({ userId, thing, targetId, permission: perm });
     return sharesOf(kind, thing.id, { owner: true }).find((s) => s.user.id === targetId);
   }
@@ -797,13 +781,11 @@ export function createSharing({
   }
 
   /**
-   * Whether the offer under someone's address goes with what they did to their share (`offerGoes`):
-   * by default when they answer the invitation it brought —accepting or declining one typed, never
-   * one they were picked for by id—; 'theirs', whenever they accept, decline or leave.
+   * Whether a share was the invitation an offer by address brought: not accepted yet, and not one
+   * they were picked for by id, which is another offer, of their name. Only answering that one
+   * takes the offer under their address with it (see the top of the file).
    */
-  const offerGoes = (spec, row, targetId, userId) => (spec.offerGoes === 'theirs'
-    ? Number(targetId) === Number(userId)
-    : !row.accepted && !(spec.byId && row[spec.byId]));
+  const broughtByAddress = (spec, row) => !row.accepted && !(spec.byId && row[spec.byId]);
 
   /**
    * Ends someone's access: its owner takes it back from anyone; anyone else,
@@ -833,7 +815,7 @@ export function createSharing({
     spec.removing?.(info);
     dropShare(kind, thing.id, targetId);
     noted(Number(targetId) === Number(userId) ? 'leave' : 'withdraw', { actor: userId, req, kind, id: thing.id, targetId });
-    if (spec.addressOffers && offerGoes(spec, row, targetId, userId)) spec.addressOffers.dropOf(kind, thing.id, targetId);
+    if (spec.addressOffers && broughtByAddress(spec, row)) spec.addressOffers.dropOf(kind, thing.id, targetId);
     spec.removed?.(info);
   }
 
@@ -844,11 +826,11 @@ export function createSharing({
     spec.addressOffers?.claim(userId);
     const thing = spec.pending(userId, id);
     spec.accepting?.({ userId, thing, body, ctx });
+    // Read before it is taken up: the invitation an offer by address brought, or one by name.
+    const row = spec.addressOffers ? shareRow(kind, thing.id, userId) : null;
     acceptOffer(kind, thing.id, userId);
-    // From now on they show by their name: the address it went to waits no more (`offerGoes`).
-    if (spec.addressOffers && (spec.offerGoes === 'theirs' || !(spec.byId && shareRow(kind, thing.id, userId)?.[spec.byId]))) {
-      spec.addressOffers.dropOf(kind, thing.id, userId);
-    }
+    // From now on they show by their name: the address it went to waits no more, when that was it.
+    if (row && broughtByAddress(spec, row)) spec.addressOffers.dropOf(kind, thing.id, userId);
     return spec.accepted ? spec.accepted({ userId, thing, body, ctx }) : thing;
   }
 

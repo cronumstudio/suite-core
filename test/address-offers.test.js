@@ -3,7 +3,7 @@
  * database in memory: an offer by email waits under its address whether an account has it or not;
  * its owner's list shows it by the address under a negative id; PATCH and DELETE …/-<id> change it
  * and take it back with the account waiting behind it; whoever signs up with the address claims it;
- * it goes when they answer it, and with `offerFollows` takes their new permission.
+ * it goes when the invitation it brought is answered, and nothing else an account does moves it.
  *
  *   npm test (node --test test/address-offers.test.js for this alone)
  */
@@ -116,11 +116,8 @@ test('the offers of a thing: kept, made again, shown whole to whoever typed them
   assert.deepEqual(offers.rows('board', 10, 2), [{ user: { id: -id, name: 'maria@example.com', email: 'maria@example.com' }, permission: 'edit', accepted: false, created_at: NOW }]);
   assert.deepEqual(offers.rows('board', 10, 1)[0].user, { id: -id, name: 'm•••@example.com', email: 'm•••@example.com' });
   offers.setPermission(id, 'view');
-  offers.follow('board', 10, 2, 'edit');
-  assert.equal(offersOf(db)[0].permission, 'view', 'Ben has no offer under his address');
+  assert.equal(offersOf(db)[0].permission, 'view');
   db.run("UPDATE users SET email = 'maria@example.com' WHERE id = 4");
-  offers.follow('board', 10, 4, 'edit');
-  assert.equal(offersOf(db)[0].permission, 'edit', 'Dani’s does');
   offers.dropOf('board', 10, 3);
   assert.equal(offersOf(db).length, 1);
   offers.dropOf('board', 10, 4);
@@ -287,40 +284,47 @@ test('taking back by the offer’s row: with the account behind it as any share,
   assert.deepEqual(lenient.since(), [[], []], 'done, and nobody told');
 });
 
-test('it goes when they answer the invitation it brought; with offerGoes: theirs, whenever they accept, decline or leave', () => {
-  for (const goes of ['answered', 'theirs']) {
-    const { db, sharing } = setup({ kind: { offerGoes: goes } });
-    // Typed, then picked by id: accepting the one picked leaves the address's, by default.
-    db.run("INSERT INTO board_shares (board_id, user_id, permission, accepted) VALUES (20, 1, 'edit', 1)");
-    sharing.share('board', 1, 10, { email: 'ben@example.com' });
-    sharing.share('board', 1, 10, { user_id: 2, permission: 'view' });
-    sharing.accept('board', 2, 10);
-    assert.deepEqual(offersOf(db).map((o) => o.email), goes === 'theirs' ? [] : ['ben@example.com'], `${goes}: accepted the one picked`);
-    // An address typed for the member: leaving takes it only with theirs.
-    sharing.share('board', 1, 10, { email: 'ben@example.com' });
-    sharing.remove('board', 2, 10, 2);
-    assert.deepEqual(offersOf(db).map((o) => o.email), goes === 'theirs' ? [] : ['ben@example.com'], `${goes}: left`);
-    // Typed only and declined: it goes either way.
-    sharing.share('board', 1, 11 - 1, { email: 'cris@example.com' });
-    sharing.remove('board', 3, 10, 3);
-    assert.ok(!offersOf(db).some((o) => o.email === 'cris@example.com'), `${goes}: declined`);
-  }
-});
+test('it goes only when the invitation it brought is answered: nothing else an account does moves it', () => {
+  const { db, sharing } = setup();
+  // Ana knows Ben: she accepted his board.
+  db.run("INSERT INTO board_shares (board_id, user_id, permission, accepted) VALUES (20, 1, 'edit', 1)");
+  const typed = () => offersOf(db).map((o) => [o.email, o.permission]);
 
-test('offerFollows: the offer under a member’s address takes the permission given them by name, unless they were picked', () => {
-  for (const follows of [false, true]) {
-    const { db, sharing } = setup({ kind: { offerFollows: follows } });
-    sharing.share('board', 1, 10, { email: 'ben@example.com' });
-    sharing.accept('board', 2, 10);
-    sharing.share('board', 1, 10, { email: 'ben@example.com', permission: 'view' });
-    sharing.setPermission('board', 1, 10, 2, 'edit');
-    assert.equal(offersOf(db)[0].permission, follows ? 'edit' : 'view', `follows: ${follows}`);
-  }
-  const { db, sharing } = setup({ kind: { offerFollows: true } });
-  db.run("INSERT INTO board_shares (board_id, user_id, permission, accepted, by_id) VALUES (10, 3, 'edit', 1, 1)");
-  sharing.share('board', 1, 10, { email: 'cris@example.com', permission: 'view' });
-  sharing.setPermission('board', 1, 10, 3, 'edit');
-  assert.equal(offersOf(db)[0].permission, 'view', 'picked by id: another offer');
+  // Typed, then picked by id: two offers. Answering the one by name leaves the address's as it was.
+  sharing.share('board', 1, 10, { email: 'ben@example.com', permission: 'edit' });
+  sharing.share('board', 1, 10, { user_id: 2, permission: 'view' });
+  sharing.accept('board', 2, 10);
+  assert.deepEqual(typed(), [['ben@example.com', 'edit']], 'accepted by name');
+  sharing.remove('board', 2, 10, 2);
+  assert.deepEqual(typed(), [['ben@example.com', 'edit']], 'left');
+  sharing.share('board', 1, 10, { user_id: 2, permission: 'view' });
+  sharing.remove('board', 2, 10, 2);
+  assert.deepEqual(typed(), [['ben@example.com', 'edit']], 'declined by name');
+
+  // An address typed for a member: their new permission by name leaves it as it was; so does leaving.
+  sharing.claimAddressOffers(2);
+  sharing.accept('board', 2, 10);
+  assert.deepEqual(typed(), [], 'accepted what the address brought: it shows by name from now on');
+  sharing.share('board', 1, 10, { email: 'ben@example.com', permission: 'view' });
+  sharing.setPermission('board', 1, 10, 2, 'view');
+  sharing.setPermission('board', 1, 10, 2, 'edit');
+  sharing.share('board', 1, 10, { user_id: 2, permission: 'view' });
+  assert.deepEqual(typed(), [['ben@example.com', 'view']], 'a permission given by name');
+  sharing.remove('board', 2, 10, 2);
+  assert.deepEqual(typed(), [['ben@example.com', 'view']], 'left');
+
+  // Taken back by name, an offer typed and picked leaves the address's as it was.
+  sharing.share('board', 1, 11, { email: 'ben@example.com' });
+  sharing.share('board', 1, 11, { user_id: 2 });
+  sharing.remove('board', 1, 11, 2);
+  assert.deepEqual(offersOf(db, 11).map((o) => o.email), ['ben@example.com']);
+
+  // Typed only, and declined: it goes; the address of another thing waits on.
+  sharing.share('board', 1, 10, { email: 'cris@example.com' });
+  sharing.share('board', 1, 11, { email: 'cris@example.com' });
+  sharing.remove('board', 3, 10, 3);
+  assert.ok(!offersOf(db).some((o) => o.email === 'cris@example.com'), 'declined');
+  assert.deepEqual(offersOf(db, 11).map((o) => o.email), ['ben@example.com', 'cris@example.com']);
 });
 
 test('accepting claims first; claimAddressOffers claims every kind’s', () => {
