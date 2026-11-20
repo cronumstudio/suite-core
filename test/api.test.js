@@ -21,6 +21,7 @@ import { createOrganizations } from '../organizations.js';
 import { createAudit } from '../audit.js';
 import { registerAdminApi, registerOrganizationsApi, registerProfileApi } from '../api.js';
 import { createTokens } from '../tokens.js';
+import { createRevoker } from '../revoke.js';
 
 async function start(t, { earlyAccess = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-api-'));
@@ -65,10 +66,14 @@ async function start(t, { earlyAccess = null } = {}) {
   const pushed = { unsubscribed: [] };
   const push = { unsubscribe: (id) => { pushed.unsubscribed.push(id); return 1; } };
   const forgotten = [];
-  registerAdminApi(router, {
-    accounts, entitlements, organizations, sessions, audit, tokens, idp, push,
-    oauth: { forgetUser: (id) => forgotten.push(id) },
+  // Out everywhere as createSuite wires it: the admin's "sign out everywhere" and every new password.
+  const { revokeEverything } = createRevoker({
+    database, sessions, tokens, idp, push, oauth: { forgetUser: (id) => forgotten.push(id) },
   });
+  accounts.whenPasswordSet((id, { exceptToken }) => revokeEverything(id, {
+    keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'password_set',
+  }));
+  registerAdminApi(router, { accounts, entitlements, organizations, sessions, audit, revokeEverything });
   registerOrganizationsApi(router, { organizations, audit, baseUrl: 'https://app.example/' });
   // Connected apps: a stand-in for the OAuth server with one grant per person.
   const grants = new Map();

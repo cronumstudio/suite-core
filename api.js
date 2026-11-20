@@ -725,6 +725,8 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  * @param {object} router
  * @param {object} deps
  * @param {object} deps.accounts        from createAccounts()
+ * @param {Function} deps.revokeEverything  from createRevoker() (revoke.js): out everywhere, as a new
+ *   password is
  * @param {object} [deps.entitlements]  from createEntitlements()
  * @param {object} [deps.organizations] from createOrganizations()
  * @param {object} [deps.sessions]      from createSessions()
@@ -744,7 +746,7 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
-  tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null, sharedLogin = null,
+  devices = null, revokeEverything, sharedLogin = null,
   confirmAdmin = null, localPasswords = true, logins = null, deletion = null, overview = null,
 }) {
   // The identity provider, where its login is shared with other apps (config.accounts.sharedIdentity) and it can say who else uses it.
@@ -756,27 +758,16 @@ export function registerAdminApi(router, {
    * person's phones and, with WorkOS, the AI clients authorized in AuthKit.
    * Closing the sessions alone left the assistants connected, the notices
    * coming, and the provider's session ready to sign that browser back in with
-   * one click. createApp gives `revokeEverything` (revoke.js), the same that a
-   * new password does; without it, the parts given here.
+   * one click. It is `revokeEverything` (revoke.js), the same that a new
+   * password does.
    */
   const signOutEverywhere = (id, { exceptToken = null, ctx = null } = {}) => {
-    if (revokeEverything) {
-      const out = revokeEverything(id, {
-        keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'sign_out_everywhere',
-        actor: ctx?.user ?? undefined, req: ctx?.req ?? null,
-      });
-      // The answer says what it always said.
-      return { closed: out.closed, tokens: out.tokens, ...(devices ? { devices: out.devices } : {}) };
-    }
-    const atProvider = sessions?.idpSessionsOf?.(id, { exceptToken }) || [];
-    const closed = sessions ? sessions.closeAllOf(id, { exceptToken }) : 0;
-    const revoked = tokens?.revokeAllOf(id) ?? 0;
-    oauth?.forgetUser(id);
-    push?.unsubscribe(id);
-    // Only said when the module is on: without it the answer stays as it was.
-    const phones = devices ? { devices: devices.revokeAllOf(id) } : {};
-    revokeAtProvider(idp, atProvider);
-    return { closed, tokens: revoked, ...phones };
+    const out = revokeEverything(id, {
+      keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'sign_out_everywhere',
+      actor: ctx?.user ?? undefined, req: ctx?.req ?? null,
+    });
+    // The answer says what it always said: the devices only when the module is on.
+    return { closed: out.closed, tokens: out.tokens, ...(devices ? { devices: out.devices } : {}) };
   };
   const requireAdmin = (ctx) => {
     if (!ctx.user) throw unauthorized();
@@ -939,10 +930,9 @@ export function registerAdminApi(router, {
       emailVerified: body.email_verified,
     });
     if (body.password !== undefined) {
+      // Someone else's password set by the admin is someone else out, everywhere: setPassword
+      // does that (accounts.whenPasswordSet → revokeEverything, createSuite).
       accounts.setPassword(id, body.password, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
-      // Someone else's password set by the admin is someone else out, everywhere. With
-      // revokeEverything, setPassword already did that (accounts.whenPasswordSet, createSuite).
-      if (id !== ctx.user.id && !revokeEverything) signOutEverywhere(id);
     }
     record(ctx, 'admin.user.update', 'user', id, {
       fields: Object.keys(body).filter((k) => k !== 'password'), password: body.password !== undefined,

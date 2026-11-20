@@ -96,6 +96,8 @@ export function createFreshSignIns({ clock = () => Date.now() } = {}) {
  * @param {object} deps.users      from workosUsers(): workosIdOf, methodOf
  * @param {object} deps.accounts   from createAccounts()
  * @param {object} deps.sessions   from createSessions()
+ * @param {Function} deps.revokeEverything  from createRevoker() (revoke.js): out everywhere after a
+ *   new password, as everywhere else
  * @param {string} deps.appName    how the authenticator app names the account
  * @param {'on'|'admins'|'off'} [deps.twoFactor]
  * @param {boolean} [deps.adminIdentity]  whether the admin may set someone's password and take
@@ -115,7 +117,7 @@ export function createFreshSignIns({ clock = () => Date.now() } = {}) {
  */
 export function registerWorkosSecurityApi(router, {
   workos, users, accounts, sessions, limiter = null, audit = null, appName = 'App', twoFactor = 'on',
-  revokeAtProvider = () => {}, revokeEverything = null, adminIdentity = false, mark = null, freshSignIns = null,
+  revokeEverything, adminIdentity = false, mark = null, freshSignIns = null,
   minPasswordLength = 8, trustProxy = process.env.TRUST_PROXY, clock = () => Date.now(),
 }) {
   // `n`: the shortest it takes, which the sentence says (errors.password_rejected), WorkOS's reason
@@ -216,17 +218,10 @@ export function registerWorkosSecurityApi(router, {
 
   /**
    * After a new password: everyone else out (revoke.js: the sessions here and at
-   * WorkOS, API tokens, phones, AI clients…), but `keep`'s session. Without
-   * revokeEverything (a caller from before), the sessions alone, as it was.
+   * WorkOS, API tokens, phones, AI clients…), but `keep`'s session.
    */
   const outEverywhere = (ctx, user, keep, reason) => {
-    if (revokeEverything) {
-      revokeEverything(user.id, { keep: keep ? { sessionToken: keep } : null, reason, actor: ctx.user, req: ctx.req });
-      return;
-    }
-    const atProvider = sessions.idpSessionsOf?.(user.id, { exceptToken: keep }) || [];
-    sessions.closeAllOf(user.id, { exceptToken: keep });
-    revokeAtProvider(atProvider);
+    revokeEverything(user.id, { keep: keep ? { sessionToken: keep } : null, reason, actor: ctx.user, req: ctx.req });
   };
 
   /**
