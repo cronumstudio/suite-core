@@ -265,7 +265,7 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote`, `stripe` or one registered from outside) with `BILLING_*`, `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
+`BILLING_PROVIDER` (`stripe` or one registered from outside) with `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
 `FOUNDER_OFFER_UNTIL`, `FOUNDER_JOIN_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
@@ -1876,14 +1876,10 @@ kit's), then Notes is built on it whole, then the others as they move to English
   admin enabling one that waits takes the deletion back. The clean-ups (hourly, once for a host)
   delete the accounts whose days are over with `accounts.remove()`, so every hook runs (each app
   hands over what others share and deletes its files), and the audit keeps only `account.delete`
-  of account #n. Where this install is all a person has at the providers
-  (`accounts.deleteAtProviders`: Cronum Work), the subscriptions they pay for stop renewing when
-  they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when the
-  account goes, and the WorkOS user is deleted first (an account whose identity can't be deleted
-  waits for the next sweep); never where other apps share those accounts or that subscription.
-  `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
-  an install that bills alone while other apps sign in with the same users; left out, as
-  `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
+  of account #n. With `accounts.endSubscriptions` (v0.128.0: an install that bills alone, Cronum
+  Work, while other apps sign in with the same users), the subscriptions they pay for stop renewing
+  when they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when
+  the account goes; never where other apps share that subscription. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
   first too, where the install ends them (v0.274.0, `deletion.endSubscriptionsOf`): if the provider
   can't end one that still renews, nothing is deleted (503 `subscription_not_ended`), to try
   again, and the log keeps how many ended. One the person cancelled already (in the portal, or by
@@ -1903,12 +1899,12 @@ kit's), then Notes is built on it whole, then the others as they move to English
   asked (`auto`), and their login goes with the account unless, by then, another app has noted
   them. The admin's deletion keeps the login unless asked (`?identity=1`; `GET
   /api/admin/users/:id/other-apps` says who else they use). A login that stays no longer names
-  this app. One or the other with `deleteAtProviders`, which always deletes it.
+  this app.
   `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's `onDeletionRequested`,
   `onDeletionCancelled`) tell others of the request and of its taking back, awaited after it; a
   hook that fails is logged; a host's modules get them too. With `billing.stopOnOrganizationDeleted`,
   a group whose members are all waiting to be deleted stops renewing there (section 9, "A group
-  that goes"). The person's own subscriptions stopped at the request (`accounts.deleteAtProviders`)
+  that goes"). The person's own subscriptions stopped at the request (`accounts.endSubscriptions`)
   are noted one by one, so taking the account back renews only what this install stopped, never a
   cancellation they had made themselves. A
   message says until when, when mail leaves the server. The last administrator can't ask.

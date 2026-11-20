@@ -27,10 +27,9 @@
  *   { id, fromEnv(env, { errors }) → the install's stores ({ provider: id, … }) or null,
  *     create(install, { products, log }) → the adapter stores.js describes }
  *
- * This copy registers `stripe` and `remote` (the hosted suite's accounts service), and no store
- * provider. The hosted suite registers its own (Paddle, RevenueCat) from a private repository.
+ * This copy registers `stripe` and no store provider. The hosted suite registers its own (Paddle,
+ * RevenueCat) from a private repository.
  */
-import { signedProvider } from './billing.js';
 import { stripeBilling } from './stripe.js';
 
 const web = new Map();
@@ -65,18 +64,5 @@ export const storeProviderOf = (id) => stores.get(id) ?? null;
 export const billingProviders = () => [...web.values()];
 export const storeProviders = () => [...stores.values()];
 
-/** The private accounts service of the hosted suite: checkouts and events signed with a shared secret. */
-export const remoteBilling = Object.freeze({
-  id: 'remote',
-  fromEnv(env, { errors }) {
-    if (!env.BILLING_SECRET || env.BILLING_SECRET.length < 16) {
-      errors.push('BILLING_PROVIDER=remote needs BILLING_SECRET (16 characters or more)');
-      return null;
-    }
-    return { provider: 'remote', secret: env.BILLING_SECRET, url: String(env.BILLING_URL || '').replace(/\/+$/, '') };
-  },
-  create: (install) => signedProvider({ id: 'remote', secret: install.secret, baseUrl: install.url }),
-});
 
 registerBillingProvider(stripeBilling);
-registerBillingProvider(remoteBilling);
