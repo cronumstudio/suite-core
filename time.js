@@ -18,6 +18,9 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+/** A moment, in milliseconds, as the ISO text the tables keep (`2026-11-20T09:30:00.000Z`). */
+export const iso = (ms) => new Date(ms).toISOString();
+
 /** Names asked of knownTimeZone() and what each resolved to (null: none), at most ZONES_KEPT of them. */
 const zones = new Map();
 const ZONES_KEPT = 500;

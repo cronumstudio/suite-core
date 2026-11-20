@@ -35,9 +35,9 @@
  */
 import { randomToken, sha256 } from './crypto.js';
 import { HttpError, badRequest, notFound, forbidden, conflict } from './http.js';
+import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 /**
  * How long an expired invitation is kept after it expires: whoever opens its link a few days
  * late still hears that it expired and to ask for a new one (410 `invitation_expired`), not that

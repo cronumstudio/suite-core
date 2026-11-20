@@ -26,7 +26,9 @@
  */
 import crypto from 'node:crypto';
 import { base32Encode, base32Decode, matchStep, totp } from './two-factor.js';
-import { HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int, clientIp } from './http.js';
+import {
+  HttpError, sendJson, readJson, badRequest, notFound, forbidden, conflict, int, clientIp, requireUser, requireAdmin,
+} from './http.js';
 import { answeredOnce } from './idempotency.js';
 import { WorkosUnavailable } from './workos.js';
 
@@ -125,15 +127,6 @@ export function registerWorkosSecurityApi(router, {
   const rejected = (detail) => badRequest('password_rejected', { n: minPasswordLength, ...(detail ? { detail } : {}) });
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
-  const requireAdmin = (ctx) => {
-    const user = requireUser(ctx);
-    if (user.role !== 'admin') throw forbidden('admin_only');
-    return user;
-  };
   const workosId = (user) => {
     const id = users.workosIdOf(user.id);
     if (!id) throw conflict('no_workos_account');

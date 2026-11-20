@@ -41,7 +41,7 @@
  * counts that entitlements.js keeps for `mcp.calls_per_day` (and adds up by the
  * week for `mcp.calls_per_week`).
  */
-import { sendJson, unauthorized, forbidden, notFound, int } from './http.js';
+import { sendJson, unauthorized, notFound, int, requireAdmin } from './http.js';
 import { weekStart } from './entitlements.js';
 
 /** What a module may count, as the panels name them (kit.usage.items.<id>). */
@@ -251,10 +251,6 @@ const PEAK_BATCH = 100;
  * them. Only the dialog of one account shows when each module last changed (`activity`).
  */
 export function registerUsageApi(api, { accounts, usageFor, peaksFor = null }) {
-  const requireAdmin = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    if (ctx.user.role !== 'admin') throw forbidden('admin_only');
-  };
   api.get('/api/admin/users/:id/usage', (ctx) => {
     requireAdmin(ctx);
     const user = accounts.byId(int(ctx.params.id, { field: 'id', min: 1 }));

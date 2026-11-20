@@ -20,8 +20,8 @@
 import { badRequest, notFound, conflict } from './http.js';
 import { hashPassword, verifyPassword, needsRehash } from './crypto.js';
 import { ensureColumn } from './migrate.js';
+import { iso } from './time.js';
 
-const iso = (ms) => new Date(ms).toISOString();
 
 /** How an account's pages look: the system's, or always light or dark. */
 export const THEMES = Object.freeze(['system', 'light', 'dark']);

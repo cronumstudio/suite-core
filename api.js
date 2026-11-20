@@ -13,7 +13,7 @@
  * Every change is recorded in the audit log, without content.
  */
 import {
-  HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int, idOrNull, str,
+  HttpError, sendJson, readJson, badRequest, notFound, forbidden, conflict, int, idOrNull, str, requireUser, requireAdmin
 } from './http.js';
 import { verifyPassword } from './crypto.js';
 import { answeredOnce } from './idempotency.js';
@@ -238,10 +238,6 @@ export function registerAuthApi(router, {
  * language. What each real notice says, and to whom, is the app's.
  */
 export function registerPushApi(router, { push, texts, appName, sessionKeyOf = () => null }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   router.get('/api/push/config', (ctx) => {
     requireUser(ctx);
@@ -317,10 +313,6 @@ export function registerAccountMailApi(router, {
     accounts?.signedIn(user.id);
     return accounts?.byId(user.id) ?? user;
   };
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   /** Always the same answer: it never says whether an account exists. */
   router.post('/api/auth/forgot', async (ctx) => {
@@ -371,11 +363,6 @@ export function registerAccountMailApi(router, {
   });
 
   if (!admin) return;
-  const requireAdmin = (ctx) => {
-    const user = requireUser(ctx);
-    if (user.role !== 'admin') throw forbidden('admin_only');
-    return user;
-  };
 
   router.get('/api/admin/invitations', (ctx) => {
     requireAdmin(ctx);
@@ -422,10 +409,6 @@ export function registerProfileApi(router, {
   limiter = null, twoFactor = null, localPasswords = true, idp = null, deletion = null, push = null,
   providerPassword = null,
 }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
 
@@ -678,10 +661,6 @@ export function registerProfileApi(router, {
  * @param {object} [deps.accountMail]    to send the link that confirms a new email
  */
 export function registerMeApi(router, { accounts, serializeUser, prefs, localEmail = true, accountMail = null }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   router.get('/api/me', (ctx) => {
     sendJson(ctx.res, 200, { user: serializeUser(requireUser(ctx), { req: ctx.req }) });
@@ -763,11 +742,6 @@ export function registerAdminApi(router, {
     });
     // The answer says what it always said: the devices only when the module is on.
     return { closed: out.closed, tokens: out.tokens, ...(devices ? { devices: out.devices } : {}) };
-  };
-  const requireAdmin = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    if (ctx.user.role !== 'admin') throw forbidden('admin_only');
-    return ctx.user;
   };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -1155,10 +1129,6 @@ export function registerAdminApi(router, {
  * `${baseUrl}/?invitation=<token>`, which the web kit accepts after sign-in.
  */
 export function registerOrganizationsApi(router, { organizations, audit = null, baseUrl = '' }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
   const record = (ctx, action, organizationId, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, organizationId, targetType, targetId, meta });
   /**

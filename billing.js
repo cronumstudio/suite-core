@@ -162,9 +162,9 @@ import crypto from 'node:crypto';
 import { HttpError, badRequest, forbidden, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
 import { ensureColumn } from './migrate.js';
 import { answeredOnce } from './idempotency.js';
+import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 
 export function billingSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS billing_customers (

@@ -38,8 +38,8 @@
  */
 import { HttpError } from './http.js';
 import { PLAN_CATALOGS } from './plans.js';
+import { iso } from './time.js';
 
-const iso = (ms) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000;
 /**
  * Days of a daily limit's counts kept: the barrier only needs today's, but the admin's Usage
