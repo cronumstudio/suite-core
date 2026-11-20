@@ -558,12 +558,47 @@ export function idOrNull(value, field) {
   return n;
 }
 
+/** The id a route names (`/api/notes/:id`, or the param `name`): 400 `field_invalid` when it is no id, 404 when there is none. */
+export function idParam(ctx, name = 'id') {
+  const id = idOrNull(ctx.params[name], name);
+  if (!id) throw notFound();
+  return id;
+}
+
 /** An integer within bounds. */
 export function int(value, { field, min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isInteger(n) || n < min || n > max) throw badRequest('field_invalid', { field, min, max });
   return n;
 }
+
+/**
+ * An integer that may be left out: `fallback` when it is (null, undefined, ''). One that is no
+ * integer is 400 `code`; one out of `min`…`max`, when they are given, 400 `range` with both
+ * bounds. The codes are each module's, those its pages already put in words.
+ */
+export function intInRange(value, { field, min, max, fallback = null, code = 'field_invalid', range = code } = {}) {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n)) throw badRequest(code, { field });
+  if (n < min || n > max) throw badRequest(range, { field, min, max });
+  return n;
+}
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * A colour as `#rrggbb`, lowercased; `fallback` when there is none (null, undefined). Anything else
+ * is 400 `code`, with the `field` when one is given: each module answers the code its pages know.
+ */
+export function color(value, { fallback = null, code = 'field_invalid', field } = {}) {
+  if (value == null) return fallback;
+  if (typeof value !== 'string' || !HEX_COLOR.test(value)) throw badRequest(code, field === undefined ? undefined : { field });
+  return value.toLowerCase();
+}
+
+/** An object as JSON has them: not null, not an array. */
+export const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * A calendar date as `YYYY-MM-DD` that exists and falls in a sensible range:
@@ -579,7 +614,23 @@ export function isoDate(value, { minYear = 1900, maxYear = 2200 } = {}) {
   if (!match) return null;
   const [y, m, d] = match.slice(1).map(Number);
   if (y < minYear || y > maxYear) return null;
-  const date = new Date(Date.UTC(y, m - 1, d));
+  // setUTCFullYear and not Date.UTC, which reads a year under 100 as 19xx.
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
   if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
   return match[0];
+}
+
+/**
+ * A day as a client sends one, `YYYY-MM-DD`: null when there is none (null, undefined, ''); a whole
+ * ISO instant is cut to its day, its first ten characters. Not written so, or no text, is 400
+ * `code`; written so but not on the calendar (2026-02-31) or out of `minYear`…`maxYear` (isoDate's
+ * range unless given), 400 `invalid`, the same code unless given. Both with the `field`.
+ */
+export function dateOnly(value, { field, code = 'field_invalid', invalid = code, minYear, maxYear } = {}) {
+  if (value == null || value === '') return null;
+  const day = typeof value === 'string' ? value.slice(0, 10) : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw badRequest(code, { field });
+  if (isoDate(day, { minYear, maxYear }) !== day) throw badRequest(invalid, { field });
+  return day;
 }

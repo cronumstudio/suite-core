@@ -127,3 +127,31 @@ export function wrapDatabase(db, { path = null } = {}) {
     },
   };
 }
+
+/* ----------------------------- many ids at once ----------------------------- */
+
+/** The most ids one statement is given (inBatches): far under SQLite's 32,766 parameters. */
+const BATCH = 500;
+
+/**
+ * The rows `query(marks, batch)` gives for many ids, asked BATCH at a time: a fixed number of
+ * statements however many ids there are, never one per id, and never more parameters than SQLite
+ * takes. `marks` is the batch's `?,?,…` for an `IN (…)`, `batch` its ids; the rows of every batch
+ * come together, in order. Each id is asked once; with `unique: false` every one as given, repeats
+ * too. A write gives no rows, so the same splits a change of many rows.
+ */
+export function inBatches(ids, query, { unique = true } = {}) {
+  const list = unique ? [...new Set(ids)] : [...ids];
+  const rows = [];
+  for (let at = 0; at < list.length; at += BATCH) {
+    const batch = list.slice(at, at + BATCH);
+    for (const row of query(batch.map(() => '?').join(','), batch) ?? []) rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Someone's id as a query binds it: a whole number, or 0 —no account is 0— for anything else, so
+ * an id that is no number finds nothing instead of making SQLite refuse the query.
+ */
+export const personId = (id) => (Number.isSafeInteger(Number(id)) ? Number(id) : 0);

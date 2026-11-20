@@ -51,6 +51,15 @@ export const PUBLIC_TOKEN = /^[A-Za-z0-9_-]{20,64}$/;
 export const newPublicToken = () => randomBytes(24).toString('base64url');
 
 /**
+ * Where a page is, its `publicUrl`: `shared.html?p=<token>` at the module's address (`baseUrl`,
+ * which in a host is already its mount, …/tasks), so the same link opens on its own and in
+ * Cronum Work. Null without a token: the page is off.
+ */
+export const publicPageUrl = (baseUrl, token) => (token
+  ? `${String(baseUrl || '').replace(/\/+$/, '')}/shared.html?p=${encodeURIComponent(token)}`
+  : null);
+
+/**
  * The name a public page shows of its owner: the one they set, or none. An account without a name
  * of its own has its username as its name, or the start of its email (accounts.js,
  * workos-accounts.js), which the page would show to anyone with the link. A name written as the

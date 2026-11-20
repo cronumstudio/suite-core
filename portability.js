@@ -70,7 +70,7 @@ import { pipeline } from 'node:stream/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { randomToken } from './crypto.js';
 import {
-  HttpError, badRequest, notFound, conflict, forbidden, unauthorized, readJson, sendJson, int,
+  HttpError, badRequest, notFound, conflict, forbidden, unauthorized, readJson, sendJson, int, isObject,
 } from './http.js';
 import { createZipWriter, openZip } from './zip.js';
 import { detectType, storedName } from './uploads.js';
@@ -114,7 +114,6 @@ const MAX_TEXT = 100_000;
 const PENDING_MS = DAY;
 const TOKEN = /^[\w-]{16,64}$/;
 
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const quote = (name) => `"${String(name).replaceAll('"', '""')}"`;
 /**
  * Preferences of the whole account, not of a module: whichever module's copy comes in, an account

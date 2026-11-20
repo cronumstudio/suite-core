@@ -60,8 +60,11 @@ suite-core/
   runtime.js            done   what both run the same way: the server, the install's jobs, signals, listening
   legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
   watcher.js            done   hot reload by polling, for code mounted over SMB
-  http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
-  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
+  http.js               done   router, HttpError, body parsing, security headers, CSRF, static files;
+                               the checks of a field every module shares (str, int, intInRange, isoDate, dateOnly,
+                               color, idParam, isObject) and the guards requireUser, requireAdmin
+  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta;
+                               inBatches(ids, query): many ids, 500 to a statement; personId(id)
   migrate.js            done   numbered migrations with scopes (suite, app, and each module's id in a host)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes, AES-256-GCM
   accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
@@ -100,7 +103,8 @@ suite-core/
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
   ownership.js          done   whose it is: 403 not_yours, the author who may delete, giving it, the notice when shared things go, heirs
-  public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes
+  public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes;
+                               publicPageUrl(baseUrl, token), its address
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
