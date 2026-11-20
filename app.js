@@ -795,8 +795,8 @@ export function clientTexts(flat) {
  *   request, it says whether the host's /mcp exists, which is known only once every module has
  *   joined (host.js).
  * @param {'none'|'self'|Function} [options.frames]  who may frame its pages: nobody (default), or pages of
- *   the same site, a host's module in its split view (host.js `split`); or, by path, `(pathname) =>`
- *   either (a host's calendar, in a window of its own page)
+ *   the same site, a host's module that its pages frame (host.js `framedModules`); or, by path,
+ *   `(pathname) =>` either (a host's calendar, in a window of its own page)
  * @param {{checkout: string, portal: string}} [options.billingReturn]   where the payment provider
  *   sends the browser back from a checkout and from its portal; by default the app's page
  *   (`/?billing=done`, `/`). A host with a shell passes its modules the shell's address with the

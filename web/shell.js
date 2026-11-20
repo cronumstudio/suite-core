@@ -23,19 +23,18 @@
  * its mark. On a phone the drawer keeps its width without the rail: the app's
  * icon and name are a button whose menu has the other modules and, last, Settings.
  *
- * A host with a split view (host.js `split`) has its views on the rail, over
- * Settings: this module alone, or two to four at once on the host's page. There
- * each module is a frame (base.js FRAMED), drawn without the rail: the page says
- * which module each frame shows, and the app's name keeps Settings at hand. A
- * host with a calendar (host.js `calendar`) has it on the rail too, just over
- * the split view: its page, with what has a date in every module.
+ * A page of the host's may hold a module in a frame (base.js FRAMED: Cronum
+ * Work's shell, for a module it can't mount), drawn without the rail: the page
+ * says which module the frame shows, and the app's name keeps Settings at hand.
+ * A host with a calendar (host.js `calendar`) has it on the rail too, just over
+ * Settings: its page, with what has a date in every module.
  *
  * In a window of Cronum Work's one-document shell (`embedded`, mount.js), the
  * page is Work's and every module shares it: the rail, the person, the host's
  * notices and the history of the installed app are the shell's, drawn once, so
  * the frame draws none of them and asks the host nothing. Its sidebar, and its
  * fold, are the module's own and stay. Settings come when Work asks the window
- * (`kit:settings` on `root`), as the split view asks a frame.
+ * (`kit:settings` on `root`), as it asks a frame.
  *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
@@ -64,8 +63,6 @@ const BESIDE = 640;
 const RAIL_KEY = 'host.modules';
 /** The founder's notice closed on this device, for the date it named: it comes back for another. */
 const FOUNDER_KEY = 'host.founder-offer';
-/** How many modules the host's split view shows at once: one, two or three side by side, four in a grid. */
-export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 
 /**
  * @param {object} options
@@ -347,9 +344,9 @@ export function createShell({
   for (let at = outOfView ? root : null; at && at !== document.documentElement; at = at.parentElement) {
     outOfView.observe(at, { attributes: true, attributeFilter: ['hidden'] });
   }
-  // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
-  // opens this module's: the page asks with `kit:settings` on this frame's window, and may name
-  // the section (`detail.start`), one of this module's chosen in Settings in another frame.
+  // In a frame of a host's page (Work's shell, for a module it can't mount), the page asks for this
+  // module's Settings with `kit:settings` on this frame's window, and may name the section
+  // (`detail.start`): one of this module's, chosen in another's Settings.
   if (FRAMED && onSettings) {
     window.addEventListener(SETTINGS_EVENT, (ev) => {
       closeDrawer();
@@ -369,7 +366,7 @@ export function createShell({
     }, { signal });
   }
   // In Work's shell one window object is every module's: the shell asks the one it means on the
-  // body of its window (ctx.root), naming the section or not, as the split view asks a frame.
+  // body of its window (ctx.root), naming the section or not, as it asks a frame.
   if (embedded && onSettings) {
     root.addEventListener(SETTINGS_EVENT, (ev) => {
       closeDrawer();
@@ -824,7 +821,7 @@ export function createShell({
    * come with a switcher that goes.
    */
   function syncSwitcher() {
-    // In a frame of the host's split view there is no rail: the view says which module is in it.
+    // In a frame of a host's page there is no rail: the page says which module is in it.
     const known = answered || !mount;
     const want = !embedded && Boolean(onSettings)
       && (FRAMED || !beside() || (known && !rail));
@@ -874,14 +871,6 @@ export function createShell({
     switcherIcon = next;
   }
 
-  /** The views of the host's split view (at `page`): this module alone, as now, or two to four at once. */
-  function splitMenuItems(page) {
-    return SPLIT_LAYOUTS.map((n) => ({
-      label: t(`kit.split.layout${n}`), iconName: `layout-${n}`, current: n === 1,
-      href: n === 1 ? null : `${page}?layout=${n}&from=${encodeURIComponent(mount)}`,
-    }));
-  }
-
   /** Takes the rail away, and the sidebar's content back to where it was. */
   function dropRail() {
     if (!rail) return;
@@ -897,7 +886,7 @@ export function createShell({
       dropRail();
       return asModule(false);
     }
-    // A frame of the host's split view: the view has the modules, and remembers what it shows.
+    // A frame of a host's page: the page has the modules, and remembers what it shows.
     if (FRAMED) {
       others = [];
       calendarPath = null;
@@ -941,12 +930,6 @@ export function createShell({
       host.calendar ? el('a', {
         class: 'kit-rail__calendar', href: host.calendar, title: t('kit.calendar.title'), 'aria-label': t('kit.calendar.title'),
       }, icon('calendar')) : null,
-      // The split view, where the host has one: this module alone (now), or two to four at once.
-      host.split ? el('button', {
-        type: 'button', class: 'kit-rail__split', title: t('kit.split.title'), 'aria-label': t('kit.split.title'),
-        'aria-haspopup': 'menu', 'aria-expanded': 'false',
-        onClick: (ev) => toggleMenu(ev.currentTarget, splitMenuItems(host.split)),
-      }, icon('layout-2')) : null,
       // Settings at its foot, in place of the person's button.
       onSettings ? el('button', {
         type: 'button', class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,
@@ -1028,12 +1011,12 @@ export function createShell({
     }
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
     window.addEventListener('resize', syncSwitcher, { signal });
-    // Back to the page, the host is asked again; in a frame of the split view the view has the rail, not the frame.
+    // Back to the page, the host is asked again; in a frame of a host's page that page has the rail, not the frame.
     if (!FRAMED) document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
     document.addEventListener('kit-modules', () => refreshModules(), { signal });
-    // A look chosen in another tab, or in another frame of the split view: this page follows at once.
+    // A look chosen in another tab, or in another frame of a host's page: this page follows at once.
     window.addEventListener('storage', (ev) => {
-      // Closed in another tab, or another frame of the split view: gone here too.
+      // Closed in another tab, or another frame of a host's page: gone here too.
       if (ev.key === FOUNDER_KEY) hideBanner('founder-offer');
       if (ev.key !== LOOK_KEY) return;
       if (ev.newValue === 'clean') document.documentElement.setAttribute('data-look', 'clean');

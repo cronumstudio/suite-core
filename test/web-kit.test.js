@@ -993,21 +993,17 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /switcher\.setAttribute\('aria-haspopup', 'menu'\);/, 'a menu where it has more than Settings');
   assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*settingsItem\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
-  // and always in a frame of the host's split view, which has no rail.
+  // and always in a frame of a host's page, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
   // An app on its own (no module's path) has no host to wait for.
   assert.match(shell, /const known = answered \|\| !mount;/);
   assert.match(shell, /&& \(FRAMED \|\| !beside\(\) \|\| \(known && !rail\)\);/);
   assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*calendarPath = null;\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules or the calendar');
-  // The split view's views on the rail, where the host has one, over Settings.
-  assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
-  assert.match(shell, /href: n === 1 \? null : `\$\{page\}\?layout=\$\{n\}&from=\$\{encodeURIComponent\(mount\)\}`/);
-  assert.match(css, /\.kit-rail__split \+ \.kit-rail__settings \{ margin-top: 0; \}/);
-  for (const n of [1, 2, 3, 4]) assert.match(icons, new RegExp(` {2}'layout-${n}': '[^']+',\n`));
-  // The calendar, where the host has one: a link to its page, just over the split view.
+  assert.match(icons, / {2}'layout-1': '[^']+',\n/, 'the frame Work\'s shell draws its layouts on');
+  // The calendar, where the host has one: a link to its page, just over Settings.
   assert.match(shell, /host\.calendar \? el\('a', \{\s*class: 'kit-rail__calendar', href: host\.calendar, title: t\('kit\.calendar\.title'\)/);
-  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__split'"), 'over the split view');
-  assert.match(css, /\.kit-rail__calendar \+ :is\(\.kit-rail__split, \.kit-rail__settings\) \{ margin-top: 0; \}/);
+  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__settings'"), 'over Settings');
+  assert.match(css, /\.kit-rail__calendar \+ \.kit-rail__settings \{ margin-top: 0; \}/);
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
@@ -1039,7 +1035,7 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\)/);
   assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\{ fresh: false \}\);/);
   assert.match(shell, /status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
-  // Back to the page the rail asks again, but not in a frame of the split view: the view has the rail.
+  // Back to the page the rail asks again, but not in a frame of a host's page: that page has the rail.
   assert.match(shell, /if \(!FRAMED\) document\.addEventListener\('visibilitychange'/);
   // A crossfade between pages of the site, the rail standing still; none for less motion.
   assert.match(css, /@view-transition \{ navigation: auto; \}/);

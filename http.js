@@ -447,10 +447,10 @@ export function serveStatic(root, urlPath, res) {
  *   with values computed on the fly. An injected style is far less dangerous
  *   than a script.
  * · Nobody may frame the app inside another site and trick whoever clicks.
- *   A host's module with a split view (host.js `split`) may be framed by its
- *   own site only: securityHeaders' `frames: 'self'`. A page that does nothing
- *   but show, without a session (a project's public page), may be framed by any
- *   site: `frames: 'any'`, the app's `embeds`.
+ *   A host's module that the host's own pages frame (host.js `framedModules`)
+ *   may be framed by its own site only: securityHeaders' `frames: 'self'`. A
+ *   page that does nothing but show, without a session (a project's public
+ *   page), may be framed by any site: `frames: 'any'`, the app's `embeds`.
  */
 export const DEFAULT_CSP = [
   "default-src 'self'",
@@ -473,10 +473,10 @@ export const DEFAULT_CSP = [
  * request: `writeHead` keeps what `setHeader` set, so they reach every
  * response without each place that answers remembering them.
  *
- * `frames: 'self'` lets pages of the same site frame this one (a host's split
- * view), and `frames: 'any'` pages of any site (a page made to be embedded,
- * which X-Frame-Options can't say, so it goes without); by default no page may,
- * of any site.
+ * `frames: 'self'` lets pages of the same site frame this one (a host's page
+ * that holds a module), and `frames: 'any'` pages of any site (a page made to
+ * be embedded, which X-Frame-Options can't say, so it goes without); by
+ * default no page may, of any site.
  */
 export function securityHeaders(res, { https = false, csp = DEFAULT_CSP, frames = 'none' } = {}) {
   const ancestors = { self: "frame-ancestors 'self'", any: 'frame-ancestors *' }[frames];

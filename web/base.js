@@ -32,8 +32,9 @@ export const pathAt = (base, path) => (base !== '/' && typeof path === 'string' 
 export const at = (path) => pathAt(BASE, path);
 
 /**
- * Whether this page is a frame of another page of the same site: a host's module in its split
- * view (host.js `split`). Another site can't frame it (http.js), and its page can't be read here.
+ * Whether this page is a frame of another page of the same site: a host's module that a page of the
+ * host's holds in a frame (host.js `framedModules`: Cronum Work's shell, for a module it can't
+ * mount). Another site can't frame it (http.js), and its page can't be read here.
  */
 export function framedIn(win = globalThis.window) {
   try {
@@ -51,30 +52,30 @@ export const installed = () => globalThis.navigator?.standalone === true
 
 /**
  * A host's module installed as an app of its own: its page in an app window, where the host's own
- * app is its one-document page (`/api/modules`' `host.shell`), neither a frame of the split view
+ * app is its one-document page (`/api/modules`' `host.shell`), neither a frame of a host's page
  * nor a window of that page (`embedded`). It shows only itself, never the host's other modules.
  */
 export const installedAlone = (host, { embedded = false } = {}) => Boolean(host?.shell) && !FRAMED && !embedded && installed();
 
 /**
- * Between the host's split view and a module in one of its frames, both pages of the same site:
- * the view asks the module for its Settings with `kit:settings` on the frame's window (shell.js),
- * and the module says on its parent's when they open and close, `kit:settings-shown` with
- * `{ open, source }`, `source` its window (settings.js), so the view gives them the whole space.
+ * Between a host's page and a module in one of its frames, both pages of the same site: the page
+ * asks the module for its Settings with `kit:settings` on the frame's window (shell.js), and the
+ * module says on its parent's when they open and close, `kit:settings-shown` with
+ * `{ open, source }`, `source` its window (settings.js), so the page may give them the whole space.
  */
 export const SETTINGS_EVENT = 'kit:settings';
 export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';
 /**
  * Settings in a frame sending the person to another module's section, on its parent's window:
- * `{ mount, start, source, handled }`, `source` the frame's window. The view opens it in the frame
- * that shows that module (with `kit:settings` and `{ start }`), or brings that module into the
- * frame that asked, and says `handled = true`; otherwise the whole window goes there.
+ * `{ mount, start, source, handled }`, `source` the frame's window. The page opens it where it shows
+ * that module (in Work's shell, that module's window, with `kit:settings` and `{ start }`) and says
+ * `handled = true`; otherwise the whole window goes there.
  */
 export const SETTINGS_GOTO_EVENT = 'kit:settings-goto';
 /**
  * A link in a frame to another module's item (the Linked row, links.js), on its parent's window:
- * `{ url, mount, source, handled }`. The view opens it in the section that already shows that
- * module and says `handled = true`; otherwise the frame goes there itself, as any link.
+ * `{ url, mount, source, handled }`. The page opens it where it shows that module (in Work's shell,
+ * its window) and says `handled = true`; otherwise the frame goes there itself, as any link.
  */
 export const OPEN_EVENT = 'kit:open';
 /** Cronum Work's shell asks a module in a window for its drawer (on a phone the ☰ is the shell's), on the window's body. */

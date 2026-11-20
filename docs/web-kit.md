@@ -642,8 +642,8 @@ The module open draws its own sections; another's are named from the host's `/ap
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
 section once it has started: `const asked = settingsAsked(); if (asked) settings(asked);`. In a
-frame of the split view, the view opens it in the frame that shows that module
-(`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
+frame of a host's page (Work's shell, for a module it can't mount), that page opens it in that
+module's window (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
 change. A host with a daily summary and push (`app.host.day`, v0.231.0, architecture §21.3.2) has
 its section in the host's group, «Daily summary» (`id: 'day'`): the morning's and the evening's
 notice, each a switch, a time in steps of five minutes and a link to its page (in Work's shell, a
@@ -790,7 +790,7 @@ it) or the app injected, before the page loaded,
 `inApp()`, `nativeInfo()` (`{ v, platform, version, capabilities }`, frozen, or null) and
 `can(capability)` say so; the capabilities are `push`, `reminders`, `badge`, `purchase`,
 `biometrics` and `share`. Known from the user agent alone, the app can do nothing. In a frame of
-a host's split view the bridge is the top window's.
+a host's page the bridge is the top window's.
 
 ```js
 import { can, setBadge, setReminders, onNative } from '../suite/native.js';
@@ -1114,8 +1114,8 @@ every module's worker the device still has, carrying their push subscriptions ov
 server told: the new address kept, the old ones forgotten). Where the browser won't subscribe
 without a tap, `noticesToRenew()` is true and Settings › Notifications asks to turn them on again.
 `watchUpdates()` then compares the host's /version with the host's /js/app-version.js: one notice
-for the whole app, named after the host (`theirs.name`), and none in a frame of the split view,
-whose page shows it once.
+for the whole app, named after the host (`theirs.name`), and none in a frame of a host's page,
+which shows it once.
 
 ### Notices on a device with no account
 
