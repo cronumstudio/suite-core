@@ -143,7 +143,8 @@ test('offline, a preference is applied here and kept: the theme and the modules 
   memory.set('host.modules', JSON.stringify({ host: { name: 'Cronum Work' }, modules: MODULES, calendar_shown: false }));
   globalThis.fetch = noSignal;
   globalThis.window = { location: { origin: 'https://work.example', href: 'https://work.example/tasks/' } };
-  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true });
+  const events = [];
+  Object.assign(document, { addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: (event) => { events.push(event); return true; } });
   const applied = [];
   const root = document.createElement('div');
   const users = [];
@@ -176,6 +177,18 @@ test('offline, a preference is applied here and kept: the theme and the modules 
     const kept = JSON.parse(memory.get('host.modules'));
     assert.deepEqual(kept.modules.map((m) => [m.mount, m.active]), [['tasks', true], ['notes', false]], 'the rail of the next page has it');
     assert.deepEqual(queuedSettings().at(-1), { method: 'PUT', path: '/api/me/modules', body: { active: ['tasks'] } });
+    // This page's rail at once, without asking a server that doesn't answer: the modules as they
+    // are now go with the event (shell.js, Cronum Work's shell), as the theme is painted at once.
+    const told = events.filter((event) => event.type === 'kit-modules').at(-1);
+    assert.ok(told, 'the rails are told');
+    assert.deepEqual(told.detail.answer.modules.map((m) => [m.mount, m.active]), [['tasks', true], ['notes', false]]);
+    assert.equal(told.detail.answer.host.name, 'Cronum Work', 'the whole answer, as GET /api/modules gives it');
+
+    // Turned on again, the same: the rail follows at once (the list was drawn again: its new switch).
+    root.all().find((node) => node.className === 'kit-switch' && node.dataset.mount === 'notes').click();
+    await settle();
+    const again = events.filter((event) => event.type === 'kit-modules').at(-1);
+    assert.deepEqual(again.detail.answer.modules.map((m) => [m.mount, m.active]), [['tasks', true], ['notes', true]]);
   } finally {
     settings.close();
     globalThis.fetch = realFetch;

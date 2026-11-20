@@ -1040,6 +1040,9 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(shell, /status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
   // Back to the page the rail asks again, but not in a frame of the split view: the view has the rail.
   assert.match(shell, /if \(!FRAMED\) document\.addEventListener\('visibilitychange'/);
+  // A module turned on or off in Settings: the modules as they are now come with the event, the
+  // device's own without a signal, and the rail is drawn from them before the host is asked.
+  assert.match(shell, /addEventListener\('kit-modules', \(ev\) => \{\s*const given = ev\.detail\?\.answer;[^}]*given\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(given\);\s*refreshModules\(\);/);
   // A crossfade between pages of the site, the rail standing still; none for less motion.
   assert.match(css, /@view-transition \{ navigation: auto; \}/);
   assert.match(css, /\.kit-rail \{ view-transition-name: kit-rail; \}/);
