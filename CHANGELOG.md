@@ -31,6 +31,38 @@ an AI client sees changes.
 - **Written once**: `requireUser` and `requireAdmin` (http.js), and `iso` (time.js), which every
   file that needed them had its own copy of.
 
+## 0.301.0 — 2026-11-20
+
+Audit of 6/11, sharing: what sharing looks like and says, the same in every module (Martin's choices
+of 14/11).
+
+- **An invitation is the kit's card, first in the sidebar, and ☰ says one waits** (`web/invitation.js`,
+  `web/shell.js`, `web/kit.css`; ux-compartir-5, ux-menus-14, dup-css-10).
+  `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline, offline })`
+  and `invitationCards(list, { offline })`: who offers what, what accepting gives («Solo lectura»,
+  «Podrás editarlo», or the app's own line), «Rechazar» and «Aceptar» as wide as each other, both off
+  while an answer is on its way. Without a signal both stay off, with `kit.offline.actions` above the
+  cards, as the modules' own cards have done since 0.296. `.kit-invite` in kit.css; texts
+  `kit.invite.*`. `shell.setMark(n)` puts a dot on every ☰ of the frame while `n` invitations wait, and
+  says so to a screen reader. The four modules drop their own cards.
+- **The share dialog without a network** (`web/share.js`; ui-dialogos-13): it opens with what `load`
+  knows (Tasks has it on the device), one line says it needs a connection (`kit.offline.actions`), and
+  Invite, the permissions and taking back are off until the network is back (they turn on by themselves).
+- **A person's colour** (`web/ui.js`, `sharing.js`; ux-compartir-19, ux-acciones-19):
+  `avatar(person | name, { color, size, title })` takes a person and paints the colour they chose
+  (`avatar_color`, `#rrggbb` only); `avatar(name)` is as before. The engine's `personOf` (and so the
+  share dialog's rows, Settings › Sharing and the invitations) carries `avatar_color` where the users
+  table has the column. The share dialog's default avatar and Settings › Sharing use it.
+- **Settings › Sharing in the dialog's order** (`web/shared.js`; ux-compartir-8): «Puede editar» before
+  «Solo lectura»; `kit.shared.canView` says «Solo lectura», as the invitations do.
+- **One set of words for sharing** (`i18n`; ux-compartir-6, -11, -15, -16, ux-textos-12):
+  `kit.share.left` («Has salido de «X».») says it after leaving; `kit.share.action` «Compartir» for the
+  «…»; taking back is «Quitar el acceso a X» («¿Quitar el acceso a X?»), without the thing's gender, in
+  the dialog and in Settings; `errors.owner_only` «Solo el propietario puede hacer eso.»;
+  `kit.data.shareNote` with `{ things }` says what happens to what one shares when one's data goes, by
+  the rule `pickHeir` keeps (whoever can edit first, then whoever has had it longest).
+- **Rule 10 of «Same in every module»** (`docs/web-kit.md`): sharing reads the same in every module.
+
 ## 0.300.0 — 2026-11-19
 
 - **Settings › Sharing without a signal** (`web/shared.js`, after the stale-invitations fix of Next
