@@ -143,15 +143,20 @@ export function createShell({
   // shorter than `min` is no search: it is told as ''. `onInput` stays, told on every key.
   let searchTimer = null;
   let searched = '';
+  const told = (text) => (text.trim().length >= (search?.min ?? 1) ? text : '');
   const runSearch = (text) => {
     clearTimeout(searchTimer);
     searchTimer = null;
-    const query = text.trim().length >= (search?.min ?? 1) ? text : '';
+    const query = told(text);
     if (query === searched) return;
     searched = query;
     search.onSearch(query);
   };
   if (searchField) {
+    // A module may write the field itself while it has no focus (emptied away from the results,
+    // a search's text again on its route): what it holds then is what is searched, so typing the
+    // same words again searches them.
+    searchField.addEventListener('focus', () => { if (searchTimer == null) searched = told(searchField.value); }, { signal });
     searchField.addEventListener('input', () => {
       search.onInput?.(searchField.value);
       if (!search.onSearch) return;
@@ -1170,6 +1175,7 @@ export function createShell({
     clearSearch: () => {
       if (!searchField) return;
       clearTimeout(searchTimer);
+      searchTimer = null;
       searchField.value = '';
       searched = '';
     },
@@ -1278,10 +1284,12 @@ export function navGroup({
   el('span', { class: 'kit-nav-group__label', text: name }),
   extra);
   const head = el('div', { class: 'kit-nav-group__head', ...dataAttributes(headData) }, toggle, label, total);
-  // The group's menu with a right-click or a long press on its head too, as on its name.
-  if (onName) menuOnPress(head, openFromHead);
-  return el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
+  const group = el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
     head, body);
+  // The group's menu with a right-click or a long press on its head too, as on its name. A group is
+  // picked up by its head as a whole (drag.js): a finger let go where it was tells the group.
+  if (onName) menuOnPress(head, openFromHead, { held: group });
+  return group;
 }
 
 /**

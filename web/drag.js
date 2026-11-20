@@ -80,9 +80,10 @@ const CONTROLS = 'button, a, input, select, textarea, label, [contenteditable=""
  * finger held still (`HOLD_MS`, moving less than `SLOP`) and let go opens it under the entry, and
  * the click that follows opens nothing. Where the entry is also picked up by holding (drag.js), the
  * drag answers the hold: let go without moving, it tells the entry (`kit:hold`), and this opens it.
- * The browser's own long-press menu doesn't come. → `node`.
+ * The browser's own long-press menu doesn't come. `held`: what such a drag picks up, when it isn't
+ * `node` (a group, picked up by its head). → `node`.
  */
-export function menuOnPress(node, open) {
+export function menuOnPress(node, open, { held = node } = {}) {
   let press = null;
   const below = () => {
     const box = node.getBoundingClientRect();
@@ -98,6 +99,8 @@ export function menuOnPress(node, open) {
     open(ev.clientX || ev.clientY ? { x: ev.clientX, y: ev.clientY } : below());
   });
   node.addEventListener('kit:hold', () => open(below()));
+  // `held`: what a drag picks up when it isn't `node` (a group, by its head) is told instead.
+  if (held !== node) held.addEventListener('kit:hold', (ev) => { if (ev.target === held) open(below()); });
   node.addEventListener('pointerdown', (ev) => {
     if (ev.pointerType === 'mouse' || ev.button || !ev.isPrimary) return;
     const started = performance.now();

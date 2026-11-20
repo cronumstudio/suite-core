@@ -3820,6 +3820,11 @@ test('a group\'s head opens its menu with a right-click too, as its name does', 
     assert.equal(named.length, 1);
     assert.equal(named[0][0], 12);
     assert.equal(named[0][1].getAttribute('class'), 'kit-nav-group__name', 'told the name, as a tap on it does');
+    // Held by a finger and let go where it was, the drag of groups tells the group (kit:hold).
+    group.dispatch('kit:hold');
+    assert.equal(named.length, 2, 'a long press on a group picked up by its head opens its menu too');
+    group.dispatch('kit:hold', { target: head });
+    assert.equal(named.length, 2, 'not for an event of something inside it');
     assert.equal(navGroup({ name: 'Plain' }).children[0].hasAttribute('data-kit-menu'), false, 'without a menu, the browser\'s');
   } finally {
     restore();
@@ -3888,6 +3893,16 @@ test('the search waits the same in every module (`onSearch`, `wait`, `min`), Ent
     await pause();
     assert.equal(shell.search.value, '');
     assert.equal(runs.at(-1), '', 'cleared before its wait ended: nothing runs');
+    // A module that writes the field itself away from the results (Notes, Next): the same words
+    // typed again are searched again.
+    type('abc');
+    await pause();
+    assert.equal(runs.at(-1), 'abc');
+    shell.search.value = '';
+    shell.search.dispatch('focus');
+    type('abc');
+    await pause();
+    assert.deepEqual(runs.slice(-2), ['abc', 'abc'], 'emptied by the module, then the same search again');
     shell.destroy();
   } finally {
     restore();
