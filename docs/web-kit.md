@@ -24,7 +24,7 @@ next to what is saved.
 
 ## Same in every module
 
-Martin's rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
+The rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
 (v0.248.0), for the search (v0.249.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that
 going from one module to the next in Cronum Work nothing moves:
 
@@ -962,8 +962,8 @@ Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/confi
 which an app's own button uses too (`{ key, post, lang }`: the key or a function that asks for it
 once permission is given, and how to tell its server), so the device is the same row whoever
 turned notices on: the browser's words for it, the subscription replaced when the install's keys
-changed. A device that belongs to the app instead (Focus'
-child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
+changed. A device that belongs to the app instead (a child's
+tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
 server and hands the subscription to the app:
 
 ```js
