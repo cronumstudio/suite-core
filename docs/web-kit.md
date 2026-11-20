@@ -135,6 +135,40 @@ going from one module to the next in Cronum Work nothing moves:
    (`kit.offline.sent`). The words are the kit's (`kit.offline.*`, `errors.offline`): no module
    keeps a copy. What only the server can show (a trash) says «Necesita conexión» in its place
    (`offlineNotice()`), and its dialog keeps its «Cerrar».
+20. **A collection's colour and icon come from the kit** (`colorPicker()`, `iconPicker()`,
+   `palette.js`; v0.306.0): the same twelve colours, by name, for a list, a notebook, a project
+   and their groups, and the same twenty icons in view with «Más…» for the rest. A colour or an
+   icon it has from before, that the palette no longer offers, is kept as it is and offered first.
+   A module leaves out (`except`) only the colours its states already mean (Projects: brown,
+   pink, plum, violet, indigo; Next: green). A state written in words (overdue, at risk, blocked,
+   stuck) is the kit's `--kit-danger`, `--kit-warn`, `--kit-ok` or `--kit-color-violet`, which
+   read on the page, a panel and their soft tint; a module's own vivid state colours stay for
+   bars, dots and borders.
+21. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
+   (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
+   things above its rows whenever it holds some, from the plan the server sends as `days`
+   (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
+   (`kit.deleteForever`) on a row, «Esto no se puede deshacer.» (`kit.cantUndo`) where it asks,
+   and «Vaciar papelera» (`kit.trash.emptyAction`) at the start of the dialog's foot, «Cerrar» plain
+   at its end. «Vaciar» is offered only for what the person may empty, and its question counts only
+   that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
+   Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
+   (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
+22. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): «Archivos» with
+   how many, photos as squares that open the kit's viewer (`photoViewer()`, a kit dialog with zoom,
+   so in Cronum Work it covers the screen and not just the window), a PDF as a row with its name and
+   size. They are added with the button, by dropping a file on the detail or pasting one into it;
+   several going up say so on the button and once at the end; the room left is said before
+   uploading. Taking one away goes to the trash with Undo (rule 7). Notes keeps its files in the
+   note and deletes them for good, with the question (`deleteDialog()`).
+23. **What floats over a module stays in its window** (`placeFixed(node, anchor)`, v0.308.0): a menu,
+   a quantity's editor, a dot's bubble, a drag's label. In Cronum Work a window keeps what is
+   `position: fixed` inside it (`contain: layout paint`), so a box placed by the screen's numbers
+   lands off its anchor or is cut off; `placeFixed` measures where its (0, 0) really is and keeps it
+   in its room (`fixedRoom()`).
+24. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` «14 mar» (with the
+   year when it isn't this one), `timeText()` the language's own short time («15:52», «3:52 PM»),
+   `shortStamp()` the time today and the date before, and `timeAgo()` «hace 3 días».
 
 **Which icon for what** (`icons.js`): the same thing has the same icon in every module.
 
@@ -215,6 +249,8 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
+| `palette.js` | `KIT_COLORS` (twelve `{ name, hex, dark }`: the hex a module stores, the name's `--kit-color-<name>` token, lighter in the dark), `KIT_COLOR_NAMES`, `kitColor(nameOrHex)`, `suggestedColor(used, { as, except })` (the first free one, five apart around the wheel; `except`, names a module leaves out), `KIT_ICONS` (twenty in view), `KIT_MORE_ICONS` (behind «Más…»). No DOM: a server loads it too |
+| `pickers.js` | `colorPicker({ value, as: 'hex' \| 'name', label, none, paint, nameOf, except, onPick })` and `iconPicker({ value, label, typed, none, frequent, more, onPick })` → `{ node, value() }`: the palette as swatches named in words, the icons with «Más…»; what it has from before kept first |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `stamps({ author, created, editor, updated, completed, createdVia, updatedVia }, { format })` and `stampTime(value)` (who made an item and who changed it, in kit.stamps.* words), `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank({ iconName, glyph, title, text, action, note, page, loading })`, `addBar({ placeholder, label, tools, onAdd, className, id, input })`, `inkOn(color)` (white or the dark ink, whichever reads on a colour), `avatar(person | name, { color, size, title })` (a person's initials in the colour they chose, `avatar_color`), `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)` |
 | `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes, `emoji`, `shared`, `marks`, `title`, `under`, `countTitle` and `menu`/`onMenu`), `sharedMark({ owner })`, `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash), `setMark(n)` (a dot on ☰ while `n` invitations wait in the drawer) |
@@ -256,7 +292,8 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 | `kit-btn` (`--primary`, `--quiet`, `--danger`, `--danger-quiet`, `--small`, `--block`), `kit-icon-btn` (`--small`, 34 px in a row), `kit-link` | Buttons |
 | `kit-field` (`> label`, or `> .kit-field__label` for a group), `kit-input`, `kit-hint`, `kit-error`, `kit-check` | Fields, as `field()` makes them |
 | `kit-chip` (`--tint` with `--kit-chip`, `--large`; a `button` with `aria-pressed`) | Something said of an item, or a filter to press |
-| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`) | A colour to choose |
+| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`; `--kept`), `kit-swatch-none` | A colour to choose, as `colorPicker()` makes it; no colour |
+| `kit-icons` > `kit-icons__grid` > `kit-icon-pick` (`aria-pressed`), `kit-icons__more`, `kit-icons__typed` | An icon to choose, as `iconPicker()` makes it |
 | `kit-round-check` (`--done` or `aria-pressed`; `--kit-tick-lift` for another size) | A task's round check |
 | `kit-group-title` | The heading of a group in a list |
 | `kit-avatar` (`--tiny` 20, `--small` 26, `--large` 34 px) | A person, as `avatar()` makes it |
@@ -269,7 +306,7 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
 has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
 `--kit-panel`, `--kit-hover`, `--kit-text`, `--kit-muted`, `--kit-faint`, `--kit-border`,
-`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-shadow`,
+`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-color-<name>`, `--kit-shadow`,
 `--kit-radius` (10 px), `--kit-radius-small` (8 px), `--kit-radius-large`. An app keeps names of
 its own only for its domain (a list's colour, a project's state). Layouts change at the brand's
 widths, `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px): `@media` and `@container` read no

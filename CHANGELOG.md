@@ -31,6 +31,77 @@ an AI client sees changes.
 - **Written once**: `requireUser` and `requireAdmin` (http.js), and `iso` (time.js), which every
   file that needed them had its own copy of.
 
+## 0.308.0 — 2026-11-20
+
+- **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,
+  ux-acciones-17, ux-acciones-18, ui-dialogos-8). Only additions: what was exported behaves as before.
+  - `web/ui.js` `placeFixed(node, anchor, { at, gap, margin, width, minWidth, above, center })` and
+    `fixedRoom(node)`: what `menu()` did to stay inside a window of Cronum Work (whose
+    `contain: layout paint` makes `position: fixed` start at the window's corner and cuts off what
+    leaves it), for any box that floats: Tasks' quantity editor, Projects' drag label, Next's bubble.
+    `menu()` uses it, unchanged.
+  - `web/ui.js` `highlight(text, query)` (`<mark class="kit-mark">`, accents and case aside),
+    `searchTitle()` («Resultados»), `searchSection(title, rows, { list })` (a heading with how many)
+    and `searchResults({ query, sections, hint })`, with the kit's blank and the search's icon when
+    nothing is found: one results screen, each module drawing its own rows. `kit.search.*`.
+  - `web/files.js` (new, in the service worker's kit copy): `attachments({ files, editable, mayRemove,
+    fileUrl, upload, onUploaded, remove, restore, max, maxBytes, dropTarget, accept })`, an item's
+    «Archivos»: photos as thumbnails, a PDF as a row with its name and size, added with the button,
+    by dropping a file on the detail or pasting one, one notice for several, the room left said
+    first, and taking one away to the trash with Undo. `notYours(file)` keeps the ✕ on someone
+    else's file and says whom to ask; `maxBytes` may be a function, asked when the files go up (a
+    plan's limit read late). `photoViewer({ photos, start, fileUrl, parent })`, a
+    kit dialog with Tasks' zoom (`makeZoomable`), so in Cronum Work it covers the screen.
+    `kit.files.*`, `kit.photo.*`; `.kit-files*`, `.kit-file*`, `.kit-viewer*` in kit.css.
+  - `web/i18n.js` `shortDate(value)` («14 mar», with the year when not this one; a YYYY-MM-DD is the
+    local day it names), `timeText(value)` (Intl's short time: one way per language),
+    `shortStamp(value, { time })` (the time today, the date before) and `timeAgo(value, { short })`.
+  - `docs/web-kit.md`: rule 9 adds the results screen; new rules 22 (files), 23 (what floats) and
+    24 (dates).
+
+## 0.307.0 — 2026-11-20
+
+- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 21; audit of
+  6/11: ux-textos-3, ux-textos-8, ui-dialogos-4, ux-acciones-13). Tasks, Notes and Projects each said
+  their trash their own way: «Recuperar» and «Restaurar», «Borrar del todo» and «Borrar para siempre»,
+  «permanently» and «for good», four ways of saying it can't be undone, two Englishes for how long it
+  keeps things, and an emoji in some titles. The kit now has the words, in the five languages:
+  `kit.restore`, `kit.deleteForever` («Borrar para siempre» / «Delete for good»), `kit.cantUndo`
+  («Esto no se puede deshacer.»), and `kit.trash.*`: `title` (no emoji), `empty`, `keepDays`,
+  `keepForever`, `emptyAction`, `emptyAsk`, `emptyConfirm`, and the notices `moved` («"X" a la
+  papelera»), `restored` («"X" ha vuelto»), `deleted` («"X" se ha borrado para siempre») and
+  `emptied` («N elementos borrados para siempre»). New `trashKeeps(days)` says how long a trash keeps
+  what is in it, from the plan's days its server sends, or until it is emptied (`null`). Additive: the
+  modules move to them and delete their own copies.
+- **Erasing a module's data says it can't be undone in the same words** (`kit.data.eraseText`): «…
+  todo lo que tienes en {app}. Esto no se puede deshacer.» in place of «sin vuelta atrás», in the five
+  languages.
+
+## 0.306.0 — 2026-11-20
+
+- **One palette and one set of icons for every module** (`web/palette.js`, `web/pickers.js`,
+  `kit.css`, `i18n`, `docs/web-kit.md` rule 20; audit of 6/11, ui-dialogos-9). Tasks offered 13
+  colours, Notes 12, Projects 10 and Next 8 by name, in other orders and other blues; Tasks showed
+  164 emojis at once, Projects 20, Next 16. Now `KIT_COLORS`: twelve colours by name (blue, cyan,
+  teal, green, olive, brown, pink, plum, violet, indigo, steel, slate), each with the hex a module
+  stores (white reads on it, 4.5:1; it shows on the dark page, 3:1) and a lighter step for the dark,
+  the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as, except })`
+  proposes the first free one, five apart around the wheel. `KIT_ICONS` are twenty in view and
+  `KIT_MORE_ICONS` the rest of Tasks' 164 (none lost). `colorPicker()` and `iconPicker()` offer them,
+  each colour named in words for a screen reader (`kit.colors.*`), «Más…» unfolding the icons
+  (`kit.icons.*`), with what a collection has from before kept, offered first and chosen; options for
+  a field to type any emoji (`typed`), for no colour or no icon (`none`), for colours a module leaves
+  out (`except`: Projects', too close to its accent and its states) and for names instead of
+  hexes (`as: 'name'`). New keys in the five languages; nothing that exists changes.
+- **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`; audit of 6/11, dup-css-3):
+  `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,
+  `#BA3429`, from `#1F8A57`, `#A86200`, `#C8372D`), so that each reads 4.5:1 on the page, a panel
+  and its soft tint (the badges'); before, «ok» gave 4.10:1 on the page and «warn» 4.26:1 on its
+  tint. The palette's violet (`--kit-color-violet`, Projects' «blocked» in words) is the same: a
+  step deeper than Projects' bars (`#6e55c2`), it reads 4.5:1 there too. The test now measures
+  those pairs in light and dark. Modules write their states in words with these tokens, keeping
+  their own vivid colours for bars and borders.
+
 ## 0.305.0 — 2026-11-20
 
 - **One banner without a signal, the same in every module** (`web/ui.js` `offlineBanner`,
