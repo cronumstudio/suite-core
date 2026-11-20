@@ -2128,6 +2128,10 @@ The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address).
 `createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
 module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
 whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
+Each module's tool runs in the time zone of the person it acts for (time.js `inZoneOf`), as
+createApp runs an app's own tools: their `todayFor()` is that person's. A module's routes do too
+when it says `zonedRoutes: true` (Tasks, Projects); the others answer in the server's zone, as do
+the host's own tools and routes (the calendar reads the person's day itself).
 Only those names answer: neither a module's own bare names nor old ones (0.148.0). The instructions are written per person from each used module's `mcp.brief` (or its
 instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
 longest an assistant reads); tool descriptions keep under the same limit. The calls from
