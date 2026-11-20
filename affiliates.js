@@ -64,12 +64,12 @@
  */
 import crypto from 'node:crypto';
 import {
-  HttpError, badRequest, conflict, notFound, unauthorized, forbidden, sendJson, readJson, parseCookies, serializeCookie, appendHeader,
+  HttpError, badRequest, conflict, notFound, sendJson, readJson, parseCookies, serializeCookie, appendHeader, requireUser, requireAdmin
 } from './http.js';
 import { currentRequest } from './request-scope.js';
+import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 
 /** The cookie a code's link leaves in the browser (CONTRACT.md §3): the web's pages set it too. */
 export const REF_COOKIE = 'cw_ref';
@@ -1080,15 +1080,6 @@ export function createAffiliates({
  * administrators only, guarded as the rest of /api/admin is (401 without a session, 403 admin_only).
  */
 export function registerAffiliatesApi(router, { affiliates, audit = null, admin = true }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
-  const requireAdmin = (ctx) => {
-    const user = requireUser(ctx);
-    if (user.role !== 'admin') throw forbidden('admin_only');
-    return user;
-  };
   const kindOf = (ctx) => {
     const kind = ctx.query?.get('kind') || null;
     if (kind && !['referral', 'creator'].includes(kind)) throw badRequest('field_invalid', { field: 'kind' });

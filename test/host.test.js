@@ -7,6 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './remote-provider.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -2006,6 +2007,24 @@ test('a module’s share email: signed by the host, the module over the heading,
   assert.match(html, /Invitación · Alpha/);
   assert.match(html, /src="http:\/\/127\.0\.0\.1\/alpha\/icons\/apple-touch-180\.png"/, 'the module’s icon, at its address');
   assert.match(text, /Ver y aceptar: http:\/\/127\.0\.0\.1\/alpha\//);
+});
+
+test('a module’s ownership: the push and email its suite has when a notice goes, and one brake for every module', async (t) => {
+  const { host } = await startHost(t);
+  const [alpha, beta] = host.modules;
+  const ana = host.suite.accounts.create({ username: 'ana', password: 'ana-password', displayName: 'Ana' });
+  const ben = host.suite.accounts.create({ username: 'ben', password: 'ben-password', email: 'ben@example.com' });
+  // What a module's tests put on its suite, after the host made it.
+  const told = [];
+  for (const m of [alpha, beta]) {
+    m.suite.push = { subscriptionsOf: (ids) => ids.map((id) => ({ user_id: id })), deliver: async (subs, payload) => { told.push([m.mount, 'push', payload.tag]); } };
+    m.suite.shareMail = Object.assign(async () => true, { gone: async (notice) => { told.push([m.mount, 'email', notice.to.id]); return true; } });
+  }
+  assert.equal(await alpha.suite.ownership.tellGone({ kind: 'list', name: 'Compra', actorId: ana.id, audience: [ben.id], id: 3 }), 1);
+  assert.deepEqual(told, [['alpha', 'push', 'gone-list-3'], ['alpha', 'email', ben.id]], 'its own suite’s push and email');
+  assert.equal(await beta.suite.ownership.tellGone({ kind: 'notebook', name: 'Ideas', actorId: ana.id, audience: [ben.id] }), 0,
+    'once a day from the same person, whichever module it comes from');
+  assert.equal(told.length, 2);
 });
 
 test('a request has a while to arrive, its answer as long as it needs (a live channel stays open)', async (t) => {

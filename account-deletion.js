@@ -61,12 +61,10 @@ export function readDeletionTicket(sign, token, clock = Date.now) {
  * @param {object} options.accounts     from createAccounts()
  * @param {Function} options.sign       the sessions' signature (sessions.sign), for the tickets
  * @param {number} [options.days]       how long an account waits, disabled, before it goes
- * @param {boolean} [options.atProviders]  whether the person also goes at the identity provider
- *   and their subscriptions end (config.accounts.deleteAtProviders)
- * @param {boolean} [options.endSubscriptions]  whether their subscriptions end, without going at the
- *   identity provider (config.accounts.endSubscriptions); left out, as atProviders
+ * @param {boolean} [options.endSubscriptions]  whether their subscriptions end
+ *   (config.accounts.endSubscriptions)
  * @param {boolean} [options.shared]   whether the login there is shared with other apps and goes
- *   only as the person decides (config.accounts.sharedIdentity); atProviders still always takes it
+ *   only as the person decides (config.accounts.sharedIdentity)
  * @param {object} [options.idp]        the identity provider: deleteIdentity(userId), when it can,
  *   and with `shared` otherApps(userId) and unmark(userId)
  * @param {object} [options.billing]    from createBilling(): stopRenewals, keepRenewals, endSubscriptions
@@ -78,7 +76,7 @@ export function readDeletionTicket(sign, token, clock = Date.now) {
 const RENEWING_WAIT_MS = 7 * 24 * 3600 * 1000;
 
 export function createAccountDeletion({
-  accounts, sign, days = 30, atProviders = false, endSubscriptions = atProviders, shared = false, idp = null, billing = null, audit = null,
+  accounts, sign, days = 30, endSubscriptions = false, shared = false, idp = null, billing = null, audit = null,
   mailer = null, texts = null, appName = '', baseUrl = '', brand = null, clock = () => Date.now(), log = console.log,
 }) {
   const subscriptions = endSubscriptions && billing?.enabled ? billing : null;
@@ -116,7 +114,7 @@ export function createAccountDeletion({
   }
 
   // Only where the login is shared and the provider can say who else uses it.
-  const choosing = Boolean(shared && !atProviders && idp?.otherApps && idp?.deleteIdentity);
+  const choosing = Boolean(shared && idp?.otherApps && idp?.deleteIdentity);
   const IDENTITY = ['all', 'none', 'auto'];
 
   /**
@@ -162,8 +160,9 @@ export function createAccountDeletion({
 
   /**
    * The accounts whose days are over go for good. At the identity provider
-   * first: if it can't be reached the account waits for the next sweep, since
-   * once gone here nothing would say whom to delete there. A subscription that
+   * first, where its login goes with it (identityGoes): if it can't be reached the
+   * account waits for the next sweep, since once gone here nothing would say whom
+   * to delete there. A subscription that
    * can't be ended is logged and left to lapse: it stopped renewing when the
    * person asked. One that didn't (the provider failed then too) would go on
    * charging someone with no account here: the account waits for the next
@@ -189,8 +188,7 @@ export function createAccountDeletion({
             }
           }
         }
-        if (atProviders && idp?.deleteIdentity) await idp.deleteIdentity(user.id);
-        else if (choosing) await identityGoes(user);
+        if (choosing) await identityGoes(user);
         accounts.remove(user.id);
         // How many subscriptions ended with it, as the admin's deletion notes it: never which.
         audit?.record({

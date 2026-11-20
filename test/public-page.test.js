@@ -8,7 +8,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { createPublicPage, publicOwnerName, publicHeaders, PUBLIC_TOKEN, newPublicToken, auditPublic } from '../public-page.js';
+import {
+  createPublicPage, publicOwnerName, publicHeaders, PUBLIC_TOKEN, newPublicToken, auditPublic, publicPageUrl,
+} from '../public-page.js';
 import { createRouter, HttpError } from '../http.js';
 
 function setup({ find = null, audit = null, kind = null } = {}) {
@@ -57,6 +59,14 @@ test('a token: long, random, of the shape the page accepts', () => {
   assert.match(a, PUBLIC_TOKEN);
   assert.notEqual(a, newPublicToken());
   assert.doesNotMatch('../etc', PUBLIC_TOKEN);
+});
+
+test('its address: shared.html at the module’s, null while it is off', () => {
+  const token = newPublicToken();
+  assert.equal(publicPageUrl('https://work.example/tasks/', token), `https://work.example/tasks/shared.html?p=${token}`);
+  assert.equal(publicPageUrl('https://app.example', 'a b'), 'https://app.example/shared.html?p=a%20b');
+  assert.equal(publicPageUrl('', token), `/shared.html?p=${token}`, 'no address of its own: from the root');
+  for (const off of [null, undefined, '']) assert.equal(publicPageUrl('https://app.example', off), null, String(off));
 });
 
 test('read changes nothing; open turns it on once; close turns it off, and a new open is a new link', () => {

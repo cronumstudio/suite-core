@@ -13,7 +13,7 @@
  * Every change is recorded in the audit log, without content.
  */
 import {
-  HttpError, sendJson, readJson, badRequest, notFound, forbidden, unauthorized, conflict, int, idOrNull, str,
+  HttpError, sendJson, readJson, badRequest, notFound, forbidden, conflict, int, idOrNull, str, requireUser, requireAdmin
 } from './http.js';
 import { verifyPassword } from './crypto.js';
 import { answeredOnce } from './idempotency.js';
@@ -238,10 +238,6 @@ export function registerAuthApi(router, {
  * language. What each real notice says, and to whom, is the app's.
  */
 export function registerPushApi(router, { push, texts, appName, sessionKeyOf = () => null }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   router.get('/api/push/config', (ctx) => {
     requireUser(ctx);
@@ -317,10 +313,6 @@ export function registerAccountMailApi(router, {
     accounts?.signedIn(user.id);
     return accounts?.byId(user.id) ?? user;
   };
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   /** Always the same answer: it never says whether an account exists. */
   router.post('/api/auth/forgot', async (ctx) => {
@@ -371,11 +363,6 @@ export function registerAccountMailApi(router, {
   });
 
   if (!admin) return;
-  const requireAdmin = (ctx) => {
-    const user = requireUser(ctx);
-    if (user.role !== 'admin') throw forbidden('admin_only');
-    return user;
-  };
 
   router.get('/api/admin/invitations', (ctx) => {
     requireAdmin(ctx);
@@ -416,21 +403,14 @@ export function registerAccountMailApi(router, {
  * @param {Function} [deps.providerPassword]  (ctx, user, password) → the password at the identity
  *   provider checked, when the account has one there (identityCheck)
  * @param {object} [deps.deletion]      from createAccountDeletion(): deleting one's own account
- * @param {object} [deps.alsoAt]        older paths an app keeps answering:
- *   `{ tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' }`
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
-  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null, deletion = null, push = null,
+  limiter = null, twoFactor = null, localPasswords = true, idp = null, deletion = null, push = null,
   providerPassword = null,
 }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
-  const at = (path, legacy, add) => [path, ...(legacy ? [legacy] : [])].forEach(add);
 
   if (deletion && sessions) {
     const sure = identityCheck({ limiter, twoFactor, localPasswords, providerPassword });
@@ -503,29 +483,28 @@ export function registerProfileApi(router, {
   }
 
   if (tokens) {
-    at('/api/me/tokens', alsoAt.tokens, (path) => {
-      router.get(path, (ctx) => {
-        const user = requireUser(ctx);
-        sendJson(ctx.res, 200, tokens.list(user.id));
+    const path = '/api/me/tokens';
+    router.get(path, (ctx) => {
+      const user = requireUser(ctx);
+      sendJson(ctx.res, 200, tokens.list(user.id));
+    });
+    router.post(path, answeredOnce(async (ctx) => {
+      const user = requireUser(ctx);
+      const body = await readJson(ctx.req);
+      const { token, row } = tokens.create(user.id, {
+        name: str(body.name ?? 'MCP', { field: 'name', max: 60, min: 1 }),
+        scopes: body.scopes ?? ['mcp'], expiresAt: body.expires_at ?? null,
       });
-      router.post(path, answeredOnce(async (ctx) => {
-        const user = requireUser(ctx);
-        const body = await readJson(ctx.req);
-        const { token, row } = tokens.create(user.id, {
-          name: str(body.name ?? 'MCP', { field: 'name', max: 60, min: 1 }),
-          scopes: body.scopes ?? ['mcp'], expiresAt: body.expires_at ?? null,
-        });
-        record(ctx, 'token.create', 'token', row.id, { scopes: row.scopes });
-        // The value travels once, here. After that only its hash remains.
-        sendJson(ctx.res, 201, { ...row, token });
-      }));
-      router.delete(`${path}/:id`, (ctx) => {
-        const user = requireUser(ctx);
-        const id = idOf(ctx.params.id);
-        if (!tokens.revoke(user.id, id)) throw notFound('token_not_found');
-        record(ctx, 'token.revoke', 'token', id);
-        sendJson(ctx.res, 200, { ok: true });
-      });
+      record(ctx, 'token.create', 'token', row.id, { scopes: row.scopes });
+      // The value travels once, here. After that only its hash remains.
+      sendJson(ctx.res, 201, { ...row, token });
+    }));
+    router.delete(`${path}/:id`, (ctx) => {
+      const user = requireUser(ctx);
+      const id = idOf(ctx.params.id);
+      if (!tokens.revoke(user.id, id)) throw notFound('token_not_found');
+      record(ctx, 'token.revoke', 'token', id);
+      sendJson(ctx.res, 200, { ok: true });
     });
   }
 
@@ -538,44 +517,43 @@ export function registerProfileApi(router, {
      * (Claude, ChatGPT…); `enabled` says whether pasting the URL is enough,
      * `unavailable` that the provider couldn't be asked just now.
      */
-    at('/api/me/apps', alsoAt.apps, (path) => {
-      router.get(path, async (ctx) => {
-        const user = requireUser(ctx);
-        const grants = oauth?.enabled ? [...oauth.grantsOf(user.id)] : [];
-        let unavailable = false;
-        if (viaProvider) {
-          try {
-            for (const c of await idp.connectionsOf(user.id)) {
-              grants.push({ id: `${providerPrefix}${c.id}`, client_name: c.client_name, last_used_at: c.last_used_at, provider: idp.id });
-            }
-          } catch (err) {
-            console.error(`[auth] the apps connected through ${idp.name} can't be listed: ${err.message}`);
-            unavailable = true;
+    const path = '/api/me/apps';
+    router.get(path, async (ctx) => {
+      const user = requireUser(ctx);
+      const grants = oauth?.enabled ? [...oauth.grantsOf(user.id)] : [];
+      let unavailable = false;
+      if (viaProvider) {
+        try {
+          for (const c of await idp.connectionsOf(user.id)) {
+            grants.push({ id: `${providerPrefix}${c.id}`, client_name: c.client_name, last_used_at: c.last_used_at, provider: idp.id });
           }
+        } catch (err) {
+          console.error(`[auth] the apps connected through ${idp.name} can't be listed: ${err.message}`);
+          unavailable = true;
         }
-        sendJson(ctx.res, 200, { enabled: Boolean(oauth?.enabled || viaProvider), grants, ...(unavailable ? { unavailable } : {}) });
-      });
-      router.delete(`${path}/:id`, async (ctx) => {
-        const user = requireUser(ctx);
-        if (viaProvider && ctx.params.id.startsWith(providerPrefix)) {
-          let done;
-          try {
-            done = await idp.revokeConnection(user.id, ctx.params.id.slice(providerPrefix.length));
-          } catch (err) {
-            console.error(`[auth] an app connected through ${idp.name} could not be disconnected: ${err.message}`);
-            throw new HttpError(503, 'provider_unavailable');
-          }
-          if (!done) throw notFound('app_not_found');
-          record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name, ...(done.everywhere === false ? { everywhere: false } : {}) });
-          sendJson(ctx.res, 200, { ok: true });
-          return;
+      }
+      sendJson(ctx.res, 200, { enabled: Boolean(oauth?.enabled || viaProvider), grants, ...(unavailable ? { unavailable } : {}) });
+    });
+    router.delete(`${path}/:id`, async (ctx) => {
+      const user = requireUser(ctx);
+      if (viaProvider && ctx.params.id.startsWith(providerPrefix)) {
+        let done;
+        try {
+          done = await idp.revokeConnection(user.id, ctx.params.id.slice(providerPrefix.length));
+        } catch (err) {
+          console.error(`[auth] an app connected through ${idp.name} could not be disconnected: ${err.message}`);
+          throw new HttpError(503, 'provider_unavailable');
         }
-        if (!oauth) throw notFound('app_not_found');
-        const id = idOf(ctx.params.id);
-        if (!oauth.revokeGrant(id, user.id)) throw notFound('app_not_found');
-        record(ctx, 'oauth.grant.revoke', 'oauth_grant', id);
+        if (!done) throw notFound('app_not_found');
+        record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name, ...(done.everywhere === false ? { everywhere: false } : {}) });
         sendJson(ctx.res, 200, { ok: true });
-      });
+        return;
+      }
+      if (!oauth) throw notFound('app_not_found');
+      const id = idOf(ctx.params.id);
+      if (!oauth.revokeGrant(id, user.id)) throw notFound('app_not_found');
+      record(ctx, 'oauth.grant.revoke', 'oauth_grant', id);
+      sendJson(ctx.res, 200, { ok: true });
     });
   }
 
@@ -683,10 +661,6 @@ export function registerProfileApi(router, {
  * @param {object} [deps.accountMail]    to send the link that confirms a new email
  */
 export function registerMeApi(router, { accounts, serializeUser, prefs, localEmail = true, accountMail = null }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   router.get('/api/me', (ctx) => {
     sendJson(ctx.res, 200, { user: serializeUser(requireUser(ctx), { req: ctx.req }) });
@@ -725,6 +699,8 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  * @param {object} router
  * @param {object} deps
  * @param {object} deps.accounts        from createAccounts()
+ * @param {Function} deps.revokeEverything  from createRevoker() (revoke.js): out everywhere, as a new
+ *   password is
  * @param {object} [deps.entitlements]  from createEntitlements()
  * @param {object} [deps.organizations] from createOrganizations()
  * @param {object} [deps.sessions]      from createSessions()
@@ -744,7 +720,7 @@ export function registerMeApi(router, { accounts, serializeUser, prefs, localEma
  */
 export function registerAdminApi(router, {
   accounts, entitlements = null, organizations = null, sessions = null, audit = null, twoFactor = null,
-  tokens = null, oauth = null, push = null, idp = null, devices = null, revokeEverything = null, sharedLogin = null,
+  devices = null, revokeEverything, sharedLogin = null,
   confirmAdmin = null, localPasswords = true, logins = null, deletion = null, overview = null,
 }) {
   // The identity provider, where its login is shared with other apps (config.accounts.sharedIdentity) and it can say who else uses it.
@@ -756,32 +732,16 @@ export function registerAdminApi(router, {
    * person's phones and, with WorkOS, the AI clients authorized in AuthKit.
    * Closing the sessions alone left the assistants connected, the notices
    * coming, and the provider's session ready to sign that browser back in with
-   * one click. createApp gives `revokeEverything` (revoke.js), the same that a
-   * new password does; without it, the parts given here.
+   * one click. It is `revokeEverything` (revoke.js), the same that a new
+   * password does.
    */
   const signOutEverywhere = (id, { exceptToken = null, ctx = null } = {}) => {
-    if (revokeEverything) {
-      const out = revokeEverything(id, {
-        keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'sign_out_everywhere',
-        actor: ctx?.user ?? undefined, req: ctx?.req ?? null,
-      });
-      // The answer says what it always said.
-      return { closed: out.closed, tokens: out.tokens, ...(devices ? { devices: out.devices } : {}) };
-    }
-    const atProvider = sessions?.idpSessionsOf?.(id, { exceptToken }) || [];
-    const closed = sessions ? sessions.closeAllOf(id, { exceptToken }) : 0;
-    const revoked = tokens?.revokeAllOf(id) ?? 0;
-    oauth?.forgetUser(id);
-    push?.unsubscribe(id);
-    // Only said when the module is on: without it the answer stays as it was.
-    const phones = devices ? { devices: devices.revokeAllOf(id) } : {};
-    revokeAtProvider(idp, atProvider);
-    return { closed, tokens: revoked, ...phones };
-  };
-  const requireAdmin = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    if (ctx.user.role !== 'admin') throw forbidden('admin_only');
-    return ctx.user;
+    const out = revokeEverything(id, {
+      keep: exceptToken ? { sessionToken: exceptToken } : null, reason: 'sign_out_everywhere',
+      actor: ctx?.user ?? undefined, req: ctx?.req ?? null,
+    });
+    // The answer says what it always said: the devices only when the module is on.
+    return { closed: out.closed, tokens: out.tokens, ...(devices ? { devices: out.devices } : {}) };
   };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -939,10 +899,9 @@ export function registerAdminApi(router, {
       emailVerified: body.email_verified,
     });
     if (body.password !== undefined) {
+      // Someone else's password set by the admin is someone else out, everywhere: setPassword
+      // does that (accounts.whenPasswordSet → revokeEverything, createSuite).
       accounts.setPassword(id, body.password, { exceptToken: id === ctx.user.id ? ctx.sessionToken : null });
-      // Someone else's password set by the admin is someone else out, everywhere. With
-      // revokeEverything, setPassword already did that (accounts.whenPasswordSet, createSuite).
-      if (id !== ctx.user.id && !revokeEverything) signOutEverywhere(id);
     }
     record(ctx, 'admin.user.update', 'user', id, {
       fields: Object.keys(body).filter((k) => k !== 'password'), password: body.password !== undefined,
@@ -1170,10 +1129,6 @@ export function registerAdminApi(router, {
  * `${baseUrl}/?invitation=<token>`, which the web kit accepts after sign-in.
  */
 export function registerOrganizationsApi(router, { organizations, audit = null, baseUrl = '' }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
   const record = (ctx, action, organizationId, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, organizationId, targetType, targetId, meta });
   /**

@@ -44,7 +44,7 @@ import crypto from 'node:crypto';
 import { currentRequest } from './request-scope.js';
 import { encryptText, decryptText } from './crypto.js';
 import { parseAddress } from './mail.js';
-import { badRequest, forbidden, unauthorized, readJson, sendJson } from './http.js';
+import { badRequest, readJson, sendJson, requireAdmin } from './http.js';
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -643,11 +643,6 @@ export function createAdminNotices({
  * test notice (POST …/test). Administrators only.
  */
 export function registerAdminNoticesApi(router, { notices, audit = null }) {
-  const requireAdmin = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    if (ctx.user.role !== 'admin') throw forbidden('admin_only');
-    return ctx.user;
-  };
   router.get('/api/admin/notices', (ctx) => {
     requireAdmin(ctx);
     sendJson(ctx.res, 200, notices.view());

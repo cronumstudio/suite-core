@@ -24,6 +24,7 @@ import { workosUsers, signInMethod } from '../workos-accounts.js';
 import { registerWorkosSecurityApi, createFreshSignIns } from '../workos-security.js';
 import { createWorkosClient, WorkosUnavailable } from '../workos.js';
 import { identityCheck } from '../api.js';
+import { createRevoker } from '../revoke.js';
 import { base32Decode, totp } from '../two-factor.js';
 
 const now = () => Math.floor(Date.now() / 1000 / 30);
@@ -79,20 +80,21 @@ function start({ twoFactor = 'on', adminIdentity = false, clock = () => Date.now
   const accounts = createAccounts({ database, sessions });
   const users = workosUsers(accounts, { database });
   const workos = fakeWorkos();
+  // The sessions at WorkOS that were ended from here.
   const revoked = [];
-  // With adminIdentity, revoke.js as createApp gives it: who was revoked, keeping what, and why.
+  // revoke.js as createApp gives it, noting who was revoked, keeping what, and why.
+  const revoker = createRevoker({ database, sessions, idp: { revokeSession: async (sid) => { revoked.push(sid); } } });
   const revokedAll = [];
-  const revokeEverything = (id, { keep = null, reason = null } = {}) => {
-    revokedAll.push({ id, keep: keep?.sessionToken ?? null, reason });
-    sessions.closeAllOf(id, { exceptToken: keep?.sessionToken ?? null });
-    return {};
+  const revokeEverything = (id, options = {}) => {
+    revokedAll.push({ id, keep: options.keep?.sessionToken ?? null, reason: options.reason ?? null });
+    return revoker.revokeEverything(id, options);
   };
   const router = createRouter();
   // The sign-ins at WorkOS createSuite would note: a test notes its own.
   const freshSignIns = createFreshSignIns({ clock });
   const security = registerWorkosSecurityApi(router, {
-    workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeAtProvider: (ids) => revoked.push(...ids),
-    ...(adminIdentity ? { adminIdentity, revokeEverything } : {}), freshSignIns, clock, ...options,
+    workos, users, accounts, sessions, appName: 'Cronum Work', twoFactor, revokeEverything,
+    ...(adminIdentity ? { adminIdentity } : {}), freshSignIns, clock, ...options,
   });
 
   /** Someone who signs in with WorkOS: their account here and at WorkOS, with a session. */

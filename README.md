@@ -45,9 +45,9 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `tools/i18n.mjs` | Catalog checks for the suite and each app, merged: `app [root] [--skip <file>]` (all of them for an app, as its tests run them: flat catalogs, parity, keys in use, texts in the code and on the server), `parity [dir]` (keys, placeholders, plural forms, nothing left undone), `used <dir> <sources…>` (keys the code uses that no catalog has) and `hardcoded [--server] [--skip <file>] <sources…>` (texts for people written in the code instead of the catalogs; on the server, texts in another language) |
 | `idempotency.js` | Writes that may arrive twice: the first successful answer to an `Idempotency-Key` is kept a day per account, and the same key again gets it back without the write running again (the web kit's outbox sends them); never an answer that carries a secret (`answeredOnce`: a new token, a two-step secret, recovery codes, an invitation's link), which runs again |
 | `crypto.js` | Passwords in the scrypt format every app stores, token hashes, HMAC, constant-time comparison, and AES-256-GCM for what must be read back (a second step's secret) |
-| `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec` (statements kept prepared), nested transactions, `app_meta`, `optimize()` |
+| `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec` (statements kept prepared), nested transactions, `app_meta`, `optimize()`; `inBatches()`, many ids asked 500 to a statement, and `personId()` |
 | `migrate.js` | Numbered migrations per scope (`suite`, `app`), each in its own transaction; refuses gaps and newer databases |
-| `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`) |
+| `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`); the checks of a field the modules share (`str`, `int`, `intInRange`, `isoDate`, `dateOnly`, `color`, `idParam`, `isObject`), each answering the code its caller gives |
 | `sessions.js` | Browser sessions that live while used (with a maximum), rotated at sign-in, listed and closed per device; the session secret, never an example value |
 | `rate-limit.js` | The brute-force brake kept in the database: per account, per address, the second step's codes per account, tokens, client registrations and failed device codes |
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |
@@ -63,7 +63,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `live.js` | Notices for the open tabs over Server-Sent Events (`GET /api/events` with `modules.live`): `publish({ audience, data })` to the people it concerns, heartbeats, and ids so a tab that reconnects gets what it missed, or `resync` |
 | `entitlements.js` | Plans and permissions: the features an app can limit, the plan catalog (validated on start), grants per user or organization with source, window and quantity, `can()` / `limit()` / `require()`, `cutoff()` for what a plan keeps some days and `countDaily()` for daily limits; `ofOrganization()` and `cutoffOrganization()`, a group's own plan for what acts for it with nobody behind (a child's device, a family's sweep) |
 | `plans.js` | The plans of the hosted suite, once for every app: an install names them with `PLANS=cronum-work`, or the catalog of a product of its own: `PLANS=cronum-focus` for Cronum Focus, whose plans are a family's (Free and Pro), and `PLANS=cronum-tracker` for Cronum Tracker (Free, Fleet and Pro); and the features every app names the same (`COMMON_FEATURES`) |
-| `providers.js` | The payment providers an install can name (`BILLING_PROVIDER`, `STORE_BILLING`), known only by what is registered: each reads its own variables and settings, says its price ids and creates its adapter; this copy registers Stripe and `remote` (Paddle and RevenueCat, the hosted suite's, are registered from outside the repository), each may keep an app's price ids itself (`catalog`), and one from outside the repository registers itself before the app starts (`node --import`) |
+| `providers.js` | The payment providers an install can name (`BILLING_PROVIDER`, `STORE_BILLING`), known only by what is registered: each reads its own variables and settings, says its price ids and creates its adapter; this copy registers Stripe (Paddle and RevenueCat, the hosted suite's, are registered from outside the repository), each may keep an app's price ids itself (`catalog`), and one from outside the repository registers itself before the app starts (`node --import`) |
 | `billing.js` | Payments turned into grants, off unless a provider is set: the provider interface (checkout, portal, signed webhook), products tied to plans (a group's with seats, or `seats: false` for a family's plan with no cap on its members), subscriptions that hold a plan until the paid period ends, one-off purchases and passes, refunds; each event applied once and in order; another product's events kept out when the app says (`billing` in suite.config.js); with the stores, a second instance on the same tables, `GET /api/billing/overview` over both, both handed to the account deletion, and `billing.forgetOnRemove`; a group's subscriptions stopped at the end of the period paid, once each, when it is deleted or every member asks to delete their account (`billing.stopOnOrganizationDeleted`), or when the app asks (`stopOrganization`, `keepOrganization`), and never a cancellation the payer made themselves renewed again |
 | `stripe.js` | Stripe as billing's provider (`BILLING_PROVIDER=stripe`): hosted Checkout and Customer Portal with plain `fetch`, the `Stripe-Signature` checked, its subscription, payment and refund events turned into grants, and a subscription stopped at the period's end or now — no SDK |
 | `affiliates.js` | Referrals and creators (`affiliates` in suite.config.js, off until `enabled`): a code per account made when first asked for, creators' campaigns made in /admin › Affiliates, each a discount at the provider when its adapter can make one; who brought whom (the `cw_ref` cookie of `/r/<CODE>` or `?codigo=`, or the payment's discount), a commission on a buyer's first real payment, confirmed after `confirmDays` and reversed by a refund before; a referral's month given as a chained grant or the next renewal put off; payouts noted by the admin, a CSV; the person's panel at `/afiliados` |
@@ -194,8 +194,7 @@ over ink in the dark theme), a card with the app's icon (`app.icon`, `/icons/fav
 default), its name and its colour on the main button (`app.color`), and the "by Cronum Studio"
 signature under it. The page follows the person's theme: their own choice when they are signed in,
 else the one the app saved in the browser (`<app id>.theme` in `localStorage`), else the
-system's. Its styles are `web/oauth.css` and nothing comes from elsewhere. An app that wants its
-own page still passes `hooks.oauthPage`.
+system's. Its styles are `web/oauth.css` and nothing comes from elsewhere.
 
 What it implements and why is explained at the top of `oauth.js`.
 
@@ -265,8 +264,10 @@ export const DATA = {
                   file: { path: 'path', folder: 'user_id', feature: 'attachments' } },
   },
   users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
-           prefs: (prefs, { ids, current }) => ({ … }) },
-  check({ user, counts, replaced }) { … },   // the plan's limits, for someone's own import
+           prefs: PREFS,                                    // the app's preferences, as createApp takes them
+           remap: (prefs, { ids, current }) => ({ … }) },   // the ids its own keys hold, translated
+  planLimit: { feature: 'lists.max', count: ownLists },    // the plan's limit, for someone's own import
+  check({ user, counts, replaced }) { … },   // the app's other limits, for someone's own import
 };
 ```
 
@@ -278,10 +279,18 @@ export const DATA = {
   `organizations` or to an earlier table.
 - Importing gives every row a new id and translates every reference; accounts go where the
   admin says (the one here with the same email, a new one, or none), and an existing one takes
-  the copy's preferences but keeps its username, email and role. `prefs` translates the ids the
-  app keeps in its preferences. `clean(values, { mode, organizations })` may change a row as it
-  comes in. Passwords, second steps, sessions, tokens, OAuth grants and push subscriptions never
-  travel.
+  the copy's preferences but keeps its username, email and role. `users.prefs`, the app's
+  preferences, says which keys of the one `users.prefs` row are the app's (those of its
+  `defaults`): in a host the row is every module's and the host's, so a copy brings in only those,
+  and `remap` translates the ids the app keeps in them. An existing account keeps every other key,
+  and its language and zone; one the import makes starts from the copy's row. `users.prefs` may
+  still be a function of the copy's row, as before. `clean(values, { mode, organizations })` may
+  change a row as it comes in. Passwords, second steps, sessions, tokens, OAuth grants and push
+  subscriptions never travel.
+- Someone's own import keeps to their plan, with the rows already in: the storage it allows
+  (`storage.mb`, the copy's files counted) when the app has a table of files, then the app's
+  `check`, then the most of `planLimit.feature` as `count(userId)` counts it (402 `plan_limit`).
+  The admin's import of the whole install keeps to none.
 - A copy is not trusted: only columns this install has, plain values, references inside the
   file, attachments that are images or PDF by their first bytes, one apply per copy
   (`data_imports`), and ceilings by who imports it. Someone's own copy has at most 64 MB of data,
@@ -301,7 +310,8 @@ export const DATA = {
   or a function of the row instead, its references already translated. `null` there, or a function
   that answers `undefined` or `null`, means the column's own default, never a NULL written over it.
   A copy that brings an omitted column anyway has it dropped. The start refuses an omitted column
-  that is NOT NULL without a default of either kind, a reference, a file's or the key.
+  that is NOT NULL without a default of either kind, a reference, a file's or the key. A public
+  page's link (`public_token`, `public_since`) is omitted from every table that has it, unsaid.
 
 **A group's data** (with `modules.organizations`, v0.84.0): a table that points at `organizations`
 belongs to a group, and so does every table that chains to it. Focus' shape:

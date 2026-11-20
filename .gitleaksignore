@@ -3,3 +3,5 @@
 # A made-up session key in a test (push-session-key.test.js), replaced by plain words.
 e7004940f73d85f1dca0e5a1e16c6b93988361ed:test/push-session-key.test.js:generic-api-key:38
 e7004940f73d85f1dca0e5a1e16c6b93988361ed:test/push-session-key.test.js:generic-api-key:41
+# A made-up public page link in a test (portability.test.js), replaced by plain words.
+055e6f1d47abc3f7863ca19a2e3a20b345d2e2f3:test/portability.test.js:generic-api-key:1496
