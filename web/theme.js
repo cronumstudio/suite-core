@@ -44,7 +44,8 @@
     painted = color;
     for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', color);
   }
-  // The kit's grounds are mixed in oklab, which a theme-color may not take: as `rgb()`.
+  // The kit's grounds are mixed in oklab, which a theme-color may not take: as `rgb()`. The same as
+  // app-start.js rgbOf, which a classic script that runs before any module can't import.
   function rgbOf(color) {
     var pen = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
     if (!pen) return null;

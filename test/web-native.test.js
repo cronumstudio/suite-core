@@ -149,7 +149,7 @@ test('in the app by its user agent or by what it injected; elsewhere nothing, wh
   assert.equal(inApp(fakeWindow({ userAgent: IPHONE, native: 'yes' })), false, 'only an object counts');
 });
 
-test('a frame of the split view uses its parent’s bridge, on the same site only', () => {
+test('a frame of a host’s page uses its parent’s bridge, on the same site only', () => {
   const top = fakeWindow({ userAgent: IN_APP, native: { v: 1, platform: 'ios', version: '1.2.0', capabilities: ['badge'] } });
   const frame = fakeWindow({ userAgent: IN_APP, bridge: false });
   frame.top = top;

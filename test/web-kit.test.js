@@ -685,7 +685,7 @@ test('update: a different fingerprint is announced; closing it keeps it quiet fo
   assert.equal(offline.latest(), null);
 });
 
-test('update: in a host with one worker, the whole app’s version, and no notice in a frame of the split view', async () => {
+test('update: in a host with one worker, the whole app’s version, and no notice in a frame of a host’s page', async () => {
   const asked = [];
   const notices = [];
   const server = { app: '0.3.15', name: 'Cronum Work', version: 'bbb' };
@@ -703,10 +703,10 @@ test('update: in a host with one worker, the whole app’s version, and no notic
   await new Promise((done) => setTimeout(done, 10));
   notices.length = 0;
   assert.equal(await frame.check({ announce: true }), true, 'a frame knows it');
-  assert.deepEqual(notices, [], 'but the split view says it, once');
+  assert.deepEqual(notices, [], 'but the host’s page says it, once');
 });
 
-test('update: a frame of the split view never asks /version by itself, nor on coming back', async () => {
+test('update: a frame of a host’s page never asks /version by itself, nor on coming back', async () => {
   const asked = [];
   let listened = 0;
   const timers = { ...fakeTimers(), setInterval: () => { throw new Error('no timer in a frame'); } };
@@ -988,26 +988,22 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   const icons = fs.readFileSync(new URL('../web/icons.js', import.meta.url), 'utf8');
-  // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
+  // The switcher: the other modules, then Settings.
   assert.match(shell, /class: 'kit-side__app' }/);
   assert.match(shell, /switcher\.setAttribute\('aria-haspopup', 'menu'\);/, 'a menu where it has more than Settings');
-  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
+  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*settingsItem\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
-  // and always in a frame of the host's split view, which has no rail.
+  // and always in a frame of a host's page, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
   // An app on its own (no module's path) has no host to wait for.
   assert.match(shell, /const known = answered \|\| !mount;/);
   assert.match(shell, /&& \(FRAMED \|\| !beside\(\) \|\| \(known && !rail\)\);/);
   assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*calendarPath = null;\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules or the calendar');
-  // The split view's views on the rail, where the host has one, over Settings.
-  assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
-  assert.match(shell, /href: n === 1 \? null : `\$\{page\}\?layout=\$\{n\}&from=\$\{encodeURIComponent\(mount\)\}`/);
-  assert.match(css, /\.kit-rail__split \+ \.kit-rail__settings \{ margin-top: 0; \}/);
-  for (const n of [1, 2, 3, 4]) assert.match(icons, new RegExp(` {2}'layout-${n}': '[^']+',\n`));
-  // The calendar, where the host has one: a link to its page, just over the split view.
+  assert.match(icons, / {2}'layout-1': '[^']+',\n/, 'the frame Work\'s shell draws its layouts on');
+  // The calendar, where the host has one: a link to its page, just over Settings.
   assert.match(shell, /host\.calendar \? el\('a', \{\s*class: 'kit-rail__calendar', href: host\.calendar, title: t\('kit\.calendar\.title'\)/);
-  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__split'"), 'over the split view');
-  assert.match(css, /\.kit-rail__calendar \+ :is\(\.kit-rail__split, \.kit-rail__settings\) \{ margin-top: 0; \}/);
+  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__settings'"), 'over Settings');
+  assert.match(css, /\.kit-rail__calendar \+ \.kit-rail__settings \{ margin-top: 0; \}/);
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
@@ -1019,8 +1015,9 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
-  assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the app\'s icon opens on its own');
-  assert.match(shell, /class: 'kit-rail__settings'/, 'Settings at the rail\'s foot');
+  assert.match(shell, /class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,\s*onClick: \(\) => onSettings\(\),/,
+    'Settings at the rail\'s foot, the same as the app\'s icon opens on its own');
+  assert.doesNotMatch(shell, /accountItems|openAccountMenu|kit\.account\.(?:menu|admin)/, 'no account menu: the account is in Settings, signing out too');
   assert.match(icons, /'chevron-down': /);
   assert.match(icons, /\n  camera: '[^']+',\n/, 'the camera and the picture, for attaching (0.63.0)');
   assert.match(icons, /\n  image: '[^']+',\n/);
@@ -1038,7 +1035,7 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\)/);
   assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\{ fresh: false \}\);/);
   assert.match(shell, /status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
-  // Back to the page the rail asks again, but not in a frame of the split view: the view has the rail.
+  // Back to the page the rail asks again, but not in a frame of a host's page: that page has the rail.
   assert.match(shell, /if \(!FRAMED\) document\.addEventListener\('visibilitychange'/);
   // A crossfade between pages of the site, the rail standing still; none for less motion.
   assert.match(css, /@view-transition \{ navigation: auto; \}/);
@@ -1329,7 +1326,7 @@ test('a module’s service worker keeps to its path: its API, its caches, its no
   await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/?list=3' } } });
   await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4' } } });
   await tasks.fire('notificationclick', { notification: { close() {}, data: {} } });
-  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/?app']);
+  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/'], 'and one without a path, the app');
 
   const host = await serviceWorker('https://work.example/', keys);
   host.self.suiteWorker({ version: 'work-v2', shell: ['/'], skip: ['/tasks/', '/notes/'] });
@@ -1382,7 +1379,7 @@ test('a host’s one worker serves every module’s paths as the module did, and
   const framed = page('https://work.example/tasks/', 'nested');
   host.self.clients.matchAll = async () => [split, framed];
   await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=5' } } });
-  assert.equal(framed.got.length, 1, 'in the split view, the module’s frame gets it');
+  assert.equal(framed.got.length, 1, 'in a host’s page, the module’s frame gets it');
   assert.equal(split.focused, 1, 'and the view the focus');
   assert.equal(split.went, null);
 
@@ -1714,7 +1711,7 @@ test('a page asked for outside a navigation is the browser’s, so a failed fetc
   const server = { '/': 'home', '/js/home.js': 'v1', '/tasks/': 'tasks page' };
   const { worker, fetched } = await deployedWorkers('https://work.example/', server);
   const one = await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, shell: ['/', '/js/home.js', '/tasks/'], kit: false });
-  // Chrome checks the page before installing the app: Work's split view, `|` and all.
+  // Chrome checks the page before installing the app: Work's windows (`?w=`), `|` and all.
   fetched.length = 0;
   for (const page of ['https://work.example/?w=tasks:%3Flist%3D38|notes:&f=notes', 'https://work.example/w/', 'https://work.example/tasks/list/12', 'https://work.example/index.html']) {
     assert.equal(await one.get(page), null, page);
@@ -2840,7 +2837,7 @@ async function framePage() {
 
 const frameOptions = () => ({
   app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
-  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }],
+  onSettings: () => {},
 });
 
 test('the frame’s destroy() takes away every listener it added, the menu it opened and its DOM; twice is harmless', async () => {
@@ -2848,23 +2845,23 @@ test('the frame’s destroy() takes away every listener it added, the menu it op
   try {
     const { createShell } = await import('../web/shell.js');
     const before = { document: page.listenerCount(), window: win.listenerCount() };
-    const shell = createShell(frameOptions());
+    const shell = createShell({ ...frameOptions(), foot: { create: { items: [{ label: 'New notebook', onClick: () => {} }] } } });
     assert.ok(page.listenerCount() >= before.document + 7, 'touches, drags and the like, on the document');
     assert.equal(page.body.children.length, 1);
 
-    // The account menu open (the app's icon, with entries of the app's own), as it may be when an
-    // app draws its frame again: it lives in the body.
-    const account = shell.element.querySelector('.kit-side__app');
-    assert.equal(account.dataset.opens, 'menu');
-    account.click();
-    assert.equal(account.getAttribute('aria-expanded'), 'true');
+    // A menu open (the sidebar's +, with what it makes), as it may be when an app draws its frame
+    // again: it lives in the body.
+    const add = shell.foot.create;
+    add.click();
+    assert.equal(add.getAttribute('aria-expanded'), 'true');
     assert.equal(page.body.children.length, 2);
+    const app = shell.element.querySelector('.kit-side__app');
 
     shell.destroy();
     assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before, 'nothing left listening');
     assert.equal(page.body.children.length, 0, 'the frame and its menu left the page');
-    assert.equal(account.getAttribute('aria-expanded'), 'false');
-    assert.equal(account.listenerCount(), 0, 'its own nodes hold nothing either');
+    assert.equal(add.getAttribute('aria-expanded'), 'false');
+    assert.equal(app.listenerCount(), 0, 'its own nodes hold nothing either');
 
     shell.destroy();
     // The menu's outside-click listener comes on the next turn, and not for a menu already closed.
@@ -2931,8 +2928,11 @@ test('an app on its own: no button for the person, and the app\'s icon at the si
   try {
     const { createShell } = await import('../web/shell.js');
     let opened = 0;
-    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; } });
-    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com' });
+    let signedOut = 0;
+    // onSignOut and setUser(), which the modules still give and call, change nothing: no menu, an
+    // admin's neither, and nothing signs out from the frame.
+    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; }, onSignOut: () => { signedOut += 1; } });
+    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com', role: 'admin' });
     assert.equal(shell.element.querySelector('.kit-account'), null);
     assert.equal(shell.element.querySelector('.kit-side__foot'), null);
     const app = shell.element.querySelector('.kit-side__app');
@@ -2943,6 +2943,7 @@ test('an app on its own: no button for the person, and the app\'s icon at the si
     app.click();
     assert.equal(opened, 1, 'straight to Settings');
     assert.equal(page.body.children.length, 1, 'no menu in the body');
+    assert.equal(signedOut, 0);
     shell.destroy();
   } finally {
     restore();
@@ -3243,14 +3244,14 @@ test('a frame of the host\'s own page is FRAMED; a page on its own, or framed by
   assert.equal(framedIn(page), false, 'a page on its own');
   const frame = { location: { origin: 'https://work.example' }, top: page };
   frame.self = frame;
-  assert.equal(framedIn(frame), true, 'a frame of the split view');
+  assert.equal(framedIn(frame), true, 'a frame of a host’s page');
   const elsewhere = { location: { origin: 'https://work.example' }, top: { get location() { throw new Error('SecurityError'); } } };
   elsewhere.self = elsewhere;
   assert.equal(framedIn(elsewhere), false, 'another site\'s page can\'t be read');
   assert.equal(framedIn(undefined), false, 'no window: Node');
 });
 
-test('in a frame, the split view opens the module\'s Settings, and hears when they open and close', () => {
+test('in a frame, the host\'s page opens the module\'s Settings, and hears when they open and close', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
   assert.match(read('base.js'), /export const SETTINGS_EVENT = 'kit:settings';/);
   assert.match(read('base.js'), /export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';/);

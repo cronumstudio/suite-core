@@ -164,11 +164,6 @@ export function auditShare(audit, { step, actor, req = null, kind, id, targetId 
  * @param {object} [options.brake]  { offer(actorId), notice(actorId, targetId) }; default createShareBrake().
  * @param {Function} [options.requirePlan]  (userId) → throws when the person's plan doesn't share.
  * @param {boolean} [options.byUsername]  also by `username`, for an open directory (directoryClosed).
- * @param {'offered'|'accepted'} [options.inviters]  since when whoever offered the person something
- *   is one of their people in the share dialog's chips (peopleOf): from the offer, as its
- *   invitation shows them by name ('offered', the default), or once the person accepted it
- *   ('accepted': an offer not answered makes nobody known to anybody). Naming them by id takes them
- *   from the offer either way (knownTo).
  * @param {object} [options.codes]  { unknown: 'email_not_found', noTarget: null }: the codes of
  *   a person not found and of an offer that names nobody (null: the email is required).
  * @param {Function} [options.log]
@@ -179,10 +174,9 @@ export function auditShare(audit, { step, actor, req = null, kind, id, targetId 
  */
 export function createSharing({
   db, kinds, notify = null, push = null, hasPush = null, brake = createShareBrake(), requirePlan = null,
-  byUsername = false, inviters = 'offered', codes = {}, clock = () => new Date().toISOString(), log = console.error,
+  byUsername = false, codes = {}, clock = () => new Date().toISOString(), log = console.error,
   audit = null, module = null,
 }) {
-  if (!['offered', 'accepted'].includes(inviters)) throw new TypeError(`sharing: inviters is 'offered' or 'accepted', not "${inviters}"`);
   const noted = (step, details) => auditShare(audit, { ...details, step, module });
   const { get, all, run } = db;
   const UNKNOWN = codes.unknown || 'email_not_found';
@@ -281,7 +275,7 @@ export function createSharing({
    * whoever they only offered something to: an offer by email makes a share for an
    * account and none for an address without one, so naming that account by its id
    * told which addresses have one (audit sc-data-1). With `offered: false`, whoever
-   * offered them something only once they accepted it (`inviters`). → a Set of ids.
+   * offered them something only once they accepted it (peopleOf). → a Set of ids.
    */
   function knownTo(userId, { offered = true } = {}) {
     const parts = [];
@@ -306,11 +300,12 @@ export function createSharing({
    * The person's people, for the share dialog's chips: those they may name by id
    * (knownTo), each once, by name, never by email. Whoever they only offered
    * something to is none of them, as in Projects: the name an account gave itself
-   * is for it to show by accepting (#693). Whoever offered them something, from
-   * the offer or once accepted, as `inviters` says. → [{ id, name }].
+   * is for it to show by accepting (#693). Whoever offered them something only
+   * once they accepted it: an offer not answered makes nobody known to anybody, in
+   * every module. → [{ id, name }].
    */
   function peopleOf(userId) {
-    return [...knownTo(userId, { offered: inviters === 'offered' })].map((id) => personOf(id)).filter(Boolean)
+    return [...knownTo(userId, { offered: false })].map((id) => personOf(id)).filter(Boolean)
       .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' }) || a.id - b.id);
   }
 

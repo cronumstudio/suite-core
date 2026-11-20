@@ -85,12 +85,12 @@ test('what the core answers: elsewhere, a bad request, a refusal, an ended sessi
   await tick();
   assert.match(refusedLink.text(), /This link can’t connect a device/);
 
-  // A person the app keeps out: said, and the buttons stay off.
-  const kept = page(REQUEST, async () => { throw new ApiError(403, 'device_not_allowed'); });
+  // A refusal: said, and the buttons stay off.
+  const kept = page(REQUEST, async () => { throw new ApiError(403, 'forbidden'); });
   kept.button('allow').dispatch('click');
   await tick();
   assert.deepEqual(kept.went, []);
-  assert.match(kept.text(), /This account can’t connect devices here\./);
+  assert.match(kept.text(), /You are not allowed to do this\./);
   assert.equal(kept.button('allow').disabled, true);
   // Too many at once: said, and tried again.
   const busy = page(REQUEST, async () => { throw new ApiError(429, 'too_many_attempts'); });
@@ -150,8 +150,8 @@ test('another account: the one signed in is named, and the page signs out and as
   assert.deepEqual(failed.went, []);
   assert.deepEqual(['allow', 'cancel', 'other-account'].map((a) => failed.button(a).disabled), [false, false, false]);
 
-  // An account the app keeps out: Allow stays off, another account is still offered.
-  const kept = page(REQUEST, async () => { throw new ApiError(403, 'device_not_allowed'); });
+  // Refused as this account: Allow stays off, another account is still offered.
+  const kept = page(REQUEST, async () => { throw new ApiError(403, 'forbidden'); });
   kept.button('allow').dispatch('click');
   await tick();
   assert.deepEqual([kept.button('allow').disabled, kept.button('other-account').disabled], [true, false]);

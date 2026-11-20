@@ -18,6 +18,7 @@
  */
 import { el } from './dom.js';
 import { t, formatDate, formatDateTime, numberFormat, dateFormat } from './i18n.js';
+import { addDays } from './days.js';
 
 const MB = 1024 * 1024;
 export const percent = (share) => numberFormat({ style: 'percent', maximumFractionDigits: 0 }).format(share);
@@ -70,9 +71,6 @@ export function countedDays(mcp) {
   const first = mcp.days.findIndex((d) => d.used > 0 || (mcp.since != null && d.day >= mcp.since));
   return mcp.since == null ? mcp.days : mcp.days.slice(first < 0 ? mcp.days.length - 1 : first);
 }
-
-/** A UTC day ('2026-03-04') moved by `n` days. */
-const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
 /**
  * The days of `weeks` whole weeks, Monday to Sunday, this one the last (entitlements.js weekStart):

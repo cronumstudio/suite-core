@@ -91,7 +91,7 @@ function remember(answer) {
 /** Only to the provider's page: an address that isn't http(s) is not followed. */
 function follow(url) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw new Error('not a page');
-  // From a frame of the host's split view the whole window goes: a payment page isn't framed.
+  // From a frame of a host's page the whole window goes: a payment page isn't framed.
   (FRAMED ? globalThis.top : globalThis).location.assign(url);
 }
 
