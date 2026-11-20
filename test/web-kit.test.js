@@ -988,10 +988,10 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   const icons = fs.readFileSync(new URL('../web/icons.js', import.meta.url), 'utf8');
-  // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
+  // The switcher: the other modules, then Settings.
   assert.match(shell, /class: 'kit-side__app' }/);
   assert.match(shell, /switcher\.setAttribute\('aria-haspopup', 'menu'\);/, 'a menu where it has more than Settings');
-  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
+  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*settingsItem\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
   // and always in a frame of the host's split view, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
@@ -1019,8 +1019,9 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
-  assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the app\'s icon opens on its own');
-  assert.match(shell, /class: 'kit-rail__settings'/, 'Settings at the rail\'s foot');
+  assert.match(shell, /class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,\s*onClick: \(\) => onSettings\(\),/,
+    'Settings at the rail\'s foot, the same as the app\'s icon opens on its own');
+  assert.doesNotMatch(shell, /accountItems|openAccountMenu|kit\.account\.(?:menu|admin)/, 'no account menu: the account is in Settings, signing out too');
   assert.match(icons, /'chevron-down': /);
   assert.match(icons, /\n  camera: '[^']+',\n/, 'the camera and the picture, for attaching (0.63.0)');
   assert.match(icons, /\n  image: '[^']+',\n/);
@@ -2840,7 +2841,7 @@ async function framePage() {
 
 const frameOptions = () => ({
   app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
-  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }],
+  onSettings: () => {},
 });
 
 test('the frame’s destroy() takes away every listener it added, the menu it opened and its DOM; twice is harmless', async () => {
@@ -2848,23 +2849,23 @@ test('the frame’s destroy() takes away every listener it added, the menu it op
   try {
     const { createShell } = await import('../web/shell.js');
     const before = { document: page.listenerCount(), window: win.listenerCount() };
-    const shell = createShell(frameOptions());
+    const shell = createShell({ ...frameOptions(), foot: { create: { items: [{ label: 'New notebook', onClick: () => {} }] } } });
     assert.ok(page.listenerCount() >= before.document + 7, 'touches, drags and the like, on the document');
     assert.equal(page.body.children.length, 1);
 
-    // The account menu open (the app's icon, with entries of the app's own), as it may be when an
-    // app draws its frame again: it lives in the body.
-    const account = shell.element.querySelector('.kit-side__app');
-    assert.equal(account.dataset.opens, 'menu');
-    account.click();
-    assert.equal(account.getAttribute('aria-expanded'), 'true');
+    // A menu open (the sidebar's +, with what it makes), as it may be when an app draws its frame
+    // again: it lives in the body.
+    const add = shell.foot.create;
+    add.click();
+    assert.equal(add.getAttribute('aria-expanded'), 'true');
     assert.equal(page.body.children.length, 2);
+    const app = shell.element.querySelector('.kit-side__app');
 
     shell.destroy();
     assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before, 'nothing left listening');
     assert.equal(page.body.children.length, 0, 'the frame and its menu left the page');
-    assert.equal(account.getAttribute('aria-expanded'), 'false');
-    assert.equal(account.listenerCount(), 0, 'its own nodes hold nothing either');
+    assert.equal(add.getAttribute('aria-expanded'), 'false');
+    assert.equal(app.listenerCount(), 0, 'its own nodes hold nothing either');
 
     shell.destroy();
     // The menu's outside-click listener comes on the next turn, and not for a menu already closed.
@@ -2931,8 +2932,11 @@ test('an app on its own: no button for the person, and the app\'s icon at the si
   try {
     const { createShell } = await import('../web/shell.js');
     let opened = 0;
-    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; } });
-    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com' });
+    let signedOut = 0;
+    // onSignOut and setUser(), which the modules still give and call, change nothing: no menu, an
+    // admin's neither, and nothing signs out from the frame.
+    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; }, onSignOut: () => { signedOut += 1; } });
+    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com', role: 'admin' });
     assert.equal(shell.element.querySelector('.kit-account'), null);
     assert.equal(shell.element.querySelector('.kit-side__foot'), null);
     const app = shell.element.querySelector('.kit-side__app');
@@ -2943,6 +2947,7 @@ test('an app on its own: no button for the person, and the app\'s icon at the si
     app.click();
     assert.equal(opened, 1, 'straight to Settings');
     assert.equal(page.body.children.length, 1, 'no menu in the body');
+    assert.equal(signedOut, 0);
     shell.destroy();
   } finally {
     restore();

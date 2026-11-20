@@ -376,11 +376,9 @@ const shell = createShell({
   panes: 'split', app,
   create: { label: t('notes.new'), onClick: newNote },
   foot: { create: { items: () => [newNotebookItem, newGroupItem] }, trash: { href: '#/trash' } },
-  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
+  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; },
     onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
-  onSignOut: () => signOut({ local }),
 });
-shell.setUser(user);
 shell.nav.append(navItem({ label: t('notes.all'), iconName: 'notes', current: true }), navSection(t('notes.notebooks')));
 
 const live = connectLive({ onChange: reload, onResync: reloadAll, onAccount: refreshUser, onState: shell.setLive });
@@ -415,9 +413,7 @@ the focus goes to the current entry. With `panes: 'single'` there is one view in
 `shell.list`. There is no button for the person at the sidebar's foot (v0.224.0): on its own, the
 app's icon and name at the sidebar's head are a button, with Settings' icon in place of an arrow,
 that opens Settings (`onSettings`), where the account is and Sign out closes the profile.
-Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
-Settings, Administration (for admins, at `/admin`) and Sign out. `setUser()` keeps who is signed
-in for that menu.
+`onSignOut` and `shell.setUser()` are still accepted, and do nothing.
 As a module of a host (a page under `/<mount>/`, Cronum Work), from
 640 px a rail at the sidebar's start has the host's mark (not a link, v0.104.0), the modules the person uses (one too) and
 Settings at its foot, and the app's icon is only its mark. On a phone the drawer has no rail: the

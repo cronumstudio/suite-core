@@ -78,7 +78,7 @@ async function inWork(run, { lang = 'en' } = {}) {
 const notes = (file) => import(`${SITE}notes/suite/${file}`);
 const options = (more = {}) => ({
   app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
-  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }], ...more,
+  onSettings: () => {}, ...more,
 });
 const counts = (...targets) => targets.map((target) => target.listenerCount());
 
