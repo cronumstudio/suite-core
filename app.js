@@ -545,7 +545,7 @@ export function createSuite({
 
   // Someone deleting their own account: disabled now, gone after the install's days (account-deletion.js).
   const deletion = createAccountDeletion({
-    accounts, sign: sessions.sign, days: config.accounts.deletionDays, atProviders: config.accounts.deleteAtProviders,
+    accounts, sign: sessions.sign, days: config.accounts.deletionDays,
     endSubscriptions: config.accounts.endSubscriptions, shared: config.accounts.sharedIdentity,
     // With the stores, both instances: a store stops nothing for the person, who cancels there.
     idp, billing: stores ? combinedBilling([billing, stores]) : billing, audit, mailer, texts, appName: config.app.name,

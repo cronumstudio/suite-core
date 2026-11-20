@@ -587,8 +587,8 @@ export function createWorkosAccounts({
   }
 
   /**
-   * The person goes at WorkOS too, when the account here is deleted at their
-   * request and the install says so (config.accounts.deleteAtProviders).
+   * The person goes at WorkOS too, when the account here is deleted and the
+   * login goes with it (config.accounts.sharedIdentity, account-deletion.js).
    */
   async function deleteIdentity(userId) {
     const id = users.workosIdOf?.(userId);
