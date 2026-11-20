@@ -510,3 +510,26 @@ test('dialogs: one look from the kit, no line under the title nor over the butto
     for (const rule of rules) assert.doesNotMatch(rule, /border-(block|top|bottom)/, rule);
   }
 });
+
+test('a dialog opened from a menu gives the focus back to the menu\'s button once closed (ui-dialogos-16)', () => {
+  const focused = [];
+  const anchor = el('button', { type: 'button' });
+  anchor.focus = () => { focused.push('anchor'); document.activeElement = anchor; };
+  document.body.append(anchor);
+  let opened = null;
+  const node = menu(anchor, [{ label: 'Public page', onClick: () => { opened = openDialog({ title: 'Public page' }); } }]);
+  // The entry that had the focus goes with the menu: the browser leaves it on the body.
+  document.activeElement = document.body;
+  node.find('button')[0].dispatch('click');
+  assert.equal(opened?.dialog.open, true);
+  opened.close();
+  assert.deepEqual(focused, ['anchor'], 'back on «…», not lost on the body');
+
+  // A dialog opened afterwards from elsewhere has nothing to do with that menu.
+  document.activeElement = document.body;
+  const later = openDialog({ title: 'Another' });
+  later.close();
+  assert.deepEqual(focused, ['anchor']);
+  delete document.activeElement;
+  anchor.remove();
+});

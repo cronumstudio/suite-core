@@ -655,7 +655,7 @@ test('back from the checkout: the mark leaves the address, thanks, and the plan 
   assert.equal((await done).plan.id, 'pro');
   assert.deepEqual(plans, ['free', 'pro'], 'told at once, and when it changed');
   assert.deepEqual(heard, ['free', 'pro'], 'an open Settings hears it too');
-  assert.equal(textOf(lastToast()), 'Your plan is now Pro.');
+  assert.equal(textOf(lastToast()), 'Your plan is now Pro');
   assert.equal(storage.has('host.billing'), false);
 
   // Never confirmed while it looked: said so, when the plan from before is known.

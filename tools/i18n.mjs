@@ -409,7 +409,8 @@ const SHARED_WORD = /^(?:kit|fields)\.[^.]+$/;
  * `dir` is the app's public/i18n.
  * → ['common.cancel: say kit.cancel', …]
  */
-export function kitDuplicates(dir, languages = LANGUAGES) {
+export function kitDuplicates(dir, languages = LANGUAGES, { allow = [], overrides = false } = {}) {
+  const allowed = new Set(allow.map((entry) => (typeof entry === 'string' ? entry : entry.key)));
   const own = {};
   for (const lang of languages) {
     try {
@@ -426,8 +427,12 @@ export function kitDuplicates(dir, languages = LANGUAGES) {
   const words = Object.keys(suite).filter((key) => SHARED_WORD.test(key)).sort((a, b) => a.length - b.length);
   const found = [];
   for (const key of Object.keys(own.en || {})) {
+    if (allowed.has(key)) continue;
     if (key in suite) {
       if (same(key, key)) found.push(`${key}: the suite's own text in every language, nothing to override`);
+      // With `overrides`, a word of the kit is the kit's in every module (audit of 6/11,
+      // ux-textos-20): an app saying it otherwise is told, unless it says why (`allow`).
+      else if (overrides && /^kit\./.test(key)) found.push(`${key}: a word of the kit, said otherwise by the app`);
       continue;
     }
     // The suite's own groups (errors.<code>, fields.<name>) are looked up by the name the server
@@ -437,6 +442,38 @@ export function kitDuplicates(dir, languages = LANGUAGES) {
     if (word) found.push(`${key}: say ${word}, the same in every language`);
   }
   return found;
+}
+
+/* ------------------------------- typography ------------------------------- */
+
+/**
+ * Texts written the way the suite writes them (audit of 6/11, ux-textos-14 and -17): quotes are the
+ * language's own («…», “…”, „…“), never straight ones; an apostrophe is ’, never '; and a way through
+ * menus reads with ›, never →. `dir` is a catalog folder (an app's public/i18n, or the suite's).
+ * → ['es.json app.moved: a straight quote ("), say «…»', …]
+ */
+export function typography(dir, languages = LANGUAGES) {
+  const QUOTE = { es: '«…»', en: '“…”', fr: '« … »', de: '„…“', it: '“…”' };
+  const found = [];
+  for (const lang of languages) {
+    let catalog;
+    try {
+      catalog = flatten(JSON.parse(readFileSync(path.join(dir, `${lang}.json`), 'utf8')));
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw new Error(`${lang}.json: ${err.message}`);
+    }
+    for (const [key, value] of Object.entries(catalog)) {
+      const texts = typeof value === 'string' ? [value] : Object.values(value || {});
+      for (const text of texts) {
+        if (typeof text !== 'string') continue;
+        if (text.includes('"')) found.push(`${lang}.json ${key}: a straight quote ("), say ${QUOTE[lang] || '“…”'}`);
+        if (/\p{L}'\p{L}/u.test(text)) found.push(`${lang}.json ${key}: a straight apostrophe ('), say ’`);
+        if (text.includes(' → ')) found.push(`${lang}.json ${key}: a way through menus with →, say ›`);
+      }
+    }
+  }
+  return [...new Set(found)];
 }
 
 /* -------------------------------- an app's -------------------------------- */
@@ -451,7 +488,7 @@ export function kitDuplicates(dir, languages = LANGUAGES) {
  * already says (kitDuplicates).
  * → [{ name, problems }], for the app's tests to turn into checks.
  */
-export function appChecks(root, { skip = [], allow = [], kitWords = false } = {}) {
+export function appChecks(root, { skip = [], allow = [], kitWords = false, kitOverrides = false, kitAllow = [], typography: typed = false } = {}) {
   const dir = path.join(root, 'public', 'i18n');
   const publicDir = path.join(root, 'public');
   const serverDir = path.join(root, 'server');
@@ -471,7 +508,8 @@ export function appChecks(root, { skip = [], allow = [], kitWords = false } = {}
     { name: 'Every key the browser and the server use (t(), data-i18n, data-i18n-attr) is in the catalogs', problems: unknownKeys(catalogs.en, [publicDir, serverDir]) },
     { name: 'No text for people is written in the browser’s code or in the HTML', problems: hardcodedTexts([publicDir], { allow, skip }) },
     { name: 'Nothing on the server is written in another language: what people read comes from the catalogs', problems: hardcodedTexts([serverDir], { server: true, allow, skip }) },
-    ...(kitWords ? [{ name: 'No key of the app repeats what a word of the kit already says (kit.cancel, fields.name…)', problems: kitDuplicates(dir, languages) }] : []),
+    ...(kitWords ? [{ name: 'No key of the app repeats what a word of the kit already says (kit.cancel, fields.name…)', problems: kitDuplicates(dir, languages, { allow: kitAllow, overrides: kitOverrides }) }] : []),
+    ...(typed ? [{ name: 'Quotes, apostrophes and ways through menus are written as the suite writes them («…», ’, ›)', problems: typography(dir, languages) }] : []),
   ];
 }
 
@@ -484,12 +522,14 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       const skip = [];
       let root = '.';
       let kitWords = false;
+      let typed = false;
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--skip') skip.push(args[++i]);
         else if (args[i] === '--kit-words') kitWords = true;
+        else if (args[i] === '--typography') typed = true;
         else root = args[i];
       }
-      const checks = appChecks(path.resolve(root), { skip, kitWords });
+      const checks = appChecks(path.resolve(root), { skip, kitWords, typography: typed });
       for (const { name, problems: found } of checks) {
         console.log(`${found.length ? '✗' : '✓'} ${name}`);
         for (const problem of found.slice(0, 20)) console.log(`    ${problem}`);
@@ -506,6 +546,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
         else folders.push(path.resolve(args[i]));
       }
       problems = hardcodedTexts(folders, options).map((f) => `written in the code: ${f}`);
+    } else if (command === 'typography') {
+      problems = typography(dir ? path.resolve(dir) : fileURLToPath(new URL('../i18n/', import.meta.url)));
+      if (!problems.length) console.log('Quotes, apostrophes and menu paths are written as the suite writes them');
     } else if (command === 'kit-words') {
       problems = dir ? kitDuplicates(path.resolve(dir)) : ['Use: kit-words <dir>'];
       if (!problems.length) console.log('No key repeats a word of the kit');
@@ -513,7 +556,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
       problems = command === 'parity' ? parity(catalogs)
         : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-          : [`Use: app [root] [--skip <file>]… [--kit-words] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir>`];
+          : [`Use: app [root] [--skip <file>]… [--kit-words] [--typography] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir> | typography [dir]`];
       if (!problems.length) {
         console.log(command === 'parity'
           ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`

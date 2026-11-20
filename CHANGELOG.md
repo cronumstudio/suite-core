@@ -3,6 +3,33 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.311.0 — 2026-11-20
+
+- **Texts say the same thing the same way in every module** (audit of 6/11: ux-textos-5, -9, -11,
+  -14, -16, -17, -18, -20, -21, ux-acciones-20, ux-compartir-14, ux-compartir-21, ui-dialogos-16).
+  Only additions in the code: what was exported behaves as before. Rule 25 in docs/web-kit.md.
+  - Catalogs, in the five languages: «Avisos» (`kit.notifications.offTitle`, `.turnOn`); «donde
+    entras» for where one signs in; a step «apuntado» and «hecho» (`kit.day.eveningHint`,
+    `kit.plan.benefits.retention*`, `kit.links.done`); «email» for the address and «correo» for the
+    message (`kit.share.email`, `kit.profile.email.provider`, `errors.email_not_found`); the
+    language's own quotes, ’ for an apostrophe and › on a way through menus; American English
+    (color, canceled, recognize); `mail.deletion.body` «Hello {name},»; `kit.notifications.renew`
+    no longer says «service worker»; `kit.retry` «Try again», as the kit's sentences say it.
+  - A notice has no full stop when it is one sentence and has them when it is two: the kit's own
+    toasts (`kit.share.left`, `kit.plan.*`, `kit.links.*`, `admin.*`…). Errors keep theirs.
+  - `kit.public.action`, `kit.public.on`, and the shared page's `kit.public.goneTitle`,
+    `.cantEmbed`, `.openPage`, `.startFree`, which the four modules wrote each.
+  - `share-mail.js` `sharePush({ t, kind, actor, name, role })` → `{ title, body }`: the push of
+    something shared, worded once (`kit.share.push.title`, `kit.share.push.<kind>`), for the
+    modules' own deliveries, which keep their tag and where a tap goes.
+  - `web/public-page.js`: «Cerrar» is plain; «Activar» is the dialog's one primary button.
+  - `web/ui.js`: a dialog opened from a menu's entry gives the focus back to the menu's button
+    once it closes, where the browser left it on the body (the entry went with the menu).
+  - `tools/i18n.mjs` `typography(dir)` (straight quotes and apostrophes, → on a way through menus;
+    `typography [dir]` on the command line, `--typography` with `app`), `kitDuplicates(dir, langs,
+    { allow, overrides })` (with `overrides`, an app's `kit.*` key saying it otherwise), and
+    `appChecks(root, { kitOverrides, kitAllow, typography })` to ask for them.
+
 ## 0.308.0 — 2026-11-20
 
 - **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,

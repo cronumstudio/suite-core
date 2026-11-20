@@ -159,8 +159,10 @@ export function publicDialog({
       paint();
     })
     .catch(() => {});
+  // «Activar» is the one primary button; «Cerrar» is plain at the foot's end, as a trash's
+  // (audit of 6/11, ui-dialogos-16: two black buttons side by side).
   return openDialog({
     title: say('title', { name }), content: body, parent,
-    actions: [{ label: t('kit.close'), primary: true }],
+    actions: [{ label: t('kit.close') }],
   });
 }
