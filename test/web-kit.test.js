@@ -1329,7 +1329,7 @@ test('a module’s service worker keeps to its path: its API, its caches, its no
   await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/?list=3' } } });
   await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4' } } });
   await tasks.fire('notificationclick', { notification: { close() {}, data: {} } });
-  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/?app']);
+  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/'], 'and one without a path, the app');
 
   const host = await serviceWorker('https://work.example/', keys);
   host.self.suiteWorker({ version: 'work-v2', shell: ['/'], skip: ['/tasks/', '/notes/'] });

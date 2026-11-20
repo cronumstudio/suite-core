@@ -563,9 +563,9 @@ function suiteWorker(options) {
   self.addEventListener('notificationclick', function (event) {
     event.notification.close();
     var data = event.notification.data || {};
-    // A path the server wrote is the app's: in a host it goes under the module's.
+    // A path the server wrote is the app's: in a host it goes under the module's. Without one, the app.
     var given = data.url && data.url.indexOf('/') === 0 && data.url.indexOf('//') !== 0 ? data.url : null;
-    var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/?app', scope));
+    var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/', scope));
     if (modules.length) {
       event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
         .then(function (clients) { return suiteOpenModule(clients, target, data, moduleOf, holds); }));
