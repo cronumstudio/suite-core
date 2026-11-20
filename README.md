@@ -194,8 +194,7 @@ over ink in the dark theme), a card with the app's icon (`app.icon`, `/icons/fav
 default), its name and its colour on the main button (`app.color`), and the "by Cronum Studio"
 signature under it. The page follows the person's theme: their own choice when they are signed in,
 else the one the app saved in the browser (`<app id>.theme` in `localStorage`), else the
-system's. Its styles are `web/oauth.css` and nothing comes from elsewhere. An app that wants its
-own page still passes `hooks.oauthPage`.
+system's. Its styles are `web/oauth.css` and nothing comes from elsewhere.
 
 What it implements and why is explained at the top of `oauth.js`.
 

@@ -886,7 +886,7 @@ export async function createHost({
    * The suite a module gets: the host's, with what is the module's own in place
    * of it. Its migrations run here, after the suite's: its first one finds the
    * suite's tables (users with the suite's columns) already there. The host's
-   * consent screen and mail are the host's: a module's oauthPage hook is not used.
+   * consent screen and mail are the host's.
    */
   function join(entry, options, from) {
     if (from !== HERE) {

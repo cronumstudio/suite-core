@@ -127,9 +127,8 @@ const EXAMPLE_PASSWORDS = new Set([
  *   with modules.organizations, onMemberRemoved({ organization, userId, role, reason, by }) and
  *     onOrganizationDeleted({ organization, reason, by }), inside the change's transaction
  *     (organizations.js: the app deletes its own rows with them; one that throws undoes it all);
- *   oauthPage({ lang, title, body, theme }) → HTML of the consent screen, when the app dresses it
- *     itself instead of the suite's (oauth-page.js, with app.color and app.icon);
- *   texts(req, user) → { lang, t } for that screen
+ *   texts(req, user) → { lang, t } for the OAuth consent screen (oauth-page.js, with app.color
+ *     and app.icon) and the mail
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
  */
@@ -449,7 +448,7 @@ export function createSuite({
       loginSucceeded: limiter.loginSucceeded, allowRegistration: limiter.allowRegistration,
     },
     ...(hooks.texts ? { texts: hooks.texts } : {}),
-    page: hooks.oauthPage || brandedPage(config.app),
+    page: brandedPage(config.app),
     // With OIDC, whoever isn't signed in goes to the provider and comes back.
     externalSignIn: oidc ? { name: oidc.name, url: oidc.signInUrl } : null,
     log,

@@ -131,11 +131,10 @@ import product from './suite.config.js';
 import { createSuite } from './suite/app.js';
 import { MIGRATIONS } from './migrations.js';          // the app's own, numbered
 import { textsFor } from './i18n.js';
-import { oauthPage } from './oauth-page.js';
 
 export const suite = createSuite({
   config: product, migrations: MIGRATIONS,
-  hooks: { texts: textsFor, oauthPage },               // how the OAuth consent screen looks
+  hooks: { texts: textsFor },                          // the texts of the OAuth consent screen and the mail
 });
 
 // server/index.js — the server
