@@ -26,7 +26,13 @@
 import { el } from './dom.js';
 import { t } from './i18n.js';
 import { at, FRAMED } from './base.js';
-import { hostWorker } from './worker.js';
+
+/**
+ * The host's one worker, if there is one (worker.js hostWorker), asked once a check needs it:
+ * worker.js, with push.js, comes only then, and a module mounted in Cronum Work, which never
+ * watches for updates itself, doesn't evaluate them at all (audit of 6/11, perf-web-4).
+ */
+const hostWorker = () => import('./worker.js').then((worker) => worker.hostWorker());
 
 const CHECK_EVERY = 10 * 60 * 1000;
 const HANDOVER_MS = 3000;

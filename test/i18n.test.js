@@ -291,3 +291,17 @@ test('the catalog a page loads leaves out the admin panel’s, the e-mails’ an
   const bytes = (catalog) => Buffer.byteLength(JSON.stringify(catalog));
   assert.ok(bytes(kept) < bytes(english) * 0.8, `${bytes(kept)} of ${bytes(english)} bytes`);
 });
+
+test('a host’s Settings › Modules and About call its parts modules, and say how the shell moves between them', async () => {
+  const { SUITE_CATALOGS: catalogs, LANGUAGES: languages } = await import('../i18n.js');
+  const word = { en: /module/, es: /módulo/, fr: /module/, de: /Module/, it: /modul/ };
+  for (const lang of languages) {
+    const c = catalogs[lang];
+    for (const key of ['kit.about.hostHint', 'kit.about.modulesTitle', 'kit.about.modulesHint']) {
+      assert.match(c[key], word[lang], `${lang} ${key}: modules, as Settings › Modules and the home say (audit of 6/11, work-web-13)`);
+      assert.doesNotMatch(c[key].replaceAll('{app}', ''), /\bapps?\b/i, `${lang} ${key}`);
+    }
+    // The shell has no icon at the top of a menu: its bar at the side, or a phone's tabs.
+    assert.doesNotMatch(c['kit.modules.one'], /menu|menú|Menü/i, `${lang} kit.modules.one`);
+  }
+});

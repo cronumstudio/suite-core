@@ -81,3 +81,10 @@ export function createShareBrake({ clock = () => Date.now(), offersPerHour = OFF
     },
   };
 }
+
+/**
+ * The suite's one brake (suite.shareBrake): every module of the install counts against it, so a
+ * person's offers are limited across all of Work, not four times over (audit sc-data-22). Notes
+ * kept 40 an hour on its own, the others 20: the install's limit is Notes'.
+ */
+export const SUITE_OFFERS_PER_HOUR = 40;

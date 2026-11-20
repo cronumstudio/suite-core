@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLive, subscribeAll } from '../live.js';
+import { createLive, subscribeAll, createLiveAll } from '../live.js';
 import { createSuite, createApp } from '../app.js';
 
 /** A tab: the request (its headers, and it can close) and what the server wrote to it. */
@@ -243,6 +243,62 @@ test('a channel ends with its session in the one channel for every module too', 
   assert.equal(kept.res.ended, false);
   notes.close();
   next.close();
+});
+
+test('the host’s streams ask for their session once a heartbeat, not once a module (perf-srv-10)', async () => {
+  const open = new Set(['kept', 'gone', 'later']);
+  const asked = [];
+  const stillIn = (userId, token) => { asked.push(token); return open.has(token); };
+  // The modules' own channels ask as before, for their own tabs.
+  const modules = ['tasks', 'notes', 'next', 'projects'].map((mount) => [mount, createLive({ stillIn, heartbeatMs: 20 })]);
+  const streams = createLiveAll({ stillIn, heartbeatMs: 20 });
+  const kept = tab(3);
+  const gone = tab(3);
+  const later = tab(4);
+  streams.subscribe(modules, kept.req, kept.res, kept.user, { sessionToken: 'kept' });
+  streams.subscribe(modules, gone.req, gone.res, gone.user, { sessionToken: 'gone' });
+  streams.subscribe(modules, later.req, later.res, later.user, { sessionToken: 'later' });
+  assert.equal(streams.open(), 3);
+  for (const [, live] of modules) assert.equal(live.recheck(), 0, 'a module never asks for a stream’s session');
+  assert.deepEqual(asked, []);
+
+  // A session closed (sessions.whenClosed): that person's streams are asked at once, and end with the account's notice.
+  open.delete('gone');
+  assert.equal(streams.recheck(3), 1);
+  assert.deepEqual(asked, ['kept', 'gone']);
+  assert.equal(gone.res.ended, true);
+  assert.deepEqual(said(gone.res).at(-1), ['tasks', 'account', { user_id: 3 }]);
+  assert.equal(modules.every(([, live]) => live.connected() === 2), true, 'every module lets go of it');
+  assert.equal(streams.open(), 2);
+
+  // The heartbeat: each stream asked once, whatever the number of modules.
+  asked.length = 0;
+  const since = Date.now();
+  await new Promise((resolve) => { setTimeout(resolve, 70); });
+  // At most once a heartbeat each (four modules asking would be four times as many), however slow the machine.
+  const beats = Math.floor((Date.now() - since) / 20) + 1;
+  for (const token of ['kept', 'later']) {
+    const n = asked.filter((each) => each === token).length;
+    assert.ok(n >= 1 && n <= beats, `${token}: once a heartbeat (${n} in ${beats})`);
+  }
+  assert.match(kept.res.text, /: ping\n\n/);
+  open.delete('later');
+  await new Promise((resolve) => { setTimeout(resolve, 150); });
+  assert.equal(later.res.ended, true, 'a session that ended on its own: found by the heartbeat');
+  assert.deepEqual(said(later.res).at(-1), ['tasks', 'account', { user_id: 4 }]);
+  assert.equal(kept.res.ended, false);
+
+  // A new password keeps this session's stream (dropUser `except`), and ends the others.
+  const other = tab(3);
+  streams.subscribe(modules, other.req, other.res, other.user, { sessionToken: 'kept-too' });
+  open.add('kept-too');
+  for (const [, live] of modules) live.dropUser(3, { except: 'kept', last: { event: 'account', data: { user_id: 3 } } });
+  assert.equal(other.res.ended, true);
+  assert.equal(kept.res.ended, false);
+  assert.equal(streams.open(), 1);
+  kept.req.emit('close');
+  assert.equal(streams.open(), 0);
+  for (const [, live] of modules) live.close();
 });
 
 test('signing out, a session closed from the list, out everywhere and a deleted account end their tabs', (t) => {

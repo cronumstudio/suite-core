@@ -31,6 +31,13 @@ export const STRANGER_LIMITS = Object.freeze({ perInviterDay: 10, perAddressMont
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How long a row is kept: a year (Martin, 11/11/2026, #56: "borrar las invitaciones sin cuenta a los
+ * 12 meses"). Until then it stops a second email from the same person and its link to stop them
+ * works; after it, nothing of the address stays but a block it asked for (mail_suppressions).
+ */
+export const STRANGER_KEEP_DAYS = 365;
+
 /** Migration 29: what was sent to whom, and the addresses that asked for no more. */
 export function strangerInvitesSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS mail_stranger_invites (
@@ -51,6 +58,29 @@ export function strangerInvitesSchema(d) {
 }
 
 /**
+ * Migration 32: whoever invited may go and the row stays (inviter_id NULL): their account's
+ * deletion took every row with it, so the link to stop them in an email already sent answered that
+ * it wasn't whole, and the address's monthly limit forgot those emails (audit sc-data-18).
+ */
+export function strangerInvitesKeepSchema(d) {
+  d.exec(`CREATE TABLE mail_stranger_invites_new (
+    id          INTEGER PRIMARY KEY,
+    email       TEXT NOT NULL COLLATE NOCASE,
+    inviter_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    kind        TEXT NOT NULL,
+    token       TEXT NOT NULL UNIQUE,
+    sent_at     TEXT NOT NULL
+  )`);
+  d.exec(`INSERT INTO mail_stranger_invites_new (id, email, inviter_id, kind, token, sent_at)
+    SELECT id, email, inviter_id, kind, token, sent_at FROM mail_stranger_invites`);
+  d.exec('DROP TABLE mail_stranger_invites');
+  d.exec('ALTER TABLE mail_stranger_invites_new RENAME TO mail_stranger_invites');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_stranger_invites_email ON mail_stranger_invites(email, sent_at)');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_stranger_invites_inviter ON mail_stranger_invites(inviter_id, sent_at)');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_stranger_invites_sent ON mail_stranger_invites(sent_at)');
+}
+
+/**
  * @param {object} options
  * @param {object} options.database   the suite's ({ get, all, run })
  * @param {string} options.baseUrl    the install's address: where the link to stop them goes
@@ -59,7 +89,7 @@ export function strangerInvitesSchema(d) {
  * @param {Function} [options.onInstallLimit]  (limit) → told each time perDay stops one (alerts.js `strangers`)
  * @param {Function} [options.clock]  → milliseconds
  * @returns {{ enabled, check(email, inviter) → string|null, record(email, inviterId, kind) → { token, url },
- *   unsubscribeUrl(token), suppress(token) → string|null, emailOf(token) → string|null }}
+ *   forget(token), unsubscribeUrl(token), suppress(token) → string|null, emailOf(token) → string|null, purge() → number }}
  */
 export function createStrangerInvites({ database, baseUrl, enabled = true, limits = {}, onInstallLimit = null, clock = Date.now }) {
   const max = { ...STRANGER_LIMITS, ...limits };
@@ -123,6 +153,14 @@ export function createStrangerInvites({ database, baseUrl, enabled = true, limit
     return { token, url: unsubscribeUrl(token) };
   }
 
+  /**
+   * The email noted by record() never went (the mail server refused it): it counts as sent no more,
+   * so that person may offer it again and the day's limits don't keep it (audit sc-data-20).
+   */
+  function forget(token) {
+    if (token) database.run('DELETE FROM mail_stranger_invites WHERE token = ?', String(token));
+  }
+
   /** The address a token's email went to; null for a token nobody has. */
   const emailOf = (token) => {
     const email = token ? database.get('SELECT email FROM mail_stranger_invites WHERE token = ?', String(token))?.email : null;
@@ -136,9 +174,16 @@ export function createStrangerInvites({ database, baseUrl, enabled = true, limit
     return email;
   }
 
-  // Nothing is purged: a row is what stops a second email to the same address from the same
-  // person, and its token is what an old email's link to stop them finds (at most perDay a day).
-  return { enabled, limits: max, check, record, unsubscribeUrl, suppress, emailOf };
+  /**
+   * Rows older than STRANGER_KEEP_DAYS go: until then a row stops a second email to the same address
+   * from the same person, and its token is what an old email's link to stop them finds. A block the
+   * address asked for (mail_suppressions) stays. → how many went.
+   */
+  function purge() {
+    return Number(database.run('DELETE FROM mail_stranger_invites WHERE sent_at < ?', iso(clock() - STRANGER_KEEP_DAYS * DAY_MS)).changes || 0);
+  }
+
+  return { enabled, limits: max, check, record, forget, unsubscribeUrl, suppress, emailOf, purge };
 }
 
 /**

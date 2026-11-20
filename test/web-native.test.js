@@ -186,9 +186,7 @@ test('in the app, a host’s module page on its own goes to the host’s one-doc
   // Known from what the app injected too.
   assert.ok(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, native: { v: 1 }, href: 'https://work.example.com/tasks/' })));
 
-  // It stays: in a browser, in a host without that page, outside a module's path, in the shell's frames.
-  assert.equal(hostShellAddress(SHELL, fakeWindow({ userAgent: IPHONE, href: 'https://work.example.com/tasks/' })), null, 'a browser');
-  assert.equal(hostShellAddress(SHELL, fakeWindow({ userAgent: ANDROID, href: 'https://work.example.com/tasks/' })), null, 'Android’s browser');
+  // It stays: in a host without that page, outside a module's path, in the shell's frames.
   assert.equal(hostShellAddress({}, at('https://work.example.com/tasks/')), null, 'a host whose app is its modules');
   assert.equal(hostShellAddress(null, at('https://work.example.com/tasks/')), null, 'no answer from the host');
   assert.equal(hostShellAddress(undefined, at('https://work.example.com/tasks/')), null);
@@ -200,6 +198,60 @@ test('in the app, a host’s module page on its own goes to the host’s one-doc
   frame.top = top;
   assert.equal(hostShellAddress(SHELL, frame), null, 'a module framed in the shell');
   assert.equal(hostShellAddress(SHELL, null), null);
+});
+
+test('in a browser’s tab and in the host’s own installed app too, a module’s page goes to the shell; asked alone, or installed alone, it stays', () => {
+  const { hostShellAddress, markShellWindow, aloneAddress, ALONE_KEY, SHELL_WINDOW_KEY } = native;
+  const SHELL = { shell: true };
+  /** A browser's page (a tab, or `standalone`: an installed app's window), with its own sessionStorage. */
+  const tab = (href, { userAgent = IPHONE, standalone = false, kept = {} } = {}) => {
+    const win = fakeWindow({ userAgent, href, bridge: false });
+    const store = new Map(Object.entries(kept));
+    win.sessionStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+    win.matchMedia = (query) => ({ matches: standalone && query === '(display-mode: standalone)' });
+    win.store = store;
+    return win;
+  };
+  // A tab: an invitation's mail, a bookmark, an old domain (audit of 6/11, work-web-7).
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/list/12')), `/?open=${encodeURIComponent('/tasks/list/12')}`, 'a browser');
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/notes/#/n/5', { userAgent: ANDROID })), `/?open=${encodeURIComponent('/notes/#/n/5')}`, 'Android’s browser');
+  // Back from paying: the shell reads `billing` in its own address.
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/?billing=done')), `/?open=${encodeURIComponent('/tasks/')}&billing=done`);
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/?view=today&billing=canceled')), `/?open=${encodeURIComponent('/tasks/?view=today')}&billing=canceled`);
+  // Asked alone (`?alone`, the module's own install, the shell's «on its own»): it stays, and so does the tab.
+  const alone = tab('https://work.example.com/tasks/?alone=');
+  assert.equal(hostShellAddress(SHELL, alone), null);
+  assert.equal(alone.store.get(ALONE_KEY), '1');
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/list/3', { kept: { [ALONE_KEY]: '1' } })), null, 'the same tab, further on');
+  // …even after the module took `?alone` off its address: the navigation's address says it.
+  const read = tab('https://work.example.com/tasks/list/3');
+  read.performance = { getEntriesByType: () => [{ name: 'https://work.example.com/tasks/?alone' }] };
+  assert.equal(hostShellAddress(SHELL, read), null);
+  // An installed app: the host's own, where the shell ran in this window, goes back to it; any other is the module installed alone.
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/tasks/', { standalone: true })), null, 'Tasks installed on its own');
+  const work = tab('https://work.example.com/', { standalone: true });
+  markShellWindow(work);
+  assert.equal(work.store.get(SHELL_WINDOW_KEY), '1');
+  work.location.href = 'https://work.example.com/tasks/?billing=done';
+  assert.equal(hostShellAddress(SHELL, work), `/?open=${encodeURIComponent('/tasks/')}&billing=done`, 'Work installed');
+  // The shell running in a tab once asked alone: the tab is the shell's again.
+  const back = tab('https://work.example.com/', { kept: { [ALONE_KEY]: '1' } });
+  markShellWindow(back);
+  back.location.href = 'https://work.example.com/tasks/';
+  assert.equal(hostShellAddress(SHELL, back), `/?open=${encodeURIComponent('/tasks/')}`);
+  // Never the shell's frames, a host without the shell, or a path not a module's.
+  assert.equal(hostShellAddress({}, tab('https://work.example.com/tasks/')), null);
+  assert.equal(hostShellAddress(SHELL, tab('https://work.example.com/devices/session?code=x')), null);
+  // The address the shell's «on its own» and Settings' install links use.
+  assert.equal(aloneAddress('/tasks/', 'https://work.example.com/'), '/tasks/?alone=');
+  assert.equal(aloneAddress('/tasks/list/3?task=9#x', 'https://work.example.com/'), '/tasks/list/3?task=9&alone=#x');
+});
+
+test('the kit’s pieces that open a module on its own ask for it alone, and the rail’s mark goes back to the shell', () => {
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  assert.match(settings, /icons\.append\(link\(aloneAddress\(m\.path\), m\.icon, m\.name\)\)/);
+  const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
+  assert.match(shell, /el\(host\.shell \? 'a' : 'span', \{\n\s+class: 'kit-rail__home', \.\.\.\(host\.shell \? \{ href: '\/'/);
 });
 
 test('createShell leaves for it under a module’s path only, never as a window of the shell, before it draws the rail', () => {
@@ -583,17 +635,22 @@ test('deleting one’s account in the app: the app told first, then the site’s
     storage.delete('suite.deletion');
     const view = await settingsPage({}, {
       config: { app: { id: 'demo', modules: {} }, provider: 'workos', deletion_days: 30 },
-      server: { 'POST /api/me/deletion': { data: { ok: true, delete_after: '2026-11-21T10:00:00.000Z', ...answer } } },
+      server: {
+        // Whether they have a password at WorkOS, which the dialog asks for if so (audit authz-9): not with Google.
+        'GET /api/me/sign-in': { data: { method: 'google', password: false } },
+        'POST /api/me/deletion': { data: { ok: true, delete_after: '2026-11-21T10:00:00.000Z', ...answer } },
+      },
       start: 'data',
     });
     click(view.buttons(t('kit.data.deleteButton'))[0]);
+    await settle();
     const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
     const word = dialog.find('input')[0]; // the word only: a provider's account has no password here
     word.value = t('kit.data.confirmWord');
     word.dispatch('input');
     click(dialog.all().find((node) => /\bkit-btn--danger\b/.test(node.className)));
     await settle();
-    assert.deepEqual(asked, ['POST /api/me/deletion'], 'asked of the server, everywhere');
+    assert.deepEqual(asked, ['GET /api/me/sign-in', 'POST /api/me/deletion'], 'asked of the server, everywhere');
     assert.equal(storage.get('suite.deletion'), '2026-11-21T10:00:00.000Z', 'the farewell’s date left for a browser’s sign-in');
     view.settings.close();
   });
@@ -733,6 +790,7 @@ test('deleting one’s account clears every app’s copy on this device, as sign
         start: 'data',
       });
       click(view.buttons(t('kit.data.deleteButton'))[0]);
+      await settle();
       const dialog = document.body.all().find((node) => node.tagName === 'DIALOG' && node.open);
       const word = dialog.find('input')[0];
       word.value = t('kit.data.confirmWord');
@@ -761,4 +819,34 @@ test('installKind: how this device installs a web app, for Settings › Modules'
   assert.equal(kind('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0'), 'desktop');
   assert.equal(kind('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36 CronumWorkApp/0.5.1'), 'android', 'the app on Android');
   assert.equal(kind('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 CronumWorkApp/0.5.1'), 'ios', 'the app on an iPhone');
+});
+
+test('with WorkOS, erasing asks for the password they have there, and only then (audit authz-9)', async () => {
+  const erase = async (signIn) => {
+    let sent = null;
+    const view = await settingsPage({}, {
+      config: { app: { id: 'demo', modules: { data: true } }, provider: 'workos' },
+      server: {
+        ...(signIn ? { 'GET /api/me/sign-in': { data: signIn } } : {}),
+        // Refused, so the page doesn't reload: what was sent is what counts here.
+        'POST /api/me/erase': (body) => { sent = body; return { status: 409, data: { error: 'busy' } }; },
+      },
+      start: 'data',
+    });
+    click(view.buttons(t('kit.data.eraseButton'))[0]);
+    await settle();
+    const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open).at(-1);
+    const word = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-word');
+    word.value = t('kit.data.confirmWord');
+    word.dispatch('input');
+    const pass = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-password');
+    if (pass) pass.value = 'correct horse';
+    click(dialog.all().find((node) => node.className.split(' ').includes('kit-btn--danger')));
+    await settle();
+    view.settings.close();
+    return { asked: Boolean(pass), sent };
+  };
+  assert.deepEqual(await erase({ method: 'password', password: true }), { asked: true, sent: { confirm: true, password: 'correct horse' } });
+  assert.deepEqual(await erase({ method: 'google', password: false }), { asked: false, sent: { confirm: true } }, 'with Google: none to give');
+  assert.equal((await erase(null)).asked, true, 'not knowing (no answer): asked, which the server ignores if it has none');
 });
