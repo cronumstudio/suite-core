@@ -383,7 +383,15 @@ function phoneOf(suite, user, name = 'Phone') {
   return suite.devices.exchange({ code: issued.code, verifier: pair.verifier, redirectUri: BACK });
 }
 
-test('without the options nothing new answers: an app with devices (Tracker) is as it was', async (t) => {
+test('the connect page wears app.accent: the colour and the steps given, on its <html>', async (t) => {
+  const accent = { light: '#2B3550', dark: '#A4B0CC', onDark: '#10131A' };
+  const { call } = await startApp(t, { product: { ...ON, app: { id: 'work', name: 'Work', color: '#3A4660', accent, languages: ['en'] } } });
+  const bare = await call('GET', '/devices/connect');
+  assert.equal(bare.status, 200);
+  assert.match(bare.data, /data-app="work" style="--app: #3A4660; --app-on: #FFFFFF; --app-accent: #2B3550; --app-accent-dark: #A4B0CC; --app-on-dark: #10131A">/);
+});
+
+test('without the options nothing new answers: an app with devices is as it was', async (t) => {
   const { suite, call } = await startApp(t, { product: { modules: { devices: true }, devices: DEVICES } });
   assert.equal((await call('GET', '/devices/connect')).status, 404);
   assert.equal((await call('GET', `/devices/connect${query(ASK())}`)).status, 404);

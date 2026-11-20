@@ -87,6 +87,9 @@ const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
 /** suite.config.js `devices`: how an app on a phone connects (devices.js, device-pages.js). */
 const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays', 'connectPage', 'webSessions']);
 
+/** suite.config.js `app.accent`: the accent's steps, as tokens.css names them (brand.js appStyle). */
+const ACCENT_KEYS = Object.freeze(['light', 'on', 'dark', 'onDark']);
+
 /**
  * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
  * finding one stops the start and names its replacement. HOST_PORT only matters to docker compose,
@@ -122,6 +125,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     languages: Array.isArray(a.languages) && a.languages.length ? [...a.languages] : ['en'],
     // The product's colour and icon: the accent and the picture of the OAuth consent screen.
     color: a.color ?? null,
+    // The accent's measured steps, { light, on, dark, onDark }, for the pages the suite draws
+    // itself (brand.js appStyle): an app that tokens.css doesn't list wears them there too.
+    accent: a.accent == null ? null : (isObject(a.accent) ? { ...a.accent } : a.accent),
     icon: a.icon ?? '/icons/favicon.svg',
     // How its emails are signed (mail-layout.js): its icon as a PNG at its own address (mail
     // clients don't show SVG), a lighter colour for dark mode, a line under its name, and what
@@ -140,6 +146,16 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (unknownLanguages.length) errors.push(`app.languages: ${unknownLanguages.join(', ')} not among ${LANGUAGES.join(', ')}`);
   if (app.languages[0] !== 'en') errors.push('app.languages: English goes first, it is the fallback');
   if (app.color !== null && !/^#[0-9a-fA-F]{6}$/.test(String(app.color))) errors.push('app.color: a colour as #RRGGBB, e.g. #3A4660');
+  if (app.accent !== null) {
+    if (!isObject(app.accent)) errors.push('app.accent: an object ({ light, on, dark, onDark }), each a colour as #RRGGBB');
+    else {
+      for (const [key, value] of Object.entries(app.accent)) {
+        if (!ACCENT_KEYS.includes(key)) errors.push(`app.accent.${key} is not a setting (${ACCENT_KEYS.join(', ')})`);
+        else if (value != null && !/^#[0-9a-fA-F]{6}$/.test(String(value))) errors.push(`app.accent.${key}: a colour as #RRGGBB`);
+      }
+      if (app.color === null) errors.push('app.accent needs app.color: the pages the suite draws write them together');
+    }
+  }
   // The consent screen's CSP only loads images from the app itself.
   if (!/^\/(?!\/)[^\s"'<>\\]*$/.test(String(app.icon))) errors.push('app.icon: a path on the app itself, starting with /');
   if (a.mail !== undefined && !isObject(a.mail)) errors.push('app.mail: an object ({ icon, colorOnDark, signature, about })');

@@ -29,8 +29,24 @@ export function textOn(hex) {
   return 1.05 / (luminance(hex) + 0.05) >= 3 ? '#FFFFFF' : INK;
 }
 
-/** ` style="--app: …; --app-on: …"` for the <html> of a page, or nothing without a colour. */
-export const appStyle = (color) => (color ? ` style="--app: ${color}; --app-on: ${textOn(color)}"` : '');
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * ` style="--app: …; --app-on: …"` for the <html> of a page, or nothing without a colour. With
+ * `accent` (config.app.accent: { light, on, dark, onDark }), `on` is the text on the colour, and
+ * the steps given follow as `--app-accent`, `--app-accent-dark` and `--app-on-dark`: the inline
+ * style is stronger than tokens.css, and kit.css reads them in both themes. Only colours as
+ * #RRGGBB are written, so nothing else reaches the attribute.
+ */
+export const appStyle = (color, accent = null) => {
+  if (!color) return '';
+  const given = (key) => (accent && HEX.test(String(accent[key] ?? '')) ? accent[key] : null);
+  const parts = [`--app: ${color}`, `--app-on: ${given('on') || textOn(color)}`];
+  if (given('light')) parts.push(`--app-accent: ${given('light')}`);
+  if (given('dark')) parts.push(`--app-accent-dark: ${given('dark')}`);
+  if (given('onDark')) parts.push(`--app-on-dark: ${given('onDark')}`);
+  return ` style="${parts.join('; ')}"`;
+};
 
 /** The signature: the ring in line, so it follows the page's theme rather than the system's. */
 export const SIGNATURE = `<a class="cronum-sig" href="https://cronumstudio.com" target="_blank" rel="noopener">
@@ -42,12 +58,12 @@ export const SIGNATURE = `<a class="cronum-sig" href="https://cronumstudio.com" 
 /**
  * The admin panel's page (web/admin.html) for this app: its id (for the
  * theme it saved and its accent), its name until the panel writes its title,
- * its colour and its icon, and the signature.
+ * its colour (and its accent's steps) and its icon, and the signature.
  */
-export const brandedAdmin = (template, { id, name = '', color = null, icon = '/icons/favicon.svg' }) => template
+export const brandedAdmin = (template, { id, name = '', color = null, accent = null, icon = '/icons/favicon.svg' }) => template
   .replace('{{app.id}}', escapeHtml(id))
   .replace('{{app.name}}', escapeHtml(name))
-  .replace('{{app.style}}', appStyle(color))
+  .replace('{{app.style}}', appStyle(color, accent))
   .replace('{{app.icon}}', escapeHtml(icon))
   .replace('{{signature}}', SIGNATURE);
 
@@ -55,10 +71,10 @@ export const brandedAdmin = (template, { id, name = '', color = null, icon = '/i
  * The page of an address nobody has (web/not-found.html), in the language the server chose: its
  * words escaped, as every text that reaches it comes from the catalogs.
  */
-export const brandedNotFound = (template, { id, color = null, icon = '/icons/favicon.svg' }, { lang, title, text, home }) => template
+export const brandedNotFound = (template, { id, color = null, accent = null, icon = '/icons/favicon.svg' }, { lang, title, text, home }) => template
   .replace('{{lang}}', () => escapeHtml(lang))
   .replace('{{app.id}}', () => escapeHtml(id))
-  .replace('{{app.style}}', () => appStyle(color))
+  .replace('{{app.style}}', () => appStyle(color, accent))
   .replace('{{app.icon}}', () => escapeHtml(icon))
   .replaceAll('{{title}}', () => escapeHtml(title))
   .replace('{{text}}', () => escapeHtml(text))

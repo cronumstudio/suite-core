@@ -12,13 +12,13 @@
 import { escapeHtml, appStyle, SIGNATURE } from './brand.js';
 
 /**
- * @param {object} app   config.app: { id, name, color, icon }
+ * @param {object} app   config.app: { id, name, color, accent, icon }
  * @returns page({ lang, title, body, theme }) → the HTML of a screen. `theme`
  *   is the person's own choice when the server knows it ('light' | 'dark');
  *   without it, /suite/theme.js takes the one the app saved in this browser.
  */
-export function brandedPage({ id, name, color = null, icon = '/icons/favicon.svg' }) {
-  const style = appStyle(color);
+export function brandedPage({ id, name, color = null, accent = null, icon = '/icons/favicon.svg' }) {
+  const style = appStyle(color, accent);
   const head = `<link rel="icon" href="${escapeHtml(icon)}" type="image/svg+xml">
 <link rel="stylesheet" href="/suite/oauth.css">
 <script src="/suite/theme.js"></script>`;
