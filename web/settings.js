@@ -74,7 +74,7 @@ import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateForm
 import { api, errorMessage, Offline, ApiError } from './api.js';
 import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installed, installedAlone } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer } from './ui.js';
+import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer, offlineNotice } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
 import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress } from './native.js';
@@ -356,8 +356,7 @@ export function openSettings(options) {
       if (closed || drawn === !off) return;
       drawn = !off;
       if (off) {
-        clear(box).append(el('div', { class: 'kit-notice kit-settings__offline', role: 'status' },
-          el('strong', { text: t('kit.offline.title') }), el('p', { text: t('kit.offline.server') })));
+        clear(box).append(offlineNotice({ className: 'kit-settings__offline' }));
       } else {
         append(clear(box), render());
       }

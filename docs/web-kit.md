@@ -127,6 +127,14 @@ going from one module to the next in Cronum Work nothing moves:
     stays). A long title wraps onto more lines, as Tasks' always did; it is never cut with «…».
     From 960 px, Tasks' and Projects' item opens as a column on the list's right
     (`createShell({ detail: 'column' })`, `setDetailOpen()`).
+19. **Without a signal every module says the same, at once** (`offlineBanner()`, v0.305.0): the
+   kit's banner under the header the moment the browser says the signal went, not once a request
+   has failed, with or without changes waiting: «Sin conexión. Se ve lo último que se cargó.» and
+   how many changes wait on the device; «Reintentar», when there is one, is never the primary
+   button. Back online, «Enviando N cambios…» while they go, and a notice once they arrived
+   (`kit.offline.sent`). The words are the kit's (`kit.offline.*`, `errors.offline`): no module
+   keeps a copy. What only the server can show (a trash) says «Necesita conexión» in its place
+   (`offlineNotice()`), and its dialog keeps its «Cerrar».
 
 **Which icon for what** (`icons.js`): the same thing has the same icon in every module.
 
