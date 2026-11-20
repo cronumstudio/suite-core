@@ -69,7 +69,7 @@ going from one module to the next in Cronum Work nothing moves:
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text.
-10. **A trash speaks the same words in every module** (v0.290.0), the kit's: its title «Papelera»
+10. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
    (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
    things above its rows whenever it holds some, from the plan the server sends as `days`
    (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
@@ -130,35 +130,36 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
-| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens) |
-| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`, `standaloneCtx()` |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
+| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)` |
 | `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
-| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted |
+| `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted; the screen itself is `signin-form.js`, which `signIn` loads when it draws it (0.285.0): a page with a session never evaluates it |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
+| `signal.js` | `watchSignal({ ask, answered, onBack, active, again, firstMs, maxMs, url, patienceMs })`: the one question «is there a signal again?» every module asks while it has none (`/version`, from 3 s up to 30 s apart): `lost()`, `check()` → whether the server answered, `found()`, `stop()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page alone. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does |
 | `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`; the module's sheet after it draws the rest |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
-| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page elsewhere. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
-| `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT` |
-| `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()` |
-| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })` |
+| `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
+| `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT`; `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, all a frame's start needs (shell.js), so plan.js comes only with Settings (0.285.0) |
+| `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
+| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
 | `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
-| `markdown.js` | `renderMarkdown(source, { onTaskToggle, resolveImage })`, `parseMarkdown`, `toggleTask`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
+| `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
-| `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()` |
+| `worker.js` | `registerWorker()`: the app's /sw.js, or in a host with one worker (host.js `worker`) the host's, retiring the modules' own and carrying their notices over; `hostWorker()`, `workerRegistration()`, `noticesToRenew()`; `markInstalledAlone(mount)`: a module installed as an app of its own tells the host's worker, which opens its notices there (shell.js calls it) |
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
-| `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route |
+| `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route; `ensureSubscription({ key, post, lang })`: notices on for the person signed in, the one way Settings and an app's own button (Tasks') turn them on |
 | `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `swipe.js` | `rowSwipe(row, { content, left, right, ignore })`: a finger across a row, to the trash to the left and the module's quick toggle to the right (v0.248.0); `keepSwipe(row)`, a row with nothing to do that keeps the finger; `trashAction(run)`; `swipeAction`, `swipeStretch`, `SWIPE_IGNORE` |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
-| `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter |
-| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app |
+| `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter; `rideKeyboard(dialog, field)`: a sheet that goes up and down with the keyboard in the iPhone app (formDialog's `typing`) |
+| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app; `hostShellAddress(host)` (in the app, a browser's tab or the host's installed app, a module's page alone goes to the shell, unless `?alone`), `markShellWindow()`, `aloneAddress(path)` |
 
 ### Components in the sheet alone
 
@@ -297,10 +298,8 @@ with `{ start }` or not. What the kit hangs on the page's body there (notices, d
 banners, Settings and sign-in on the body) carries `data-owner="<module>"` and a copy of `<html>`'s
 `data-theme`, `data-look` and `lang` (`markOwned`), so the module's sheet scoped to its windows
 reaches it; a theme chosen in Settings goes to the shell (`registry.theme.set`) instead of the
-app's `applyTheme`, and a language to `registry.language.set`. On a phone a sideways swipe in the
-window brings the module beside it (windows.js), but never from a row: `rowSwipe()` and
-`keepSwipe()` mark it `data-own-swipe` (anything else with a sideways gesture of its own may say
-so too, Notes' drawing sheet), so a finger that starts there is the row's alone. Escape with the
+app's `applyTheme`, and a language to `registry.language.set`. On a phone the tabs at the bottom
+change module and a sideways finger never does (since 0.298.0): it is the module's. Escape with the
 focus on no element closes the detail of the window that has the keyboard, and «/» goes to its
 search: the module passes `createShell({ active: ctx.active })`. Told nothing, the frame has the
 keyboard while windows.js marks its window the one in front (`data-focus="true"` on the window
@@ -467,8 +466,8 @@ sign-in (two-step verification, sessions), the AI (MCP address, connected apps, 
 notifications (`push: true`), plan (`plan: true`; with `{ billing: true }` it also sells, below), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
-everything else is the suite's. `aiExtra()` and `aboutExtra()` add a block (Next's standing
-instruction, an app's tips). Your data ends with what goes for good: erasing what one has in the
+everything else is the suite's. `aboutExtra()` adds a block (what the app is), and `standing` its
+instruction for an assistant, in Your AI. Your data ends with what goes for good: erasing what one has in the
 app (with `data`) and deleting the account (when the install offers it, `deletion_days`), each
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
 there what the app does with what the person shares ("your shared lists pass to…"). The sign-in
@@ -478,8 +477,7 @@ screen offers back an account waiting to be deleted.
 module: the account's sections (with notices and the plan when the host says so,
 `app.host.push` and `app.host.plans` in `/api/auth/config`, whatever the module passes); then a
 group for each module the person uses, in the host's order, with its own sections, its data
-(export, import, erase), what it adds to Your AI (`aiExtra`, its own section) and what it is
-(`aboutExtra`, its own section); last the host's: deleting the account, Administration and About.
+(export, import, erase) and what it is (`aboutExtra`, its own section); last the host's: deleting the account, Administration and About.
 The module open draws its own sections; another's are named from the host's `/api/modules`
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
@@ -610,7 +608,9 @@ openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, op
   answer goes to `onPlan` and to `kit-plan` (`PLAN_EVENT`) on the document, which an open Settings
   repaints with (an older answer that comes late never paints over it), and the notice says the
   new plan once it is there. When the plan from before the checkout is known (kept for the tab as
-  `<app>.billing` in `sessionStorage`) and nothing changed by the last look, it says the payment
+  `host.billing` in `sessionStorage`, one key for the origin since v0.293.0, so that a checkout
+  begun in a module's window of a host is known back in the host's shell; `<app>.billing`, the key
+  before, is still read once) and nothing changed by the last look, it says the payment
   isn't confirmed yet. It returns a promise of the plan that arrived, or null. Back from a
   checkout left unpaid (`canceled`, where the provider has a cancel address), it forgets the kept
   plan, says nothing was charged and reads nothing: a promise of null.
@@ -877,8 +877,8 @@ keepSwipe(stepRow);                                                  // nothing 
   380 ms) is picking the row up, and a drag under way (`data-kit-dragging`) is never a swipe: the
   drag wins. If the system takes the touch away midway (`pointercancel`), the row slides back and
   nothing is done.
-- **The finger is the row's.** The row has `data-own-swipe` (Cronum Work's windows don't switch
-  module from it, windows.js) and `kit-swipe` with `touch-action: pan-y` (kit.css), and once it is a
+- **The finger is the row's.** The row has `data-own-swipe` (a sign that its sideways finger is
+  its own) and `kit-swipe` with `touch-action: pan-y` (kit.css), and once it is a
   swipe the touch's moves are kept from the browser, so the list doesn't scroll under it. A row with
   nothing to do gets the same with `keepSwipe(row)` (or `rowSwipe(row)`), without a listener: a
   sideways finger on it does nothing at all. Not for rows that lie in something that scrolls sideways
@@ -915,11 +915,12 @@ sentence to show (`kit.images.*`): `uploadLimit(config)` reads the server's limi
 
 ### Markdown
 
-`renderMarkdown(text, { onTaskToggle })` draws a note with `el()` —headings, lists, task lists,
-quotes, code, tables, links and images— and never interprets HTML. Links go to http, https, mailto
-or within the app; images load only from the app (`resolveImage` maps an attachment), so nothing
-in a note makes the reader's browser call a third party. `toggleTask(text, line, done)` ticks the
-box in the source.
+`renderMarkdown(text, { resolveImage })` draws a note with `el()` —headings, lists, task lists
+(read-only boxes), quotes, code, tables, links and images— and never interprets HTML. Links go to
+http, https, mailto or within the app; images load only from the app's own files, a path ending in
+`files/<id>` (`resolveImage` maps an attachment), so nothing in a note makes the reader's browser
+call a third party, nor another address of the app. It reads in linear time, whatever the text, and
+past 32 levels of quotes, lists, marks or links the rest is text.
 
 ### The service worker
 
@@ -957,7 +958,11 @@ whose page shows it once.
 ### Notices on a device with no account
 
 Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/config` and posts to
-`/api/push/subscribe`, both behind a session. A device that belongs to the app instead (Focus'
+`/api/push/subscribe`, both behind a session. It goes through `ensureSubscription()` (`push.js`),
+which an app's own button uses too (`{ key, post, lang }`: the key or a function that asks for it
+once permission is given, and how to tell its server), so the device is the same row whoever
+turned notices on: the browser's words for it, the subscription replaced when the install's keys
+changed. A device that belongs to the app instead (Focus'
 child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
 server and hands the subscription to the app:
 
@@ -1002,6 +1007,12 @@ Every text a person reads comes from the catalogs: the kit's are `kit.*` in suit
 `i18n/<lang>.json`, merged with the app's at `/i18n/<lang>.json`. Every app does it the same way:
 
 - **Catalogs**: `public/i18n/<lang>.json`, flat (dotted keys), in the app's languages (`app.languages`).
+- **One catalog per language**: the browser asks for English at `/i18n/en.json` and any other
+  language at `/i18n/<lang>.json?en`, the language with English under it (every key it lacks,
+  English's), which says so with `$meta.fallback: "en"` (0.285.0): one trip where it was English
+  and then the language. `/i18n/<lang>.json` stays the language alone, as the conformance check
+  reads it; a catalog that comes without the mark (a copy kept before) has English asked for too,
+  as before. A host's worker keeps the `?en` ones (host-worker.js `catalogsOverEnglish`).
 - **Browser**: `t()` and the rest from `/suite/i18n.js`, nothing of its own. Before signing in the
   app loads `savedLanguage()` (what this browser keeps as `<app>.lang`, `'auto'` by default), and
   then the account's choice; Settings calls `loadLanguage` or `changeLanguage` (`app:language`

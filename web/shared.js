@@ -45,16 +45,42 @@ export function sharedSection(options) {
     iconName: 'users',
     label: t('kit.shared.title'),
     hint: () => t('kit.shared.hint'),
-    render: ({ close } = {}) => sharedPage({ ...options, close }),
+    render: ({ close, watchOffline } = {}) => sharedPage({ ...options, close, watchOffline }),
   };
 }
 
-/** The page itself, for an app that shows it somewhere else too. */
+/**
+ * The page itself, as the section draws it (Projects' tests draw it alone).
+ *
+ * `watchOffline(paint)` is Settings' own (settings.js): `paint(offline)` now and each time the
+ * signal goes or comes back. Without one every change needs the server, so while it is gone its
+ * buttons (accept, decline, leave, what each person may do, taking it back) are off, with the
+ * line that says why, as the modules' invitation cards have them (Next, Tasks, Notes, Projects);
+ * and once it is back the page asks again, so an invitation that went meanwhile goes from it too.
+ * Left out (drawn alone), the page is always on.
+ */
 export function sharedPage({
   load, kinds = {}, setPermission, remove, leave, accept = null, open = null, close = () => {}, permissions = null,
+  watchOffline = null,
 }) {
   const page = el('div', { class: 'kit-shared', 'aria-busy': 'true' });
   const kindOf = (item) => kinds[item.kind] || { label: '', iconName: 'folder' };
+
+  // Without a signal: what changes something, off, and the line that says why.
+  let offline = false;
+  const controls = new Set();
+  const why = el('p', { class: 'kit-hint kit-settings__offline-hint', role: 'status', text: t('kit.offline.actions') });
+  why.hidden = true;
+  /** A control that needs the server (a button, a list, or a group of buttons such as segmented's). */
+  const online = (node) => {
+    if (!node) return node;
+    const each = node.tagName === 'BUTTON' || node.tagName === 'SELECT' ? [node] : [...node.children];
+    for (const control of each) {
+      controls.add(control);
+      control.disabled = offline;
+    }
+    return node;
+  };
 
   async function refresh() {
     page.setAttribute('aria-busy', 'true');
@@ -62,7 +88,8 @@ export function sharedPage({
       const { mine = [], withMe = [] } = await load();
       paint(mine, withMe);
     } catch (err) {
-      clear(page).append(el('p', { class: 'kit-hint', text: errorMessage(err) }), button(t('kit.shared.retry'), refresh));
+      controls.clear();
+      clear(page).append(why, el('p', { class: 'kit-hint', text: errorMessage(err) }), button(t('kit.shared.retry'), refresh));
     } finally {
       page.removeAttribute('aria-busy');
     }
@@ -124,27 +151,31 @@ export function sharedPage({
         el('span', { class: 'kit-shared__who' }, el('span', { text: who }), email ? el('small', { text: email }) : null),
         person.accepted ? null : el('span', { class: 'kit-badge kit-badge--warn', text: t('kit.shared.pending') }),
         kept ? el('span', { class: 'kit-share__role', text: role.label })
-          : permissionChoice(roles, person.permission, (permission) => change(() => setPermission(item, person, permission))()),
-        kept ? null : el('button', {
+          : online(permissionChoice(roles, person.permission, (permission) => change(() => setPermission(item, person, permission))())),
+        kept ? null : online(el('button', {
           type: 'button', class: 'kit-icon-btn', 'aria-label': t('kit.shared.remove', { name: who }), title: t('kit.shared.remove', { name: who }),
+          // As the share dialog (share.js): someone who accepted it is asked about; an invitation
+          // not answered yet goes at once (Martin, 10/11).
           onClick: async () => {
-            const sure = await confirmDialog(t('kit.shared.removeConfirm', { name: who, item: item.name }), { confirm: t('kit.shared.stop') });
+            const sure = !person.accepted || await confirmDialog(t('kit.shared.removeConfirm', { name: who, item: item.name }),
+              { title: t('kit.share.removeAsk', { name: who }), confirm: t('kit.shared.stop') });
             if (sure) await change(() => remove(item, person))();
           },
-        }, icon('x')));
+        }, icon('x'))));
     });
     return el('article', { class: 'kit-shared__item' }, head(item), el('div', { class: 'kit-shared__people' }, people));
   }
 
   function withMeItem(item) {
     const from = item.owner?.name ? t('kit.shared.from', { name: item.owner.name }) : null;
-    const actions = !item.accepted
+    const actions = (!item.accepted
       ? [accept ? button(t('kit.shared.accept'), change(() => accept(item)), 'primary') : null,
         button(t('kit.shared.decline'), change(() => leave(item)), 'quiet')]
       : [button(t('kit.shared.leave'), async () => {
-        const sure = await confirmDialog(t('kit.shared.leaveConfirm', { item: item.name }), { confirm: t('kit.shared.leave') });
+        const sure = await confirmDialog(t('kit.shared.leaveConfirm', { item: item.name }),
+          { title: t('kit.share.leaveAsk', { name: item.name }), confirm: t('kit.shared.leave') });
         if (sure) await change(() => leave(item))();
-      }, 'danger-quiet')];
+      }, 'danger-quiet')]).map(online);
     return el('article', { class: 'kit-shared__item' },
       head(item),
       el('div', { class: 'kit-shared__about' },
@@ -155,7 +186,8 @@ export function sharedPage({
   }
 
   function paint(mine, withMe) {
-    clear(page);
+    controls.clear();
+    clear(page).append(why);
     if (!mine.length && !withMe.length) {
       page.append(blank({ iconName: 'users', title: t('kit.shared.none'), text: t('kit.shared.noneHint') }));
       return;
@@ -168,6 +200,18 @@ export function sharedPage({
     page.append(
       section(t('kit.shared.mine'), t('kit.shared.mineHint'), mine, mineItem, t('kit.shared.mineNone')),
       section(t('kit.shared.withMe'), t('kit.shared.withMeHint'), waiting, withMeItem, t('kit.shared.withMeNone')));
+  }
+
+  if (watchOffline) {
+    let seen = false;
+    watchOffline((off) => {
+      const back = seen && offline && !off;
+      seen = true;
+      offline = off;
+      why.hidden = !off;
+      for (const control of controls) control.disabled = off;
+      if (back) refresh();
+    });
   }
 
   refresh();

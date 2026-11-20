@@ -139,10 +139,10 @@ test('Settings › Modules: the modules in order with their lines, and under the
     const state = (row) => row.all().find((node) => node.className === 'kit-switch').getAttribute('aria-checked');
     assert.deepEqual(buttons.map(state), ['false', 'true', 'true']);
 
-    // Installing: the modules on their own, never Croc.
+    // Installing: the modules on their own (`?alone`: else a browser takes them on to the shell), never Croc.
     const installs = page.all().filter((node) => node.tagName === 'A').map((node) => node.getAttribute('href'));
-    assert.ok(installs.includes('/tasks/') && installs.includes('/notes/'));
-    assert.ok(!installs.includes('/croc/'), 'a door is not installed alone');
+    assert.ok(installs.includes('/tasks/?alone=') && installs.includes('/notes/?alone='), installs.join());
+    assert.ok(!installs.some((href) => href.startsWith('/croc/')), 'a door is not installed alone');
 
     // Both modules off with Croc on: the second stays on, saying why.
     const switchOf = (mount) => page.all().find((node) => node.className === 'kit-switch' && node.dataset.mount === mount);
@@ -163,5 +163,42 @@ test('Settings › Modules: the modules in order with their lines, and under the
     assert.deepEqual(asked.filter(([what]) => what === 'PUT /api/me/day').map(([, body]) => body), [{ shown: false }]);
   } finally {
     cleanUp(settings);
+  }
+});
+
+test('Settings › Modules inside Work installed: no button for Work, which is this window, and the steps say the module opens in the browser (pwa-6)', async () => {
+  memory.clear();
+  const answer = { host: { name: 'Cronum Work', hints: 'home.modules.', icon: '/icons/favicon.svg' }, modules: MODULES, calendar_shown: false, day_shown: true };
+  const realMatch = globalThis.matchMedia;
+  const steps = async () => {
+    const { root, settings } = open('modules', { 'GET /api/modules': answer, 'GET /i18n/en.json': LINES, 'GET /notes/i18n/en.json': {} });
+    try {
+      await settle();
+      const page = root.all().find((node) => node.className === 'kit-settings__page');
+      const install = page.all().find((node) => node.tagName === 'SECTION' && node.textContent.includes(t('kit.modules.installTitle')));
+      return {
+        links: install.all().filter((node) => node.tagName === 'A').map((node) => node.getAttribute('href')),
+        text: install.textContent,
+      };
+    } finally {
+      cleanUp(settings);
+    }
+  };
+  try {
+    // In a browser's tab: Work too, and a new tab.
+    globalThis.matchMedia = () => ({ matches: false });
+    const tab = await steps();
+    assert.deepEqual(tab.links, ['/?modules', '/tasks/?alone=', '/notes/?alone=']);
+    assert.ok(tab.text.includes(t('kit.modules.installWeb', { host: 'Cronum Work' })) && tab.text.includes(t('kit.modules.installPickClick')));
+    // In Work's own window, installed: the modules alone, opening in the browser.
+    globalThis.matchMedia = (query) => ({ matches: query === '(display-mode: standalone)' });
+    const app = await steps();
+    assert.deepEqual(app.links, ['/tasks/?alone=', '/notes/?alone=']);
+    assert.ok(app.text.includes(t('kit.modules.installApp')), 'the modules on their own');
+    assert.ok(app.text.includes(t('kit.modules.installPickInstalled')));
+    assert.ok(!app.text.includes(t('kit.modules.installPickClick')), 'no new tab');
+  } finally {
+    if (realMatch) globalThis.matchMedia = realMatch;
+    else delete globalThis.matchMedia;
   }
 });

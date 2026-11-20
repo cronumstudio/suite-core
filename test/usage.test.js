@@ -11,7 +11,7 @@ import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { createEntitlements } from '../entitlements.js';
 import { createOrganizations } from '../organizations.js';
-import { usageOf, peaksOf, registerUsageApi } from '../usage.js';
+import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from '../usage.js';
 
 const PLANS = {
   free: { name: 'Free', features: { 'items.max': 5, 'storage.mb': 1, 'mcp.calls_per_day': 10 } },
@@ -142,6 +142,12 @@ test('the plans of many at once are what of() says of each', (t) => {
   const { users, host } = setup(t, { accounts: 40 });
   const many = host.ofMany(users);
   for (const user of users) assert.deepEqual(many.get(user.id), host.of(user), `user ${user.id}`);
+  // And where each comes from, for the admin's list of accounts (perf-srv-9): what sourceOf() says.
+  const plans = host.plansOfMany(users);
+  for (const user of users) {
+    assert.deepEqual(plans.get(user.id), { entitled: host.of(user), source: host.sourceOf(user) }, `user ${user.id}`);
+  }
+  assert.ok(new Set(users.map((user) => host.sourceOf(user).kind)).size >= 3, 'the unlimited, the default and a grant');
   assert.deepEqual(host.usedToday(users.map((u) => u.id), 'mcp.calls_per_day').get(8),
     host.dailyUsage(8, 'mcp.calls_per_day').at(-1).used);
 });
@@ -172,4 +178,41 @@ test('the calls of the month say the day the account was made, in either way it 
   assert.equal(usageOf({ ...user, created_at: '2026-10-26T09:15:00.000Z' }, options).mcp.since, '2026-10-26');
   assert.equal(usageOf({ ...user, created_at: '2026-10-26 09:15:00' }, options).mcp.since, '2026-10-26', 'SQLite’s own format too');
   assert.equal(usageOf(user, options).mcp.since, null, 'unknown: the whole month counts');
+});
+
+test('only the dialog of one account asks the modules when each last changed (perf-srv-5)', async (t) => {
+  const asked = [];
+  const module = {
+    mount: 'alpha', config: { app: { id: 'alpha', name: 'Alpha' } }, view: { entitlements: null },
+    parts: {
+      usage: (id, options) => { asked.push(['usage', id, options]); return { counts: [{ id: 'tasks', count: 2 }], active_at: '2026-11-01T10:00:00.000Z' }; },
+      usageAll: (ids, options) => { asked.push(['usageAll', ids.length, options]); return new Map(ids.map((id) => [id, { counts: [{ id: 'tasks', count: 2 }], active_at: '2026-11-01T10:00:00.000Z' }])); },
+    },
+  };
+  const user = { id: 7 };
+  const options = { modules: [module] };
+  assert.equal(usageOf(user, options).modules[0].active_at, '2026-11-01T10:00:00.000Z', 'asked by default, as before');
+  assert.deepEqual(asked.pop(), ['usage', 7, { activity: true }]);
+  // Not asked for: a module that answers it all the same says no date.
+  assert.equal(usageOf(user, { ...options, activity: false }).modules[0].active_at, null);
+  assert.deepEqual(asked.pop(), ['usage', 7, { activity: false }]);
+  peaksOf([user, { id: 8 }], options);
+  assert.deepEqual(asked.pop(), ['usageAll', 2, { activity: false }], 'the list shows none');
+
+  // The routes: the dialog asks for it, the list and Settings › Plan don't.
+  const routes = {};
+  const api = { get: (route, handler) => { routes[route] = handler; } };
+  const wanted = [];
+  const usageFor = (who, { activity } = {}) => { wanted.push(activity); return usageOf(who, { ...options, activity }); };
+  registerUsageApi(api, { accounts: { list: () => [user], byId: () => user }, usageFor });
+  registerOwnUsageApi(api, { usageFor });
+  const res = () => ({ body: null, writeHead() {}, end(body) { this.body = JSON.parse(body); } });
+  const dialog = res();
+  await routes['/api/admin/users/:id/usage']({ user: { id: 1, role: 'admin' }, params: { id: '7' }, res: dialog });
+  assert.equal(dialog.body.modules[0].active_at, '2026-11-01T10:00:00.000Z');
+  await routes['/api/admin/usage']({ user: { id: 1, role: 'admin' }, res: res() });
+  const own = res();
+  await routes['/api/me/usage']({ user, res: own });
+  assert.equal(own.body.modules[0].active_at, null);
+  assert.deepEqual(wanted, [true, false, false]);
 });

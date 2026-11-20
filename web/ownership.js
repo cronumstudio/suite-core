@@ -10,12 +10,14 @@
  *   · Putting something of yours into someone else's container gives it to
  *     them: `confirmGive()` asks first ("It will be Ana's").
  *
- *   import { moving, confirmGive } from '../suite/ownership.js';
+ *   · Pressing what only its owner may do says whom to ask (`tellNotYours`).
+ *
+ *   import { moving, confirmGive, tellNotYours } from '../suite/ownership.js';
  *   await moving((extra) => api.patch(`api/tasks/${id}`, { list_id: to, ...extra }));
  *   if (list.owner && list.owner.id !== me.id && !(await confirmGive({ owner: list.owner.name, thing: task.title }))) return;
  */
 import { t } from './i18n.js';
-import { confirmDialog } from './ui.js';
+import { confirmDialog, toast } from './ui.js';
 
 export const NOT_YOURS = 'not_yours';
 
@@ -25,9 +27,21 @@ export const isNotYours = (err) => err?.code === NOT_YOURS;
 /** Whether the refusal lets them take a copy instead (moving it away). */
 export const offersCopy = (err) => isNotYours(err) && Boolean(err?.data?.copy);
 
-/** Asks "Take a copy?" for that refusal. Resolves true or false. */
-export function askCopy(err, { parent = null } = {}) {
-  return confirmDialog(t('kit.ownership.copyText', { owner: err?.data?.owner ?? '' }), {
+/**
+ * Someone pressed something only its owner may do (delete, empty the trash…): the button is there
+ * for everyone, as in Projects, and says whom to ask, as the server would (not_yours), instead of
+ * vanishing without a word (audit ownership-5). `owner` is a name.
+ */
+export function tellNotYours(owner) {
+  toast(t('errors.not_yours', { owner: owner ?? '' }), { error: true });
+}
+
+/**
+ * Asks "Take a copy?" for that refusal. Resolves true or false. `files: false` says the copy
+ * goes without the files (Tasks' copy of a task; audit ownership-17).
+ */
+export function askCopy(err, { parent = null, files = true } = {}) {
+  return confirmDialog(t(files ? 'kit.ownership.copyText' : 'kit.ownership.copyTextNoFiles', { owner: err?.data?.owner ?? '' }), {
     title: t('kit.ownership.copyTitle'), confirm: t('kit.ownership.copyConfirm'), danger: false, parent,
   });
 }
@@ -37,12 +51,12 @@ export function askCopy(err, { parent = null } = {}) {
  * `{}` first and `{ copy: true }` when they take the copy offered. → what the
  * send answered, or null when they said no; any other error is thrown as it was.
  */
-export async function moving(send, { parent = null } = {}) {
+export async function moving(send, { parent = null, files = true } = {}) {
   try {
     return await send({});
   } catch (err) {
     if (!offersCopy(err)) throw err;
-    if (!(await askCopy(err, { parent }))) return null;
+    if (!(await askCopy(err, { parent, files }))) return null;
     return send({ copy: true });
   }
 }

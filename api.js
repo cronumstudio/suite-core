@@ -50,14 +50,20 @@ function confirmPassword(limiter, ctx, user, password) {
  * Before what can't be undone from the account itself (erasing one's data,
  * deleting the account): the request says so (`confirm: true`), and an account
  * with a password here gives it again, with the code of its second step if it
- * has one. An account that signs in elsewhere has only its open session: the
- * days an account waits before it goes are its way back.
- * → (ctx, user, body) => void, or an error.
+ * has one. An account whose password is the identity provider's gives that one
+ * (`providerPassword(ctx, user, password)`, WorkOS: workos-security.js
+ * confirmIdentity, audit authz-9), where an open session alone erased everything.
+ * One that signs in elsewhere still (Google, a company's sign-in) has only its
+ * open session: the days an account waits before it goes are its way back.
+ * → (ctx, user, body) => a promise (awaited by whoever asks), or an error.
  */
-export function identityCheck({ limiter = null, twoFactor = null, localPasswords = true } = {}) {
-  return (ctx, user, body) => {
+export function identityCheck({ limiter = null, twoFactor = null, localPasswords = true, providerPassword = null } = {}) {
+  return async (ctx, user, body) => {
     if (body?.confirm !== true) throw badRequest('confirm_required');
-    if (!localPasswords || !hasPassword(user)) return;
+    if (!localPasswords || !hasPassword(user)) {
+      if (!localPasswords && providerPassword) await providerPassword(ctx, user, body.password);
+      return;
+    }
     confirmPassword(limiter, ctx, user, body.password);
     if (twoFactor?.isEnabled(user.id)) twoFactor.pass(ctx.req, user.id, body.code);
   };
@@ -103,7 +109,8 @@ export function registerAuthApi(router, {
     // provider, whoever it lets in.
     // `mail`: false when messages only reach the server's log, so screens don't
     // promise a link that will never arrive.
-    // `password_min`: for the forms; null when passwords are the provider's.
+    // `password_min`: for the forms; null when passwords are the provider's, but WorkOS's: Settings
+    // changes those, and says and checks this app's shortest before WorkOS is asked (workos-security.js).
     // `two_factor`: whether people can add a code from an app to their password.
     // `app`: which app this is, the languages it speaks and the modules it has on,
     // for the suite's own pages (the admin panel).
@@ -111,7 +118,7 @@ export function registerAuthApi(router, {
     // that its login is shared with other apps and goes with it only as the person decides.
     sendJson(ctx.res, 200, {
       provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
-      mail: Boolean(mail), password_min: idp ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
+      mail: Boolean(mail), password_min: idp && idp.id !== 'workos' ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
       ...(deletion ? { deletion_days: deletion.days } : {}),
       ...(deletion?.choosing ? { deletion_identity: true } : {}),
       ...(app ? { app } : {}),
@@ -406,6 +413,8 @@ export function registerAccountMailApi(router, {
  * @param {object} [deps.limiter]       from createRateLimiter(): the brake on the current password
  * @param {object} [deps.twoFactor]     from createTwoFactor(), for the second step's settings
  * @param {boolean} [deps.localPasswords]  false when accounts sign in elsewhere (WorkOS)
+ * @param {Function} [deps.providerPassword]  (ctx, user, password) → the password at the identity
+ *   provider checked, when the account has one there (identityCheck)
  * @param {object} [deps.deletion]      from createAccountDeletion(): deleting one's own account
  * @param {object} [deps.alsoAt]        older paths an app keeps answering:
  *   `{ tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' }`
@@ -413,6 +422,7 @@ export function registerAccountMailApi(router, {
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
   limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null, deletion = null, push = null,
+  providerPassword = null,
 }) {
   const requireUser = (ctx) => {
     if (!ctx.user) throw unauthorized();
@@ -423,7 +433,7 @@ export function registerProfileApi(router, {
   const at = (path, legacy, add) => [path, ...(legacy ? [legacy] : [])].forEach(add);
 
   if (deletion && sessions) {
-    const sure = identityCheck({ limiter, twoFactor, localPasswords });
+    const sure = identityCheck({ limiter, twoFactor, localPasswords, providerPassword });
     /**
      * Deleting one's own account: disabled now, gone after the days the
      * install gives (`delete_after`), and this browser signed out, also at the
@@ -432,7 +442,7 @@ export function registerProfileApi(router, {
     router.post('/api/me/deletion', async (ctx) => {
       const user = requireUser(ctx);
       const body = await readJson(ctx.req);
-      sure(ctx, user, body);
+      await sure(ctx, user, body);
       if (user.role === 'admin' && accounts?.activeAdmins() <= 1) throw conflict('last_admin');
       // Whether the shared login goes too: asked only of someone who uses another app with it.
       if (body.identity != null && typeof body.identity !== 'boolean') throw badRequest('identity_invalid');
@@ -775,14 +785,31 @@ export function registerAdminApi(router, {
   };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
-  const withPlan = (user) => {
+  // `known`, for the list of every account: what withPlans() asked of all of them at once.
+  const withPlan = (user, known = null) => {
     // Where the account signs in besides its password (workos, oidc…).
-    const view = { ...accounts.publicUser(user), providers: accounts.identitiesOf(user.id).map((i) => i.provider) };
+    const providers = known ? known.providers.get(user.id) ?? [] : accounts.identitiesOf(user.id).map((i) => i.provider);
+    const view = { ...accounts.publicUser(user), providers };
     if (!entitlements) return view;
-    const { plan, ends, unlimited } = entitlements.of(user);
+    const planned = known?.plans?.get(user.id);
+    const { plan, ends, unlimited } = planned ? planned.entitled : entitlements.of(user);
     // Where it comes from: the install's default plan must never read as one that was given.
-    const source = entitlements.sourceOf?.(user);
+    const source = planned ? planned.source : entitlements.sourceOf?.(user);
     return { ...view, plan, plan_ends: ends, unlimited, ...(source ? { plan_source: source } : {}) };
+  };
+  /**
+   * withPlan() of every account, in a few queries for all of them (their logins elsewhere, their
+   * groups, their grants) instead of four or more for each one (audit of 6/11, perf-srv-9).
+   */
+  const withPlans = (users) => {
+    const ids = users.map((user) => user.id);
+    const known = {
+      providers: typeof accounts.providersOfMany === 'function' ? accounts.providersOfMany(ids) : null,
+      plans: entitlements && typeof entitlements.plansOfMany === 'function' && typeof entitlements.sourceOf === 'function'
+        ? entitlements.plansOfMany(users) : null,
+    };
+    if (!known.providers) return users.map((user) => withPlan(user));
+    return users.map((user) => withPlan(user, known));
   };
   /** The admin's reason for a plan, as the grant and the log keep it: short text, or null. */
   const noteOf = (note) => (typeof note === 'string' && note.trim() ? note.trim().slice(0, 200) : null);
@@ -806,7 +833,7 @@ export function registerAdminApi(router, {
     // With phones connected (modules.devices), how many each account has that still work.
     const connected = devices?.activeCounts();
     sendJson(ctx.res, 200, {
-      users: accounts.list().map((user) => (connected ? { ...withPlan(user), devices: connected.get(user.id) ?? 0 } : withPlan(user))),
+      users: withPlans(accounts.list()).map((view) => (connected ? { ...view, devices: connected.get(view.id) ?? 0 } : view)),
     });
   });
 
@@ -857,7 +884,7 @@ export function registerAdminApi(router, {
     const name = String(body.display_name ?? '').trim() ? accounts.checkName(body.display_name) : null;
     const role = accounts.checkRole(body.role ?? 'user');
     // A login at the provider follows the provider's rule, which checks the rest itself (password_rejected).
-    if (password != null) accounts.checkPassword(password, ...(atProvider ? [PROVIDER_PASSWORD_MIN] : []));
+    if (password != null) accounts.checkPassword(password, ...(atProvider ? [logins.minPasswordLength ?? PROVIDER_PASSWORD_MIN] : []));
     const plan = body.plan == null || body.plan === '' ? null : String(body.plan);
     if (plan != null) {
       if (!entitlements) throw badRequest('field_invalid', { field: 'plan' });

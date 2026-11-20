@@ -19,7 +19,9 @@
  * A call that doesn't fit gets a sentence saying what to correct, and the tool
  * doesn't run. The check reads arguments the way the tools always have (a
  * number in quotes is a number), and lets through properties the schema
- * doesn't name. `required` is left to the tool: some ask for what is missing
+ * doesn't name. What it let through reaches the tool as the schema says it is
+ * (`coerceArguments`): "false" a false, "30" a 30, so that `apply: "false"`
+ * never applies. `required` is left to the tool: some ask for what is missing
  * or do without it (Next's log_progress saves the step without done_title).
  *
  * What each person sees may depend on them (a host, where everyone uses some
@@ -231,6 +233,63 @@ export function argumentProblems(schema, args) {
   return problemsOf(schema.type === undefined ? { ...schema, type: 'object' } : schema, args, '', []);
 }
 
+/** Whether a value already is of a JSON Schema type, with nothing to read into it. */
+function isOfType(type, value) {
+  switch (type) {
+    case 'string': return typeof value === 'string';
+    case 'integer': return Number.isInteger(value);
+    case 'number': return Number.isFinite(value);
+    case 'boolean': return typeof value === 'boolean';
+    case 'array': return Array.isArray(value);
+    case 'object': return isPlainObject(value);
+    case 'null': return value === null;
+    default: return true;
+  }
+}
+
+function coerced(schema, value) {
+  if (!isPlainObject(schema) || value === undefined || value === null || schema.anyOf || schema.oneOf) return value;
+  const types = [].concat(schema.type ?? []);
+  if (types.includes('array') && isPlainObject(schema.items)) {
+    // A single item where a list goes passes the check, and reaches the tool as one item, as always.
+    return Array.isArray(value) ? value.map((item) => coerced(schema.items, item)) : coerced(schema.items, value);
+  }
+  if (isPlainObject(value)) {
+    const properties = isPlainObject(schema.properties) ? schema.properties : {};
+    let out = value;
+    for (const [name, sub] of Object.entries(properties)) {
+      if (!Object.hasOwn(value, name)) continue;
+      const next = coerced(sub, value[name]);
+      if (next !== value[name]) out = { ...out, [name]: next };
+    }
+    return out;
+  }
+  if (!types.length || types.some((type) => isOfType(type, value))) return value;
+  if (types.includes('boolean')) {
+    if (value === 'true' || value === 1) return true;
+    if (value === 'false' || value === 0) return false;
+  }
+  if (types.includes('integer') && typeof value === 'string' && INTEGER_TEXT.test(value)) return Number(value);
+  if (types.includes('number') && typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  return value;
+}
+
+/**
+ * The arguments of a call that argumentProblems let through, as its schema
+ * says they are: "true"/"false" and 1/0 where a boolean goes become true and
+ * false, a number in quotes where a number goes becomes that number, inside
+ * objects and lists too. The tools read `args.apply === true` and
+ * `Number.isInteger(args.days)`: without this, `apply: "false"` applied and
+ * `days: "30"` was a week. A text stays a text (a number where a text goes is
+ * left as it came: some tools tell an id from a title by its type), and what
+ * the schema doesn't name, or names with `anyOf`, is left alone. The object
+ * given is not changed: a copy comes back where something was.
+ */
+export function coerceArguments(schema, args) {
+  if (!isPlainObject(schema) || !isPlainObject(args)) return args;
+  return coerced(schema.type === undefined ? { ...schema, type: 'object' } : schema, args);
+}
+
 /**
  * What is wrong with the schemas a set of tools declares, for an app's tests:
  * a type this check doesn't know, a `required` that names no property, bounds
@@ -338,7 +397,7 @@ export function clientOfSession(id) {
  * The token of a request: the Authorization header, or the X-MCP-Token header.
  * Never the address (?token=): an address ends up in logs and histories.
  */
-export function bearerToken(req, url = null) {
+export function bearerToken(req) {
   const header = req.headers.authorization;
   if (header && /^bearer\s+/i.test(header)) return header.replace(/^bearer\s+/i, '').trim();
   // For clients that can't set custom headers. It ends up in logs: use it knowingly.
@@ -376,8 +435,6 @@ export function createMcpServer({
 }) {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const doors = onDemand && door ? { more: `${door}_more_tools`, use: `${door}_use_tool` } : null;
-  /** Open sessions (id → { created }). Informational only: the protocol is stateless here. */
-  const sessions = new Map();
 
   // The hints (readOnlyHint, destructiveHint, idempotentHint, openWorldHint) tell the client
   // which tools only read and which change or delete: the directories of Claude and ChatGPT
@@ -409,7 +466,8 @@ export function createMcpServer({
       + `When the user asks for something one of them does, call this with its name to read what it does and takes, then run it with ${doors.use}.`,
     inputSchema: {
       type: 'object',
-      properties: { names: { type: 'array', items: { type: 'string' }, maxItems: 30, description: 'Names from the list above; none for a short line on each' } },
+      // As many names as there are behind it: asking for all of them at once is allowed.
+      properties: { names: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: Math.max(1, kept.length), description: 'Names from the list above; none for a short line on each' } },
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -420,7 +478,7 @@ export function createMcpServer({
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'The tool\'s name' },
+        name: { type: 'string', maxLength: 128, description: 'The tool\'s name' },
         arguments: { type: 'object', description: 'Its arguments, as its parameters say' },
       },
       required: ['name'],
@@ -433,7 +491,7 @@ export function createMcpServer({
   function moreTools(principal, names) {
     const { kept } = listOf(principal);
     if (!kept.length) return textResult('Every tool is already in your list.');
-    const wanted = Array.isArray(names) ? names.map(String).filter(Boolean) : [];
+    const wanted = [].concat(names ?? []).map(String).filter(Boolean);
     if (!wanted.length) {
       return textResult(kept.map((t) => {
         const params = Object.keys(t.inputSchema?.properties || {})
@@ -466,8 +524,26 @@ export function createMcpServer({
     return [...shown, ...(kept.length ? doorTools(kept) : [])].map(descriptor);
   }
 
+  /** The sentence of a call whose arguments don't fit, for the assistant to correct them. */
+  const refused = (name, problems) => {
+    log(`[mcp] ${name}: arguments refused (${problems.join('; ')})`);
+    return textResult(`Invalid arguments for ${name}: ${problems.join('; ')}. Correct them and call it again.`, true);
+  };
+
   /** Runs a tool for a principal and returns its result in MCP form. */
   async function callTool(principal, name, args = {}) {
+    // The door's own arguments are checked as any tool's, against what its tools/list says.
+    if (doors && (name === doors.more || name === doors.use)) {
+      const own = doorTools(listOf(principal).kept).find((tool) => tool.name === name);
+      let given = args;
+      // Some assistants send an object's JSON as a text.
+      if (name === doors.use && isPlainObject(args) && typeof args.arguments === 'string') {
+        try { given = { ...args, arguments: JSON.parse(args.arguments || '{}') }; } catch { /* refused below */ }
+      }
+      const problems = checkArgs ? argumentProblems(own.inputSchema, given) : [];
+      if (problems.length) return refused(name, problems);
+      args = given;
+    }
     if (doors && name === doors.more) return moreTools(principal, args?.names);
     if (doors && name === doors.use) {
       const inner = String(args?.name ?? '');
@@ -476,9 +552,7 @@ export function createMcpServer({
         const listed = byName.get(inner) && visible(principal, byName.get(inner));
         return textResult(listed ? `${inner} is in your list: call it by its name.` : `Give the name of a tool ${doors.more} lists.`, true);
       }
-      let innerArgs = args?.arguments ?? {};
-      // Some assistants send an object's JSON as a text.
-      if (typeof innerArgs === 'string') { try { innerArgs = JSON.parse(innerArgs || '{}'); } catch { /* refused below */ } }
+      const innerArgs = args?.arguments ?? {};
       if (innerArgs === null || typeof innerArgs !== 'object' || Array.isArray(innerArgs)) {
         return textResult(`"arguments" must be an object with ${inner}'s arguments.`, true);
       }
@@ -488,14 +562,12 @@ export function createMcpServer({
     if (!tool) return textResult(`Unknown tool: ${name}. ${unknownHint(principal, name)}`.trim(), true);
     const allowed = allows(principal, tool);
     if (allowed !== true) return textResult(String(allowed || 'Your plan does not include this.'), true);
-    const current = { ...args };
     // Before the tool and before a call of the day is spent: a value out of
     // its range (a lag of 2e8 days, a 13th month) never reaches the store.
-    const problems = checkArgs ? argumentProblems(tool.inputSchema, current) : [];
-    if (problems.length) {
-      log(`[mcp] ${tool.name}: arguments refused (${problems.join('; ')})`);
-      return textResult(`Invalid arguments for ${tool.name}: ${problems.join('; ')}. Correct them and call it again.`, true);
-    }
+    const problems = checkArgs ? argumentProblems(tool.inputSchema, args) : [];
+    if (problems.length) return refused(tool.name, problems);
+    // What passed, as the schema says it is: "false" is false for `args.apply === true`.
+    const current = { ...(checkArgs ? coerceArguments(tool.inputSchema, args) : args) };
     const spent = quota(principal, tool);
     if (spent !== true) return textResult(String(spent || 'The calls of today are used up.'), true);
     try {
@@ -511,22 +583,24 @@ export function createMcpServer({
       // The suite's own (resolve.js, dates.js): the message and its options, for the AI to ask.
       if (error instanceof ResolveError) return textResult(resolveErrorText(error), true);
       if (error?.code && error?.status) return textResult(String(error.code), true);
+      // What went wrong stays in the log: its message may name tables and columns, and the
+      // assistant could do nothing with it but try again.
       log(`[mcp] error in ${tool.name}`, error);
-      return textResult(`Internal error running ${tool.name}: ${error.message}`, true);
+      return textResult(`Something went wrong running ${tool.name}; it was noted. Tell the user, and don't retry it as it is.`, true);
     }
   }
 
   async function answer(message, principal, context) {
-    const { id, method, params = {} } = message;
+    const { id, method } = message;
+    // `params: null` is no params, as a missing one; anything but an object is no request of ours.
+    const params = message.params ?? {};
     const isNotification = id === undefined || id === null;
+    if (!isPlainObject(params)) return isNotification ? null : rpcError(id, -32602, 'Invalid params: an object is expected');
     switch (method) {
       case 'initialize': {
         const protocolVersion = PROTOCOL_VERSIONS.includes(params.protocolVersion)
           ? params.protocolVersion : PROTOCOL_VERSIONS[0];
-        const sessionId = sessionIdFor(clientLabel(params.clientInfo));
-        sessions.set(sessionId, { created: Date.now() });
-        if (sessions.size > 5000) sessions.delete(sessions.keys().next().value);
-        context.sessionId = sessionId;
+        context.sessionId = sessionIdFor(clientLabel(params.clientInfo));
         const text = instructionsFor(principal);
         return rpcResult(id, {
           protocolVersion,
@@ -560,14 +634,16 @@ export function createMcpServer({
 
   /**
    * POST   /mcp → JSON-RPC messages; answers JSON (or SSE when the client only accepts that).
-   * GET    /mcp → the server→client SSE channel, kept open with comments.
-   * DELETE /mcp → closes the session.
+   * GET    /mcp → 405: this server sends nothing on its own, so it opens no server→client
+   *               channel (Streamable HTTP lets a server say so; clients go on with POST). It
+   *               used to hold one open for good per GET, a socket and a timer each.
+   * DELETE /mcp → closes the session: 204. Nothing is kept of one (its id carries its client).
    */
-  async function handle(req, res, url) {
+  async function handle(req, res) {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': req.headers.origin || '*',
-        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Methods': 'POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID',
         'Access-Control-Max-Age': '86400',
       });
@@ -575,7 +651,7 @@ export function createMcpServer({
       return;
     }
 
-    const token = bearerToken(req, url);
+    const token = bearerToken(req);
     let principal;
     try {
       principal = token ? await authenticate(token, req) : null;
@@ -616,27 +692,14 @@ export function createMcpServer({
     limiter?.tokenSucceeded(req, token);
 
     if (req.method === 'DELETE') {
-      const sid = req.headers['mcp-session-id'];
-      if (sid) sessions.delete(String(sid));
       res.writeHead(204).end();
       return;
     }
 
-    if (req.method === 'GET') {
-      // Nothing is sent from here on our own, but some clients expect to be
-      // able to open the channel. It is kept alive with comments.
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive', 'X-Accel-Buffering': 'no',
-      });
-      res.write(': connected\n\n');
-      const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
-      req.on('close', () => clearInterval(heartbeat));
-      return;
-    }
-
+    // GET (the server→client channel) too: after the token, so that a client asking
+    // without one still gets the 401 that starts the sign-in.
     if (req.method !== 'POST') {
-      sendText(res, 405, 'Method Not Allowed', { Allow: 'GET, POST, DELETE, OPTIONS' });
+      sendText(res, 405, 'Method Not Allowed', { Allow: 'POST, DELETE, OPTIONS' });
       return;
     }
 
@@ -663,7 +726,14 @@ export function createMcpServer({
         responses.push(rpcError(message?.id ?? null, -32600, 'Invalid JSON-RPC request'));
         continue;
       }
-      const out = await answer(message, principal, context);
+      let out;
+      try {
+        out = await answer(message, principal, context);
+      } catch (error) {
+        // A message gone wrong is that message's error, in JSON-RPC, not a 500 for the batch.
+        log(`[mcp] error answering ${String(message.method).slice(0, 60)}`, error);
+        out = message.id === undefined || message.id === null ? null : rpcError(message.id, -32603, 'Internal error');
+      }
       if (out) responses.push(out);
     }
 

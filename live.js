@@ -180,9 +180,11 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS, stillIn
    * @returns {{ at: string, missed: Array|null, stop: Function }} where this channel is now, what
    *   was missed since `since` (null: reload everything; [] without `since`), and how to let go
    */
-  function relay(user, { since = '', sessionToken = null, deliver, end = () => {} }) {
+  function relay(user, { since = '', sessionToken = null, deliver, end = () => {}, checked = true }) {
     const missed = since ? missedSince(since, user.id) : [];
-    const client = { userId: Number(user.id), sessionToken, deliver, end };
+    // `checked: false`: whoever reads it asks for its session itself (subscribeAll's own heartbeat),
+    // so this channel's heartbeat and recheck() leave it out; dropUser() still knows its session.
+    const client = { userId: Number(user.id), sessionToken, deliver, end, unchecked: !checked };
     admit(client);
     return {
       at: `${boot}.${last}`,
@@ -228,7 +230,7 @@ export function createLive({ remember = 256, heartbeatMs = HEARTBEAT_MS, stillIn
     if (!stillIn) return 0;
     let n = 0;
     for (const client of [...clients]) {
-      if (!client.sessionToken || (userId != null && client.userId !== Number(userId))) continue;
+      if (!client.sessionToken || client.unchecked || (userId != null && client.userId !== Number(userId))) continue;
       let still = true;
       try { still = stillIn(client.userId, client.sessionToken); } catch { /* asked again on the next heartbeat */ }
       if (still) continue;
@@ -271,12 +273,23 @@ function lastSeenOf(req) {
  * (`notes=<boot>.<n>,next=<boot>.<n>`), which the browser sends back on its own when it comes back,
  * or the page as `&last=` on a new channel.
  *
+ * Its session is asked again by each module's heartbeat, as one of that module's tabs; or, given
+ * `stillIn`, once a heartbeat by the stream itself and never by the modules: with four modules,
+ * a tab was asked four times each heartbeat about the same session (audit of 6/11, perf-srv-10).
+ * Then what a session closed asks at once comes through the handle's `recheck()` (createLiveAll).
+ *
  * @param {Array<[string, object]>} channels  [[mount, createLive()], …]
  * @param {object} [options]
  * @param {string} [options.sessionToken]  the session it is opened with, as subscribe()'s
  * @param {number} [options.heartbeatMs]
+ * @param {(userId: number, sessionToken: string) => boolean} [options.stillIn]  as createLive()'s
+ * @param {Function} [options.onEnd]  called once when the stream ends, however it ends
+ * @returns {{ userId: number, recheck: () => boolean }} `recheck()` asks for its session now, and
+ *   ends it (after the account's notice) when it is gone: whether it ended
  */
-export function subscribeAll(channels, req, res, user, { sessionToken = null, heartbeatMs = HEARTBEAT_MS } = {}) {
+export function subscribeAll(channels, req, res, user, {
+  sessionToken = null, heartbeatMs = HEARTBEAT_MS, stillIn = null, onEnd = null,
+} = {}) {
   res.setTimeout?.(0);
   res.writeHead(200, STREAM_HEAD);
   res.write('retry: 3000\n\n');
@@ -295,6 +308,7 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
     clearInterval(timer);
     for (const each of relays) each.stop();
     try { res.end(); } catch { /* already closed */ }
+    try { onEnd?.(); } catch { /* the stream is closed all the same */ }
   }
   function write(text) {
     if (!open) return;
@@ -311,7 +325,7 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
   for (const [mount, live] of channels) {
     const since = seen ? before.get(mount) || 'none.0' : '';
     const each = live.relay(user, {
-      since, sessionToken, end: finish,
+      since, sessionToken, end: finish, checked: !stillIn,
       deliver: ({ id, event, body }) => {
         if (id) at.set(mount, id);
         write(message(mount, event, body, id && idOf()));
@@ -325,8 +339,54 @@ export function subscribeAll(channels, req, res, user, { sessionToken = null, he
   for (const text of opening) write(text);
   write(message(null, 'hello', JSON.stringify(seen ? { user_id: user.id, replayed: true } : { user_id: user.id }), idOf()));
 
-  timer = setInterval(() => write(': ping\n\n'), heartbeatMs);
+  /** Its session asked again (with `stillIn`): gone, the account's notice, as a module's channel says it, and the end. */
+  function recheck() {
+    if (!open || !stillIn || !sessionToken) return false;
+    let still = true;
+    try { still = stillIn(Number(user.id), sessionToken); } catch { /* asked again on the next heartbeat */ }
+    if (still) return false;
+    if (channels.length) write(message(channels[0][0], 'account', JSON.stringify({ user_id: Number(user.id) })));
+    finish();
+    return true;
+  }
+
+  timer = setInterval(() => {
+    if (!recheck()) write(': ping\n\n');
+  }, heartbeatMs);
   timer.unref?.();
   req.on('close', finish);
   req.on('error', finish);
+  return { userId: Number(user.id), recheck };
+}
+
+/**
+ * The host's streams of every module (subscribeAll), each asked for its session once a heartbeat
+ * by itself, not by every module: `subscribe()` opens one, `recheck(userId)` asks those of a
+ * person (everyone's without it) at once, what a session closed calls (sessions.whenClosed), as
+ * a module's recheck() does for its own tabs.
+ */
+export function createLiveAll({ stillIn = null, heartbeatMs = HEARTBEAT_MS } = {}) {
+  const streams = new Set();
+  function subscribe(channels, req, res, user, { sessionToken = null } = {}) {
+    let stream = null;
+    let ended = false;
+    stream = subscribeAll(channels, req, res, user, {
+      sessionToken, heartbeatMs, stillIn,
+      onEnd: () => {
+        ended = true;
+        if (stream) streams.delete(stream);
+      },
+    });
+    if (!ended) streams.add(stream);
+    return stream;
+  }
+  function recheck(userId = null) {
+    let n = 0;
+    for (const stream of [...streams]) {
+      if (userId != null && stream.userId !== Number(userId)) continue;
+      if (stream.recheck()) n += 1;
+    }
+    return n;
+  }
+  return { subscribe, recheck, open: () => streams.size };
 }

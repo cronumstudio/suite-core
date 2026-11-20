@@ -51,8 +51,9 @@ export function createModule({ mount }) {
     // As if each item were a 1000-byte photo: what the host adds up for storage.mb.
     storage: (userId) => 1000 * suite.database.get('SELECT COUNT(*) AS n FROM alpha_items WHERE user_id = ?', userId).n,
     // Its items against items.max, each one a file too; an id the admin has no words for is left out.
-    // One called 'Locked' makes it fail.
-    usage: (userId) => {
+    // One called 'Locked' makes it fail. What the host asks of it (`{ activity }`) is noted for the tests.
+    usage: (userId, options) => {
+      globalThis.alphaUsageAsked?.push(options);
       if (suite.database.get("SELECT 1 FROM alpha_items WHERE user_id = ? AND text = 'Locked'", userId)) throw new Error('locked');
       const n = suite.database.get('SELECT COUNT(*) AS n FROM alpha_items WHERE user_id = ?', userId).n;
       return {
@@ -67,8 +68,11 @@ export function createModule({ mount }) {
       tools: itemTools({ suite, table: 'alpha_items', name: 'alpha', add: true }),
       describeError: (error) => (error.code === 'item_exploded' ? 'That item cannot be added.' : null),
     },
-    start: () => {
+    start: (host = {}) => {
       events.started += 1;
+      // How its own jobs report what they throw (failed, safely), kept for the tests to call.
+      events.jobs = host;
+      if (events.throwOnStart) throw new Error('alpha could not start its jobs');
       // What it still has to send goes before the host closes: its stop's promise is waited for.
       return () => {
         events.stopped += 1;

@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDatabase } from '../db.js';
-import { createLinks, linksSchema } from '../links.js';
+import { createLinks, linksSchema, parseRef, likeOf } from '../links.js';
 
 const ana = { id: 1 };
 const bob = { id: 2 };
@@ -80,7 +80,7 @@ function setup(t, { many = 'all', alphaMany = false } = {}) {
   };
   const links = createLinks({ database: db, modules: () => modules, uses, clock: () => Date.parse('2026-10-25T10:00:00Z') });
   const reset = () => Object.assign(counts, { queries: 0, read: {}, readMany: {}, uses: 0 });
-  return { database, links, counts, reset };
+  return { database, links, counts, reset, modules };
 }
 
 /** Fifty beta items linked with ana's alpha item 1: two of them gone, three of bob's (hidden from her). */
@@ -144,9 +144,12 @@ test('a search shows the cards the owner found as they come: none read again, th
   assert.deepEqual(counts.read, {});
   assert.deepEqual(counts.readMany, {});
   assert.ok(counts.queries <= 3, `a search of 30 cards in a few queries (${counts.queries})`);
-  assert.deepEqual(found.places, [{ id: 'inbox', name: 'Inbox' }]);
   assert.equal(found.creates, true);
-  for (const item of found.items) assert.deepEqual(item, links.cardOf(ana, links.parseRef(item.ref)), 'what a link to it would show');
+  // What a link to it would show.
+  database.run("INSERT INTO alpha_items (id, user_id, text) VALUES (1, 1, 'Plan')");
+  for (const item of found.items.slice(0, 3)) links.link(ana, 'alpha:item:1', item.ref);
+  const shown = new Map(links.of(ana, 'alpha:item:1').map((l) => [l.item.ref, l.item]));
+  for (const item of found.items.slice(0, 3)) assert.deepEqual(item, shown.get(item.ref), parseRef(item.ref).id);
   assert.ok(!found.items.some((item) => item.ref === 'beta:item:99'), 'only what the owner’s search gives her');
 });
 
@@ -192,9 +195,7 @@ test('a module no longer mounted is not gone, and a link whose module left shows
   assert.deepEqual(links.prune(), { forgotten: 0, removed: 0 });
   const [only] = links.of(ana, 'alpha:item:1');
   assert.deepEqual(only.item, { ref: 'gamma:item:1', module: 'gamma', type: 'item', app: undefined, color: undefined, state: 'hidden' }, 'a module the host doesn’t have: hidden');
-  assert.equal(links.cardOf(ana, { module: 'gamma', type: 'item', id: '1' }).state, 'hidden');
-  assert.equal(links.cardOf(bob, { module: 'alpha', type: 'item', id: '1' }).state, 'hidden', 'not his');
-  assert.equal(links.cardOf(ana, { module: 'alpha', type: 'item', id: '1' }).title, 'Plan');
+  assert.throws(() => links.of(bob, 'alpha:item:1'), { code: 'not_found' }, 'not his');
 });
 
 test('whoever only sees something can’t change its links: link, unlink, «together» or add from it (audit of 6/11, sc-feat-2)', (t) => {
@@ -257,4 +258,67 @@ test('whoever only sees something can’t change its links: link, unlink, «toge
   delete modules[0].parts.cards.item.editable;
   delete modules[1].parts.cards.item.editable;
   assert.equal(links.canLink(bob, 'alpha:item:1'), true);
+});
+
+test('linking a pair linked already says so, and hands that link (audit of 6/11, sc-feat-11)', (t) => {
+  const { database, links } = setup(t);
+  database.run("INSERT INTO alpha_items (id, user_id, text) VALUES (1, 1, 'Plan')");
+  database.run("INSERT INTO beta_items (id, user_id, text) VALUES (1, 1, 'Task')");
+  const made = links.connect(ana, 'alpha:item:1', 'beta:item:1');
+  assert.equal(made.existed, false);
+  const again = links.connect(ana, 'beta:item:1', 'alpha:item:1', { together: true });
+  assert.equal(again.existed, true, 'whichever way');
+  assert.equal(again.link.id, made.link.id);
+  assert.equal(again.link.together, false, 'as it was');
+  assert.equal(links.link(ana, 'alpha:item:1', 'beta:item:1').id, made.link.id, 'link() still gives the link alone');
+});
+
+test('a search may leave out where to create: "Link existing…" never shows them (audit of 6/11, sc-feat-15)', (t) => {
+  const { database, links, modules } = setup(t);
+  database.run("INSERT INTO beta_items (id, user_id, text) VALUES (1, 1, 'Review')");
+  let asked = 0;
+  const places = modules[1].parts.cards.item.places;
+  modules[1].parts.cards.item.places = (user) => { asked += 1; return places(user); };
+  for (const text of ['R', 'Re', 'Rev']) assert.deepEqual(links.search(ana, 'beta', 'item', text, { places: false }).places, []);
+  assert.equal(asked, 0, 'not at every key');
+  assert.deepEqual(links.search(ana, 'beta', 'item', '').places, [{ id: 'inbox', name: 'Inbox' }], 'by default, as before');
+  assert.equal(asked, 1);
+});
+
+test('likeOf: what was typed, found anywhere, its % _ and \\ as themselves', (t) => {
+  assert.equal(likeOf('50%_off\\'), '%50\\%\\_off\\\\%');
+  assert.equal(likeOf(null), '%%');
+  const database = openDatabase({ path: ':memory:' });
+  t.after(() => database.close());
+  database.exec("CREATE TABLE t (x TEXT); INSERT INTO t VALUES ('a 50% cut'), ('a 500 cut'), ('snake_case'), ('snakeXcase'), ('back\\slash')");
+  const found = (text) => database.all("SELECT x FROM t WHERE x LIKE ? ESCAPE '\\' ORDER BY x", likeOf(text)).map((r) => r.x);
+  assert.deepEqual(found('50%'), ['a 50% cut']);
+  assert.deepEqual(found('e_c'), ['snake_case']);
+  assert.deepEqual(found('k\\s'), ['back\\slash']);
+});
+
+test('a title is kept as whoever made the link sees it: a rename they can no longer see never reaches them (audit of 6/11, sc-feat-16)', (t) => {
+  const { database, links: _ignored, modules } = setup(t);
+  const users = new Map([[1, ana], [2, bob]]);
+  const links = createLinks({ database, modules: () => modules, userOf: (id) => users.get(Number(id)) || null });
+  database.run("INSERT INTO alpha_items (id, user_id, text) VALUES (1, 1, 'Plan')");
+  database.run("INSERT INTO beta_items (id, user_id, text) VALUES (1, 1, 'Shared task')");
+  links.link(ana, 'alpha:item:1', 'beta:item:1');
+  const title = () => database.get('SELECT b_title FROM host_links').b_title;
+  database.run("UPDATE beta_items SET text = 'Renamed' WHERE id = 1");
+  links.changed('beta:item:1');
+  assert.equal(title(), 'Renamed', 'while she sees it, it follows');
+  // Not hers any more, then renamed and deleted.
+  database.run("UPDATE beta_items SET user_id = 2, text = 'Secret plan' WHERE id = 1");
+  links.changed('beta:item:1');
+  assert.equal(title(), 'Renamed', 'what she last saw');
+  database.run('UPDATE beta_items SET deleted = 1 WHERE id = 1');
+  assert.equal(links.of(ana, 'alpha:item:1')[0].item.title, 'Renamed', 'gone: the title she knew, not the one after');
+  // Its maker's account gone: nothing kept for anyone.
+  database.run("INSERT INTO beta_items (id, user_id, text) VALUES (2, 1, 'Orphan')");
+  links.link(ana, 'alpha:item:1', 'beta:item:2');
+  users.delete(1);
+  database.run("UPDATE beta_items SET text = 'Orphan renamed' WHERE id = 2");
+  links.changed('beta:item:2');
+  assert.equal(database.get("SELECT b_title FROM host_links WHERE b_id = '2'").b_title, 'Orphan');
 });
