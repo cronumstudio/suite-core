@@ -524,7 +524,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
  * in the accent, the same in every module. A module whose row carries a surface of its own (what
  * a finger slides) paints that surface too.
  */
-.kit-row[aria-current="true"] { background: var(--kit-accent-soft); }
+.kit-list-row[aria-current="true"] { background: var(--kit-accent-soft); }
 
 /*
  * The bar that adds an item at the foot of a list (ui.js addBar, rule 11): a card with a +, the

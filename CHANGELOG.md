@@ -18,7 +18,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **Notices rise above the add bar** (`toast()`, `.kit-toasts`; ui-dialogos-14): each time one shows,
   the kit measures the bars in sight under the notices' place and sets `--kit-toast-floor`, also with
   the keyboard up. With no bar they sit where they always did.
-- **The row open in the detail** (`.kit-row[aria-current="true"]`, rule 12; dup-css-5, ui-medidas-12):
+- **The row open in the detail** (`.kit-list-row[aria-current="true"]`, rule 12; dup-css-5, ui-medidas-12):
   a soft background in the accent, as Notes' had, for Tasks, Notes and Projects.
 - **The detail as a column of its own** (`createShell({ detail: 'column' })`, `shell.setDetailOpen()`,
   `data-detail-open`; dup-css-11): from 960 px the list takes the whole width while nothing is open and

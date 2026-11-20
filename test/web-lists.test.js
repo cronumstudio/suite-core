@@ -103,7 +103,7 @@ test('a notice rises over an add bar under it, and not over one hidden or beside
 });
 
 test('the open row and the detail as a column are the kit\'s', () => {
-  assert.match(kit, /\.kit-row\[aria-current="true"\] \{ background: var\(--kit-accent-soft\); \}/);
+  assert.match(kit, /\.kit-list-row\[aria-current="true"\] \{ background: var\(--kit-accent-soft\); \}/);
   assert.match(kit, /\.kit-app\[data-detail="column"\]\[data-layout="side"\]\[data-panes="split"\]\[data-detail-open\] \.kit-shell \{\s*grid-template-columns: var\(--kit-side-width, 260px\) minmax\(0, 1fr\) minmax\(340px, 400px\);/);
   assert.match(kit, /\.kit-app\[data-detail="column"\]:not\(\[data-detail-open\]\) \.kit-pane--detail \{ display: none; \}/);
   assert.match(kit, /\[data-detail="column"\]\[data-folded\][^{]*\[data-detail-open\] \.kit-shell \{\s*grid-template-columns: minmax\(0, 1fr\) minmax\(340px, 400px\);/);

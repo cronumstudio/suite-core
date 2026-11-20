@@ -78,7 +78,7 @@ going from one module to the next in Cronum Work nothing moves:
 11. **The add bar is the same card in Tasks and Projects** (`addBar()`, v0.304.0): a +, the field
     and «Añadir», with the module's own tools between them; Projects keeps its gradient behind it,
     over the Gantt. The notices rise above it, never onto it (`toast()` measures it).
-12. **The row open in the detail has a soft background** (`.kit-row[aria-current="true"]`,
+12. **The row open in the detail has a soft background** (`.kit-list-row[aria-current="true"]`,
     `--kit-accent-soft`, v0.304.0), as Notes' had: Tasks, Notes and Projects (whose state stripe
     stays). A long title wraps onto more lines, as Tasks' always did; it is never cut with «…».
     From 960 px, Tasks' and Projects' item opens as a column on the list's right
@@ -181,7 +181,7 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 | `kit-segmented` | One choice among a few, as `segmented()` makes it |
 | `kit-blank` (`--page`, `--loading`), `kit-empty` | Nothing here yet, or still on its way, as `blank()` makes it; a view's whole page |
 | `kit-add-bar` | The add bar at a list's foot, as `addBar()` makes it |
-| `kit-row[aria-current="true"]` | The row open in the detail beside it |
+| `kit-list-row` (`[aria-current="true"]`) | A row of a list whose item opens in the detail: open, its soft background |
 
 Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
 has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
