@@ -23,6 +23,15 @@
  * step aside for it (windows.js).
  */
 
+/**
+ * The key a shortcut with a letter takes here, as the device names it: ⌘ on a Mac, an iPhone or an
+ * iPad, Ctrl elsewhere. For the words that tell a shortcut (Notes' editor, Settings › About).
+ */
+export function modKey(nav = globalThis.navigator) {
+  const platform = nav?.userAgentData?.platform || nav?.platform || nav?.userAgent || '';
+  return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘' : 'Ctrl';
+}
+
 /** Less than this is the browser's own bars coming and going, not a keyboard. */
 const KEYBOARD_MIN = 120;
 /** How long a page still short, with nothing typed in, waits for its room before it isn't a keyboard. */

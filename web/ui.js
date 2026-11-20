@@ -12,7 +12,7 @@
  */
 import { el, $, append, clear } from './dom.js';
 import { errorMessage, planAction } from './api.js';
-import { t } from './i18n.js';
+import { t, dateFormat, relativeDay, currentLanguage, instant } from './i18n.js';
 import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
 import { focusOnTap, rideKeyboard } from './keyboard.js';
@@ -37,6 +37,31 @@ function onTop(box) {
 }
 
 /**
+ * The notices rise over an add bar in sight below them (addBar(), rule 11), never onto it: measured
+ * each time one shows, from the bars that reach under where the notices go (the middle of the
+ * page), as the distance from the foot of the screen in view to the bar's top and a gap
+ * (`--kit-toast-floor`, kit.css). With none, they stay where they always were.
+ */
+function liftOver(box) {
+  // Nothing to measure without a window (a test, a worker): where they always were.
+  if (typeof window === 'undefined') return;
+  const view = window.visualViewport;
+  const bottom = view ? view.offsetTop + view.height : window.innerHeight;
+  const middle = (window.innerWidth || 0) / 2;
+  const half = Math.max(0, Math.min(230, middle - 12));
+  let floor = 0;
+  for (const bar of document.querySelectorAll?.('.kit-add-bar') || []) {
+    const r = bar.getBoundingClientRect?.();
+    // Hidden (no box), out of the screen in view, or beside the notices: it is not under them.
+    if (!r || !r.width || !r.height || r.top >= bottom || r.bottom <= 0) continue;
+    if (r.right <= middle - half || r.left >= middle + half) continue;
+    floor = Math.max(floor, bottom - r.top + 8);
+  }
+  if (floor) box.style.setProperty?.('--kit-toast-floor', `${Math.round(floor)}px`);
+  else box.style.removeProperty?.('--kit-toast-floor');
+}
+
+/**
  * A notice for a few seconds; errors stay longer. `action` adds a button
  * ("Undo", "Retry") that runs and closes it. Returns a function that closes it.
  */
@@ -57,6 +82,7 @@ export function toast(text, { error = false, action = null, duration = null } = 
       onClick: () => { close(); action.onClick?.(); },
     }) : null);
   box.append(markOwned(note));
+  liftOver(box);
   onTop(box);
   // An action needs time to be reached; an error, to be read.
   setTimeout(close, duration ?? (action ? 8000 : error ? 7000 : 3500));
@@ -83,6 +109,110 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
 }
 
 /**
+ * The banner of a module without a signal, the same in every module (web-kit.md, rule 10): shown
+ * the moment the browser says the signal went (`offline`), not once a request has failed, and
+ * looked at again when it says it is back (`online`). Offline it says what is shown is the last
+ * thing loaded and how many changes wait on this device, with a discreet «Reintentar» when the
+ * module gives `retry`; back online, while those changes go, how many are being sent; `sent(n)`
+ * says they arrived (a notice) once the module has sent them.
+ *
+ * - `shell`: the shell (or a function that gives it) whose banner row it uses, id 'offline'. Or
+ *   `show(options)` and `hide()` of the module's own: `show` gets a function that gives the
+ *   banner's options, asked again whenever it paints (a module that repaints its banners in a new
+ *   language calls it then).
+ * - `pending()`: how many changes wait on this device to be sent.
+ * - `offline()`: what the module knows besides the browser: a request found no signal.
+ * - `empty()`: nothing loaded yet to show: only that the server can't be reached.
+ * - `retry()`: asks the server again.
+ * - `announce`: says by itself that the changes waiting without a signal arrived, once the signal
+ *   is back and none waits (for a module whose sending reports no count): as many as waited at
+ *   most while offline, less those it says were refused (`dropped()`). A function instead of
+ *   `true`: whether they can be sent yet; while it says no, none waiting isn't taken for sent.
+ *
+ * → { paint, sent, dropped, stop }: `paint()` after the module's own state changed (its
+ * `offline()`, its `pending()`); `paint(true)` draws it again even with the same words (a new shell).
+ */
+export function offlineBanner({
+  shell = null, show = null, hide = null, pending = () => 0, offline = () => false, empty = () => false, retry = null,
+  announce = false,
+} = {}) {
+  const shellOf = () => (typeof shell === 'function' ? shell() : shell);
+  // Without a shell yet nothing is drawn, and it is drawn once there is one.
+  const showIt = show || ((options) => {
+    const target = shellOf();
+    if (!target) return false;
+    target.showBanner('offline', options());
+    return true;
+  });
+  const hideIt = hide || (() => shellOf()?.hideBanner('offline'));
+  const away = () => globalThis.navigator?.onLine === false || !!offline();
+  const waiting = () => Number(pending() || 0);
+  const options = () => (away()
+    ? {
+      kind: 'warn', iconName: 'wifi-off',
+      text: empty() ? t('errors.offline') : t('kit.offline.banner', { n: waiting() }),
+      action: retry ? { label: t('kit.retry'), primary: false, onClick: () => retry() } : null,
+    }
+    : { kind: 'warn', iconName: 'upload', text: t('kit.offline.pending', { n: waiting() }) });
+  // What it shows now, by its words: the same again isn't drawn again (nor said again to a screen reader).
+  let drawn = null;
+  // How many changes waited at most while offline, still to be said arrived (`announce`).
+  let held = 0;
+  const paint = (again = false) => {
+    if (away()) held = Math.max(held, waiting());
+    // A function says whether they can go yet (Next: once the server said whose they are); until
+    // then none waiting says nothing, and they are said arrived once they went.
+    else if (!waiting() && held && (typeof announce !== 'function' || announce())) {
+      const arrived = held;
+      held = 0;
+      if (announce) toast(t('kit.offline.sent', { n: arrived }));
+    }
+    if (!away() && !waiting()) {
+      if (drawn !== null || again) hideIt();
+      drawn = null;
+      return;
+    }
+    const now = options();
+    const key = `${now.text}|${now.action ? now.action.label : ''}`;
+    if (!again && key === drawn) return;
+    drawn = showIt(options) === false ? null : key;
+  };
+  const onSignal = () => paint();
+  const onLanguage = () => paint(true);
+  globalThis.addEventListener?.('offline', onSignal);
+  globalThis.addEventListener?.('online', onSignal);
+  globalThis.addEventListener?.('app:language', onLanguage);
+  paint();
+  return {
+    paint,
+    /** `n` changes made without a signal arrived: said, and the banner painted again. */
+    sent(n) {
+      held = 0;
+      if (Number(n) > 0) toast(t('kit.offline.sent', { n: Number(n) }));
+      paint();
+    },
+    /** `n` of the changes that waited were refused when they went (the module says why): not said arrived. */
+    dropped(n = 1) {
+      held = Math.max(0, held - Number(n));
+    },
+    stop() {
+      globalThis.removeEventListener?.('offline', onSignal);
+      globalThis.removeEventListener?.('online', onSignal);
+      globalThis.removeEventListener?.('app:language', onLanguage);
+    },
+  };
+}
+
+/**
+ * What only the server can show, without a signal, in its place: «Necesita conexión» and that it
+ * shows once the signal is back, the same in every module (a trash, a section of Settings).
+ */
+export function offlineNotice({ className = '' } = {}) {
+  return el('div', { class: `kit-notice${className ? ` ${className}` : ''}`, role: 'status' },
+    el('strong', { text: t('kit.offline.title') }), el('p', { text: t('kit.offline.server') }));
+}
+
+/**
  * Where a save stands, next to what is saved: 'saving', 'saved', 'local'
  * (kept on this device, its answer slow to come), 'offline' (kept on this
  * device, to be sent), 'error' or 'conflict'. Returns the node
@@ -99,6 +229,56 @@ export function saveState(initial = 'saved') {
   };
   set(initial);
   return { node, set };
+}
+
+/* --------------------------------- stamps --------------------------------- */
+
+const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+/**
+ * When something was done, as an item's detail says it: «hoy a las 15:52», «ayer a las 09:10»,
+ * «12 mar a las 14:00» (a year only when it isn't this one), in the interface language. Two-digit
+ * hours, except in English («9:10 AM»). A moment from the server, ISO or SQLite's; '' for none.
+ */
+export function stampTime(value) {
+  const date = instant(value);
+  if (!date) return '';
+  const time = dateFormat(currentLanguage() === 'en' ? { hour: 'numeric', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
+    .format(date);
+  const now = new Date();
+  const day = localDay(date);
+  if (day === localDay(now)) return t('kit.stamps.at', { day: relativeDay(0), time });
+  if (day === localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) {
+    return t('kit.stamps.at', { day: relativeDay(-1), time });
+  }
+  const label = dateFormat(date.getFullYear() === now.getFullYear()
+    ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  return t('kit.stamps.at', { day: label, time });
+}
+
+/**
+ * Who made an item and who changed it last, the same words under its detail in every module
+ * (kit.stamps.*, a task's: «Creada por Ana · hoy a las 15:52», «Modificada por Luis · ayer a las
+ * 09:10»). `author` and `editor` are names, `createdVia` and `updatedVia` the assistant it was done
+ * through, `created`, `updated` and `completed` the moments (`format` writes them: stampTime). The
+ * change is said only when it isn't the creation, the completion only when given.
+ * → the lines, in order, for a `.kit-stamps` block.
+ */
+export function stamps({
+  author = null, createdVia = null, created = null, editor = null, updatedVia = null, updated = null, completed = null,
+} = {}, { format = stampTime } = {}) {
+  const by = (name, via) => (name && via ? t('kit.stamps.via', { name, via }) : name);
+  const name = by(author, createdVia);
+  const when = created ? format(created) : '';
+  const lines = [name && when ? t('kit.stamps.createdByAt', { name, when })
+    : name ? t('kit.stamps.createdBy', { name })
+      : when ? t('kit.stamps.createdAt', { when }) : t('kit.stamps.created')];
+  if (updated && updated !== created) {
+    const at = format(updated);
+    lines.push(editor ? t('kit.stamps.modifiedBy', { name: by(editor, updatedVia), when: at }) : t('kit.stamps.modified', { when: at }));
+  }
+  if (completed) lines.push(t('kit.stamps.completed', { when: format(completed) }));
+  return lines;
 }
 
 /* --------------------------------- fields --------------------------------- */
@@ -128,7 +308,8 @@ export function field(label, control, hint = null, options = {}) {
   }
   const hintNode = hint ? el(hintTag, { class: hintClass, id: id && `${id}-hint`, text: hint }) : null;
   if (hintNode && id) target.setAttribute('aria-describedby', `${id}-hint`);
-  const header = labelable ? el('label', { for: id, text: label }) : el('span', { text: label });
+  // Over a group, a span with the label's measure (kit.css .kit-field__label), as a <label>'s.
+  const header = labelable ? el('label', { for: id, text: label }) : el('span', { class: 'kit-field__label', text: label });
   return el('div', { class: className }, header, control, hintNode);
 }
 
@@ -191,20 +372,119 @@ export function segmented(options, value, onChange) {
   return group;
 }
 
-/** A centred message for a place with nothing in it yet, with what to do about it. */
-export function blank({ iconName = 'inbox', title, text = null, action = null }) {
-  return el('div', { class: 'kit-blank' },
-    el('span', { class: 'kit-blank__icon' }, icon(iconName)),
-    el('strong', { text: title }),
-    text ? el('p', { text }) : null,
-    action ? el('button', { type: 'button', class: 'kit-btn kit-btn--primary kit-btn--small', onClick: action.onClick },
-      action.iconName ? icon(action.iconName) : null, action.label) : null);
+/**
+ * A centred message for a place with nothing in it yet, with what to do about it: the same in every
+ * module (rule 10 of web-kit.md), one size of title in all of them.
+ *
+ * - `iconName`, the kit's icon in its box; `glyph`, a text in its place (the emoji a person chose
+ *   for a Tasks list).
+ * - `title` may be left out for a sentence alone (`text`).
+ * - `action`: { label, onClick } or { label, href } (a link), with `iconName`, and `primary: false`
+ *   for a plain button. `note`: a smaller line under it all.
+ * - `page`: alone in a view (`kit-blank--page`), its title the view's heading (an h2).
+ * - `loading`: the same place while what goes there is on its way, the kit's spinner in the box and
+ *   «Cargando…» (`kit.loading`) unless a `title` says otherwise.
+ */
+export function blank({
+  iconName = 'inbox', glyph = null, title = null, text = null, action = null, note = null, page = false, loading = false,
+} = {}) {
+  const box = el('span', { class: 'kit-blank__icon', 'aria-hidden': 'true' },
+    loading ? el('span', { class: 'kit-spinner' })
+      : glyph ? el('span', { class: 'kit-blank__glyph', text: glyph }) : icon(iconName));
+  const heading = title || (loading ? t('kit.loading') : null);
+  const button = !action ? null : action.href
+    ? el('a', { class: `kit-btn${action.primary === false ? '' : ' kit-btn--primary'} kit-btn--small`, href: action.href },
+      action.iconName ? icon(action.iconName) : null, action.label)
+    : el('button', { type: 'button', class: `kit-btn${action.primary === false ? '' : ' kit-btn--primary'} kit-btn--small`, onClick: action.onClick },
+      action.iconName ? icon(action.iconName) : null, action.label);
+  return el('div', {
+    class: `kit-blank${page ? ' kit-blank--page' : ''}${loading ? ' kit-blank--loading' : ''}`,
+    ...(loading ? { role: 'status', 'aria-busy': 'true' } : {}),
+  },
+  box,
+  heading ? el(page ? 'h2' : 'strong', { text: heading }) : null,
+  text ? el('p', { text }) : null,
+  button,
+  note ? el('p', { class: 'kit-blank__note', text: note }) : null);
 }
 
-/** The initials of a name on a circle: what stands for a person. */
-export function avatar(name = '') {
-  const initials = String(name).trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
-  return el('span', { class: 'kit-avatar', 'aria-hidden': 'true', text: initials || '·' });
+/**
+ * The bar that adds an item at the foot of a list (Tasks, Projects): a card with a +, the field and
+ * «Añadir», the same in both (rule 11 of web-kit.md). The notices rise over it (toast).
+ *
+ * - `placeholder`, and `label` for the button (the kit's «Añadir» by default).
+ * - `tools`: the module's own buttons, between the field and «Añadir» (Tasks' history, its category).
+ * - `onAdd(text, input)`: what was typed, trimmed, when there is something; the field is the
+ *   module's to empty. Without it, the form's submit is the module's own.
+ * - `className`, `id`, `input` (the field's attributes: an id, aria, maxlength…): what the module
+ *   finds them by.
+ */
+export function addBar({ placeholder = '', label = null, tools = [], onAdd = null, className = '', id = null, input: inputProps = {} } = {}) {
+  const input = el('input', {
+    type: 'text', class: 'kit-add-bar__input', placeholder, autocomplete: 'off', enterkeyhint: 'done',
+    ...(placeholder ? { 'aria-label': placeholder } : {}), ...inputProps,
+  });
+  const form = el('form', { class: `kit-add-bar${className ? ` ${className}` : ''}`, id },
+    el('span', { class: 'kit-add-bar__plus', 'aria-hidden': 'true' }, icon('plus')),
+    input,
+    ...tools,
+    el('button', { type: 'submit', class: 'kit-btn kit-btn--primary kit-btn--small kit-add-bar__add', text: label ?? t('kit.add') }));
+  if (onAdd) {
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (text) onAdd(text, input);
+    });
+  }
+  return form;
+}
+
+/**
+ * The ink that reads on a colour (a Tasks list's, a project's) as the text of its button: white
+ * where it reaches WCAG's 4.5:1, and otherwise the kit's dark ink, whichever reads better.
+ * Anything that isn't a #rgb or #rrggbb colour gets white, as before.
+ */
+export const INK = '#16130E';
+export function inkOn(color) {
+  const hex = String(color || '').trim().replace(/^#/, '');
+  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return '#fff';
+  const lum = (h) => {
+    const [r, g, b] = [0, 2, 4].map((i) => {
+      const c = parseInt(h.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const bg = lum(full);
+  const onWhite = 1.05 / (bg + 0.05);
+  if (onWhite >= 4.5) return '#fff';
+  const onInk = (bg + 0.05) / (lum(INK.slice(1)) + 0.05);
+  return onInk > onWhite ? INK : '#fff';
+}
+
+/** A person's own colour, as accounts keep it (`users.avatar_color`): "#rrggbb", else none. */
+const AVATAR_COLOR = /^#[0-9a-f]{6}$/i;
+const AVATAR_SIZES = new Set(['tiny', 'small', 'large']);
+
+/**
+ * The initials of a name on a circle: what stands for a person. Given the person itself
+ * ({ name | display_name | username, avatar_color | color }) it takes their name and the colour
+ * they chose, the same in every module; without one, the kit's neutral. `size`: 'tiny', 'small'
+ * or 'large' (kit.css); `title`: the name on hover, where the circle stands alone for it.
+ */
+export function avatar(who = '', { color = null, size = null, title = null } = {}) {
+  const person = who && typeof who === 'object' ? who : null;
+  const name = person ? (person.name || person.display_name || person.username || '') : who;
+  const initials = String(name ?? '').trim().split(/\s+/).slice(0, 2).map((word) => word[0] || '').join('').toUpperCase();
+  const paint = [color, person?.avatar_color, person?.color].find((value) => AVATAR_COLOR.test(String(value ?? '')));
+  return el('span', {
+    class: `kit-avatar${AVATAR_SIZES.has(size) ? ` kit-avatar--${size}` : ''}`,
+    'aria-hidden': 'true',
+    style: paint ? { background: paint } : null,
+    title: title || null,
+    text: initials || '·',
+  });
 }
 
 /** "by Cronum Studio": the brand that signs every app, in English in every language. */

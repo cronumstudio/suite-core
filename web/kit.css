@@ -69,6 +69,12 @@
   /* What a view's content keeps from the edges of its pane, the title of its head included: one
      margin for every module. The Clean look has its own, below. */
   --look-gutter: 16px;
+  /* The small label in capitals over a group of things (a sidebar's section, Share's «People»,
+     a step's «Why»): one measure in every module (.kit-eyebrow). Clean has its own spacing, below;
+     its size follows Clean's footnote. */
+  --kit-eyebrow-size: var(--look-footnote, 11px);
+  --kit-eyebrow-weight: 600;
+  --kit-eyebrow-spacing: .1em;
 }
 
 /*
@@ -183,6 +189,7 @@
   --look-item-y: 10px;
   --look-bar-y: 10px;
   --look-section: 28px;
+  --kit-eyebrow-spacing: .02em;
 }
 :root[data-look="clean"]:not([data-theme="dark"]) {
   --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 10%, #FFFFFF);
@@ -227,7 +234,15 @@ body {
   background: var(--kit-bg);
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
+  /* No blue flash when a row or a button is tapped on a phone: the kit's own states show it. */
+  -webkit-tap-highlight-color: transparent;
 }
+/* The frame's controls aren't selected by a long press, in every module; what is typed in them
+   and an item's own text are. */
+:is(.kit-side, .kit-bar, .kit-head, .kit-nav__item, .kit-group-title, .kit-round-check, .kit-segmented) {
+  user-select: none; -webkit-user-select: none;
+}
+:is(.kit-side, .kit-bar, .kit-head) :is(input, textarea, [contenteditable]) { user-select: text; -webkit-user-select: text; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--kit-accent); }
 h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
@@ -315,6 +330,14 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-icon-btn:hover { background: var(--kit-hover); color: var(--kit-text); }
 .kit-icon-btn .kit-icon { width: 20px; height: 20px; }
+/* A button that stays on while what it opens is open (a card's pencil, a note's pin): in every module. */
+.kit-icon-btn[aria-pressed="true"] { background: var(--kit-accent-soft); color: var(--kit-accent); }
+
+/* The small label in capitals over a group of things, the same in every module. */
+.kit-eyebrow {
+  font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1.2 var(--kit-font);
+  letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted);
+}
 
 .kit-spinner {
   width: 15px; height: 15px; border-radius: 50%; border: 2px solid currentColor; border-inline-end-color: transparent;
@@ -323,7 +346,10 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 @keyframes kit-spin { to { transform: rotate(360deg); } }
 
 .kit-field { display: grid; gap: 5px; }
-.kit-field > label { font-size: var(--look-footnote, 13px); font-weight: 500; color: var(--kit-text); }
+/* `.kit-label`: a field's label where there is no field() around it (a block of an item's detail,
+   over several controls), with the same measure in every module. */
+.kit-field > label, .kit-label { font-size: var(--look-footnote, 13px); font-weight: 500; color: var(--kit-text); }
+.kit-label { display: block; margin: 0; line-height: 1.5; }
 .kit-field input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .kit-field select, .kit-field textarea, .kit-input {
   width: 100%; min-height: 40px; padding: 8px 12px; border-radius: var(--look-r-md, 9px);
   border: 1px solid var(--kit-border); background: var(--kit-panel); color: var(--kit-text);
@@ -331,6 +357,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-field textarea { min-height: 90px; resize: vertical; }
 .kit-field input:focus-visible, .kit-field select:focus-visible, .kit-field textarea:focus-visible, .kit-input:focus-visible {
   outline: 2px solid var(--kit-accent); outline-offset: -1px; border-color: transparent;
+}
+/* On a touch screen a field's text is never under 16px: below that the iPhone zooms the page in
+   when it takes the focus. In every module (it was Notes' alone). */
+@media (pointer: coarse) {
+  .kit-input, .kit-field input, .kit-field select, .kit-field textarea { font-size: var(--look-body, 16px); }
 }
 .kit-field--bad input, .kit-field--bad select, .kit-field--bad textarea { border-color: var(--kit-danger); }
 /* A password with its eye inside, at the end (ui.js revealable): the text stops before the eye. */
@@ -539,8 +570,42 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 }
 .kit-blank__icon { width: 46px; height: 46px; border-radius: var(--look-r-lg, 12px); background: var(--kit-accent-soft); color: var(--kit-accent); display: grid; place-items: center; }
 .kit-blank__icon .kit-icon { width: 22px; height: 22px; }
-.kit-blank strong { color: var(--kit-text); font-size: var(--look-headline, 15px); }
+/* One size of title in every module, the line of a list's and the heading of a view's (blank({ page })). */
+.kit-blank strong, .kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-headline, 15px); font-weight: 600; }
 .kit-blank p { margin: 0; max-width: 36ch; font-size: var(--look-subhead, 13.5px); }
+/* The emoji a person chose (a Tasks list's) in the icon's box; the spinner while it loads. */
+.kit-blank__glyph { font-size: 22px; line-height: 1; }
+.kit-blank--loading .kit-blank__icon { background: none; }
+.kit-blank__note { margin-top: 6px; font-size: var(--look-footnote, 13px); }
+.kit-blank .kit-btn { margin-top: 6px; }
+
+/*
+ * The row whose item is open in the detail beside it (rule 12 of web-kit.md): a soft background
+ * in the accent, the same in every module. A module whose row carries a surface of its own (what
+ * a finger slides) paints that surface too.
+ */
+.kit-list-row[aria-current="true"] { background: var(--kit-accent-soft); }
+
+/*
+ * The bar that adds an item at the foot of a list (ui.js addBar, rule 11): a card with a +, the
+ * field without a frame of its own and «Añadir». Where it sits (at the foot of a column, sticky
+ * over a chart) is the module's.
+ */
+.kit-add-bar {
+  display: flex; align-items: center; gap: var(--look-row-gap, 10px); flex: 0 0 auto;
+  margin: 0 var(--look-gutter, 16px) max(16px, var(--kit-safe-bottom));
+  padding: var(--look-bar-y, 10px) 14px;
+  background: var(--kit-panel); border: 1px solid var(--kit-border); border-radius: var(--kit-radius);
+  box-shadow: var(--kit-shadow);
+}
+.kit-add-bar:focus-within { border-color: color-mix(in oklab, var(--kit-accent) 45%, var(--kit-border)); }
+.kit-add-bar__plus { display: inline-grid; place-items: center; color: var(--kit-accent); flex: none; }
+.kit-add-bar__plus .kit-icon { width: 18px; height: 18px; }
+.kit-add-bar__input {
+  flex: 1; min-width: 0; border: none; background: transparent; outline: none; color: inherit; font: inherit;
+  padding: 4px 10px;
+}
+.kit-add-bar__add { flex: none; }
 
 .kit-avatar {
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none;
@@ -558,8 +623,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-dialog:not([open]) { display: none; }
 .kit-dialog--wide { width: min(760px, calc(100vw - 24px)); }
 .kit-dialog::backdrop { background: var(--kit-scrim); }
+/* One look in every module (Martin, 14/11): no line under the title nor over the buttons, and the
+   room below. A module never paints its own header, body or footer over these. */
 .kit-dialog__header { display: flex; align-items: center; gap: 8px; padding: 14px 10px 8px 20px; }
-.kit-dialog__header h2 { margin: 0; flex: 1; font: 700 var(--look-title3, 18px)/1.2 var(--kit-font-display); letter-spacing: -.01em; }
+.kit-dialog__header h2, .kit-dialog__titles h2 { margin: 0; font: 700 var(--look-title3, 18px)/1.2 var(--kit-font-display); letter-spacing: -.01em; }
+.kit-dialog__header h2 { flex: 1; }
 .kit-dialog__body { padding: 6px 20px 14px; overflow-y: auto; display: grid; gap: 14px; }
 .kit-dialog__body > p { margin: 0; }
 /* Settings → Your data: what goes for good, asked before (settings.js sure()). */
@@ -569,7 +637,6 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* A form dialog (ui.js formDialog): a title with its subtitle, tools before the ×, a bar that stays
    and a form whose body alone scrolls, with the error inside it. */
 .kit-dialog__titles { flex: 1; min-width: 0; }
-.kit-dialog__titles h2 { margin: 0; font: 700 var(--look-title3, 18px)/1.2 var(--kit-font-display); letter-spacing: -.01em; }
 .kit-dialog__header > :first-child:not(h2, .kit-dialog__titles) { flex: 1; min-width: 0; }
 .kit-dialog__subtitle { margin: 2px 0 0; font-size: var(--look-subhead, 13px); color: var(--kit-muted); overflow-wrap: anywhere; }
 .kit-dialog__tools { display: flex; align-items: center; gap: 2px; flex: none; }
@@ -618,7 +685,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* --------------------------------- notices -------------------------------- */
 
 .kit-toasts {
-  position: fixed; inset-inline: 12px; bottom: calc(16px + var(--kit-safe-bottom)); z-index: 1000;
+  /* Over an add bar in sight, when ui.js measured one under them (--kit-toast-floor): never on it. */
+  position: fixed; inset-inline: 12px; bottom: max(calc(16px + var(--kit-safe-bottom)), var(--kit-toast-floor, 0px)); z-index: 1000;
   display: grid; justify-items: center; gap: 8px; pointer-events: none;
 }
 /* Over an open dialog (ui.js toast), without the browser's popover look: a box in the middle, framed. */
@@ -660,6 +728,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-saved--offline { color: var(--kit-warn); }
 .kit-saved--offline .kit-icon { color: var(--kit-warn); }
 .kit-saved--error, .kit-saved--error .kit-icon { color: var(--kit-danger); }
+/* Who made an item and who changed it (ui.js stamps()): a line each, under its detail. */
+.kit-stamps { display: flex; flex-direction: column; gap: 2px; min-width: 0; color: var(--kit-muted); font-size: var(--look-footnote, 12px); line-height: 1.4; }
+.kit-stamps > span { overflow: hidden; text-overflow: ellipsis; }
 
 /* The live channel: green while it is open. */
 .kit-live { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--kit-muted); transition: background .3s, box-shadow .3s; }
@@ -863,6 +934,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* «/» goes to the search (shell.js): its key, beside the word and never in it (it wouldn't fit), only on a
    big screen with a mouse or a trackpad, the sidebar beside the views; gone while the field has the focus
    or something typed. */
+/* A key, where Settings › About lists them. */
+.kit-keys { display: inline-flex; gap: 4px; flex: none; }
+.kit-key { min-width: 22px; padding: 0 6px; border: 1px solid var(--kit-border); border-radius: 5px; color: var(--kit-text); font: 500 12px/20px var(--kit-font-mono); text-align: center; }
 .kit-side__search-key {
   display: none; flex: none; min-width: 20px; padding: 0 5px; border: 1px solid var(--kit-border); border-radius: 5px;
   color: var(--kit-faint); font: 500 12px/18px var(--kit-font-mono); text-align: center;
@@ -890,7 +964,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* Notes' trash is a view: open, it is marked as an entry of the sidebar is. */
 .kit-side__trash[aria-current="page"] { background: var(--kit-accent-soft); color: var(--kit-accent); }
 
-.kit-nav__section { font: 600 var(--look-footnote, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); padding: 16px 8px 6px; }
+.kit-nav__section { font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1 var(--kit-font); letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted); padding: 16px 8px 6px; }
 /* A heading that folds its group (shell.js navFold): the same words, a button with a chevron. */
 .kit-nav__group, .kit-nav__fold-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .kit-nav__fold-body[hidden] { display: none; }
@@ -903,8 +977,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-nav__fold-chevron { width: 12px; height: 12px; flex: none; transition: transform .3s ease; }
 .kit-nav__fold[aria-expanded="true"] .kit-nav__fold-chevron { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .kit-nav__fold-chevron { transition: none; } }
+/* Its own line height, as the search's: the page's (1.5 in the kit, 1.45 in some modules) made an entry 36.5 px tall in one module and 36 in the others. */
 .kit-nav__item {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: var(--look-item-y, 7px) 8px; border-radius: var(--look-r-sm, 8px);
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; line-height: 1.45; padding: var(--look-item-y, 7px) 8px; border-radius: var(--look-r-sm, 8px);
   border: 0; background: none; color: var(--kit-text); text-decoration: none; text-align: start; cursor: pointer;
 }
 .kit-nav__item:hover { background: var(--kit-hover); }
@@ -918,8 +993,26 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-nav__item--now, .kit-nav__item--now .kit-icon { color: var(--kit-now-text); }
 .kit-nav__item--now .kit-icon { color: var(--kit-now); }
 .kit-nav__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name with something under it (navItem `under`: a project's progress), in the name's column. */
+.kit-nav__body { position: relative; flex: 1; min-width: 0; display: grid; }
 .kit-nav__count { font: 400 var(--look-footnote, 12px) var(--kit-font-mono); color: var(--kit-muted); font-variant-numeric: tabular-nums; }
-.kit-nav__swatch { width: 10px; height: 10px; border-radius: var(--look-r-xs, 3px); flex: none; margin-inline: 3px; }
+/* As wide as a view's icon with its margins (17): a colour's label starts in line with a view's. */
+.kit-nav__swatch { width: 10px; height: 10px; border-radius: var(--look-r-xs, 3px); flex: none; margin-inline: 3.5px; }
+/* A collection's own emoji, as wide as a view's icon: every label of the sidebar starts in line (navItem). */
+.kit-nav__emoji { display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; font-size: var(--look-callout, 16px); line-height: 1; overflow: visible; }
+/* Its icon with marks on its corners: a shared one's, a public page's (navItem `shared`, `marks`). */
+.kit-nav__lead { position: relative; display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; }
+.kit-nav__lead > .kit-nav__swatch { margin: 0; }
+/* Shared: two people on the bottom corner, the same in every module (sharedMark). */
+.kit-nav__shared {
+  position: absolute; inset-inline-end: -6px; inset-block-end: -4px; width: 14px; height: 14px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--kit-side); box-shadow: 0 0 0 1px var(--kit-border-strong);
+}
+.kit-nav__item .kit-nav__shared .kit-icon, .kit-nav__shared .kit-icon { width: 9px; height: 9px; color: var(--kit-muted); stroke-width: 2.6; }
+/* After a group's name, having no icon of its own to sit on (navGroup `extra`). */
+.kit-nav-group__name > .kit-nav__shared { position: static; flex: none; }
+/* An entry with a menu (menuOnPress): a long press is its menu, not the browser's nor a selection. */
+[data-kit-menu] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
 /*
  * A group of collections (shell.js navGroup), the same in every module: its head in the group's
@@ -928,7 +1021,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
  */
 .kit-nav-group { display: grid; grid-template-columns: minmax(0, 1fr); margin-block: 6px 2px; }
 .kit-nav-group__head {
-  display: flex; align-items: center; gap: 2px; min-height: 36px; padding-inline: 2px 4px; margin-block-end: 2px;
+  display: flex; align-items: center; gap: 2px; min-height: 36px; line-height: 1.45; padding-inline: 2px 4px; margin-block-end: 2px;
   border-radius: var(--look-r-sm, 8px); border-inline-start: 3px solid var(--group-color, var(--kit-muted));
   background: color-mix(in oklab, var(--group-color, var(--kit-muted)) 12%, transparent);
   color: color-mix(in oklab, var(--group-color, var(--kit-muted)) 50%, var(--kit-text));
@@ -1005,8 +1098,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /*
  * Folded away (shell.js): the views take the whole width, under the bar whose
  * ☰ unfolds it. Something carried brings it over them as a drawer, as on a
- * phone, and it goes again when the drag ends. An app that lays out its own
- * columns (Tasks, Projects) gives their folded version too.
+ * phone, and it goes again when the drag ends. The detail as a column of its
+ * own (createShell({ detail: 'column' }), below) has its folded version there.
  */
 @container kit-app (min-width: 640px) {
   .kit-app[data-layout="side"][data-folded] .kit-shell {
@@ -1031,6 +1124,34 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   }
   /* The detail is beside the list here: nothing to go back from. */
   .kit-app[data-layout="side"][data-panes="split"][data-folded] .kit-bar__back { display: none; }
+}
+
+/*
+ * The detail as a column of its own (createShell({ detail: 'column' }), Tasks and Projects): from
+ * 960 px the list takes the whole width while nothing is open, and the item opens as a column on
+ * its right (`shell.setDetailOpen()`, `data-detail-open`), the list being what is read and the
+ * item what is touched now and then. Folded away, the same under the bar. Below, the kit's two
+ * screens, as any split frame.
+ */
+@container kit-app (min-width: 960px) {
+  .kit-app[data-detail="column"][data-layout="side"][data-panes="split"] .kit-shell {
+    grid-template-columns: var(--kit-side-width, 260px) minmax(0, 1fr);
+    grid-template-areas: "side banners" "side list";
+  }
+  .kit-app[data-detail="column"][data-layout="side"][data-panes="split"][data-detail-open] .kit-shell {
+    grid-template-columns: var(--kit-side-width, 260px) minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-areas: "side banners banners" "side list detail";
+  }
+  .kit-app[data-detail="column"]:not([data-detail-open]) .kit-pane--detail { display: none; }
+  .kit-app[data-detail="column"][data-folded][data-layout="side"][data-panes="split"] .kit-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "bar" "banners" "list";
+  }
+  .kit-app[data-detail="column"][data-folded][data-layout="side"][data-panes="split"][data-detail-open] .kit-shell {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-areas: "bar bar" "banners banners" "list detail";
+  }
 }
 
 /*
@@ -1144,6 +1265,9 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
   flex: 1; min-width: 0; margin: 0; font: 700 var(--look-large-title, 21px)/1.2 var(--kit-font-display); letter-spacing: -.02em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* The collection open's own emoji, loose before the title (head({ icon })), the same in every module. */
+.kit-head__icon { flex: none; font-size: var(--look-title1, 24px); line-height: 1; }
+.kit-head__icon[hidden] { display: none; }
 .kit-head__actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .kit-head__actions:empty { display: none; }
 /* A detail's ×, last on its line: only where ← doesn't show, the list and its detail side by side (below). */
@@ -1188,7 +1312,7 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-share__invite { display: grid; gap: 10px; }
 .kit-share__invite[hidden] { display: none; }
 .kit-share__row { justify-content: space-between; }
-.kit-share__heading { margin: 4px 0 0; font: 600 var(--look-caption2, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted); }
+.kit-share__heading { margin: 4px 0 0; font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1 var(--kit-font); letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted); }
 /* On a phone, what someone may do and the button to take it back go under their name. */
 .kit-share__people .kit-list__row { flex-wrap: wrap; gap: 8px 10px; }
 .kit-share__people .kit-list__text { flex: 1 1 150px; }
@@ -1202,7 +1326,31 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-share__role { margin-inline-start: auto; color: var(--kit-muted); font-size: var(--look-subhead, 13.5px); white-space: nowrap; }
 /* A touch screen's field text is never under 16px: below that the iPhone zooms the page in. */
 @media (pointer: coarse) { .kit-share__permission { font-size: var(--look-body, 16px); } }
-:root[data-look="clean"] .kit-share__heading { font-size: var(--look-footnote, 11px); letter-spacing: .02em; }
+.kit-share__offline { margin: 0; }
+
+/* An invitation waiting for an answer (invitation.js), first in the sidebar in every module:
+   who offers what, what accepting it gives, and the two answers, as wide as each other. */
+.kit-invites { display: grid; gap: 8px; margin-block: 4px 10px; }
+.kit-invite {
+  display: grid; gap: 6px; padding: 10px 12px; min-width: 0;
+  border: 1px solid var(--kit-border); border-inline-start: 3px solid var(--invite-color, var(--kit-accent));
+  border-radius: var(--kit-radius); background: var(--kit-panel);
+}
+.kit-invite__from { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--look-footnote, 12.5px); color: var(--kit-muted); }
+.kit-invite__from > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-invite__name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--look-headline, 14.5px); }
+.kit-invite__name > span:last-child { overflow-wrap: anywhere; }
+.kit-invite__icon { flex: none; line-height: 1; }
+.kit-invite__swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--invite-color, var(--kit-accent)); }
+.kit-invite__about { font-size: var(--look-caption, 12px); color: var(--kit-muted); }
+.kit-invite__actions { display: flex; gap: 6px; margin-block-start: 2px; }
+.kit-invite__actions .kit-btn { flex: 1 1 0; }
+/* ☰ while an invitation waits in the closed drawer (shell.js setMark): a dot at its corner. */
+.kit-app[data-mark] .kit-bar__menu { position: relative; }
+.kit-app[data-mark] .kit-bar__menu::after {
+  content: ''; position: absolute; inset-block-start: 7px; inset-inline-end: 7px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--kit-accent); box-shadow: 0 0 0 2px var(--kit-bg, var(--kit-panel));
+}
 
 /* ---------------------------------- links ---------------------------------- */
 /* The "Linked" row of an item (links.js): one chip per link, a dot in the other module's colour. */
@@ -1307,7 +1455,7 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-settings__group {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 10px; margin-top: 2px;
   border: 0; border-radius: var(--look-r-md, 10px); background: none; cursor: pointer; text-align: start;
-  font: 600 var(--look-footnote, 11px)/1 var(--kit-font); letter-spacing: .1em; text-transform: uppercase; color: var(--kit-muted);
+  font: var(--kit-eyebrow-weight) var(--kit-eyebrow-size)/1 var(--kit-font); letter-spacing: var(--kit-eyebrow-spacing); text-transform: uppercase; color: var(--kit-muted);
 }
 .kit-settings__group:hover { background: var(--kit-hover); color: var(--kit-text); }
 .kit-settings__group[aria-expanded="true"], .kit-settings__group[aria-current="page"] { color: var(--kit-text); }
@@ -1579,7 +1727,7 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
   inset-block: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) / 2); translate: 0 -50%;
   margin-block: 0; max-height: calc(var(--kit-view-h) - 24px);
 }
-:root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - 16px); translate: 0 -100%; }
+:root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - max(16px, var(--kit-toast-floor, 0px))); translate: 0 -100%; }
 @media (max-width: 640px) {
   :root[data-kit-keyboard] dialog:modal { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
 }
@@ -1641,7 +1789,6 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 :root[data-look="clean"] .kit-head__title { letter-spacing: -.022em; }
 :root[data-look="clean"] .kit-nav__item { min-height: 40px; padding-block: 8px; font-size: var(--look-callout, 15px); }
 :root[data-look="clean"] .kit-nav__item[aria-current="page"] { font-weight: 500; }
-:root[data-look="clean"] :is(.kit-nav__section, .kit-settings__group) { letter-spacing: .02em; }
 /* The sidebar's groups as plain rows the size of their collections: the colour stays in the collections' own marks. */
 :root[data-look="clean"] .kit-nav-group__head {
   min-height: 40px; padding-inline-start: 5px; border-inline-start: 0; background: transparent; color: var(--kit-text);
@@ -1799,7 +1946,6 @@ button.kit-chip:hover { background: var(--kit-hover); }
 
 /* An empty view: the blank message alone in the middle of the page, with a heading of its own. */
 .kit-blank--page { max-width: 460px; margin: 10vh auto 0; }
-.kit-blank h2 { margin: 0; color: var(--kit-text); font-size: var(--look-title3, 19px); }
 
 /* ------------------------------- public page ------------------------------ */
 
