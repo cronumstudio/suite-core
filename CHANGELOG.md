@@ -6,7 +6,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 ## 0.302.0 — 2026-11-20
 
 - **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
-  `web/kit.css`, `docs/web-kit.md` rule 10; audit of 6/11, ux-menus-4, ux-menus-13,
+  `web/kit.css`, `docs/web-kit.md` rule 11; audit of 6/11, ux-menus-4, ux-menus-13,
   ux-compartir-13, ui-dialogos-6, ui-medidas-15, ui-medidas-17). `navItem()` takes `emoji` (a
   collection's own, in a box as wide as a view's icon, so every label starts in line), `shared`
   (the kit's one mark, `sharedMark({ owner })`, «Compartido · de {name}» in words), `marks`, `title`,
@@ -19,7 +19,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   have their own line height (1.45): 36 px in every module, 36.5 in Notes before. A colour is as
   wide as a view's icon (17 px with its margins), so every label starts in line, and the mark after
   a group's name is the same one.
-- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 11; ux-acciones-16): under
+- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 12; ux-acciones-16): under
   the same conditions as «/». Settings › About lists the keys (`kit.about.keys`), and `modKey()`
   (keyboard.js) gives ⌘ or Ctrl for words that tell a shortcut.
 - **The search runs the same way everywhere** (`search: { onSearch, wait, min }`; ux-menus-5): 220 ms
@@ -34,6 +34,38 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **Icons** (`web/icons.js`; ux-menus-3, ux-menus-12): `chevron-up`, `eraser`, `flag`, `fork`,
   `highlighter`, `history`, `marker`, `pen`, `print`, `zoom-in`, `zoom-out`; web-kit.md has a table
   of which icon for what.
+
+## 0.301.0 — 2026-11-20
+
+Audit of 6/11, sharing: what sharing looks like and says, the same in every module (Martin's choices
+of 14/11).
+
+- **An invitation is the kit's card, first in the sidebar, and ☰ says one waits** (`web/invitation.js`,
+  `web/shell.js`, `web/kit.css`; ux-compartir-5, ux-menus-14, dup-css-10).
+  `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline, offline })`
+  and `invitationCards(list, { offline })`: who offers what, what accepting gives («Solo lectura»,
+  «Podrás editarlo», or the app's own line), «Rechazar» and «Aceptar» as wide as each other, both off
+  while an answer is on its way. Without a signal both stay off, with `kit.offline.actions` above the
+  cards, as the modules' own cards have done since 0.296. `.kit-invite` in kit.css; texts
+  `kit.invite.*`. `shell.setMark(n)` puts a dot on every ☰ of the frame while `n` invitations wait, and
+  says so to a screen reader. The four modules drop their own cards.
+- **The share dialog without a network** (`web/share.js`; ui-dialogos-13): it opens with what `load`
+  knows (Tasks has it on the device), one line says it needs a connection (`kit.offline.actions`), and
+  Invite, the permissions and taking back are off until the network is back (they turn on by themselves).
+- **A person's colour** (`web/ui.js`, `sharing.js`; ux-compartir-19, ux-acciones-19):
+  `avatar(person | name, { color, size, title })` takes a person and paints the colour they chose
+  (`avatar_color`, `#rrggbb` only); `avatar(name)` is as before. The engine's `personOf` (and so the
+  share dialog's rows, Settings › Sharing and the invitations) carries `avatar_color` where the users
+  table has the column. The share dialog's default avatar and Settings › Sharing use it.
+- **Settings › Sharing in the dialog's order** (`web/shared.js`; ux-compartir-8): «Puede editar» before
+  «Solo lectura»; `kit.shared.canView` says «Solo lectura», as the invitations do.
+- **One set of words for sharing** (`i18n`; ux-compartir-6, -11, -15, -16, ux-textos-12):
+  `kit.share.left` («Has salido de «X».») says it after leaving; `kit.share.action` «Compartir» for the
+  «…»; taking back is «Quitar el acceso a X» («¿Quitar el acceso a X?»), without the thing's gender, in
+  the dialog and in Settings; `errors.owner_only` «Solo el propietario puede hacer eso.»;
+  `kit.data.shareNote` with `{ things }` says what happens to what one shares when one's data goes, by
+  the rule `pickHeir` keeps (whoever can edit first, then whoever has had it longest).
+- **Rule 10 of «Same in every module»** (`docs/web-kit.md`): sharing reads the same in every module.
 
 ## 0.300.0 — 2026-11-19
 
