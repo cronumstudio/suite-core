@@ -12,7 +12,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   says what is shown is the last thing loaded and how many changes wait, with a discreet
   «Reintentar» (`kit.retry`, never primary) when the module passes `retry`; back online, while they
   go, how many are being sent (`kit.offline.pending`); `sent(n)` says they arrived
-  (`kit.offline.sent`), or, with `announce`, the piece says it itself once none waits, less those
+  (`kit.offline.sent`), or, with `announce`, the piece says it itself once none waits (`announce`
+  as a function: and they can go, so none waiting before then isn't taken for sent), less those
   the module says were refused (`dropped()`). It paints in the shell's banner row, or through the module's own
   `show`/`hide`, and again in a new language. New texts in the five languages: `kit.retry`,
   `kit.offline.pending`, `kit.offline.sent` and `kit.offline.droppedWhat` (the dropped change named,

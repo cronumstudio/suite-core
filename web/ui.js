@@ -100,7 +100,8 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
  * - `retry()`: asks the server again.
  * - `announce`: says by itself that the changes waiting without a signal arrived, once the signal
  *   is back and none waits (for a module whose sending reports no count): as many as waited at
- *   most while offline, less those it says were refused (`dropped()`).
+ *   most while offline, less those it says were refused (`dropped()`). A function instead of
+ *   `true`: whether they can be sent yet; while it says no, none waiting isn't taken for sent.
  *
  * → { paint, sent, dropped, stop }: `paint()` after the module's own state changed (its
  * `offline()`, its `pending()`); `paint(true)` draws it again even with the same words (a new shell).
@@ -133,7 +134,9 @@ export function offlineBanner({
   let held = 0;
   const paint = (again = false) => {
     if (away()) held = Math.max(held, waiting());
-    else if (!waiting() && held) {
+    // A function says whether they can go yet (Next: once the server said whose they are); until
+    // then none waiting says nothing, and they are said arrived once they went.
+    else if (!waiting() && held && (typeof announce !== 'function' || announce())) {
       const arrived = held;
       held = 0;
       if (announce) toast(t('kit.offline.sent', { n: arrived }));

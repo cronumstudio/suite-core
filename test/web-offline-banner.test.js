@@ -185,6 +185,31 @@ test('offlineBanner: with `announce`, what waited offline is said arrived once b
   }
 });
 
+test('offlineBanner: `announce` as a function, none waiting before they can go is not said arrived', () => {
+  const notices = () => document.body.all().filter((node) => (node.getAttribute?.('class') || '').split(/\s+/).includes('kit-toast'))
+    .map((node) => node.textContent);
+  const before = notices().length;
+  signal.onLine = false;
+  let waiting = 2;
+  let ready = false;
+  // As Next: before the server said whose they are, what waits isn't counted as being sent.
+  const banner = offlineBanner({ shell: fakeShell(), pending: () => (ready || !signal.onLine ? waiting : 0), announce: () => ready });
+  try {
+    banner.paint();
+    go(true);
+    assert.equal(notices().length, before, 'back, not sent yet: nothing said');
+    ready = true;
+    banner.paint();
+    assert.equal(notices().length, before, 'now going: still nothing');
+    waiting = 0;
+    banner.paint();
+    assert.equal(notices().length, before + 1, 'sent: said once');
+  } finally {
+    banner.stop();
+    signal.onLine = true;
+  }
+});
+
 test('offlineBanner: without a shell yet nothing is drawn, and it is once the shell is there', () => {
   signal.onLine = false;
   let shell = null;
