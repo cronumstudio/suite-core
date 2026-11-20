@@ -15,6 +15,8 @@
  *   suite/billing.json       (whole install) who each account or organization is at the payment
  *                            provider, and its subscriptions, so that payments still find them
  *   suite/invitations.json   (whole install, with organizations) the invitations still waiting
+ *   suite/mail-suppressions.json  (whole install) the addresses that asked for no more invitations
+ *                            (stranger-invites.js): moving the install doesn't write to them again
  *   files/<path>             the attachments, byte for byte
  *
  * The app says what its data is —its tables, which column points at which
@@ -37,9 +39,9 @@
  *   whole install's goes, account by account, where the administrator says:
  *   an account already here (the one with the same email, by default), a new
  *   one —with WorkOS it is linked by itself when that person signs in with
- *   that email—, or nowhere. An existing account takes the preferences of the
- *   copy (name shown, theme, language, the app's own) and keeps who it is
- *   (username, email, role). Passwords, second steps, sessions, API tokens,
+ *   that email—, or nowhere. An existing account takes the name shown and the
+ *   app's own preferences of the copy, and keeps who it is (username, email,
+ *   role) and what is the whole account's: its language, time zone and theme. Passwords, second steps, sessions, API tokens,
  *   OAuth grants and push subscriptions never travel: they are made again.
  * · **Organizations** (an app that declares `organizations`, or a table that
  *   points at them). A table can belong to a group instead of a person (a
@@ -65,6 +67,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { randomToken } from './crypto.js';
 import {
   HttpError, badRequest, notFound, conflict, forbidden, unauthorized, readJson, sendJson, int,
@@ -113,6 +116,21 @@ const TOKEN = /^[\w-]{16,64}$/;
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const quote = (name) => `"${String(name).replaceAll('"', '""')}"`;
+/**
+ * Preferences of the whole account, not of a module: whichever module's copy comes in, an account
+ * already here keeps its own (audit portable-14: importing Projects' copy turned Carla's Work from
+ * Italian and Rome to Spanish and Madrid).
+ */
+export const ACCOUNT_PREFS = Object.freeze(['lang', 'lang_seen', 'tz']);
+function keepAccountPrefs(prefs, current) {
+  const out = prefs && typeof prefs === 'object' && !Array.isArray(prefs) ? { ...prefs } : {};
+  for (const key of ACCOUNT_PREFS) {
+    if (current && Object.hasOwn(current, key)) out[key] = current[key];
+    else delete out[key];
+  }
+  return out;
+}
+
 const invalidData = (table, extra = {}) => badRequest('import_invalid_data', { table, ...extra });
 
 /** Which copies were imported here, so the same one is never applied twice. */
@@ -170,7 +188,9 @@ export function dataImportsSchema(d) {
  * BLOB (or a column without a type).
  *
  * A table renamed since copies were made says the names it had, `was: ['projects']`,
- * and a copy that has it under one of them still comes in.
+ * and a copy that has it under one of them still comes in. A column dropped since says so,
+ * `dropped: ['merged_into_id']`: a copy that still carries it comes in without it (v0.295.0,
+ * audit portable-18); it can't be a column the table has.
  *
  * A reference to a table declared later, or to the same one, is set after
  * every row exists, so its column must allow NULL. Every table needs a NOT NULL
@@ -284,8 +304,20 @@ export function describeData(database, declaration = {}, { organizationRoles } =
         errors.push(`${name}.onePerOrganization: a table with an integer id and one NOT NULL reference to organizations`);
       } else onePer = toGroups[0].column;
     }
+    // Columns gone since copies were made: still in old copies, read past (portable-18).
+    const dropped = new Set();
+    if (spec.dropped != null) {
+      if (!Array.isArray(spec.dropped)) errors.push(`${name}.dropped: a list of columns`);
+      else {
+        for (const column of spec.dropped) {
+          if (typeof column !== 'string' || !column) errors.push(`${name}.dropped: a list of columns`);
+          else if (columns.has(column)) errors.push(`${name}.dropped: "${column}" is still a column`);
+          else dropped.add(column);
+        }
+      }
+    }
     tables.push({
-      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was, onePer,
+      name, keyed, key: key.map((c) => c.name), columns: new Set(columns.keys()), refs, file, was, onePer, dropped,
       types: new Map(info.map((c) => [c.name, affinityOf(c.type)])),
       clean: typeof spec.clean === 'function' ? spec.clean : null,
       limits: limitsOf(spec.limits, columns, name, errors),
@@ -483,7 +515,23 @@ function fits(value, affinity) {
  * concern that person were left out, per table: what is shared with other
  * people.
  */
-export function selectRows(model, rowsOf, inside, { account = null, organizations = () => false } = {}) {
+export function selectRows(model, rowsOf, inside, options = {}) {
+  const steps = selectingRows(model, rowsOf, inside, options);
+  for (;;) {
+    const { done, value } = steps.next();
+    if (done) return value;
+  }
+}
+
+/** Rows looked at between two pauses of selectingRows(): a few milliseconds of work. */
+const ROWS_AT_ONCE = 2000;
+
+/**
+ * selectRows(), one step at a time: it yields after each table and every ROWS_AT_ONCE rows, so
+ * whoever drives it can let the process answer others in between (an export, perf-srv-14), and
+ * returns what selectRows() returns.
+ */
+export function* selectingRows(model, rowsOf, inside, { account = null, organizations = () => false } = {}) {
   const kept = new Map();
   const ids = new Map();
   const leftOut = {};
@@ -491,7 +539,9 @@ export function selectRows(model, rowsOf, inside, { account = null, organization
     const rows = [];
     const keptIds = new Set();
     let left = 0;
+    let seen = 0;
     for (const source of rowsOf(table.name, ids)) {
+      if (++seen % ROWS_AT_ONCE === 0) yield;
       const row = { ...source };
       let belongs = true;
       let concerns = false;
@@ -516,6 +566,7 @@ export function selectRows(model, rowsOf, inside, { account = null, organization
     kept.set(table.name, rows);
     ids.set(table.name, keptIds);
     if (left) leftOut[table.name] = left;
+    yield;
   }
   for (const table of model.tables) {
     for (const ref of table.refs.filter((r) => r.deferred)) {
@@ -564,6 +615,21 @@ const countsOf = (kept) => Object.fromEntries([...kept].filter(([, rows]) => row
 
 /* ------------------------------ values in the file ----------------------------- */
 
+/**
+ * The JSON of a table's rows in a copy, as `JSON.stringify(rows.map(map), null, 1)` writes it, byte
+ * for byte, but a slice of rows at a time, letting the process answer others in between: a table
+ * of tens of thousands of rows was one long stop (perf-srv-14).
+ */
+export async function jsonOfRows(rows, map = (row) => row) {
+  if (!rows.length) return '[]';
+  const parts = [];
+  for (let i = 0; i < rows.length; i += ROWS_AT_ONCE) {
+    if (i) await new Promise((resolve) => { setImmediate(resolve); });
+    for (const row of rows.slice(i, i + ROWS_AT_ONCE)) parts.push(` ${JSON.stringify(map(row), null, 1).replaceAll('\n', '\n ')}`);
+  }
+  return `[\n${parts.join(',\n')}\n]`;
+}
+
 /** A value as it goes into JSON: blobs (none of the apps has one today) as base64, which comes back only into a BLOB column. */
 const toJson = (value) => (value instanceof Uint8Array ? { $blob: Buffer.from(value).toString('base64') } : value);
 
@@ -595,7 +661,38 @@ function countValues(bytes) {
   return count;
 }
 
+/**
+ * A second connection to the database, read-only, for an export to read from while the app's own
+ * goes on answering (prepareExportAsync): all, get, iterate, exec, columnsOf, close.
+ */
+function openReader(file) {
+  const db = new DatabaseSync(file, { readOnly: true });
+  db.exec('PRAGMA busy_timeout = 5000');
+  return {
+    all: (sql, ...params) => db.prepare(sql).all(...params),
+    get: (sql, ...params) => db.prepare(sql).get(...params),
+    iterate: (sql, ...params) => db.prepare(sql).iterate(...params),
+    exec: (sql) => db.exec(sql),
+    columnsOf: (table) => db.prepare(`PRAGMA table_info("${String(table).replaceAll('"', '""')}")`).all().map((c) => c.name),
+    close: () => db.close(),
+  };
+}
+
 /* -------------------------------- the service ---------------------------------- */
+
+/**
+ * An app's `limits` with the install's ceiling on what an import takes over HTTP (config.js
+ * `install.importMaxMb`, IMPORT_MAX_MB): what stands before the server may cut a bigger request
+ * with a page of its own (Cloudflare, at 100 MB), which said nothing of the size (audit prod-14).
+ * The lower of the two wins; without one, the app's as they are.
+ */
+export function withImportCeiling(limits = {}, mb = null) {
+  if (!mb) return limits;
+  const ceiling = mb * MB;
+  const own = limits.upload || {};
+  const lower = (value, fallback) => Math.min(Number(value ?? fallback), ceiling);
+  return { ...limits, upload: { ...own, account: lower(own.account, 512 * MB), install: lower(own.install, 4096 * MB) } };
+}
 
 /**
  * @param {object} options
@@ -640,11 +737,19 @@ export function createPortability({
     files: byWho(limits.files, 20_000, 1_000_000),
     // Organizations in one copy: someone's own import makes one for each it doesn't map.
     organizations: byWho(limits.organizations, 100, 1_000_000),
+    // What every account's pending imports may take of the disk together (DATA_DIR/imports): a
+    // full disk stops SQLite writing for everyone (audit sc-data-13). The administrator's aren't counted.
+    pending: limits.pending ?? 2048 * MB,
+    // Bytes in a copy that none of its rows refers to (a zip made again, a folder's leftovers): past
+    // this, the copy carries padding and is refused (audit portable-11).
+    unreferenced: limits.unreferenced ?? 4 * MB,
   };
   const iso = () => new Date(clock()).toISOString();
-  const rowsOfDb = (name) => {
+  /** A query's rows from `from` (the database, or an export's own reader): one at a time where it can. */
+  const rowsFrom = (from, sql, ...params) => (from.iterate ? from.iterate(sql, ...params) : from.all(sql, ...params));
+  const rowsOfDb = (name, ids, from = database) => {
     const table = model.byName.get(name);
-    return database.all(`SELECT * FROM ${quote(name)} ORDER BY ${table.key.map(quote).join(', ')}`);
+    return rowsFrom(from, `SELECT * FROM ${quote(name)} ORDER BY ${table.key.map(quote).join(', ')}`);
   };
 
   /**
@@ -655,7 +760,7 @@ export function createPortability({
    * every table whole made one person's copy cost, in time with the server
    * stopped and in memory, as much as everybody's data (x-stability-1).
    */
-  const rowsNear = (userIds, organizationIds = []) => (name, ids) => {
+  const rowsNear = (userIds, organizationIds = [], from = database) => (name, ids) => {
     const table = model.byName.get(name);
     const where = [];
     const params = [];
@@ -666,7 +771,7 @@ export function createPortability({
       params.push(JSON.stringify(ref.target === 'users' ? userIds
         : ref.target === 'organizations' ? organizationIds : [...ids.get(ref.target)]));
     }
-    return database.all(`SELECT * FROM ${quote(name)} WHERE ${where.join(' OR ')}
+    return rowsFrom(from, `SELECT * FROM ${quote(name)} WHERE ${where.join(' OR ')}
       ORDER BY ${table.key.map(quote).join(', ')}`, ...params);
   };
 
@@ -680,7 +785,7 @@ export function createPortability({
    * role is one that carries it, archived ones too (marked so: what points at them keeps its
    * meaning). With the role and when they joined.
    */
-  const groupsOf = (userId) => (groups ? database.all(`SELECT o.*, m.role, m.joined_at,
+  const groupsOf = (userId, from = database) => (groups ? from.all(`SELECT o.*, m.role, m.joined_at,
       (SELECT COUNT(*) FROM memberships x WHERE x.organization_id = o.id) AS members
     FROM memberships m JOIN organizations o ON o.id = m.organization_id
     WHERE m.user_id = ? ORDER BY o.id`, userId)
@@ -705,6 +810,68 @@ export function createPortability({
     const set = new Set(own);
     return selectRows(model, rowsNear([userId], own), (id) => id === userId, { organizations: (id) => set.has(id) }).kept;
   };
+
+  /**
+   * Whose open tabs must reload when an account's data here goes (erasing it, "replace"): the
+   * account, everyone its rows point at or are pointed at by (whom its lists are shared with, who
+   * added a task to them), the people whose rows theirs hang from (who shared a list with it, whose
+   * list it has a task in), and the other members of its groups. Read before anything is handed
+   * over or deleted. Telling everyone connected made every tab of every person reload all it shows
+   * for one person's erase (audit of 6/11, perf-srv-11). → Set of user ids.
+   */
+  function peopleNear(userId) {
+    const people = new Set([Number(userId)]);
+    const mine = groupsOf(userId).map((o) => o.id);
+    const inMine = new Set(mine);
+    if (mine.length) {
+      for (const row of database.all(`SELECT DISTINCT user_id FROM memberships
+        WHERE organization_id IN (SELECT value FROM json_each(?))`, JSON.stringify(mine))) people.add(Number(row.user_id));
+    }
+    const above = new Map();
+    const near = rowsNear([userId], mine);
+    selectRows(model, (name, ids) => {
+      const rows = near(name, ids);
+      const table = model.byName.get(name);
+      for (const row of rows) {
+        for (const ref of table.refs) {
+          const value = row[ref.column];
+          if (value == null) continue;
+          if (ref.target === 'users') people.add(Number(value));
+          else if (ref.target !== 'organizations') {
+            if (!above.has(ref.target)) above.set(ref.target, new Set());
+            above.get(ref.target).add(value);
+          }
+        }
+      }
+      return rows;
+    }, (id) => id === userId, { organizations: (id) => inMine.has(id) });
+    // One step up: whose are the rows theirs hang from.
+    for (const [name, ids] of above) {
+      const columns = model.byName.get(name).refs.filter((ref) => ref.target === 'users').map((ref) => quote(ref.column));
+      if (!columns.length) continue;
+      for (const row of database.all(`SELECT ${columns.join(', ')} FROM ${quote(name)} WHERE id IN (SELECT value FROM json_each(?))`,
+        JSON.stringify([...ids]))) {
+        for (const value of Object.values(row)) if (value != null) people.add(Number(value));
+      }
+    }
+    return people;
+  }
+
+  /**
+   * Who reloads after someone's own import: they, `near` (peopleNear before "replace"), and with
+   * `result` (a group others are in changed) every member of the groups the copy went into or
+   * they were taken out of. → Set of user ids.
+   */
+  function audienceOf(user, near, result) {
+    const people = new Set([Number(user.id), ...near]);
+    const touched = result ? [...(result.organizations || []).map((o) => o.organization_id),
+      ...(result.handed_over || []).map((o) => o.organization_id)].filter((id) => id != null) : [];
+    if (touched.length) {
+      for (const row of database.all(`SELECT DISTINCT user_id FROM memberships
+        WHERE organization_id IN (SELECT value FROM json_each(?))`, JSON.stringify(touched))) people.add(Number(row.user_id));
+    }
+    return people;
+  }
 
   /**
    * Before "replace" empties an account: each group in its copy that others share is handed over
@@ -749,13 +916,16 @@ export function createPortability({
    * copy would take, but a group's rows only where nobody else is in it—, and
    * its files once committed. A group they share keeps its rows and them as a
    * member, and a group of theirs alone keeps its organization and plan.
-   * Everyone resyncs: a list handed over has a new owner. → { erased: { table: n } }
+   * They and whoever shared something with them resync (peopleNear): a list handed over has a new
+   * owner. → { erased: { table: n } }
    */
   function erase(user, { req = null } = {}) {
     const release = begin(`user:${user.id}`);
     try {
       const files = [];
+      let near = null;
       const erased = database.tx(() => {
+        near = peopleNear(user.id);
         declaration.handOver?.(user.id);
         return emptyAccount(user.id, files);
       });
@@ -764,7 +934,8 @@ export function createPortability({
         action: 'data.erase', actor: user, req,
         meta: { rows: Object.values(erased).reduce((a, b) => a + b, 0), files: files.length },
       });
-      live?.publish({ audience: null, event: 'resync', data: {} });
+      // Who shared something with them, and they: a list handed over has a new owner.
+      live?.publish({ audience: [...near], event: 'resync', data: {} });
       // What else keeps something of it (a host's links): told once it is gone.
       try { onErased?.(user); } catch (error) { log(`[${app.id}] after erasing user ${user.id}: ${error?.stack || error}`); }
       return { erased };
@@ -799,6 +970,12 @@ export function createPortability({
   const originKey = (install, organizationId) => `suite.organization_origin:${install}:${organizationId}`;
   /** Which export run of an install was brought here (the only one that may be). */
   const installKey = (install) => `suite.install_import:${install}`;
+  /**
+   * Where an account of that install went here, as the first module's copy of the run took it: the
+   * others' copies of the run put theirs into the same account, even one without an email (audit
+   * portable-13: four modules made admin2…admin5 and gave a plan four times).
+   */
+  const userOriginKey = (install, userId) => `suite.user_origin:${install}:${userId}`;
   /** The install a whole install's copy says it is from, when it says one the suite would write. */
   const sourceInstall = (manifest) => (manifest.scope === 'install' && typeof manifest.source?.install === 'string'
     && TOKEN.test(manifest.source.install) ? manifest.source.install : null);
@@ -814,14 +991,14 @@ export function createPortability({
    * who left them and plans revoked since, and take a file's word for a plan's end.
    */
   function checkInstallAgain(manifest) {
-    const from = groups ? sourceInstall(manifest) : null;
+    const from = sourceInstall(manifest);
     if (!from) return;
     const run = database.getMeta(installKey(from));
     if (run != null && run !== sourceRun(manifest)) throw conflict('import_install_again');
   }
   /** Whether another module's copy of this same run came first: then only this module's rows come. */
   const sameRunHere = (manifest) => {
-    const from = groups ? sourceInstall(manifest) : null;
+    const from = sourceInstall(manifest);
     return Boolean(from) && database.getMeta(installKey(from)) === sourceRun(manifest);
   };
 
@@ -855,7 +1032,52 @@ export function createPortability({
    * @param {'account'|'install'} options.scope
    * @param {number} [options.userId]   whose, for an account's copy
    */
-  function prepareExport({ scope, userId = null, run = null }) {
+  function prepareExport(options) {
+    const steps = exporting(options, database, { transaction: true });
+    for (;;) {
+      const { done, value } = steps.next();
+      if (done) return value;
+    }
+  }
+
+  /**
+   * prepareExport() that lets the process answer everyone else while it reads: table by table, and
+   * every few thousand rows, on a second connection of its own, read-only, in a read transaction of
+   * its own (WAL: the copy is of one moment, whatever is written meanwhile). On the app's own
+   * connection, a request coming in between would have run inside the export's transaction.
+   * Exporting the whole install stopped everyone for over a second, and a big account's for a
+   * quarter of one (audit of 6/11, perf-srv-14). Without a file to open a second connection on
+   * (`:memory:`), it reads at once, as prepareExport() does.
+   */
+  async function prepareExportAsync(options) {
+    const file = database.path;
+    let reader = null;
+    try {
+      reader = file && file !== ':memory:' ? openReader(file) : null;
+    } catch (err) {
+      log(`[data] an export reads at once: no second connection (${err.message})`);
+    }
+    if (!reader) return prepareExport(options);
+    try {
+      reader.exec('BEGIN');
+      const steps = exporting(options, reader, { transaction: false });
+      for (;;) {
+        const { done, value } = steps.next();
+        if (done) return value;
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+    } finally {
+      try { reader.exec('COMMIT'); } catch { /* a read transaction: nothing to keep */ }
+      reader.close();
+    }
+  }
+
+  /**
+   * What an export reads, one step at a time (it yields between them): with `from` the database
+   * itself and `transaction`, in one read transaction of the app's connection (prepareExport); with
+   * a reader of its own, in that reader's (prepareExportAsync).
+   */
+  function* exporting({ scope, userId = null, run = null }, from, { transaction }) {
     if (!['account', 'install'].includes(scope)) throw new Error(`export: unknown scope ${scope}`);
     const userSql = `SELECT ${model.userColumns.map(quote).join(', ')} FROM users`;
     let users;
@@ -867,66 +1089,75 @@ export function createPortability({
     let orgs = [];
     let memberships = [];
     let invitations = [];
+    let suppressions = [];
     const versions = schemaVersions();
     // Asked before the read transaction: the first time, it is written.
-    const install = groups && scope === 'install' ? installId() : null;
+    // With organizations or without (Work has none): a host's modules are brought in one run.
+    const install = scope === 'install' ? installId() : null;
     // The run it is of: the caller's, when its other modules are exported with it; else its own.
     const exportRun = install ? (typeof run === 'string' && TOKEN.test(run) ? run : randomToken(18)) : null;
-    database.exec('BEGIN');
+    if (transaction) database.exec('BEGIN');
     try {
-      users = scope === 'install' ? database.all(`${userSql} ORDER BY id`) : [database.get(`${userSql} WHERE id = ?`, userId)].filter(Boolean);
+      users = scope === 'install' ? from.all(`${userSql} ORDER BY id`) : [from.get(`${userSql} WHERE id = ?`, userId)].filter(Boolean);
       if (!users.length) throw notFound('user_not_found');
+      yield;
       if (groups && scope === 'install') {
         // Every group, the archived too (what points at them keeps its meaning), with every member.
-        orgs = database.all(`SELECT ${ORGANIZATION_COLUMNS.map(quote).join(', ')} FROM organizations ORDER BY id`);
-        memberships = database.all(`SELECT ${MEMBERSHIP_COLUMNS.map(quote).join(', ')} FROM memberships
+        orgs = from.all(`SELECT ${ORGANIZATION_COLUMNS.map(quote).join(', ')} FROM organizations ORDER BY id`);
+        memberships = from.all(`SELECT ${MEMBERSHIP_COLUMNS.map(quote).join(', ')} FROM memberships
           ORDER BY organization_id, joined_at, user_id`);
         // The links people were sent still open the group after the move: only their hash travels,
         // as it is kept here, in the administrator's copy. Used, revoked and expired ones are history.
-        invitations = database.all(`SELECT ${INVITATION_COLUMNS.map(quote).join(', ')} FROM invitations
+        invitations = from.all(`SELECT ${INVITATION_COLUMNS.map(quote).join(', ')} FROM invitations
           WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ? ORDER BY id`, iso());
       } else if (groups) {
         // Someone's own: their groups and their own membership in each, never the other members.
-        const mine = groupsOf(userId);
+        const mine = groupsOf(userId, from);
         orgs = mine.map((o) => Object.fromEntries(ORGANIZATION_COLUMNS.map((c) => [c, o[c] ?? null])));
         memberships = mine.map((o) => ({ organization_id: o.id, user_id: userId, role: o.role, invited_by: null, joined_at: o.joined_at }));
       }
       const orgIds = new Set(orgs.map((o) => o.id));
       const inside = scope === 'install' ? () => true : (id) => id === userId;
-      ({ kept, leftOut } = selectRows(model, scope === 'install' ? rowsOfDb : rowsNear([userId], [...orgIds]), inside,
+      yield;
+      ({ kept, leftOut } = yield* selectingRows(model, scope === 'install' ? (name, ids) => rowsOfDb(name, ids, from) : rowsNear([userId], [...orgIds], from), inside,
         { account: scope === 'account' ? userId : null, organizations: (id) => orgIds.has(id) }));
-      if (scope === 'install' && database.columnsOf('entitlement_grants').length) {
+      if (scope === 'install' && from.columnsOf('entitlement_grants').length) {
         // Every source, not only the administrator's: a paid plan moves with its account,
         // which the new install numbers anew (audit sc-data-48).
-        grants = database.all(`SELECT subject_id, plan, feature, value, quantity, source, external_ref, starts_at, ends_at,
+        grants = from.all(`SELECT subject_id, plan, feature, value, quantity, source, external_ref, starts_at, ends_at,
           created_at, note FROM entitlement_grants WHERE subject_type = 'user' AND revoked_at IS NULL ORDER BY id`);
         // And a group's (a trial, a family's Pro), each saying so: a grant without a type is an account's.
         if (groups) {
-          grants.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, plan, feature, value, quantity, source,
+          grants.push(...from.all(`SELECT 'organization' AS subject_type, subject_id, plan, feature, value, quantity, source,
             external_ref, starts_at, ends_at, created_at, note FROM entitlement_grants
             WHERE subject_type = 'organization' AND revoked_at IS NULL ORDER BY id`).filter((g) => orgIds.has(g.subject_id)));
         }
       }
-      if (scope === 'install' && database.columnsOf('billing_customers').length) {
-        const refunded = database.columnsOf('billing_subscriptions').includes('refunded_until');
+      // Whoever asked for no more invitations by email still wants none after a move (audit sc-data-19).
+      if (scope === 'install' && from.columnsOf('mail_suppressions').length) {
+        suppressions = from.all('SELECT email, created_at FROM mail_suppressions ORDER BY email');
+      }
+      yield;
+      if (scope === 'install' && from.columnsOf('billing_customers').length) {
+        const refunded = from.columnsOf('billing_subscriptions').includes('refunded_until');
         billing = {
-          customers: database.all(`SELECT subject_id, provider, customer_id, created_at FROM billing_customers
+          customers: from.all(`SELECT subject_id, provider, customer_id, created_at FROM billing_customers
             WHERE subject_type = 'user' ORDER BY subject_id`),
-          subscriptions: database.all(`SELECT subject_id, provider, ref, product, status, quantity, period_end, occurred_at,
+          subscriptions: from.all(`SELECT subject_id, provider, ref, product, status, quantity, period_end, occurred_at,
             updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions WHERE subject_type = 'user' ORDER BY updated_at`),
         };
         // Who pays for a group, so that its renewals still find it under its new id.
         if (groups) {
-          billing.customers.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, provider, customer_id,
+          billing.customers.push(...from.all(`SELECT 'organization' AS subject_type, subject_id, provider, customer_id,
             created_at FROM billing_customers WHERE subject_type = 'organization' ORDER BY subject_id`).filter((c) => orgIds.has(c.subject_id)));
-          billing.subscriptions.push(...database.all(`SELECT 'organization' AS subject_type, subject_id, provider, ref, product,
+          billing.subscriptions.push(...from.all(`SELECT 'organization' AS subject_type, subject_id, provider, ref, product,
             status, quantity, period_end, occurred_at, updated_at${refunded ? ', refunded_until' : ''} FROM billing_subscriptions
             WHERE subject_type = 'organization' ORDER BY updated_at`).filter((s) => orgIds.has(s.subject_id)));
         }
         if (!billing.customers.length && !billing.subscriptions.length) billing = null;
       }
     } finally {
-      database.exec('COMMIT');
+      if (transaction) database.exec('COMMIT');
     }
     const id = randomToken(18);
     const createdAt = iso();
@@ -935,7 +1166,7 @@ export function createPortability({
     async function write(output) {
       const zip = createZipWriter(output, { now: () => new Date(clock()) });
       const json = (value) => JSON.stringify(value, null, 1);
-      await zip.add('data/users.json', json(users.map((u) => Object.fromEntries(Object.entries(u).map(([k, v]) => [k, toJson(v)])))));
+      await zip.add('data/users.json', await jsonOfRows(users, (u) => Object.fromEntries(Object.entries(u).map(([k, v]) => [k, toJson(v)]))));
       if (orgs.length) {
         await zip.add('data/organizations.json', json(orgs));
         await zip.add('data/memberships.json', json(memberships));
@@ -944,13 +1175,14 @@ export function createPortability({
         const rows = kept.get(table.name);
         // A column the app omits never reaches the file, in any copy.
         if (rows.length) {
-          await zip.add(`data/${table.name}.json`, json(rows.map((r) => Object.fromEntries(Object.entries(r)
-            .filter(([k]) => !table.omit.has(k)).map(([k, v]) => [k, toJson(v)])))));
+          await zip.add(`data/${table.name}.json`, await jsonOfRows(rows, (r) => Object.fromEntries(Object.entries(r)
+            .filter(([k]) => !table.omit.has(k)).map(([k, v]) => [k, toJson(v)]))));
         }
       }
       if (grants.length) await zip.add('suite/grants.json', json(grants));
       if (billing) await zip.add('suite/billing.json', json(billing));
       if (invitations.length) await zip.add('suite/invitations.json', json(invitations));
+      if (suppressions.length) await zip.add('suite/mail-suppressions.json', json(suppressions));
       const files = { count: 0, bytes: 0, missing: 0 };
       const added = new Set();
       for (const table of model.tables.filter((t) => t.file)) {
@@ -1027,6 +1259,7 @@ export function createPortability({
       if (!isObject(raw)) throw invalidData(table.name);
       const row = {};
       for (const [column, value] of Object.entries(raw)) {
+        if (table.dropped.has(column)) continue;
         if (!table.columns.has(column)) throw invalidData(table.name, { column });
         // What never travels doesn't come in either: a copy made before it was omitted, or one written by hand.
         if (table.omit.has(column)) continue;
@@ -1110,6 +1343,17 @@ export function createPortability({
         throw invalidData('grants', { column: 'external_ref' });
       }
       return grant;
+    });
+  }
+
+  /** suite/mail-suppressions.json: addresses (plain text, bounded) with when they asked. */
+  function checkSuppressions(rows) {
+    if (!Array.isArray(rows)) throw invalidData('mail_suppressions');
+    return rows.map((raw) => {
+      const email = isObject(raw) ? raw.email : null;
+      if (typeof email !== 'string' || !email.trim() || email.length > 320) throw invalidData('mail_suppressions', { column: 'email' });
+      const createdAt = raw.created_at == null ? null : String(raw.created_at).slice(0, 40);
+      return { email: email.trim().toLowerCase(), created_at: createdAt };
     });
   }
 
@@ -1287,10 +1531,33 @@ export function createPortability({
       }
       const grants = manifest.scope === 'install' ? checkGrants((await readJsonEntry('suite/grants.json')) ?? []) : [];
       const billing = checkBilling(manifest.scope === 'install' ? await readJsonEntry('suite/billing.json') : null);
-      return { zip, manifest, users, tables, grants, billing, organizations: orgs, memberships, invitations };
+      const suppressions = manifest.scope === 'install' ? checkSuppressions((await readJsonEntry('suite/mail-suppressions.json')) ?? []) : [];
+      refuseUnreferenced(zip, tables);
+      return { zip, manifest, users, tables, grants, billing, organizations: orgs, memberships, invitations, suppressions };
     } catch (err) {
       await zip.close();
       throw err;
+    }
+  }
+
+  /**
+   * A copy is its manifest, its data and the files its rows name: anything else in it waited a day
+   * in DATA_DIR/imports for nothing, and let anyone park up to a copy's size of whatever they liked
+   * there, ten times a quarter of an hour (audits sc-data-13, portable-11). A little is let through,
+   * for a zip someone made again on another computer.
+   */
+  function refuseUnreferenced(zip, tables) {
+    const named = new Set();
+    for (const table of model.tables.filter((t) => t.file)) {
+      for (const row of tables.get(table.name) || []) if (row[table.file.path] != null) named.add(`files/${row[table.file.path]}`);
+    }
+    let loose = 0;
+    for (const entry of zip.entries) {
+      const { name } = entry;
+      if (name === 'manifest.json' || name.endsWith('/') || /^(data|suite)\/[^/]+\.json$/.test(name) || named.has(name)) continue;
+      // What it takes on disk here, or once read: whichever is more.
+      loose += Math.max(entry.size ?? 0, entry.compressed ?? 0);
+      if (loose > max.unreferenced) throw invalidData('files', { reason: 'unreferenced', entry: name });
     }
   }
 
@@ -1356,6 +1623,15 @@ export function createPortability({
         choices.set(source.id, byAddress(decision.email));
       } else {
         throw badRequest('field_invalid', { field: 'accounts' });
+      }
+    }
+    // An account the first module's copy of this run already brought goes where it went.
+    const from = sourceInstall(archive.manifest);
+    if (from && sameRunHere(archive.manifest)) {
+      for (const source of archive.users) {
+        if (choices.has(source.id)) continue;
+        const id = Number(database.getMeta(userOriginKey(from, source.id)));
+        if (Number.isInteger(id) && id > 0 && accounts.byId(id)) choices.set(source.id, { action: 'map', userId: id, replace: false });
       }
     }
     // The rest, by their email; a default never takes what a decision already took,
@@ -1640,6 +1916,8 @@ export function createPortability({
 
       const replacedFiles = [];
       const moves = [];
+      /** Someone's own "replace": the people whose tabs reload, besides them (peopleNear). */
+      const near = new Set();
       const result = database.tx(() => {
         // The run gate, where nothing can come in between: two imports of an install (two modules, the
         // command line) may both pass the check above while reading their attachments; the second one
@@ -1647,6 +1925,8 @@ export function createPortability({
         if (mode === 'install') {
           checkInstallAgain(manifest);
           followUp = sameRunHere(manifest);
+          const from = sourceInstall(manifest);
+          if (from && !followUp) database.setMeta(installKey(from), sourceRun(manifest));
         }
         // Accounts: the ones mapped here, and the new ones, without the app's welcome content.
         const userMap = new Map();
@@ -1681,6 +1961,9 @@ export function createPortability({
           userMap.set(sourceId, account.id);
           created.push(account.id);
         }
+        if (mode === 'install' && sourceInstall(manifest)) {
+          for (const [sourceId, userId] of userMap) database.setMeta(userOriginKey(sourceInstall(manifest), sourceId), String(userId));
+        }
 
         // "Replace": what those accounts own goes first, exactly what their own copy would take; a
         // group they share is handed over to the others instead of emptied.
@@ -1690,6 +1973,8 @@ export function createPortability({
           if (choice.action !== 'map' || !choice.replace) continue;
           // Again, inside: nothing may have changed since the check before the attachments were read.
           if (confirmHandOver) checkHandOver(choice.userId, handOver);
+          // Someone's own: whose tabs reload once it is in, read before anything of theirs goes.
+          if (mode === 'account') for (const id of peopleNear(choice.userId)) near.add(id);
           if (groups) handedOver.push(...handOverGroups(choice.userId).map((g) => ({ ...g, user_id: choice.userId })));
           // Someone's own copy doesn't take what they share from the people using it: it passes on,
           // as when they erase their data, and the copy comes back as theirs alone. A whole install's
@@ -1862,16 +2147,19 @@ export function createPortability({
           const isNew = created.includes(userId);
           const sets = {};
           if (typeof source.display_name === 'string' && source.display_name.trim()) sets.display_name = source.display_name.trim().slice(0, 80);
-          if (typeof source.theme === 'string' && model.userColumns.includes('theme')) sets.theme = source.theme.slice(0, 20);
-          if (source.locale !== undefined && model.userColumns.includes('locale')) sets.locale = source.locale ? String(source.locale).slice(0, 16) : null;
+          // The account's language, time zone and look are the whole account's (in Work, every module's):
+          // a module's copy brings them only to an account it makes (audit portable-14).
+          if (isNew && typeof source.theme === 'string' && model.userColumns.includes('theme')) sets.theme = source.theme.slice(0, 20);
+          if (isNew && source.locale !== undefined && model.userColumns.includes('locale')) sets.locale = source.locale ? String(source.locale).slice(0, 16) : null;
           // An empty one keeps what the account has: the app's columns may not allow it.
           for (const column of model.appColumns) if (source[column] != null) sets[column] = source[column];
           // Preferences hold ids of the app's rows: only the app knows where, so without its hook they stay.
           if (model.prefs && model.userColumns.includes('prefs')) {
             const parse = (text) => { try { return JSON.parse(text || '{}'); } catch { return {}; } };
             const current = isNew ? null : parse(database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs);
-            const prefs = model.prefs(parse(source.prefs), { ids, current, created: isNew });
-            sets.prefs = typeof prefs === 'string' ? prefs : JSON.stringify(prefs ?? {});
+            const made = model.prefs(parse(source.prefs), { ids, current, created: isNew });
+            sets.prefs = typeof made === 'string' ? made : JSON.stringify(made ?? {});
+            if (!isNew) sets.prefs = JSON.stringify(keepAccountPrefs(parse(sets.prefs), current));
           }
           const columns = Object.keys(sets);
           if (columns.length) {
@@ -1908,6 +2196,13 @@ export function createPortability({
               throw invalidData('grants', { reason: String(err.message || '').slice(0, 120) });
             }
             grantsImported += 1;
+          }
+        }
+
+        // The addresses that asked for no more invitations, added to those already here.
+        if (mode === 'install' && archive.suppressions?.length && database.columnsOf('mail_suppressions').length) {
+          for (const row of archive.suppressions) {
+            database.run('INSERT OR IGNORE INTO mail_suppressions (email, created_at) VALUES (?, ?)', row.email, row.created_at ?? iso());
           }
         }
 
@@ -2016,10 +2311,12 @@ export function createPortability({
           files: result.imported.files, ...(groups ? { organizations: result.organizations.length } : {}),
         },
       });
-      // Whoever has the app open sees it all without reloading by hand: everyone when a group
-      // others are in changed (rows came into one, or someone left it).
+      // Whoever has the app open sees it all without reloading by hand: someone's own, they; with
+      // "replace", whoever shared something with them too (a list handed over has a new owner), and
+      // when a group others are in changed (rows came into one, or someone left it), its members.
+      // A whole install's: everyone.
       const shared = groups && (result.imported.organizations.mapped > 0 || result.handed_over.length > 0);
-      live?.publish({ audience: mode === 'account' && !Object.keys(result.replaced).length && !shared ? [user.id] : null, event: 'resync', data: {} });
+      live?.publish({ audience: mode === 'account' ? [...audienceOf(user, near, shared ? result : null)] : null, event: 'resync', data: {} });
       for (const { user_id: id } of result.accounts) accounts.changed?.(id);
       // What was emptied leaves nothing elsewhere either (a host's links), as when it is erased.
       if (mode === 'account' && Object.keys(result.replaced).length) {
@@ -2062,7 +2359,8 @@ export function createPortability({
     const counter = new Transform({
       transform(chunk, _encoding, done) {
         size += chunk.length;
-        if (size > limit) done(new HttpError(413, 'body_too_large'));
+        // The size it may have, for the page to say it (Settings: errors.file_too_large).
+        if (size > limit) done(new HttpError(413, 'file_too_large', { max_mb: Math.floor(limit / MB) }));
         else done(null, chunk);
       },
     });
@@ -2078,22 +2376,62 @@ export function createPortability({
     }
   }
 
+  /** The bytes waiting in DATA_DIR/imports, of everyone's (`mode`: only that mode's) pending imports. */
+  function pendingBytes() {
+    let bytes = 0;
+    let names = [];
+    try { names = fs.readdirSync(importsDir); } catch { return 0; }
+    for (const name of names) {
+      try {
+        const stat = fs.statSync(path.join(importsDir, name));
+        if (stat.isFile()) bytes += stat.size;
+      } catch { /* gone meanwhile */ }
+    }
+    return bytes;
+  }
+
+  /** The pending imports of this person in this mode but `keep`: one waits at a time (sc-data-13). */
+  function forgetOthers({ mode, user }, keep) {
+    let names = [];
+    try { names = fs.readdirSync(importsDir); } catch { return; }
+    for (const name of names) {
+      const id = /^(.+)\.json$/.exec(name)?.[1];
+      if (!id || id === keep || !TOKEN.test(id)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(importsDir, name), 'utf8'));
+        if (meta?.owner === user.id && meta?.mode === mode) forget(id);
+      } catch { /* not one, or gone */ }
+    }
+  }
+
+  // Uploads under way, one per person (and one for the install): its slot in `begin` is taken only
+  // once the file is on disk, or a slow upload held one of the three for everyone (sc-data-25).
+  const uploading = new Set();
+
   /**
    * Takes an uploaded copy, checks it and answers what importing it would do.
-   * It waits in DATA_DIR/imports for a day, for this person only.
+   * It waits in DATA_DIR/imports for a day, for this person only, and only one: a new one lets the
+   * one before go. Someone's pending copies together may take `max.pending` of the disk.
    */
   async function receive(req, { mode, user }) {
-    const release = begin(mode === 'install' ? 'install' : `user:${user.id}`);
+    const key = mode === 'install' ? 'install' : `user:${user.id}`;
+    if (uploading.has(key)) throw conflict('data_busy');
+    if (mode !== 'install' && pendingBytes() > max.pending) throw conflict('data_busy');
+    uploading.add(key);
     const id = randomToken(18);
     const files = pendingFiles(id);
+    let release = null;
     try {
       fs.mkdirSync(importsDir, { recursive: true });
       await receiveFile(req, `${files.zip}.partial`, max.upload[mode]);
+      release = begin(key);
       fs.renameSync(`${files.zip}.partial`, files.zip);
       fs.writeFileSync(files.meta, JSON.stringify({ owner: user.id, mode, created_at: iso() }));
       const archive = await readArchive(files.zip, { by: mode });
       try {
-        return { import_id: id, ...planFor(archive, { mode, user }) };
+        const plan = { import_id: id, ...planFor(archive, { mode, user }) };
+        forgetOthers({ mode, user }, id);
+        return plan;
       } finally {
         await archive.zip.close();
       }
@@ -2101,7 +2439,8 @@ export function createPortability({
       forget(id);
       throw err;
     } finally {
-      release();
+      uploading.delete(key);
+      release?.();
     }
   }
 
@@ -2175,7 +2514,7 @@ export function createPortability({
   }
 
   return {
-    model, max, prepareExport, receive, apply, discard, planFile, applyFile, purge, begin, erase,
+    model, max, prepareExport, prepareExportAsync, receive, apply, discard, planFile, applyFile, purge, begin, erase,
     /** For tests and tools: the pieces under the service. */
     readArchive, schemaVersions,
   };
@@ -2189,7 +2528,8 @@ export function createPortability({
  * `DELETE /api/me/import/:id`; and the same under `/api/admin/` for the whole
  * install, whose apply takes `{ accounts: [decisions] }`. `POST /api/me/erase`
  * empties someone's own data, asked again who they are (`confirm`, api.js
- * identityCheck).
+ * identityCheck), and so does an import that replaces (`{ replace: true }`
+ * empties the same before it brings the copy in, audit authz-9).
  */
 export function registerPortabilityApi(router, {
   portability, audit = null, limiter = null, confirm = null, log = console.log,
@@ -2216,7 +2556,7 @@ export function registerPortabilityApi(router, {
     try {
       // `?run=`: the run of a host's other modules exported with it (the copy says which it is of).
       const run = scope === 'install' ? ctx.query?.get('run') ?? null : null;
-      const job = portability.prepareExport({ scope, userId: user.id, run });
+      const job = await portability.prepareExportAsync({ scope, userId: user.id, run });
       const ascii = job.filename.replace(/[^\w.-]/g, '_');
       ctx.res.writeHead(200, {
         'Content-Type': 'application/zip',
@@ -2248,6 +2588,7 @@ export function registerPortabilityApi(router, {
     const body = await readJson(ctx.req);
     // `hand_over`: the ids of the groups the person was shown "replace" takes them out of (the plan's).
     const shown = Array.isArray(body.hand_over) ? body.hand_over.filter((v) => Number.isSafeInteger(v)) : null;
+    if (body.replace === true && confirm) await confirm(ctx, user, body);
     sendJson(ctx.res, 200, await portability.apply(ctx.params.id, {
       mode: 'account', user, replace: body.replace === true, handOver: shown, req: ctx.req,
     }));
@@ -2260,7 +2601,7 @@ export function registerPortabilityApi(router, {
     router.post('/api/me/erase', async (ctx) => {
       const user = signedIn(ctx);
       const body = await readJson(ctx.req);
-      confirm(ctx, user, body);
+      await confirm(ctx, user, body);
       sendJson(ctx.res, 200, portability.erase(user, { req: ctx.req }));
     });
   }

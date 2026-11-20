@@ -112,8 +112,8 @@ test('an answer too big to keep still answers once: the key is kept with a small
   assert.equal(runs(), 1, 'the route ran once');
   assert.equal(again.status, 200);
   assert.equal(again.replayed, 'true');
-  assert.deepEqual(again.data, { id: first.data.id, replayed: true, reload: true },
-    'what was made, and that the rest is to be read again');
+  assert.deepEqual(again.data, { id: first.data.id },
+    'what was made; the header says it is a replay (audit sc-host-5: nobody read `reload` or `replayed`)');
 });
 
 test('answers older than a day are swept', () => {

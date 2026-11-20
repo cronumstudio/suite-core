@@ -93,6 +93,8 @@ async function serve(t, { workos = null, accounts = {} } = {}) {
       ...(workos ? {
         AUTH_PROVIDER: 'workos', WORKOS_API_KEY: workos.apiKey ?? 'sk_test', WORKOS_CLIENT_ID: workos.clientId ?? 'client',
         WORKOS_AUTHKIT_DOMAIN: workos.url, WORKOS_API_URL: workos.url,
+        // Required with a shared login and the MCP on (config.js, audit sc-mcp-2).
+        WORKOS_MCP_AUDIENCE: 'http://127.0.0.1/mcp',
       } : {}),
     },
     log, exitOnError: false,
@@ -264,8 +266,8 @@ test('WorkOS: only with the admin’s own password again, and never over a login
 
   const weak = await ask({ email: 'weak@example.com', password: 'password12' });
   assert.deepEqual([weak.status, weak.data.error, weak.data.detail], [400, 'password_rejected', 'The password is too common.']);
-  assert.deepEqual((await ask({ email: 'short@example.com', password: 'seven77' })).data, { error: 'field_too_short', field: 'password', min: 8 },
-    'WorkOS’s shortest, not this app’s');
+  assert.deepEqual((await ask({ email: 'short@example.com', password: 'seven77' })).data, { error: 'field_too_short', field: 'password', min: 10 },
+    'this app’s shortest, which WorkOS’s policy has too, as Settings says it (audit sc-auth-7)');
 
   workos.setDown(true);
   const down = await ask({ email: 'later@example.com' });

@@ -254,6 +254,7 @@ export function createStoreBilling({
     offer: billing.offer, customerOf: billing.customerOf, subscriptionsOf: billing.subscriptionsOf, forget: billing.forget,
     stopRenewals: billing.stopRenewals, keepRenewals: billing.keepRenewals, endSubscriptions: billing.endSubscriptions,
     manage: (ref) => provider?.manage?.(ref) ?? null, dashboardUrl: billing.dashboardUrl,
+    whenApplied: billing.whenApplied,
   };
 }
 

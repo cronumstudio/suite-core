@@ -55,15 +55,27 @@
  * A provider adapter is:
  *   {
  *     id: 'stripe',
- *     checkoutUrl({ subject, identity, customer, product, price, kind, email, returnUrl, app? }) → Promise<url>,
+ *     checkoutUrl({ subject, identity, customer, product, price, kind, email, returnUrl, app?, discount? }) → Promise<url>,
  *     portalUrl({ customer, returnUrl }) → Promise<url>,
  *     parseWebhook({ headers, body }) → Promise<event | event[] | null>   (throws on a bad signature)
  *     dashboardUrl?({ ref, customer }) → url | null   (the provider's own dashboard for a subscription,
  *                                                      where the install's staff refund or cancel it:
  *                                                      the admin panel's «Manage charges»; no call made)
+ *     createDiscount?({ code, offer, products, description }) → Promise<{ id }>
+ *     setDiscountActive?(id, active) → Promise<void>
+ *     postponeRenewal?(ref, days) → Promise<{ nextBilledAt } | { ended: true }>
  *   }
- * and an event, whatever the provider called it:
- *   { id, type: 'subscription' | 'purchase' | 'refund', occurredAt, identity?: { provider, subject },
+ * The last three are the affiliates' (affiliates.js), each optional: a code is a discount at the
+ * provider (`createDiscount`: `code` uppercase A–Z, 0–9 and -, 3 to 32 characters; `offer`
+ * `{ type: 'flat', amount, currency }` in minor units or `{ type: 'percent', percent }`; `products`,
+ * keys of this catalog, the discount restricted to each one's regular `price`, never `founderPrice`
+ * nor `oldPrices`; the first payment only, no expiry, any number of uses, typed at the checkout too; a
+ * code the provider already has is HttpError(409, 'discount_code_taken')), switched off and on with
+ * its code (`setDiscountActive`), and a referral's month is its next charge put off (`postponeRenewal`:
+ * nothing charged now; `{ ended: true }` when it no longer renews). `checkoutUrl`'s `discount` is
+ * the provider's id of one, passed only when it fits the price being bought (see checkoutUrl).
+ * And an event, whatever the provider called it:
+ *   { id, type: 'subscription' | 'purchase' | 'refund' | 'payment', occurredAt, identity?: { provider, subject },
  *     subject?: { type, id }, customer?, ref, product?, status?, periodEnd?, quantity?, app?, foreign?,
  *     own?, unknownPrice?, sandbox?, refundReversed?, ending?, unsigned?, customerUnsigned?, subscription? }
  * (`refundReversed`: the store took a refund back, so the period it had paid back counts again.
@@ -73,6 +85,22 @@
  * can't vouch that its checkout said who pays (Paddle's `sig`): a subscription or purchase never
  * heard of is then `'unsigned'`, nothing granted; `customerUnsigned`: who pays is vouched for,
  * the customer isn't. Either way a customer linked to another account stays theirs.)
+ *
+ * A payment (`type: 'payment'`): money that came in, beside the events that grant (Paddle makes one
+ * of every `transaction.completed`, a subscription's or a one-off's):
+ *   { id: '<notification>:payment', type: 'payment', occurredAt, identity?, subject?, customer, product,
+ *     app?, foreign?, own?, sandbox?, unsigned?, customerUnsigned?,
+ *     ref: '<transaction>', subscription: '<subscription>' | null,
+ *     first: true for a subscription's first transaction or a one-off purchase (never a renewal),
+ *     discount: '<the provider's discount id>' | null, amount: <minor units charged>, currency: 'EUR' }
+ * It is kept once (`billing_events`, outcome `paid`), who paid is worked out as for any event (a
+ * person, or a group), and nothing is granted: it is told to `whenPaid(hook)`, as
+ * `hook({ user, organization, event })` once its transaction is in (affiliates.js: a code's
+ * commission). One without the provider's signature (`unsigned`) counts only for a subscription or
+ * purchase known here, as a subscription event does. A refund is told to `whenRefunded(hook)` the
+ * same way, with whom it is known for here (often nobody: a transaction's refund names no one). A
+ * hook that throws is logged, never fails the webhook. And `discountWith(fn)`: what discount a
+ * checkout gets (`fn({ subject, product, price, user })` → the provider's id or null).
  *
  * Several providers in one install (P6): the web's (BILLING_PROVIDER) and the stores' (STORE_BILLING,
  * stores.js) are two instances of this, on the same tables, each under its own provider id. An
@@ -108,8 +136,9 @@
  * One group's stops and their taking back are asked one at a time in this process, in the order
  * they came (a keep waits for a stop on its way, and the other way round).
  * One that fails stays pending and the hourly `sendStops()` asks again. Who wanted each group
- * stopped is kept too (`stop-by:<who>:organization:<id>`, type `stop-by`: `app`, or `members`
- * when all of them are waiting to be deleted): taking it back renews it only when nobody else
+ * stopped is kept too (`stop-by:<who>:organization:<id>`, type `stop-by`: `app`, `members`
+ * when all of them are waiting to be deleted, or `empty` when the group was archived with nobody
+ * left in it, organizationArchived): taking it back renews it only when nobody else
  * still wants it stopped. An event for a group that is no longer here (`organizationGone`) is
  * `'gone'`: nothing is linked, granted or kept for it beyond its id, a subscription row still
  * kept follows its status, and, with `organizationWasDeleted`, a live one of a group deleted here
@@ -409,6 +438,39 @@ export function createBilling({
   const enabled = Boolean(provider) && !errors.length;
   const source = provider?.id || 'billing';
 
+  // Who hears of each payment applied (whenApplied): the admin's notices (admin-notices.js), once
+  // its transaction is in. A store's reading that changed something counts: it is how a purchase in
+  // a store arrives (stores.js); one that changed nothing has an outcome nobody notes. A hook that
+  // throws is only logged.
+  const appliedHooks = [];
+  // Who hears of a payment (whenPaid) and of a refund (whenRefunded): the affiliates, with the account
+  // or group it is known for here, once the event's transaction is in. A hook that throws is logged.
+  const paidHooks = [];
+  const refundHooks = [];
+  let discountHook = null;
+  function tellMoney(kind, subject, event) {
+    const hooks = kind === 'paid' ? paidHooks : refundHooks;
+    if (!hooks.length) return;
+    const user = subject?.type === 'user' ? database.get('SELECT * FROM users WHERE id = ?', subject.id) ?? null : null;
+    const organization = subject?.type === 'organization' ? { id: subject.id } : null;
+    for (const hook of hooks) {
+      try {
+        hook({ user, organization, event });
+      } catch (err) {
+        log(`[billing] ${source}: a hook on a ${kind === 'paid' ? 'payment' : 'refund'} failed: ${err?.stack || err}`);
+      }
+    }
+  }
+  const tellApplied = (outcome, event, subject) => {
+    for (const hook of appliedHooks) {
+      try {
+        hook({ outcome, event, subject, product: catalog[event?.product] ?? null, provider: source });
+      } catch (err) {
+        log(`[billing] ${source}: a hook on a payment failed: ${err?.stack || err}`);
+      }
+    }
+  };
+
   const record = (action, subject, meta) => audit?.record({
     action, organizationId: subject?.type === 'organization' ? subject.id : null,
     targetType: subject?.type ?? null, targetId: subject?.id ?? null, meta,
@@ -641,13 +703,32 @@ export function createBilling({
     }
     if (identity?.provider && identity.subject && identities) {
       const userId = identities.user(String(identity.provider), String(identity.subject));
-      return userId ? { subject: { type: 'user', id: userId }, byIdentity: true } : { waits: identity };
+      if (userId) return { subject: { type: 'user', id: userId }, byIdentity: true };
+      // An identity nobody has here may still be someone's who is here: their login's id changed
+      // after the purchase (WorkOS forgot it and the same verified email signed in again,
+      // accounts.relinkIdentity), and the subscription still carries the old one. What this
+      // subscription is known for here, else the person its customer is linked to, before waiting:
+      // waiting, its renewals would never be claimed, and they would lose Pro while still paying
+      // (audit billing-16). Someone who hasn't opened this app has neither, and waits as before.
+      const ours = knownPerson(event.ref) ?? (linked?.type === 'user' && personHere(linked.id) ? linked : null);
+      return ours ? { subject: ours } : { waits: identity };
     }
     // A customer linked to a group never takes a person's purchase (see the top of this file).
     if (linked?.type === 'user') return { subject: linked };
     // An event that names a person by an identity this app can't look up is not
     // for an id of its own: that would be the id in whichever app made the checkout.
     return { subject: identity?.subject ? null : named };
+  }
+
+  /** Whether an account is here (not deleted). */
+  const personHere = (id) => Boolean(database.get('SELECT 1 FROM users WHERE id = ?', id));
+  /** The person a subscription or purchase is known for here (its row, else its grant), while they are. */
+  function knownPerson(ref) {
+    const row = database.get('SELECT subject_type, subject_id FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, String(ref))
+      ?? database.get(`SELECT subject_type, subject_id FROM entitlement_grants WHERE source = ? AND external_ref = ?
+        ORDER BY id DESC LIMIT 1`, source, String(ref));
+    const id = Number(row?.subject_id);
+    return row?.subject_type === 'user' && Number.isInteger(id) && personHere(id) ? { type: 'user', id } : null;
   }
 
   /** Whether an event's subject is a group that is no longer here (only with `organizationGone`). */
@@ -707,6 +788,15 @@ export function createBilling({
   const markRefundStop = (ref) => canStop() && database.run(`INSERT OR IGNORE INTO billing_events
     (provider, event_id, type, outcome, received_at) VALUES (?, ?, 'stop', 'pending', ?)`, source, `${REFUND_STOP}${ref}`, iso(clock())).changes > 0;
 
+  /** Whom a subscription or purchase is known for here (its row, else its grant), or null. */
+  function knownSubject(ref) {
+    const row = database.get('SELECT subject_type, subject_id FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, String(ref))
+      ?? database.get(`SELECT subject_type, subject_id FROM entitlement_grants WHERE source = ? AND external_ref = ?
+        ORDER BY id DESC LIMIT 1`, source, String(ref));
+    const id = Number(row?.subject_id);
+    return row && Number.isInteger(id) ? { type: row.subject_type === 'organization' ? 'organization' : 'user', id } : null;
+  }
+
   const knownRef = (ref) => Boolean(
     database.get('SELECT 1 FROM billing_subscriptions WHERE provider = ? AND ref = ?', source, ref)
     || database.get('SELECT 1 FROM entitlement_grants WHERE source = ? AND external_ref = ?', source, ref)
@@ -729,6 +819,9 @@ export function createBilling({
     const at = Date.parse(event.occurredAt);
     const normalized = { ...event, ref: String(event.ref), occurredAt: iso(Number.isNaN(at) ? clock() : at) };
     let refunded = false;
+    let appliedTo = null;
+    // What whenPaid or whenRefunded hear, once this transaction is in.
+    let money = null;
     const applied = database.tx(() => {
       if (database.get('SELECT 1 FROM billing_events WHERE provider = ? AND event_id = ?', source, String(event.id))) return 'duplicate';
       database.run('DELETE FROM billing_pending WHERE received_at < ?', iso(clock() - PENDING_DAYS * DAY));
@@ -739,6 +832,7 @@ export function createBilling({
         const waiting = database.get(`SELECT identity_provider AS provider, identity_subject AS subject FROM billing_pending
           WHERE provider = ? AND ref = ? LIMIT 1`, source, normalized.ref);
         outcome = waiting ? hold(normalized, waiting) : applyRefund(normalized, { reading });
+        if (!waiting && !(reading && outcome === 'unchanged')) money = { kind: 'refunded', subject: knownSubject(normalized.ref) };
         // Paid back in full, it would renew and charge again: it ends now at the provider too (see the
         // top of this file). Only one of this install's, still renewing here or waiting for its person:
         // every app's destination hears every refund of the account, another product's too.
@@ -747,20 +841,27 @@ export function createBilling({
         // Before whoIs(): nothing of the person is looked up, linked or kept for them.
         outcome = 'foreign';
         log(`[billing] ${source} event ${event.id}: another product's, ignored`);
-      } else if (normalized.unsigned === true && !knownRef(normalized.ref)) {
+      } else if (normalized.unsigned === true && !knownRef(normalized.ref)
+        && !(normalized.type === 'payment' && normalized.subscription && knownRef(String(normalized.subscription)))) {
         // What a browser may have made (Paddle.js opens a checkout for any price with any
         // custom_data): a subscription or purchase never heard of grants nothing, links nothing.
         outcome = 'unsigned';
         log(`[billing] ${source} event ${event.id}: ${normalized.type} ${normalized.ref} without this server's signature, never heard of: nothing granted`);
       } else {
-        const who = whoIs(normalized);
+        // A payment of a subscription is whoever's the subscription is, as its renewals are.
+        const who = whoIs(normalized.type === 'payment' && normalized.subscription
+          ? { ...normalized, ref: String(normalized.subscription) } : normalized);
         if (who.waits) {
           if (unpriced(normalized)) log(`${unpricedLine(normalized)} (it waits for its person)`);
           outcome = hold(normalized, who.waits);
         } else if (who.subject) {
           subject = who.subject;
-          outcome = isGone(subject) ? applyGone(normalized, subject)
-            : applyTo(normalized, subject, { byIdentity: who.byIdentity, reading });
+          if (isGone(subject)) outcome = applyGone(normalized, subject);
+          else if (normalized.type === 'payment') {
+            // Nothing granted: who paid is told, once this is in (whenPaid).
+            outcome = 'paid';
+            money = { kind: 'paid', subject };
+          } else outcome = applyTo(normalized, subject, { byIdentity: who.byIdentity, reading });
         } else {
           log(`[billing] ${source} event ${event.id}: no known subject, ignored`);
         }
@@ -769,11 +870,14 @@ export function createBilling({
       if (reading && (outcome === 'unchanged' || outcome === 'stale')) return outcome;
       database.run('INSERT INTO billing_events (provider, event_id, type, outcome, received_at) VALUES (?, ?, ?, ?, ?)',
         source, String(event.id), normalized.type, outcome, iso(clock()));
-      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign', 'gone'].includes(outcome)) {
+      if (!['ignored', 'nothing', 'kept', 'stale', 'duplicate', 'pending', 'foreign', 'gone', 'paid'].includes(outcome)) {
         record(`billing.${outcome}`, subject, { provider: source, product: normalized.product ?? null, ref: normalized.ref });
       }
+      appliedTo = subject;
       return outcome;
     });
+    if (appliedHooks.length) tellApplied(applied, normalized, appliedTo);
+    if (money && applied !== 'duplicate') tellMoney(money.kind, money.subject, normalized);
     // Asked once the refund is in; a failure waits for the hourly sweep.
     if (refunded) setImmediate(() => sendRefundStops().catch((err) => log(`[billing] ${source}: ending a refunded subscription failed: ${err?.stack || err}`)));
     return applied;
@@ -794,10 +898,17 @@ export function createBilling({
       let outcome;
       try {
         const event = JSON.parse(row.event);
-        outcome = database.tx(() => (event.type === 'refund' ? applyRefund(event) : applyTo(event, subject, { byIdentity: true })));
-        if (!['ignored', 'nothing', 'kept', 'stale', 'foreign'].includes(outcome)) {
+        outcome = database.tx(() => (event.type === 'refund' ? applyRefund(event)
+          : event.type === 'payment' ? 'paid' : applyTo(event, subject, { byIdentity: true })));
+        // A payment or refund that waited for them: told once the sign-in's transaction is in.
+        if (event.type === 'payment' || event.type === 'refund') {
+          setImmediate(() => tellMoney(event.type === 'payment' ? 'paid' : 'refunded', subject, event));
+        }
+        if (!['ignored', 'nothing', 'kept', 'stale', 'foreign', 'paid'].includes(outcome)) {
           record(`billing.${outcome}`, subject, { provider: source, product: event.product ?? null, ref: event.ref });
         }
+        // Inside the sign-in's transaction: the notice itself waits for it (admin-notices.js).
+        if (appliedHooks.length) tellApplied(outcome, event, subject);
         database.run('UPDATE billing_events SET outcome = ? WHERE provider = ? AND event_id = ?', outcome, source, String(event.id));
       } catch (err) {
         log(`[billing] ${source} pending event ${row.id} for user #${userId} could not be applied: ${err.message}`);
@@ -824,9 +935,26 @@ export function createBilling({
   }
 
   /**
+   * The discount a checkout gets (discountWith, affiliates.js), or null: never an error, at worst
+   * the checkout without it.
+   */
+  async function discountOf(args) {
+    if (!discountHook) return null;
+    try {
+      const id = await discountHook(args);
+      return typeof id === 'string' && id ? id : null;
+    } catch (err) {
+      log(`[billing] ${source}: no discount for a checkout of ${args.product}: ${err?.message || err}`);
+      return null;
+    }
+  }
+
+  /**
    * The provider's checkout for a product. `user` is who asks (for a group,
    * its admin): the founder's price is theirs to have, and an email is only
-   * handed to the provider when it is verified.
+   * handed to the provider when it is verified. A person a code brought gets its
+   * discount (discountWith), only on the product's own price: a discount is
+   * restricted to it at the provider, never to a founder's.
    */
   async function checkoutUrl(subject, productKey, { email = null, returnUrl, user = null }) {
     mustBeOn();
@@ -844,9 +972,11 @@ export function createBilling({
     }
     const price = product.founderPrice && await founder(user) ? product.founderPrice : product.price;
     const identity = subject.type === 'user' ? identities?.of(subject.id) ?? null : null;
+    const discount = price && price === product.price ? await discountOf({ subject, product: product.key, price, user }) : null;
     return provider.checkoutUrl({
       subject, identity, customer: customerOf(subject), product: product.key, price, kind: product.kind, email, returnUrl,
       ...(app ? { app } : {}),
+      ...(discount ? { discount } : {}),
     });
   }
 
@@ -1393,10 +1523,40 @@ export function createBilling({
     });
   }
 
+  /**
+   * A group archived because nobody was left in it (organizations.whenArchived, hooked by
+   * createSuite), inside its transaction: its live subscriptions stop renewing at the end of the
+   * period they paid for, as `empty` wants it (see the top of this file), sent once the transaction
+   * is over and by the hourly sweep if that fails; each stop asked is audited
+   * (`billing.organization.stop`). Nobody is left to cancel them, or to take it back. A provider
+   * that can't stop one marks nothing. → how many were marked now
+   */
+  function organizationArchived(organizationId) {
+    if (!canStop()) return 0;
+    const id = Number(organizationId);
+    return database.tx(() => {
+      database.run(`INSERT OR IGNORE INTO billing_events (provider, event_id, type, outcome, received_at)
+        VALUES (?, ?, 'stop-by', 'wanted', ?)`, source, originId(id, 'empty'), iso(clock()));
+      const marked = markOrganizationStop(id);
+      // An archive undone (the account's deletion rolled back) leaves no mark, and the sweep finds nothing to send.
+      if (marked) setImmediate(() => sendStops().catch((err) => log(`[billing] ${source}: stopping a group's renewals failed: ${err?.stack || err}`)));
+      return marked;
+    });
+  }
+
   return {
     enabled, errors, provider: source, offer, onSale, opensAt, founderOffer, apply, claim, founder, checkoutUrl, portalUrl, dashboardUrl, handleWebhook,
     customerOf, linkCustomer, subscriptionsOf, stopRenewals, keepRenewals, endSubscriptions, stillRenews, forget,
     markOrganizationStop, sendStops, sendRefundStops, stopOrganization, keepOrganization, stopOriginsOf, organizationDeleted,
+    organizationArchived,
+    /** `hook({ outcome, event, subject, product, provider })` after each payment applied. */
+    whenApplied: (hook) => { appliedHooks.push(hook); },
+    /** `hook({ user, organization, event })` after each `payment` event kept (see the top of this file). */
+    whenPaid: (hook) => { paidHooks.push(hook); },
+    /** `hook({ user, organization, event })` after each refund applied, with whom it is known for here. */
+    whenRefunded: (hook) => { refundHooks.push(hook); },
+    /** `fn({ subject, product, price, user })` → the provider's discount id a checkout gets, or null. One. */
+    discountWith: (fn) => { discountHook = fn; },
     // Whether the provider can stop or end a subscription from here (the remote one can't): the
     // admin is told before a deletion what it cancels (api.js).
     cancels: canStop(),
@@ -1558,9 +1718,13 @@ export function registerBillingAdminApi(router, { instances, entitlements = null
  * group they administer, and the provider's webhook (no cookie: its signature
  * is what counts).
  */
-export function registerBillingApi(router, { billing, organizations = null, baseUrl = '', limiter = null }) {
+export function registerBillingApi(router, { billing, organizations = null, baseUrl = '', limiter = null, returnUrls = null }) {
   if (!billing?.enabled) return;
   const back = (path) => `${String(baseUrl).replace(/\/$/, '')}${path}`;
+  // Where the provider sends the browser back: the app's own page, or what the caller says (a
+  // host's module with the host's shell: the shell, with the module's window, audit billing-8).
+  const checkoutBack = returnUrls?.checkout ?? back('/?billing=done');
+  const portalBack = returnUrls?.portal ?? back('/');
   // Each checkout and portal link is a call to the provider (Paddle: up to three, and a new
   // transaction), on an API quota other apps of the same account share: braked per account.
   const brake = (ctx) => {
@@ -1594,7 +1758,7 @@ export function registerBillingApi(router, { billing, organizations = null, base
     brake(ctx);
     // Only an email that is theirs: the provider may file the purchase under it.
     const email = ctx.user.email && ctx.user.email_verified_at ? ctx.user.email : null;
-    const url = await billing.checkoutUrl(subject, body.product, { email, user: ctx.user, returnUrl: back('/?billing=done') });
+    const url = await billing.checkoutUrl(subject, body.product, { email, user: ctx.user, returnUrl: checkoutBack });
     sendJson(ctx.res, 200, { url });
   });
 
@@ -1602,7 +1766,7 @@ export function registerBillingApi(router, { billing, organizations = null, base
   router.post('/api/billing/portal', answeredOnce(async (ctx) => {
     const { subject } = await subjectOf(ctx);
     brake(ctx);
-    sendJson(ctx.res, 200, { url: await billing.portalUrl(subject, { returnUrl: back('/') }) });
+    sendJson(ctx.res, 200, { url: await billing.portalUrl(subject, { returnUrl: portalBack }) });
   }));
 
   router.get('/api/billing/subscriptions', (ctx) => {

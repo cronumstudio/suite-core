@@ -39,6 +39,14 @@ test('the shared components are the kit\'s, each with its states', () => {
   assert.match(rules, /\.kit-round-check::before \{ content: ""; position: absolute; inset: -10px; \}/);
 });
 
+test('a button chip takes a finger’s tap in 24 px at least, as the round check does (ui-movil-12)', () => {
+  // «2 completed» measured 23 px tall: under WCAG 2.5.8's 24. The drawing stays as it is.
+  const coarse = /@media \(pointer: coarse\) \{\s*button\.kit-chip \{ position: relative; \}\s*button\.kit-chip::before \{ content: ""; position: absolute; inset: -(\d+)px 0; \}\s*\}/.exec(rules);
+  assert.ok(coarse, 'an invisible margin above and below, with a finger only');
+  assert.ok(23 + 2 * Number(coarse[1]) >= 24 + 8, 'well over 24 with the 23 px drawn');
+  assert.doesNotMatch(rules, /^button\.kit-chip::before/m, 'with a mouse the chip is as it was');
+});
+
 test('the shared block names only the kit\'s and the brand\'s variables, never an app\'s', () => {
   const names = [...shared.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/var\(--([\w-]+)/g)].map((m) => m[1]);
   assert.ok(names.length > 20);

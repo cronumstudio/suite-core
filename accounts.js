@@ -330,6 +330,24 @@ export function createAccounts({
     FROM user_identities WHERE user_id = ? ORDER BY provider`, userId);
 
   /**
+   * The providers each of many accounts signs in through, as identitiesOf() orders them: Map
+   * userId → [provider], in one query (the admin's list of accounts, api.js; perf-srv-9). An
+   * account with none is left out.
+   */
+  function providersOfMany(userIds) {
+    const found = new Map();
+    const ids = [...new Set([...userIds].map(Number).filter(Number.isSafeInteger))];
+    if (!ids.length) return found;
+    for (const row of database.all(`SELECT user_id, provider FROM user_identities
+      WHERE user_id IN (SELECT value FROM json_each(?)) ORDER BY user_id, provider`, JSON.stringify(ids))) {
+      const id = Number(row.user_id);
+      if (!found.has(id)) found.set(id, []);
+      found.get(id).push(row.provider);
+    }
+    return found;
+  }
+
+  /**
    * Notes a sign-in through a provider, on the identity and the account, and
    * how it was (`method`: password, google, apple…) when the provider says.
    */
@@ -603,7 +621,7 @@ export function createAccounts({
     create, update, setPassword, checkPassword, checkEmail, checkName, checkRole, verify, signedIn, remove, byId, byUsername, byEmail,
     list, publicUser, activeAdmins,
     requestDeletion, cancelDeletion, dueForDeletion, markedIdentity, unmarkedIdentities,
-    byIdentity, linkIdentity, unlinkIdentity, identitiesOf, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
+    byIdentity, linkIdentity, unlinkIdentity, identitiesOf, providersOfMany, usedIdentity, unlinkedByEmail, firstUnlinkedAdmin,
     linkedByEmail, relinkIdentity,
     setVerifiedEmail, fromIdentity, freeUsername,
     whenCreated: (hook) => { created.push(hook); },

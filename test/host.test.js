@@ -76,7 +76,15 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal((await call('GET', '/alpha?x=1')).headers.get('location'), '/alpha/?x=1', 'a module’s path ends in a slash');
   assert.match((await call('GET', '/alpha/')).data, /<title>Alpha<\/title>/);
   assert.match((await call('GET', '/beta/')).data, /<title>Beta<\/title>/);
-  assert.match((await call('GET', '/beta/some/view')).data, /<title>Beta<\/title>/, 'its own paths fall back to its page');
+  // A path its page doesn't have is a 404 page with the way to the start, never its page drawing
+  // nothing; its API's own path is JSON (audit prod-9).
+  const deep = await call('GET', '/beta/some/view');
+  assert.equal(deep.status, 404, 'no module has routes in its path');
+  assert.match(deep.data, /<a class="kit-btn kit-btn--primary" href="\/">/);
+  assert.equal((await call('GET', '/beta/nope')).status, 404);
+  assert.deepEqual([(await call('GET', '/alpha/api')).status, (await call('GET', '/alpha/api')).data], [404, { error: 'not_found' }]);
+  assert.equal((await call('GET', '/alpha/.git/config')).data, 'Not found');
+  assert.match((await call('GET', '/beta/?list=12')).data, /<title>Beta<\/title>/, 'its page with its route in the query');
   assert.equal((await call('GET', '/alpha/js/main.js')).data.trim(), "export const where = 'alpha';");
   assert.equal((await call('GET', '/gamma/')).status, 404, 'no module there');
   const security = await call('GET', '/alpha/');
@@ -117,9 +125,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
     look: 'cronum',
     modules: [
       { mount: 'alpha', path: '/alpha/', id: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1', links: { item: { creates: true } },
-        settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], data: false, ai: false, about: true }, active: true },
+        settings: { sections: [{ id: 'items', icon: 'notes', label: 'settings.items.title' }], data: false, about: true }, active: true },
       { mount: 'beta', path: '/beta/', id: 'beta', name: 'Beta', color: '#7C3AED', icon: '/beta/icons/favicon.svg', links: { item: { creates: true } },
-        settings: { sections: [], data: false, ai: false, about: false }, active: true },
+        settings: { sections: [], data: false, about: false }, active: true },
     ],
   });
   assert.deepEqual((await call('GET', '/alpha/api/auth/config')).data.app.host, { id: 'work', name: 'Work', mount: 'alpha', base: '/alpha/', push: false, plans: false, billing: false },
@@ -160,6 +168,9 @@ test('a host serves each module at its own path, with one sign-in, one database 
   assert.equal(catalog.data['alpha.title'], 'Alpha');
   assert.equal(catalog.data.errors?.username_taken ?? catalog.data['errors.username_taken'], 'That username is already taken.');
   assert.equal((await call('GET', '/alpha/i18n/es.json')).status, 200);
+  const alphaUnder = (await call('GET', '/alpha/i18n/es.json?en')).data;
+  assert.equal(alphaUnder['$meta.fallback'], 'en', 'a module’s catalog with English under it, at its path (0.285.0)');
+  assert.equal(alphaUnder['alpha.title'] ?? alphaUnder.alpha?.title, (await call('GET', '/alpha/i18n/es.json')).data['alpha.title'] ?? 'Alpha');
   assert.equal((await call('GET', '/beta/i18n/es.json')).status, 404, 'not a language of beta');
   assert.match((await call('GET', '/alpha/js/app-version.js')).data, /APP_NAME_VERSION = '1\.0\.0'/);
   assert.equal((await call('GET', '/beta/version')).data.app, '2.0.0');
@@ -436,7 +447,12 @@ test('links between modules: each sees what they could see, created where it liv
     ref: 'beta:item:1', module: 'beta', type: 'item', app: 'Beta', color: '#7C3AED',
     title: 'Review it', state: 'open', where: 'Items', url: '/beta/?item=1',
   });
-  assert.equal((await call('POST', '/api/links', { from: 'beta:item:1', to: 'alpha:item:1' })).data.link.id, made.data.link.id, 'the same pair, once');
+  assert.equal(made.data.existed, undefined, 'a new one');
+  // The same pair again: that one, said so, with a 200 (audit of 6/11, sc-feat-11).
+  const again = await call('POST', '/api/links', { from: 'beta:item:1', to: 'alpha:item:1' });
+  assert.equal(again.status, 200);
+  assert.equal(again.data.existed, true);
+  assert.equal(again.data.link.id, made.data.link.id, 'the same pair, once');
   assert.equal((await call('GET', '/api/links?ref=beta:item:1')).data.links[0].item.title, 'Write the proposal', 'seen from both sides');
   assert.equal((await call('POST', '/api/links', { from: 'alpha:item:1', to: 'gamma:item:1' })).data.error, 'field_invalid');
 
@@ -448,6 +464,8 @@ test('links between modules: each sees what they could see, created where it liv
   const found = await call('GET', '/api/links/search?module=beta&type=item&q=Rev');
   assert.deepEqual(found.data.items.map((i) => i.title), ['Review it']);
   assert.deepEqual(found.data.places, [{ id: 'inbox', name: 'Inbox' }]);
+  assert.deepEqual((await call('GET', '/api/links/search?module=beta&type=item&q=Rev&places=0')).data.places, [],
+    'places=0: none, for "Link existing…" (audit of 6/11, sc-feat-15)');
 
   // Done together: completing one side completes the other in the same transaction; a plain link only shows it.
   const told = [];
@@ -632,8 +650,11 @@ test('the admin sees what each person uses: every module’s counts against its 
   await call('POST', '/api/auth/logout');
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
 
+  globalThis.alphaUsageAsked = [];
   const { status, data } = await call('GET', `/api/admin/users/${ana}/usage`);
   assert.equal(status, 200);
+  assert.deepEqual(globalThis.alphaUsageAsked, [{ activity: true }], 'the dialog shows when it last changed: it is asked');
+  delete globalThis.alphaUsageAsked;
   const [alpha, beta] = data.modules;
   assert.deepEqual(alpha, {
     mount: 'alpha', name: 'Alpha', on: true, active_at: '2026-10-21T18:22:00.000Z', failed: false, bytes: 3000,
@@ -702,9 +723,14 @@ test('each person sees their own usage, signed in on the web: nobody else’s, a
   await call('POST', '/alpha/api/items', { text: 'One' });
   await call('POST', '/alpha/api/items', { text: 'Two' });
 
+  globalThis.alphaUsageAsked = [];
   const { status, data } = await call('GET', '/api/me/usage');
   assert.equal(status, 200);
   assert.deepEqual(data.modules[0].counts[0], { id: 'tasks', count: 2, feature: 'items.max', limit: 4, share: 0.5 }, 'hers, not the admin’s');
+  // Settings › Plan shows no dates: the module is told it needn't find its last change, and none is said (perf-srv-5).
+  assert.deepEqual(globalThis.alphaUsageAsked, [{ activity: false }]);
+  assert.equal(data.modules[0].active_at, null);
+  delete globalThis.alphaUsageAsked;
   assert.equal(data.mcp.limit, 10);
   assert.deepEqual(data.peak, { share: 0.5, mount: 'alpha', name: 'Alpha', id: 'tasks' });
 
@@ -758,6 +784,24 @@ test('a host with one worker: /sw.js for every module, one version for the whole
   assert.equal(sw.status, 200);
   assert.match(sw.headers.get('content-type'), /javascript/);
   assert.equal(sw.headers.get('cache-control'), 'no-cache');
+  // Revalidated: the browser that has it gets a 304, as for /js/app-version.js (audit prod-13).
+  const etag = sw.headers.get('etag');
+  assert.match(etag, /^W\/"[0-9a-f]{12}-[0-9a-f]{8}"$/);
+  const kept = await call('GET', '/sw.js', undefined, { 'If-None-Match': etag });
+  assert.deepEqual([kept.status, kept.data, kept.headers.get('etag')], [304, '', etag]);
+  assert.ok(kept.headers.get('content-security-policy'), 'with the security headers');
+  assert.equal((await call('GET', '/sw.js', undefined, { 'If-None-Match': 'W/"old"' })).status, 200);
+
+  // The root's own addresses: `/`, its folders, and a 404 page for anything else (audit prod-9).
+  assert.match((await call('GET', '/')).data, /<title>Which one\?<\/title>/);
+  assert.equal((await call('GET', '/split')).headers.get('location'), '/split/');
+  for (const nobody of ['/nope', '/nope/deep', '/suite/']) {
+    const answer = await call('GET', nobody);
+    assert.equal(answer.status, 404, nobody);
+    assert.match(answer.data, /<title>This page doesn’t exist<\/title>/, nobody);
+  }
+  assert.deepEqual((await call('GET', '/api')).data, { error: 'not_found' });
+  assert.equal((await call('GET', '/.env')).data, 'Not found');
   const options = (() => {
     let given = null;
     // The worker as a browser runs it: sw-core's suiteWorker, here only what it is given.
@@ -768,6 +812,9 @@ test('a host with one worker: /sw.js for every module, one version for the whole
   for (const kept of ['/', '/index.html', '/split/', '/split/index.html', '/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/beta/']) {
     assert.ok(options.shell.includes(kept), `${kept} in its copy`);
   }
+  // The one app-version.js its pages read, the whole app's at the root, and not a module's own (pwa-8).
+  assert.ok(options.shell.includes('/js/app-version.js'), 'the root’s app-version.js in its copy');
+  assert.equal(options.shell.includes('/alpha/js/app-version.js'), false, 'a module’s own, which nobody reads there, left out');
   assert.deepEqual(options.push, { title: 'Work', icon: '/icons/icon-192.png', url: '/' });
   // Its version is the fingerprint of everything: code from the copy first, the kit once, and each
   // file's hash for the next release to take what didn't change.
@@ -813,8 +860,9 @@ test('a module’s notices with the host’s one worker open at its path (host-w
   assert.equal(tasks.publicKey, 'k');
   await tasks.deliver([], { title: 'List', url: '/?list=4', tag: 'lista-4', list_id: 4 });
   await tasks.deliver([], (sub) => ({ title: sub.lang }));
-  await tasks.send({}, { title: 'x', url: '/tasks/?list=5' });
-  await tasks.send({}, 'plain text');
+  await tasks.deliver([], { title: 'x', url: '/tasks/?list=5' });
+  await tasks.deliver([], 'plain text');
+  assert.equal(tasks.send, undefined, 'only deliver (audit sc-host-7)');
   assert.deepEqual(sent, [
     { title: 'List', url: '/tasks/?list=4', tag: 'tasks-lista-4', list_id: 4, module: 'tasks' },
     { title: 'es', url: '/tasks/', tag: 'tasks-notice', module: 'tasks' },
@@ -826,7 +874,7 @@ test('a module’s notices with the host’s one worker open at its path (host-w
 test('a module’s shell, read from its own worker, at its path (host-worker.js)', async () => {
   const { moduleShell } = await import('../host-worker.js');
   const dir = new URL('./fixtures/host/alpha/public', import.meta.url);
-  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/alpha/css/app.css'], optional: [], icon: null });
+  assert.deepEqual(moduleShell(fs.realpathSync(dir), 'alpha'), { shell: ['/alpha/', '/alpha/index.html', '/alpha/js/main.js', '/alpha/js/app-version.js', '/alpha/css/app.css'], optional: [], icon: null });
   assert.deepEqual(moduleShell(null, 'beta'), { shell: ['/beta/', '/beta/index.html'], optional: [] }, 'without a worker, its page');
 });
 
@@ -861,6 +909,38 @@ test('a module’s jobs stop when the host closes', async () => {
   const alpha = await import(list[0].entry.href);
   assert.equal(alpha.events.stopped, 1);
   assert.equal(alpha.events.flushed, 1, 'what its stop still had to do (the notices grouped), done before close() is');
+});
+
+test('a module whose start throws leaves the others served, and its jobs report to the alerts (audit sc-host-4, work-srv-4)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  const list = modules();
+  const lines = [];
+  const host = await createHost({
+    config: HOST, modules: list, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' },
+    handleSignals: false, exitOnError: false, log: (line) => lines.push(line),
+  });
+  const alpha = await import(list[0].entry.href);
+  // What the host's failed() reports, which goes to the alerts (ALERT_EMAIL) with the same name.
+  const reported = () => lines.filter((line) => / failed: Error: /.test(line)).map((line) => line.match(/^\[work\] (.+) failed: Error: ([^\n]+)/).slice(1));
+  alpha.events.throwOnStart = true;
+  try {
+    const server = await host.listen();
+    assert.deepEqual(reported(), [['alpha start', 'alpha could not start its jobs']]);
+    const base = `http://127.0.0.1:${server.address().port}`;
+    assert.match(await (await fetch(`${base}/beta/`)).text(), /<title>Beta<\/title>/, 'the others are served');
+
+    // What the host gives a module's start for its own jobs: under the module's name, to the alerts.
+    const { failed, safely, uses } = alpha.events.jobs;
+    assert.equal(typeof uses, 'function');
+    failed('reminders')(new Error('no database'));
+    safely('sweep', () => { throw new Error('EACCES'); })();
+    assert.equal(safely('fine', () => 1)(), undefined, 'what works says nothing');
+    assert.deepEqual(reported().slice(1), [['alpha reminders', 'no database'], ['alpha sweep', 'EACCES']]);
+  } finally {
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('what a host can’t run stops it, and says why', async () => {
@@ -1210,8 +1290,9 @@ test('a host with a daily summary: the root answers what each person has for tod
   assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, {
     date: '2026-11-04',
     modules: [{ mount: 'alpha', name: 'Alpha', color: '#EF4B2A', icon: '/alpha/icons/alpha.svg?v=1' }],
-    overdue: [item(1, 'Dentist', { date: '2026-11-03', mine: true })],
-    today: [item(2, 'Call Ana', { date: '2026-11-04', mine: true }), item(3, 'Water plants', { date: '2026-11-04', planned: true })],
+    overdue: [item(1, 'Dentist', { date: '2026-11-03' })],
+    overdue_total: 1,
+    today: [item(2, 'Call Ana', { date: '2026-11-04' }), item(3, 'Water plants', { date: '2026-11-04', planned: true })],
     done: [{ ...item(4, 'Later'), at: '2026-11-04T12:00:00.000Z', kind: 'completed' }],
   }, 'alpha\'s, under its path; beta has no summary');
   assert.deepEqual((await call('GET', '/api/day?date=2026-11-31')).data, { error: 'field_invalid', field: 'date' });
@@ -1230,7 +1311,7 @@ test('a host with a daily summary: the root answers what each person has for tod
 
   // A module turned off leaves the summary too.
   await call('PUT', '/api/me/modules', { active: ['beta'] });
-  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, { date: '2026-11-04', modules: [], overdue: [], today: [], done: [] });
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data, { date: '2026-11-04', modules: [], overdue: [], overdue_total: 0, today: [], done: [] });
 });
 
 test('a host with a daily summary and push checks its notices every minute (day.js has the rest)', async (t) => {
@@ -1255,6 +1336,58 @@ test('a host with a daily summary and push checks its notices every minute (day.
   t.mock.timers.tick(1_000);
   await new Promise((resolve) => { setImmediate(resolve); });
   assert.equal(host.suite.database.get('SELECT COUNT(*) AS n FROM host_day_notices').n, 0, 'a minute later, checked');
+});
+
+test('the daily summary asks whether someone uses each module from its own row, once a module (audit of 6/11, sc-host-11)', async (t) => {
+  const { host, call } = await startHost(t, { day: '/today/' });
+  await call('POST', '/alpha/api/auth/login', { username: 'admin', password: 'root-password' });
+  const seen = [];
+  const get = host.suite.database.get;
+  const all = host.suite.database.all;
+  host.suite.database.get = (sql, ...params) => { if (/host_modules/.test(sql)) seen.push(sql); return get(sql, ...params); };
+  host.suite.database.all = (sql, ...params) => { if (/host_modules/.test(sql)) seen.push(sql); return all(sql, ...params); };
+  t.after(() => { host.suite.database.get = get; host.suite.database.all = all; });
+  assert.equal((await call('GET', '/api/day?date=2026-11-04')).status, 200);
+  assert.equal(seen.length, 1, `alpha, the one module with a summary, asked once (${seen.length})`);
+  // And it says what modulesOf says: off once chosen off, on for one the host added since.
+  host.suite.database.get = get;
+  host.suite.database.all = all;
+  await call('PUT', '/api/me/modules', { active: ['beta'] });
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data.modules, []);
+  host.suite.database.run("DELETE FROM host_modules WHERE module = 'alpha'");
+  assert.deepEqual((await call('GET', '/api/day?date=2026-11-04')).data.modules.map((m) => m.mount), ['alpha'], 'chosen before alpha came: on');
+});
+
+test('a host forgets the titles of what was deleted for good a minute after it starts and every six hours (audit of 6/11, sc-feat-16)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const host = await createHost({
+    config: HOST, modules: modules(), env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' },
+    handleSignals: false, exitOnError: false, log: () => {},
+  });
+  await host.listen();
+  t.after(async () => {
+    t.mock.timers.reset();
+    await host.close();
+    host.suite.database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const admin = host.suite.database.get("SELECT * FROM users WHERE username = 'admin'");
+  host.suite.database.run("INSERT INTO alpha_items (user_id, text) VALUES (?, 'Plan')", admin.id);
+  host.suite.database.run("INSERT INTO beta_items (user_id, text) VALUES (?, 'Old task')", admin.id);
+  host.links.link(admin, 'alpha:item:1', 'beta:item:1');
+  const title = () => host.suite.database.get('SELECT b_title FROM host_links').b_title;
+  assert.equal(title(), 'Old task');
+  host.suite.database.run('DELETE FROM beta_items WHERE id = 1');
+  t.mock.timers.tick(59_000);
+  assert.equal(title(), 'Old task', 'not before a minute');
+  t.mock.timers.tick(1_000);
+  assert.equal(title(), null, 'a minute later, forgotten');
+  host.suite.database.run("INSERT INTO beta_items (id, user_id, text) VALUES (2, ?, 'Another')", admin.id);
+  host.links.link(admin, 'alpha:item:1', 'beta:item:2');
+  host.suite.database.run('DELETE FROM beta_items WHERE id = 2');
+  t.mock.timers.tick(6 * 3600 * 1000);
+  assert.equal(host.suite.database.get("SELECT b_title FROM host_links WHERE b_id = '2'").b_title, null, 'and six hours later');
 });
 
 test('a host without a daily summary has none of it, and its modules say their own morning notices', async (t) => {
@@ -1329,7 +1462,7 @@ test('a split view that isn’t a page of the host stops the start', async () =>
 });
 
 test('a module\'s sections of Settings, as the host lists them for the others: what is well formed', () => {
-  assert.deepEqual(moduleSettings(undefined), { sections: [], data: false, ai: false, about: false }, 'a module that declares none');
+  assert.deepEqual(moduleSettings(undefined), { sections: [], data: false, about: false }, 'a module that declares none');
   const listed = moduleSettings({
     sections: [
       { id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.short' },
@@ -1338,14 +1471,14 @@ test('a module\'s sections of Settings, as the host lists them for the others: w
       { id: 'nolabel' },
       null,
     ],
-    ai: true, about: 'yes',
+    ai: true, about: 'yes',   // `ai`, which no module used, is left out
   }, { data: true });
   assert.deepEqual(listed, {
     sections: [
       { id: 'templates', label: 'templates.title', icon: 'copy', hint: 'templates.short' },
       { id: 'line', label: 'settings.line.title' },
     ],
-    data: true, ai: true, about: false,
+    data: true, about: false,
   });
   // Its instruction for an assistant, a key of its catalog, for Your AI to show; anything else, none.
   assert.equal(moduleSettings({ standing: 'settings.standing.text' }).standing, 'settings.standing.text');
@@ -1431,6 +1564,56 @@ test('payments are the host\'s in every module: its routes at a module that sell
   assert.ok(Date.parse(noted) >= before - 1000 && Date.parse(noted) <= Date.now() + 1000, noted);
   assert.equal((await call('PATCH', '/api/me', { prefs: { lang: 'en' } })).data.user.prefs.founder_notice_at, noted, 'another preference leaves it');
   assert.equal((await call('GET', '/api/auth/me')).data.user.prefs.founder_notice_at, noted);
+});
+
+test('back from a checkout bought in a module’s window: the host’s shell with that window, never the module’s page alone (audit billing-8)', async (t) => {
+  const run = async (options) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-billing-'));
+    const host = await createHost({
+      config: {
+        ...HOST, modules: { live: true, billing: true },
+        plans: { free: { name: 'Free', features: {} }, pro: { name: 'Pro', features: {} } }, defaultPlan: 'free',
+        products: { 'pro-yearly': { plan: 'pro', kind: 'subscription', amount: 35, currency: 'EUR' } },
+      },
+      modules: modules(),
+      env: {
+        DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+        BILLING_PROVIDER: 'remote', BILLING_SECRET: 'a-shared-secret-of-the-accounts-service',
+      },
+      version: '9.9.9', handleSignals: false, exitOnError: false, log: () => {}, ...options,
+    });
+    const server = await host.listen();
+    const base = `http://127.0.0.1:${server.address().port}`;
+    let cookie = '';
+    const call = async (method, pathname, body) => {
+      const res = await fetch(base + pathname, {
+        method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('work_sid='));
+      if (set) cookie = set.split(';')[0];
+      return { status: res.status, data: await res.json().catch(() => null) };
+    };
+    try {
+      await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
+      const back = async (pathname) => {
+        const answer = await call('POST', pathname, { product: 'pro-yearly' });
+        assert.equal(answer.status, 200, pathname);
+        return new URL(answer.data.url, 'http://accounts.invalid').searchParams.get('return');
+      };
+      return { module: await back('/alpha/api/billing/checkout'), root: await back('/api/billing/checkout') };
+    } finally {
+      await host.close();
+      host.suite.database.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  assert.deepEqual(await run({ pages: [{ at: '/w/', dir: pageFolder(t), root: { except: ['modules'] } }] }), {
+    module: 'http://127.0.0.1/?open=%2Falpha%2F&billing=done', root: 'http://127.0.0.1/?billing=done',
+  }, 'with a shell at the root, the shell opens the module’s window and thanks (billingReturn)');
+  assert.deepEqual(await run({}), {
+    module: 'http://127.0.0.1/alpha/?billing=done', root: 'http://127.0.0.1/?billing=done',
+  }, 'without one, the module’s page as before');
 });
 
 /* ------------------- a page that shows several modules ------------------- */

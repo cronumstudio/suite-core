@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="{{lang}}" data-app="{{app.id}}"{{app.style}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>{{title}}</title>
+<link rel="icon" href="{{app.icon}}" type="image/svg+xml">
+<script src="/suite/theme.js"></script>
+<link rel="stylesheet" href="/suite/tokens.css">
+<link rel="stylesheet" href="/suite/kit.css">
+<style>
+  .kit-not-found { min-height: 70vh; display: grid; place-content: center; gap: 12px; padding-inline: 16px; text-align: center; }
+  .kit-not-found h1 { margin: 0; font-size: 1.5rem; }
+  .kit-not-found p { margin: 0; color: var(--kit-muted); }
+  .kit-not-found a { justify-self: center; margin-block-start: 8px; text-decoration: none; }
+</style>
+</head>
+<body>
+<main class="kit-not-found">
+<h1>{{title}}</h1>
+<p>{{text}}</p>
+<a class="kit-btn kit-btn--primary" href="/">{{home}}</a>
+</main>
+<footer class="kit-signature">
+{{signature}}
+</footer>
+</body>
+</html>

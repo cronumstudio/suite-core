@@ -64,6 +64,12 @@ export const isNested = (catalog) => Object.values(catalog || {})
   .some((value) => value && typeof value === 'object' && !isPlural(value));
 
 /**
+ * The key a catalog served with English under it says so with (`/i18n/es.json?en`, app.js): the
+ * browser's i18n.js then asks for nothing else. `$meta…` keys are no texts (flatten leaves them out).
+ */
+export const CATALOG_FALLBACK = '$meta.fallback';
+
+/**
  * The catalog a browser gets: the suite's texts with the app's over them, in
  * the app's own shape (nested or dotted), so its t() finds both the same way.
  */
