@@ -18,7 +18,7 @@ import { openDatabase } from '../db.js';
 import { migrate, ensureColumn } from '../migrate.js';
 import {
   HttpError, createRouter, readJson, serveStatic, securityHeaders, checkOrigin, sendError,
-  parseCookies, serializeCookie, str, clientIp, isoDate,
+  parseCookies, serializeCookie, str, clientIp, isoDate, dateOnly, color, intInRange,
 } from '../http.js';
 import { createKeySet } from '../jwt.js';
 
@@ -256,6 +256,55 @@ test('isoDate: a date that exists, in a sensible range, or null', () => {
   for (const bad of ['2026-1-5', '26-10-23', '2026/10/23', '2026-10-23T10:00:00Z', 'tomorrow', '', 20261023, null, undefined, {}]) {
     assert.equal(isoDate(bad), null, String(bad));
   }
+  assert.equal(isoDate('0050-06-15', { minYear: 0 }), '0050-06-15', 'a year under 100 is that year, not 1950');
+  assert.equal(isoDate('0000-02-29', { minYear: 0 }), '0000-02-29', 'year 0 had a leap day');
+  assert.equal(isoDate('0100-02-29', { minYear: 0 }), null, 'year 100 had none');
+});
+
+/** What a validator refuses, as [status, code, extra]; null when it takes the value. */
+const refusal = (validate) => {
+  try { validate(); } catch (error) { return [error.status, error.code, error.extra]; }
+  return null;
+};
+
+test('dateOnly: a day as a client sends one, refused with the codes the caller answers', () => {
+  for (const nothing of [null, undefined, '']) assert.equal(dateOnly(nothing), null, String(nothing));
+  assert.equal(dateOnly('2026-11-20'), '2026-11-20');
+  assert.equal(dateOnly('2026-11-20T23:30:00+05:00'), '2026-11-20', 'an instant: its first ten characters');
+  assert.deepEqual(refusal(() => dateOnly(20261120, { field: 'day' })), [400, 'field_invalid', { field: 'day' }], 'no text');
+  const tasks = { field: 'due_date', code: 'date_format', invalid: 'field_invalid' };
+  assert.deepEqual(refusal(() => dateOnly('20/11/2026', tasks)), [400, 'date_format', { field: 'due_date' }], 'not written as a day');
+  assert.deepEqual(refusal(() => dateOnly(' 2026-11-20', tasks)), [400, 'date_format', { field: 'due_date' }], 'nothing before it');
+  assert.deepEqual(refusal(() => dateOnly('2026-02-31', tasks)), [400, 'field_invalid', { field: 'due_date' }], 'not on the calendar');
+  assert.deepEqual(refusal(() => dateOnly('2206-10-01', { field: 'end_date', code: 'date_invalid' })),
+    [400, 'date_invalid', { field: 'end_date' }], "out of isoDate's years, the same code");
+  assert.equal(dateOnly('2206-10-01', { maxYear: 9999 }), '2206-10-01', 'the years can be widened');
+  assert.equal(dateOnly('0050-01-01', { minYear: 0, maxYear: 9999 }), '0050-01-01');
+});
+
+test('color: #rrggbb lowercased, a fallback when there is none, the caller’s code otherwise', () => {
+  assert.equal(color('#A1B2C3'), '#a1b2c3');
+  assert.equal(color(null, { fallback: '#2564cf' }), '#2564cf');
+  assert.equal(color(undefined), null);
+  for (const bad of ['red', '#abc', '#12345g', ' #123456', '', 0x123456, {}]) {
+    assert.deepEqual(refusal(() => color(bad)), [400, 'field_invalid', {}], String(bad));
+  }
+  assert.deepEqual(refusal(() => color('red', { code: 'color_invalid', field: 'color' })), [400, 'color_invalid', { field: 'color' }]);
+  assert.deepEqual(refusal(() => color('red', { code: 'invalid_color' })), [400, 'invalid_color', {}], 'no field said without one');
+});
+
+test('intInRange: an integer that may be left out, refused with the caller’s codes and bounds', () => {
+  assert.equal(intInRange(null), null);
+  assert.equal(intInRange('', { fallback: 7 }), 7);
+  assert.equal(intInRange('12', { field: 'days' }), 12);
+  assert.equal(intInRange(-3), -3, 'without bounds, any integer');
+  assert.deepEqual(refusal(() => intInRange('1.5', { field: 'n' })), [400, 'field_invalid', { field: 'n' }]);
+  const projects = { code: 'integer_invalid', range: 'field_out_of_range' };
+  assert.deepEqual(refusal(() => intInRange('x', { field: 'n', ...projects })), [400, 'integer_invalid', { field: 'n' }]);
+  assert.deepEqual(refusal(() => intInRange(101, { field: 'progress', min: 0, max: 100, ...projects })),
+    [400, 'field_out_of_range', { field: 'progress', min: 0, max: 100 }]);
+  assert.deepEqual(refusal(() => intInRange(0, { field: 'days', min: 1, max: 365 })),
+    [400, 'field_invalid', { field: 'days', min: 1, max: 365 }], 'out of bounds: the code, unless another is given');
 });
 
 test('client address: X-Forwarded-For only as far as the trusted proxies go', () => {
