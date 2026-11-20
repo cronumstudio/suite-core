@@ -19,9 +19,10 @@ import { rateLimitSchema } from './rate-limit.js';
 import { entitlementsSchema, entitlementUsageSchema } from './entitlements.js';
 import { usersSchema, identitiesSchema, identityMethodSchema, accountDeletionSchema, identityDeletionSchema } from './accounts.js';
 import { organizationsSchema } from './organizations.js';
-import { auditSchema } from './audit.js';
+import { auditSchema, auditActionSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
+import { affiliatesSchema } from './affiliates.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
@@ -31,7 +32,13 @@ import { idempotencySchema } from './idempotency.js';
 import { connectionsSchema, connectionConsentsSchema } from './workos-accounts.js';
 import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
 import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
-import { strangerInvitesSchema } from './stranger-invites.js';
+import { strangerInvitesSchema, strangerInvitesKeepSchema } from './stranger-invites.js';
+import { adminNoticesSchema } from './admin-notices.js';
+
+/** Migration 33: `email = ? COLLATE NOCASE` on users read the whole table (audit sc-data-25). */
+function usersEmailSchema(d) {
+  d.exec('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE)');
+}
 
 /**
  * Migration 19: before 0.48.0 both of Paddle's environments wrote "paddle", and the only Paddle
@@ -99,4 +106,14 @@ export const SUITE_MIGRATIONS = Object.freeze([
   // push_subscriptions.session_key (0.255.0) went into version 13, which databases from before had
   // already run: pushSchema again, which only adds what is missing.
   { version: 30, name: 'push-session-key', up: pushSchema },
+  // The log by action, for Activity's list of actions and its filter (audit.js).
+  { version: 31, name: 'audit-action-index', up: auditActionSchema },
+  // Invitations to addresses without an account outlive whoever sent them (stranger-invites.js).
+  { version: 32, name: 'stranger-invites-keep', up: strangerInvitesKeepSchema },
+  // Accounts by their email, as sign-in, offers by email and imports look for them, in any case.
+  { version: 33, name: 'users-email-index', up: usersEmailSchema },
+  // What the admin's notices say of new accounts and payments, for the daily summary (admin-notices.js).
+  { version: 34, name: 'admin-notice-events', up: adminNoticesSchema },
+  // The affiliates' codes, who brought whom, their commissions, payouts and months to give (affiliates.js).
+  { version: 35, name: 'affiliates', up: affiliatesSchema },
 ]);

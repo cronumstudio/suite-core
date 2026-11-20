@@ -54,7 +54,7 @@ import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, ho
 import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
 import { menuOnPress } from './drag.js';
 import { nativeReady, hostShellAddress } from './native.js';
-import { billingReturn, lastDay } from './plan.js';
+import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
 
@@ -320,6 +320,16 @@ export function createShell({
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
   element.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && element.hasAttribute('data-drawer')) closeDrawer(); }, { signal });
+  // Left for somewhere else, it closes: Back changed the list behind it (in Work's shell too, whose
+  // history moves its windows: Back, and only that, on its window), or a phone's tab in Work, outside
+  // the scrim, put another window in front, and coming back found it still open (ui-movil-7).
+  window.addEventListener('popstate', () => closeDrawer(), { signal });
+  if (!embedded) window.addEventListener('hashchange', () => closeDrawer(), { signal });
+  const outOfView = embedded && typeof MutationObserver === 'function'
+    ? new MutationObserver(() => { if (element.closest('[hidden]')) closeDrawer(); }) : null;
+  for (let at = outOfView ? root : null; at && at !== document.documentElement; at = at.parentElement) {
+    outOfView.observe(at, { attributes: true, attributeFilter: ['hidden'] });
+  }
   // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
   // opens this module's: the page asks with `kit:settings` on this frame's window, and may name
   // the section (`detail.start`), one of this module's chosen in Settings in another frame.
@@ -896,6 +906,8 @@ export function createShell({
       modulePaths = new Set();
       dropRail();
       asModule(true);
+      // The host's worker opens this module's notices here, in this app (pwa-7).
+      import('./worker.js').then((w) => w.markInstalledAlone(mount)).catch(() => {});
       return null;
     }
     // The host's home opens the module used last.
@@ -908,9 +920,12 @@ export function createShell({
     const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
       // The host's mark, and nothing more: as a link to the page that chooses the modules it only
-      // took people out of what they were doing, and the modules are chosen in Settings.
-      el('span', { class: 'kit-rail__home', role: 'img', 'aria-label': host.name || t('kit.modules.rail') },
-        host.icon ? el('img', { src: host.icon, alt: '', width: 32, height: 32 }) : icon('grid')),
+      // took people out of what they were doing, and the modules are chosen in Settings. Where the
+      // host's app is its one-document page (`host.shell`, Cronum Work's at /), a link to it: a
+      // module's page alone (`?alone`) had no way back to the windows (audit of 6/11, work-web-7).
+      el(host.shell ? 'a' : 'span', {
+        class: 'kit-rail__home', ...(host.shell ? { href: '/', title: host.name || null } : { role: 'img' }), 'aria-label': host.name || t('kit.modules.rail'),
+      }, host.icon ? el('img', { src: host.icon, alt: '', width: 32, height: 32 }) : icon('grid')),
       ...shown.map((m) => el('a', {
         class: 'kit-rail__module', href: m.path, title: m.name, 'aria-current': m.mount === mount ? 'page' : null,
         style: m.color ? `--module: ${m.color}` : null,
@@ -1086,6 +1101,7 @@ export function createShell({
     if (destroyed) return;
     destroyed = true;
     listening.abort();
+    outOfView?.disconnect();
     if (openPlan) setPlanOpener(null, { replacing: openPlan });
     for (const swallow of swallowing) document.removeEventListener('click', swallow, { capture: true });
     swallowing.clear();

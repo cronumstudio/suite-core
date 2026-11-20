@@ -70,7 +70,7 @@ test('the log provider writes the message where whoever runs the install can rea
 });
 
 /** A fake SMTP server: what it offers, what it refuses, and what it received. */
-async function fakeSmtp(t, { offer = ['AUTH PLAIN LOGIN'], refuseRcpt = false } = {}) {
+async function fakeSmtp(t, { offer = ['AUTH PLAIN LOGIN'], refuseRcpt = false, onStarttls = null } = {}) {
   const received = [];
   const server = net.createServer((socket) => {
     const session = { lines: [], data: false, auth: null };
@@ -106,6 +106,7 @@ async function fakeSmtp(t, { offer = ['AUTH PLAIN LOGIN'], refuseRcpt = false } 
         else if (verb === 'RCPT') { session.to = line; say(refuseRcpt ? '550 5.1.1 No such user' : '250 OK'); }
         else if (verb === 'DATA') { session.data = true; say('354 Go ahead'); }
         else if (verb === 'QUIT') { say('221 Bye'); socket.end(); }
+        else if (verb === 'STARTTLS' && onStarttls) onStarttls(say, socket);
         else say('502 Not implemented');
       }
     });
@@ -151,6 +152,20 @@ test('SMTP: sign-in with LOGIN, and every refusal said', async (t) => {
 
   await assert.rejects(createMailer({ provider: 'smtp', host: '127.0.0.1', port: 9, secure: 'none', from: 'a@example.com' })
     .send({ to: 'b@example.com', subject: 's', text: 't' }), MailError);
+});
+
+test('SMTP: STARTTLS that goes quiet ends in time, and nothing in clear rides past it (audit sc-host-2)', async (t) => {
+  // Says "go ahead" and then nothing: the TLS handshake never gets an answer.
+  const silent = await fakeSmtp(t, { offer: ['STARTTLS'], onStarttls: (say) => say('220 2.0.0 Ready to start TLS') });
+  const config = { provider: 'smtp', host: '127.0.0.1', port: silent.port, secure: 'starttls', from: 'a@example.com' };
+  const started = Date.now();
+  await assert.rejects(checkSmtp(config, { timeoutMs: 300 }), (err) => err instanceof MailError && /encrypt in time/.test(err.message));
+  assert.ok(Date.now() - started < 3000, 'the deadline holds for the handshake too');
+
+  // A reply sent in the clear behind "220 go ahead" would answer the first encrypted command.
+  const injecting = await fakeSmtp(t, { offer: ['STARTTLS'], onStarttls: (say, socket) => socket.write('220 Ready\r\n250 injected\r\n') });
+  await assert.rejects(checkSmtp({ ...config, port: injecting.port }, { timeoutMs: 1000 }),
+    (err) => err instanceof MailError && /more than it was asked/.test(err.message));
 });
 
 test('SMTP: checking the server and the account without sending anything', async (t) => {

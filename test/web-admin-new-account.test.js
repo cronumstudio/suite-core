@@ -85,11 +85,11 @@ test('Users › New account, passwords here: everything at once, the email confi
   assert.equal(hidden(more), false);
 
   control(english['fields.email']).value = ' Tester@Example.com ';
-  control(english['fields.display_name']).value = 'Fiverr tester';
+  control(english['fields.display_name']).value = 'A tester';
   control(english['fields.role']).value = 'user';
   control(english['fields.password']).value = 'A-long-secret-1';
   until.value = '2027-01-31';
-  control(english['admin.users.planNote']).value = 'Fiverr';
+  control(english['admin.users.planNote']).value = 'Store review';
 
   const form = dialog.find('form')[0];
   form.dispatch('submit', { preventDefault() {} });
@@ -98,8 +98,8 @@ test('Users › New account, passwords here: everything at once, the email confi
   assert.equal(error.textContent, english['errors.email_taken'], 'an email that has an account, said where it was typed');
   assert.equal(dialog.open, true, 'and the dialog stays open to correct it');
   assert.deepEqual(posted[0], {
-    email: 'Tester@Example.com', display_name: 'Fiverr tester', role: 'user', password: 'A-long-secret-1', email_verified: true,
-    plan: 'pro', ends_at: new Date('2027-01-31T23:59:59').toISOString(), note: 'Fiverr',
+    email: 'Tester@Example.com', display_name: 'A tester', role: 'user', password: 'A-long-secret-1', email_verified: true,
+    plan: 'pro', ends_at: new Date('2027-01-31T23:59:59').toISOString(), note: 'Store review',
   }, 'no username: the server takes one from the email');
 
   form.dispatch('submit', { preventDefault() {} });

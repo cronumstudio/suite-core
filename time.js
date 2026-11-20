@@ -18,17 +18,30 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+/** Names asked of knownTimeZone() and what each resolved to (null: none), at most ZONES_KEPT of them. */
+const zones = new Map();
+const ZONES_KEPT = 500;
+
 /**
  * A time zone as the IANA names it ("Europe/Madrid"), canonical
  * ("europe/madrid" → "Europe/Madrid"), or null for what isn't one.
  */
 export function knownTimeZone(zone) {
   if (typeof zone !== 'string' || !zone || zone.length > 64) return null;
+  // Asked for each date read (dayIn, daysSince) and each request (inZoneOf): building a formatter
+  // to check it took ~250 µs a time, half of an agenda's CPU (audit of 6/11, perf-srv-1). What a
+  // zone resolves to never changes while the process runs, so it is kept; `prefs.tz` is written by
+  // the client, so the names kept are capped, the oldest going first.
+  if (zones.has(zone)) return zones.get(zone);
+  let known;
   try {
-    return new Intl.DateTimeFormat('en-US', { timeZone: zone }).resolvedOptions().timeZone;
+    known = new Intl.DateTimeFormat('en-US', { timeZone: zone }).resolvedOptions().timeZone;
   } catch {
-    return null;
+    known = null;
   }
+  if (zones.size >= ZONES_KEPT) zones.delete(zones.keys().next().value);
+  zones.set(zone, known);
+  return known;
 }
 
 /** The server's own zone: the container's TZ, or what Node resolves. */
@@ -88,6 +101,20 @@ export function daysSince(instant, zone = currentZone()) {
   const from = Date.parse(`${dayIn(zone, instant)}T12:00:00Z`);
   const to = Date.parse(`${dayIn(zone)}T12:00:00Z`);
   return Math.round((to - from) / 86400000);
+}
+
+/**
+ * A stored instant as ISO (`2026-11-04T10:00:00.000Z`), or null for what isn't one. ISO with its
+ * zone is read as it says; an SQLite stamp (`YYYY-MM-DD HH:MM:SS`, `datetime('now')`) and ISO
+ * without a zone are UTC, as SQLite writes them. (Tasks' and Projects' day.js had it twice, word
+ * for word, as `isoOf`: audit of 6/11, sc-feat-14.)
+ */
+export function isoInstant(stamp) {
+  if (stamp == null || stamp === '') return null;
+  const text = String(stamp);
+  const zoned = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text);
+  const ms = Date.parse(zoned ? text : `${text.replace(' ', 'T')}Z`);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
 const HOUR = 3600 * 1000;
