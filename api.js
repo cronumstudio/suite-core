@@ -236,8 +236,10 @@ export function registerAuthApi(router, {
  * subscribe (the VAPID public key), registering and forgetting a device, the
  * list for Settings and a test notice to every device of the person, in their
  * language. What each real notice says, and to whom, is the app's.
+ * `deviceOf(ctx)` is the device the request's session was opened from (a phone's
+ * app, devices.webSessions), or null.
  */
-export function registerPushApi(router, { push, texts, appName, sessionKeyOf = () => null }) {
+export function registerPushApi(router, { push, texts, appName, sessionKeyOf = () => null, deviceOf = () => null }) {
 
   router.get('/api/push/config', (ctx) => {
     requireUser(ctx);
@@ -275,9 +277,28 @@ export function registerPushApi(router, { push, texts, appName, sessionKeyOf = (
     sendJson(ctx.res, 200, { ok: true });
   });
 
+  /**
+   * The person's devices with notices: the browsers, and with push.native the phones with the app,
+   * which the test below reaches too (`phone: true`, by their device's id and name; the one this
+   * request comes from, inside the app, `current`). The list said «no device» while the test rang
+   * a phone.
+   */
   router.get('/api/push/devices', (ctx) => {
     const user = requireUser(ctx);
-    sendJson(ctx.res, 200, push.devices(user.id));
+    const here = deviceOf(ctx);
+    const phones = (push.phones?.(user.id) || []).map((phone) => ({ ...phone, phone: true, ...(here != null && phone.id === here ? { current: true } : {}) }));
+    sendJson(ctx.res, 200, [...push.devices(user.id), ...phones]);
+  });
+
+  /**
+   * One of the person's phones off their notices, from Settings › Notifications: its token goes and
+   * nothing more reaches it; the phone stays signed in, and its app asks for them again only when
+   * it is opened there with notices allowed, as a browser turned on again.
+   */
+  router.delete('/api/push/phones/:id', (ctx) => {
+    const user = requireUser(ctx);
+    if (!push.removePhone?.(user.id, Number(ctx.params.id))) throw notFound('device_not_found');
+    sendJson(ctx.res, 200, { ok: true });
   });
 
   /** A test notice to every device of the person. → { sent, gone, failed } */
@@ -403,11 +424,13 @@ export function registerAccountMailApi(router, {
  * @param {Function} [deps.providerPassword]  (ctx, user, password) → the password at the identity
  *   provider checked, when the account has one there (identityCheck)
  * @param {object} [deps.deletion]      from createAccountDeletion(): deleting one's own account
+ * @param {object} [deps.devices]       from createDevices(): a session a phone's app opened signs
+ *   the phone out when it is closed
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
   limiter = null, twoFactor = null, localPasswords = true, idp = null, deletion = null, push = null,
-  providerPassword = null,
+  providerPassword = null, devices = null,
 }) {
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
@@ -457,13 +480,22 @@ export function registerProfileApi(router, {
       sendJson(ctx.res, 200, sessions.list(user.id, ctx.sessionToken));
     });
 
-    /** Signs one of those devices out. */
+    /**
+     * Signs one of those devices out. A session a phone's app opened (devices.webSessions) is the
+     * phone's: closing it signs the phone out too (devices.js revoke), its notices and the reminders
+     * it shows with it. Closing only the session let the app open another at once, with its device
+     * token, and the phone went on getting notices.
+     */
     router.delete('/api/me/sessions/:key', (ctx) => {
       const user = requireUser(ctx);
       const atProvider = sessions.idpSessionsOf?.(user.id, { key: ctx.params.key }) || [];
+      const device = devices ? sessions.deviceOfKey?.(user.id, ctx.params.key) ?? null : null;
       if (!sessions.revoke(user.id, ctx.params.key)) throw notFound('session_not_found');
       // Its notices too: they carry task titles and list names to that device's locked screen (pwa-2).
       push?.forgetSession(user.id, ctx.params.key);
+      if (device != null && devices.revoke(user.id, device)) {
+        record(ctx, 'device.revoke', 'device', device, { by: 'owner' });
+      }
       revokeAtProvider(idp, atProvider);
       record(ctx, 'auth.session.revoke', 'session', null);
       sendJson(ctx.res, 200, { ok: true });

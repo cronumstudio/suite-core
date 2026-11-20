@@ -78,7 +78,7 @@ async function inWork(run, { lang = 'en' } = {}) {
 const notes = (file) => import(`${SITE}notes/suite/${file}`);
 const options = (more = {}) => ({
   app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
-  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }], ...more,
+  onSettings: () => {}, ...more,
 });
 const counts = (...targets) => targets.map((target) => target.listenerCount());
 
@@ -338,8 +338,9 @@ test('every script and sheet of the kit is in the service worker\'s copy, but th
   // left out, the installed app opened blank without a signal.
   const sw = fs.readFileSync(new URL('sw-core.js', WEB), 'utf8');
   const cached = new Set([.../SUITE_KIT_FILES = \[([^\]]*)\]/.exec(sw)[1].matchAll(/'\/suite\/([^']+)'/g)].map((m) => m[1]));
-  // The worker itself, and pages never opened offline: admin, connecting a device and the affiliate's panel.
-  const ownPages = new Set(['sw-core.js', 'admin.js', 'connect.js', 'oauth.css', 'affiliates.js']);
+  // The worker itself, and pages never opened offline: admin, connecting a device, the affiliate's panel
+  // and a module's public page (shared.html), which is in no app's shell: its script comes with the page's own.
+  const ownPages = new Set(['sw-core.js', 'admin.js', 'connect.js', 'oauth.css', 'affiliates.js', 'public-frame.js']);
   const files = fs.readdirSync(WEB).filter((name) => /\.(js|css)$/.test(name) && !ownPages.has(name));
   assert.deepEqual(files.filter((name) => !cached.has(name)), []);
 });

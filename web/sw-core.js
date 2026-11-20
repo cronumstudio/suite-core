@@ -78,10 +78,10 @@ var SUITE_KIT_FILES = [
   '/suite/fonts/geist-latin.woff2', '/suite/fonts/geist-latin-ext.woff2',
   '/suite/fonts/geist-mono-latin.woff2', '/suite/fonts/space-grotesk-latin.woff2', '/suite/fonts/inter-latin.woff2',
   '/suite/theme.js', '/suite/base.js', '/suite/dom.js', '/suite/i18n.js', '/suite/api.js', '/suite/icons.js', '/suite/ui.js',
-  '/suite/shell.js', '/suite/plan-return.js', '/suite/update.js', '/suite/live.js', '/suite/mount.js', '/suite/local.js', '/suite/outbox.js', '/suite/settings-queue.js',
+  '/suite/shell.js', '/suite/plan-return.js', '/suite/update.js', '/suite/app-start.js', '/suite/live.js', '/suite/mount.js', '/suite/local.js', '/suite/outbox.js', '/suite/settings-queue.js',
   '/suite/signin.js', '/suite/signin-form.js', '/suite/settings.js', '/suite/plan.js', '/suite/usage-view.js', '/suite/markdown.js', '/suite/qr.js', '/suite/drag.js', '/suite/swipe.js', '/suite/links.js', '/suite/shared.js', '/suite/people.js', '/suite/share.js', '/suite/invitation.js', '/suite/ownership.js',
   '/suite/public-page.js', '/suite/public-page.css',
-  '/suite/keyboard.js', '/suite/agents.js', '/suite/images.js', '/suite/files.js', '/suite/time-zone.js', '/suite/palette.js', '/suite/pickers.js',
+  '/suite/keyboard.js', '/suite/agents.js', '/suite/images.js', '/suite/files.js', '/suite/time-zone.js', '/suite/days.js', '/suite/palette.js', '/suite/pickers.js',
   '/suite/push.js', '/suite/worker.js', '/suite/native.js', '/suite/celebrate.js', '/suite/signal.js',
   // The windows of a host with one document (Cronum Work at /w/): without them the app opens blank offline.
   '/suite/windows.css', '/suite/windows.js',
@@ -476,8 +476,8 @@ function suiteWorker(options) {
 
     // A page asked for by something other than a navigation (the browser checking it before
     // installing the app, a prefetch) is the browser's to fetch, as without a worker. Taken for
-    // a file, a fetch that failed with no copy came back as an error, and Chrome said Work's
-    // split view had no manifest when installing it from there.
+    // a file, a fetch that failed with no copy came back as an error, and Chrome once said a page
+    // of Work's had no manifest when installing it from there.
     if (suiteIsPage(local)) return;
 
     // Any file of the copy is code there too: the host's own pages' (Work's /w/work.js, /w/shell.css)
@@ -563,9 +563,9 @@ function suiteWorker(options) {
   self.addEventListener('notificationclick', function (event) {
     event.notification.close();
     var data = event.notification.data || {};
-    // A path the server wrote is the app's: in a host it goes under the module's.
+    // A path the server wrote is the app's: in a host it goes under the module's. Without one, the app.
     var given = data.url && data.url.indexOf('/') === 0 && data.url.indexOf('//') !== 0 ? data.url : null;
-    var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/?app', scope));
+    var target = given ? (suiteLocal(given, scope) === null ? suiteAt(given, scope) : given) : (push.url || suiteAt('/', scope));
     if (modules.length) {
       event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
         .then(function (clients) { return suiteOpenModule(clients, target, data, moduleOf, holds); }));
@@ -621,7 +621,7 @@ function suiteKeptPage(kept) {
 
 /**
  * A host's notice tapped: the module it came from. Its page already open gets
- * the notice and the focus (in a frame of the split view, the view gets the
+ * the notice and the focus (in a frame of a host's page, that page gets the
  * focus); otherwise a page of the app open goes there, and without one a new
  * window opens it.
  *

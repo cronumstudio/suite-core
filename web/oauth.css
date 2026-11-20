@@ -15,10 +15,7 @@
   --app-on: #FFFFFF;
   --yolk-300: #FFD95C;
   --yolk-500: #FFC21A;
-  --yolk-600: #FFB000;
   --yolk-700: #FFA812;
-  --ink: #16130E;
-  --cream: #FFF7E6;
 
   --page: linear-gradient(135deg, var(--yolk-300) 0%, var(--yolk-500) 55%, var(--yolk-700) 100%);
   --page-solid: var(--yolk-500);

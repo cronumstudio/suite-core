@@ -23,26 +23,25 @@
  * its mark. On a phone the drawer keeps its width without the rail: the app's
  * icon and name are a button whose menu has the other modules and, last, Settings.
  *
- * A host with a split view (host.js `split`) has its views on the rail, over
- * Settings: this module alone, or two to four at once on the host's page. There
- * each module is a frame (base.js FRAMED), drawn without the rail: the page says
- * which module each frame shows, and the app's name keeps Settings at hand. A
- * host with a calendar (host.js `calendar`) has it on the rail too, just over
- * the split view: its page, with what has a date in every module.
+ * A page of the host's may hold a module in a frame (base.js FRAMED: Cronum
+ * Work's shell, for a module it can't mount), drawn without the rail: the page
+ * says which module the frame shows, and the app's name keeps Settings at hand.
+ * A host with a calendar (host.js `calendar`) has it on the rail too, just over
+ * Settings: its page, with what has a date in every module.
  *
  * In a window of Cronum Work's one-document shell (`embedded`, mount.js), the
  * page is Work's and every module shares it: the rail, the person, the host's
  * notices and the history of the installed app are the shell's, drawn once, so
  * the frame draws none of them and asks the host nothing. Its sidebar, and its
  * fold, are the module's own and stay. Settings come when Work asks the window
- * (`kit:settings` on `root`), as the split view asks a frame.
+ * (`kit:settings` on `root`), as it asks a frame.
  *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
  *     foot: { create: { items: [newNotebookItem, newGroupItem] }, trash: { onClick: openTrash } },
  *     search: { label: searchLabel, onInput: (text) => findNotes(text) },
- *     onSettings: openSettings, onSignOut: signOut,
+ *     onSettings: openSettings,
  *   });
  *   shell.nav.append(navItem({ label: allLabel, iconName: 'notes', count: 24, current: true }));
  *   shell.list.append(…); shell.detail.append(…); shell.showDetail();
@@ -57,6 +56,8 @@ import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
+import { paintLive } from './live.js';
+import { ownerOf } from './mount.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -64,8 +65,6 @@ const BESIDE = 640;
 const RAIL_KEY = 'host.modules';
 /** The founder's notice closed on this device, for the date it named: it comes back for another. */
 const FOUNDER_KEY = 'host.founder-offer';
-/** How many modules the host's split view shows at once: one, two or three side by side, four in a grid. */
-export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 
 /**
  * @param {object} options
@@ -88,10 +87,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   replace the word, and no module of the suite gives one. Escape empties it, Enter in the drawer
  *   closes it so the results show, and «/» goes to it, said nowhere. `shell.search` is its field.
  * @param {Function} [options.onSettings]
- * @param {Function} [options.onSignOut]
+ * @param {Function} [options.onSignOut]     accepted, and does nothing: signing out is in Settings
  * @param {Function} [options.onBack]        what closes the detail: its ←, its × and Escape (default: showList)
  * @param {Function} [options.onFold]        (folded) the sidebar folded or came back: the views' width changed
- * @param {Array}  [options.accountItems]    the app's own entries of the account menu
  * @param {Node}   [options.root]
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  * @param {Function} [options.active]       () → whether this frame has the keyboard when the focus is on no
@@ -100,8 +98,8 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   is the one in front (`data-focus="true"` on the window that holds `root`, windows.js)
  */
 export function createShell({
-  panes = 'split', detail: detailMode = 'beside', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
-  onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
+  panes = 'split', detail: detailMode = 'beside', app, create = null, foot = null, search = null, onSettings = null,
+  onBack = null, onFold = null, root = document.body, dragTabs = {},
   embedded = false, active = null, onNew = null,
 }) {
   // Every listener the frame adds goes with destroy(), through this one signal (all but the
@@ -114,12 +112,7 @@ export function createShell({
   flushSettings();
   const swallowing = new Set();
   let destroyed = false;
-  let user = null;
   const appIcon = (size) => el('img', { class: 'kit-appicon', src: at(app.icon || '/icons/favicon.svg'), alt: '', width: size, height: size });
-  // The person opens Settings, where everything about the account is, signing out included; a
-  // menu only when the app has entries of its own for it or there is no Settings. There is no
-  // button for the person: the app's icon and name open Settings (the switcher), or the rail does.
-  const direct = Boolean(onSettings) && !accountItems.length;
 
   /* --------------------------------- pieces --------------------------------- */
 
@@ -353,9 +346,9 @@ export function createShell({
   for (let at = outOfView ? root : null; at && at !== document.documentElement; at = at.parentElement) {
     outOfView.observe(at, { attributes: true, attributeFilter: ['hidden'] });
   }
-  // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
-  // opens this module's: the page asks with `kit:settings` on this frame's window, and may name
-  // the section (`detail.start`), one of this module's chosen in Settings in another frame.
+  // In a frame of a host's page (Work's shell, for a module it can't mount), the page asks for this
+  // module's Settings with `kit:settings` on this frame's window, and may name the section
+  // (`detail.start`): one of this module's, chosen in another's Settings.
   if (FRAMED && onSettings) {
     window.addEventListener(SETTINGS_EVENT, (ev) => {
       closeDrawer();
@@ -375,7 +368,7 @@ export function createShell({
     }, { signal });
   }
   // In Work's shell one window object is every module's: the shell asks the one it means on the
-  // body of its window (ctx.root), naming the section or not, as the split view asks a frame.
+  // body of its window (ctx.root), naming the section or not, as it asks a frame.
   if (embedded && onSettings) {
     root.addEventListener(SETTINGS_EVENT, (ev) => {
       closeDrawer();
@@ -765,18 +758,11 @@ export function createShell({
 
   /* --------------------------------- account -------------------------------- */
 
-  /** The account menu's entries; with Settings and nothing of the app's own, Settings alone. */
-  function accountMenuItems() {
-    const settings = onSettings ? { label: t('kit.account.settings'), iconName: 'sliders', onClick: () => { closeDrawer(); onSettings(); } } : null;
-    if (direct) return [settings];
-    return [
-      ...accountItems,
-      settings,
-      user?.role === 'admin' ? { label: t('kit.account.admin'), iconName: 'shield', href: '/admin', external: true } : null,
-      onSignOut ? 'separator' : null,
-      onSignOut ? { label: t('kit.account.signOut'), iconName: 'logout', danger: true, onClick: onSignOut } : null,
-    ].filter(Boolean);
-  }
+  /**
+   * Settings, last in the switcher's menu: everything about the account is there, signing out
+   * included. There is no button for the person: the app's icon and name open them, or the rail does.
+   */
+  const settingsItem = () => ({ label: t('kit.account.settings'), iconName: 'sliders', onClick: () => { closeDrawer(); onSettings(); } });
 
   /** A menu from `anchor`, or none if it was open: a second tap closes it. */
   function toggleMenu(anchor, items) {
@@ -787,13 +773,10 @@ export function createShell({
     menu(anchor, items);
   }
 
-  // Who is signed in is in Settings (the account's section), so the menu doesn't say it.
-  const openAccountMenu = (anchor) => toggleMenu(anchor, accountMenuItems());
-
   /* --------------------------------- modules -------------------------------- */
 
-  // This page's module, when it is one of a host's: its path's single segment.
-  const mount = /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(BASE)?.[1] || null;
+  // This page's module, when it is one of a host's: its path's single segment (mount.js ownerOf).
+  const mount = ownerOf(BASE);
   let rail = null;
   let switcher = null;
   let switcherIcon = null;   // its arrow, or Settings' icon where it opens them
@@ -830,7 +813,7 @@ export function createShell({
   }, { capture: true, signal });
 
   /** Nothing but Settings for the switcher (no other modules, nor the calendar): a tap opens them. */
-  const onlySettings = () => direct && !others.length && !calendarPath;
+  const onlySettings = () => !others.length && !calendarPath;
 
   /**
    * The app's icon and name are the switcher wherever the rail doesn't show: an app on its own, a
@@ -840,9 +823,9 @@ export function createShell({
    * come with a switcher that goes.
    */
   function syncSwitcher() {
-    // In a frame of the host's split view there is no rail: the view says which module is in it.
+    // In a frame of a host's page there is no rail: the page says which module is in it.
     const known = answered || !mount;
-    const want = !embedded && Boolean(onSettings || accountItems.length || onSignOut)
+    const want = !embedded && Boolean(onSettings)
       && (FRAMED || !beside() || (known && !rail));
     if (want && !switcher) {
       switcher = el('button', { type: 'button', class: 'kit-side__app' });
@@ -858,7 +841,7 @@ export function createShell({
           // The host's calendar, which the rail has where it shows.
           calendarPath ? { label: t('kit.calendar.title'), iconName: 'calendar', href: calendarPath } : null,
           others.length || calendarPath ? 'separator' : null,
-          ...accountMenuItems(),
+          settingsItem(),
         ].filter(Boolean));
       }, { signal });
       switcherIcon = icon('chevron-down');
@@ -890,14 +873,6 @@ export function createShell({
     switcherIcon = next;
   }
 
-  /** The views of the host's split view (at `page`): this module alone, as now, or two to four at once. */
-  function splitMenuItems(page) {
-    return SPLIT_LAYOUTS.map((n) => ({
-      label: t(`kit.split.layout${n}`), iconName: `layout-${n}`, current: n === 1,
-      href: n === 1 ? null : `${page}?layout=${n}&from=${encodeURIComponent(mount)}`,
-    }));
-  }
-
   /** Takes the rail away, and the sidebar's content back to where it was. */
   function dropRail() {
     if (!rail) return;
@@ -913,7 +888,7 @@ export function createShell({
       dropRail();
       return asModule(false);
     }
-    // A frame of the host's split view: the view has the modules, and remembers what it shows.
+    // A frame of a host's page: the page has the modules, and remembers what it shows.
     if (FRAMED) {
       others = [];
       calendarPath = null;
@@ -940,7 +915,7 @@ export function createShell({
     calendarPath = host.calendar || null;
     modulePaths = new Set(modules.map((m) => new URL(m.path, window.location.href).pathname));
     // With one module too: the rail has Settings, where more are chosen (Settings › Modules).
-    const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
+    const settingsLabel = t('kit.account.settings');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
       // The host's mark, and nothing more: as a link to the page that chooses the modules it only
       // took people out of what they were doing, and the modules are chosen in Settings. Where the
@@ -957,17 +932,10 @@ export function createShell({
       host.calendar ? el('a', {
         class: 'kit-rail__calendar', href: host.calendar, title: t('kit.calendar.title'), 'aria-label': t('kit.calendar.title'),
       }, icon('calendar')) : null,
-      // The split view, where the host has one: this module alone (now), or two to four at once.
-      host.split ? el('button', {
-        type: 'button', class: 'kit-rail__split', title: t('kit.split.title'), 'aria-label': t('kit.split.title'),
-        'aria-haspopup': 'menu', 'aria-expanded': 'false',
-        onClick: (ev) => toggleMenu(ev.currentTarget, splitMenuItems(host.split)),
-      }, icon('layout-2')) : null,
       // Settings at its foot, in place of the person's button.
-      onSettings || accountItems.length || onSignOut ? el('button', {
+      onSettings ? el('button', {
         type: 'button', class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,
-        ...(direct ? {} : { 'aria-haspopup': 'menu' }),
-        onClick: (ev) => (direct ? onSettings() : openAccountMenu(ev.currentTarget)),
+        onClick: () => onSettings(),
       }, icon('sliders')) : null);
     if (!side.querySelector(':scope > .kit-side__main')) {
       const main = el('div', { class: 'kit-side__main' });
@@ -1045,12 +1013,19 @@ export function createShell({
     }
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
     window.addEventListener('resize', syncSwitcher, { signal });
-    // Back to the page, the host is asked again; in a frame of the split view the view has the rail, not the frame.
+    // Back to the page, the host is asked again; in a frame of a host's page that page has the rail, not the frame.
     if (!FRAMED) document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
-    document.addEventListener('kit-modules', () => refreshModules(), { signal });
-    // A look chosen in another tab, or in another frame of the split view: this page follows at once.
+    // A module turned on or off, or put in order, in Settings: the modules as they are now come with
+    // it (settings.js modulesChanged), the device's own without a signal, and the rail follows them
+    // at once; the host is asked after, and with no signal nothing more changes.
+    document.addEventListener('kit-modules', (ev) => {
+      const given = ev.detail?.answer;
+      if (!destroyed && !embedded && Array.isArray(given?.modules) && given.modules.some((m) => m?.mount === mount)) paintRail(given);
+      refreshModules();
+    }, { signal });
+    // A look chosen in another tab, or in another frame of a host's page: this page follows at once.
     window.addEventListener('storage', (ev) => {
-      // Closed in another tab, or another frame of the split view: gone here too.
+      // Closed in another tab, or another frame of a host's page: gone here too.
       if (ev.key === FOUNDER_KEY) hideBanner('founder-offer');
       if (ev.key !== LOOK_KEY) return;
       if (ev.newValue === 'clean') document.documentElement.setAttribute('data-look', 'clean');
@@ -1061,17 +1036,38 @@ export function createShell({
   /* --------------------------------- notices -------------------------------- */
 
   const shown = new Map();
-  /** A banner under the header, one per id: showing the same id again replaces it. */
-  function showBanner(id, options) {
-    hideBanner(id);
+  /** The banners given as a function: id → { write, words }, what wrote it and the words it drew. */
+  const written = new Map();
+  /** Draws a banner in place of the one of its id. */
+  function drawBanner(id, options) {
+    shown.get(id)?.remove();
     const node = bannerNode({ ...options, onClose: options.onClose ? () => { shown.delete(id); options.onClose(); } : null });
     shown.set(id, node);
     banners.append(node);
     return node;
   }
+  /**
+   * A banner under the header, one per id: showing the same id again replaces it. `options` may be
+   * a function that writes them, in the language of the moment: asked now, and shown again with the
+   * same words (its text and its action's) the one on screen stays as it is. The frame keeps it
+   * until it is closed or hidden (`keptBanners()`), for a frame drawn again in a new language.
+   */
+  function showBanner(id, options) {
+    if (typeof options !== 'function') {
+      written.delete(id);
+      return drawBanner(id, options);
+    }
+    const value = options();
+    const words = `${value.text}|${value.action?.label || ''}`;
+    const same = shown.has(id) && written.get(id)?.words === words;
+    written.set(id, { write: options, words });
+    if (same) return shown.get(id);
+    return drawBanner(id, { ...value, onClose: value.onClose ? () => { written.delete(id); value.onClose(); } : null });
+  }
   function hideBanner(id) {
     shown.get(id)?.remove();
     shown.delete(id);
+    written.delete(id);
   }
 
   /**
@@ -1106,9 +1102,7 @@ export function createShell({
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
-    live.dataset.state = state;
-    live.title = t(`kit.live.${state}`);
-    live.setAttribute('aria-label', t(`kit.live.${state}`));
+    paintLive(live, state);
   }
 
   /* -------------------------------- teardown -------------------------------- */
@@ -1202,8 +1196,11 @@ export function createShell({
     get detailOpen() { return element.hasAttribute('data-detail-open'); },
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
-    setUser: (next) => { user = next; },
+    // Accepted, and does nothing: the modules still call it, and who is signed in is Settings' to say.
+    setUser: () => {},
     setLive, showBanner, hideBanner, refreshModules, destroy,
+    /** The banners on screen that were given as a function: id → it, for a frame drawn anew to show them again. */
+    keptBanners: () => new Map([...written].map(([id, { write }]) => [id, write])),
   };
 }
 

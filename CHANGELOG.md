@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.313.0 — 2026-11-20
+## 0.317.0 — 2026-11-20
 
 - **Breaking for installs: the two catalogs besides `cronum-work` are named by how their plans are
   held** (`plans.js`). `cronum-per-group`: Free and Pro, which belong to a group: granted to an
@@ -41,6 +41,146 @@ change an interface and a patch never does. Apps pin a version through the submo
   `organizations.seatRoles`. New tests: the catalogs' and their plans' names are fixed, since
   installs and grants hold them; an app or a host whose `PLANS` names no catalog stops with that
   one message; `app.accent` on each page the suite draws; `--allow`.
+
+## 0.316.0 — 2026-11-20
+
+Offers by email kept by the sharing engine for every module, with one rule that never tells the owner whose an
+address is; grouped notices written once; and a module's public page started by the kit.
+
+### Sharing
+- **`createAddressOffers({ db, table, kinds, … })`** writes a module's offers by email once: kept under the address
+  whether an account has it or not, listed to the owner by the address (whole to whoever typed it, masked to anyone
+  else) under the offer's negative id, changed and taken back by that row with the account waiting behind it, and
+  claimed by whoever signs up with the address once it is confirmed (a read first, a write only when something
+  waits).
+- **A kind with `addressOffers`** lets the engine do this itself: the same notices for the owner either way, the
+  offers in `list()` and `sharesOf(…, { viewer })`, `PATCH`/`DELETE …/-<id>` (and `setPermission`/`remove` with a
+  negative id), `accept()` claiming first, and `claimAddressOffers(userId)`.
+- **One rule for every kind**: an offer under an address goes only when the invitation it brought is accepted or
+  declined, or its owner takes it back. Nothing else the account does moves it (answering an offer made by name,
+  leaving, a permission given by name), so the owner's list never tells whose an address is. Kinds without
+  `addressOffers`, and every earlier signature, are unchanged.
+- **`share-mail.js shareNotices({ suite, get, texts, url, kinds })`**: createSharing's `notify` as every module wrote
+  it: the email, the email to an address without an account, and the push in the kit's words, tagged by the thing.
+  Each module's own parts are options (mail kind, tag, address, no emoji for strangers).
+
+### Grouped notices
+- **`notice-groups.js createNoticeGroups({ send, delayMs, failed })`**: notices grouped by key for a few seconds (25 s
+  by default, `NOTICE_DELAY_MS`) and sent as one once the key goes quiet; each change restarts the wait, `flush(key)`
+  sends one now and `flushAll()` sends what waits when a module stops. A send the timer started that fails goes to
+  `failed` (by default the log) instead of becoming an unhandled rejection.
+
+### The public page
+- **`startPublicPage({ key, draw, icon, words, title, failed, refusedAs, openClass, reread })`** (`web/public-frame.js`,
+  new): a module's public page started by the kit. It reads the page by its token and draws the bar, the foot with
+  Cronum's brand, «Nothing to see here», a frame the owner's plan doesn't allow, and the embedded page; the module's
+  `draw(data, { page, embedded })` gives only its content. Options cover where modules differ (a page that couldn't
+  load with its retry, the refused look, rereading while in sight). It is a file of its own, not in the worker's copy,
+  so a tab whose old worker still has the old `public-page.js` gets it from the network.
+- **One rule for "embedded"**: `embed=1` in the address, or framed (`embeddedPage`).
+- `public-page.css`: the brand under a refused frame is one rule for both looks, and the refused look "as the gone
+  page says it" is the kit's. `test/public-page-dom.js` runs a module's public page in the fake DOM.
+
+## 0.315.0 — 2026-11-20
+
+- **A module turned on or off without a signal leaves or joins the rail at once** (`web/settings.js`,
+  `web/shell.js`): Settings › Modules kept the change for later and said so, but the rail kept the
+  module until the signal came back, while the theme was painted at once. `modulesChanged(answer)`
+  sends the modules as they are now in the `kit-modules` event (`detail.answer`, the shape of GET
+  `/api/modules`: the server's, or this device's own while the change waits), for the switches, the
+  order and the rail's buttons alike, and a module's rail draws from it before it asks the host.
+  Cronum Work's shell reads the same answer.
+- **Settings › Notifications lists the phones with the app** (`push.js`, `native-push.js`, `api.js`,
+  `sessions.js`, `web/settings.js`): with `push.native` the test notice reached a phone while the
+  list said no device had notices on. `GET /api/push/devices` now gives the browsers and then each
+  working phone with a token (`phone: true`, its device's `id`, the `name` the app gave it, its
+  `platform`, when the token came; the phone this request comes from, inside the app, `current`).
+  Each phone has «Remove» (`DELETE /api/push/phones/:id`, a person's own only): its token and the
+  reminders it said it shows go, nothing more reaches it, and it stays signed in; the app asks for
+  notices again when it is opened there with them allowed, as a browser turned on again does. Inside
+  the app its own phone says «This device» and has no «Remove»: there the phone's settings decide.
+  `createPush` adds `phones()` and `removePhone()`, `createNativePush` `phonesOf()` and
+  `forgetPhone()`, `createSessions` `deviceOf(token)`, `registerPushApi` takes `deviceOf`; new
+  catalog key `kit.notifications.phoneApp`.
+- **Closing a phone app's session signs the phone out** (`api.js`, `sessions.js`, `app.js`): in Settings
+  › Where you're signed in, «Sign out» on the session a phone's app opened (devices.webSessions) only
+  closed that session; the app opened another at once with its device token, and the phone went on
+  getting notices. `DELETE /api/me/sessions/:key` now revokes the device behind such a session
+  (`devices.revoke`: its other sessions, its notices' token and the reminders it shows go, and the app
+  asks to sign in again), noted in the audit as `device.revoke`. A browser's session closes as before.
+  `registerProfileApi` takes `devices`; `createSessions` adds `deviceOfKey(userId, key)`.
+- **In a host, Settings › Notifications names the whole app** (`web/settings.js`): «Tasks can notify
+  you on this device» became «Cronum Work can…», as every notice comes from the host's one worker.
+- **«Replace» and «Erase my data» wait for the password too** (`web/settings.js`): the red button lit
+  up once the word was typed, with the password still empty; the server refused it
+  (`wrong_password`) and nothing went, but the button said otherwise. Where the person signs in with
+  a password (`has_password` here, `method: "password"` at WorkOS) it waits for one.
+- **Back to a view, each window in its place** (`web/windows.js`): from «one big and two stacked» to
+  2×2 and back, the two stacked windows traded places, because the windows shown were read column by
+  column while a shape is filled row by row. `applyColumns()` reads them by rows, and takes
+  `places`, each shape's windows the last time it showed, which `writeLayout()` keeps beside its
+  bars' shares and `readPlaces(storage, shape)` reads: each module still offered goes back to its
+  place, the focused window stays (in a place nobody has back, else the last one), and the rest fill
+  as before. `createWindows().columns()` passes them.
+
+## 0.314.0 — 2026-11-20
+
+What every module wrote again, written once in the kit; what the kit still carried and nobody used; and
+a payout's date on the person's own day.
+
+### Pieces the modules share now
+- **`createPlace({ hash, active, reload, own, base })`** (`web/mount.js`): a module's place in Cronum Work's
+  window or on its own page, the contract each `place.js` wrote by hand. Where modules read the shell
+  differently, an option (`active`, an opt-in `reload`); what is only the module's goes in `own`.
+- **`web/app-start.js`**: what a module's page does as it starts: `applyAppTheme` (with `ifOther`) and
+  `followSystemTheme`, `savedTheme`, `watchAppVersion`, `askedSettings`, `markCroppedCanvas` (as it was), and
+  for Cronum Work's shell `rgbOf` and `PAINT_ATTRIBUTES`. In the worker's copy of the kit.
+- **`web/days.js`**: `dayKey(date)`, the day a moment falls on on this device's clock (`YYYY-MM-DD`; today is
+  `dayKey(new Date())`, not UTC's day), and `addDays(day, n)` and `daysBetween(a, b)`, counted in UTC as the
+  server does. No DOM and no imports, so an offline model can use it. The kit's stamps and usage view count
+  their days with it.
+- **`i18n.js reportLanguage(user, lang, { send })`**: the browser's language into `prefs.lang_seen`, once per
+  change. **`live.js paintLive`**, **`native.js openAddress(url, { hash })`** (the one builder of `/?open=`
+  but the worker's), and **`links.js mountOf`** reads a base with `mount.js ownerOf`, as the shell now does.
+- **The frame's `showBanner`** also takes a function; the same words leave a banner as it is, and
+  `keptBanners()` lets a frame drawn again in another language show it again. Options as an object work as
+  before.
+- **Settings**: `aboutExtra` takes `{ text, tips }`, catalog keys the kit draws as every module drew them (a
+  function still works), and **`summaryOf(parts)`** joins what a copy holds by Intl's list of units («2
+  proyectos y 8 tareas»), leaving out the empty ones.
+
+### One's people wait for an answer, in every module
+`createSharing`'s `peopleOf` counts whoever offered the person something only once the person accepted it:
+an offer not answered makes nobody known to anybody. The `inviters` option goes (a module that still passes
+it changes nothing); `knownTo` is as it was.
+
+### What nobody used goes
+- **createShell has no account menu**: the app's icon and the rail's Settings open Settings, as they did in
+  every app. `accountItems` is ignored; `onSignOut` and `shell.setUser()` are still accepted and do nothing;
+  `kit.account.menu` and `kit.account.admin` go.
+- **The split view's last pieces**: createHost's `split` option (ignored if given), the rail's split button
+  (`SPLIT_LAYOUTS`, `.kit-rail__split`), the icons `layout-2`…`layout-4` and `kit.split.*`. `layout-1` and
+  `framedModules` stay; the comments and docs say "a frame of a host's page" where they said the split view.
+- **Six texts nothing read**: `admin.actions.mcp_token_create`, `admin.actions.mcp_token_revoke`,
+  `kit.update.available`, `kit.plan.until`, `errors.device_not_allowed`, `$meta.locale`.
+- `web/oauth.css` drops `--yolk-600`, `--cream` and `--ink`.
+- A notice that names no address opens the app at its path, not at `?app`, which means nothing any more.
+
+### Fixes
+- **Admin › Affiliates**: a payout's date starts on the person's day, not UTC's (from midnight to one or two in
+  the morning in Madrid it said the day before).
+
+### Tools and tests
+- **`tools/i18n.mjs unused`** lists a catalog's keys that no code reads, naming each prefix the code builds keys
+  from (`unusedKeys()` is exported). A module's keys are read by its own code and by the kit: pass both.
+- **`tools/dup-check.mjs`**: the code two modules or more both wrote. Every run of 8 significant lines
+  (comments, blank lines, imports and lone brackets left out, spaces collapsed) that two modules have counts once,
+  and the runs are joined into blocks. `duplicates(roots)` is for a host's test to keep that count from growing;
+  the command takes `name=folder` pairs and `--max`, and fails over it.
+- Two tests that failed now and then give the same answer every run: the offers compared in inherit-and-offers
+  keep a clock of their own, and the 413 test no longer races the server's close with bytes still unread.
+- `docs/web-kit.md` says what `local.js` gives a module that draws from its copy (`deviceLocal`, the patience,
+  `inTime`, `createDeviceCopy`, `drawableFor`), and lists `days.js` and `app-start.js`.
 
 ## 0.312.0 — 2026-11-20
 

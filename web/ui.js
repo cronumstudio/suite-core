@@ -17,6 +17,7 @@ import { icon, cronumRing } from './icons.js';
 import { markOwned } from './mount.js';
 import { focusOnTap, rideKeyboard } from './keyboard.js';
 import { nativeInfo } from './native.js';
+import { dayKey } from './days.js';
 
 /* --------------------------------- notices -------------------------------- */
 
@@ -233,8 +234,6 @@ export function saveState(initial = 'saved') {
 
 /* --------------------------------- stamps --------------------------------- */
 
-const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-
 /**
  * When something was done, as an item's detail says it: «hoy a las 15:52», «ayer a las 09:10»,
  * «12 mar a las 14:00» (a year only when it isn't this one), in the interface language. Two-digit
@@ -246,9 +245,9 @@ export function stampTime(value) {
   const time = dateFormat(currentLanguage() === 'en' ? { hour: 'numeric', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
     .format(date);
   const now = new Date();
-  const day = localDay(date);
-  if (day === localDay(now)) return t('kit.stamps.at', { day: relativeDay(0), time });
-  if (day === localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) {
+  const day = dayKey(date);
+  if (day === dayKey(now)) return t('kit.stamps.at', { day: relativeDay(0), time });
+  if (day === dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) {
     return t('kit.stamps.at', { day: relativeDay(-1), time });
   }
   const label = dateFormat(date.getFullYear() === now.getFullYear()

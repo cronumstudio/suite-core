@@ -1,7 +1,8 @@
 /* A public page (a module's shared.html: a list, a note, a project, for anyone with its link),
    over the kit's tokens and base (tokens.css, kit.css), the same in every module (audit of 6/11,
    tasks-web-8, tasks-web-16): the page's ground, its column, the bar over it with the way to start
-   one's own, the footer under it, and what it says when it isn't there or can't be embedded. The
+   one's own, the footer under it, and what it says when it isn't there or can't be embedded, as
+   public-frame.js draws them. The
    module's own sheet, linked after this one, draws what its page shows, and may set:
      --sp-glow    the glow at the top (the yolk of "now", by default)
      --sp-accent  the colour the footer's link takes under the pointer (the module's, by default)
@@ -165,11 +166,17 @@ html, body { height: auto; overflow: visible; overscroll-behavior: auto; }
   background: var(--kit-panel); border: 1px solid var(--kit-border); border-radius: 16px;
 }
 .sp-refused p { margin: 0; color: var(--kit-muted); font-size: 15px; line-height: 1.45; }
+/* Or as the gone page says it (public-frame.js `refusedAs: 'gone'`): its dot, the words and the way to
+   the page, at the top, in sight in a frame of any height. */
+.sp-gone.sp-not-here { padding-top: 20px; display: grid; justify-items: center; gap: 12px; }
+.sp-not-here p { margin: 0; }
+/* Under either, the page's foot with Cronum's brand, closer and centred: in a frame it shows only here. */
+.sp-refused + .sp-foot, .sp-not-here + .sp-foot { margin-top: 20px; padding-top: 14px; justify-content: center; }
 
 /* ---------------------------------- gone ---------------------------------- */
 
 /* A page nobody has, or turned off; or one the server couldn't give just now. */
 .sp-gone { text-align: center; padding-top: 18vh; }
-.sp-gone__dot, .sp-gone .sp-hero__dot { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--kit-now); }
+.sp-gone .sp-hero__dot { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--kit-now); }
 .sp-gone h1 { font-family: var(--cr-font-display); font-size: 28px; margin: 16px 0 8px; overflow-wrap: anywhere; }
 .sp-gone p { color: var(--kit-muted); margin: 0; }

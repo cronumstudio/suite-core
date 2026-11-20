@@ -5,6 +5,8 @@
  *                                                            all of the below for an app, as its tests run them
  *   node server/suite/tools/i18n.mjs parity [dir]            every language says the same things
  *   node server/suite/tools/i18n.mjs used <dir> <src>…       every key the code uses exists
+ *   node server/suite/tools/i18n.mjs unused [--skip <file>]… <dir> <src>…
+ *                                                            the keys of <dir> that no code under <src> reads
  *   node server/suite/tools/i18n.mjs hardcoded <src>…        no text for people written in the code
  *   node server/suite/tools/i18n.mjs hardcoded --server [--skip <file>]… <src>…
  *                                                            no text in another language on the server
@@ -18,6 +20,19 @@
  * the plural forms each language uses (from Intl.PluralRules; "many", which
  * only big round numbers take, may be left to "other"), exact forms like "=0"
  * wherever English has them, and nothing left as "TODO".
+ *
+ * Unused: the keys of `<dir>/en.json` alone (not merged) that no code under the
+ * folders given reads (unusedKeys). The suite's are read by the kit, every module
+ * and Work; a module's by its own code and by the kit, which builds `errors.…`,
+ * `fields.…` and `data.tables.…` keys and reads every suite key a module
+ * overrides (a `suite` folder is only read when it is named):
+ *
+ *   node tools/i18n.mjs unused i18n . ../tasks ../projects ../notes ../next ../work
+ *   node server/suite/tools/i18n.mjs unused public/i18n public server scripts server/suite --skip smoke-test.js
+ *
+ * A key the code builds (`errors.${code}`) keeps every key under what it starts
+ * with: the output names each such prefix, where it is built and how many keys
+ * it keeps, which only reading that code can clear.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -481,6 +496,60 @@ export function typography(dir, languages = LANGUAGES, { allow = [] } = {}) {
   return [...new Set(found)];
 }
 
+/* ------------------------------- unused keys ------------------------------ */
+
+/** What a key looks like inside a literal: dotted words (`kit.cancel`, `errors.not_found`). */
+const KEY_LIKE = /[\w-]+(?:\.[\w-]+)+/g;
+/** The text a key built in the code starts with: dotted words, the last one maybe cut (`kit.split.layout`). */
+const PREFIX_LIKE = /^[\w-]+\.[\w.-]*$/;
+
+/**
+ * The keys of a catalog that no code reads → { unused: [key…], prefixes: [{ prefix, files, keys }] }.
+ *
+ * `keys` are the catalog's (a module's own, or the suite's); `dirs` the folders whose code may read
+ * them: a module's keys its own code and the kit's, the suite's the kit's and every module's and
+ * Work's (tests, others' code and `suite` folders found inside them are left out, as sources()
+ * does, and the files `skip` names).
+ * A key is read where a literal of the code names it in full (t('…'), an object of keys, data-i18n
+ * and data-i18n-attr in the HTML), comments and regular expressions aside. Code that builds keys
+ * keeps every key under what it starts with: a template literal (`errors.${code}`), a string
+ * joined with `+`, or a string of two dotted words or more ending in a dot (`'home.modules.'`,
+ * handed to code that adds the rest). `prefixes` names each, the files that build it and how many
+ * keys it keeps that nothing names in full: those may be unused too, and only reading that code
+ * says. Nor is a key read through a name made some other way seen: check before taking one out.
+ */
+export function unusedKeys(keys, dirs, { skip = [] } = {}) {
+  const named = new Set();
+  const built = new Map();
+  const builds = (prefix, file) => built.set(prefix, new Set([...(built.get(prefix) || []), file]));
+  for (const file of sources(dirs, skip)) {
+    const source = readFileSync(file, 'utf8');
+    if (file.endsWith('.html')) {
+      for (const [key] of source.matchAll(KEY_LIKE)) named.add(key);
+      continue;
+    }
+    const { masked, literals } = scanLiterals(source);
+    for (const { start, text, kind } of literals) {
+      const [first, ...rest] = text.split('${}');
+      // A literal that is a key, dotted or not (a plan's name, 'Free'), or that has dotted ones in it.
+      for (const part of [first, ...rest]) {
+        named.add(part);
+        for (const [key] of part.matchAll(KEY_LIKE)) named.add(key);
+      }
+      if (!PREFIX_LIKE.test(first)) continue;
+      // Just after the literal's closing quote (or backtick) in the masked code, which keeps every place.
+      const end = masked.indexOf(masked[start], start + 1) + 1;
+      const joined = /^\s*\+/.test(masked.slice(end, end + 20));
+      if ((kind === 'template' && rest.length) || joined || (first.endsWith('.') && first.split('.').length > 2)) builds(first, file);
+    }
+  }
+  const prefixes = [...built].map(([prefix, files]) => ({
+    prefix, files: [...files], keys: keys.filter((key) => key.startsWith(prefix) && !named.has(key)).length,
+  })).filter((entry) => entry.keys > 0).sort((a, b) => a.prefix.localeCompare(b.prefix));
+  const unused = keys.filter((key) => !named.has(key) && !prefixes.some(({ prefix }) => key.startsWith(prefix)));
+  return { unused, prefixes };
+}
+
 /* -------------------------------- an app's -------------------------------- */
 
 /**
@@ -560,11 +629,33 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     } else if (command === 'kit-words') {
       problems = dir ? kitDuplicates(path.resolve(dir)) : ['Use: kit-words <dir>'];
       if (!problems.length) console.log('No key repeats a word of the kit');
+    } else if (command === 'unused') {
+      const skip = [];
+      const [catalogDir, ...readers] = args.filter((arg, i) => {
+        if (arg === '--skip') skip.push(args[i + 1]);
+        return arg !== '--skip' && args[i - 1] !== '--skip';
+      });
+      if (!catalogDir) {
+        problems = ['Use: unused [--skip <file>]… <dir> <source folders…>'];
+      } else {
+        const keys = Object.keys(flatten(JSON.parse(readFileSync(path.resolve(catalogDir, 'en.json'), 'utf8'))));
+        const folders = (readers.length ? readers : ['.']).map((folder) => path.resolve(folder));
+        const { unused, prefixes } = unusedKeys(keys, folders, { skip });
+        if (prefixes.length) console.log('Kept because the code builds keys under them (each key under one counts as read):');
+        for (const { prefix, files, keys: kept } of prefixes) {
+          const where = files.map((file) => path.relative(process.cwd(), file).replace(/\\/g, '/'));
+          console.log(`  ${prefix}…  ${kept} key${kept === 1 ? '' : 's'} nothing names in full; built in ${where.slice(0, 3).join(', ')}${where.length > 3 ? ` and ${where.length - 3} more` : ''}`);
+        }
+        console.log(unused.length ? `${unused.length} of the ${keys.length} keys of ${catalogDir} that nothing reads:` : `Every key of ${catalogDir} is read (${keys.length})`);
+        for (const key of unused) console.log(`  ${key}`);
+        if (unused.length) process.exitCode = 1;
+        problems = [];
+      }
     } else {
       const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
       problems = command === 'parity' ? parity(catalogs)
         : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-          : [`Use: app [root] [--skip <file>]… [--allow <word>]… [--kit-words] [--typography] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir> | typography [dir]`];
+          : [`Use: app [root] [--skip <file>]… [--allow <word>]… [--kit-words] [--typography] | parity [dir] | used <dir> <source folders…> | unused [--skip <file>]… <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir> | typography [dir]`];
       if (!problems.length) {
         console.log(command === 'parity'
           ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`

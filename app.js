@@ -795,8 +795,8 @@ export function clientTexts(flat) {
  *   request, it says whether the host's /mcp exists, which is known only once every module has
  *   joined (host.js).
  * @param {'none'|'self'|Function} [options.frames]  who may frame its pages: nobody (default), or pages of
- *   the same site, a host's module in its split view (host.js `split`); or, by path, `(pathname) =>`
- *   either (a host's calendar, in a window of its own page)
+ *   the same site, a host's module that its pages frame (host.js `framedModules`); or, by path,
+ *   `(pathname) =>` either (a host's calendar, in a window of its own page)
  * @param {{checkout: string, portal: string}} [options.billingReturn]   where the payment provider
  *   sends the browser back from a checkout and from its portal; by default the app's page
  *   (`/?billing=done`, `/`). A host with a shell passes its modules the shell's address with the
@@ -927,7 +927,7 @@ export function createApp({
     ? (ctx, user, password) => workosSecurity?.confirmIdentity?.(ctx, user, password) : null;
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion, push,
-    localPasswords, providerPassword,
+    localPasswords, providerPassword, devices: suite.devices ?? null,
   });
   if (install.authProvider === 'workos') {
     workosSecurity = registerWorkosSecurityApi(api, {
@@ -958,7 +958,12 @@ export function createApp({
   // The affiliate's own panel and, for the admin, every code (affiliates.js).
   if (suite.affiliates) registerAffiliatesApi(api, { affiliates: suite.affiliates, audit, admin: config.modules.admin });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
-  if (push) registerPushApi(api, { push, texts, appName: config.app.name, sessionKeyOf: (ctx) => sessions.keyFor(ctx.sessionToken) });
+  if (push) {
+    registerPushApi(api, {
+      push, texts, appName: config.app.name, sessionKeyOf: (ctx) => sessions.keyFor(ctx.sessionToken),
+      deviceOf: (ctx) => sessions.deviceOf?.(ctx.sessionToken) ?? null,
+    });
+  }
   // The link in an invitation to an address without an account, to get no more (stranger-invites.js).
   if (suite.strangers) registerUnsubscribeApi(api, { strangers: suite.strangers, texts, brand: suite.mailBrand });
   if (config.modules.live) {
