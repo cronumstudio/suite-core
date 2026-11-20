@@ -293,7 +293,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
-| `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
+| `local.js` | `openLocal(appId, stores, { patience })`: IndexedDB stores of key → value; `memoryLocal()`; for a start that draws from the copy, `deviceLocal(appId, stores)`, `inTime(promise)` and `LOCAL_PATIENCE_MS`; whose the copy is, `createDeviceCopy({ local, stores, account, owner, outbox })` (`local.deviceCopy()`), `drawableFor(id, host)` and `sameAccount(a, b)` (Offline, below) |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
@@ -376,11 +376,9 @@ const shell = createShell({
   panes: 'split', app,
   create: { label: t('notes.new'), onClick: newNote },
   foot: { create: { items: () => [newNotebookItem, newGroupItem] }, trash: { href: '#/trash' } },
-  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
+  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; },
     onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
-  onSignOut: () => signOut({ local }),
 });
-shell.setUser(user);
 shell.nav.append(navItem({ label: t('notes.all'), iconName: 'notes', current: true }), navSection(t('notes.notebooks')));
 
 const live = connectLive({ onChange: reload, onResync: reloadAll, onAccount: refreshUser, onState: shell.setLive });
@@ -415,9 +413,7 @@ the focus goes to the current entry. With `panes: 'single'` there is one view in
 `shell.list`. There is no button for the person at the sidebar's foot (v0.224.0): on its own, the
 app's icon and name at the sidebar's head are a button, with Settings' icon in place of an arrow,
 that opens Settings (`onSettings`), where the account is and Sign out closes the profile.
-Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
-Settings, Administration (for admins, at `/admin`) and Sign out. `setUser()` keeps who is signed
-in for that menu.
+`onSignOut` and `shell.setUser()` are still accepted, and do nothing.
 As a module of a host (a page under `/<mount>/`, Cronum Work), from
 640 px a rail at the sidebar's start has the host's mark (not a link, v0.104.0), the modules the person uses (one too) and
 Settings at its foot, and the app's icon is only its mark. On a phone the drawer has no rail: the
@@ -646,8 +642,8 @@ The module open draws its own sections; another's are named from the host's `/ap
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
 section once it has started: `const asked = settingsAsked(); if (asked) settings(asked);`. In a
-frame of the split view, the view opens it in the frame that shows that module
-(`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
+frame of a host's page (Work's shell, for a module it can't mount), that page opens it in that
+module's window (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
 change. A host with a daily summary and push (`app.host.day`, v0.231.0, architecture §21.3.2) has
 its section in the host's group, «Daily summary» (`id: 'day'`): the morning's and the evening's
 notice, each a switch, a time in steps of five minutes and a link to its page (in Work's shell, a
@@ -794,7 +790,7 @@ it) or the app injected, before the page loaded,
 `inApp()`, `nativeInfo()` (`{ v, platform, version, capabilities }`, frozen, or null) and
 `can(capability)` say so; the capabilities are `push`, `reminders`, `badge`, `purchase`,
 `biometrics` and `share`. Known from the user agent alone, the app can do nothing. In a frame of
-a host's split view the bridge is the top window's.
+a host's page the bridge is the top window's.
 
 ```js
 import { can, setBadge, setReminders, onNative } from '../suite/native.js';
@@ -887,6 +883,19 @@ that ended, then someone else on the same browser) leaves the queue unsent (`rep
 Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
 a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
 queued offline cost no read to add and one record each to send.
+
+A module that draws itself from its copy before the server answers opens it with
+`deviceLocal(appId, stores)`: IndexedDB with `patience: LOCAL_PATIENCE_MS` (1.5 s), or memory where
+the browser has none. IndexedDB can hang (an upgrade another tab blocks, a browser's bug): past the
+patience, what waits for the database to open gives up (`local_store_slow`) and the start goes on
+as if the device kept nothing; `inTime(promise)` does the same for one read (null past it). Whose
+the copy is follows one set of rules in every module: `createDeviceCopy({ local, stores, account,
+owner, outbox })`, or `local.deviceCopy({ … })`. `kept()` is the account the copy is of. `claim(user)`
+once the server says who is signed in: someone else's changes waiting go, and everything with them;
+someone else's copy goes, and the changes stay. `forget()` when a session is gone, and
+`forget({ outbox: true })` on signing out. In Work's shell, before the server answers,
+`drawableFor(id, host)` says whether the copy kept for `id` may be drawn while the shell's account
+is `host` (a window's `services.user()`): never someone else's.
 
 ### Drag and drop
 
@@ -1118,8 +1127,8 @@ every module's worker the device still has, carrying their push subscriptions ov
 server told: the new address kept, the old ones forgotten). Where the browser won't subscribe
 without a tap, `noticesToRenew()` is true and Settings › Notifications asks to turn them on again.
 `watchUpdates()` then compares the host's /version with the host's /js/app-version.js: one notice
-for the whole app, named after the host (`theirs.name`), and none in a frame of the split view,
-whose page shows it once.
+for the whole app, named after the host (`theirs.name`), and none in a frame of a host's page,
+which shows it once.
 
 ### Notices on a device with no account
 
