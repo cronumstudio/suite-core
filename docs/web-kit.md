@@ -75,8 +75,8 @@ going from one module to the next in Cronum Work nothing moves:
     footer })` when it draws them itself. Its fields are the kit's: `field()` for a label and its
     control (a label 13/500, a 40 px control), `switchRow()` for a switch, `.kit-hint` for a line
     under them; a module styles no `input` of its own outside its own controls. A collection's
-    settings are «Editar X» («Editar lista», «Editar libreta», «Editar proyecto»), Name first, then
-    Icon, Color and Group, then what is the module's own; deleting it is never in that form, it is
+    settings are «Editar X» («Editar lista», «Editar libreta», «Editar proyecto»), its Name first, then
+    how it looks and what is the module's own; deleting it is never in that form, it is
     the last item of the collection's «…», in red, to the trash with an Undo (rule 7).
 11. **An empty place says what to do and has the button that does it** (`blank()`): the kit's icon,
     a title, one line and, where the first thing to do there is to make something, one button
