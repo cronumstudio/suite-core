@@ -1008,6 +1008,8 @@ export async function createHost({
       : null;
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
+      // The person's storage across every module, as the module's own uploads check it.
+      storage: () => entry.view?.storage,
       app: { id: app.id, name: app.name, version: v }, roles: config.accounts.roles,
       baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
       limits: withImportCeiling(limits, install.importMaxMb),
