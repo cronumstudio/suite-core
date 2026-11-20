@@ -943,9 +943,10 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
 });
 
-test('a state as text reads (ok, warn, danger): on the page, a panel and its soft tint, light and dark', () => {
-  // A module's states written in words take these (Projects' overdue, at risk; Next's fresh,
-  // stalled, stuck): their own vivid colours stay for bars and borders (audit of 6/11, dup-css-3).
+test('a state as text reads (ok, warn, danger, violet): on the page, a panel and its soft tint, light and dark', () => {
+  // A module's states written in words take these (Projects' overdue, at risk and blocked, the
+  // palette's violet; Next's fresh, stalled, stuck): their own vivid colours stay for bars and
+  // borders (audit of 6/11, dup-css-3).
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   const block = (re) => re.exec(css)[1];
   const themes = {
@@ -956,7 +957,7 @@ test('a state as text reads (ok, warn, danger): on the page, a panel and its sof
     + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, '0')).join('')}`;
   for (const [theme, { body, grounds }] of Object.entries(themes)) {
     const token = (name) => new RegExp(`--kit-${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(body)?.[1];
-    for (const state of ['ok', 'warn', 'danger']) {
+    for (const state of ['ok', 'warn', 'danger', 'color-violet']) {
       const ink = token(state);
       // Its soft ground: the kit's own, or the 14 % tint a badge of it gets (.kit-badge--on).
       const soft = token(`${state}-soft`) || mix(ink, grounds[0], 0.14);

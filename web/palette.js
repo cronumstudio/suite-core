@@ -28,7 +28,7 @@ export const KIT_COLORS = Object.freeze([
   { name: 'brown', hex: '#8a6a45', dark: '#c49a6c' },
   { name: 'pink', hex: '#c2407c', dark: '#ec85b0' },
   { name: 'plum', hex: '#a03ea3', dark: '#d08be6' },
-  { name: 'violet', hex: '#7b61c9', dark: '#a593ea' },
+  { name: 'violet', hex: '#6e55c2', dark: '#a593ea' },
   { name: 'indigo', hex: '#4f5bd5', dark: '#949cf2' },
   { name: 'steel', hex: '#56708a', dark: '#8fb0cf' },
   { name: 'slate', hex: '#606776', dark: '#a5abb6' },

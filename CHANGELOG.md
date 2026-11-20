@@ -23,8 +23,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,
   `#BA3429`, from `#1F8A57`, `#A86200`, `#C8372D`), so that each reads 4.5:1 on the page, a panel
   and its soft tint (the badges'); before, «ok» gave 4.10:1 on the page and «warn» 4.26:1 on its
-  tint. The test now measures those pairs in light and dark. Modules write their states in words
-  with these tokens, keeping their own vivid colours for bars and borders.
+  tint. The palette's violet (`--kit-color-violet`, Projects' «blocked» in words) is the same: a
+  step deeper than Projects' bars (`#6e55c2`), it reads 4.5:1 there too. The test now measures
+  those pairs in light and dark. Modules write their states in words with these tokens, keeping
+  their own vivid colours for bars and borders.
 
 ## 0.300.0 — 2026-11-19
 
