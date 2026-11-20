@@ -3,6 +3,45 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.312.0 — 2026-11-20
+
+- **The look's sizes, one scale said by name** (audit of 6/11: dup-css-13, phase 1 of 2: the kit
+  and the four modules; Work's own sheets are phase 2). `kit.css` `:root` gives every `--look-*`
+  its Cronum value, a short scale: type 21 / 24 / 22 / 19 / 15 / 15 / 14 / 14 / 13 / 12 / 11 px
+  (`large-title` to `caption2`, `base` 15), corners `--look-r-xs` 4, `-sm` 8, `-md` 10, `-lg` 12,
+  `-xl` 16, room `--look-gutter` 16, `-row-y` 11, `-row-gap` 10, `-head-y` 10, `-item-y` 9,
+  `-bar-y` 10, `-section` 20. The kit's 199 `var(--look-x, n)` lose their number: a size within a
+  pixel of the scale takes it (12.5 px footnotes are 13, 13.5 px subheads 14…), one that must not go
+  under its own is `max(16px, var(--look-body))` (a field a phone would zoom into, an emoji, the
+  note's 26 px title), and the few off the scale are written as they are with a Clean rule for the
+  look's (`.kit-md h2`/`h3`, the phone's sheet corners, `.kit-main > h2`, `.kit-avatar--tiny`).
+  The Clean look's values are not touched, and what it shows is the same.
+- **One family of corners**: `--kit-radius`, `--kit-radius-small` and `--kit-radius-large` are now
+  `--look-r-md`, `-sm` and `-xl` (the same 10/8/16 px in Cronum, 12/10/18 in Clean); the kit's rules
+  say `--look-r-*`, the old names stay for sheets that still use them.
+- **`tools/css-rules.mjs`** (new): `lookFallbacks(css)`, `physicalSides(css, { allow })` and
+  `layoutWidths(css, { containers })`, the kit's rules for a sheet, for a module's tests to read its
+  own with. `web-kit-css.test.js` fails on a look variable with a number beside it, on a physical
+  side in the kit's sheets that doesn't say why (the drag's ghost, the round check's tick, a
+  window's drop place), and on a layout width other than 640 and 960 but the sign-in's 760.
+- **Breakpoints, as the kit does them** (dup-css-16): `--cr-bp-tablet` is 960 px (it said 860, and
+  the list and its detail have always gone side by side from 960); tokens.css no longer says a
+  script reads them; web-kit.md names the two widths and when a component's `@container` may differ.
+- **A module's page stays put under its frame, said once** (dup-css-18): `html` and `body` are fixed
+  to the screen, without overscroll and with `touch-action: manipulation`, when a `.kit-app` is the
+  body's (a module on its own page); Tasks, Projects and Next drop their copies. A public page and
+  Cronum Work's page are left as they were.
+- **The public page's hero, numbers and sections** (dup-css-9): `public-page.css` draws the hero
+  (mark, name, who shares it, badge), the stats and the sections' titles, over `--sp-color` (the
+  list's or the project's colour); Tasks, Projects and Next keep only what is theirs. One measure:
+  24 px under the hero (Tasks 24, Projects 8, Next 28), 32 between sections (30 or 34), 22 above
+  the stats (22 or 26).
+- `web/icons.js` `stroke-eraser`: Notes' eraser that takes whole strokes, drawn in Notes until now
+  (ux-menus-12).
+- **docs/web-kit.md**: rules 14 and 16 (both about `blank()`) are one, rule 14; 17–24 are 16–23. A
+  new rule 24: a sheet says the kit's measures by name (the look's scale, `--look-r-*`, logical
+  sides, 640 and 960). The kit's comments that named a rule by an old number name the new one.
+
 ## 0.311.0 — 2026-11-20
 
 - **Texts say the same thing the same way in every module** (audit of 6/11: ux-textos-5, -9, -11,

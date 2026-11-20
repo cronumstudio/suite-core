@@ -3339,7 +3339,7 @@ test('the search reads the kit’s «Buscar» in every module, its own words nam
     { es: 'Buscar', en: 'Search', fr: 'Rechercher', de: 'Suchen', it: 'Cerca' });
   // Its own line height after `font: inherit`, which would give it the page's (Notes' 1.5: a pixel taller).
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(css, /\n\.kit-side__search-input \{[^}]*font: inherit; font-size: max\(16px, var\(--look-body, 15px\)\); line-height: 1\.45;\n\}/);
+  assert.match(css, /\n\.kit-side__search-input \{[^}]*font: inherit; font-size: max\(16px, var\(--look-body\)\); line-height: 1\.45;\n\}/);
   assert.match(css, /^\.kit-side__search-input::placeholder \{ color: var\(--kit-faint\); opacity: 1; \}$/m, 'not the browser\'s grey');
   // «/»'s key: hidden but on a big screen with a fine pointer and the sidebar beside the views, and
   // gone while the field has the focus or text.

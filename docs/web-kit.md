@@ -102,32 +102,30 @@ going from one module to the next in Cronum Work nothing moves:
     settings are «Editar X» («Editar lista», «Editar libreta», «Editar proyecto»), its Name first, then
     how it looks and what is the module's own; deleting it is never in that form, it is
     the last item of the collection's «…», in red, to the trash with an Undo (rule 7).
-14. **An empty place says what to do and has the button that does it** (`blank()`): the kit's icon,
-    a title, one line and, where the first thing to do there is to make something, one button
-    that makes it («Nuevo proyecto» in Projects with none, «Nueva tarea» in Tasks' My Day of
-    an account with no tasks). One such button per screen: a second place for the same button
-    (Notes' panel beside its list) goes. A new empty place takes the kit's icon, not an emoji.
+14. **An empty place, or one still loading, is the kit's and says what to do** (`blank()`, v0.304.0):
+    an icon in its box (the kit's, or the emoji a person chose for a Tasks list, `glyph`; a new
+    empty place takes the kit's icon, not an emoji), one size of title, a line and, where the first
+    thing to do there is to make something, one button that makes it («Nuevo proyecto» in Projects
+    with none, «Nueva tarea» in Tasks' My Day of an account with no tasks). One such button per
+    screen: a second place for the same button (Notes' panel beside its list) goes. Alone in a
+    view, `page: true`. While what goes there is on its way, `blank({ loading: true })`: the kit's
+    spinner and «Cargando…», never the empty message. A filter that leaves nothing out of things
+    that exist says so in a short sentence, never «add the first one».
 15. **An item's detail says how its save went and who made it** (`saveState()`, `stamps()`): its
     labels are the kit's (`field()`, or `.kit-label` over a block of several controls), the state
     of the last save sits by what was saved (Notes', Tasks', Projects'), and its foot says who
     created it and who changed it last in the same words in every module (`kit.stamps.*`, as
     `.kit-stamps`). The small capitals over a group (a section's, «Why», «Waiting on») are
     `.kit-eyebrow` (`--kit-eyebrow-*`), never a module's own measure.
-16. **An empty place and one still loading are the kit's** (`blank()`, v0.304.0): an icon in its
-    box (the kit's, or the emoji a person chose for a Tasks list, `glyph`), one size of title, a
-    line, and what to do about it if there is something. Alone in a view, `page: true`. While what
-    goes there is on its way, `blank({ loading: true })`: the kit's spinner and «Cargando…», never
-    the empty message. A filter that leaves nothing out of things that exist says so in a short
-    sentence, never «add the first one».
-17. **The add bar is the same card in Tasks and Projects** (`addBar()`, v0.304.0): a +, the field
+16. **The add bar is the same card in Tasks and Projects** (`addBar()`, v0.304.0): a +, the field
     and «Añadir», with the module's own tools between them; Projects keeps its gradient behind it,
     over the Gantt. The notices rise above it, never onto it (`toast()` measures it).
-18. **The row open in the detail has a soft background** (`.kit-list-row[aria-current="true"]`,
+17. **The row open in the detail has a soft background** (`.kit-list-row[aria-current="true"]`,
     `--kit-accent-soft`, v0.304.0), as Notes' had: Tasks, Notes and Projects (whose state stripe
     stays). A long title wraps onto more lines, as Tasks' always did; it is never cut with «…».
     From 960 px, Tasks' and Projects' item opens as a column on the list's right
     (`createShell({ detail: 'column' })`, `setDetailOpen()`).
-19. **Without a signal every module says the same, at once** (`offlineBanner()`, v0.305.0): the
+18. **Without a signal every module says the same, at once** (`offlineBanner()`, v0.305.0): the
    kit's banner under the header the moment the browser says the signal went, not once a request
    has failed, with or without changes waiting: «Sin conexión. Se ve lo último que se cargó.» and
    how many changes wait on the device; «Reintentar», when there is one, is never the primary
@@ -135,7 +133,7 @@ going from one module to the next in Cronum Work nothing moves:
    (`kit.offline.sent`). The words are the kit's (`kit.offline.*`, `errors.offline`): no module
    keeps a copy. What only the server can show (a trash) says «Necesita conexión» in its place
    (`offlineNotice()`), and its dialog keeps its «Cerrar».
-20. **A collection's colour and icon come from the kit** (`colorPicker()`, `iconPicker()`,
+19. **A collection's colour and icon come from the kit** (`colorPicker()`, `iconPicker()`,
    `palette.js`; v0.306.0): the same twelve colours, by name, for a list, a notebook, a project
    and their groups, and the same twenty icons in view with «Más…» for the rest. A colour or an
    icon it has from before, that the palette no longer offers, is kept as it is and offered first.
@@ -144,7 +142,7 @@ going from one module to the next in Cronum Work nothing moves:
    stuck) is the kit's `--kit-danger`, `--kit-warn`, `--kit-ok` or `--kit-color-violet`, which
    read on the page, a panel and their soft tint; a module's own vivid state colours stay for
    bars, dots and borders.
-21. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
+20. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
    (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
    things above its rows whenever it holds some, from the plan the server sends as `days`
    (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
@@ -154,21 +152,30 @@ going from one module to the next in Cronum Work nothing moves:
    that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
    Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
    (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
-22. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): «Archivos» with
+21. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): «Archivos» with
    how many, photos as squares that open the kit's viewer (`photoViewer()`, a kit dialog with zoom,
    so in Cronum Work it covers the screen and not just the window), a PDF as a row with its name and
    size. They are added with the button, by dropping a file on the detail or pasting one into it;
    several going up say so on the button and once at the end; the room left is said before
    uploading. Taking one away goes to the trash with Undo (rule 7). Notes keeps its files in the
    note and deletes them for good, with the question (`deleteDialog()`).
-23. **What floats over a module stays in its window** (`placeFixed(node, anchor)`, v0.308.0): a menu,
+22. **What floats over a module stays in its window** (`placeFixed(node, anchor)`, v0.308.0): a menu,
    a quantity's editor, a dot's bubble, a drag's label. In Cronum Work a window keeps what is
    `position: fixed` inside it (`contain: layout paint`), so a box placed by the screen's numbers
    lands off its anchor or is cut off; `placeFixed` measures where its (0, 0) really is and keeps it
    in its room (`fixedRoom()`).
-24. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` «14 mar» (with the
+23. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` «14 mar» (with the
    year when it isn't this one), `timeText()` the language's own short time («15:52», «3:52 PM»),
    `shortStamp()` the time today and the date before, and `timeAgo()` «hace 3 días».
+24. **A sheet says the kit's measures by name** (v0.312.0, audit of 6/11): type, corners and room
+   are the look's scale (`--look-*`, one value each in the Cronum look and its own in Clean),
+   written `var(--look-body)`, never with a number beside it; a size that must not go under its
+   own in Cronum is `max(16px, var(--look-body))`, and one off the scale is written as it is with
+   a Clean rule for the look's. Corners are `--look-r-*` (`--kit-radius*` are their old names).
+   Sides are logical (`margin-inline-start`, `inset-inline-end`, `text-align: start`); physical
+   only where a drawing runs left to right (Projects' Gantt, Next's lines), which the module's
+   test names. A layout changes at 640 px (phone) and 960 px (a list and its detail side by side).
+   A module's own sheets are checked by `tools/css-rules.mjs` in its tests.
 25. **Texts say the same thing the same way in every module** (v0.311.0, audit of 6/11): Spanish is
    the reference, in plain words, and every text is in the five languages. One word for one thing:
    «Avisos» (not «notificaciones», but for the phone's own settings), «Vencidas» and «Fecha límite»,
@@ -210,7 +217,7 @@ going from one module to the next in Cronum Work nothing moves:
 | Close, take away | `x` |
 | Move up, move down | `chevron-up`, `chevron-down` |
 | Zoom in, zoom out | `zoom-in`, `zoom-out` |
-| Drawing tools (Notes) | `pen`, `marker`, `highlighter`, `eraser` |
+| Drawing tools (Notes) | `pen`, `marker`, `highlighter`, `eraser`, `stroke-eraser` (whole strokes) |
 | A branch, a finished path (Next) | `fork`, `flag` |
 
 An emoji goes only where the person chose it (a list's, a project's, a group's); no menu entry or
@@ -323,11 +330,20 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
 has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
 `--kit-panel`, `--kit-hover`, `--kit-text`, `--kit-muted`, `--kit-faint`, `--kit-border`,
-`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-color-<name>`, `--kit-shadow`,
-`--kit-radius` (10 px), `--kit-radius-small` (8 px), `--kit-radius-large`. An app keeps names of
-its own only for its domain (a list's colour, a project's state). Layouts change at the brand's
-widths, `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px): `@media` and `@container` read no
-variable, so a rule writes the number.
+`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-color-<name>`, `--kit-shadow`.
+Its sizes are the look's scale (rule 24): type `--look-large-title` (21 px in the Cronum look),
+`--look-title1` (24), `--look-title2` (22), `--look-title3` (19), `--look-headline`, `--look-body`
+and `--look-base` (15), `--look-callout` and `--look-subhead` (14), `--look-footnote` (13),
+`--look-caption` (12), `--look-caption2` (11); corners `--look-r-xs` (4), `-sm` (8), `-md` (10),
+`-lg` (12), `-xl` (16), which `--kit-radius-small`, `--kit-radius` and `--kit-radius-large` still
+name; room `--look-gutter` (16), `--look-row-y` (11), `--look-row-gap` (10), `--look-head-y` (10),
+`--look-item-y` (9), `--look-bar-y` (10), `--look-section` (20). The Clean look has its own
+(kit.css). An app keeps names of its own only for its domain (a list's colour, a project's state).
+Layouts change at the brand's widths, `--cr-bp-phone` (640 px: under it, one column and the
+sidebar a drawer) and `--cr-bp-tablet` (960 px: from it, a list and its detail side by side, as
+`createShell({ detail: 'column' })` does): `@media` and `@container` read no variable, so a rule
+writes the number. A component's own `@container` (a board, a line) changes where its content
+needs.
 
 ## Starting an app
 
