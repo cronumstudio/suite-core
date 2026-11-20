@@ -144,6 +144,16 @@ going from one module to the next in Cronum Work nothing moves:
    stuck) is the kit's `--kit-danger`, `--kit-warn`, `--kit-ok` or `--kit-color-violet`, which
    read on the page, a panel and their soft tint; a module's own vivid state colours stay for
    bars, dots and borders.
+21. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
+   (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
+   things above its rows whenever it holds some, from the plan the server sends as `days`
+   (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
+   (`kit.deleteForever`) on a row, «Esto no se puede deshacer.» (`kit.cantUndo`) where it asks,
+   and «Vaciar papelera» (`kit.trash.emptyAction`) at the start of the dialog's foot, «Cerrar» plain
+   at its end. «Vaciar» is offered only for what the person may empty, and its question counts only
+   that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
+   Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
+   (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
 
 **Which icon for what** (`icons.js`): the same thing has the same icon in every module.
 
