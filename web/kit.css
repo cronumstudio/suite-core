@@ -902,12 +902,16 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* Its icon with marks on its corners: a shared one's, a public page's (navItem `shared`, `marks`). */
 .kit-nav__lead { position: relative; display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; }
 .kit-nav__lead > .kit-nav__swatch { margin: 0; }
+/* A colour's lead is as wide as the swatch with its margins (16): a shared one's label doesn't move a pixel. */
+.kit-nav__lead:has(> .kit-nav__swatch) { width: 16px; }
 /* Shared: two people on the bottom corner, the same in every module (sharedMark). */
 .kit-nav__shared {
   position: absolute; inset-inline-end: -6px; inset-block-end: -4px; width: 14px; height: 14px; border-radius: 50%;
   display: grid; place-items: center; background: var(--kit-side); box-shadow: 0 0 0 1px var(--kit-border-strong);
 }
 .kit-nav__item .kit-nav__shared .kit-icon, .kit-nav__shared .kit-icon { width: 9px; height: 9px; color: var(--kit-muted); stroke-width: 2.6; }
+/* After a group's name, having no icon of its own to sit on (navGroup `extra`). */
+.kit-nav-group__name > .kit-nav__shared { position: static; flex: none; }
 /* An entry with a menu (menuOnPress): a long press is its menu, not the browser's nor a selection. */
 [data-kit-menu] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
