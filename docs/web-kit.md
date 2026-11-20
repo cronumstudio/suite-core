@@ -73,9 +73,11 @@ going from one module to the next in Cronum Work nothing moves:
    `palette.js`; v0.306.0): the same twelve colours, by name, for a list, a notebook, a project
    and their groups, and the same twenty icons in view with «Más…» for the rest. A colour or an
    icon it has from before, that the palette no longer offers, is kept as it is and offered first.
-   A state written in words (overdue, at risk, stuck) is the kit's `--kit-danger`, `--kit-warn` or
-   `--kit-ok`, which read on the page, a panel and their soft tint; a module's own vivid state
-   colours stay for bars, dots and borders.
+   A module leaves out (`except`) only the colours its states already mean (Projects: brown,
+   pink, plum, violet, indigo; Next: green). A state written in words (overdue, at risk, blocked,
+   stuck) is the kit's `--kit-danger`, `--kit-warn`, `--kit-ok` or `--kit-color-violet`, which
+   read on the page, a panel and their soft tint; a module's own vivid state colours stay for
+   bars, dots and borders.
 
 ## A page
 
