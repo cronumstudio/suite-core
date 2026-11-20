@@ -14,7 +14,7 @@ import path from 'node:path';
 import {
   hashPassword, verifyPassword, needsRehash, sha256, hmac, safeEqual, randomToken,
 } from '../crypto.js';
-import { openDatabase } from '../db.js';
+import { openDatabase, inBatches, personId } from '../db.js';
 import { migrate, ensureColumn } from '../migrate.js';
 import {
   HttpError, createRouter, readJson, serveStatic, securityHeaders, checkOrigin, sendError,
@@ -159,6 +159,38 @@ test('database: transactions roll back whole, and nest', () => {
 
     assert.throws(() => database.tx(async () => {}), /synchronous/);
     assert.equal(database.get('SELECT COUNT(*) AS n FROM t').n, 2, 'the async attempt changed nothing');
+  } finally {
+    database.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('inBatches: many ids in a few statements, each once and in order; personId binds what is no id as 0', () => {
+  const { database, dir } = tempDb();
+  try {
+    database.exec('CREATE TABLE n (id INTEGER PRIMARY KEY)');
+    const all = Array.from({ length: 1200 }, (_, i) => i + 1);
+    database.tx(() => { for (const id of all) database.run('INSERT INTO n (id) VALUES (?)', id); });
+    const sizes = [];
+    const rows = inBatches([...all, 5, 5], (marks, batch) => {
+      sizes.push(batch.length);
+      assert.equal(marks, batch.map(() => '?').join(','));
+      return database.all(`SELECT id FROM n WHERE id IN (${marks}) ORDER BY id`, ...batch);
+    });
+    assert.deepEqual(sizes, [500, 500, 200], 'three statements for 1,200 ids, the repeated ones asked once');
+    assert.deepEqual(rows.map((row) => row.id), all, 'the rows of every batch, in order');
+
+    const given = [];
+    const none = inBatches([3, 3, 4], (marks, batch) => {
+      given.push(...batch);
+      database.run(`DELETE FROM n WHERE id IN (${marks})`, ...batch);
+    }, { unique: false });
+    assert.deepEqual(none, [], 'a write gives no rows');
+    assert.deepEqual(given, [3, 3, 4], 'unique: false, every id as given');
+    assert.equal(database.get('SELECT COUNT(*) AS n FROM n').n, 1198);
+    assert.deepEqual(inBatches(new Set(), () => { throw new Error('never asked'); }), [], 'no ids, no statement');
+
+    assert.deepEqual([12, '12', ' 7 ', 'x', 1.5, null, undefined, 2 ** 60].map(personId), [12, 12, 7, 0, 0, 0, 0, 0]);
   } finally {
     database.close();
     fs.rmSync(dir, { recursive: true, force: true });

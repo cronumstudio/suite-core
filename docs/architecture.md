@@ -61,7 +61,8 @@ suite-core/
   legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
   watcher.js            done   hot reload by polling, for code mounted over SMB
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
-  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
+  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta;
+                               inBatches(ids, query): many ids, 500 to a statement; personId(id)
   migrate.js            done   numbered migrations with scopes (suite, app, and each module's id in a host)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes, AES-256-GCM
   accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
