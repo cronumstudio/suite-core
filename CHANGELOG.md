@@ -5,7 +5,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.307.0 — 2026-11-20
 
-- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 10; audit of
+- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 21; audit of
   6/11: ux-textos-3, ux-textos-8, ui-dialogos-4, ux-acciones-13). Tasks, Notes and Projects each said
   their trash their own way: «Recuperar» and «Restaurar», «Borrar del todo» and «Borrar para siempre»,
   «permanently» and «for good», four ways of saying it can't be undone, two Englishes for how long it
@@ -20,6 +20,163 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **Erasing a module's data says it can't be undone in the same words** (`kit.data.eraseText`): «…
   todo lo que tienes en {app}. Esto no se puede deshacer.» in place of «sin vuelta atrás», in the five
   languages.
+
+## 0.306.0 — 2026-11-20
+
+- **One palette and one set of icons for every module** (`web/palette.js`, `web/pickers.js`,
+  `kit.css`, `i18n`, `docs/web-kit.md` rule 20; audit of 6/11, ui-dialogos-9). Tasks offered 13
+  colours, Notes 12, Projects 10 and Next 8 by name, in other orders and other blues; Tasks showed
+  164 emojis at once, Projects 20, Next 16. Now `KIT_COLORS`: twelve colours by name (blue, cyan,
+  teal, green, olive, brown, pink, plum, violet, indigo, steel, slate), each with the hex a module
+  stores (white reads on it, 4.5:1; it shows on the dark page, 3:1) and a lighter step for the dark,
+  the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as, except })`
+  proposes the first free one, five apart around the wheel. `KIT_ICONS` are twenty in view and
+  `KIT_MORE_ICONS` the rest of Tasks' 164 (none lost). `colorPicker()` and `iconPicker()` offer them,
+  each colour named in words for a screen reader (`kit.colors.*`), «Más…» unfolding the icons
+  (`kit.icons.*`), with what a collection has from before kept, offered first and chosen; options for
+  a field to type any emoji (`typed`), for no colour or no icon (`none`), for colours a module leaves
+  out (`except`: Projects', too close to its accent and its states) and for names instead of
+  hexes (`as: 'name'`). New keys in the five languages; nothing that exists changes.
+- **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`; audit of 6/11, dup-css-3):
+  `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,
+  `#BA3429`, from `#1F8A57`, `#A86200`, `#C8372D`), so that each reads 4.5:1 on the page, a panel
+  and its soft tint (the badges'); before, «ok» gave 4.10:1 on the page and «warn» 4.26:1 on its
+  tint. The palette's violet (`--kit-color-violet`, Projects' «blocked» in words) is the same: a
+  step deeper than Projects' bars (`#6e55c2`), it reads 4.5:1 there too. The test now measures
+  those pairs in light and dark. Modules write their states in words with these tokens, keeping
+  their own vivid colours for bars and borders.
+
+## 0.305.0 — 2026-11-20
+
+- **One banner without a signal, the same in every module** (`web/ui.js` `offlineBanner`,
+  `docs/web-kit.md` rule 19; audit of 6/11, ui-dialogos-12, ux-acciones-14). It listens to the
+  browser's `offline` and `online` itself, so the banner shows the moment the signal goes, changes
+  waiting or not (Notes showed none without them, Tasks only once its probe failed). Offline it
+  says what is shown is the last thing loaded and how many changes wait, with a discreet
+  «Reintentar» (`kit.retry`, never primary) when the module passes `retry`; back online, while they
+  go, how many are being sent (`kit.offline.pending`); `sent(n)` says they arrived
+  (`kit.offline.sent`), or, with `announce`, the piece says it itself once none waits (`announce`
+  as a function: and they can go, so none waiting before then isn't taken for sent), less those
+  the module says were refused (`dropped()`). It paints in the shell's banner row, or through the module's own
+  `show`/`hide`, and again in a new language. New texts in the five languages: `kit.retry`,
+  `kit.offline.pending`, `kit.offline.sent` and `kit.offline.droppedWhat` (the dropped change named,
+  as Next says it). Nothing changes for a module that doesn't use it.
+- **«Necesita conexión» as a piece** (`web/ui.js` `offlineNotice`; ui-dialogos-13): what only the
+  server can show says so in its place, as Settings already did (it uses the piece now); Tasks' and
+  Projects' trash use it without a signal.
+
+## 0.304.0 — 2026-11-20
+
+- **One empty and one loading state in every module** (`web/ui.js`, `web/kit.css`, `i18n`,
+  `docs/web-kit.md` rule 16; audit of 6/11, ux-acciones-6, ux-acciones-11). `blank()` takes
+  `glyph` (a text in the icon's box: a Tasks list's emoji), `page` (alone in a view, its title an h2),
+  `loading` (the kit's spinner and «Cargando…», new key `kit.loading`), `note`, an `action` with
+  `href` or `primary: false`, and no `title` for a sentence alone. `.kit-blank strong` and
+  `.kit-blank h2` are one size now (`--look-headline`): a page's empty view was 19 px, a list's 15.
+  Without the new options `blank()` draws what it drew.
+- **The add bar is the kit's** (`addBar()`, `.kit-add-bar`, new key `kit.add`; rule 17; ux-menus-15,
+  ui-medidas-11): Tasks' card (a +, the field without a frame, «Añadir», the module's own tools between
+  them), for Tasks and Projects.
+- **Notices rise above the add bar** (`toast()`, `.kit-toasts`; ui-dialogos-14): each time one shows,
+  the kit measures the bars in sight under the notices' place and sets `--kit-toast-floor`, also with
+  the keyboard up. With no bar they sit where they always did.
+- **The row open in the detail** (`.kit-list-row[aria-current="true"]`, rule 18; dup-css-5, ui-medidas-12):
+  a soft background in the accent, as Notes' had, for Tasks, Notes and Projects.
+- **The detail as a column of its own** (`createShell({ detail: 'column' })`, `shell.setDetailOpen()`,
+  `data-detail-open`; dup-css-11): from 960 px the list takes the whole width while nothing is open and
+  the item opens as a 340–400 px column on its right, folded or not. Tasks and Projects each had a copy
+  of these rules; the default (`'beside'`) is the frame as before.
+- **`inkOn(color)`** (ui-medidas-16): white where it reads 4.5:1 on a colour, otherwise the dark ink
+  (`INK`), for a button in a list's own colour.
+
+## 0.303.0 — 2026-11-20
+
+- **Dialogs look the same in every module** (`web/kit.css`, `docs/web-kit.md` rule 13; audit of 6/11,
+  dup-css-1, ui-dialogos-10): the kit's header, body and footer, with no line under the title nor over
+  the buttons (Martin, 14/11), are the only ones; the modules drop their repaints. The two title rules
+  (`__header h2`, `__titles h2`) are one. Rule 10 also says how a collection's settings read («Editar X»,
+  Name first) and that deleting it is in its «…», never in the form.
+- **The small capitals over a group, one measure** (`.kit-eyebrow`, `--kit-eyebrow-size`, `-weight`,
+  `-spacing`; dup-css-14): the sidebar's sections, Settings' groups and Share's headings take them, the
+  same as before in both looks (Clean's spacing is its variable now, not three rules); the modules' own
+  labels use them.
+- **Kit rules that lived in one module** (dup-css-17): no tap flash on a phone and no selection by a long
+  press on the frame's controls (Tasks' alone until now), a field's text at 16 px on a touch screen so the
+  iPhone doesn't zoom (Notes' alone), and an icon button that is on (`aria-pressed`) in the accent's soft
+  colour (Next's alone).
+- **`.kit-label`**: a field's label (13/500) where there is no `field()` around it, a block of an item's
+  detail over several controls (ui-medidas-13).
+- **Who made an item and who changed it, in shared words** (`stamps()`, `stampTime()` in `web/ui.js`,
+  `kit.stamps.*` in the five languages, `.kit-stamps`; ux-acciones-15): «Creada por Ana · hoy a las
+  15:52», «Modificada por Luis · …», as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
+  has the button that does the first thing) and 12 (an item's detail: the kit's labels, `saveState()`,
+  its stamps) in `docs/web-kit.md`.
+- **A field's label over a group** (`field(…, { groupLabel: true })`, a palette of colours or icons): its
+  span takes `.kit-field__label`, the 13/500 of every field's label, as Projects and Next added by hand.
+
+## 0.302.0 — 2026-11-20
+
+- **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
+  `web/kit.css`, `docs/web-kit.md` rule 11; audit of 6/11, ux-menus-4, ux-menus-13,
+  ux-compartir-13, ui-dialogos-6, ui-medidas-15, ui-medidas-17). `navItem()` takes `emoji` (a
+  collection's own, in a box as wide as a view's icon, so every label starts in line), `shared`
+  (the kit's one mark, `sharedMark({ owner })`, «Compartido · de {name}» in words), `marks`, `title`,
+  `style`, `className`, `under` (a node under the name, in its column: a project's progress),
+  `countTitle`, and `menu` or `onMenu`: a right-click or a long press opens the same menu as
+  the entry's «…» (`menuOnPress(node, open)` in drag.js, which a drag that holds the entry answers
+  with a `kit:hold` event when it has no `onHold`). A group's head opens its menu with a right-click
+  or a long press too (`menuOnPress(head, open, { held: group })`: a group is picked up whole by its
+  head). `orderAfterDrop()` is the kit's (drag.js), as three modules had it. Entries and group heads
+  have their own line height (1.45): 36 px in every module, 36.5 in Notes before. A colour is as
+  wide as a view's icon (17 px with its margins), so every label starts in line, and the mark after
+  a group's name is the same one.
+- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 12; ux-acciones-16): under
+  the same conditions as «/». Settings › About lists the keys (`kit.about.keys`), and `modKey()`
+  (keyboard.js) gives ⌘ or Ctrl for words that tell a shortcut.
+- **The search runs the same way everywhere** (`search: { onSearch, wait, min }`; ux-menus-5): 220 ms
+  after the last key, from the first letter, at once with Enter, Escape or when emptied;
+  `shell.clearSearch()` empties it. A field the module wrote itself away from the results (Notes,
+  Next) searches the same words again once typed. `onInput` and `onSubmit` are unchanged.
+- **The open collection's emoji in the head** (`head({ icon })`, `.kit-head__icon`; ux-menus-7,
+  ui-medidas-8, Martin's decision 7): loose before the title, at its size, with no box; `setIcon()`.
+  `.kit-icon-btn[aria-pressed="true"]` is the kit's (Notes and Next had it each).
+- **In Work's shell, its ☰ folds the sidebar where the sidebar sits beside the views** (ux-menus-10):
+  from 640 to 768 px Work shows its ☰, and as a drawer there it did nothing.
+- **Icons** (`web/icons.js`; ux-menus-3, ux-menus-12): `chevron-up`, `eraser`, `flag`, `fork`,
+  `highlighter`, `history`, `marker`, `pen`, `print`, `zoom-in`, `zoom-out`; web-kit.md has a table
+  of which icon for what.
+
+## 0.301.0 — 2026-11-20
+
+Audit of 6/11, sharing: what sharing looks like and says, the same in every module (Martin's choices
+of 14/11).
+
+- **An invitation is the kit's card, first in the sidebar, and ☰ says one waits** (`web/invitation.js`,
+  `web/shell.js`, `web/kit.css`; ux-compartir-5, ux-menus-14, dup-css-10).
+  `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline, offline })`
+  and `invitationCards(list, { offline })`: who offers what, what accepting gives («Solo lectura»,
+  «Podrás editarlo», or the app's own line), «Rechazar» and «Aceptar» as wide as each other, both off
+  while an answer is on its way. Without a signal both stay off, with `kit.offline.actions` above the
+  cards, as the modules' own cards have done since 0.296. `.kit-invite` in kit.css; texts
+  `kit.invite.*`. `shell.setMark(n)` puts a dot on every ☰ of the frame while `n` invitations wait, and
+  says so to a screen reader. The four modules drop their own cards.
+- **The share dialog without a network** (`web/share.js`; ui-dialogos-13): it opens with what `load`
+  knows (Tasks has it on the device), one line says it needs a connection (`kit.offline.actions`), and
+  Invite, the permissions and taking back are off until the network is back (they turn on by themselves).
+- **A person's colour** (`web/ui.js`, `sharing.js`; ux-compartir-19, ux-acciones-19):
+  `avatar(person | name, { color, size, title })` takes a person and paints the colour they chose
+  (`avatar_color`, `#rrggbb` only); `avatar(name)` is as before. The engine's `personOf` (and so the
+  share dialog's rows, Settings › Sharing and the invitations) carries `avatar_color` where the users
+  table has the column. The share dialog's default avatar and Settings › Sharing use it.
+- **Settings › Sharing in the dialog's order** (`web/shared.js`; ux-compartir-8): «Puede editar» before
+  «Solo lectura»; `kit.shared.canView` says «Solo lectura», as the invitations do.
+- **One set of words for sharing** (`i18n`; ux-compartir-6, -11, -15, -16, ux-textos-12):
+  `kit.share.left` («Has salido de «X».») says it after leaving; `kit.share.action` «Compartir» for the
+  «…»; taking back is «Quitar el acceso a X» («¿Quitar el acceso a X?»), without the thing's gender, in
+  the dialog and in Settings; `errors.owner_only` «Solo el propietario puede hacer eso.»;
+  `kit.data.shareNote` with `{ things }` says what happens to what one shares when one's data goes, by
+  the rule `pickHeir` keeps (whoever can edit first, then whoever has had it longest).
+- **Rule 10 of «Same in every module»** (`docs/web-kit.md`): sharing reads the same in every module.
 
 ## 0.300.0 — 2026-11-19
 

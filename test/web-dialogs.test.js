@@ -479,3 +479,34 @@ test('a sheet’s field to type in rides on the keyboard in the iPhone app, as W
   assert.match(keyboard, /const riseKey = \(full\) => `cw-keyboard-rise:\$\{window\.innerWidth\}x\$\{full\}`;/);
   assert.match(css, /\.kit-dialog\[data-riding\] \{/);
 });
+
+test('stamps: who made an item and who changed it, in the kit words, the change only when it is not the creation', async () => {
+  const { stamps } = await import('../web/ui.js');
+  const format = (value) => `@${value}`;
+  // No catalog is loaded here: t() answers with the key, so the lines say which words were taken.
+  assert.deepEqual(stamps({}, { format }), ['kit.stamps.created']);
+  assert.deepEqual(stamps({ author: 'Ana' }, { format }), ['kit.stamps.createdBy']);
+  assert.deepEqual(stamps({ created: 'a' }, { format }), ['kit.stamps.createdAt']);
+  assert.deepEqual(stamps({ author: 'Ana', created: 'a', updated: 'a' }, { format }), ['kit.stamps.createdByAt']);
+  assert.deepEqual(stamps({ author: 'Ana', created: 'a', editor: 'Luis', updated: 'b' }, { format }),
+    ['kit.stamps.createdByAt', 'kit.stamps.modifiedBy']);
+  assert.deepEqual(stamps({ created: 'a', updated: 'b', completed: 'c' }, { format }),
+    ['kit.stamps.createdAt', 'kit.stamps.modified', 'kit.stamps.completed']);
+  // The five catalogs carry the same words.
+  const fs = await import('node:fs');
+  const keys = ['at', 'created', 'createdAt', 'createdBy', 'createdByAt', 'modified', 'modifiedBy', 'via', 'completed'];
+  for (const lang of ['en', 'es', 'fr', 'de', 'it']) {
+    const catalog = JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
+    for (const key of keys) assert.ok(catalog[`kit.stamps.${key}`], `${lang} kit.stamps.${key}`);
+  }
+});
+
+test('dialogs: one look from the kit, no line under the title nor over the buttons', async () => {
+  const fs = await import('node:fs');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  for (const part of ['header', 'body', 'footer']) {
+    const rules = css.match(new RegExp(`\\.kit-dialog__${part} \\{[^}]*\\}`, 'g')) || [];
+    assert.ok(rules.length, part);
+    for (const rule of rules) assert.doesNotMatch(rule, /border-(block|top|bottom)/, rule);
+  }
+});
