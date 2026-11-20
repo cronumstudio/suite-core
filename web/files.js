@@ -60,14 +60,16 @@ const writing = (node) => node?.isContentEditable || node?.tagName === 'TEXTAREA
  *
  * - `files`: [{ id, name, mime, size }], what the item has.
  * - `editable`: whether files can be added (and taken away: `mayRemove(file)` narrows it, a file
- *   someone else added to a shared list).
+ *   someone else added to a shared list). `notYours(file)`: with it, such a file keeps its ✕ too,
+ *   and the ✕ calls it instead (to say whom to ask: ownership.js tellNotYours).
  * - `fileUrl(file, { download })`: where a file is read, or downloaded.
  * - `upload(blob, name)`: sends one file; what it returns goes to `onUploaded` at the end.
  * - `onUploaded(results)`: the answers of the files that went up, once, after the last (the module
  *   draws its detail again with them: drawn after each, the section would be built under the
  *   person's finger while the rest go up).
  * - `remove(file)`: to the trash; `restore(file)`: back from it, for the Undo.
- * - `max`: how many an item may have (null: no limit here); `maxBytes`: a file's largest size.
+ * - `max`: how many an item may have (null: no limit here); `maxBytes`: a file's largest size, or a
+ *   function that gives it (a promise too), asked when the files go up (a plan's limit read late).
  * - `dropTarget`: the node a file is dropped on or pasted into to add it (the detail).
  * - `accept`: the kinds of file it takes (photos and PDFs). `errorText(err)`: what went wrong, in words.
  * - `onPhoto(file, photos)`: what a thumbnail opens; the kit's viewer by default.
@@ -78,6 +80,7 @@ export function attachments({
   files = [], editable = false, mayRemove = () => true, fileUrl, upload = null, onUploaded = () => {},
   remove = null, restore = null, max = null, maxBytes = MAX_BYTES, dropTarget = null, accept = FILE_TYPES,
   errorText = (err) => err?.message || errorMessage(err), onPhoto = null, notice = null, parent = null,
+  notYours = null,
 }) {
   const list = files || [];
   if (!list.length && !editable) return null;
@@ -93,8 +96,8 @@ export function attachments({
   if (list.length) {
     section.append(el('div', { class: 'kit-files__grid' }, list.map((file) => tile(file, {
       open, fileUrl,
-      removable: editable && remove && mayRemove(file),
-      onRemove: () => takeAway(file),
+      removable: editable && remove && (notYours || mayRemove(file)),
+      onRemove: () => (mayRemove(file) ? takeAway(file) : notYours(file)),
     }))));
   } else {
     section.append(el('p', { class: 'kit-hint kit-files__none', text: t('kit.files.none') }));
@@ -145,10 +148,14 @@ export function attachments({
     button.disabled = true;
     const results = [];
     const failures = [];
+    let limit = MAX_BYTES;
+    try {
+      limit = (typeof maxBytes === 'function' ? await maxBytes() : maxBytes) ?? MAX_BYTES;
+    } catch { /* the kit's own limit */ }
     for (const [i, file] of sending.entries()) {
       words.textContent = sending.length > 1 ? t('kit.files.uploadingOf', { current: i + 1, total: sending.length }) : t('kit.files.uploading');
       try {
-        const { blob, name } = await prepareUpload(file, { maxBytes });
+        const { blob, name } = await prepareUpload(file, { maxBytes: limit });
         results.push(await upload(blob, name));
       } catch (err) {
         failures.push(sending.length > 1 ? `${file.name}: ${errorText(err)}` : errorText(err));

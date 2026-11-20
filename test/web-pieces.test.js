@@ -178,13 +178,29 @@ test('attachments: taking one away sends it to the trash at once, with Undo', as
   assert.match(notice.textContent, /“Invoice.pdf” moved to the trash/);
   await press(notice.querySelector('button'));
   assert.deepEqual(calls.at(-1), ['restore', 2], 'Undo brings it back');
+
+  // With notYours, someone else's file keeps its ✕, which says whom to ask instead.
+  const told = [];
+  const shared = attachments({
+    files: [photo, pdf], editable: true, fileUrl, upload: async () => ({}),
+    mayRemove: (file) => file.id === 2, notYours: (file) => told.push(file.id),
+    remove: async (file) => { calls.push(['remove', file.id]); },
+  });
+  const both = shared.querySelectorAll('.kit-files__remove');
+  assert.equal(both.length, 2);
+  await press(both[0]);
+  assert.deepEqual(told, [1]);
+  assert.deepEqual(calls.at(-1), ['restore', 2], 'nothing removed');
 });
 
 test('attachments: the room left is said before uploading, and the answers come once at the end', async () => {
   const sent = [];
   let told = null;
+  let asked = 0;
   const section = attachments({
     files: [photo], editable: true, fileUrl, max: 2,
+    // A plan's limit read when they go up.
+    maxBytes: async () => { asked += 1; return 5 * 1024 * 1024; },
     upload: async (blob, name) => { sent.push(name); return { name }; },
     onUploaded: (results) => { told = results; },
   });
@@ -196,6 +212,7 @@ test('attachments: the room left is said before uploading, and the answers come 
   await settle();
   assert.deepEqual(sent, ['a.pdf'], 'only what fits, and only photos and PDFs');
   assert.deepEqual(told, [{ name: 'a.pdf' }]);
+  assert.equal(asked, 1, 'the limit asked once, when they go up');
   const notices = document.body.querySelectorAll('.kit-toast').map((n) => n.textContent).join(' | ');
   assert.match(notices, /Only photos and PDFs/);
   assert.match(notices, /Only 1 more fits/);

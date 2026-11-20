@@ -20,7 +20,9 @@ change an interface and a patch never does. Apps pin a version through the submo
     fileUrl, upload, onUploaded, remove, restore, max, maxBytes, dropTarget, accept })`, an item's
     «Archivos»: photos as thumbnails, a PDF as a row with its name and size, added with the button,
     by dropping a file on the detail or pasting one, one notice for several, the room left said
-    first, and taking one away to the trash with Undo. `photoViewer({ photos, start, fileUrl })`, a
+    first, and taking one away to the trash with Undo. `notYours(file)` keeps the ✕ on someone
+    else's file and says whom to ask; `maxBytes` may be a function, asked when the files go up (a
+    plan's limit read late). `photoViewer({ photos, start, fileUrl, parent })`, a
     kit dialog with Tasks' zoom (`makeZoomable`), so in Cronum Work it covers the screen.
     `kit.files.*`, `kit.photo.*`; `.kit-files*`, `.kit-file*`, `.kit-viewer*` in kit.css.
   - `web/i18n.js` `shortDate(value)` («14 mar», with the year when not this one; a YYYY-MM-DD is the
