@@ -431,6 +431,38 @@ function ownPrefsOf(hook) {
   return keys;
 }
 
+/**
+ * What an import writes in an account's users.prefs (describeData, "Preferences"), as JSON text, or
+ * null when the preferences don't travel. `model` is describeData's; `copy` the copy's row and
+ * `current` the row here (JSON text, or already read), `created` whether the import made the account,
+ * `ids` as in `after`. With the app's preferences declared: the row here (for an account the import
+ * makes, the copy's) with the app's own keys of the copy on top, as `remap` gives them. With a
+ * function: what it gives, the account's language and zone kept.
+ */
+export function importedPrefs(model, { copy, current = null, created = false, ids = () => null }) {
+  const parse = (value) => {
+    if (value !== null && typeof value === 'object') return value;
+    try { return JSON.parse(value || '{}'); } catch { return {}; }
+  };
+  if (model.ownPrefs) {
+    // Of the one row, only the app's own keys change: the rest is another module's, the host's or
+    // the whole account's, as it is here.
+    const read = (value) => { const parsed = parse(value); return isObject(parsed) ? parsed : {}; };
+    const theirs = read(copy);
+    const here = created ? null : read(current);
+    const made = model.remap ? model.remap(theirs, { ids, current: here, created }) : theirs;
+    const own = typeof made === 'string' ? read(made) : isObject(made) ? made : {};
+    const prefs = { ...(here ?? theirs) };
+    for (const key of model.ownPrefs) if (Object.hasOwn(own, key)) prefs[key] = own[key];
+    return JSON.stringify(prefs);
+  }
+  if (!model.prefs) return null;
+  const here = created ? null : parse(current);
+  const made = model.prefs(parse(copy), { ids, current: here, created });
+  const text = typeof made === 'string' ? made : JSON.stringify(made ?? {});
+  return created ? text : JSON.stringify(keepAccountPrefs(parse(text), here));
+}
+
 /** A declaration's `planLimit`, checked: { feature, count }, or null. */
 function planLimitOf(spec, errors) {
   if (spec == null) return null;
@@ -2266,23 +2298,12 @@ export function createPortability({
           // An empty one keeps what the account has: the app's columns may not allow it.
           for (const column of model.appColumns) if (source[column] != null) sets[column] = source[column];
           // Preferences hold ids of the app's rows: only the app knows where, so without its hook they stay.
-          const parse = (text) => { try { return JSON.parse(text || '{}'); } catch { return {}; } };
-          if (model.ownPrefs && model.userColumns.includes('prefs')) {
-            // Of the one row, only the app's own keys change (describeData, "Preferences"): the rest
-            // is another module's, the host's or the whole account's, as it is here.
-            const read = (text) => { const value = parse(text); return isObject(value) ? value : {}; };
-            const copy = read(source.prefs);
-            const current = isNew ? null : read(database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs);
-            const made = model.remap ? model.remap(copy, { ids, current, created: isNew }) : copy;
-            const own = typeof made === 'string' ? read(made) : isObject(made) ? made : {};
-            const prefs = { ...(current ?? copy) };
-            for (const key of model.ownPrefs) if (Object.hasOwn(own, key)) prefs[key] = own[key];
-            sets.prefs = JSON.stringify(prefs);
-          } else if (model.prefs && model.userColumns.includes('prefs')) {
-            const current = isNew ? null : parse(database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs);
-            const made = model.prefs(parse(source.prefs), { ids, current, created: isNew });
-            sets.prefs = typeof made === 'string' ? made : JSON.stringify(made ?? {});
-            if (!isNew) sets.prefs = JSON.stringify(keepAccountPrefs(parse(sets.prefs), current));
+          if (model.userColumns.includes('prefs')) {
+            const prefs = importedPrefs(model, {
+              copy: source.prefs, created: isNew, ids,
+              current: isNew ? null : database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs,
+            });
+            if (prefs !== null) sets.prefs = prefs;
           }
           const columns = Object.keys(sets);
           if (columns.length) {

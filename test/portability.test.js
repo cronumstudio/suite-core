@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
-import { describeData, selectRows, ownership, jsonOfRows, withImportCeiling } from '../portability.js';
+import { describeData, selectRows, ownership, jsonOfRows, withImportCeiling, importedPrefs } from '../portability.js';
 import { resolveConfig, CLOUDFLARE_IMPORT_MB } from '../config.js';
 import { Readable } from 'node:stream';
 import { openDatabase } from '../db.js';
@@ -1399,6 +1399,15 @@ test('users.prefs is the app’s preferences or a function of the copy’s, rema
   assert.throws(() => describeData(database, { tables, users: { prefs: (p) => p, remap: (p) => p } }), /users\.remap: .*not a function/);
   assert.throws(() => describeData(database, { tables, planLimit: { feature: 'lists.max' } }), /planLimit: \{ feature/);
   assert.doesNotThrow(() => describeData(database, { tables, planLimit: { feature: 'lists.max', count: () => 0 } }));
+
+  // What an import writes, on its own: the app's keys over the row here, or over the copy's for an account it makes.
+  const model = describeData(database, { tables, users: { prefs: { defaults: { sort: 'x' } }, remap: (p) => ({ ...p, sort: `${p.sort}!` }) } });
+  const copy = JSON.stringify({ sort: 'name', other: 1, lang: 'es' });
+  assert.deepEqual(JSON.parse(importedPrefs(model, { copy, current: '{"sort":"x","mine":2,"lang":"it"}' })), { sort: 'name!', mine: 2, lang: 'it' });
+  assert.deepEqual(JSON.parse(importedPrefs(model, { copy, created: true })), { sort: 'name!', other: 1, lang: 'es' });
+  assert.equal(importedPrefs(describeData(database, { tables }), { copy }), null, 'without either, they don’t travel');
+  const asBefore = describeData(database, { tables, users: { prefs: (p, { current }) => ({ ...current, ...p }) } });
+  assert.deepEqual(JSON.parse(importedPrefs(asBefore, { copy, current: { mine: 2, lang: 'it' } })), { sort: 'name', other: 1, mine: 2, lang: 'it' }, 'a function, as before');
 });
 
 /**
