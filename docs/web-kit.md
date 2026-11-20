@@ -293,7 +293,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
 | `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
-| `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
+| `local.js` | `openLocal(appId, stores, { patience })`: IndexedDB stores of key → value; `memoryLocal()`; for a start that draws from the copy, `deviceLocal(appId, stores)`, `inTime(promise)` and `LOCAL_PATIENCE_MS`; whose the copy is, `createDeviceCopy({ local, stores, account, owner, outbox })` (`local.deviceCopy()`), `drawableFor(id, host)` and `sameAccount(a, b)` (Offline, below) |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
@@ -883,6 +883,19 @@ that ended, then someone else on the same browser) leaves the queue unsent (`rep
 Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
 a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
 queued offline cost no read to add and one record each to send.
+
+A module that draws itself from its copy before the server answers opens it with
+`deviceLocal(appId, stores)`: IndexedDB with `patience: LOCAL_PATIENCE_MS` (1.5 s), or memory where
+the browser has none. IndexedDB can hang (an upgrade another tab blocks, a browser's bug): past the
+patience, what waits for the database to open gives up (`local_store_slow`) and the start goes on
+as if the device kept nothing; `inTime(promise)` does the same for one read (null past it). Whose
+the copy is follows one set of rules in every module: `createDeviceCopy({ local, stores, account,
+owner, outbox })`, or `local.deviceCopy({ … })`. `kept()` is the account the copy is of. `claim(user)`
+once the server says who is signed in: someone else's changes waiting go, and everything with them;
+someone else's copy goes, and the changes stay. `forget()` when a session is gone, and
+`forget({ outbox: true })` on signing out. In Work's shell, before the server answers,
+`drawableFor(id, host)` says whether the copy kept for `id` may be drawn while the shell's account
+is `host` (a window's `services.user()`): never someone else's.
 
 ### Drag and drop
 
