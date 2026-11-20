@@ -19,8 +19,8 @@
  * A module of a host with one worker for everything (host.js `worker`,
  * worker.js) has one version with the whole app: it asks the host's /version
  * and compares it with the host's /js/app-version.js, and the notice names the
- * host (`theirs.name`, "Cronum Work"). In a frame of the host's split view it
- * says nothing: the view shows the one notice for every frame.
+ * host (`theirs.name`, "Cronum Work"). In a frame of a host's page it says
+ * nothing: that page shows the one notice for every frame.
  */
 
 import { el } from './dom.js';
@@ -50,7 +50,7 @@ const HOST_HANDOVER_MS = 20000;
  * @param {Function} [options.loadLocal]  () → { version } of this tab; default: the app's js/app-version.js, at its base
  * @param {number}   [options.every]
  * @param {Function} [options.host]       () → Promise of the host's one worker or null (worker.js hostWorker)
- * @param {boolean}  [options.framed]     a frame of the host's split view (base.js FRAMED)
+ * @param {boolean}  [options.framed]     a frame of a host's page (base.js FRAMED)
  * @returns {{ check: (opts?) => Promise<boolean|null>, stop: () => void, dismiss: () => void, loaded: () => object, latest: () => object }}
  */
 export function watchUpdates({
@@ -102,13 +102,13 @@ export function watchUpdates({
     latest = theirs;
     if (!mine?.version) return null;
     const isNew = theirs.version !== mine.version;
-    // A frame of the host's split view: the view says it, once for every frame.
+    // A frame of a host's page: that page says it, once for every frame.
     const quiet = framed && (await hosted);
     if (isNew && !quiet && (announce || now() >= quietUntil)) onUpdate?.(theirs, mine);
     return isNew;
   }
 
-  // In a frame of the host's split view the view asks, once for every frame: here only when Settings
+  // In a frame of a host's page, that page asks, once for every frame: here only when Settings
   // ask (About's Check), and this tab's own version is read for them.
   const timer = framed ? null : timers.setInterval(() => { check().catch(() => {}); }, every);
   // Coming back to the app is the natural moment to look.
@@ -182,7 +182,7 @@ async function bringNewCode() {
       clearTimeout(timer);
     }
   } catch { /* a plain reload is usually enough */ }
-  // From a frame of the host's split view, the view is what reloads, with every frame in it.
+  // From a frame of a host's page, that page is what reloads, with every frame in it.
   const page = FRAMED ? window.top : window;
   const url = new URL(page.location.href);
   url.searchParams.set('fresh', String(Date.now()));

@@ -100,7 +100,7 @@ export function chipText(card = {}) {
 }
 
 /**
- * A chip's link pressed in a frame of the host's split view: another module's item opens in the
+ * A chip's link pressed in a frame of a host's page: another module's item opens in the
  * section that already shows that module (OPEN_EVENT), not in place of this one. A press with a
  * key held, or with no section for it, is a link as any.
  */
@@ -146,7 +146,7 @@ function openWith(registry, url, { from = null, win = globalThis.window } = {}) 
 /**
  * One link as a chip: the other side's card, in its module's colour, opening it there; dashed
  * when it is gone or this person can't open it. `onMenu(button, link)` adds its "…" button.
- * In Work's shell it opens in a window (openInWork); in a frame of the split view, in the
+ * In Work's shell it opens in a window (openInWork); in a frame of a host's page, in the
  * section of its module (openBeside); anywhere else it is a link.
  */
 export function linkChip(link, { onMenu = null, base = BASE } = {}) {

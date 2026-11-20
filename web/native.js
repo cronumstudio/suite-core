@@ -46,7 +46,7 @@
  * ignored as unknown. A new message, or a new optional field, is a new line above, in
  * docs/web-kit.md and in the CHANGELOG.
  *
- * In a frame of a host's split view (base.js FRAMED) the app's objects are its parent's, on the same
+ * In a frame of a host's page (base.js FRAMED) the app's objects are its parent's, on the same
  * site: the bridge is the top window's.
  */
 import { FRAMED, framedIn } from './base.js';

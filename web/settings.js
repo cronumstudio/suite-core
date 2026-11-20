@@ -139,7 +139,7 @@ const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
 /**
  * The modules or the calendar turned on or off: this page's rail and Linked rows ask again
  * (shell.js, links.js), and so does the page that frames it, when one does (Cronum Work's shell
- * with a module in a frame, the split view).
+ * with a module in a frame).
  */
 function modulesChanged() {
   document.dispatchEvent(new CustomEvent('kit-modules'));
@@ -546,8 +546,8 @@ export function openSettings(options) {
 
   /**
    * To another module's section: there, with Settings open on it (`?settings=`, settingsAsked()).
-   * In a frame of the host's split view, the view opens it in the frame that shows that module, if
-   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes. In Work's
+   * In a frame of a host's page, that page opens it in the frame that shows that module, if
+   * one does (`kit:settings-goto`), so the page stays; otherwise the whole window goes. In Work's
    * shell, the same event on this window: the shell opens it in that module's window, and the page
    * stays.
    */
@@ -623,7 +623,7 @@ export function openSettings(options) {
       page.style.minHeight = on ? `${scroller.scrollTop + scroller.clientHeight}px` : '';
     },
   } : { moving: overlay })));
-  // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
+  // In a frame of a host's page, that page gives this module's section the whole space while they are open.
   const shown = (open) => {
     if (!FRAMED) return;
     try {

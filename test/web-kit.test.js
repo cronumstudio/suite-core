@@ -685,7 +685,7 @@ test('update: a different fingerprint is announced; closing it keeps it quiet fo
   assert.equal(offline.latest(), null);
 });
 
-test('update: in a host with one worker, the whole app’s version, and no notice in a frame of the split view', async () => {
+test('update: in a host with one worker, the whole app’s version, and no notice in a frame of a host’s page', async () => {
   const asked = [];
   const notices = [];
   const server = { app: '0.3.15', name: 'Cronum Work', version: 'bbb' };
@@ -703,10 +703,10 @@ test('update: in a host with one worker, the whole app’s version, and no notic
   await new Promise((done) => setTimeout(done, 10));
   notices.length = 0;
   assert.equal(await frame.check({ announce: true }), true, 'a frame knows it');
-  assert.deepEqual(notices, [], 'but the split view says it, once');
+  assert.deepEqual(notices, [], 'but the host’s page says it, once');
 });
 
-test('update: a frame of the split view never asks /version by itself, nor on coming back', async () => {
+test('update: a frame of a host’s page never asks /version by itself, nor on coming back', async () => {
   const asked = [];
   let listened = 0;
   const timers = { ...fakeTimers(), setInterval: () => { throw new Error('no timer in a frame'); } };
@@ -1379,7 +1379,7 @@ test('a host’s one worker serves every module’s paths as the module did, and
   const framed = page('https://work.example/tasks/', 'nested');
   host.self.clients.matchAll = async () => [split, framed];
   await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=5' } } });
-  assert.equal(framed.got.length, 1, 'in the split view, the module’s frame gets it');
+  assert.equal(framed.got.length, 1, 'in a host’s page, the module’s frame gets it');
   assert.equal(split.focused, 1, 'and the view the focus');
   assert.equal(split.went, null);
 
@@ -1711,7 +1711,7 @@ test('a page asked for outside a navigation is the browser’s, so a failed fetc
   const server = { '/': 'home', '/js/home.js': 'v1', '/tasks/': 'tasks page' };
   const { worker, fetched } = await deployedWorkers('https://work.example/', server);
   const one = await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, shell: ['/', '/js/home.js', '/tasks/'], kit: false });
-  // Chrome checks the page before installing the app: Work's split view, `|` and all.
+  // Chrome checks the page before installing the app: Work's windows (`?w=`), `|` and all.
   fetched.length = 0;
   for (const page of ['https://work.example/?w=tasks:%3Flist%3D38|notes:&f=notes', 'https://work.example/w/', 'https://work.example/tasks/list/12', 'https://work.example/index.html']) {
     assert.equal(await one.get(page), null, page);
@@ -3244,14 +3244,14 @@ test('a frame of the host\'s own page is FRAMED; a page on its own, or framed by
   assert.equal(framedIn(page), false, 'a page on its own');
   const frame = { location: { origin: 'https://work.example' }, top: page };
   frame.self = frame;
-  assert.equal(framedIn(frame), true, 'a frame of the split view');
+  assert.equal(framedIn(frame), true, 'a frame of a host’s page');
   const elsewhere = { location: { origin: 'https://work.example' }, top: { get location() { throw new Error('SecurityError'); } } };
   elsewhere.self = elsewhere;
   assert.equal(framedIn(elsewhere), false, 'another site\'s page can\'t be read');
   assert.equal(framedIn(undefined), false, 'no window: Node');
 });
 
-test('in a frame, the split view opens the module\'s Settings, and hears when they open and close', () => {
+test('in a frame, the host\'s page opens the module\'s Settings, and hears when they open and close', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
   assert.match(read('base.js'), /export const SETTINGS_EVENT = 'kit:settings';/);
   assert.match(read('base.js'), /export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';/);

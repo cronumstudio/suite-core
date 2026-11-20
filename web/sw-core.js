@@ -476,8 +476,8 @@ function suiteWorker(options) {
 
     // A page asked for by something other than a navigation (the browser checking it before
     // installing the app, a prefetch) is the browser's to fetch, as without a worker. Taken for
-    // a file, a fetch that failed with no copy came back as an error, and Chrome said Work's
-    // split view had no manifest when installing it from there.
+    // a file, a fetch that failed with no copy came back as an error, and Chrome once said a page
+    // of Work's had no manifest when installing it from there.
     if (suiteIsPage(local)) return;
 
     // Any file of the copy is code there too: the host's own pages' (Work's /w/work.js, /w/shell.css)
@@ -621,7 +621,7 @@ function suiteKeptPage(kept) {
 
 /**
  * A host's notice tapped: the module it came from. Its page already open gets
- * the notice and the focus (in a frame of the split view, the view gets the
+ * the notice and the focus (in a frame of a host's page, that page gets the
  * focus); otherwise a page of the app open goes there, and without one a new
  * window opens it.
  *
