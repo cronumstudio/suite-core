@@ -449,10 +449,13 @@ export function kitDuplicates(dir, languages = LANGUAGES, { allow = [], override
 /**
  * Texts written the way the suite writes them (audit of 6/11, ux-textos-14 and -17): quotes are the
  * language's own («…», “…”, „…“), never straight ones; an apostrophe is ’, never '; and a way through
- * menus reads with ›, never →. `dir` is a catalog folder (an app's public/i18n, or the suite's).
+ * menus reads with ›, never →. `dir` is a catalog folder (an app's public/i18n, or the suite's);
+ * `allow`, keys left out, with why: a text that must stay as another place has it word for word
+ * (an assistant's instructions the server gives too).
  * → ['es.json app.moved: a straight quote ("), say «…»', …]
  */
-export function typography(dir, languages = LANGUAGES) {
+export function typography(dir, languages = LANGUAGES, { allow = [] } = {}) {
+  const allowed = new Set(allow.map((entry) => (typeof entry === 'string' ? entry : entry.key)));
   const QUOTE = { es: '«…»', en: '“…”', fr: '« … »', de: '„…“', it: '“…”' };
   const found = [];
   for (const lang of languages) {
@@ -464,6 +467,7 @@ export function typography(dir, languages = LANGUAGES) {
       throw new Error(`${lang}.json: ${err.message}`);
     }
     for (const [key, value] of Object.entries(catalog)) {
+      if (allowed.has(key)) continue;
       const texts = typeof value === 'string' ? [value] : Object.values(value || {});
       for (const text of texts) {
         if (typeof text !== 'string') continue;
@@ -489,6 +493,7 @@ export function typography(dir, languages = LANGUAGES) {
  * → [{ name, problems }], for the app's tests to turn into checks.
  */
 export function appChecks(root, { skip = [], allow = [], kitWords = false, kitOverrides = false, kitAllow = [], typography: typed = false } = {}) {
+  // `typography`: true, or { allow } with the keys it leaves out.
   const dir = path.join(root, 'public', 'i18n');
   const publicDir = path.join(root, 'public');
   const serverDir = path.join(root, 'server');
@@ -509,7 +514,7 @@ export function appChecks(root, { skip = [], allow = [], kitWords = false, kitOv
     { name: 'No text for people is written in the browser’s code or in the HTML', problems: hardcodedTexts([publicDir], { allow, skip }) },
     { name: 'Nothing on the server is written in another language: what people read comes from the catalogs', problems: hardcodedTexts([serverDir], { server: true, allow, skip }) },
     ...(kitWords ? [{ name: 'No key of the app repeats what a word of the kit already says (kit.cancel, fields.name…)', problems: kitDuplicates(dir, languages, { allow: kitAllow, overrides: kitOverrides }) }] : []),
-    ...(typed ? [{ name: 'Quotes, apostrophes and ways through menus are written as the suite writes them («…», ’, ›)', problems: typography(dir, languages) }] : []),
+    ...(typed ? [{ name: 'Quotes, apostrophes and ways through menus are written as the suite writes them («…», ’, ›)', problems: typography(dir, languages, { allow: typed.allow || [] }) }] : []),
   ];
 }
 

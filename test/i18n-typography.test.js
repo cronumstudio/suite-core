@@ -53,6 +53,8 @@ test('typography: a straight quote, a straight apostrophe and an arrow through m
     assert.equal(appChecks(root).length, 5, 'not one of the checks unless asked');
     const checks = appChecks(root, { typography: true });
     assert.equal(checks.at(-1).problems.length, found.length);
+    assert.deepEqual(typography(dir, LANGUAGES, { allow: ['app.quote', { key: 'app.arrow', why: 'test' }] }).map((line) => line.split(' ')[1]).filter((k) => /quote|arrow/.test(k)), [], 'what is allowed is left out');
+    assert.equal(appChecks(root, { typography: { allow: ['app.quote'] } }).at(-1).problems.length, found.length - LANGUAGES.length);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -28,7 +28,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   - `tools/i18n.mjs` `typography(dir)` (straight quotes and apostrophes, → on a way through menus;
     `typography [dir]` on the command line, `--typography` with `app`), `kitDuplicates(dir, langs,
     { allow, overrides })` (with `overrides`, an app's `kit.*` key saying it otherwise), and
-    `appChecks(root, { kitOverrides, kitAllow, typography })` to ask for them.
+    `appChecks(root, { kitOverrides, kitAllow, typography })` to ask for them (`typography: { allow }`
+    leaves out keys that must read as another place has them, such as an assistant's instructions).
 
 ## 0.308.0 — 2026-11-20
 
