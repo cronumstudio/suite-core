@@ -6,7 +6,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 ## 0.316.0 — 2026-11-20
 
 Offers by email kept by the sharing engine for every module, with one rule that never tells the owner whose an
-address is; and grouped notices written once.
+address is; grouped notices written once; and a module's public page started by the kit.
 
 ### Sharing
 - **`createAddressOffers({ db, table, kinds, … })`** writes a module's offers by email once: kept under the address
@@ -30,6 +30,17 @@ address is; and grouped notices written once.
   by default, `NOTICE_DELAY_MS`) and sent as one once the key goes quiet; each change restarts the wait, `flush(key)`
   sends one now and `flushAll()` sends what waits when a module stops. A send the timer started that fails goes to
   `failed` (by default the log) instead of becoming an unhandled rejection.
+
+### The public page
+- **`startPublicPage({ key, draw, icon, words, title, failed, refusedAs, openClass, reread })`** (`web/public-frame.js`,
+  new): a module's public page started by the kit. It reads the page by its token and draws the bar, the foot with
+  Cronum's brand, «Nothing to see here», a frame the owner's plan doesn't allow, and the embedded page; the module's
+  `draw(data, { page, embedded })` gives only its content. Options cover where modules differ (a page that couldn't
+  load with its retry, the refused look, rereading while in sight). It is a file of its own, not in the worker's copy,
+  so a tab whose old worker still has the old `public-page.js` gets it from the network.
+- **One rule for "embedded"**: `embed=1` in the address, or framed (`embeddedPage`).
+- `public-page.css`: the brand under a refused frame is one rule for both looks, and the refused look "as the gone
+  page says it" is the kit's. `test/public-page-dom.js` runs a module's public page in the fake DOM.
 
 ## 0.315.0 — 2026-11-20
 
