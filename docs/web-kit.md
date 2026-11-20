@@ -180,7 +180,8 @@ going from one module to the next in Cronum Work nothing moves:
    it is one sentence and has them when it is two («Plantilla borrada»; «Paso copiado. Pégalo en tu
    IA para seguir.»); an error (`errors.*`) is a sentence with its full stop. What the kit says, a
    module doesn't copy: the public page's words (`kit.public.*`), the push of something shared
-   (`sharePush()`, `kit.share.push.*`), «Cargando…» and the rest. `appChecks(root, { kitWords: true,
+   (`sharePush()`, `kit.share.push.*`), a group's words (`kit.group.*`, `kit.moveUp`, `kit.dropBefore`…),
+   «Cargando…» and the rest. `appChecks(root, { kitWords: true,
    kitOverrides: true, typography: true })` checks both, with `kitAllow` for a key that only looks
    like the kit's or says what only the module has. A
    dialog opened from a menu gives the focus back to the menu's «…» when it closes; the public

@@ -19,6 +19,9 @@ change an interface and a patch never does. Apps pin a version through the submo
     toasts (`kit.share.left`, `kit.plan.*`, `kit.links.*`, `admin.*`…). Errors keep theirs.
   - `kit.public.action`, `kit.public.on`, and the shared page's `kit.public.goneTitle`,
     `.cantEmbed`, `.openPage`, `.startFree`, which the four modules wrote each.
+  - The words of a group and of a drop in the sidebar, which Tasks, Notes, Projects and Next wrote
+    each: `kit.group.new`, `.edit`, `.delete`, `.none`, `kit.moveUp`, `kit.moveDown`, `kit.dropBefore`,
+    `kit.dropAfter`.
   - `share-mail.js` `sharePush({ t, kind, actor, name, role })` → `{ title, body }`: the push of
     something shared, worded once (`kit.share.push.title`, `kit.share.push.<kind>`), for the
     modules' own deliveries, which keep their tag and where a tap goes.
