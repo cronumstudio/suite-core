@@ -643,14 +643,6 @@ export function createNativePush({
       .map((row) => ({ ...row, native: true }));
   }
 
-  /** The target of one device, when it has a token and still works. */
-  function targetOfDevice(deviceId) {
-    const row = database.get(`SELECT p.id, p.device_id, p.platform, p.token, p.environment, p.lang, p.failures,
-        p.last_ok_at, d.user_id
-      FROM device_push_tokens p JOIN device_tokens d ON d.id = p.device_id WHERE p.device_id = ?`, deviceId);
-    return row && devices.isActive(deviceId) ? { ...row, native: true } : null;
-  }
-
   /**
    * Keeps (or replaces) a device's token. The same token on another device of
    * the table (the app reinstalled, connected again) moves here: a phone gets
@@ -805,7 +797,7 @@ export function createNativePush({
 
   return {
     platforms: { ios: Boolean(apnsSender), android: Boolean(fcmSender) },
-    targetsOf, targetOfDevice, register, unregister, withTokens, send, deliver, close,
+    targetsOf, register, unregister, withTokens, send, deliver, close,
     setReminders, clearReminders, scheduledOn,
   };
 }
@@ -817,7 +809,6 @@ export function createNativePush({
  * (`Authorization: Bearer <devices.prefix>…`), never a session:
  *   POST   /api/devices/push       { platform, token, environment?, lang? }
  *   DELETE /api/devices/push
- *   POST   /api/devices/push/test  a test notice to this device
  *   PUT    /api/devices/reminders  { items: [{ module, id, at }] }: the reminders it shows itself
  * A bad device token counts against the address in the devices' bucket, as the
  * other device routes do.
@@ -873,20 +864,5 @@ export function registerNativePushApi(router, { devices, nativePush, limiter, te
     const body = await readJson(ctx.req);
     const items = deviceRemindersOf(body?.items);
     sendJson(ctx.res, 200, { ok: true, count: nativePush.setReminders(device.device_id, items) });
-  });
-
-  /** A test notice to this device, in the person's language (else the device's). → { sent, gone, failed } */
-  router.post('/api/devices/push/test', async (ctx) => {
-    const device = deviceOf(ctx);
-    const target = nativePush.targetOfDevice(device.device_id);
-    if (!target) {
-      sendJson(ctx.res, 200, { sent: 0, gone: 0, failed: 0, no_token: true });
-      return;
-    }
-    const result = await nativePush.deliver([target], (t) => {
-      const { t: tr } = texts({ headers: { 'accept-language': t.lang || '' } }, device);
-      return { title: `✅ ${appName}`, body: tr('push.test'), tag: 'test' };
-    });
-    sendJson(ctx.res, 200, result);
   });
 }

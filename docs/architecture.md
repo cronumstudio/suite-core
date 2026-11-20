@@ -1599,7 +1599,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
     'sandbox' | 'production' (APNs only, `production` by default), lang? }` keeps one token per
     device (`device_push_tokens`, **suite migration 24**, hanging on `device_tokens` with
     `ON DELETE CASCADE`; the same token on another device moves here); `DELETE /api/devices/push`
-    forgets it; `POST /api/devices/push/test` sends this device a test notice. A device revoked
+    forgets it (Web Push's `POST /api/push/test` reaches the phones too). A device revoked
     (by its owner, by itself, by the admin) loses its token at once; one gone idle or of a
     disabled account gets nothing, and its row goes with the device. Bad device
     tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
