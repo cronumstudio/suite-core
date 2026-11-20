@@ -100,7 +100,8 @@ suite-core/
   prefs.js              done   users.prefs: a module's own keys and the shared ones (lang, lang_seen, tz); the account as the browser sees it
   mcp-kit.js            done   what the tools are written with: text, S, the annotations, describeError, trimRepeats
   resolve.js            done   names as people say them → an item, or the options to ask about (ResolveError)
-  sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
+  sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes;
+                               offers by address, kept, listed, changed, taken back and claimed (createAddressOffers)
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
   ownership.js          done   whose it is: 403 not_yours, the author who may delete, giving it, the notice when shared things go, heirs
   public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes;

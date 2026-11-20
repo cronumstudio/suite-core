@@ -50,6 +50,63 @@ export function sharePush({ t, kind, actor, name = '', role = null }) {
 }
 
 /**
+ * The notices of an offer as every module sends them (createSharing's `notify`), reading the suite's
+ * services when they go, a test's stand-ins too: the email to an account (`shareMail`), the email to
+ * an address without one (`shareMail.stranger`, which decides itself whether it may go) and, with
+ * `texts`, the push to their devices in the kit's words (sharePush), tagged by the thing so a second
+ * offer doesn't replace the first on the device. Each names whoever offered it as they call
+ * themselves, and the thing by the name the engine gives it, its emoji on the card.
+ *
+ *   notify: shareNotices({ suite, get, texts: (user) => translator(userLanguage(user)), url: appUrl,
+ *     kinds: { project: { mail: 'plan', tag: (project) => `share-next-${project.id}` } } }),
+ *
+ * @param {object} options
+ * @param {object} options.suite  the module's suite (shareMail, push), read at each notice.
+ * @param {Function} options.get  the module's read of one row (SQL with `?`): who offered it, and to whom.
+ * @param {Function} [options.texts]  (user) → t in their language, the module's words over the suite's; without it, no push.
+ * @param {Function} [options.url]  () → where a push takes them (the module's address).
+ * @param {object} [options.kinds]  kind → { mail, tag, strangerIcon }: the kind share-mail knows it by (default
+ *   its own), the push's tag (thing) → string, and strangerIcon: false to send an address without an
+ *   account no emoji (as Notes always did).
+ * @returns {{ email: Function, stranger: Function, push?: Function }}
+ */
+export function shareNotices({ suite, get, texts = null, url = null, kinds = {} }) {
+  const userOf = (id) => get('SELECT * FROM users WHERE id = ?', id);
+  const nameOf = (user) => user.display_name || user.username;
+  const optionsOf = (kind) => kinds[kind] ?? {};
+  const mailKind = (kind) => optionsOf(kind).mail ?? kind;
+  /** What the thing is called: the engine's name for it, else its own. */
+  const titleOf = (name, thing) => name ?? thing?.name ?? '';
+
+  function email({ kind, thing, name, actorId, targetId, permission }) {
+    const target = userOf(targetId);
+    const actor = userOf(actorId);
+    if (!suite.shareMail || !target?.email || !actor || !thing) return undefined;
+    return suite.shareMail({ to: target, actor: nameOf(actor), kind: mailKind(kind), name: titleOf(name, thing) || '', icon: thing.icon || null, permission });
+  }
+
+  function stranger({ kind, thing, name, actorId, email: address, permission }) {
+    if (!suite.shareMail?.stranger || !thing) return undefined;
+    const icon = optionsOf(kind).strangerIcon === false ? {} : { icon: thing.icon || null };
+    return suite.shareMail.stranger({ email: address, inviter: userOf(actorId), kind: mailKind(kind), name: titleOf(name, thing) || '', ...icon, permission });
+  }
+
+  async function push({ kind, thing, name, actorId, targetId }) {
+    const target = userOf(targetId);
+    const actor = userOf(actorId);
+    if (!suite.push || !target || !actor) return;
+    const { tag = null } = optionsOf(kind);
+    await suite.push.deliver(suite.push.subscriptionsOf([targetId]), {
+      ...sharePush({ t: texts(target), kind: mailKind(kind), actor: nameOf(actor), name: titleOf(name, thing) }),
+      ...(tag ? { tag: tag(thing) } : {}),
+      ...(url ? { url: url() } : {}),
+    });
+  }
+
+  return texts ? { email, stranger, push } : { email, stranger };
+}
+
+/**
  * @param {object} options
  * @param {object} options.mailer      from createMailer()
  * @param {Function} options.texts     (req, user) → { lang, t }: the module's (its words over the suite's)
