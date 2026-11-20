@@ -50,7 +50,7 @@ test('blank: loading is the spinner and «Cargando…», said to a screen reader
 });
 
 test('one size of title for a list\'s empty place and a view\'s', () => {
-  assert.match(kit, /\.kit-blank strong, \.kit-blank h2 \{[^}]*font-size: var\(--look-headline, 15px\)/);
+  assert.match(kit, /\.kit-blank strong, \.kit-blank h2 \{[^}]*font-size: var\(--look-headline\)/);
   assert.doesNotMatch(kit, /\.kit-blank h2 \{[^}]*title3/);
 });
 
@@ -71,7 +71,7 @@ test('addBar: a +, the field, the module\'s tools and «Añadir»; onAdd gets wh
   input.value = '   ';
   for (const fn of bar.listeners.submit) fn({ preventDefault() {} });
   assert.deepEqual(added, ['pan']);
-  assert.match(kit, /\.kit-add-bar \{[^}]*border-radius: var\(--kit-radius\);[^}]*box-shadow: var\(--kit-shadow\);/);
+  assert.match(kit, /\.kit-add-bar \{[^}]*border-radius: var\(--look-r-md\);[^}]*box-shadow: var\(--kit-shadow\);/);
 });
 
 test('a notice rises over an add bar under it, and not over one hidden or beside it', () => {

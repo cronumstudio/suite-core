@@ -51,12 +51,13 @@
 
   /*
    * Where a layout changes, the same in every app, so modules side by side in Cronum Work change
-   * at the same widths: under the phone's, one column; under the tablet's, a list and its detail
-   * are two screens. CSS reads no variable in @media or @container, so a rule writes the number
-   * itself, one of these two; a script reads them (getComputedStyle) for matchMedia.
+   * at the same widths: under the phone's, one column and the sidebar a drawer; under the
+   * tablet's, a list and its detail are two screens (from it, side by side: kit.css, shell.js).
+   * CSS reads no variable in @media or @container, so a rule writes the number itself, one of
+   * these two; they are here to be named (docs/web-kit.md, rule 24).
    */
   --cr-bp-phone: 640px;
-  --cr-bp-tablet: 860px;
+  --cr-bp-tablet: 960px;
 }
 
 /*

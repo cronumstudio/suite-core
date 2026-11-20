@@ -5,9 +5,11 @@
    module's own sheet, linked after this one, draws what its page shows, and may set:
      --sp-glow    the glow at the top (the yolk of "now", by default)
      --sp-accent  the colour the footer's link takes under the pointer (the module's, by default)
+     --sp-color   what is shown's own colour (a list's, a project's): its mark in the hero, its
+                  numbers, its badge (the module's accent, by default)
    One column on any width, and nothing scrolls sideways between 320 and 430 px in any language. */
 
-/* The page scrolls as any page does (the app's sheet, not linked here, fixes it to the screen). */
+/* The page scrolls as any page does (an app's sheet linked before this one may fix it to the screen). */
 html, body { height: auto; overflow: visible; overscroll-behavior: auto; }
 
 .sp-body {
@@ -71,6 +73,68 @@ html, body { height: auto; overflow: visible; overscroll-behavior: auto; }
   .sp-bar__cta { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
 }
 
+/* ---------------------------------- hero ---------------------------------- */
+
+/* What is shown, at the top: its mark (an emoji, or a dot of its colour), its name, who shares it,
+   and its numbers in cards (the stats). The same in every module (audit of 6/11, dup-css-9). */
+.sp-hero { text-align: center; padding: 8px 0 24px; }
+.sp-hero__mark {
+  display: inline-grid; place-items: center;
+  width: 76px; height: 76px; border-radius: 50%;
+  background: color-mix(in oklab, var(--sp-color, var(--kit-accent)) 14%, var(--kit-panel));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--sp-color, var(--kit-accent)) 22%, transparent), 0 10px 30px -12px color-mix(in oklab, var(--sp-color, var(--kit-accent)) 60%, transparent);
+  margin-bottom: 18px;
+}
+.sp-hero__icon { font-size: 38px; line-height: 1; }
+.sp-hero__dot { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--sp-color, var(--kit-accent)); }
+.sp-hero__name {
+  font-family: var(--cr-font-display);
+  font-weight: 700;
+  font-size: clamp(30px, 7.4vw, 48px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0 auto 10px;
+  max-width: 18ch;
+  overflow-wrap: anywhere;
+}
+.sp-hero__by {
+  margin: 0; color: var(--kit-muted); font-size: 15px;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px;
+}
+/* Its state in a word, under its name (done, paused). */
+.sp-badge {
+  display: inline-block; margin-top: 14px; padding: 5px 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 600;
+}
+.sp-badge.is-done { background: color-mix(in oklab, var(--sp-color, var(--kit-accent)) 14%, var(--kit-panel)); color: var(--sp-color, var(--kit-accent)); }
+.sp-badge.is-paused { background: color-mix(in oklab, var(--kit-muted) 14%, var(--kit-panel)); color: var(--kit-muted); }
+
+.sp-stats {
+  list-style: none; margin: 22px auto 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px;
+}
+.sp-stat {
+  background: var(--kit-panel);
+  border: 1px solid var(--kit-border);
+  border-radius: 16px;
+  padding: 14px 8px 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 0;
+}
+.sp-stat__n { font-family: var(--cr-font-display); font-size: clamp(24px, 6vw, 32px); line-height: 1.1; color: var(--sp-color, var(--kit-accent)); }
+.sp-stat__label { font-size: 12.5px; color: var(--kit-muted); text-align: center; line-height: 1.25; }
+
+/* -------------------------------- sections -------------------------------- */
+
+/* What the page shows under the hero, in sections with a small title in capitals. */
+.sp-section { margin-top: 32px; }
+.sp-section__title {
+  font-family: var(--cr-font-display);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--kit-muted);
+  margin: 0 0 12px;
+}
+
 /* --------------------------------- footer --------------------------------- */
 
 .sp-foot {
@@ -90,6 +154,9 @@ html, body { height: auto; overflow: visible; overscroll-behavior: auto; }
 /* In another site's frame: as tall as it needs, without the glow, closer to the frame's edges. */
 .sp-embedded .sp-body { min-height: 0; background: var(--kit-bg); }
 .sp-embedded .sp { padding: 16px 16px 20px; }
+.sp-embedded .sp-hero { padding-bottom: 16px; }
+.sp-embedded .sp-hero__mark { width: 56px; height: 56px; margin-bottom: 12px; }
+.sp-embedded .sp-hero__icon { font-size: 28px; }
 
 /* Framed where its owner's plan doesn't embed: a small card, and the way to the page itself. */
 .sp-refused {

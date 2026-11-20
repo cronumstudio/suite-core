@@ -1,5 +1,5 @@
 /**
- * The banner of a module without a signal (web/ui.js offlineBanner, web-kit.md rule 10), without a
+ * The banner of a module without a signal (web/ui.js offlineBanner, web-kit.md rule 18), without a
  * browser: shown the moment the browser says the signal went, with no request failing first;
  * gone when it is back and nothing waits; while what waits is sent, how many; a discreet
  * «Reintentar» only when the module gives one; the same words never drawn twice; and the notice
