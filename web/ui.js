@@ -109,6 +109,110 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
 }
 
 /**
+ * The banner of a module without a signal, the same in every module (web-kit.md, rule 10): shown
+ * the moment the browser says the signal went (`offline`), not once a request has failed, and
+ * looked at again when it says it is back (`online`). Offline it says what is shown is the last
+ * thing loaded and how many changes wait on this device, with a discreet «Reintentar» when the
+ * module gives `retry`; back online, while those changes go, how many are being sent; `sent(n)`
+ * says they arrived (a notice) once the module has sent them.
+ *
+ * - `shell`: the shell (or a function that gives it) whose banner row it uses, id 'offline'. Or
+ *   `show(options)` and `hide()` of the module's own: `show` gets a function that gives the
+ *   banner's options, asked again whenever it paints (a module that repaints its banners in a new
+ *   language calls it then).
+ * - `pending()`: how many changes wait on this device to be sent.
+ * - `offline()`: what the module knows besides the browser: a request found no signal.
+ * - `empty()`: nothing loaded yet to show: only that the server can't be reached.
+ * - `retry()`: asks the server again.
+ * - `announce`: says by itself that the changes waiting without a signal arrived, once the signal
+ *   is back and none waits (for a module whose sending reports no count): as many as waited at
+ *   most while offline, less those it says were refused (`dropped()`). A function instead of
+ *   `true`: whether they can be sent yet; while it says no, none waiting isn't taken for sent.
+ *
+ * → { paint, sent, dropped, stop }: `paint()` after the module's own state changed (its
+ * `offline()`, its `pending()`); `paint(true)` draws it again even with the same words (a new shell).
+ */
+export function offlineBanner({
+  shell = null, show = null, hide = null, pending = () => 0, offline = () => false, empty = () => false, retry = null,
+  announce = false,
+} = {}) {
+  const shellOf = () => (typeof shell === 'function' ? shell() : shell);
+  // Without a shell yet nothing is drawn, and it is drawn once there is one.
+  const showIt = show || ((options) => {
+    const target = shellOf();
+    if (!target) return false;
+    target.showBanner('offline', options());
+    return true;
+  });
+  const hideIt = hide || (() => shellOf()?.hideBanner('offline'));
+  const away = () => globalThis.navigator?.onLine === false || !!offline();
+  const waiting = () => Number(pending() || 0);
+  const options = () => (away()
+    ? {
+      kind: 'warn', iconName: 'wifi-off',
+      text: empty() ? t('errors.offline') : t('kit.offline.banner', { n: waiting() }),
+      action: retry ? { label: t('kit.retry'), primary: false, onClick: () => retry() } : null,
+    }
+    : { kind: 'warn', iconName: 'upload', text: t('kit.offline.pending', { n: waiting() }) });
+  // What it shows now, by its words: the same again isn't drawn again (nor said again to a screen reader).
+  let drawn = null;
+  // How many changes waited at most while offline, still to be said arrived (`announce`).
+  let held = 0;
+  const paint = (again = false) => {
+    if (away()) held = Math.max(held, waiting());
+    // A function says whether they can go yet (Next: once the server said whose they are); until
+    // then none waiting says nothing, and they are said arrived once they went.
+    else if (!waiting() && held && (typeof announce !== 'function' || announce())) {
+      const arrived = held;
+      held = 0;
+      if (announce) toast(t('kit.offline.sent', { n: arrived }));
+    }
+    if (!away() && !waiting()) {
+      if (drawn !== null || again) hideIt();
+      drawn = null;
+      return;
+    }
+    const now = options();
+    const key = `${now.text}|${now.action ? now.action.label : ''}`;
+    if (!again && key === drawn) return;
+    drawn = showIt(options) === false ? null : key;
+  };
+  const onSignal = () => paint();
+  const onLanguage = () => paint(true);
+  globalThis.addEventListener?.('offline', onSignal);
+  globalThis.addEventListener?.('online', onSignal);
+  globalThis.addEventListener?.('app:language', onLanguage);
+  paint();
+  return {
+    paint,
+    /** `n` changes made without a signal arrived: said, and the banner painted again. */
+    sent(n) {
+      held = 0;
+      if (Number(n) > 0) toast(t('kit.offline.sent', { n: Number(n) }));
+      paint();
+    },
+    /** `n` of the changes that waited were refused when they went (the module says why): not said arrived. */
+    dropped(n = 1) {
+      held = Math.max(0, held - Number(n));
+    },
+    stop() {
+      globalThis.removeEventListener?.('offline', onSignal);
+      globalThis.removeEventListener?.('online', onSignal);
+      globalThis.removeEventListener?.('app:language', onLanguage);
+    },
+  };
+}
+
+/**
+ * What only the server can show, without a signal, in its place: «Necesita conexión» and that it
+ * shows once the signal is back, the same in every module (a trash, a section of Settings).
+ */
+export function offlineNotice({ className = '' } = {}) {
+  return el('div', { class: `kit-notice${className ? ` ${className}` : ''}`, role: 'status' },
+    el('strong', { text: t('kit.offline.title') }), el('p', { text: t('kit.offline.server') }));
+}
+
+/**
  * Where a save stands, next to what is saved: 'saving', 'saved', 'local'
  * (kept on this device, its answer slow to come), 'offline' (kept on this
  * device, to be sent), 'error' or 'conflict'. Returns the node
