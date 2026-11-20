@@ -177,25 +177,61 @@ export function asShape(n) {
 /** A layout's shape: the windows each column stacks (`[1, 2]`). */
 export const shapeOf = (layout) => (layout?.cols || []).map((col) => col.wins.length);
 
+/** A layout's modules by rows: each column's top, left to right, then the bottoms of the stacks. */
+const byRows = (layout) => [...layout.cols.map((col) => col.wins[0]), ...layout.cols.map((col) => col.wins[1])].filter(Boolean);
+
+/**
+ * The windows of a shape as they were the last time it showed (readPlaces), in the order applyColumns
+ * fills them: a module still offered (`order`) in its place, null where none is. Null when nothing
+ * of it can come back.
+ */
+function placesBack(places, shape, order) {
+  if (!Array.isArray(places) || places.length !== shape.length) return null;
+  const spots = [...shape.map((stack, col) => [col, 0]), ...shape.flatMap((stack, col) => (stack === 2 ? [[col, 1]] : []))];
+  const seen = new Set();
+  const slots = spots.map(([col, row]) => {
+    const module = Array.isArray(places[col]) && places[col].length === shape[col] ? places[col][row] : null;
+    if (typeof module !== 'string' || !order.includes(module) || seen.has(module)) return null;
+    seen.add(module);
+    return module;
+  });
+  return seen.size ? slots : null;
+}
+
 /**
  * The layout for the rail's choice, a shape (asShape: `n` columns, '2x2', or `[1, 2]`…), with the
  * modules it shows now first and then the others of `modules`. The focused window stays. It fills
- * by rows, the top row and then the bottom one, so two windows side by side stay side by side.
- * `shares` (readShares) are the bars' shares the shape had last time, kept when it is filled.
+ * by rows, the top row and then the bottom one, so two windows side by side stay side by side, and
+ * it takes the windows shown now by rows too: a window keeps its row, and two views back and forth
+ * leave each where it was (it read them by columns, and «one big and two stacked» to 2×2 and back
+ * swapped the two stacked ones). `shares` (readShares) are the bars' shares the shape had last
+ * time, kept when it is filled; `places` (readPlaces) its windows then, each module still offered
+ * back in its place, so going back to a view finds each window where it was.
  */
-export function applyColumns(n, modules = [], current = null, { shares = null } = {}) {
+export function applyColumns(n, modules = [], current = null, { shares = null, places = null } = {}) {
   const shape = asShape(n);
   const count = shape.reduce((sum, stack) => sum + stack, 0);
-  const had = current ? modulesOf(current) : [];
+  const had = current ? byRows(current) : [];
   const order = [...new Set([...had, ...modules])];
   const focus = current?.focus;
-  const at = order.indexOf(focus);
-  if (at >= count) order.splice(count - 1, 0, ...order.splice(at, 1));
-  const picked = order.slice(0, count);
+  let picked = placesBack(places, shape, order);
+  if (picked) {
+    // The focused window stays: in a place left empty, else in the last one.
+    if (focus && order.includes(focus) && !picked.includes(focus)) {
+      const empty = picked.indexOf(null);
+      picked[empty >= 0 ? empty : count - 1] = focus;
+    }
+    const rest = order.filter((module) => !picked.includes(module));
+    picked = picked.map((module) => module ?? rest.shift() ?? null).filter(Boolean);
+  } else {
+    const at = order.indexOf(focus);
+    if (at >= count) order.splice(count - 1, 0, ...order.splice(at, 1));
+    picked = order.slice(0, count);
+  }
   // The places in reading order: each column's top, left to right, then the bottoms of the stacks.
-  const places = [...shape.keys(), ...shape.flatMap((stack, col) => (stack === 2 ? [col] : []))];
+  const spots = [...shape.keys(), ...shape.flatMap((stack, col) => (stack === 2 ? [col] : []))];
   const cols = shape.map(() => ({ w: 1, wins: [] }));
-  picked.forEach((module, i) => cols[places[i]].wins.push(module));
+  picked.forEach((module, i) => cols[spots[i]].wins.push(module));
   const kept = picked.length === count && shares?.w?.length === shape.length ? shares : null;
   cols.forEach((col, i) => {
     col.w = kept?.w[i] ?? 1;
@@ -476,20 +512,46 @@ export function readShares(storage, n) {
   return Array.isArray(kept?.w) ? { w: kept.w, h: Array.isArray(kept.h) ? kept.h : [] } : null;
 }
 
+/** The windows kept of every shape (writeLayout), or none. */
+function keptPlaces(storage) {
+  try {
+    const places = JSON.parse(storage?.getItem(KEY) || '{}')?.places;
+    return places && typeof places === 'object' && !Array.isArray(places) ? places : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
- * Keeps the layout, for every width (the old ones per screen class go), and its bars' shares for
- * its shape, beside those of the others. Only a convenience: it may fail.
+ * Which module each window of shape `n` (asShape) showed the last time it did, column by column
+ * (`[['tasks'], ['notes', 'projects']]`), or null: going back to a view puts each one back
+ * (applyColumns `places`).
+ */
+export function readPlaces(storage, n) {
+  const shape = asShape(n);
+  const kept = keptPlaces(storage)[shapeKey(shape)];
+  if (!Array.isArray(kept) || kept.length !== shape.length) return null;
+  const ok = kept.every((col, i) => Array.isArray(col) && col.length === shape[i] && col.every((module) => typeof module === 'string' && module));
+  return ok ? kept.map((col) => [...col]) : null;
+}
+
+/**
+ * Keeps the layout, for every width (the old ones per screen class go), and its bars' shares and
+ * its windows for its shape, beside those of the others. Only a convenience: it may fail.
  */
 export function writeLayout(storage, layout) {
   try {
     const shares = keptShares(storage);
+    const places = keptPlaces(storage);
     if (layout?.cols?.length) {
-      shares[shapeKey(shapeOf(layout))] = {
+      const key = shapeKey(shapeOf(layout));
+      shares[key] = {
         w: layout.cols.map((col) => col.w),
         h: layout.cols.map((col) => (col.wins.length === 2 ? rowShare(col.h) : null)),
       };
+      places[key] = layout.cols.map((col) => [...col.wins]);
     }
-    storage?.setItem(KEY, JSON.stringify({ all: layout, shares }));
+    storage?.setItem(KEY, JSON.stringify({ all: layout, shares, places }));
   } catch { /* private mode, full, or something else's */ }
 }
 
@@ -1344,12 +1406,13 @@ export function createWindows(desk, {
 
   /**
    * The rail's choice of a shape (1–4 columns, '2x2', or the windows each column stacks, `[1, 2]`),
-   * with the modules shown now and then `list`'s, and the shares its bars had last time.
+   * with the modules shown now and then `list`'s, and the shares its bars had last time: back to a
+   * shape, each window where it was in it then.
    */
   function columns(n, list = available()) {
     gesture?.cancel();
     room = measure();
-    const want = applyColumns(n, list, layout, { shares: readShares(storage, n) });
+    const want = applyColumns(n, list, layout, { shares: readShares(storage, n), places: readPlaces(storage, n) });
     relayout(arrange(want), want);
   }
 

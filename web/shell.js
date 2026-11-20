@@ -1015,7 +1015,14 @@ export function createShell({
     window.addEventListener('resize', syncSwitcher, { signal });
     // Back to the page, the host is asked again; in a frame of a host's page that page has the rail, not the frame.
     if (!FRAMED) document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
-    document.addEventListener('kit-modules', () => refreshModules(), { signal });
+    // A module turned on or off, or put in order, in Settings: the modules as they are now come with
+    // it (settings.js modulesChanged), the device's own without a signal, and the rail follows them
+    // at once; the host is asked after, and with no signal nothing more changes.
+    document.addEventListener('kit-modules', (ev) => {
+      const given = ev.detail?.answer;
+      if (!destroyed && !embedded && Array.isArray(given?.modules) && given.modules.some((m) => m?.mount === mount)) paintRail(given);
+      refreshModules();
+    }, { signal });
     // A look chosen in another tab, or in another frame of a host's page: this page follows at once.
     window.addEventListener('storage', (ev) => {
       // Closed in another tab, or another frame of a host's page: gone here too.

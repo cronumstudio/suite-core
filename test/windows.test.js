@@ -49,7 +49,7 @@ Object.defineProperties(FakeElement.prototype, {
 });
 
 const {
-  KEY, screenClass, fitColumns, normalizeLayout, modulesOf, where, applyColumns, asShape, shapeOf, readShares, fitLayout, narrowLayout,
+  KEY, screenClass, fitColumns, normalizeLayout, modulesOf, where, applyColumns, asShape, shapeOf, readShares, readPlaces, fitLayout, narrowLayout,
   moveColumn, swapWindows, placement, slotAt, dropLayout, dropRect, moveByKey, shareAfter, rowShareAt,
   lruTouch, lruEvict, readLayout, writeLayout, createWindows,
 } = await import('../web/windows.js');
@@ -158,6 +158,55 @@ test('shapes: any columns of one or two windows, filled by rows, with the shares
   assert.deepEqual(readShares(storage, [1, 2]), { w: [3, 1], h: [null, 0.3] }, 'and written over');
   data.set(KEY, '{not json');
   assert.equal(readShares(storage, [1, 2]), null);
+});
+
+test('back to a view, each window in its place: by rows, and each shape’s windows kept', () => {
+  const data = new Map();
+  const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)) };
+  const wins = (layout) => layout.cols.map((c) => c.wins);
+  // «One big and two stacked», then 2×2 and back: the two stacked ones kept their places (they
+  // were read by columns, and Notes and Projects swapped).
+  const big = applyColumns([1, 2], [], L('tasks', 'notes', 'projects'));
+  assert.deepEqual(wins(big), [['tasks'], ['notes', 'projects']]);
+  writeLayout(storage, big);
+  assert.deepEqual(readPlaces(storage, [1, 2]), [['tasks'], ['notes', 'projects']]);
+  const grid = applyColumns('2x2', ['next'], big, { places: readPlaces(storage, '2x2') });
+  assert.deepEqual(wins(grid), [['tasks', 'projects'], ['notes', 'next']], 'by rows: the top row stays the top row');
+  writeLayout(storage, grid);
+  const back = applyColumns([1, 2], [], grid, { places: readPlaces(storage, [1, 2]) });
+  assert.deepEqual(wins(back), [['tasks'], ['notes', 'projects']], 'each one where it was');
+  assert.deepEqual(wins(applyColumns([1, 2], [], grid)), [['tasks'], ['notes', 'projects']], 'by rows, even with nothing kept');
+
+  // What only memory brings back: two columns between, and 2×2 again as it was, not by use.
+  writeLayout(storage, back);
+  const two = applyColumns(2, [], back, { places: readPlaces(storage, 2) });
+  assert.deepEqual(wins(two), [['tasks'], ['notes']]);
+  writeLayout(storage, two);
+  const again = applyColumns('2x2', ['next', 'projects'], two, { places: readPlaces(storage, '2x2') });
+  assert.deepEqual(wins(again), [['tasks', 'projects'], ['notes', 'next']], 'the 2×2 of before, whatever was used last');
+  assert.deepEqual(wins(applyColumns('2x2', ['next', 'projects'], two)), [['tasks', 'next'], ['notes', 'projects']], 'without it, by use');
+
+  // The focused window stays: into a place nobody has back, else the last one.
+  const focused = { ...two, focus: 'notes' };
+  const one = applyColumns(1, [], focused, { places: [['tasks']] });
+  assert.deepEqual([wins(one), one.focus], [[['notes']], 'notes'], 'one window: the one in use');
+  const gone = applyColumns([1, 2], [], { ...L('tasks', 'next', 'notes'), focus: 'next' }, { places: [['tasks'], ['notes', 'projects']] });
+  assert.deepEqual(wins(gone), [['tasks'], ['notes', 'next']], 'Projects not offered: the focused one in its place');
+  assert.equal(gone.focus, 'next');
+  // A module no longer offered leaves its place to the next one; junk, or another shape's, is none.
+  assert.deepEqual(wins(applyColumns([1, 2], ['next'], L('tasks', 'notes'), { places: [['projects'], ['notes', 'tasks']] })),
+    [['next'], ['notes', 'tasks']]);
+  assert.deepEqual(wins(applyColumns([1, 2], [], L('a', 'b', 'c'), { places: [['x'], ['y', 'z']] })), [['a'], ['b', 'c']], 'none of them here: as before');
+  for (const junk of [null, 'x', [['a']], [['a'], ['b']], [[1], [2, 3]]]) {
+    assert.deepEqual(wins(applyColumns([1, 2], [], L('a', 'b', 'c'), { places: junk })), [['a'], ['b', 'c']]);
+  }
+  assert.equal(readPlaces(storage, [2, 1]), null, 'a shape never shown: nothing kept');
+  data.set(KEY, JSON.stringify({ all: big, places: { 12: [['a'], ['b']] } }));
+  assert.equal(readPlaces(storage, [1, 2]), null, 'not the shape’s windows: none');
+  data.set(KEY, JSON.stringify({ all: big, places: [1] }));
+  assert.equal(readPlaces(storage, [1, 2]), null);
+  data.set(KEY, '{not json');
+  assert.equal(readPlaces(storage, [1, 2]), null);
 });
 
 test('fitLayout: the columns that don’t fit stack where there is room; a phone shows the focused window', () => {
@@ -298,7 +347,7 @@ test('kept once for every width, read back whatever shape it has, never failing'
   const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)) };
   assert.equal(readLayout(storage, 'wide'), null);
   writeLayout(storage, L('a', 'b'));
-  assert.deepEqual(Object.keys(JSON.parse(data.get(KEY))), ['all', 'shares'], 'one layout, and the shares of each shape');
+  assert.deepEqual(Object.keys(JSON.parse(data.get(KEY))), ['all', 'shares', 'places'], 'one layout, and the shares and windows of each shape');
   assert.deepEqual(readLayout(storage, 'wide'), L('a', 'b'));
   assert.deepEqual(readLayout(storage, 'mid'), L('a', 'b'), 'the same whatever the width');
   assert.deepEqual(readLayout(storage, 'narrow'), L('a', 'b'));
