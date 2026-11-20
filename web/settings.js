@@ -50,6 +50,11 @@
  * `standingMore`: what goes under it, keys of the catalog (a paragraph each)
  * and pairs of keys (a line of a list: a label in bold, then its text).
  * `site`: the app's website, which About links to in a host.
+ * `aboutExtra`: what the app is, under About (in a host, a section of its
+ * own): `{ text, tips }`, keys of its catalog (a paragraph, a line for each
+ * tip) drawn here as every module draws it; or a function that draws it.
+ * `describeData(tables)`: what a copy holds, or an account has, in words;
+ * `summaryOf(parts)` joins its parts as every module does.
  *
  * In a host (Cronum Work) Settings are one for the whole app, the same list
  * in every module: the account's sections, a group for each module in use and
@@ -110,6 +115,23 @@ const button = (text, onClick, kind = '') => el('button', {
 });
 const showError = (err) => toast(errorMessage(err), { error: true });
 const input = (props) => el('input', { class: 'kit-input', ...props });
+
+/**
+ * What an app says it is (`aboutExtra`): `{ text, tips }`, keys of its catalog, a paragraph and a
+ * line for each tip; or the app's own function, for one with more to show there.
+ */
+function aboutOf(extra) {
+  if (typeof extra === 'function') return extra();
+  return block(null, el('p', { text: t(extra.text) }),
+    el('ul', { class: 'kit-hint' }, (extra.tips || []).map((key) => el('li', { text: t(key) }))));
+}
+
+/**
+ * What a copy brings, or what an account has, in words, from its parts ("3 lists", "10 tasks"),
+ * joined as the language joins quantities («2 proyectos y 9 tareas»): the same in every module.
+ * A part that is nothing (a count left out when there is none) is left out.
+ */
+export const summaryOf = (parts) => listFormat({ style: 'short', type: 'unit' }).format(parts.filter(Boolean));
 
 /** A section's id, as `?settings=` names it (host.js moduleSettings). */
 const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
@@ -494,7 +516,7 @@ export function openSettings(options) {
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
       hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => needsConnection(data({ account: false })) } : null,
     options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
-      hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
+      hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [aboutOf(options.aboutExtra)] } : null,
   ];
 
   /**
@@ -2456,7 +2478,7 @@ export function openSettings(options) {
       block(null, facts),
       // In a host, a card for each module in use, with its version: the whole app updates as one.
       ...(host ? [block(t('kit.about.modulesTitle'), hint(t('kit.about.modulesHint', { app: host.name })), cards)] : []),
-      ...(options.aboutExtra && !host ? [options.aboutExtra()] : []),
+      ...(options.aboutExtra && !host ? [aboutOf(options.aboutExtra)] : []),
       block(t('kit.about.keys'), shortcuts()),
       block(null, el('div', { class: 'kit-signature' }, signature())),
     ];
