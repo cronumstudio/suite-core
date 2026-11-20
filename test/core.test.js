@@ -523,9 +523,12 @@ test('a real server: JSON bodies, errors as codes, static files and headers', as
 });
 
 test('a body over the limit: 413, and the connection closes instead of reading the rest for ever', async (t) => {
+  // A small limit, and a body a little over it that is all the client ever sends: the server has
+  // read every byte it got when it answers, so it closes with a FIN that lets the 413 arrive, never a
+  // reset that may drop it (2 MB of a declared 100 MB raced the answer with the bytes still coming).
   const server = http.createServer(async (req, res) => {
     try {
-      await readJson(req);
+      await readJson(req, { limit: 64 });
       res.end('read');
     } catch (err) {
       sendError(res, err);
@@ -537,9 +540,10 @@ test('a body over the limit: 413, and the connection closes instead of reading t
   t.after(() => socket.destroy());
   let answer = '';
   socket.on('data', (chunk) => { answer += chunk; });
+  socket.on('error', () => {});   // what the close may say to a socket already done with: the answer is what counts
   const closed = new Promise((resolve) => socket.on('close', () => resolve(true)));
   socket.write('POST / HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 104857600\r\n\r\n');
-  socket.write('x'.repeat(2 * 1024 * 1024));   // a tenth of what it says, and never the rest
+  socket.write('x'.repeat(100));   // over the limit, a sliver of what it says, and never the rest
   const waited = await Promise.race([closed, new Promise((resolve) => setTimeout(() => resolve(false), 1500))]);
   assert.match(answer, /^HTTP\/1\.1 413/);
   assert.match(answer, /connection: close/i);

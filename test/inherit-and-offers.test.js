@@ -136,8 +136,11 @@ function offering({ byId }) {
     INSERT INTO boards VALUES (10, 1, 'Plans'), (20, 3, 'Cris''s');`);
   db.run('UPDATE users SET disabled_at = NULL');
   const told = [];
+  // The engine's clock, held still and moved by the test: two answers given a millisecond apart
+  // carry the same time, and one dated anew is told from one that kept an older date.
+  let now = '2026-11-20T09:00:00.000Z';
   const sharing = createSharing({
-    db, brake: createShareBrake(),
+    db, brake: createShareBrake(), clock: () => now,
     notify: { email: (n) => told.push(n.targetId) },
     kinds: {
       board: {
@@ -170,7 +173,7 @@ function offering({ byId }) {
     people: sharing.list('board', 1, 10).shares.map((s) => [s.user.id, s.accepted]),
     addresses: db.all('SELECT email FROM board_address_offers WHERE board_id = 10 ORDER BY email').map((a) => a.email),
   });
-  return { db, sharing, seen, told };
+  return { db, sharing, seen, told, at: (time) => { now = time; } };
 }
 
 test('byId: typing an address, then picking a known person, shows the same whoever the address belongs to', () => {
@@ -196,14 +199,17 @@ test('byId: typing an address, then picking a known person, shows the same whoev
 });
 
 test('byId: an offer by email to someone who has it already answers and shows as one to a new address', () => {
-  const { db, sharing, seen } = offering({ byId: true });
+  const { db, sharing, seen, at } = offering({ byId: true });
   sharing.share('board', 1, 10, { user_id: 3, permission: 'view' });
   sharing.accept('board', 3, 10);
+  // An hour later: both answers are dated then, never with the date Cris's own share kept.
+  at('2026-11-20T10:00:00.000Z');
   const byEmail = sharing.share('board', 1, 10, { email: 'cris@example.com', permission: 'edit' });
   const stranger = sharing.share('board', 1, 10, { email: 'nobody@example.com', permission: 'edit' });
   const strip = (a) => ({ ...a, share: { ...a.share, user: { ...a.share.user, id: null, name: null, email: null } } });
   assert.deepEqual(strip(byEmail), strip(stranger));
   assert.equal(byEmail.share.accepted, false);
+  assert.equal(byEmail.share.created_at, '2026-11-20T10:00:00.000Z');
   // Cris's own share is as it was; her address waits like any other.
   assert.equal(db.get('SELECT permission FROM board_shares WHERE board_id = 10 AND user_id = 3').permission, 'view');
   assert.deepEqual(seen(), { people: [[3, true]], addresses: ['cris@example.com', 'nobody@example.com'] });
