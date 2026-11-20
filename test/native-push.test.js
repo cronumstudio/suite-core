@@ -785,6 +785,37 @@ test('over HTTP: Settings › Notifications lists the phones with the app beside
   assert.deepEqual((await web('GET', '/api/push/devices')).data.map((row) => row.id), [phone.id, tablet.id]);
 });
 
+test('over HTTP: closing a phone app’s session in Where you’re signed in signs the phone out, and its notices go', async (t) => {
+  const { suite, call, web, device } = await startApp(t);
+  const admin = suite.accounts.byUsername('admin');
+  const phone = await device();
+  const tablet = await device('android');
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).status, 200);
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'android', token: ANDROID_TOKEN }, tablet.auth)).status, 200);
+  // The web sessions the phones' apps opened (devices.webSessions), and a browser's.
+  suite.sessions.open(admin.id, { deviceId: phone.id });
+  suite.sessions.open(admin.id, { deviceId: tablet.id });
+  suite.sessions.open(admin.id);
+  const listed = (await web('GET', '/api/me/sessions')).data.filter((s) => !s.current);
+  assert.equal(listed.length, 3);
+  const keyOf = (deviceId) => listed.find((s) => suite.sessions.deviceOfKey(admin.id, s.key) === deviceId)?.key;
+  const browserKey = listed.find((s) => suite.sessions.deviceOfKey(admin.id, s.key) == null).key;
+
+  // The phone's: closed, the phone is signed out, and nothing more reaches it.
+  assert.equal((await web('DELETE', `/api/me/sessions/${keyOf(phone.id)}`)).status, 200);
+  assert.equal(suite.devices.isActive(phone.id), false, 'the phone signed out');
+  assert.deepEqual(suite.database.all('SELECT device_id FROM device_push_tokens').map((r) => r.device_id), [tablet.id]);
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).status, 401, 'its token no longer works');
+  assert.deepEqual((await web('GET', '/api/push/devices')).data.map((d) => d.id), [tablet.id]);
+  assert.ok(suite.database.get(`SELECT 1 AS x FROM audit_log WHERE action = 'device.revoke' AND target_id = ?`, String(phone.id)), 'said in the audit');
+
+  // A browser's session closed leaves the phones alone.
+  assert.equal((await web('DELETE', `/api/me/sessions/${browserKey}`)).status, 200);
+  assert.equal(suite.devices.isActive(tablet.id), true);
+  assert.deepEqual(suite.database.all('SELECT device_id FROM device_push_tokens').map((r) => r.device_id), [tablet.id]);
+  assert.equal((await web('DELETE', `/api/me/sessions/${browserKey}`)).status, 404, 'once');
+});
+
 test('over HTTP: bad device tokens count against the address, in the devices’ bucket', async (t) => {
   const { call } = await startApp(t);
   const bad = { Authorization: 'Bearer workdev_nope' };

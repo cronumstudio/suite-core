@@ -24,6 +24,13 @@ change an interface and a patch never does. Apps pin a version through the submo
   `createPush` adds `phones()` and `removePhone()`, `createNativePush` `phonesOf()` and
   `forgetPhone()`, `createSessions` `deviceOf(token)`, `registerPushApi` takes `deviceOf`; new
   catalog key `kit.notifications.phoneApp`.
+- **Closing a phone app's session signs the phone out** (`api.js`, `sessions.js`, `app.js`): in Settings
+  › Where you're signed in, «Sign out» on the session a phone's app opened (devices.webSessions) only
+  closed that session; the app opened another at once with its device token, and the phone went on
+  getting notices. `DELETE /api/me/sessions/:key` now revokes the device behind such a session
+  (`devices.revoke`: its other sessions, its notices' token and the reminders it shows go, and the app
+  asks to sign in again), noted in the audit as `device.revoke`. A browser's session closes as before.
+  `registerProfileApi` takes `devices`; `createSessions` adds `deviceOfKey(userId, key)`.
 - **In a host, Settings › Notifications names the whole app** (`web/settings.js`): «Tasks can notify
   you on this device» became «Cronum Work can…», as every notice comes from the host's one worker.
 - **«Replace» and «Erase my data» wait for the password too** (`web/settings.js`): the red button lit

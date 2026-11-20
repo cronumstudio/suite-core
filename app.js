@@ -927,7 +927,7 @@ export function createApp({
     ? (ctx, user, password) => workosSecurity?.confirmIdentity?.(ctx, user, password) : null;
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion, push,
-    localPasswords, providerPassword,
+    localPasswords, providerPassword, devices: suite.devices ?? null,
   });
   if (install.authProvider === 'workos') {
     workosSecurity = registerWorkosSecurityApi(api, {

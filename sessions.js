@@ -263,6 +263,13 @@ export function createSessions({
     return id == null ? null : Number(id);
   }
 
+  /** The device one of a person's sessions was opened from, by its public key (keyOf), or null. */
+  function deviceOfKey(userId, key) {
+    if (typeof key !== 'string' || key.length !== 16) return null;
+    const id = database.get('SELECT * FROM sessions WHERE user_id = ? AND substr(token_hash, 1, 16) = ?', userId, key)?.device_id;
+    return id == null ? null : Number(id);
+  }
+
   /** Closes one session of a person by its public key. */
   function revoke(userId, key) {
     if (typeof key !== 'string' || key.length !== 16) return false;
@@ -281,6 +288,7 @@ export function createSessions({
 
   return {
     cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign, keyFor, deviceOf,
+    deviceOfKey,
     setCookie, clearCookie,
     /**
      * Hears `(userId)` whenever sessions of that person are closed here: signing out, one closed
