@@ -82,7 +82,7 @@ going from one module to the next in Cronum Work nothing moves:
     a title, one line and, where the first thing to do there is to make something, one button
     that makes it («Nuevo proyecto» in Projects with none, «Nueva tarea» in Tasks' My Day of
     an account with no tasks). One such button per screen: a second place for the same button
-    (Notes' panel beside its list) goes. No emoji in an empty place.
+    (Notes' panel beside its list) goes. A new empty place takes the kit's icon, not an emoji.
 12. **An item's detail says how its save went and who made it** (`saveState()`, `stamps()`): its
     labels are the kit's (`field()`, or `.kit-label` over a block of several controls), the state
     of the last save sits by what was saved (Notes', Tasks', Projects'), and its foot says who
