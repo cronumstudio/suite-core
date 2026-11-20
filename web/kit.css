@@ -898,14 +898,13 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 /* The name with something under it (navItem `under`: a project's progress), in the name's column. */
 .kit-nav__body { position: relative; flex: 1; min-width: 0; display: grid; }
 .kit-nav__count { font: 400 var(--look-footnote, 12px) var(--kit-font-mono); color: var(--kit-muted); font-variant-numeric: tabular-nums; }
-.kit-nav__swatch { width: 10px; height: 10px; border-radius: var(--look-r-xs, 3px); flex: none; margin-inline: 3px; }
+/* As wide as a view's icon with its margins (17): a colour's label starts in line with a view's. */
+.kit-nav__swatch { width: 10px; height: 10px; border-radius: var(--look-r-xs, 3px); flex: none; margin-inline: 3.5px; }
 /* A collection's own emoji, as wide as a view's icon: every label of the sidebar starts in line (navItem). */
 .kit-nav__emoji { display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; font-size: var(--look-callout, 16px); line-height: 1; overflow: visible; }
 /* Its icon with marks on its corners: a shared one's, a public page's (navItem `shared`, `marks`). */
 .kit-nav__lead { position: relative; display: inline-grid; place-items: center; width: 17px; height: 17px; flex: none; }
 .kit-nav__lead > .kit-nav__swatch { margin: 0; }
-/* A colour's lead is as wide as the swatch with its margins (16): a shared one's label doesn't move a pixel. */
-.kit-nav__lead:has(> .kit-nav__swatch) { width: 16px; }
 /* Shared: two people on the bottom corner, the same in every module (sharedMark). */
 .kit-nav__shared {
   position: absolute; inset-inline-end: -6px; inset-block-end: -4px; width: 14px; height: 14px; border-radius: 50%;

@@ -3750,7 +3750,7 @@ test('an entry of the sidebar: its own emoji as wide as an icon, the kit\'s one 
     assert.equal(count.getAttribute('title'), '2 overdue');
     assert.equal(mine.children[2].getAttribute('title'), null, 'a count says nothing more without it');
     assert.match(css, /\.kit-nav__body \{ position: relative; flex: 1; min-width: 0; display: grid; \}/);
-    assert.match(css, /\.kit-nav__lead:has\(> \.kit-nav__swatch\) \{ width: 16px; \}/, 'a shared colour’s label in line with the rest');
+    assert.match(css, /\.kit-nav__swatch \{ width: 10px; height: 10px;[^}]*margin-inline: 3\.5px; \}/, 'a colour as wide as an icon: its label in line with a view’s');
     assert.match(css, /\.kit-nav-group__name > \.kit-nav__shared \{ position: static; flex: none; \}/, 'after a group’s name');
     assert.match(css, /\.kit-nav__emoji \{ display: inline-grid; place-items: center; width: 17px;/, 'as wide as a view\'s icon: every label starts in line');
     assert.match(css, /\.kit-nav__item \.kit-icon \{ color: var\(--kit-muted\); width: 17px; height: 17px; \}/);
