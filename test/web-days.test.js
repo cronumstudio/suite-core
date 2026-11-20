@@ -5,7 +5,7 @@
  */
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayKey, addDays } from '../web/days.js';
+import { dayKey, addDays, daysBetween } from '../web/days.js';
 import { addDays as serverAddDays } from '../time.js';
 
 const ZONES = ['Europe/Madrid', 'America/Mexico_City', 'Pacific/Auckland', 'UTC'];
@@ -62,6 +62,22 @@ test('addDays: across a month, a year, February and a summer time change, the sa
     inZone(zone, () => {
       for (const [day, n, want] of cases) assert.equal(addDays(day, n), want, `${zone}: ${day} ${n}`);
     });
+  }
+});
+
+test('daysBetween: whole days, across a month, a year, February and a summer time change, in every zone', () => {
+  const cases = [
+    ['2026-11-20', '2026-11-20', 0], ['2026-01-31', '2026-02-01', 1], ['2026-02-01', '2026-01-31', -1],
+    ['2028-02-28', '2028-03-01', 2], ['2026-12-31', '2027-01-01', 1], ['2026-03-28', '2026-03-30', 2],
+    ['2026-10-24', '2026-10-26', 2], ['2025-10-16', '2026-11-20', 400],
+  ];
+  for (const zone of ZONES) {
+    inZone(zone, () => {
+      for (const [a, b, want] of cases) assert.equal(daysBetween(a, b), want, `${zone}: ${a} → ${b}`);
+    });
+  }
+  for (let day = '2026-01-01'; day < '2029-01-01'; day = addDays(day, 1)) {
+    for (const n of [-366, -1, 0, 1, 31, 366]) assert.equal(daysBetween(day, addDays(day, n)), n, `${day} ${n}`);
   }
 });
 

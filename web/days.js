@@ -1,6 +1,7 @@
 /**
  * Days as the person's browser counts them, the same in every module: the day a moment falls on
- * here, as 'YYYY-MM-DD' (dayKey), and a day moved by some days (addDays). Today is
+ * here, as 'YYYY-MM-DD' (dayKey), a day moved by some days (addDays) and the days from one day to
+ * another (daysBetween). Today is
  * `dayKey(new Date())`: the day on this device's clock, the one the person sees. UTC's is not it:
  * in Madrid it is still yesterday until one in the morning, two in summer.
  *
@@ -25,4 +26,9 @@ export function addDays(day, n) {
   const moved = new Date(`${day}T00:00:00Z`);
   moved.setUTCDate(moved.getUTCDate() + n);
   return moved.toISOString().slice(0, 10);
+}
+
+/** Days from `a` to `b` (each 'YYYY-MM-DD'): 0 for the same day, negative when b comes first. */
+export function daysBetween(a, b) {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 }
