@@ -42,7 +42,7 @@ const carriesFiles = (data) => [...(data?.types || [])].includes('Files');
 
 /** Puts a class on a node or takes it off, keeping its others. */
 function toggleClass(node, name, on) {
-  const names = String(node.getAttribute?.('class') || '').split(/s+/).filter((one) => one && one !== name);
+  const names = String(node.getAttribute?.('class') || '').split(/\s+/).filter((one) => one && one !== name);
   if (on) names.push(name);
   node.setAttribute?.('class', names.join(' '));
 }

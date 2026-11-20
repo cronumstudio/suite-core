@@ -191,6 +191,50 @@ try {
   }
   const wrongState = await fetch(`${base}/auth/callback?code=x&state=nope`, { redirect: 'manual', headers: { Cookie: ada.cookie } });
   check('A state that doesn’t match opens nothing', /auth_error=failed/.test(wrongState.headers.get('location')));
+
+  // One cookie per sign-in, for 30 minutes (audit sc-auth-6), read without throwing (sc-auth-10).
+  const flowCookies = (res) => (res.headers.getSetCookie?.() || []);
+  check('Each sign-in has a cookie of its own, at /auth, for 30 minutes, next to the one of before',
+    /^test_auth_[\w-]{8}=[^;]+; Max-Age=1800; Path=\/auth; HttpOnly; SameSite=Lax/.test(flowCookies(ada.out)[0] || '')
+    && flowCookies(ada.out)[0].slice(10, 18) === ada.target.searchParams.get('state').slice(0, 8)
+    && flowCookies(ada.out).some((c) => /^test_auth=[^;]+; Max-Age=1800;/.test(c)), flowCookies(ada.out).join(' | '));
+  {
+    // Two tabs that loaded without a session: the second no longer takes the first one's place.
+    const tab = async () => {
+      const out = await fetch(`${base}/auth/login`, { redirect: 'manual' });
+      return { out, target: new URL(out.headers.get('location')), cookies: flowCookies(out).map((c) => c.split(';')[0]) };
+    };
+    const first = await tab();
+    const second = await tab();
+    // The browser keeps both flows' cookies, and `test_auth` as the second one left it.
+    const jar = [first.cookies[0], ...second.cookies].join('; ');
+    const finish = async (flow) => {
+      const code = `c-user_bob-${Math.random()}`;
+      codes.set(code, { id: 'user_bob', challenge: flow.target.searchParams.get('code_challenge') });
+      return fetch(`${base}/auth/callback?code=${code}&state=${flow.target.searchParams.get('state')}`,
+        { redirect: 'manual', headers: { Cookie: jar } });
+    };
+    const back = await finish(first);
+    check('Two tabs that started a sign-in: the first one still comes back signed in',
+      back.headers.get('location') === '/', back.headers.get('location'));
+    check('And its own cookie is cleared', flowCookies(back).some((c) => c.startsWith(`${first.cookies[0].split('=')[0]}=; Max-Age=0`)));
+    check('The second one too', (await finish(second)).headers.get('location') === '/');
+    // A sign-in started before one cookie per flow comes back with `test_auth` alone.
+    const old = await tab();
+    const code = `c-user_bob-${Math.random()}`;
+    codes.set(code, { id: 'user_bob', challenge: old.target.searchParams.get('code_challenge') });
+    const legacy = await fetch(`${base}/auth/callback?code=${code}&state=${old.target.searchParams.get('state')}`,
+      { redirect: 'manual', headers: { Cookie: old.cookies.find((c) => c.startsWith('test_auth=')) } });
+    check('A sign-in started with the one cookie of before still comes back', legacy.headers.get('location') === '/');
+  }
+  for (const broken of ['test_auth=%E0%A4%A', 'test_auth_abcdefgh=%E0%A4%A; test_auth=%']) {
+    const back = await fetch(`${base}/auth/callback?code=x&state=abcdefghijk`, { redirect: 'manual', headers: { Cookie: broken } });
+    check(`A malformed state cookie is a failed sign-in, not an error (${broken})`,
+      back.status === 302 && back.headers.get('location') === '/?auth_error=failed', `${back.status} ${back.headers.get('location')}`);
+  }
+  check('A state that names no cookie of ours sets none',
+    !flowCookies(await fetch(`${base}/auth/callback?code=x&state=${encodeURIComponent('a;b=c\r\nX: y')}`, { redirect: 'manual' }))
+      .some((c) => /X: y|a;b/.test(c)));
   connectPending = '/devices/connect?code_challenge=c&state=s';
   check('A phone’s connect page waiting: straight back to it from the callback, not by `/`',
     (await signIn('user_bob')).back.headers.get('location') === connectPending);

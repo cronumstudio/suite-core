@@ -190,11 +190,25 @@ export function shellHashes(urls, { kitDir, places = [], catalogs = '' }) {
     let hash = null;
     if (/^i18n\/[a-z]{2}\.json$/.test(rest)) {
       const own = place.i18nDir ? hashOf(path.join(place.i18nDir, rest.slice('i18n/'.length))) : null;
-      hash = crypto.createHash('sha1').update(`${catalogs}:${own || 'none'}`).digest('hex').slice(0, 16);
+      // With English under it (`?en`, catalogsOverEnglish): the app's English file is in it too.
+      const under = OVER_ENGLISH.test(String(url)) && place.i18nDir ? `:${hashOf(path.join(place.i18nDir, 'en.json')) || 'none'}` : '';
+      hash = crypto.createHash('sha1').update(`${catalogs}:${own || 'none'}${under}`).digest('hex').slice(0, 16);
     } else if (place.dir) hash = hashOf(path.join(place.dir, rest));
     if (hash) found[url] = hash;
   }
   return found;
+}
+
+/** A catalog's address with English under it (app.js catalogFor `english`). */
+const OVER_ENGLISH = /[?&]en(?:&|$)/;
+
+/**
+ * A worker's list of files with every catalog but English's as the kit's i18n.js asks for it since
+ * 0.285.0: the language with English under it (`/tasks/i18n/es.json?en`), one catalog where it
+ * was two. The copy keeps what the page reads: a weak signal waits for no catalog, as before.
+ */
+export function catalogsOverEnglish(urls) {
+  return [...new Set(urls.map((url) => (typeof url === 'string' && /\/i18n\/(?!en\.json)[a-z]{2}\.json$/.test(url) ? `${url}?en` : url)))];
 }
 
 /** The worker's script: sw-core.js from the host's kit, and what it keeps. */
@@ -227,13 +241,16 @@ export function hostedPush(push, mount) {
   };
   const each = (payload) => (typeof payload === 'function' ? (sub) => mark(payload(sub)) : mark(payload));
   return {
-    ...push,
-    send: (subscription, payload, options) => push.send(subscription, mark(payload), own(options)),
+    ...withoutSend(push),
     deliver: (subscriptions, payload, options) => push.deliver(subscriptions, each(payload), own(options)),
-    // Through the marked delivery too: spread from `push`, it sent the module's notices unmarked.
-    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), each(payload), own(options)),
   };
 }
+
+/**
+ * The host's push without its `send` to one row: every module sends through `deliver`
+ * (audit sc-host-7), and one spread from the host's would send the module's notices unmarked.
+ */
+const withoutSend = ({ send, sendTo, ...rest }) => rest;
 
 /** A send's options with its `reminder` the module's: a phone says which module's reminder it shows. */
 const withModuleReminders = (mount) => (options) => (options?.reminder && typeof options.reminder === 'object'
@@ -247,9 +264,7 @@ const withModuleReminders = (mount) => (options) => (options?.reminder && typeof
 export function moduleReminderPush(push, mount) {
   const own = withModuleReminders(mount);
   return {
-    ...push,
-    send: (subscription, payload, options) => push.send(subscription, payload, own(options)),
+    ...withoutSend(push),
     deliver: (subscriptions, payload, options) => push.deliver(subscriptions, payload, own(options)),
-    sendTo: (userIds, payload, options) => push.deliver(push.subscriptionsOf(userIds), payload, own(options)),
   };
 }

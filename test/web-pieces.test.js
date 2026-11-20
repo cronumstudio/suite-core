@@ -217,6 +217,10 @@ test('attachments: a file dropped on the detail or pasted into it is added; a se
   const file = { name: 'scan.pdf', type: 'application/pdf', size: 10 };
   let prevented = false;
   const transfer = { types: ['Files'], files: [file] };
+  for (const fn of detail.listeners.dragenter) fn({ dataTransfer: transfer });
+  assert.equal(detail.getAttribute('class'), 'detail kit-files-over', 'the detail shows it takes the file, keeping its class');
+  for (const fn of detail.listeners.dragleave) fn({ dataTransfer: transfer });
+  assert.equal(detail.getAttribute('class'), 'detail');
   for (const fn of detail.listeners.dragover) fn({ dataTransfer: transfer, preventDefault() { prevented = true; } });
   assert.ok(prevented, 'taken, so the browser doesn\'t open the photo');
   for (const fn of detail.listeners.drop) fn({ dataTransfer: transfer, preventDefault() {} });
