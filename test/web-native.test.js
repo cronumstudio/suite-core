@@ -402,6 +402,42 @@ test('outside the app Settings sell as always: the web’s products and Upgrade,
   assert.deepEqual(page.sent, []);
 });
 
+test('Settings › Notifications: the phones with the app beside the browsers, each removable; in a host, the whole app’s name', async () => {
+  asApp(null);
+  const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36';
+  const removed = [];
+  const server = {
+    'GET /api/push/devices': { data: [
+      { id: 3, label: CHROME, created_at: '2026-11-01T10:00:00Z', endpoint_hint: 'https://fcm.googleapis.com/fcm/send/abc' },
+      { id: 12, phone: true, name: 'iPhone 15', platform: 'ios', created_at: '2026-11-02T10:00:00Z' },
+      { id: 14, phone: true, name: null, platform: 'android', created_at: '2026-11-03T10:00:00Z', current: true },
+    ] },
+    'DELETE /api/push/phones/12': () => { removed.push(12); return { data: { ok: true } }; },
+  };
+  const view = await settingsPage({ push: true }, { server, start: 'notifications' });
+  assert.match(view.shown(), /Chrome · Windows/);
+  assert.match(view.shown(), /iPhone 15/, 'a phone by the name its app gave it');
+  assert.match(view.shown(), /Phone app · since/);
+  assert.match(view.shown(), /Android/, 'without one, its system');
+  assert.match(view.shown(), /This device/, 'inside the app, its own phone');
+  assert.equal(view.buttons(t('kit.notifications.remove')).length, 2, 'the browser and the other phone; its own, from the phone’s settings');
+  assert.doesNotMatch(view.shown(), new RegExp(t('kit.notifications.none')), 'not «no device has them» while one does');
+  asked = [];
+  click(view.buttons(t('kit.notifications.remove'))[1]);
+  await settle();
+  assert.deepEqual(removed, [12]);
+  assert.ok(asked.includes('GET /api/push/devices'), 'and the list again');
+  view.settings.close();
+
+  // In a host the whole app notifies, one worker for every module: its name, not the module's.
+  const hosted = await settingsPage({ push: true }, {
+    config: { app: { id: 'demo', modules: {}, host: { name: 'Cronum Work', mount: 'demo', push: true } } }, server, start: 'notifications',
+  });
+  assert.match(hosted.shown(), /Cronum Work can notify you on this device/);
+  assert.doesNotMatch(hosted.shown(), /Demo can notify you/);
+  hosted.settings.close();
+});
+
 test('in the app: never the web’s checkout, whatever the module passed; its store where it sells', async () => {
   asApp(['purchase']);
   const view = await settingsPage({ plan: { billing: true } }, { server: planServer(), start: 'plan' });
@@ -837,16 +873,28 @@ test('with WorkOS, erasing asks for the password they have there, and only then 
     await settle();
     const dialog = document.body.all().filter((node) => node.tagName === 'DIALOG' && node.open).at(-1);
     const word = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-word');
+    const go = dialog.all().find((node) => node.className.split(' ').includes('kit-btn--danger'));
     word.value = t('kit.data.confirmWord');
     word.dispatch('input');
+    // With the word alone, whether the red button may be pressed yet.
+    const waits = go.disabled;
     const pass = dialog.all().find((node) => node.getAttribute('id') === 'kit-sure-password');
-    if (pass) pass.value = 'correct horse';
-    click(dialog.all().find((node) => node.className.split(' ').includes('kit-btn--danger')));
+    if (pass) {
+      pass.value = 'correct horse';
+      pass.dispatch('input');
+    }
+    const lit = !go.disabled;
+    click(go);
     await settle();
     view.settings.close();
-    return { asked: Boolean(pass), sent };
+    return { asked: Boolean(pass), sent, waits, lit };
   };
-  assert.deepEqual(await erase({ method: 'password', password: true }), { asked: true, sent: { confirm: true, password: 'correct horse' } });
-  assert.deepEqual(await erase({ method: 'google', password: false }), { asked: false, sent: { confirm: true } }, 'with Google: none to give');
-  assert.equal((await erase(null)).asked, true, 'not knowing (no answer): asked, which the server ignores if it has none');
+  // Signing in with a password: the button waits for it too, as for the word (the server refused
+  // an empty one with wrong_password, but the button was lit).
+  assert.deepEqual(await erase({ method: 'password', password: true }),
+    { asked: true, sent: { confirm: true, password: 'correct horse' }, waits: true, lit: true });
+  assert.deepEqual(await erase({ method: 'google', password: false }), { asked: false, sent: { confirm: true }, waits: false, lit: true }, 'with Google: none to give');
+  const unknown = await erase(null);
+  assert.equal(unknown.asked, true, 'not knowing (no answer): asked, which the server ignores if it has none');
+  assert.equal(unknown.waits, false, 'and not waited for: it may have none');
 });

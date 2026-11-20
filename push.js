@@ -551,6 +551,15 @@ export function createPush({
     FROM push_subscriptions WHERE user_id = ? ORDER BY created_at`, userId);
 
   /**
+   * With `push.native`, a person's phones with the app, which every send reaches too
+   * (subscriptionsOf): native-push.js phonesOf, for Settings beside the browsers. Without it, none.
+   */
+  const phones = (userId) => (native ? native.phonesOf(userId) : []);
+
+  /** One of a person's phones off their notices, by its device's id (Settings' «Remove»). → whether it had any. */
+  const removePhone = (userId, deviceId) => Boolean(native?.forgetPhone(userId, deviceId));
+
+  /**
    * Sends one notice to a subscription the app keeps itself, for a device
    * with no account behind it (Focus' paired tablets): the browser's
    * `subscription.toJSON()` as checkSubscription() returned it (the flat
@@ -576,6 +585,6 @@ export function createPush({
   return {
     publicKey: vapid.publicKey,
     send, deliver, subscriptionsOf, peopleWithDevices, subscribe, unsubscribe, devices, removeDevice, forgetSession, purgeSessions,
-    checkSubscription, sendToSubscription,
+    phones, removePhone, checkSubscription, sendToSubscription,
   };
 }

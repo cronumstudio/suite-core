@@ -139,13 +139,17 @@ const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
 /**
  * The modules or the calendar turned on or off: this page's rail and Linked rows ask again
  * (shell.js, links.js), and so does the page that frames it, when one does (Cronum Work's shell
- * with a module in a frame).
+ * with a module in a frame). `answer` is what the modules are now, as GET /api/modules says them:
+ * the server's, or this device's own while there is no signal (the change kept for later), in the
+ * event's `detail.answer`, so a rail follows at once without asking, as the theme does (it waited
+ * for the signal to come back).
  */
-function modulesChanged() {
-  document.dispatchEvent(new CustomEvent('kit-modules'));
+function modulesChanged(answer = null) {
+  const detail = answer && Array.isArray(answer.modules) ? { answer } : null;
+  document.dispatchEvent(new CustomEvent('kit-modules', { detail }));
   if (!FRAMED) return;
   try {
-    window.parent.document.dispatchEvent(new window.parent.CustomEvent('kit-modules'));
+    window.parent.document.dispatchEvent(new window.parent.CustomEvent('kit-modules', { detail }));
   } catch { /* the page that framed it went */ }
 }
 
@@ -1245,9 +1249,10 @@ export function openSettings(options) {
     /** The modules in a new order: drawn in it, kept, and the rail of every page follows. */
     const reorder = async (order) => {
       try {
-        paint(await sendOrder(order));
+        const answer = await sendOrder(order);
+        paint(answer);
         repaint();
-        modulesChanged();
+        modulesChanged(answer);
       } catch (err) {
         fail(err);
       }
@@ -1297,8 +1302,9 @@ export function openSettings(options) {
         // A later change still on its way repaints when it arrives.
         if (shownOn().join() === active.join()) paint(answer);
         repaint();
-        // The frame's rail, in this tab, at once (shell.js); other tabs ask when they come back.
-        modulesChanged();
+        // The frame's rail, in this tab, at once (shell.js), with or without a signal: the modules
+        // as they are now go with it. Other tabs ask when they come back.
+        modulesChanged(answer);
       } catch (err) {
         fail(err);
         throw err;   // the switch goes back
@@ -1310,9 +1316,9 @@ export function openSettings(options) {
       onChange: async (shown) => {
         try {
           // The host's root, as the modules' switches: a module's api.js would ask its own path.
-          await sendOne(path, { shown }, () => ({ [field]: shown }));
+          const answer = await sendOne(path, { shown }, () => ({ [field]: shown }));
           // The rail, in this tab, at once (shell.js); other tabs ask when they come back.
-          modulesChanged();
+          modulesChanged(answer);
         } catch (err) {
           fail(err);
           throw err;   // the switch goes back
@@ -1701,7 +1707,8 @@ export function openSettings(options) {
       } catch (err) { fail(err); }
     });
     paint();
-    return [block(null, hint(t('kit.notifications.intro', { app: app.name })), status, row(enable, test)),
+    // In a host, the whole app notifies (one worker, every module's notices): its name, not the module's.
+    return [block(null, hint(t('kit.notifications.intro', { app: host?.name || app.name })), status, row(enable, test)),
       block(t('kit.notifications.devices'), box)];
   }
 
@@ -2120,8 +2127,12 @@ export function openSettings(options) {
   async function sure({ title, lines, confirm, run }) {
     // With WorkOS, the password they have there, when they sign in with one: the server asks for it
     // as it asks for a local one (api.js identityCheck, audit authz-9). Not knowing, it is asked.
-    const atWorkos = provider === 'workos'
-      ? await api.get('/api/me/sign-in').then((answer) => answer?.password !== false, () => true) : false;
+    const signIn = provider === 'workos' ? await api.get('/api/me/sign-in').catch(() => null) : null;
+    const atWorkos = provider === 'workos' && signIn?.password !== false;
+    // Where they sign in with a password the button waits for it too, as for the word: the server
+    // refuses an empty one (403 wrong_password) and nothing goes, but the red button was lit. Not
+    // knowing how they sign in, it doesn't wait.
+    const needsPassword = local ? state.user?.has_password === true : signIn?.method === 'password';
     return new Promise((resolve) => {
       let answer = null;
       const word = t('kit.data.confirmWord');
@@ -2163,10 +2174,14 @@ export function openSettings(options) {
         ],
         onClose: () => resolve(answer),
       });
-      // The button waits for the word: a slip of the finger is not a decision.
+      // The button waits for the word: a slip of the finger is not a decision. And for the password,
+      // where they sign in with one.
       const go = dialog.querySelector('.kit-btn--danger');
-      const check = () => { go.disabled = typed.value.trim().toLocaleUpperCase() !== word.toLocaleUpperCase(); };
+      const check = () => {
+        go.disabled = typed.value.trim().toLocaleUpperCase() !== word.toLocaleUpperCase() || Boolean(needsPassword && pass && !pass.value);
+      };
       typed.addEventListener('input', check);
+      pass?.addEventListener('input', check);
       check();
       typed.focus();
     });
@@ -2675,6 +2690,7 @@ async function ownEndpoint() {
  * subscription, so nothing here says it still gets them.
  */
 function noticeDeviceRow(device, { mine, userId, onGone, fail }) {
+  if (device.phone) return phoneNoticeRow(device, { onGone, fail });
   const own = Boolean(mine && device.endpoint_hint && mine.startsWith(device.endpoint_hint));
   return el('div', { class: 'kit-list__row' },
     icon(/mobile|android|iphone/i.test(device.label || '') ? 'phone' : 'device'),
@@ -2692,4 +2708,27 @@ function noticeDeviceRow(device, { mine, userId, onGone, fail }) {
         onGone();
       } catch (err) { fail(err); }
     }, 'quiet'));
+}
+
+/**
+ * A phone with the suite's app among the devices with notices (push.native), by the name the app
+ * gave it, its model: the test reached it while the list said no device had them. «Remove» takes
+ * its token away (`DELETE /api/push/phones/:id`), so nothing more reaches it, as a browser's row
+ * does; the app asks for them again only when it is opened there with notices allowed, as a
+ * browser turned on again. Inside the app, its own phone says so instead: there its notices are
+ * the phone's settings for the app (appNotifications).
+ */
+function phoneNoticeRow(device, { onGone, fail }) {
+  const name = device.name || (device.platform === 'android' ? 'Android' : device.platform === 'ios' ? 'iPhone' : t('kit.security.unknownDevice'));   // i18n-exempt: the systems' names
+  return el('div', { class: 'kit-list__row' },
+    icon('phone'),
+    el('span', { class: 'kit-list__text' }, el('strong', { text: name }),
+      el('small', { text: [t('kit.notifications.phoneApp'), t('kit.notifications.since', { when: formatDateTime(device.created_at) })].join(' · ') })),
+    device.current ? el('span', { class: 'kit-badge kit-badge--accent', text: t('kit.security.thisDevice') })
+      : button(t('kit.notifications.remove'), async () => {
+        try {
+          await (await pushApi()).delete(`/api/push/phones/${encodeURIComponent(device.id)}`);
+          onGone();
+        } catch (err) { fail(err); }
+      }, 'quiet'));
 }

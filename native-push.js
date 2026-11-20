@@ -666,6 +666,29 @@ export function createNativePush({
   });
 
   /**
+   * A person's phones that get notices, for Settings › Notifications beside the browsers: each
+   * working device with a token, by the device's id and the name the app gave it (its model), with
+   * when its token came and when a notice last reached it. Never the token.
+   */
+  function phonesOf(userId) {
+    return database.all(`SELECT d.id, d.name, d.platform, p.created_at, p.last_ok_at
+      FROM device_push_tokens p JOIN device_tokens d ON d.id = p.device_id
+      WHERE d.user_id = ? AND d.revoked_at IS NULL ORDER BY p.created_at, p.id`, Number(userId))
+      .filter((row) => devices.isActive(row.id));
+  }
+
+  /**
+   * One of a person's phones off their notices, from Settings › Notifications: its token goes, as
+   * unregister() does, and the device stays signed in. → whether that phone of theirs had one.
+   */
+  function forgetPhone(userId, deviceId) {
+    const id = Number(deviceId);
+    if (!Number.isSafeInteger(id) || id <= 0) return false;
+    if (!database.get('SELECT 1 AS x FROM device_tokens WHERE id = ? AND user_id = ?', id, Number(userId))) return false;
+    return unregister(id);
+  }
+
+  /**
    * Replaces the reminders a device says it shows itself with `items`, as
    * deviceRemindersOf() gave them (the same one twice is kept once). → how many
    */
@@ -797,7 +820,7 @@ export function createNativePush({
 
   return {
     platforms: { ios: Boolean(apnsSender), android: Boolean(fcmSender) },
-    targetsOf, register, unregister, withTokens, send, deliver, close,
+    targetsOf, register, unregister, phonesOf, forgetPhone, withTokens, send, deliver, close,
     setReminders, clearReminders, scheduledOn,
   };
 }

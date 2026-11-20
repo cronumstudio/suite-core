@@ -3,6 +3,48 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.315.0 — 2026-11-20
+
+- **A module turned on or off without a signal leaves or joins the rail at once** (`web/settings.js`,
+  `web/shell.js`): Settings › Modules kept the change for later and said so, but the rail kept the
+  module until the signal came back, while the theme was painted at once. `modulesChanged(answer)`
+  sends the modules as they are now in the `kit-modules` event (`detail.answer`, the shape of GET
+  `/api/modules`: the server's, or this device's own while the change waits), for the switches, the
+  order and the rail's buttons alike, and a module's rail draws from it before it asks the host.
+  Cronum Work's shell reads the same answer.
+- **Settings › Notifications lists the phones with the app** (`push.js`, `native-push.js`, `api.js`,
+  `sessions.js`, `web/settings.js`): with `push.native` the test notice reached a phone while the
+  list said no device had notices on. `GET /api/push/devices` now gives the browsers and then each
+  working phone with a token (`phone: true`, its device's `id`, the `name` the app gave it, its
+  `platform`, when the token came; the phone this request comes from, inside the app, `current`).
+  Each phone has «Remove» (`DELETE /api/push/phones/:id`, a person's own only): its token and the
+  reminders it said it shows go, nothing more reaches it, and it stays signed in; the app asks for
+  notices again when it is opened there with them allowed, as a browser turned on again does. Inside
+  the app its own phone says «This device» and has no «Remove»: there the phone's settings decide.
+  `createPush` adds `phones()` and `removePhone()`, `createNativePush` `phonesOf()` and
+  `forgetPhone()`, `createSessions` `deviceOf(token)`, `registerPushApi` takes `deviceOf`; new
+  catalog key `kit.notifications.phoneApp`.
+- **Closing a phone app's session signs the phone out** (`api.js`, `sessions.js`, `app.js`): in Settings
+  › Where you're signed in, «Sign out» on the session a phone's app opened (devices.webSessions) only
+  closed that session; the app opened another at once with its device token, and the phone went on
+  getting notices. `DELETE /api/me/sessions/:key` now revokes the device behind such a session
+  (`devices.revoke`: its other sessions, its notices' token and the reminders it shows go, and the app
+  asks to sign in again), noted in the audit as `device.revoke`. A browser's session closes as before.
+  `registerProfileApi` takes `devices`; `createSessions` adds `deviceOfKey(userId, key)`.
+- **In a host, Settings › Notifications names the whole app** (`web/settings.js`): «Tasks can notify
+  you on this device» became «Cronum Work can…», as every notice comes from the host's one worker.
+- **«Replace» and «Erase my data» wait for the password too** (`web/settings.js`): the red button lit
+  up once the word was typed, with the password still empty; the server refused it
+  (`wrong_password`) and nothing went, but the button said otherwise. Where the person signs in with
+  a password (`has_password` here, `method: "password"` at WorkOS) it waits for one.
+- **Back to a view, each window in its place** (`web/windows.js`): from «one big and two stacked» to
+  2×2 and back, the two stacked windows traded places, because the windows shown were read column by
+  column while a shape is filled row by row. `applyColumns()` reads them by rows, and takes
+  `places`, each shape's windows the last time it showed, which `writeLayout()` keeps beside its
+  bars' shares and `readPlaces(storage, shape)` reads: each module still offered goes back to its
+  place, the focused window stays (in a place nobody has back, else the last one), and the rest fill
+  as before. `createWindows().columns()` passes them.
+
 ## 0.314.0 — 2026-11-20
 
 What every module wrote again, written once in the kit; what the kit still carried and nobody used; and
