@@ -350,7 +350,7 @@
   "admin.users.defaultPlan": "Back to the default plan",
   "admin.users.signOut": "Sign out everywhere",
   "admin.users.signOutConfirm": "Everything that lets {name} in ends: their sessions, API tokens, connected assistants and phones. They’ll have to sign in and connect them again.",
-  "admin.users.signedOutMore": "Their API tokens, assistants and phones were disconnected too",
+  "admin.users.signedOutMore": "Their API tokens, assistants and phones were disconnected too.",
   "admin.users.passwordConfirm": "{name}’s password changes, and everything that lets them in ends: their sessions, API tokens, connected assistants and phones.",
   "admin.users.roleAdminConfirm": "{name} will administer {app}: see and change every account, plan and copy of the data.",
   "admin.users.roleUserConfirm": "{name} will no longer administer {app}.",

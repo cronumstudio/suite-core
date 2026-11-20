@@ -642,7 +642,8 @@ function userDialog(user) {
           if (!(await confirmDialog(t('admin.users.signOutConfirm', { name: user.display_name }), { confirm: t('admin.users.signOut') }))) return;
           try {
             const { closed } = await api.delete(`/api/admin/users/${user.id}/sessions`);
-            toast(`${t('admin.users.signedOut', { n: closed })} ${t('admin.users.signedOutMore')}`);
+            // Two sentences, so both with their full stop (rule 25): the first is a notice of its own elsewhere.
+            toast(`${t('admin.users.signedOut', { n: closed })}. ${t('admin.users.signedOutMore')}`);
             // Their phones went with the sessions.
             if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
           } catch (err) { fail(err); }
