@@ -1016,13 +1016,13 @@ test('a module that manages a kind of group: the host declares it the same way, 
   t.after(() => { host?.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' };
   const hostWith = (kinds) => ({ ...HOST, modules: { ...HOST.modules, organizations: true }, organizations: { kinds } });
-  const entry = (n) => ({ mount: 'focus', entry: fixture('plain', `?id=focus&uses=organizations&kinds=family&n=${n}`) });
+  const entry = (n) => ({ mount: 'fam', entry: fixture('plain', `?id=fam&uses=organizations&kinds=family&n=${n}`) });
   for (const [kinds, why] of [[{}, 'not declared'], [{ family: { managed: true } }, 'declared otherwise']]) {
     fresh += 1;
     await assert.rejects(
       createHost({ config: hostWith(kinds), modules: [entry(`${fresh}x`)], env, handleSignals: false, exitOnError: false, log: () => {} }),
       (err) => err instanceof SuiteConfigError
-        && err.errors.includes("focus: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
+        && err.errors.includes("fam: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
       why,
     );
   }

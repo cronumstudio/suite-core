@@ -228,7 +228,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const organizations = {
     roles: Array.isArray(og.roles) ? [...og.roles] : ['owner', 'admin', 'member'],
     invitationDays: og.invitationDays ?? 7,
-    // The roles that take a seat a subscription pays for (Tracker's drivers); null, every member.
+    // The roles that take a seat a subscription pays for (a help desk's agents, say); null, every member.
     seatRoles: Array.isArray(og.seatRoles) ? [...og.seatRoles] : (og.seatRoles ?? null),
     // The kinds the app manages, caps per person, or deletes when empty (organizations.js); none, as before.
     kinds: {},
@@ -245,7 +245,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   if (organizations.seatRoles !== null && !(Array.isArray(organizations.seatRoles) && organizations.seatRoles.length
     && organizations.seatRoles.every((r) => organizations.roles.includes(r)))) {
-    errors.push("organizations.seatRoles: some of organizations.roles, such as ['driver'], or left out for every member");
+    errors.push("organizations.seatRoles: some of organizations.roles, such as ['agent'], or left out for every member");
   }
 
   const tk = isObject(p.tokens) ? p.tokens : {};
@@ -362,8 +362,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // a person gave to another app of the suite. A warning and not an error: an install that
     // starts requiring it must first have its Resource Indicator set in WorkOS.
     // With the login shared by the suite's products (accounts.sharedIdentity: one WorkOS
-    // environment for Work, Focus, Tracker…), that is not an install that might not have it yet but
-    // the very case it is for: a token someone gave a client for another product would open this
+    // environment for several apps), that is not an install that might not have it yet but the
+    // very case it is for: a token someone gave a client for another app would open this
     // MCP, and make them an account here. It doesn't start without it (audit sc-mcp-2); the
     // variable workos.js reads, as production sets it.
     if (modules.mcp && accounts.sharedIdentity && !String(env.WORKOS_MCP_AUDIENCE || '').trim()) {

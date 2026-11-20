@@ -39,10 +39,10 @@
  * of them; before, whichever was linked first took the other's purchases too. The same holds the
  * other way round: a customer linked to a group never takes a person's purchase.
  *
- * Another product's events. A provider account may sell more than one product (Cronum Work and
- * Tracker), and it sends every event to every app's webhook: this app hears of sales that aren't
- * its own, often for people it knows by the same identity. With `ignoreUnknownProducts`, an event
- * (not a refund) for a product this catalog doesn't have is `'foreign'`: decided before anything
+ * Another product's events. A provider account may sell more than one product, and it sends
+ * every event to every app's webhook: this app hears of sales that aren't its own, often for
+ * people it knows by the same identity. With `ignoreUnknownProducts`, an event (not a refund)
+ * for a product this catalog doesn't have is `'foreign'`: decided before anything
  * about who pays, so no customer is linked, nothing waits in `billing_pending` and only the
  * event's id, type and outcome are kept (`billing_events`). With `app`, the checkout says which
  * app sells (Paddle's `custom_data.app`), and an event that names another is foreign too. A
@@ -361,7 +361,7 @@ export function joinedEarly(dates, joined) {
  *     'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_…', founderPrice: 'pri_…' },
  *     'pro-lifetime': { plan: 'pro', kind: 'once' }, 'pro-pass': { plan: 'pro', kind: 'once', days: 30 },
  *     'family-yearly': { plan: 'family', kind: 'subscription', for: 'organization' },
- *     'focus-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } }
+ *     'group-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } }
  *   A founder's price is chosen here, for whoever `isFounder` says: the browser only names the product.
  *   `oldPrices`: prices it no longer sells that subscriptions may still renew on (Paddle reads them).
  *   `seats: false`, only for a group's: the plan with no cap on its members, whatever quantity the
@@ -499,7 +499,7 @@ export function createBilling({
    * hand it that person's customer, with its invoices and payment method. A
    * customer linked to nobody here is not linked then either
    * (`billing.customer_unvouched`): the same provider's account may sell another
-   * product (Tracker), whose buyers' customers no account here has.
+   * product, whose buyers' customers no account here has.
    */
   function linkCustomer(subject, customer, { takeOver = false, event = null } = {}) {
     if (!customer) return;

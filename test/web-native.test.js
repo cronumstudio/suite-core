@@ -699,12 +699,12 @@ test('a login shared with other apps: asked whether it goes too only of someone 
   assert.equal(last.box, false, 'only this app: nothing to ask');
   assert.equal('identity' in last.sent, false, 'and the server decides (auto)');
 
-  await capture(['Focus'], false);
+  await capture(['Acme'], false);
   assert.equal(last.box, true);
-  assert.ok(last.said.includes(t('kit.data.identityUsed', { apps: 'Focus' })), 'it names the other app');
+  assert.ok(last.said.includes(t('kit.data.identityUsed', { apps: 'Acme' })), 'it names the other app');
   assert.equal(last.sent.identity, false, 'unticked: only this app goes');
 
-  await capture(['Focus', 'Tracker'], true);
+  await capture(['Acme', 'Globex'], true);
   assert.equal(last.sent.identity, true, 'ticked: the login goes too');
 
   await capture(null, false);

@@ -1114,8 +1114,8 @@ export function createShell({
   /* -------------------------------- teardown -------------------------------- */
 
   /**
-   * The frame taken down whole, for an app that draws it again (Focus after a new language, Tracker
-   * closing its frame) without reloading the page: its listeners on the document and the window
+   * The frame taken down whole, for an app that draws it again without reloading the page (after
+   * a new language, or closing its frame): its listeners on the document and the window
    * go, an account or modules menu it opened closes, and its DOM leaves the page, so nothing
    * holds the old frame and it can be collected. Twice, or after the page let it go, it does
    * nothing. What the app hung on the frame's nodes itself goes with them.

@@ -391,7 +391,7 @@ export function createWorkosAccounts({
 
   /**
    * The other apps that share this person's WorkOS user, by the names they noted on it
-   * (`['Focus']`), or [] with none, or no WorkOS user.
+   * (`['Acme']`), or [] with none, or no WorkOS user.
    * @throws {WorkosUnavailable}
    */
   async function otherApps(userId) {

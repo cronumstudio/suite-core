@@ -917,8 +917,8 @@ export async function createHost({
     for (const name of SHARED_MODULES) {
       if (resolved.modules[name] && !config.modules[name]) errors.push(`${entry.mount}: it uses modules.${name}, which the host has off`);
     }
-    // A phone connects to a product, with its own prefix and return addresses: an app on its own
-    // (Tracker), or a host as a whole from its own suite.config.js (Cronum Work), never one module.
+    // A phone connects to a product, with its own prefix and return addresses: an app on its own,
+    // or a host as a whole from its own suite.config.js (Cronum Work), never one module.
     if (resolved.modules.devices) errors.push(`${entry.mount}: modules.devices is for an app on its own, not a module of a host`);
     // The groups are one set for every module, with the host's kinds: a kind a module manages that the
     // host doesn't declare the same way would leave the generic routes open to it without a word.

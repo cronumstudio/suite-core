@@ -1,8 +1,7 @@
 /**
  * The page where a signed-in account allows a phone: /devices/connect, served by
  * the suite with `devices.connectPage` (device-pages.js), outside any app's
- * frame, in the sign-in's layout and the account's language. Ported from
- * Tracker's own page, which Tracker keeps.
+ * frame, in the sign-in's layout and the account's language.
  *
  * The native app opened it in the system browser with a PKCE challenge, a
  * state, its return address and the phone's name and platform; the server

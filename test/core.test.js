@@ -230,7 +230,7 @@ test('migrations: applied once, in order, per scope', () => {
   }
 });
 
-test('migrations: Focus’s older table is adopted as the app’s', () => {
+test('migrations: an older table, from before scope, is adopted as the app’s', () => {
   const { database, dir } = tempDb();
   try {
     database.exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL,

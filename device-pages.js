@@ -4,12 +4,11 @@
  * them serves nothing new.
  *
  * `devices.connectPage` — `/devices/connect`, where a signed-in account allows a
- * phone, ported from Tracker's own (its server/device-connect.js and
- * public/js/connect.js, which Tracker keeps). The native app opens the system
- * browser there with a PKCE challenge, a state, its return address and the
- * phone's name and platform; the person signs in and says yes; the page
- * (web/connect.js) asks `POST /api/devices/codes` for a code and goes back to
- * the app with it, which trades it for its token (`POST /api/devices/token`).
+ * phone. The native app opens the system browser there with a PKCE challenge, a
+ * state, its return address and the phone's name and platform; the person signs
+ * in and says yes; the page (web/connect.js) asks `POST /api/devices/codes` for
+ * a code and goes back to the app with it, which trades it for its token
+ * (`POST /api/devices/token`).
  * What the server does for it:
  *
  * - the request's check, on every GET of the page: anything that is not one

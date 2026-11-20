@@ -1,10 +1,9 @@
 /**
  * Built-in OAuth 2.1 authorization server for an app's MCP endpoint.
  *
- * Part of the shared suite code (Next, Tasks, Projects, Focus): it imports
- * nothing from the app. Whatever is the app's own —its database, how a user
- * signs in, what a session is, its texts and its page layout— is handed in by
- * `createOAuthServer`.
+ * Part of the shared suite code: it imports nothing from the app. Whatever is
+ * the app's own —its database, how a user signs in, what a session is, its
+ * texts and its page layout— is handed in by `createOAuthServer`.
  *
  * Without it, connecting Claude or ChatGPT meant creating a token in Settings
  * and pasting it. With it, pasting the MCP URL is enough: the client discovers

@@ -27,7 +27,7 @@ const TABLE = `CREATE TABLE schema_migrations (
 )`;
 
 /**
- * Creates the table, or brings Focus's older one (without `scope`, whose rows
+ * Creates the table, or brings an older one (from before `scope`, whose rows
  * are all the app's) into this shape.
  */
 function ensureTable(database) {

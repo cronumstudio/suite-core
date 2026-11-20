@@ -111,7 +111,7 @@ test('Users › New account with WorkOS: the admin’s password asked apart when
 
   // The next one, within the ten minutes: straight in. An email WorkOS has is said in the form.
   const next = await open();
-  fill(next, 'focus.person@example.com');
+  fill(next, 'acme.person@example.com');
   answers['/api/admin/users'].push({ status: 409, body: { error: 'email_taken_provider', provider: 'WorkOS' } });
   await next.submit();
   assert.equal(opened().length, 1, 'no dialog asking for the password');

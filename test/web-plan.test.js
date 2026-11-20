@@ -832,7 +832,7 @@ test('the card: when a subscription renews or ends, a store’s, a gift’s end,
     ['Given to you until March 1, 2027'], 'the later date');
   assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'admin', plan: 'free', ends: null }, earlyAccess] }).lines,
     ['Given to you until December 31, 2026'], 'only a gift of the plan shown');
-  assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'organization', plan: 'pro', name: 'Fleet A' }] }).lines, ['Included in Fleet A']);
+  assert.deepEqual(planStatus(PRO_NOW, { sources: [{ kind: 'organization', plan: 'pro', name: 'Team A' }] }).lines, ['Included in Team A']);
   assert.deepEqual(planStatus(FREE, { sources: [] }).lines, [], 'the default plan: nothing to say');
   const extras = planStatus(FREE, { sources: [{ kind: 'extra', feature: 'tasks.lists.max', value: 100, ends: '2027-03-01T00:00:00.000Z' }] },
     { benefit: (feature, value) => (feature === 'tasks.lists.max' ? `Up to ${value} lists` : '') });
@@ -890,7 +890,7 @@ test('the kit caches plan.js for offline use, and it fetches nothing at the site
   assert.match(sw, /'\/suite\/settings\.js', '\/suite\/plan\.js', '\/suite\/usage-view\.js'/);
   const code = fs.readFileSync(new URL('../web/plan.js', import.meta.url), 'utf8');
   assert.doesNotMatch(code, /fetch\(|import\(['`]\//, 'everything through api.js, at the app’s base');
-  assert.doesNotMatch(code, /\b(?:Cronum Work|Tasks|Projects|Next|Notes|Tracker|Paddle|Stripe)\b/, 'nothing of one app or provider');
+  assert.doesNotMatch(code, /\b(?:Cronum Work|Tasks|Projects|Next|Notes|Paddle|Stripe)\b/, 'nothing of one app or provider');
 });
 
 test('every module’s frame in a host: the founder’s notice from the host, closed for its date, and the way back from the checkout', () => {

@@ -1,6 +1,6 @@
 /**
- * Device tokens: what an app on a phone holds instead of a browser session
- * (Tracker's native app), with `modules.devices`.
+ * Device tokens: what a native app on a phone holds instead of a browser
+ * session, with `modules.devices`.
  *
  * The phone never sees a password or a session. It opens the system browser
  * on the app's own connect page with a PKCE challenge (RFC 7636, S256) and the
@@ -40,11 +40,10 @@
  * closes its sessions, and every use of one asks `sessionAlive` first, which
  * also refuses it once the device stopped working for any other reason.
  *
- * Focus pairs kiosks and its future screens another way (a code shown on the
- * signed-in screen and typed or scanned on the device, bound to a profile with
- * runner-only scopes, in its `X-Focus-Device` header) and keeps its own pairing
- * and its own `devices` table: these tables are named so that both can live in
- * its database.
+ * An app may pair devices another way of its own (a code shown on a signed-in
+ * screen and typed or scanned on the device, bound to a profile with scopes of
+ * its own, sent in a header of its own) and keep its own `devices` table: these
+ * tables are named so that both can live in one database.
  */
 import { randomToken, sha256, safeEqual } from './crypto.js';
 import { ensureColumn } from './migrate.js';
@@ -67,7 +66,7 @@ const WEB_CODE_MS = MINUTE;
 const OPEN_WEB_CODES = 10;
 
 export function deviceTokensSchema(d) {
-  // Not `devices`: Focus has a table of its own by that name, for its kiosks.
+  // Not `devices`: an app may have a table of its own by that name (its kiosks, say).
   d.exec(`CREATE TABLE device_tokens (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -180,7 +179,7 @@ export function deviceActionOf(declared, action) {
 /**
  * @param {object} options
  * @param {object} options.database
- * @param {string} options.prefix          how the app's device tokens start (`trackerdev_`)
+ * @param {string} options.prefix          how the app's device tokens start (`appdev_`)
  * @param {string[]} options.redirectUris  where a device may come back to, exactly
  * @param {number} [options.idleDays]      a token unused this long ends
  * @param {number} [options.maxPerUser]    devices connected at once per account

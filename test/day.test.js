@@ -63,7 +63,7 @@ test('the summary asks each module someone uses, and lists what is overdue, what
     done: () => [{ type: 'step', id: 12, title: 'Login fixed', at: '2026-11-04T11:00:00.000Z', where: 'Work › main', url: '?project=1', kind: 'logged' }],
   });
   const notes = moduleOf('notes', 'Notes', { agenda: () => { throw new Error('not asked: Ana turned it off'); } });
-  const calendarOnly = moduleOf('focus', 'Focus', null, { calendar: { range: () => [] } });
+  const calendarOnly = moduleOf('acme', 'Acme', null, { calendar: { range: () => [] } });
   const day = createDay({ modules: () => [tasks, projects, next, notes, calendarOnly], uses: (user, mount) => mount !== 'notes' });
 
   const answer = await day.summary(ana, { date: '2026-11-04' });

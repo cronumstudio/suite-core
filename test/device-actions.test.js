@@ -257,13 +257,13 @@ async function startApp(t, { product = DEVICES, deviceActions } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-device-actions-app-'));
   const lines = [];
   const suite = createSuite({
-    config: { app: { id: 'tracker', name: 'Tracker', languages: ['en'] }, ...product },
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, ...product },
     env: ENV(dir), log: (line) => lines.push(line), exitOnError: false,
   });
   const app = createApp({ suite, version: '1.0.0', handleSignals: false, log: (line) => lines.push(line), deviceActions });
   const server = await app.listen();
   t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  return { suite, lines, ...client(`http://127.0.0.1:${server.address().port}`, 'tracker_sid') };
+  return { suite, lines, ...client(`http://127.0.0.1:${server.address().port}`, 'demo_sid') };
 }
 
 test('an app on its own offers them through createApp({ deviceActions }): the module, if named, is the app', async (t) => {
@@ -281,13 +281,13 @@ test('an app on its own offers them through createApp({ deviceActions }): the mo
   const act = (body) => call('POST', '/api/devices/actions', body, auth);
 
   assert.deepEqual((await act({ action: 'arrive', id: 'stop-3', at: 'gate' })).data, { arrived: 'stop-3', ok: true });
-  assert.deepEqual((await act({ module: 'tracker', action: 'arrive', id: 'stop-4' })).data, { arrived: 'stop-4', ok: true });
+  assert.deepEqual((await act({ module: 'demo', action: 'arrive', id: 'stop-4' })).data, { arrived: 'stop-4', ok: true });
   assert.deepEqual(seen, [['admin', 'stop-3', { at: 'gate' }, true], ['admin', 'stop-4', {}, true]]);
   assert.deepEqual((await act({ module: 'tasks', action: 'arrive' })).data, { error: 'action_not_found' }, 'another module is not this app');
   assert.deepEqual((await act({ action: 'leave' })).data, { error: 'action_not_found' });
   assert.deepEqual((await act({ action: 'arrive', id: 'missing' })).data, { error: 'route_not_found' });
   assert.deepEqual(suite.audit.list({ action: 'device.action' }).map((e) => e.meta).reverse(), [
-    { module: 'tracker', action: 'arrive', id: 'stop-3' }, { module: 'tracker', action: 'arrive', id: 'stop-4' },
+    { module: 'demo', action: 'arrive', id: 'stop-3' }, { module: 'demo', action: 'arrive', id: 'stop-4' },
   ]);
 });
 
@@ -297,10 +297,10 @@ test('an app with devices and no deviceActions answers 404; without the module, 
   assert.deepEqual((await plain.call('POST', '/api/devices/actions', { action: 'arrive' }, auth)).data, { error: 'action_not_found' });
 
   const off = await startApp(t, { product: {}, deviceActions: { arrive: () => null } });
-  assert.equal((await off.call('POST', '/api/devices/actions', { action: 'arrive' }, { Authorization: 'Bearer trackerdev_x' })).status, 404);
+  assert.equal((await off.call('POST', '/api/devices/actions', { action: 'arrive' }, { Authorization: 'Bearer workdev_x' })).status, 404);
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-device-actions-app-'));
-  const suite = createSuite({ config: { app: { id: 'tracker', name: 'Tracker' }, ...DEVICES }, env: ENV(dir), log: () => {}, exitOnError: false });
+  const suite = createSuite({ config: { app: { id: 'demo', name: 'Demo' }, ...DEVICES }, env: ENV(dir), log: () => {}, exitOnError: false });
   t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   assert.throws(() => createApp({ suite, handleSignals: false, log: () => {}, deviceActions: { arrive: 'yes' } }),
     /createApp: deviceActions\.arrive must be a function/);
