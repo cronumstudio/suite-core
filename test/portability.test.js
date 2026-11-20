@@ -1502,7 +1502,7 @@ test('a public page’s link never travels, without the app saying so: copies ma
   const declared = { tables: { pages: { refs: { owner_id: 'users' } } } };
   const source = install(t, {}, PAGES);
   const ana = source.suite.accounts.create({ username: 'ana', displayName: 'Ana' }, { quiet: true });
-  const token = 'tok-0123456789abcdef';
+  const token = 'a-page-link';
   source.db.run("INSERT INTO pages (owner_id, title, public_token, public_since) VALUES (?, 'Open', ?, '2026-11-01T00:00:00.000Z')", ana.id, token);
   const file = path.join(source.dir, 'pages.zip');
   await exportTo({ ...source, portability: source.suite.portabilityFor(declared, { version: '1.0.0' }) }, file, { scope: 'account', userId: ana.id });
