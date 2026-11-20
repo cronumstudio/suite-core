@@ -47,8 +47,10 @@ test('the calendar asks each module someone uses, and shows their items by day, 
   const calendar = createCalendar({ modules: () => [tasks, projects, notes, next], uses: (user, mount) => mount !== 'notes' });
 
   const answer = await calendar.range(ana, { from: '2026-11-01', to: '2026-11-07' });
-  assert.deepEqual(asked, [['tasks', 1, { from: '2026-11-01', to: '2026-11-07' }], ['projects', 1, { from: '2026-11-01', to: '2026-11-07' }]],
-    'each module someone uses with a calendar, once, with the span');
+  assert.deepEqual(asked, [
+    ['tasks', 1, { from: '2026-11-01', to: '2026-11-07', limit: CALENDAR_MODULE_MAX }],
+    ['projects', 1, { from: '2026-11-01', to: '2026-11-07', limit: CALENDAR_MODULE_MAX }],
+  ], 'each module someone uses with a calendar, once, with the span and the most the host keeps');
   assert.equal(answer.from, '2026-11-01');
   assert.equal(answer.to, '2026-11-07');
   assert.deepEqual(answer.modules, [
@@ -71,7 +73,7 @@ test('the calendar asks each module someone uses, and shows their items by day, 
   assert.equal(answer.items[2].state, 'done');
   assert.equal(answer.items[0].mine, false);
   assert.equal(answer.items[1].mine, undefined, 'mine only when the module says');
-  assert.equal(answer.items[4].time, '09:30');
+  assert.equal('time' in answer.items[4], false, 'no time of day: none is kept (audit of 6/11, sc-feat-8)');
   assert.equal(answer.items[0].id, 'p7', 'an id as the module gives it');
 });
 
@@ -204,7 +206,7 @@ test('assistants get work_calendar: what has a date, said by day, for whoever us
     '2026-11-03, Tuesday',
     '• Tasks task tasks:task:9: "Call Ana" (open) in Inbox',
     '• Projects phase projects:phase:8: "Build" (open, until 2026-11-20) in Website',
-    '• Projects milestone projects:milestone:3: "Launch" (open, at 09:30) in Website',
+    '• Projects milestone projects:milestone:3: "Launch" (open) in Website',
     '',
     '2026-11-05, Thursday',
     '• Tasks task tasks:task:4: "Bake bread" (done) in Home',
@@ -213,8 +215,10 @@ test('assistants get work_calendar: what has a date, said by day, for whoever us
   const today = todayFor(ana);
   const empty = mcpOf({ modules: [moduleOf('tasks', 'Tasks', () => [])] });
   assert.equal(await call(empty, ana, {}), `Nothing has a date from ${today} to ${addDays(today, 6)}.`, 'from today, in their zone, without from');
-  await assert.rejects(call(mcp, ana, { from: 'tomorrow' }), (error) => error.extra?.field === 'from');
-  await assert.rejects(call(mcp, ana, { from: '2026-11-01', to: '2028-01-01' }), (error) => error.extra?.field === 'to');
+  // What it can't take, said so the assistant can correct it (sc-mcp-11), not a bare field_invalid.
+  assert.equal(await call(mcp, ana, { from: 'tomorrow' }), '"from" must be a date as YYYY-MM-DD.');
+  assert.equal(await call(mcp, ana, { from: '2026-11-01', to: '2028-01-01' }),
+    '"to" must be on or after "from" (2026-11-01) and at most 366 days from it, both included. Ask for a shorter span.');
 });
 
 test('work_calendar says which modules it couldn\'t read, and a host with links names both in its instructions', async () => {

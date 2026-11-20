@@ -71,22 +71,33 @@
  */
 import { el, clear, append } from './dom.js';
 import { t, formatDateTime, currentLanguage, listFormat, shareLanguage, dateFormat } from './i18n.js';
-import { api, errorMessage, Offline } from './api.js';
-import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installedAlone } from './base.js';
+import { api, errorMessage, Offline, ApiError } from './api.js';
+import { at, BASE, FRAMED, SETTINGS_SHOWN_EVENT, SETTINGS_GOTO_EVENT, LOOKS, applyLook, installed, installedAlone } from './base.js';
 import { icon } from './icons.js';
-import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu } from './ui.js';
+import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
-import { usageGroups, atLimit } from './usage-view.js';
-import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal } from './native.js';
+import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
-import { devicePushSubscription, pushSupport, noticesOnHere, markNoticesOn, markNoticesOff } from './push.js';
-import { agentChips, agentSteps, aiPrompt } from './agents.js';
+import { devicePushSubscription, ensureSubscription, pushSupport, noticesOnHere, markNoticesOff } from './push.js';
 import { markOwned, workRegistry } from './mount.js';
 import { openInWork } from './links.js';
 import { leave } from './signin.js';
 import { celebratePrefs, setCelebratePref, celebrate } from './celebrate.js';
 import { connection, save, noSignal } from './settings-queue.js';
+
+/**
+ * What only Your AI's agents and prompt (agents.js) and Settings › Plan's usage (usage-view.js)
+ * draw, asked for when those are, once per page: Settings open without them (audit of 6/11,
+ * sc-ui-11). Both stay in the worker's kit (sw-core.js), so without a signal they still come. One
+ * that couldn't be had is asked for again the next time.
+ */
+const later = (load) => {
+  let asked = null;
+  return () => (asked ||= load().catch((err) => { asked = null; throw err; }));
+};
+const agentsCode = later(() => import('./agents.js'));
+const usageCode = later(() => import('./usage-view.js'));
 
 const LANGUAGE_NAMES = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', it: 'Italiano' };
 
@@ -148,31 +159,39 @@ function hostModulesKept() {
 /**
  * Another module's words, for naming its sections of Settings here: its catalog in `lang`
  * (`/<module>/i18n/<lang>.json`), asked for once per page and kept. → the words; undefined while
- * they are on their way (`then` is called when they come); null when they couldn't be had, which
- * is asked again the next time Settings opens.
+ * they are on their way (`then` is called once when they come, however many times the same
+ * function asked); null when they couldn't be had, which stays so until Settings open again
+ * (forgetMissingCatalogs): a list painted again while one fails doesn't ask for it again.
  */
 const moduleCatalogs = new Map();
+const catalogWaiters = new Map();
 function moduleWords(m, lang, then) {
   const key = `${m.mount}:${lang}`;
   const known = moduleCatalogs.get(key);
   if (known instanceof Promise) {
-    known.then(then);
+    if (then) catalogWaiters.get(key)?.add(then);
     return undefined;
   }
-  if (known) return known;
-  if (known === null) {
-    moduleCatalogs.delete(key);
-    return null;
-  }
+  if (known !== undefined) return known;
+  const waiters = new Set(then ? [then] : []);
+  catalogWaiters.set(key, waiters);
   const asking = fetch(`${m.path}i18n/${lang}.json`, { credentials: 'same-origin' })
     .then((res) => (res.ok ? res.json() : null))
     .catch(() => null)
     .then((words) => {
       moduleCatalogs.set(key, words && typeof words === 'object' ? words : null);
+      catalogWaiters.delete(key);
+      // One that fails doesn't keep the words from the others.
+      for (const waiter of waiters) {
+        try { waiter(); } catch (err) { queueMicrotask(() => { throw err; }); }
+      }
     });
   moduleCatalogs.set(key, asking);
-  asking.then(then);
   return undefined;
+}
+/** The catalogs that couldn't be had, asked for again: as Settings open. */
+function forgetMissingCatalogs() {
+  for (const [key, words] of moduleCatalogs) if (words === null) moduleCatalogs.delete(key);
 }
 
 /**
@@ -284,6 +303,24 @@ export function openSettings(options) {
   // What is drawn from the modules in use, drawn again when the server's answer comes.
   const onModules = [];
   let closed = false;
+  forgetMissingCatalogs();
+  // Another module's words came (moduleWords): the list painted again once, for all that came together.
+  let repaintAsked = false;
+  const wordsCame = () => {
+    if (closed || repaintAsked) return;
+    repaintAsked = true;
+    queueMicrotask(() => {
+      repaintAsked = false;
+      if (!closed) repaint();
+    });
+  };
+  // A painting function called only while Settings are open, the same one each time for the same
+  // function: moduleWords calls it once however often it is asked.
+  const guarded = new WeakMap();
+  const whileOpen = (fn) => {
+    if (!guarded.has(fn)) guarded.set(fn, () => { if (!closed) fn(); });
+    return guarded.get(fn);
+  };
 
   /* ---------------------------- without a signal ---------------------------- */
 
@@ -364,6 +401,12 @@ export function openSettings(options) {
   // The plan is the account's: what it is and what it includes, with the account's other things.
   const planSection = (group) => (options.plan || host?.plans ? { group, id: 'plan', iconName: 'card', label: t('kit.plan.title'),
     hint: () => t('kit.plan.hint'), render: () => needsServer(plan) } : null);
+  // The affiliates' panel (/afiliados, affiliates.js), where the program is on: a page of the server's,
+  // as Administration is. Never inside the suite's app on a phone: no rewards nor prices there (the
+  // stores' rules, Apple's 3.1), so it is left out of the list, not hidden behind a tap.
+  const recommendSection = (group) => ((host ? host.recommend === true : modules.recommend === true) && !inApp()
+    ? { group, id: 'recommend', iconName: 'star', label: t('kit.recommend.title', { app: host?.name || app.name }),
+      hint: () => t('kit.recommend.hint'), href: '/afiliados' } : null);
   // Only where there is an AI connector to set up; a server from before the flag says nothing and keeps it.
   const aiSection = (group) => (modules.mcp !== false ? { group, id: 'ai', iconName: 'spark', label: t('kit.ai.title'),
     hint: () => t('kit.ai.hint'), render: () => needsServer(ai) } : null);
@@ -378,6 +421,7 @@ export function openSettings(options) {
     securitySection(t('kit.settings.groups.account')),
     appearanceSection(t('kit.settings.groups.account')),
     planSection(t('kit.settings.groups.account')),
+    recommendSection(t('kit.settings.groups.account')),
     aiSection(t('kit.settings.groups.connections')),
     notificationsSection(t('kit.settings.groups.connections')),
     sessionsSection(t('kit.settings.groups.connections')),
@@ -425,6 +469,7 @@ export function openSettings(options) {
     securitySection(t('kit.settings.groups.account')),
     sessionsSection(t('kit.settings.groups.account')),
     planSection(t('kit.settings.groups.account')),
+    recommendSection(t('kit.settings.groups.account')),
     deletionDays != null ? { group: t('kit.settings.groups.account'), id: 'account', iconName: 'trash', label: t('kit.data.deleteTitle'),
       hint: () => t('kit.settings.accountHint', { app: host.name }), render: () => needsConnection(data({ module: false })) } : null,
     // A group of its own name: the list shows it as one row, at the foot, under no other.
@@ -442,16 +487,13 @@ export function openSettings(options) {
   }
 
   /**
-   * This module's group: its sections, drawn here. What it adds to Your AI is out of the list when
-   * Your AI has its instruction (`standing`), and what it is always (About has its card): both are
-   * still opened from there.
+   * This module's group: its sections, drawn here, and its data. What it is is out of the list (About
+   * has its card) and opened from there.
    */
   const thisModule = () => [
     ...own(app.name),
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
       hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => needsConnection(data({ account: false })) } : null,
-    options.aiExtra ? { group: app.name, id: 'ai-extra', iconName: 'spark', label: t('kit.settings.moduleAi'), unlisted: Boolean(options.standing),
-      hint: () => t('kit.settings.moduleAiHint', { app: app.name }), render: () => [options.aiExtra()] } : null,
     options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
       hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
   ];
@@ -463,7 +505,7 @@ export function openSettings(options) {
   function otherModule(m) {
     const declared = m.settings;
     if (!declared || !m.path) return [];
-    const words = moduleWords(m, currentLanguage(), () => { if (!closed) repaint(); });
+    const words = moduleWords(m, currentLanguage(), wordsCame);
     if (words === undefined) return [];   // on its way: painted when it comes
     const go = (id, iconName, label, text = '') => ({
       group: m.name, id: `${m.mount}:${id}`, iconName, label, hint: () => text, go: () => goTo(m, id),
@@ -478,7 +520,6 @@ export function openSettings(options) {
     return [
       ...declared.sections.filter((s) => say(s.label)).map((s) => go(s.id, s.icon || 'sliders', say(s.label), say(s.hint))),
       declared.data ? go('data', 'box', t('kit.data.title'), t('kit.settings.dataHint', { app: m.name })) : null,
-      declared.ai && !declared.standing ? go('ai-extra', 'spark', t('kit.settings.moduleAi'), t('kit.settings.moduleAiHint', { app: m.name })) : null,
     ];
   }
 
@@ -569,6 +610,14 @@ export function openSettings(options) {
     } catch { /* the view went */ }
   };
   shown(true);
+  // In Work's shell the system's Back closes them as their ← does: on a phone from a section to the
+  // list, then out. With no entry of their own in the history, Android's Back changed the window
+  // under them, or left the app (audit of 6/11, work-web-8).
+  const layer = workRegistry() ? backLayer(() => {
+    const stays = !wide() && frame.hasAttribute('data-open');
+    back();
+    return stays ? 'stay' : null;
+  }) : null;
 
   const items = new Map();
   // Each group's heading and what it folds, by its name, to slide one open and the other shut.
@@ -650,7 +699,7 @@ export function openSettings(options) {
     const section = all.find((s) => s.id === id && !s.href && !s.go);
     if (!section) return false;
     current = id;
-    if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close })));
+    if (!built.has(id)) built.set(id, el('div', {}, el('h2', { text: section.label }), section.render({ close, watchOffline })));
     clear(page).append(built.get(id));
     frame.setAttribute('data-open', '');
     // Its group unfolds in the list, folding the one that was open; one opened from another stays as it was.
@@ -699,6 +748,7 @@ export function openSettings(options) {
     document.removeEventListener('keydown', onKey);
     for (const cleanup of cleanups.splice(0)) cleanup();
     overlay.remove();
+    layer?.close();
     shown(false);
     options.onClose?.();
   }
@@ -913,10 +963,12 @@ export function openSettings(options) {
         return;
       }
       const current = input({ id: 'kit-password-current', type: 'password', autocomplete: 'current-password' });
-      const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: '8' });
+      // This app's shortest, as the server checks it before WorkOS is asked (audit sc-auth-7); 8, a server from before.
+      const min = config.password_min || 8;
+      const next = input({ id: 'kit-password-new', type: 'password', autocomplete: 'new-password', minlength: String(min) });
       append(clear(box), block(t('kit.security.password'),
         field(t('kit.security.currentPassword'), revealable(current)),
-        field(t('kit.security.newPassword'), revealable(next), t('kit.security.workosPasswordHint')),
+        field(t('kit.security.newPassword'), revealable(next), t('kit.security.workosPasswordHint', { n: min })),
         row(button(t('kit.security.changePassword'), async () => {
           try {
             await api.post('/api/me/sign-in/password', { current_password: current.value, password: next.value });
@@ -1097,13 +1149,6 @@ export function openSettings(options) {
     return block(t('kit.twoFactor.title'), body);
   }
 
-  /* ----------------------------------- AI ----------------------------------- */
-
-  /**
-   * Connecting an assistant: the MCP address; with the built-in OAuth or
-   * WorkOS pasting it is enough and the apps connected that way are listed,
-   * each one disconnectable here; manual tokens for clients that can't sign in.
-   */
   /**
    * Which modules of the host this person uses (PUT /api/me/modules at the host's root). One
    * stays on; one turned off keeps its data and only leaves their menus. Each can have its own
@@ -1296,6 +1341,8 @@ export function openSettings(options) {
       clear(icons);
       // In the suite's app each one opens outside it, in the browser, where it can be installed.
       const native = inApp();
+      // Work installed (this window is it, `installed()`), as in the suite's app: no button for it.
+      const workHere = native || installed();
       const link = (href, image, name) => el('a', {
         class: 'kit-btn kit-btn--small', href, target: '_blank', rel: 'noopener',
         onClick: (ev) => { if (native && openExternal(new URL(href, window.location.href).href)) ev.preventDefault(); },
@@ -1303,9 +1350,10 @@ export function openSettings(options) {
       // The host itself first, but not in its own app, which is it installed: one icon for all of it,
       // opening on the module used last. Its page at /?modules stays put instead of going on to a
       // module, so it can be installed from there.
-      if (answer.host?.name && !native) icons.append(link('/?modules', answer.host.icon, answer.host.name));
+      if (answer.host?.name && !workHere) icons.append(link('/?modules', answer.host.icon, answer.host.name));
       // A door (Croc) is a button of the whole app's, never installed alone.
-      for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(m.path, m.icon, m.name));
+      // Each module on its own (`?alone`): else, in a browser, its page goes on to the host's shell (native.js hostShellAddress).
+      for (const m of inUse.filter((x) => x.active && !x.door)) icons.append(link(aloneAddress(m.path), m.icon, m.name));
     };
     // Without a signal, the modules of last time (with the changes kept for later): they can still
     // be turned on and off, and put in order.
@@ -1325,12 +1373,15 @@ export function openSettings(options) {
    * Installing on this device: on the web Cronum Work or each module on its own, in the suite's
    * app (Cronum Work already) only the modules. First which one (`icons`), then this device's way,
    * then what installing it gives: it opens as an app and keeps what was seen, for without a signal.
+   * Inside Work installed (a window of its own, `installed()`) as in the suite's app: Work is
+   * installed already, and that window has no tab nor address bar; the module opens in the browser.
    */
   function installing(icons) {
-    const native = inApp();
     const kind = installKind();
-    const pick = native ? 'kit.modules.installPickApp'
-      : kind === 'ios' || kind === 'android' ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
+    const touch = kind === 'ios' || kind === 'android';
+    const native = inApp() || installed();
+    const pick = native ? (touch || inApp() ? 'kit.modules.installPickApp' : 'kit.modules.installPickInstalled')
+      : touch ? 'kit.modules.installPickTap' : 'kit.modules.installPickClick';
     const how = {
       ios: 'kit.modules.installIos', android: 'kit.modules.installAndroid',
       'mac-safari': 'kit.modules.installMacSafari', firefox: 'kit.modules.installFirefox',
@@ -1343,6 +1394,13 @@ export function openSettings(options) {
         el('li', {}, el('p', { text: t('kit.modules.installOffline') }))));
   }
 
+  /* ----------------------------------- AI ----------------------------------- */
+
+  /**
+   * Connecting an assistant: the MCP address; with the built-in OAuth or
+   * WorkOS pasting it is enough and the apps connected that way are listed,
+   * each one disconnectable here; manual tokens for clients that can't sign in.
+   */
   function ai() {
     // What the assistant connects to: in a host, the whole app, at its one /mcp.
     const connected = host?.name || app.name;
@@ -1410,8 +1468,6 @@ export function openSettings(options) {
       appsBlock,
       instructions(),
       block(t('kit.ai.tokens'), hint(t('kit.ai.tokensHint')), tokens, field(t('kit.ai.tokenName'), name), row(create), created),
-      // In a host, what a module adds is a section of its own group: Your AI is the same in every one.
-      ...(options.aiExtra && !host ? [options.aiExtra()] : []),
     ];
   }
 
@@ -1490,7 +1546,7 @@ export function openSettings(options) {
     return modulesHere().map((m) => {
       if (m.mount === host.mount) return mine;
       const key = m.settings?.standing;
-      const words = key ? moduleWords(m, currentLanguage(), () => { if (!closed) then(); }) : null;
+      const words = key ? moduleWords(m, currentLanguage(), whileOpen(then)) : null;
       const say = (k) => (typeof words?.[k] === 'string' ? words[k] : '');
       return { mount: m.mount, name: m.name, src: m.icon, text: say(key), more: notesOf(m.settings?.standingMore, say) };
     });
@@ -1503,12 +1559,16 @@ export function openSettings(options) {
    * module in use says of it (`standingMore`), folded under its name. Hidden in a host without it.
    */
   function hostAgents(endpoint, connected) {
+    // agents.js, asked for the first time the host's prompt is to be shown (agentsCode).
+    let code = null;
+    let asking = false;
+    let missing = false;
     const open = (agent) => openDialog({
       title: t('kit.ai.agentTitle', { agent: agent.name }),
-      content: agentSteps(agent.id, { endpoint, app: connected, last: t('kit.agents.lastSection', { agent: agent.name, app: connected }) }),
+      content: code.agentSteps(agent.id, { endpoint, app: connected, last: t('kit.agents.lastSection', { agent: agent.name, app: connected }) }),
     });
-    const agents = block(t('kit.ai.agentsTitle'), hint(t('kit.ai.agentsHint', { app: connected })),
-      agentChips({ onPick: open, label: t('kit.ai.agentsTitle') }));
+    const chips = el('div', { class: 'kit-contents' });
+    const agents = block(t('kit.ai.agentsTitle'), hint(t('kit.ai.agentsHint', { app: connected })), chips);
     const prompt = el('div');
     const promptBlock = block(t('kit.ai.promptTitle'), hint(t('kit.ai.promptHint', { app: connected })), prompt);
     const folds = el('div', { class: 'kit-folds' });
@@ -1516,14 +1576,26 @@ export function openSettings(options) {
     let drawn = '';
     const paint = () => {
       const path = hostPrompt();
-      agents.hidden = !path;
-      promptBlock.hidden = !path;
+      // One that couldn't be had is asked for again next time Settings open, not on every paint.
+      if (path && !code && !asking && !missing) {
+        asking = true;
+        agentsCode().then((loaded) => {
+          code = loaded;
+          chips.append(code.agentChips({ onPick: open, label: t('kit.ai.agentsTitle') }));
+        }, () => { missing = true; }).finally(() => {
+          asking = false;
+          if (!closed) paint();
+        });
+      }
+      // Without agents.js (offline, not in the worker's copy) there are no chips nor prompt to show.
+      agents.hidden = !path || !code;
+      promptBlock.hidden = !path || !code;
       // The modules: the host's, in its order, the ones in use ticked; drawn again only when they change.
       const list = !path ? [] : inUse.length && !alone() ? inUse : modulesHere();
       const key = path ? `${path}|${list.map((m) => `${m.mount}:${m.active ? 1 : 0}`).join(',')}` : '';
-      if (key !== drawn) {
+      if (key !== drawn && (code || !path)) {
         drawn = key;
-        clear(prompt).append(path ? aiPrompt({ path, modules: list.map((m) => ({ ...m, name: m.name || app.name })) }) : []);
+        clear(prompt).append(path ? code.aiPrompt({ path, modules: list.map((m) => ({ ...m, name: m.name || app.name })) }) : []);
       }
       const shown = path ? saying(paint).filter((a) => a.more.length) : [];
       more.hidden = !shown.length;
@@ -1931,7 +2003,10 @@ export function openSettings(options) {
       const onPlan = (event) => {
         if (!event?.detail) return;
         reading++;
+        // A new plan: what the other modules include and what is used under it, asked again too.
+        othersFeatures = null;
         paint(event.detail);
+        usage?.read();
       };
       document.addEventListener(PLAN_EVENT, onPlan);
       cleanups.push(() => document.removeEventListener(PLAN_EVENT, onPlan));
@@ -1944,8 +2019,8 @@ export function openSettings(options) {
    * the plan's caps, their storage and their calls from assistants (GET /api/me/usage at the host's
    * root, usage.js), drawn as the admin sees it. Near a cap it says so first, with the way to a
    * bigger plan when there is one here: the plans on offer below (`offer`) or the app's store
-   * (`storeBlock`), as they show; `sync()` looks again once they have. Where nothing answers (an
-   * app on its own, an older host, offline), the block goes.
+   * (`storeBlock`), as they show; `sync()` looks again once they have, and `read()` asks again (a new
+   * plan). Where nothing answers (an app on its own, an older host, offline), the block goes.
    */
   function yourUsage({ offer, storeBlock }) {
     const body = el('div', { class: 'kit-stack' }, hint(t('kit.usage.loading')));
@@ -1958,20 +2033,26 @@ export function openSettings(options) {
     }, 'primary');
     const sync = () => { way.hidden = !((storeBlock && !storeBlock.hidden) || (offer && !offer.hidden)); };
     sync();
-    api.root.get('/api/me/usage').then((usage) => {
-      if (closed) return;
-      // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
-      const capped = atLimit(usage);
-      const level = capped[0]?.level;
-      const alert = level
-        ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
-          el('p', { text: t(`kit.usage.${level}Notice`) }),
-          el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
-            class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
-          }))), way) : null;
-      clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
-    }).catch(() => { node.hidden = true; });
-    return { node, sync };
+    let reading = 0;
+    const read = () => {
+      const turn = ++reading;
+      Promise.all([api.root.get('/api/me/usage'), usageCode()]).then(([usage, { atLimit, usageGroups }]) => {
+        if (closed || turn !== reading) return;
+        node.hidden = false;
+        // What is at a cap, as they count it ("2 projects"), the worst first: which module is plain.
+        const capped = atLimit(usage);
+        const level = capped[0]?.level;
+        const alert = level
+          ? el('div', { class: `kit-notice kit-usage__alert kit-usage__alert--${level}`, role: 'status' },
+            el('p', { text: t(`kit.usage.${level}Notice`) }),
+            el('div', { class: 'kit-usage__at' }, capped.map((c) => el('span', {
+              class: `kit-badge kit-badge--${c.level === 'reached' ? 'danger' : 'warn'}`, 'data-level': c.level, text: c.text,
+            }))), way) : null;
+        clear(body).append(...(alert ? [alert] : []), hint(t('kit.usage.lead')), usageGroups(usage));
+      }).catch(() => { if (turn === reading) node.hidden = true; });
+    };
+    read();
+    return { node, sync, read };
   }
 
   /**
@@ -2002,7 +2083,9 @@ export function openSettings(options) {
         .catch(() => null)),
     ])
       .then((answers) => Object.assign({}, ...answers.map((a) => a?.features || {})));
-    othersFeatures.then((more) => { if (!closed && node.isConnected !== false) draw({ ...more, ...own }); });
+    const asked = othersFeatures;
+    // Only the newest: one asked under the plan before mustn't paint over the new one's.
+    asked.then((more) => { if (!closed && asked === othersFeatures && node.isConnected !== false) draw({ ...more, ...own }); });
   }
 
   /* ---------------------------------- data ---------------------------------- */
@@ -2013,13 +2096,17 @@ export function openSettings(options) {
    * request; while it fails the dialog stays open and says why. Resolves with
    * its answer, or null when the person leaves it.
    */
-  function sure({ title, lines, confirm, run }) {
+  async function sure({ title, lines, confirm, run }) {
+    // With WorkOS, the password they have there, when they sign in with one: the server asks for it
+    // as it asks for a local one (api.js identityCheck, audit authz-9). Not knowing, it is asked.
+    const atWorkos = provider === 'workos'
+      ? await api.get('/api/me/sign-in').then((answer) => answer?.password !== false, () => true) : false;
     return new Promise((resolve) => {
       let answer = null;
       const word = t('kit.data.confirmWord');
       const typed = input({ id: 'kit-sure-word', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' });
       // Not every app tells the browser whether the account has a password: only "none" leaves it out.
-      const pass = local && state.user?.has_password !== false
+      const pass = (local && state.user?.has_password !== false) || atWorkos
         ? input({ id: 'kit-sure-password', type: 'password', autocomplete: 'current-password' }) : null;
       const code = local ? input({ id: 'kit-sure-code', autocomplete: 'one-time-code', autocapitalize: 'none', spellcheck: 'false', maxlength: '12' }) : null;
       const codeRow = code ? field(t('kit.twoFactor.codeOrRecovery'), code) : null;
@@ -2078,6 +2165,14 @@ export function openSettings(options) {
     const check = button(t('kit.data.check'), async () => {
       const chosen = file.files?.[0];
       if (!chosen) return;
+      // Over what this install takes, said before sending it: whatever stands before the server
+      // (Cloudflare, at 100 MB) may cut it with a page of its own, or the connection, which read as
+      // no signal (audit prod-14).
+      const most = Number(config.app?.imports?.max_bytes) || 0;
+      if (most && chosen.size > most) {
+        showError(new ApiError(413, 'file_too_large', { max_mb: Math.floor(most / (1024 * 1024)) }));
+        return;
+      }
       check.disabled = true;
       try {
         showPlan(await api.upload('/api/me/import', chosen));
@@ -2098,21 +2193,37 @@ export function openSettings(options) {
       // What they share with other people passes to them: said too, by the names they know it by.
       const sharedNames = answer.shared || [];
       const passesOn = sharedNames.length ? t('kit.data.sharedPassesOn', { names: listFormat({ type: 'conjunction' }).format(sharedNames) }) : '';
+      // What the copy didn't take because it is shared (portability.js left_out): said, as the
+      // copy promises, so nobody thinks it lost them (audit portable-15).
+      const leftOut = copy.left_out && typeof copy.left_out === 'object' ? copy.left_out : {};
+      const leftCount = Object.values(leftOut).reduce((a, b) => a + (Number(b) || 0), 0);
       const replace = el('input', { type: 'checkbox', id: 'kit-data-replace' });
+      const post = (body) => api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, body);
+      const done = (result) => {
+        toast(t('kit.data.done', { what: describe(result.imported.tables) }));
+        // Everything shown comes back with what arrived.
+        setTimeout(() => window.location.reload(), 1200);
+      };
       const apply = button(t('kit.data.apply'), async () => {
-        const text = [t('kit.data.replaceText', { what: describe(has) }), handOver, passesOn].filter(Boolean).join(' ');
-        if (replace.checked && !(await confirmDialog(text, {
-          title: t('kit.data.replaceTitle'), confirm: t('kit.data.replaceButton'),
-        }))) return;
+        if (replace.checked) {
+          // Replacing empties what they have here first, as erasing does: asked as erasing is, the
+          // word typed and the password given (the server asks for both, audit authz-9).
+          const text = [t('kit.data.replaceText', { what: describe(has) }), handOver, passesOn].filter(Boolean).join(' ');
+          apply.disabled = true;
+          const result = await sure({
+            title: t('kit.data.replaceTitle'), lines: [text], confirm: t('kit.data.replaceButton'),
+            // The groups as they were shown: if they have changed since, the server says so (409) and nothing is done.
+            run: (asked) => post({
+              ...asked, replace: true, ...(Array.isArray(answer.hand_over) ? { hand_over: shown.map((o) => o.id) } : {}),
+            }),
+          }).catch((err) => { fail(err); return null; });
+          if (result) done(result);
+          else apply.disabled = false;
+          return;
+        }
         apply.disabled = true;
         try {
-          // The groups as they were shown: if they have changed since, the server says so (409) and nothing is done.
-          const result = await api.post(`/api/me/import/${encodeURIComponent(answer.import_id)}`, {
-            replace: replace.checked, ...(replace.checked && Array.isArray(answer.hand_over) ? { hand_over: shown.map((o) => o.id) } : {}),
-          });
-          toast(t('kit.data.done', { what: describe(result.imported.tables) }));
-          // Everything shown comes back with what arrived.
-          setTimeout(() => window.location.reload(), 1200);
+          done(await post({ replace: false }));
         } catch (err) { fail(err); apply.disabled = false; }
       }, 'primary');
       apply.disabled = Boolean(copy.applied_at);
@@ -2129,6 +2240,8 @@ export function openSettings(options) {
         copy.applied_at ? hint(t('kit.data.applied')) : null,
         owned || leaving.length ? el('label', { class: 'kit-check' }, replace, el('span', { text: t('kit.data.replace', { what: describe(has) }) })) : null,
         leaving.length ? hint(handOver) : null,
+        owned && passesOn ? hint(passesOn) : null,
+        leftCount ? hint(t('kit.data.leftOut', { what: describe(leftOut) })) : null,
         row(discard, apply));
     }
 
@@ -2328,7 +2441,7 @@ export function openSettings(options) {
       hostIcon.setAttribute('src', hostInfo.icon || '/icons/favicon.svg');
       const names = modulesHere().map((m) => (m.mount === host.mount ? app.name : m.name || m.mount));
       hostLine.textContent = t('kit.about.hostTagline', { apps: listFormat({ type: 'conjunction' }).format(names) });
-      clear(cards).append(...modulesHere().map((m) => moduleCard(m)));
+      clear(cards).append(...modulesHere().map((m) => moduleCard(m, paintCards)));
     } : null;
     paintFacts();
     paintCards?.();
@@ -2352,11 +2465,12 @@ export function openSettings(options) {
   /**
    * A module's card in the host's About: its icon, name and line, the version of it this tab runs
    * (the server's until the tab has said), and a link to its website, where what it is is told.
+   * Another module's line comes from its catalog: `repaintCards` (About's) paints them again then.
    */
-  function moduleCard(m) {
+  function moduleCard(m, repaintCards) {
     const here = m.mount === host.mount;
     const name = here ? app.name : m.name || m.mount;
-    const words = here ? null : moduleWords(m, currentLanguage(), () => paintCards());
+    const words = here ? null : moduleWords(m, currentLanguage(), whileOpen(repaintCards));
     const taglineKey = m.settings?.tagline || 'app.tagline';
     const tagline = here ? app.tagline : typeof words?.[taglineKey] === 'string' ? words[taglineKey] : '';
     const updates = options.updates || workRegistry()?.updates;
@@ -2480,21 +2594,14 @@ async function pushApi() {
 export async function subscribePush() {
   // Inside the suite's app its own notices are the device's one channel: never Web Push there too.
   if (inApp()) throw new Error('in_app');
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('not_allowed');
-  const push = await pushApi();
-  const { public_key: key } = await push.get('/api/push/config');
-  // The host's one worker where there is one, not a module's about to be retired (worker.js).
-  const registration = await workerRegistration();
-  const raw = atob(key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (key.length % 4)) % 4));
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
+  // The kit's one way (push.js), Tasks' banner's too: permission first, then the key, the
+  // subscription replaced when the key changed, on the host's one worker where there is one.
+  const { subscription } = await ensureSubscription({
+    key: async () => (await (await pushApi()).get('/api/push/config')).public_key,
+    post: async (body) => (await pushApi()).post('/api/push/subscribe', body),
+    lang: currentLanguage(),
+    registration: workerRegistration,
   });
-  const json = subscription.toJSON();
-  const answer = await push.post('/api/push/subscribe', {
-    endpoint: json.endpoint, keys: json.keys, label: navigator.userAgent.slice(0, 120), lang: currentLanguage(),
-  });
-  markNoticesOn(answer?.user_id);
   noticesRenewed();
   return subscription;
 }

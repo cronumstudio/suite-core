@@ -371,6 +371,7 @@ test('a phone connects over HTTP: code from the session, token from the code, si
   assert.equal(exchanged.headers.get('cache-control'), 'no-store');
   assert.equal(exchanged.data.token_type, 'Bearer');
   assert.equal(exchanged.data.device.name, 'Bus 3');
+  assert.equal(exchanged.data.user_id, (await web('GET', '/api/auth/me')).data.user.id, 'the account the token acts for');
   const auth = { Authorization: `Bearer ${exchanged.data.token}` };
 
   // No route of the suite takes it: only the ones the app chooses, through authenticate().

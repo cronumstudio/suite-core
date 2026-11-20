@@ -37,6 +37,11 @@ import { answeredOnce } from './idempotency.js';
 export const UPLOAD_LINK_MINUTES = 15;
 /** Links open at once per app (or module): past it the oldest goes, so nobody can fill the memory. */
 export const MAX_UPLOAD_LINKS = 100;
+/**
+ * Links open at once for one account: past it their own oldest goes. Without it, one account
+ * asking a hundred times made everyone else's pending links go (MAX_UPLOAD_LINKS).
+ */
+export const MAX_UPLOAD_LINKS_PER_USER = 10;
 
 /**
  * The parameters an app's tool takes for a file, to spread into its
@@ -71,7 +76,8 @@ export function uploadLinkText({ url, expires_at: expiresAt }) {
  * @param {object} options.accounts   to check that whoever the link is for is still active
  */
 export function createUploadLinks({
-  baseUrl, accounts, minutes = UPLOAD_LINK_MINUTES, max = MAX_UPLOAD_LINKS, clock = () => Date.now(),
+  baseUrl, accounts, minutes = UPLOAD_LINK_MINUTES, max = MAX_UPLOAD_LINKS, perUser = MAX_UPLOAD_LINKS_PER_USER,
+  clock = () => Date.now(),
 }) {
   const base = String(baseUrl).replace(/\/+$/, '');
   /** sha256(token) → { userId, name, accept, expires }, oldest first (a Map keeps the order). */
@@ -91,6 +97,9 @@ export function createUploadLinks({
     if (!userId) throw new Error('uploadLinks.offer: a userId is needed');
     if (typeof accept !== 'function') throw new Error('uploadLinks.offer: accept(stream, { name }) is needed');
     prune();
+    // Theirs first: an account that asks again and again only ever pushes out its own.
+    const theirs = [...open].filter(([, link]) => link.userId === userId).map(([key]) => key);
+    while (theirs.length >= perUser) open.delete(theirs.shift());
     while (open.size >= max) open.delete(open.keys().next().value);
     const token = randomToken(32);
     const expires = clock() + minutes * 60 * 1000;

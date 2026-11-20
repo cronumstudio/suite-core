@@ -131,13 +131,35 @@ function sameKey(current, wanted) {
   return bytes.length === wanted.length && bytes.every((byte, i) => byte === wanted[i]);
 }
 
-/** The page's service worker, or Error('unsupported') when none comes in `wait` ms. */
-function workerReady(wait) {
+/** The page's service worker (or the one `coming`), or Error('unsupported') when none comes in `wait` ms. */
+function workerReady(wait, coming = null) {
   let timer;
   const late = new Promise((resolve, reject) => {
     timer = setTimeout(() => reject(new Error('unsupported')), wait);
   });
-  return Promise.race([navigator.serviceWorker.ready, late]).finally(() => clearTimeout(timer));
+  return Promise.race([coming || navigator.serviceWorker.ready, late]).finally(() => clearTimeout(timer));
+}
+
+/** Permission to show notices, asked from the tap that called (`ask`), or as given before. */
+async function permitted(support, ask) {
+  const permission = ask && support === 'prompt'
+    ? await globalThis.Notification.requestPermission()
+    : globalThis.Notification.permission;
+  if (permission !== 'granted') throw new Error('not_allowed');
+}
+
+/** The browser's subscription on `registration` for `key`: its own while for that key, else a new one. */
+async function subscribedWith(registration, key) {
+  try {
+    let subscription = await registration.pushManager.getSubscription();
+    if (subscription && !sameKey(subscription.options?.applicationServerKey, key)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    return subscription || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+  } catch (err) {
+    throw new Error('subscribe_failed', { cause: err });
+  }
 }
 
 /**
@@ -165,20 +187,37 @@ export async function devicePushSubscription(publicKey, { ask = true, wait = WOR
   if (support === 'unsupported' || support === 'install') throw new Error(support);
   const key = keyBytes(publicKey);
   // The first thing awaited, so the tap that called this still counts when Safari asks.
-  const permission = ask && support === 'prompt'
-    ? await globalThis.Notification.requestPermission()
-    : globalThis.Notification.permission;
-  if (permission !== 'granted') throw new Error('not_allowed');
+  await permitted(support, ask);
   const registration = await workerReady(wait);
-  try {
-    let subscription = await registration.pushManager.getSubscription();
-    if (subscription && !sameKey(subscription.options?.applicationServerKey, key)) {
-      await subscription.unsubscribe();
-      subscription = null;
-    }
-    subscription ||= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-    return subscription.toJSON();
-  } catch (err) {
-    throw new Error('subscribe_failed', { cause: err });
-  }
+  return (await subscribedWith(registration, key)).toJSON();
+}
+
+/**
+ * Notices on for the person signed in, on this device: the one way every app turns them on
+ * (Settings, Tasks' banner), so a device is the same row and gets the same care whoever asked.
+ * Tasks had its own: it named the device «iPhone (app)» where Settings gave the browser's words,
+ * and after the install's keys changed it sent the server the old subscription, which reached
+ * nobody (audit of 6/11, pwa-13).
+ *
+ * As devicePushSubscription: permission first, from the tap; then the install's key (`key`, or
+ * `() => key` to ask a server for it once permission is given), the browser's subscription for it
+ * on the host's one worker where there is one (worker.js workerRegistration; `registration` to
+ * name another), and `post(body)` tells the server: `{ endpoint, keys, label, lang }`, the label
+ * the browser's own words (Settings' devices read it, deviceName). Then this person has them on
+ * here (`user_id` of the answer). → { subscription, answer }. Throws as devicePushSubscription,
+ * and what `post` throws.
+ */
+export async function ensureSubscription({ key, post, lang = null, ask = true, registration = null, wait = WORKER_WAIT_MS }) {
+  const support = pushSupport();
+  if (support === 'unsupported' || support === 'install') throw new Error(support);
+  await permitted(support, ask);
+  const bytes = keyBytes(typeof key === 'function' ? await key() : key);
+  const found = await workerReady(wait, registration ? registration() : import('./worker.js').then((w) => w.workerRegistration()));
+  const subscription = await subscribedWith(found, bytes);
+  const json = subscription.toJSON();
+  const answer = await post({
+    endpoint: json.endpoint, keys: json.keys, label: String(globalThis.navigator?.userAgent || '').slice(0, 120), lang,
+  });
+  markNoticesOn(answer?.user_id);
+  return { subscription, answer };
 }

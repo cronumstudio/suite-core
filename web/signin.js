@@ -50,15 +50,18 @@ const STRAIGHT = 'suite.signInStraight';
  * provider's page ends on the card instead of going round in circles. Without sessionStorage
  * (private mode), the card, as before.
  */
-export function straightToProvider({ storage = globalThis.sessionStorage, now = Date.now(), framed = FRAMED, app = inApp() } = {}) {
+export function straightToProvider({ storage = null, now = Date.now(), framed = FRAMED, app = inApp() } = {}) {
   if (framed || app) return false;
   try {
-    if (storage.getItem(SIGNED_OUT)) {
-      storage.removeItem(SIGNED_OUT);
+    // Read here and not as the default: with the site's data blocked, merely naming sessionStorage
+    // throws (SecurityError), and the card must stay as before rather than signIn() failing (audit sc-auth-5).
+    const box = storage ?? globalThis.sessionStorage;
+    if (box.getItem(SIGNED_OUT)) {
+      box.removeItem(SIGNED_OUT);
       return false;
     }
-    if (now - (Number(storage.getItem(STRAIGHT)) || 0) < 60_000) return false;
-    storage.setItem(STRAIGHT, String(now));
+    if (now - (Number(box.getItem(STRAIGHT)) || 0) < 60_000) return false;
+    box.setItem(STRAIGHT, String(now));
     return true;
   } catch {
     return false;
