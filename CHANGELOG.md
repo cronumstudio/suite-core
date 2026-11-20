@@ -3,6 +3,31 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.303.0 — 2026-11-20
+
+- **Dialogs look the same in every module** (`web/kit.css`, `docs/web-kit.md` rule 13; audit of 6/11,
+  dup-css-1, ui-dialogos-10): the kit's header, body and footer, with no line under the title nor over
+  the buttons (Martin, 14/11), are the only ones; the modules drop their repaints. The two title rules
+  (`__header h2`, `__titles h2`) are one. Rule 10 also says how a collection's settings read («Editar X»,
+  Name first) and that deleting it is in its «…», never in the form.
+- **The small capitals over a group, one measure** (`.kit-eyebrow`, `--kit-eyebrow-size`, `-weight`,
+  `-spacing`; dup-css-14): the sidebar's sections, Settings' groups and Share's headings take them, the
+  same as before in both looks (Clean's spacing is its variable now, not three rules); the modules' own
+  labels use them.
+- **Kit rules that lived in one module** (dup-css-17): no tap flash on a phone and no selection by a long
+  press on the frame's controls (Tasks' alone until now), a field's text at 16 px on a touch screen so the
+  iPhone doesn't zoom (Notes' alone), and an icon button that is on (`aria-pressed`) in the accent's soft
+  colour (Next's alone).
+- **`.kit-label`**: a field's label (13/500) where there is no `field()` around it, a block of an item's
+  detail over several controls (ui-medidas-13).
+- **Who made an item and who changed it, in shared words** (`stamps()`, `stampTime()` in `web/ui.js`,
+  `kit.stamps.*` in the five languages, `.kit-stamps`; ux-acciones-15): «Creada por Ana · hoy a las
+  15:52», «Modificada por Luis · …», as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
+  has the button that does the first thing) and 12 (an item's detail: the kit's labels, `saveState()`,
+  its stamps) in `docs/web-kit.md`.
+- **A field's label over a group** (`field(…, { groupLabel: true })`, a palette of colours or icons): its
+  span takes `.kit-field__label`, the 13/500 of every field's label, as Projects and Next added by hand.
+
 ## 0.302.0 — 2026-11-20
 
 - **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
