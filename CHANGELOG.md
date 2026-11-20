@@ -42,6 +42,125 @@ change an interface and a patch never does. Apps pin a version through the submo
   new rule 24: a sheet says the kit's measures by name (the look's scale, `--look-r-*`, logical
   sides, 640 and 960). The kit's comments that named a rule by an old number name the new one.
 
+## 0.311.0 — 2026-11-20
+
+- **Texts say the same thing the same way in every module** (audit of 6/11: ux-textos-5, -9, -11,
+  -14, -16, -17, -18, -20, -21, ux-acciones-20, ux-compartir-14, ux-compartir-21, ui-dialogos-16).
+  Only additions in the code: what was exported behaves as before. Rule 25 in docs/web-kit.md.
+  - Catalogs, in the five languages: «Avisos» (`kit.notifications.offTitle`, `.turnOn`); «donde
+    entras» for where one signs in; a step «apuntado» and «hecho» (`kit.day.eveningHint`,
+    `kit.plan.benefits.retention*`, `kit.links.done`); «email» for the address and «correo» for the
+    message (`kit.share.email`, `kit.profile.email.provider`, `errors.email_not_found`); the
+    language's own quotes, ’ for an apostrophe and › on a way through menus; American English
+    (color, canceled, recognize); `mail.deletion.body` «Hello {name},»; `kit.notifications.renew`
+    no longer says «service worker»; `kit.retry` «Try again», as the kit's sentences say it.
+  - A notice has no full stop when it is one sentence and has them when it is two: the kit's own
+    toasts (`kit.share.left`, `kit.plan.*`, `kit.links.*`, `admin.*`…). Errors keep theirs.
+  - `kit.public.action`, `kit.public.on`, and the shared page's `kit.public.goneTitle`,
+    `.cantEmbed`, `.openPage`, `.startFree`, which the four modules wrote each.
+  - The words of a group and of a drop in the sidebar, which Tasks, Notes, Projects and Next wrote
+    each: `kit.group.new`, `.edit`, `.delete`, `.none`, `kit.moveUp`, `kit.moveDown`, `kit.dropBefore`,
+    `kit.dropAfter`.
+  - `share-mail.js` `sharePush({ t, kind, actor, name, role })` → `{ title, body }`: the push of
+    something shared, worded once (`kit.share.push.title`, `kit.share.push.<kind>`), for the
+    modules' own deliveries, which keep their tag and where a tap goes.
+  - `web/public-page.js`: «Cerrar» is plain; «Activar» is the dialog's one primary button.
+  - `web/ui.js`: a dialog opened from a menu's entry gives the focus back to the menu's button
+    once it closes, where the browser left it on the body (the entry went with the menu).
+  - `tools/i18n.mjs` `typography(dir)` (straight quotes and apostrophes, → on a way through menus;
+    `typography [dir]` on the command line, `--typography` with `app`), `kitDuplicates(dir, langs,
+    { allow, overrides })` (with `overrides`, an app's `kit.*` key saying it otherwise), and
+    `appChecks(root, { kitOverrides, kitAllow, typography })` to ask for them (`typography: { allow }`
+    leaves out keys that must read as another place has them, such as an assistant's instructions).
+
+## 0.310.0 — 2026-11-20
+
+What the modules each wrote on their own, written once here, and two fixes that came with it: an
+import no longer overwrites another module's preferences, and no page waits for ever on a hung
+IndexedDB.
+
+### The person's time zone
+- **A tool runs in the time zone of the person it acts for**, as each module did on its own:
+  createApp runs each of the app's MCP tools inside `inZoneOf`, and a host does the same for each
+  module's (`hostMcp`). The host's own tools read the day as before: hostMcp says `zoned: true`.
+- **`zonedRoutes: true`** (a createApp option, and `createModule().zonedRoutes`, which the host passes
+  on): the app's own routes run in the zone of whoever asks. The suite's routes, and modules that
+  don't ask, answer as before. A handler's `answeredOnce`/`keyedByRoute` stays.
+
+### Ownership
+- **`suite.ownership` is the one every module uses**: `createOwnership({ suite: () => suite })` reads
+  the suite's `push`, `shareMail` and `goneBrake` each time a notice goes, so a module's suite in a
+  host, or a test's stand-ins, are what it uses. Its words are the app's `hooks.texts`. Its failures
+  are logged with the suite's log.
+
+### Sharing
+- **`directoryClosed(suite)`**: whether an install's people are strangers to one another (in a host,
+  with an identity provider, or with sign-up open to others). One rule for every module.
+- **`createSharing({ inviters: 'accepted' })`**: whoever offered someone something joins their people
+  (the share dialog's chips) once they accept it. The default is `'offered'`, as before. Naming them
+  by id is unchanged.
+
+### Copies
+- **`users.prefs` may be the app's preferences**, as createApp takes them: a copy then changes only
+  the app's own keys of the one `users.prefs` row (`users.remap` translates their ids). An existing
+  account keeps every other key (another module's, the host's) and its language and zone; an
+  account the import makes starts from the copy's row. A function there works as before.
+- **`planLimit: { feature, count }`** makes someone's own import past the plan answer 402
+  `plan_limit`. Any app with a table of files also gets its plan's storage (`storage.mb`) checked,
+  first, then the app's `check`.
+- **`public_token` and `public_since` never travel**; copies made before still come in, with the page
+  off. `importedPrefs()` exposes what an import writes in the preferences, for apps' tests.
+
+### The device's copy (web kit)
+- **A patience for IndexedDB** (`web/local.js`): `openLocal(app, stores, { patience })`. Past it,
+  what waits for a database that hasn't opened gives up (`local_store_slow`) and isn't done; until
+  that open answers, whatever comes next gives up at once; once it opens, all as before.
+  `LOCAL_PATIENCE_MS` (1500), `deviceLocal(app, stores)` and `inTime(promise, ms)`. Without
+  `patience`, nothing changes.
+- **`update(reads, decide)`** on both stores: records read and the stores changed in one transaction,
+  done once the database opens even when its caller stopped waiting, before anything asked after it.
+- **Whose the copy is**: `createDeviceCopy({ local, stores, account, owner, outbox })` (also
+  `store.deviceCopy()`), with `kept`, `account`, `outboxOwner`, `read`, `claim` and `forget`: the
+  rules Notes, Next and Projects each wrote their own way. `drawableFor(id, host)`: the copy only for
+  whoever Cronum Work's shell says is signed in; also `sameAccount(a, b)`.
+
+### Small helpers written once
+- `db.js`: `inBatches(ids, query, { unique })` asks many ids 500 to a statement, and `personId(id)`
+  binds what is no id as 0.
+- `http.js`: `idParam(ctx, name)`, the id a route names; the field checks `color`, `dateOnly` (on
+  `isoDate`) and `intInRange`, each answering the codes its caller gives; `isObject`, instead of
+  seven copies. `isoDate` reads a year under 100 as that year when `minYear` allows it; with its
+  default years nothing changes.
+- `public-page.js`: `publicPageUrl(baseUrl, token)`, a public page's address.
+
+## 0.309.0 — 2026-11-20
+
+What nothing calls any more goes, and a few helpers are written once. Nothing a person, a page or
+an AI client sees changes.
+
+- **The MCP**: `userFromToken` and `verifyToken` take no `audience` of another address, and the
+  accounts' `resourceMetadata` and `authorizationServerMetadata` go: they were for the apps' old
+  connectors (gone in 0.148.0). What `/mcp` and `/.well-known/oauth-*` answer is the same.
+- **Out everywhere** (the admin's "sign out everywhere", a new password, a reset) always goes through
+  `revokeEverything` (revoke.js): the second, partial way of `registerAdminApi` and
+  `registerWorkosSecurityApi` for a caller without it goes, with `registerAdminApi`'s `tokens`,
+  `oauth`, `push` and `idp` and `registerWorkosSecurityApi`'s `revokeAtProvider`. createApp always
+  passed it.
+- **Gone, nothing called them**: `POST /api/devices/push/test` (the phone's test notice is Web Push's
+  `POST /api/push/test`, which reaches the phones too) and `nativePush.targetOfDevice`;
+  `registerProfileApi`'s `alsoAt`, createApp's `profile` and the host's `parts.profile` (a module
+  that still passes `profile` is not refused: it is ignored); uploads.js `isImage`.
+- **Options no product passes**: createSuite's `oauthPage` hook (the consent screen is always the
+  suite's page); createEntitlements' `isUnlimited`; the `organizationId` option of `cutoff`,
+  `better`, `countDaily`, `countWeekly` and `require` (`of()` keeps it); `setPlan`'s `source`;
+  `accounts.deleteAtProviders` (an install that still passes it is not refused: the key is ignored,
+  and `endSubscriptions` no longer falls back on it).
+- **Billing**: the built-in `remote` provider goes, with `BILLING_SECRET` and `BILLING_URL`: no
+  install named it. `signedProvider` stays; the tests register the same signed provider themselves
+  (`test/remote-provider.js`).
+- **Written once**: `requireUser` and `requireAdmin` (http.js), and `iso` (time.js), which every
+  file that needed them had its own copy of.
+
 ## 0.308.0 — 2026-11-20
 
 - **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,

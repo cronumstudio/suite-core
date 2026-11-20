@@ -11,11 +11,11 @@
 import { randomToken, sha256 } from './crypto.js';
 import { HttpError, badRequest, forbidden } from './http.js';
 import { accountMail } from './mail-layout.js';
+import { iso } from './time.js';
 
 const HOUR = 3600 * 1000;
 const LIFETIME = { verify: 48 * HOUR, reset: HOUR, invite: 7 * 24 * HOUR };
 const PREFIX = { verify: 'ev_', reset: 'pr_', invite: 'ai_' };
-const iso = (ms) => new Date(ms).toISOString();
 
 export function accountTokensSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS account_tokens (

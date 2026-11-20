@@ -38,8 +38,8 @@
  */
 import { HttpError } from './http.js';
 import { PLAN_CATALOGS } from './plans.js';
+import { iso } from './time.js';
 
-const iso = (ms) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000;
 /**
  * Days of a daily limit's counts kept: the barrier only needs today's, but the admin's Usage
@@ -130,7 +130,6 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
  * @param {object} [options.earlyAccess]  { plan, until }: the default plan is `plan` until that
  *                                        date (EARLY_ACCESS_PLAN, EARLY_ACCESS_UNTIL), and the
  *                                        install's default from then on, with nothing to change
- * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
  * @param {(userIds) => Map<number, number[]>} [options.organizationsOfMany]   the same for many
  *                                        people at once, for `ofMany()`; left out, organizationsOf
@@ -146,10 +145,12 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
 export function createEntitlements({
   database, appId, features = {}, plans = null, defaultPlan = null,
   plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN, earlyAccess = null,
-  isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [], organizationsOfMany = null, organizationExists = null,
+  organizationsOf = () => [], organizationsOfMany = null, organizationExists = null,
   clock = () => Date.now(), othersDeclare = false,
 }) {
   const errors = [];
+  // The instance's admin has no limits.
+  const isUnlimited = (user) => user?.role === 'admin';
   /** Keys of PLANS left out as another module's (othersDeclare): { plan, key }. */
   const ignored = [];
 
@@ -490,9 +491,9 @@ export function createEntitlements({
    * same for everything, it comes down to this: nothing goes until those days
    * have passed since it ended, and then whatever is older than them.
    */
-  function cutoff(user, feature, { organizationId = null } = {}) {
+  function cutoff(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`cutoff: "${feature}" is not a limit`);
-    return cutoffFrom(limit(user, feature, { organizationId }), () => subjectsOf(user, organizationId), feature);
+    return cutoffFrom(limit(user, feature), () => subjectsOf(user), feature);
   }
 
   /**
@@ -533,9 +534,9 @@ export function createEntitlements({
   }
 
   /** The next plan that allows more of a limit than theirs (`moreThan`), for a page to say so: null on the top one. */
-  function better(user, feature, { organizationId = null } = {}) {
+  function better(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`better: "${feature}" is not a limit`);
-    const entitled = of(user, { organizationId });
+    const entitled = of(user);
     return moreThan(entitled.plan.id, feature, entitled.features[feature]);
   }
 
@@ -547,8 +548,8 @@ export function createEntitlements({
    * Without a limit every use is allowed and still counted: the admin's Usage weighs whether the
    * limits fit by what everyone does, those without one too.
    */
-  function spend(user, feature, { organizationId = null, week = false } = {}) {
-    const entitled = of(user, { organizationId });
+  function spend(user, feature, { week = false } = {}) {
+    const entitled = of(user);
     const value = entitled.features[feature];
     const day = iso(clock()).slice(0, 10);
     const from = week ? weekStart(day) : day;
@@ -574,15 +575,15 @@ export function createEntitlements({
   }
 
   /** Spends one of today's uses of a daily limit, such as `mcp.calls_per_day` (`spend`). */
-  function countDaily(user, feature, { organizationId = null } = {}) {
+  function countDaily(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`countDaily: "${feature}" is not a limit`);
-    return spend(user, feature, { organizationId });
+    return spend(user, feature);
   }
 
   /** Spends one of this week's uses of a weekly limit, such as `mcp.calls_per_week` (`spend`). */
-  function countWeekly(user, feature, { organizationId = null } = {}) {
+  function countWeekly(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`countWeekly: "${feature}" is not a limit`);
-    return spend(user, feature, { organizationId, week: true });
+    return spend(user, feature, { week: true });
   }
 
   /**
@@ -630,9 +631,9 @@ export function createEntitlements({
    * limit, 402 `plan_limit` when `current` has reached it. The details let the
    * interface and the assistant say which plan and which limit.
    */
-  function require(user, feature, { current = 0, organizationId = null } = {}) {
+  function require(user, feature, { current = 0 } = {}) {
     const spec = known(feature);
-    const entitled = of(user, { organizationId });
+    const entitled = of(user);
     const value = entitled.features[feature];
     if (spec.type === 'flag' && value !== true) {
       throw new HttpError(402, 'plan_feature', { feature, plan: entitled.plan.id, plan_name: entitled.plan.name });
@@ -692,7 +693,8 @@ export function createEntitlements({
    * end and, unless `planId` is null (back to the default), a new one starts.
    * Grants from other sources (a subscription) are left alone.
    */
-  function setPlan(userId, planId, { endsAt = null, source = 'admin', note = null } = {}) {
+  function setPlan(userId, planId, { endsAt = null, note = null } = {}) {
+    const source = 'admin';
     return database.tx(() => {
       const now = iso(clock());
       database.run(`UPDATE entitlement_grants SET revoked_at = ? WHERE subject_type = 'user' AND subject_id = ?

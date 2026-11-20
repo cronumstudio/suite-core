@@ -60,7 +60,7 @@ const env = (extra) => ({ DATA_DIR: os.tmpdir(), BILLING_PROVIDER: 'acme', ACME_
 
 test('a provider registered from outside is named like the built-in ones and reads its own variables', () => {
   assert.equal(billingProviderOf('acme'), acme);
-  assert.deepEqual(billingProviders().map((p) => p.id), ['stripe', 'remote', 'acme']);
+  assert.deepEqual(billingProviders().map((p) => p.id), ['stripe', 'acme']);
   const ok = resolveConfig(product(), env({ ACME_ENV: 'sandbox' }));
   assert.deepEqual(ok.errors, []);
   assert.deepEqual(ok.install.billing, { provider: 'acme', secret: 'a-secret-of-sixteen-chars', environment: 'sandbox' });
@@ -71,7 +71,7 @@ test('a provider registered from outside is named like the built-in ones and rea
   assert.ok(resolveConfig(product(), env({ ACME_SECRET: '' })).errors.includes('BILLING_PROVIDER=acme needs ACME_SECRET'));
   // A name nobody registered lists the ones there are.
   assert.ok(resolveConfig(product(), env({ BILLING_PROVIDER: 'paypal' })).errors
-    .some((e) => e === 'BILLING_PROVIDER "paypal": use stripe, remote or acme'));
+    .some((e) => e === 'BILLING_PROVIDER "paypal": use stripe or acme'));
 });
 
 test('its price ids are checked at the start, and so are the old ones', () => {

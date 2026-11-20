@@ -60,8 +60,11 @@ suite-core/
   runtime.js            done   what both run the same way: the server, the install's jobs, signals, listening
   legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
   watcher.js            done   hot reload by polling, for code mounted over SMB
-  http.js               done   router, HttpError, body parsing, security headers, CSRF, static files
-  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta
+  http.js               done   router, HttpError, body parsing, security headers, CSRF, static files;
+                               the checks of a field every module shares (str, int, intInRange, isoDate, dateOnly,
+                               color, idParam, isObject) and the guards requireUser, requireAdmin
+  db.js                 done   openDatabase(): WAL, foreign keys, all/get/run/tx, app_meta;
+                               inBatches(ids, query): many ids, 500 to a statement; personId(id)
   migrate.js            done   numbered migrations with scopes (suite, app, and each module's id in a host)
   crypto.js             done   scrypt, HMAC, random tokens, token hashes, AES-256-GCM
   accounts.js           done   users, identities, passwords, sign-in, the admin's rules; hooks for the app
@@ -100,7 +103,8 @@ suite-core/
   sharing.js            done   offering something to someone, accepting, leaving; one's people; the routes
   share-brake.js        done   the brake on invitations: offers an hour to whoever hasn't accepted, one notice per pair a day
   ownership.js          done   whose it is: 403 not_yours, the author who may delete, giving it, the notice when shared things go, heirs
-  public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes
+  public-page.js        done   a public page: its token, on and off, read without turning on, publish and disabled owners when served, embed, hand-overs, its routes;
+                               publicPageUrl(baseUrl, token), its address
   dates.js              done   dates as people say them → YYYY-MM-DD, in four languages, never rolled over
   zip.js                done   zip archives with no dependencies: streamed writing, capped reading, ZIP64
   portability.js        done   copies of someone's data and of the whole install, and importing them
@@ -131,11 +135,10 @@ import product from './suite.config.js';
 import { createSuite } from './suite/app.js';
 import { MIGRATIONS } from './migrations.js';          // the app's own, numbered
 import { textsFor } from './i18n.js';
-import { oauthPage } from './oauth-page.js';
 
 export const suite = createSuite({
   config: product, migrations: MIGRATIONS,
-  hooks: { texts: textsFor, oauthPage },               // how the OAuth consent screen looks
+  hooks: { texts: textsFor },                          // the texts of the OAuth consent screen and the mail
 });
 
 // server/index.js — the server
@@ -266,7 +269,7 @@ Environment variables configure the install, never the product (`config.js` read
 `BASE_URL`, `PORT`, `HOST`, `HOST_PORT`, `DATA_DIR`, `DB_PATH`, `TZ`, `TRUST_PROXY`, `SECURE_COOKIES`,
 `SESSION_SECRET`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_DISPLAY_NAME`, `ADMIN_EMAIL`, `AUTH_PROVIDER`
 (`local` | `workos` | `oidc`), `WORKOS_*`, `OIDC_*`, `MCP_OAUTH`, `CIMD_ALLOW_PRIVATE_HOSTS`, `HOT_RELOAD`,
-`BILLING_PROVIDER` (`remote`, `stripe` or one registered from outside) with `BILLING_*`, `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
+`BILLING_PROVIDER` (`stripe` or one registered from outside) with `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
 `FOUNDER_OFFER_UNTIL`, `FOUNDER_JOIN_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
@@ -1599,7 +1602,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
     'sandbox' | 'production' (APNs only, `production` by default), lang? }` keeps one token per
     device (`device_push_tokens`, **suite migration 24**, hanging on `device_tokens` with
     `ON DELETE CASCADE`; the same token on another device moves here); `DELETE /api/devices/push`
-    forgets it; `POST /api/devices/push/test` sends this device a test notice. A device revoked
+    forgets it (Web Push's `POST /api/push/test` reaches the phones too). A device revoked
     (by its owner, by itself, by the admin) loses its token at once; one gone idle or of a
     disabled account gets nothing, and its row goes with the device. Bad device
     tokens count in the devices' bucket. `GET /api/me/devices` adds `notifications: true | false`.
@@ -1767,7 +1770,9 @@ kit's), then Notes is built on it whole, then the others as they move to English
   heir's plan keeps less of is not lost at once); its public page goes off; the offers by address
   its former owner made still wait, and the heir sees their addresses masked (`addressFor`,
   Martin, 14/11/2026). The suite makes it once: `suite.ownership`, and one brake on offers for the
-  whole install, `suite.shareBrake`. The check is always the server's; the page only explains it.
+  whole install, `suite.shareBrake`. Every module uses that `suite.ownership`, in its own words (its
+  `hooks.texts`), and a notice goes with the push, email and brake its suite has when it goes, a
+  test's stand-ins too. The check is always the server's; the page only explains it.
 - **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
   runs the install hears of the server failing instead of finding it in the log: an uncaught
   exception (the process waits 4 s at most for the email, then exits with 1 as before), an
@@ -1877,14 +1882,10 @@ kit's), then Notes is built on it whole, then the others as they move to English
   admin enabling one that waits takes the deletion back. The clean-ups (hourly, once for a host)
   delete the accounts whose days are over with `accounts.remove()`, so every hook runs (each app
   hands over what others share and deletes its files), and the audit keeps only `account.delete`
-  of account #n. Where this install is all a person has at the providers
-  (`accounts.deleteAtProviders`: Cronum Work), the subscriptions they pay for stop renewing when
-  they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when the
-  account goes, and the WorkOS user is deleted first (an account whose identity can't be deleted
-  waits for the next sweep); never where other apps share those accounts or that subscription.
-  `accounts.endSubscriptions` (v0.128.0) does the subscriptions' part alone, the WorkOS user kept:
-  an install that bills alone while other apps sign in with the same users; left out, as
-  `deleteAtProviders`. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
+  of account #n. With `accounts.endSubscriptions` (v0.128.0: an install that bills alone, Cronum
+  Work, while other apps sign in with the same users), the subscriptions they pay for stop renewing
+  when they ask (Paddle: cancelled at the period's end), renew again if they come back, and end when
+  the account goes; never where other apps share that subscription. The admin's deletion (`DELETE /api/admin/users/:id`, at once) ends them
   first too, where the install ends them (v0.274.0, `deletion.endSubscriptionsOf`): if the provider
   can't end one that still renews, nothing is deleted (503 `subscription_not_ended`), to try
   again, and the log keeps how many ended. One the person cancelled already (in the portal, or by
@@ -1904,12 +1905,12 @@ kit's), then Notes is built on it whole, then the others as they move to English
   asked (`auto`), and their login goes with the account unless, by then, another app has noted
   them. The admin's deletion keeps the login unless asked (`?identity=1`; `GET
   /api/admin/users/:id/other-apps` says who else they use). A login that stays no longer names
-  this app. One or the other with `deleteAtProviders`, which always deletes it.
+  this app.
   `deletion.whenRequested(hook)` and `whenCancelled(hook)` (createSuite's `onDeletionRequested`,
   `onDeletionCancelled`) tell others of the request and of its taking back, awaited after it; a
   hook that fails is logged; a host's modules get them too. With `billing.stopOnOrganizationDeleted`,
   a group whose members are all waiting to be deleted stops renewing there (section 9, "A group
-  that goes"). The person's own subscriptions stopped at the request (`accounts.deleteAtProviders`)
+  that goes"). The person's own subscriptions stopped at the request (`accounts.endSubscriptions`)
   are noted one by one, so taking the account back renews only what this install stopped, never a
   cancellation they had made themselves. A
   message says until when, when mail leaves the server. The last administrator can't ask.
@@ -2133,6 +2134,10 @@ The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address).
 `createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
 module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
 whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
+Each module's tool runs in the time zone of the person it acts for (time.js `inZoneOf`), as
+createApp runs an app's own tools: their `todayFor()` is that person's. A module's routes do too
+when it says `zonedRoutes: true` (Tasks, Projects); the others answer in the server's zone, as do
+the host's own tools and routes (the calendar reads the person's day itself).
 Only those names answer: neither a module's own bare names nor old ones (0.148.0). The instructions are written per person from each used module's `mcp.brief` (or its
 instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
 longest an assistant reads); tool descriptions keep under the same limit. The calls from

@@ -23,7 +23,10 @@
  *     the offers by address still waiting, their addresses masked to the heir).
  *     The deletion notices go once a day per sender and person (`brake`).
  *
- * Made once by the suite, in the module's words: `suite.ownership` (0.295.0).
+ * Made once by the suite, in the module's words (the app's `hooks.texts`: its
+ * catalogs over the suite's): `suite.ownership` (0.295.0). A module uses that one,
+ * on its own and in a host alike: its notices go with the push, the email and
+ * the brake its suite has when they go (`suite` below), a test's stand-ins too.
  *
  * The check is always the server's (REST and MCP alike); the web kit's
  * web/ownership.js only explains it.
@@ -115,10 +118,22 @@ export function createGoneBrake({ clock = () => Date.now() } = {}) {
  * @param {object} [options.brake]  { notice(actorId, targetId) → boolean }: whether a notice of a
  *   deletion may go to that person now. Default: once per sender, recipient and day, in memory (a
  *   restart forgets it), for every module that shares the same ownership (the host's suite.ownership).
+ * @param {Function} [options.suite]  () → the suite whose `push`, `shareMail` and `goneBrake` a notice
+ *   goes with, asked each time one goes, in place of the three above (`brake` stays for a suite
+ *   without a brake): what `suite.ownership` is made with, so a module's suite in a host, or a test
+ *   that puts its own push or email on the suite, is what it uses.
  * @param {Function} [options.log]
  */
-export function createOwnership({ db, shareMail = null, push = null, texts = null, brake = createGoneBrake(), log = console.error } = {}) {
+export function createOwnership({
+  db, shareMail = null, push = null, texts = null, brake = createGoneBrake(), suite = null, log = console.error,
+} = {}) {
   const { get } = db;
+  /** The push, the email and the brake a notice goes with now. */
+  const services = () => {
+    if (!suite) return { push, shareMail, brake };
+    const now = suite() || {};
+    return { push: now.push ?? null, shareMail: now.shareMail ?? null, brake: now.goneBrake ?? brake };
+  };
 
   const userOf = (id) => (id == null ? null : get('SELECT * FROM users WHERE id = ?', id));
   /** Someone as these refusals and notices name them. */
@@ -160,6 +175,8 @@ export function createOwnership({ db, shareMail = null, push = null, texts = nul
    * Never throws: a notice that fails is logged. → a promise of how many were told.
    */
   async function tellGone({ kind, name, icon = null, actorId, audience = [], tag = null, id: thingId = null }) {
+    // What this notice goes with: the suite's at this moment, when the suite is given.
+    const { push, shareMail, brake } = services();
     const actor = userOf(actorId);
     const actorName = actor ? actor.display_name || actor.username || '' : '';
     const ids = [...new Set((audience || []).map(Number))].filter((id) => Number.isInteger(id) && id !== Number(actorId));

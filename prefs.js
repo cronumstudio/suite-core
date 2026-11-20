@@ -23,10 +23,8 @@
  * stay flat, as they always were: no module's keys move anywhere, and nothing
  * stored is migrated.
  */
-import { badRequest } from './http.js';
+import { badRequest, isObject } from './http.js';
 import { knownTimeZone } from './time.js';
-
-const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 /** What `users.prefs` holds (JSON text, or already read) as an object; anything else, `{}`. */
 export function readPrefs(raw) {
@@ -34,7 +32,7 @@ export function readPrefs(raw) {
   if (typeof raw === 'string') {
     try { parsed = JSON.parse(raw); } catch { parsed = {}; }
   }
-  return isPlain(parsed) ? parsed : {};
+  return isObject(parsed) ? parsed : {};
 }
 
 /** The keys every module shares, from what is stored. */
@@ -63,7 +61,7 @@ export function checkSharedPrefs(patch, languages) {
 
 const sameKind = (value, fallback) => (fallback === null
   ? value === null || ['string', 'number', 'boolean'].includes(typeof value)
-  : Array.isArray(fallback) ? Array.isArray(value) : typeof value === typeof fallback && (!isPlain(fallback) || isPlain(value)));
+  : Array.isArray(fallback) ? Array.isArray(value) : typeof value === typeof fallback && (!isObject(fallback) || isObject(value)));
 
 const copy = (value) => (value && typeof value === 'object' ? structuredClone(value) : value);
 
@@ -102,7 +100,7 @@ export function definePrefs(hook, { languages }) {
    */
   function next(stored, patch, { user = null, req = null } = {}) {
     const raw = readPrefs(stored);
-    const changes = isPlain(patch) ? patch : {};
+    const changes = isObject(patch) ? patch : {};
     checkSharedPrefs(changes, languages);
     const out = { ...raw };
     for (const part of own) {

@@ -931,6 +931,7 @@ function frame({
 }) {
   // A menu left open would sit beside the dialog: a dialog comes from a choice, so the menu is done.
   closeMenu();
+  const opener = openerOf();
   const dialog = el('dialog', {
     class: `kit-dialog${wide ? ' kit-dialog--wide' : ''}${className ? ` ${className}` : ''}`,
     'aria-label': title || null,
@@ -1013,6 +1014,7 @@ function frame({
     const at = openDialogs.indexOf(dialog);
     if (at >= 0) openDialogs.splice(at, 1);
     dialog.remove();
+    giveFocusBack(opener);
     onClose?.();
   });
   const show = () => {
@@ -1282,6 +1284,34 @@ export function trashKeeps(days) {
 let openMenuNode = null;
 
 /**
+ * The button of the menu an entry was just chosen from, and when: a dialog that entry opens
+ * gives the focus back to it once closed (audit of 6/11, ui-dialogos-16), since the entry that had
+ * it went with the menu and the browser would leave it on the page's body. Only for a moment: a
+ * dialog opened later, from elsewhere, has nothing to do with that menu.
+ */
+let chosenFrom = null;
+const CHOSEN_FOR_MS = 2000;
+
+/** What has the focus as a dialog opens, to go back to when it closes: that, or the menu's button it came from. */
+function openerOf() {
+  const doc = globalThis.document;
+  const had = doc?.activeElement;
+  if (had && had !== doc.body && had.isConnected !== false) return had;
+  const recent = chosenFrom && Date.now() - chosenFrom.at < CHOSEN_FOR_MS ? chosenFrom.anchor : null;
+  chosenFrom = null;
+  return recent;
+}
+
+/** The focus back to `opener` once a dialog closed, if it was left nowhere (the body) and the opener is still there. */
+function giveFocusBack(opener) {
+  const doc = globalThis.document;
+  if (!opener?.focus || opener.isConnected === false) return;
+  const now = doc?.activeElement;
+  if (now && now !== doc.body && now.isConnected !== false) return;
+  try { opener.focus({ preventScroll: true }); } catch { /* a node that can't take it */ }
+}
+
+/**
  * A menu's items as they are drawn: none of those left out (`cond ? item : null`), and no
  * separator first, last or after another, which is what leaving some out leaves behind.
  */
@@ -1325,7 +1355,11 @@ export function menu(anchor, items, { header = null, at = null, parent = null, b
     const node = item.href
       ? el('a', { ...props, href: item.href, ...(item.external ? { target: '_blank', rel: 'noopener' } : {}) }, children)
       : el('button', { ...props, type: 'button' }, children);
-    node.addEventListener('click', () => { closeMenu(); item.onClick?.(); });
+    node.addEventListener('click', () => {
+      closeMenu();
+      if (anchor) chosenFrom = { anchor, at: Date.now() };
+      item.onClick?.();
+    });
     return node;
   });
   const node = el('div', { class: 'kit-menu', role: 'menu' }, header ? el('div', { class: 'kit-menu__who' }, header) : null, entries, body);

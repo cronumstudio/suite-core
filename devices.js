@@ -49,9 +49,10 @@
 import { randomToken, sha256, safeEqual } from './crypto.js';
 import { ensureColumn } from './migrate.js';
 import {
-  HttpError, badRequest, notFound, unauthorized, readJson, sendJson, str,
+  HttpError, badRequest, notFound, unauthorized, readJson, sendJson, str, requireUser
 } from './http.js';
 import { answeredOnce, keyedByRoute } from './idempotency.js';
+import { iso } from './time.js';
 
 const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
@@ -64,7 +65,6 @@ const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const WEB_CODE_MS = MINUTE;
 /** Web-session codes waiting at once per device: a WebView reloaded, never a table filled by a script. */
 const OPEN_WEB_CODES = 10;
-const iso = (ms) => new Date(ms).toISOString();
 
 export function deviceTokensSchema(d) {
   // Not `devices`: Focus has a table of its own by that name, for its kiosks.
@@ -500,10 +500,6 @@ export function createDevices({
 export function registerDevicesApi(router, {
   devices, limiter, audit = null, webSessions = false, pushTokens = null, actions = null, idempotency = null,
 }) {
-  const requireUser = (ctx) => {
-    if (!ctx.user) throw unauthorized();
-    return ctx.user;
-  };
 
   /** A code for the connect page to hand back to the app (its body is the PKCE request). */
   router.post('/api/devices/codes', answeredOnce(async (ctx) => {

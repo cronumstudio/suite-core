@@ -25,6 +25,31 @@ import { renderMail } from './mail-layout.js';
 export const SHARE_KINDS = ['list', 'notebook', 'group', 'note', 'project', 'plan'];
 
 /**
+ * The push that goes with the email, worded once for every module (audit of 6/11, ux-compartir-14):
+ * «Compartido contigo», then who shared which thing and that it waits for an answer
+ * (`kit.share.push.<kind>`, in the five languages). A place in a project says its role as well.
+ * The module still sends it, with its own tag (one notice per thing offered) and where a tap goes.
+ *
+ *   deliver(devices, { ...sharePush({ t, kind: 'notebook', actor: 'Ana', name: 'Ideas' }), tag, url });
+ *
+ * @param {object} options
+ * @param {Function} options.t  the module's t() in the language of whoever receives it (the suite's words under it)
+ * @param {string} options.kind  one of SHARE_KINDS
+ * @param {string} options.actor  who offered it, as they are called
+ * @param {string} [options.name]  what it is called; without one, «Sin título»
+ * @param {string} [options.role]  a project's role, in the module's words
+ * @returns {{ title: string, body: string }}
+ */
+export function sharePush({ t, kind, actor, name = '', role = null }) {
+  if (!SHARE_KINDS.includes(kind)) throw new TypeError(`sharePush: no kind "${kind}"`);
+  const thing = String(name ?? '').trim() || t('mail.share.untitled');
+  return {
+    title: t('kit.share.push.title'),
+    body: t(`kit.share.push.${kind}`, { name: actor, thing, role: role ?? '' }),
+  };
+}
+
+/**
  * @param {object} options
  * @param {object} options.mailer      from createMailer()
  * @param {Function} options.texts     (req, user) → { lang, t }: the module's (its words over the suite's)

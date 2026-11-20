@@ -699,7 +699,6 @@ test('over HTTP, option off: no routes, the device list as before, and nothing n
   const phone = await device();
   assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).status, 404);
   assert.equal((await call('DELETE', '/api/devices/push', undefined, phone.auth)).status, 404);
-  assert.equal((await call('POST', '/api/devices/push/test', {}, phone.auth)).status, 404);
   assert.equal('notifications' in (await web('GET', '/api/me/devices')).data[0], false);
 });
 
@@ -727,14 +726,13 @@ test('over HTTP: the app registers its token with its device token, checked, and
   assert.equal((await web('GET', '/api/me/devices')).data[0].notifications, true);
   assert.equal((await register({ platform: 'ios', token: IOS_TOKEN })).data.environment, 'production', 'production unless it says');
 
-  // Without APNs' credentials the test notice is a failure, said, and the token kept.
-  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 1 });
-  // Web Push's own test reaches the phone too: one send for both.
+  // Without APNs' credentials the test notice is a failure, said, and the token kept. Web Push's
+  // own test reaches the phone too: one send for both.
   assert.deepEqual((await web('POST', '/api/push/test', {})).data, { sent: 0, gone: 0, failed: 1 });
 
   assert.equal((await call('DELETE', '/api/devices/push', undefined, phone.auth)).status, 200);
   assert.equal((await web('GET', '/api/me/devices')).data[0].notifications, false);
-  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 0, no_token: true });
+  assert.deepEqual((await web('POST', '/api/push/test', {})).data, { sent: 0, gone: 0, failed: 0, no_devices: true });
 
   const tablet = await device('android');
   assert.equal((await register({ platform: 'android', token: ANDROID_TOKEN, environment: 'production' }, tablet.auth)).data.environment, null);
@@ -752,7 +750,7 @@ test('over HTTP: bad device tokens count against the address, in the devices’ 
 });
 
 test('over HTTP: credentials that can’t be used start the app anyway, that platform off and its tokens kept', async (t) => {
-  const { suite, call, device, lines } = await startApp(t, {
+  const { suite, call, web, device, lines } = await startApp(t, {
     env: {
       APNS_KEY_ID: 'ABCDE12345', APNS_TEAM_ID: 'TEAM123456', APNS_PRIVATE_KEY: 'secret-typo-value', APNS_TOPIC: 'com.cronumstudio.work',
       FCM_SERVICE_ACCOUNT: JSON.stringify(SERVICE_ACCOUNT),
@@ -763,7 +761,7 @@ test('over HTTP: credentials that can’t be used start the app anyway, that pla
   assert.equal(lines.some((l) => l.includes('secret-typo-value')), false, 'never the value');
   const phone = await device();
   assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).data.sending, false);
-  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual((await web('POST', '/api/push/test', {})).data, { sent: 0, gone: 0, failed: 1 });
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM device_push_tokens').n, 1, 'kept for when the key is fixed');
 });
 

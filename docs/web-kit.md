@@ -77,7 +77,7 @@ going from one module to the next in Cronum Work nothing moves:
    with «Rechazar» and «Aceptar»; on a phone, while one waits, ☰ carries a dot (`setMark()`). The
    «…» says «Compartir» (`kit.share.action`) to whoever manages it and «Quién lo tiene»
    (`kit.share.people`) to anyone else, who may leave it there. Leaving is «Salir» («¿Salir de
-   «X»?»), and «Has salido de «X».» after it (`kit.share.left`). Whoever has something is its
+   «X»?»), and «Has salido de «X»» after it (`kit.share.left`). Whoever has something is its
    «Propietario» (`errors.owner_only`: «Solo el propietario puede hacer eso.»). Only the name of
    whoever accepted is shown to the owner, never their email, and with WorkOS nobody's @username.
    What the AI shares, unless told otherwise, gives what the dialog gives.
@@ -176,6 +176,23 @@ going from one module to the next in Cronum Work nothing moves:
    only where a drawing runs left to right (Projects' Gantt, Next's lines), which the module's
    test names. A layout changes at 640 px (phone) and 960 px (a list and its detail side by side).
    A module's own sheets are checked by `tools/css-rules.mjs` in its tests.
+25. **Texts say the same thing the same way in every module** (v0.311.0, audit of 6/11): Spanish is
+   the reference, in plain words, and every text is in the five languages. One word for one thing:
+   «Avisos» (not «notificaciones», but for the phone's own settings), «Vencidas» and «Fecha límite»,
+   a project «En marcha», «En pausa» or «Terminado» under «Estado», «entrar» for signing in,
+   «subtareas» in Tasks, a step «apuntado» and «hecho», a «dependencia» in Projects, «email» for
+   the address and «correo» for the message, «Nuevo X» and «Editar X». Quotes are the language's
+   own («…», “…”, « … », „…“), an apostrophe is ’, a way through menus reads «Ajustes › Perfil», and
+   English is American (color, canceled). A notice (`toast()`, `undoToast()`) has no full stop when
+   it is one sentence and has them when it is two («Plantilla borrada»; «Paso copiado. Pégalo en tu
+   IA para seguir.»); an error (`errors.*`) is a sentence with its full stop. What the kit says, a
+   module doesn't copy: the public page's words (`kit.public.*`), the push of something shared
+   (`sharePush()`, `kit.share.push.*`), a group's words (`kit.group.*`, `kit.moveUp`, `kit.dropBefore`…),
+   «Cargando…» and the rest. `appChecks(root, { kitWords: true,
+   kitOverrides: true, typography: true })` checks both, with `kitAllow` for a key that only looks
+   like the kit's or says what only the module has. A
+   dialog opened from a menu gives the focus back to the menu's «…» when it closes; the public
+   page's has «Activar» as its one primary button and «Cerrar» plain (`publicDialog()`).
 
 **Which icon for what** (`icons.js`): the same thing has the same icon in every module.
 
