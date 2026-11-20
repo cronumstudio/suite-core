@@ -154,6 +154,21 @@ going from one module to the next in Cronum Work nothing moves:
    that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
    Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
    (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
+22. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): «Archivos» with
+   how many, photos as squares that open the kit's viewer (`photoViewer()`, a kit dialog with zoom,
+   so in Cronum Work it covers the screen and not just the window), a PDF as a row with its name and
+   size. They are added with the button, by dropping a file on the detail or pasting one into it;
+   several going up say so on the button and once at the end; the room left is said before
+   uploading. Taking one away goes to the trash with Undo (rule 7). Notes keeps its files in the
+   note and deletes them for good, with the question (`deleteDialog()`).
+23. **What floats over a module stays in its window** (`placeFixed(node, anchor)`, v0.308.0): a menu,
+   a quantity's editor, a dot's bubble, a drag's label. In Cronum Work a window keeps what is
+   `position: fixed` inside it (`contain: layout paint`), so a box placed by the screen's numbers
+   lands off its anchor or is cut off; `placeFixed` measures where its (0, 0) really is and keeps it
+   in its room (`fixedRoom()`).
+24. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` «14 mar» (with the
+   year when it isn't this one), `timeText()` the language's own short time («15:52», «3:52 PM»),
+   `shortStamp()` the time today and the date before, and `timeAgo()` «hace 3 días».
 
 **Which icon for what** (`icons.js`): the same thing has the same icon in every module.
 
