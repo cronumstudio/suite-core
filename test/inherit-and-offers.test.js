@@ -137,7 +137,8 @@ function offering({ byId }) {
   db.run('UPDATE users SET disabled_at = NULL');
   const told = [];
   const sharing = createSharing({
-    db, brake: createShareBrake(),
+    // A clock of its own: two answers compared whole were a millisecond apart on a busy machine.
+    db, brake: createShareBrake(), clock: () => '2026-11-20T10:00:00.000Z',
     notify: { email: (n) => told.push(n.targetId) },
     kinds: {
       board: {
