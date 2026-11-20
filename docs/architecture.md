@@ -1766,7 +1766,9 @@ kit's), then Notes is built on it whole, then the others as they move to English
   heir's plan keeps less of is not lost at once); its public page goes off; the offers by address
   its former owner made still wait, and the heir sees their addresses masked (`addressFor`,
   Martin, 14/11/2026). The suite makes it once: `suite.ownership`, and one brake on offers for the
-  whole install, `suite.shareBrake`. The check is always the server's; the page only explains it.
+  whole install, `suite.shareBrake`. Every module uses that `suite.ownership`, in its own words (its
+  `hooks.texts`), and a notice goes with the push, email and brake its suite has when it goes, a
+  test's stand-ins too. The check is always the server's; the page only explains it.
 - **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
   runs the install hears of the server failing instead of finding it in the log: an uncaught
   exception (the process waits 4 s at most for the email, then exits with 1 as before), an

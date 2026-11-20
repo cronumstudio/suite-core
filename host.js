@@ -1070,9 +1070,10 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
-      // Whose something is, in the module's words, with the host's one brake on deletion notices.
+      // Whose something is, in the module's words, with the host's one brake on deletion notices:
+      // its email, its push and that brake as the module's suite has them when a notice goes.
       ownership: createOwnership({
-        db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
+        db: suite.database, suite: () => entry.view, log,
         texts: (user) => moduleTexts(null, user).t,
       }),
       organizations: resolved.modules.organizations ? suite.organizations : null,

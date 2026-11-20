@@ -129,7 +129,7 @@ const EXAMPLE_PASSWORDS = new Set([
  *     onOrganizationDeleted({ organization, reason, by }), inside the change's transaction
  *     (organizations.js: the app deletes its own rows with them; one that throws undoes it all);
  *   texts(req, user) → { lang, t } for the OAuth consent screen (oauth-page.js, with app.color
- *     and app.icon) and the mail
+ *     and app.icon), the mail and the notices of `suite.ownership`
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
  */
@@ -685,8 +685,10 @@ export function createSuite({
     /**
      * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
      * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
+     * Its notices speak the app's words (`hooks.texts`, its catalogs over the suite's) and go with
+     * the push, email and brake on the suite when they go, a test's stand-ins too.
      */
-    ownership: createOwnership({ db: database, shareMail, push, texts: (user) => texts(null, user).t, brake: goneBrake, log }),
+    ownership: createOwnership({ db: database, suite: () => made, texts: (user) => texts(null, user).t, log }),
     mailBrand: brand, strangers, signupUrl,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts, notices,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,
