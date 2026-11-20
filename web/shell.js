@@ -52,6 +52,7 @@ import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules, installed, installedAlone } from './base.js';
 import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
+import { menuOnPress } from './drag.js';
 import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
@@ -69,6 +70,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 /**
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
+ * @param {'beside'|'column'} [options.detail] (split) from 960 px, the detail always beside the list
+ *   (the default), or a column of its own on the list's right only while an item is open
+ *   (`setDetailOpen()`), the list taking the whole width otherwise (Tasks, Projects; kit.css)
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers
  * @param {object} [options.create]          { label, onClick }: the floating button that creates an
  *   item (a note, a step), at every width: over the list on a phone, at the foot of the list's pane
@@ -96,9 +100,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   is the one in front (`data-focus="true"` on the window that holds `root`, windows.js)
  */
 export function createShell({
-  panes = 'split', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
+  panes = 'split', detail: detailMode = 'beside', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
   onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
-  embedded = false, active = null,
+  embedded = false, active = null, onNew = null,
 }) {
   // Every listener the frame adds goes with destroy(), through this one signal (all but the
   // click swallowed after a drag of the drawer, see `swallowing`). An app that draws its frame
@@ -137,15 +141,42 @@ export function createShell({
     type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || t('kit.side.search'),
     'aria-label': search.label, enterkeyhint: 'search', autocomplete: 'off',
   }) : null;
+  // `onSearch(text)`: the search to run, the same in every module: a moment after the last key
+  // (`wait`, 220 ms), from the first letter (`min`, 1), at once with Enter or when emptied. Text
+  // shorter than `min` is no search: it is told as ''. `onInput` stays, told on every key.
+  let searchTimer = null;
+  let searched = '';
+  const told = (text) => (text.trim().length >= (search?.min ?? 1) ? text : '');
+  const runSearch = (text) => {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+    const query = told(text);
+    if (query === searched) return;
+    searched = query;
+    search.onSearch(query);
+  };
   if (searchField) {
-    searchField.addEventListener('input', () => search.onInput?.(searchField.value), { signal });
+    // A module may write the field itself while it has no focus (emptied away from the results,
+    // a search's text again on its route): what it holds then is what is searched, so typing the
+    // same words again searches them.
+    searchField.addEventListener('focus', () => { if (searchTimer == null) searched = told(searchField.value); }, { signal });
+    searchField.addEventListener('input', () => {
+      search.onInput?.(searchField.value);
+      if (!search.onSearch) return;
+      clearTimeout(searchTimer);
+      const text = searchField.value;
+      if (!text.trim()) runSearch('');
+      else searchTimer = setTimeout(() => runSearch(text), search.wait ?? 220);
+    }, { signal });
     searchField.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && searchField.value) {
         ev.stopPropagation();
         searchField.value = '';
         search.onInput?.('');
+        if (search.onSearch) runSearch('');
       } else if (ev.key === 'Enter') {
         ev.preventDefault();
+        if (search.onSearch) runSearch(searchField.value);
         search.onSubmit?.(searchField.value);
         // In the drawer the results are behind it.
         if (element.hasAttribute('data-drawer')) closeDrawer();
@@ -245,7 +276,7 @@ export function createShell({
   const shell = el('div', { class: 'kit-shell' },
     side, scrim, bar, banners, list, detail, fab, tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back'));
   // `data-layout` stays for the apps' own CSS, which names it.
-  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}) }, shell);
+  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}), ...(detailMode === 'column' ? { 'data-detail': 'column' } : {}) }, shell);
   root.append(element);
 
   /* --------------------------------- folding -------------------------------- */
@@ -335,7 +366,14 @@ export function createShell({
   }
   // On a phone Work's shell has the one ☰, beside its brand: it asks the module in sight for its
   // drawer on the body of its window (ctx.root).
-  if (embedded) root.addEventListener(DRAWER_EVENT, () => toggleDrawer(), { signal });
+  // Where the sidebar sits beside the views (Work shows its ☰ up to 768 px, the kit puts the sidebar
+  // beside from 640), that ☰ folds and unfolds it: as a drawer there it did nothing.
+  if (embedded) {
+    root.addEventListener(DRAWER_EVENT, () => {
+      if (beside()) setFolded(!element.hasAttribute('data-folded'));
+      else toggleDrawer();
+    }, { signal });
+  }
   // In Work's shell one window object is every module's: the shell asks the one it means on the
   // body of its window (ctx.root), naming the section or not, as the split view asks a frame.
   if (embedded && onSettings) {
@@ -702,6 +740,26 @@ export function createShell({
       if (element.dataset.screen === 'detail' && getComputedStyle(list).display === 'none') showList();
       if (folded() || drawerIsClosed()) openDrawer({ keyboard: true });
       searchField.focus();
+    }, { signal });
+  }
+
+  /* ------------------------------ «n» to create ----------------------------- */
+  /*
+   * «n» makes a new item, the same in every module (`onNew`: a task, a note, a step), as «/» goes to
+   * the search and under the same conditions: without Ctrl, ⌘ or Alt, not while composing, not
+   * from a field or an editor, where it is typed, not with a dialog, a menu, Settings or a drag over
+   * the frame, and only in the frame that has the keyboard. Settings › About lists the keys.
+   */
+  if (onNew) {
+    document.addEventListener('keydown', (ev) => {
+      if ((ev.key !== 'n' && ev.key !== 'N') || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing || ev.defaultPrevented) return;
+      const focus = ev.target?.closest ? ev.target : null;
+      if (focus?.closest(EDITABLE) || focus?.isContentEditable || layerOver()) return;
+      const nowhere = !focus || focus === document.body || focus === document.documentElement;
+      if (nowhere ? !hasKeyboard() : !element.contains(focus)) return;
+      ev.preventDefault?.();
+      closeDrawer();
+      onNew();
     }, { signal });
   }
 
@@ -1091,13 +1149,16 @@ export function createShell({
    * @param {object} [options]
    * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ over a list, ← (and ×) over a detail
    * @param {string|null} [options.title]   null: none, where the view says it itself (a note's first line)
-   * @param {Node|Node[]} [options.lead]      before the title (a list's icon, a note's notebook)
+   * @param {Node|Node[]} [options.lead]      before the title (a note's notebook)
+   * @param {string|Node} [options.icon]      the collection's own emoji, loose before the title, the same in every module
    * @param {Node|Node[]} [options.actions]   after it, at the end: the item's toggles (Notes' pin) and «…»
    * @param {Node} [options.below]            under the line, in the head (a search, chips, a toolbar)
    * @param {boolean} [options.close]         false: a detail with no ×, one that must not close beside its list
    */
-  function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null, close = true } = {}) {
+  function viewHead({ pane = 'list', title: text = '', lead = null, icon: glyph = null, actions: own = [], below = null, close = true } = {}) {
     const heading = text === null ? el('span', { class: 'kit-head__title' }) : el('h1', { class: 'kit-head__title', text });
+    const iconNode = (value) => el('span', { class: 'kit-head__icon', 'aria-hidden': 'true' }, value);
+    let mark = glyph ? iconNode(glyph) : null;
     let start = null;
     if (pane === 'detail') start = backToggle();
     else {
@@ -1106,9 +1167,17 @@ export function createShell({
     }
     const end = pane === 'detail' && close ? closeToggle() : null;
     const node = el('header', { class: 'kit-head', 'data-pane': pane },
-      el('div', { class: 'kit-head__row' }, start, lead, heading, el('div', { class: 'kit-head__actions' }, own), end),
+      el('div', { class: 'kit-head__row' }, start, lead, mark, heading, el('div', { class: 'kit-head__actions' }, own), end),
       below);
-    return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
+    return {
+      element: node,
+      setTitle: (value) => { if (text !== null) heading.textContent = value || ''; },
+      setIcon: (value) => {
+        if (!value) { mark?.remove(); mark = null; return; }
+        if (mark) mark.replaceChildren(value);
+        else heading.before(mark = iconNode(value));
+      },
+    };
   }
 
   // Inside the suite's app on a phone, the page is drawn and listens: the app's bridge (native.js), once a
@@ -1120,6 +1189,17 @@ export function createShell({
     foot: footer ? { element: footer, create: add, trash } : null,
     get screen() { return element.dataset.screen; },
     showList, showDetail, openDrawer, closeDrawer, toggleDrawer, setMark,
+    /** Empties the search without telling anyone: opening a collection from the sidebar leaves it. */
+    clearSearch: () => {
+      if (!searchField) return;
+      clearTimeout(searchTimer);
+      searchTimer = null;
+      searchField.value = '';
+      searched = '';
+    },
+    /** (detail: 'column') whether an item is open: its column on the list's right from 960 px. */
+    setDetailOpen: (open) => element.toggleAttribute('data-detail-open', Boolean(open)),
+    get detailOpen() { return element.hasAttribute('data-detail-open'); },
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
     setUser: (next) => { user = next; },
@@ -1177,6 +1257,7 @@ export function navGroup({
   onToggle = null, onName = null, empty = '', extra = null, data = null, headData = null, bodyData = null,
   children = [],
 }) {
+  const openFromHead = (at) => onName?.({ clientX: at.x, clientY: at.y, currentTarget: label, target: label }, label);
   const unfolded = keep || open;
   const kept = [children].flat(Infinity).filter(Boolean);
   const body = el('div', { class: 'kit-nav-group__body', hidden: !unfolded, ...dataAttributes(bodyData) },
@@ -1223,30 +1304,69 @@ export function navGroup({
   iconName || glyph ? el('span', { class: 'kit-nav-group__icon', 'aria-hidden': 'true' }, iconName ? icon(iconName) : glyph) : null,
   el('span', { class: 'kit-nav-group__label', text: name }),
   extra);
-  return el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
-    el('div', { class: 'kit-nav-group__head', ...dataAttributes(headData) }, toggle, label, total),
-    body);
+  const head = el('div', { class: 'kit-nav-group__head', ...dataAttributes(headData) }, toggle, label, total);
+  const group = el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
+    head, body);
+  // The group's menu with a right-click or a long press on its head too, as on its name. A group is
+  // picked up by its head as a whole (drag.js): a finger let go where it was tells the group.
+  if (onName) menuOnPress(head, openFromHead, { held: group });
+  return group;
 }
 
 /**
- * An entry of the sidebar: `iconName` or `color` (a swatch for a list or a
- * notebook), a `count` on the right; `now` paints it yolk (today, my day).
- * `data` becomes data-* attributes: `{ drop: '', notebook: 7 }` makes it a
- * place to drop things on (drag.js) that knows which notebook it is.
+ * The mark of a shared collection, on its icon's corner, the same in every module: two people, and
+ * in words «Compartido», or «Compartido · de {name}» when it is someone else's (`owner`). → the mark.
  */
-export function navItem({ label, iconName = null, color = null, count = null, current = false, now = false, href = null, onClick = null, data = null }) {
+export function sharedMark({ owner = null, label = null } = {}) {
+  const words = label || (owner ? t('kit.side.sharedBy', { name: owner }) : t('kit.side.shared'));
+  return el('span', { class: 'kit-nav__shared', role: 'img', title: words, 'aria-label': words }, icon('users'));
+}
+
+/**
+ * An entry of the sidebar: `iconName`, `color` (a swatch for a list or a
+ * notebook) or `emoji` (the collection's own, as wide as an icon so every
+ * label starts in line), a `count` on the right; `now` paints it yolk (today,
+ * my day). `shared` puts the kit's mark on its icon: true, or `{ owner }` when
+ * it is someone else's; `marks` are more nodes there (a public page's globe).
+ * `title` is said by a pointer resting on it (a long name, cut); `under`, a node
+ * under the name (a project's progress), and `countTitle`, what the count means. `menu` (its
+ * items, or a function that returns them) or `onMenu(at, node)`: what its «…»
+ * opens, there too with a right-click or a long press (`menuOnPress`). `data`
+ * becomes data-* attributes: `{ drop: '', notebook: 7 }` makes it a place to
+ * drop things on (drag.js) that knows which notebook it is; `style`, its own.
+ */
+export function navItem({
+  label, iconName = null, color = null, emoji = null, count = null, current = false, now = false, href = null,
+  onClick = null, data = null, shared = null, marks = null, title = null, menu: items = null, onMenu = null,
+  style = null, className = '', under = null, countTitle = null,
+}) {
   const props = {
-    class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}`,
+    class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}${className ? ` ${className}` : ''}`,
     'aria-current': current ? 'page' : null,
     onClick,
+    style,
     ...dataAttributes(data),
   };
+  let lead = color ? el('span', { class: 'kit-nav__swatch', style: `background:${color}` })
+    : emoji ? el('span', { class: 'kit-nav__emoji', 'aria-hidden': 'true', text: emoji })
+      : iconName ? icon(iconName) : null;
+  const corner = [shared ? sharedMark(shared === true ? {} : shared) : null, ...[marks].flat()].filter(Boolean);
+  if (corner.length) lead = el('span', { class: 'kit-nav__lead' }, lead, corner);
+  const name = el('span', { class: 'kit-nav__label', text: label, title });
   const children = [
-    color ? el('span', { class: 'kit-nav__swatch', style: `background:${color}` }) : iconName ? icon(iconName) : null,
-    el('span', { class: 'kit-nav__label', text: label }),
-    count != null ? el('span', { class: 'kit-nav__count', text: String(count) }) : null,
+    lead,
+    // `under`: a node under the name, in its column (a project's progress), the entry as tall.
+    under ? el('span', { class: 'kit-nav__body' }, name, under) : name,
+    count != null ? el('span', { class: 'kit-nav__count', text: String(count), title: countTitle }) : null,
   ];
-  return href ? el('a', { ...props, href }, children) : el('button', { ...props, type: 'button' }, children);
+  const node = href ? el('a', { ...props, href }, children) : el('button', { ...props, type: 'button' }, children);
+  if (items || onMenu) {
+    menuOnPress(node, (at) => {
+      if (onMenu) onMenu(at, node);
+      else menu(node, typeof items === 'function' ? items() : items, { at });
+    });
+  }
+  return node;
 }
 
 /**

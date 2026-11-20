@@ -31,6 +31,87 @@ an AI client sees changes.
 - **Written once**: `requireUser` and `requireAdmin` (http.js), and `iso` (time.js), which every
   file that needed them had its own copy of.
 
+## 0.304.0 — 2026-11-20
+
+- **One empty and one loading state in every module** (`web/ui.js`, `web/kit.css`, `i18n`,
+  `docs/web-kit.md` rule 16; audit of 6/11, ux-acciones-6, ux-acciones-11). `blank()` takes
+  `glyph` (a text in the icon's box: a Tasks list's emoji), `page` (alone in a view, its title an h2),
+  `loading` (the kit's spinner and «Cargando…», new key `kit.loading`), `note`, an `action` with
+  `href` or `primary: false`, and no `title` for a sentence alone. `.kit-blank strong` and
+  `.kit-blank h2` are one size now (`--look-headline`): a page's empty view was 19 px, a list's 15.
+  Without the new options `blank()` draws what it drew.
+- **The add bar is the kit's** (`addBar()`, `.kit-add-bar`, new key `kit.add`; rule 17; ux-menus-15,
+  ui-medidas-11): Tasks' card (a +, the field without a frame, «Añadir», the module's own tools between
+  them), for Tasks and Projects.
+- **Notices rise above the add bar** (`toast()`, `.kit-toasts`; ui-dialogos-14): each time one shows,
+  the kit measures the bars in sight under the notices' place and sets `--kit-toast-floor`, also with
+  the keyboard up. With no bar they sit where they always did.
+- **The row open in the detail** (`.kit-list-row[aria-current="true"]`, rule 18; dup-css-5, ui-medidas-12):
+  a soft background in the accent, as Notes' had, for Tasks, Notes and Projects.
+- **The detail as a column of its own** (`createShell({ detail: 'column' })`, `shell.setDetailOpen()`,
+  `data-detail-open`; dup-css-11): from 960 px the list takes the whole width while nothing is open and
+  the item opens as a 340–400 px column on its right, folded or not. Tasks and Projects each had a copy
+  of these rules; the default (`'beside'`) is the frame as before.
+- **`inkOn(color)`** (ui-medidas-16): white where it reads 4.5:1 on a colour, otherwise the dark ink
+  (`INK`), for a button in a list's own colour.
+
+## 0.303.0 — 2026-11-20
+
+- **Dialogs look the same in every module** (`web/kit.css`, `docs/web-kit.md` rule 13; audit of 6/11,
+  dup-css-1, ui-dialogos-10): the kit's header, body and footer, with no line under the title nor over
+  the buttons (Martin, 14/11), are the only ones; the modules drop their repaints. The two title rules
+  (`__header h2`, `__titles h2`) are one. Rule 10 also says how a collection's settings read («Editar X»,
+  Name first) and that deleting it is in its «…», never in the form.
+- **The small capitals over a group, one measure** (`.kit-eyebrow`, `--kit-eyebrow-size`, `-weight`,
+  `-spacing`; dup-css-14): the sidebar's sections, Settings' groups and Share's headings take them, the
+  same as before in both looks (Clean's spacing is its variable now, not three rules); the modules' own
+  labels use them.
+- **Kit rules that lived in one module** (dup-css-17): no tap flash on a phone and no selection by a long
+  press on the frame's controls (Tasks' alone until now), a field's text at 16 px on a touch screen so the
+  iPhone doesn't zoom (Notes' alone), and an icon button that is on (`aria-pressed`) in the accent's soft
+  colour (Next's alone).
+- **`.kit-label`**: a field's label (13/500) where there is no `field()` around it, a block of an item's
+  detail over several controls (ui-medidas-13).
+- **Who made an item and who changed it, in shared words** (`stamps()`, `stampTime()` in `web/ui.js`,
+  `kit.stamps.*` in the five languages, `.kit-stamps`; ux-acciones-15): «Creada por Ana · hoy a las
+  15:52», «Modificada por Luis · …», as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
+  has the button that does the first thing) and 12 (an item's detail: the kit's labels, `saveState()`,
+  its stamps) in `docs/web-kit.md`.
+- **A field's label over a group** (`field(…, { groupLabel: true })`, a palette of colours or icons): its
+  span takes `.kit-field__label`, the 13/500 of every field's label, as Projects and Next added by hand.
+
+## 0.302.0 — 2026-11-20
+
+- **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
+  `web/kit.css`, `docs/web-kit.md` rule 11; audit of 6/11, ux-menus-4, ux-menus-13,
+  ux-compartir-13, ui-dialogos-6, ui-medidas-15, ui-medidas-17). `navItem()` takes `emoji` (a
+  collection's own, in a box as wide as a view's icon, so every label starts in line), `shared`
+  (the kit's one mark, `sharedMark({ owner })`, «Compartido · de {name}» in words), `marks`, `title`,
+  `style`, `className`, `under` (a node under the name, in its column: a project's progress),
+  `countTitle`, and `menu` or `onMenu`: a right-click or a long press opens the same menu as
+  the entry's «…» (`menuOnPress(node, open)` in drag.js, which a drag that holds the entry answers
+  with a `kit:hold` event when it has no `onHold`). A group's head opens its menu with a right-click
+  or a long press too (`menuOnPress(head, open, { held: group })`: a group is picked up whole by its
+  head). `orderAfterDrop()` is the kit's (drag.js), as three modules had it. Entries and group heads
+  have their own line height (1.45): 36 px in every module, 36.5 in Notes before. A colour is as
+  wide as a view's icon (17 px with its margins), so every label starts in line, and the mark after
+  a group's name is the same one.
+- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 12; ux-acciones-16): under
+  the same conditions as «/». Settings › About lists the keys (`kit.about.keys`), and `modKey()`
+  (keyboard.js) gives ⌘ or Ctrl for words that tell a shortcut.
+- **The search runs the same way everywhere** (`search: { onSearch, wait, min }`; ux-menus-5): 220 ms
+  after the last key, from the first letter, at once with Enter, Escape or when emptied;
+  `shell.clearSearch()` empties it. A field the module wrote itself away from the results (Notes,
+  Next) searches the same words again once typed. `onInput` and `onSubmit` are unchanged.
+- **The open collection's emoji in the head** (`head({ icon })`, `.kit-head__icon`; ux-menus-7,
+  ui-medidas-8, Martin's decision 7): loose before the title, at its size, with no box; `setIcon()`.
+  `.kit-icon-btn[aria-pressed="true"]` is the kit's (Notes and Next had it each).
+- **In Work's shell, its ☰ folds the sidebar where the sidebar sits beside the views** (ux-menus-10):
+  from 640 to 768 px Work shows its ☰, and as a drawer there it did nothing.
+- **Icons** (`web/icons.js`; ux-menus-3, ux-menus-12): `chevron-up`, `eraser`, `flag`, `fork`,
+  `highlighter`, `history`, `marker`, `pen`, `print`, `zoom-in`, `zoom-out`; web-kit.md has a table
+  of which icon for what.
+
 ## 0.301.0 — 2026-11-20
 
 Audit of 6/11, sharing: what sharing looks like and says, the same in every module (Martin's choices
