@@ -19,12 +19,12 @@ import crypto from 'node:crypto';
 import { sha256, safeEqual, encryptText, decryptText } from './crypto.js';
 import { ensureColumn } from './migrate.js';
 import { HttpError, badRequest, conflict } from './http.js';
+import { iso } from './time.js';
 
 const STEP_SECONDS = 30;
 const DIGITS = 6;
 const CHALLENGE_MS = 5 * 60 * 1000;
 const RECOVERY_CODES = 10;
-const iso = (ms) => new Date(ms).toISOString();
 
 export function twoFactorSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS user_two_factor (

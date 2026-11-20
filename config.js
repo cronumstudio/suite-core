@@ -175,18 +175,14 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     roles: Array.isArray(ac.roles) ? [...ac.roles] : ['admin', 'user'],
     // Someone deleting their own account: how long it waits, disabled, before it goes for good.
     deletionDays: ac.deletionDays ?? 30,
-    // When it goes, whether the person also goes at the identity provider (WorkOS) and their
-    // subscriptions end: only where this install is all the person has there (Cronum Work), never
-    // where other apps sign in with the same provider's accounts or share a subscription.
-    deleteAtProviders: ac.deleteAtProviders ?? false,
     // Whether the admin here may set someone's password and take their second step off at the
     // identity provider (WorkOS, workos-security.js): only the install that owns the identities
     // (Cronum Work), since a WorkOS user is the same in every product that signs in with it.
     adminIdentity: ac.adminIdentity ?? false,
-    // Only the subscriptions: they stop renewing at the request and end when the account goes, while
-    // the person stays at the identity provider (an install that bills alone, with apps that share
-    // its logins). Left out, as deleteAtProviders.
-    endSubscriptions: ac.endSubscriptions ?? ac.deleteAtProviders ?? false,
+    // The subscriptions the person pays: they stop renewing at the request and end when the account
+    // goes (an install that bills alone, with apps that share its logins). Never where a subscription
+    // is shared with other apps.
+    endSubscriptions: ac.endSubscriptions ?? false,
     // The WorkOS users are shared with other apps, each noting itself on them (`app_<id>` in their
     // metadata): an account deleted here takes its WorkOS user too when the person uses no other
     // app, or chooses so; the admin's deletion only when the admin chooses so (account-deletion.js).
@@ -197,11 +193,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   if (!wholeNumber(accounts.minPasswordLength, 6, 128)) errors.push('accounts.minPasswordLength: a whole number from 6 to 128');
   if (!wholeNumber(accounts.deletionDays, 0, 365)) errors.push('accounts.deletionDays: a whole number of days from 0 to 365');
-  if (typeof accounts.deleteAtProviders !== 'boolean') errors.push('accounts.deleteAtProviders: true or false');
   if (typeof accounts.adminIdentity !== 'boolean') errors.push('accounts.adminIdentity: true or false');
   if (typeof accounts.endSubscriptions !== 'boolean') errors.push('accounts.endSubscriptions: true or false');
   if (typeof accounts.sharedIdentity !== 'boolean') errors.push('accounts.sharedIdentity: true or false');
-  if (accounts.sharedIdentity && accounts.deleteAtProviders) errors.push('accounts.sharedIdentity and deleteAtProviders: one or the other, the second always deletes the login');
   if (!accounts.roles.includes('admin')) errors.push('accounts.roles must include "admin"');
 
   const se = isObject(p.sessions) ? p.sessions : {};

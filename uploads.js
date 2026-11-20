@@ -62,8 +62,6 @@ export function detectType(buf) {
   return null;
 }
 
-export const isImage = (mime) => String(mime || '').startsWith('image/');
-
 /**
  * A file name that can be written without fear. It keeps what is readable,
  * so the folder makes sense from the NAS, and drops everything else: slashes,

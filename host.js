@@ -886,7 +886,7 @@ export async function createHost({
    * The suite a module gets: the host's, with what is the module's own in place
    * of it. Its migrations run here, after the suite's: its first one finds the
    * suite's tables (users with the suite's columns) already there. The host's
-   * consent screen and mail are the host's: a module's oauthPage hook is not used.
+   * consent screen and mail are the host's.
    */
   function join(entry, options, from) {
     if (from !== HERE) {
@@ -1134,7 +1134,7 @@ export async function createHost({
     if (actionsProblem) stop([`${entry.mount}: ${actionsProblem}`]);
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
-      serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
+      serializeUser: parts.serializeUser ?? null, version: parts.version ?? '0.0.0',
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
       // Its page answers its own path alone; any other there is a 404 page (audit prod-9): no module
@@ -1776,7 +1776,7 @@ export async function createHost({
     }
     // A page of any module, or of the host, opened with `?codigo=<CODE>`: the code's cookie (affiliates.js).
     suite.affiliates?.refFromQuery(req, res, url);
-    // An app's old address: its connector as it was, everything else to its module here.
+    // An app's old address: its /mcp names this one's, everything else goes to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
     // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else:

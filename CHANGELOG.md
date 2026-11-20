@@ -3,6 +3,34 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.309.0 — 2026-11-20
+
+What nothing calls any more goes, and a few helpers are written once. Nothing a person, a page or
+an AI client sees changes.
+
+- **The MCP**: `userFromToken` and `verifyToken` take no `audience` of another address, and the
+  accounts' `resourceMetadata` and `authorizationServerMetadata` go: they were for the apps' old
+  connectors (gone in 0.148.0). What `/mcp` and `/.well-known/oauth-*` answer is the same.
+- **Out everywhere** (the admin's "sign out everywhere", a new password, a reset) always goes through
+  `revokeEverything` (revoke.js): the second, partial way of `registerAdminApi` and
+  `registerWorkosSecurityApi` for a caller without it goes, with `registerAdminApi`'s `tokens`,
+  `oauth`, `push` and `idp` and `registerWorkosSecurityApi`'s `revokeAtProvider`. createApp always
+  passed it.
+- **Gone, nothing called them**: `POST /api/devices/push/test` (the phone's test notice is Web Push's
+  `POST /api/push/test`, which reaches the phones too) and `nativePush.targetOfDevice`;
+  `registerProfileApi`'s `alsoAt`, createApp's `profile` and the host's `parts.profile` (a module
+  that still passes `profile` is not refused: it is ignored); uploads.js `isImage`.
+- **Options no product passes**: createSuite's `oauthPage` hook (the consent screen is always the
+  suite's page); createEntitlements' `isUnlimited`; the `organizationId` option of `cutoff`,
+  `better`, `countDaily`, `countWeekly` and `require` (`of()` keeps it); `setPlan`'s `source`;
+  `accounts.deleteAtProviders` (an install that still passes it is not refused: the key is ignored,
+  and `endSubscriptions` no longer falls back on it).
+- **Billing**: the built-in `remote` provider goes, with `BILLING_SECRET` and `BILLING_URL`: no
+  install named it. `signedProvider` stays; the tests register the same signed provider themselves
+  (`test/remote-provider.js`).
+- **Written once**: `requireUser` and `requireAdmin` (http.js), and `iso` (time.js), which every
+  file that needed them had its own copy of.
+
 ## 0.308.0 — 2026-11-20
 
 - **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,

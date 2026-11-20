@@ -122,7 +122,6 @@ test('identityMark: app_<id> and the name in ASCII, as WorkOS takes them', () =>
   assert.deepEqual(identityMark({ id: 'notes', name: '日本' }), { key: 'app_notes', name: 'notes' }, 'nothing left: its id');
   const errors = (accounts) => resolveConfig({ app: { id: 'demo', name: 'Demo' }, accounts }, {}).errors ?? [];
   assert.ok(errors({ sharedIdentity: 'yes' }).some((e) => e.includes('accounts.sharedIdentity')));
-  assert.ok(errors({ sharedIdentity: true, deleteAtProviders: true }).some((e) => e.includes('one or the other')));
 });
 
 test('a shared login with the MCP on does not start without WORKOS_MCP_AUDIENCE; on its own, a warning as before (audit sc-mcp-2)', () => {
@@ -287,8 +286,5 @@ test('the deletion on its own: auto asks again when the account goes, and waits 
   assert.equal(await deletion.sweep(), 1);
   assert.deepEqual(calls, [['delete', gus.id], ['unmark', hal.id], ['unmark', fay.id]]);
 
-  // An install that always deletes at the providers never asks.
-  const always = createAccountDeletion({ accounts, sign: (v) => v, atProviders: true, shared: true, idp, clock: () => now, log: () => {} });
-  assert.equal(always.choosing, false);
   database.close();
 });

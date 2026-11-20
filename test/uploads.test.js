@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  detectType, safeName, isImage, createUploads, isPublicAddress, openUrl, nameFromResponse,
+  detectType, safeName, createUploads, isPublicAddress, openUrl, nameFromResponse,
 } from '../uploads.js';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 7)]);
@@ -35,8 +35,6 @@ test('what a file is, by its first bytes; never SVG', () => {
   assert.deepEqual(detectType(PDF), { mime: 'application/pdf', ext: 'pdf' });
   assert.equal(detectType(SVG), null);
   assert.equal(detectType(Buffer.from('MZ\x90\x00 an executable')), null);
-  assert.equal(isImage('image/png'), true);
-  assert.equal(isImage('application/pdf'), false);
 });
 
 test('names that can be written without fear', () => {

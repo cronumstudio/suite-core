@@ -18,6 +18,7 @@
 import { hmac, randomToken } from './crypto.js';
 import { ensureColumn } from './migrate.js';
 import { parseCookies, serializeCookie, appendHeader, clientIp } from './http.js';
+import { iso } from './time.js';
 
 /** Example values and old defaults of the suite's apps: never used as a secret. */
 export const KNOWN_EXAMPLE_SECRETS = Object.freeze([
@@ -26,7 +27,6 @@ export const KNOWN_EXAMPLE_SECRETS = Object.freeze([
 ]);
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 
 /**
  * The session secret of this install: SESSION_SECRET when it is a real one;

@@ -34,6 +34,19 @@ export const forbidden = (code = 'forbidden') => new HttpError(403, code);
 export const notFound = (code = 'not_found') => new HttpError(404, code);
 export const conflict = (code = 'conflict', extra) => new HttpError(409, code, extra);
 
+/** The person asking, for a route only someone signed in may use: 401 `unauthorized` otherwise. */
+export function requireUser(ctx) {
+  if (!ctx.user) throw unauthorized();
+  return ctx.user;
+}
+
+/** The person asking when they are the install's admin: 401 signed out, 403 `admin_only` otherwise. */
+export function requireAdmin(ctx) {
+  const user = requireUser(ctx);
+  if (user.role !== 'admin') throw forbidden('admin_only');
+  return user;
+}
+
 /* --------------------------------- output --------------------------------- */
 
 /**

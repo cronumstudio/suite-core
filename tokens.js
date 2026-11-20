@@ -10,8 +10,8 @@
 import { randomToken, sha256 } from './crypto.js';
 import { badRequest } from './http.js';
 import { ensureColumn } from './migrate.js';
+import { iso } from './time.js';
 
-const iso = (ms) => new Date(ms).toISOString();
 
 export function tokensSchema(d) {
   if (!d.columnsOf('api_tokens').length && d.columnsOf('mcp_tokens').length) {
