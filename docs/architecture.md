@@ -1770,7 +1770,9 @@ kit's), then Notes is built on it whole, then the others as they move to English
   heir's plan keeps less of is not lost at once); its public page goes off; the offers by address
   its former owner made still wait, and the heir sees their addresses masked (`addressFor`,
   Martin, 14/11/2026). The suite makes it once: `suite.ownership`, and one brake on offers for the
-  whole install, `suite.shareBrake`. The check is always the server's; the page only explains it.
+  whole install, `suite.shareBrake`. Every module uses that `suite.ownership`, in its own words (its
+  `hooks.texts`), and a notice goes with the push, email and brake its suite has when it goes, a
+  test's stand-ins too. The check is always the server's; the page only explains it.
 - **Alerts** (**done**, v0.123.0, `alerts.js`): with `ALERT_EMAIL` and a mail server, whoever
   runs the install hears of the server failing instead of finding it in the log: an uncaught
   exception (the process waits 4 s at most for the email, then exits with 1 as before), an
@@ -2132,6 +2134,10 @@ The host's `/mcp` is the only one (`/<mount>/mcp` answers 404 with its address).
 `createModule().mcp` brings its tools, prompts and errors, and the host announces them under the
 module's name (`tasks_add_task`, `notes_search_notes`), each with the module's plan rules, only to
 whoever uses that module; a tool of a module someone turned off answers how to turn it back on.
+Each module's tool runs in the time zone of the person it acts for (time.js `inZoneOf`), as
+createApp runs an app's own tools: their `todayFor()` is that person's. A module's routes do too
+when it says `zonedRoutes: true` (Tasks, Projects); the others answer in the server's zone, as do
+the host's own tools and routes (the calendar reads the person's day itself).
 Only those names answer: neither a module's own bare names nor old ones (0.148.0). The instructions are written per person from each used module's `mcp.brief` (or its
 instructions' first paragraph), whole parts only, under 2048 characters (`MCP_TEXT_MAX`, the
 longest an assistant reads); tool descriptions keep under the same limit. The calls from
