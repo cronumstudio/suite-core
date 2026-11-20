@@ -91,6 +91,7 @@ test('role, access, a password and closing their sessions are asked about first'
   await wait();
   assert.deepEqual(writes().map(([what]) => what), ['DELETE /api/admin/users/1/sessions']);
   const toasts = document.body.all().filter((node) => (node.className || '').split(' ').includes('kit-toast')).map((node) => node.textContent);
-  assert.ok(toasts.some((text) => text.includes(t('admin.users.signedOut', { n: 2 })) && text.includes(t('admin.users.signedOutMore'))), toasts.join(' | '));
+  assert.ok(toasts.some((text) => text.includes(`${t('admin.users.signedOut', { n: 2 })}. ${t('admin.users.signedOutMore')}`)), toasts.join(' | '));
+  assert.match(t('admin.users.signedOutMore'), /\.$/, 'two sentences, each with its full stop');
   delete globalThis.window;
 });

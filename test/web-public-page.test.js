@@ -155,3 +155,16 @@ test('the page\'s stylesheet: on a phone the bar keeps the icon and lets the but
     assert.match(css, new RegExp(`\\.${name}\\b`), name);
   }
 });
+
+test('one primary button: «Turn on», and «Close» plain at the foot (ui-dialogos-16)', async () => {
+  server({ on: false });
+  publicDialog({ base: '/api/lists/7/public', name: 'Groceries', url: null });
+  await settle();
+  const [dialog] = openDialogs();
+  const primary = byClass(dialog, 'kit-btn--primary');
+  assert.deepEqual(primary.map((node) => node.textContent), [t('kit.public.turnOn')]);
+  const close = button(dialog, t('kit.close'));
+  assert.ok(close, 'the foot keeps «Close»');
+  assert.ok(!(close.getAttribute('class') || '').includes('kit-btn--primary'));
+  closeAll();
+});
