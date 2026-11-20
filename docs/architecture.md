@@ -2279,7 +2279,7 @@ without it. A search's cards are shown as the module's `search` gives them, none
 ### 21.3.1 The calendar
 
 `calendar.js`, with `createHost({ calendar: '/calendar/' })`: a page of the host's own (in its
-`publicDir`, as the split view) that shows, by day, what has a date in each module. Read-only:
+`publicDir`) that shows, by day, what has a date in each module. Read-only:
 each thing opens in its module. Without the option nothing of it is there. A module says what it
 has with a date, next to its `cards`:
 
@@ -2310,7 +2310,7 @@ module ever gave, and it is no longer kept (0.291.0, audit of 6/11, sc-feat-8).
   2000 earliest at most. A module whose `range` throws, or gives no list, is logged and named in
   `failed`, never a 500: the rest of the calendar still shows.
 - **On the rail** (`shell.js`), `GET /api/modules` says `host.calendar`, and every module's rail
-  has a Calendar button (`kit.calendar.title`) just over the split view's, a link to that page.
+  has a Calendar button (`kit.calendar.title`), a link to that page.
   Only for whoever turned it on (0.195.0): Settings › Modules has the switch (`calendar_shown` in
   the same answer, `PUT /api/me/calendar { shown }`, table `host_calendar`); no row, no button,
   so the rail stays as simple as it was. The page and the assistants' tool are there either way.
@@ -2514,7 +2514,7 @@ once for each worker, titled with that module's name. With it:
 - **The modules' pages** learn of it from `/api/auth/config` (`app.host.worker`) and, with the kit's
   `registerWorker()`, register the host's and retire theirs (a narrower scope would go on serving
   their pages), carrying the push subscription over where the browser allows it; the update notice
-  is the host's, once, and none in a frame of the split view.
+  is the host's, once, and none in a frame of a host's page.
 - **A module's notice** opens at its path: `url` under `/<mount>/`, its `tag` prefixed with the
   mount and `module` added (`hostedPush`). A module's own worker, where a device still has one,
   reads the same paths.
@@ -2603,7 +2603,7 @@ const host = await createHost({
   the host's: GET and HEAD under `at` are files of `dir` (`at` itself is its `index`; `/w` goes to
   `/w/`), with the security headers and caching of the host's other files (`serveStatic`: ETag from
   what the file holds, code revalidated). A file the folder doesn't have is a 404, never a module's
-  page nor the host's. `at` is one path segment that is no module's, the split view's, the calendar's or the host's
+  page nor the host's. `at` is one path segment that is no module's, the calendar's, the day's or the host's
   own (`RESERVED`); the start stops otherwise. One page may be the app's start (`root: true`): `/`
   answers its index too, but for an address with a query name it lists (`root: { except: ['modules'] }`,
   Work's `/?modules`), which opens the host's own home as before. A page's files count in the

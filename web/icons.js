@@ -62,11 +62,8 @@ export const PATHS = Object.freeze({
   'list-indent-increase': 'M21 5H11M21 12H11M21 19H11M3 8l4 4-4 4',
   'list-ordered': 'M11 5h10M11 12h10M11 19h10M4 4h1v5M4 9h2M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02',
   'list-todo': 'M4 4h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM3 17l2 2 4-4M13 5h8M13 12h8M13 19h8',
-  // The views of a host's split view: one module, two or three side by side, four in a grid.
+  // A frame, one view: Cronum Work's shell draws each of its layouts on it.
   'layout-1': 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
-  'layout-2': 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM12 4v16',
-  'layout-3': 'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM9 4v16M15 4v16',
-  'layout-4': 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM12 4v16M4 12h16',
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   logout: 'M15 4h4v16h-4M10 17l5-5-5-5M15 12H3',
   marker: 'M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z',

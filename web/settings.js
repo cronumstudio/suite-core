@@ -50,6 +50,11 @@
  * `standingMore`: what goes under it, keys of the catalog (a paragraph each)
  * and pairs of keys (a line of a list: a label in bold, then its text).
  * `site`: the app's website, which About links to in a host.
+ * `aboutExtra`: what the app is, under About (in a host, a section of its
+ * own): `{ text, tips }`, keys of its catalog (a paragraph, a line for each
+ * tip) drawn here as every module draws it; or a function that draws it.
+ * `describeData(tables)`: what a copy holds, or an account has, in words;
+ * `summaryOf(parts)` joins its parts as every module does.
  *
  * In a host (Cronum Work) Settings are one for the whole app, the same list
  * in every module: the account's sections, a group for each module in use and
@@ -77,7 +82,7 @@ import { icon } from './icons.js';
 import { toast, field, revealable, segmented, switchRow, confirmDialog, openDialog, signature, copyText, holdBack, slideHidden, slidingDetails, menu, backLayer, offlineNotice } from './ui.js';
 import { makeDraggable } from './drag.js';
 import { planPayments, offerPlan, storePurchase, PLAN_EVENT } from './plan.js';
-import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress } from './native.js';
+import { inApp, can, onNative, lastNative, openAppSettings, nativeInfo, openExternal, aloneAddress, openAddress } from './native.js';
 import { hostWorker, workerRegistration, noticesToRenew, noticesRenewed } from './worker.js';
 import { devicePushSubscription, ensureSubscription, pushSupport, noticesOnHere, markNoticesOff } from './push.js';
 import { markOwned, workRegistry } from './mount.js';
@@ -111,16 +116,33 @@ const button = (text, onClick, kind = '') => el('button', {
 const showError = (err) => toast(errorMessage(err), { error: true });
 const input = (props) => el('input', { class: 'kit-input', ...props });
 
+/**
+ * What an app says it is (`aboutExtra`): `{ text, tips }`, keys of its catalog, a paragraph and a
+ * line for each tip; or the app's own function, for one with more to show there.
+ */
+function aboutOf(extra) {
+  if (typeof extra === 'function') return extra();
+  return block(null, el('p', { text: t(extra.text) }),
+    el('ul', { class: 'kit-hint' }, (extra.tips || []).map((key) => el('li', { text: t(key) }))));
+}
+
+/**
+ * What a copy brings, or what an account has, in words, from its parts ("3 lists", "10 tasks"),
+ * joined as the language joins quantities («2 proyectos y 9 tareas»): the same in every module.
+ * A part that is nothing (a count left out when there is none) is left out.
+ */
+export const summaryOf = (parts) => listFormat({ style: 'short', type: 'unit' }).format(parts.filter(Boolean));
+
 /** A section's id, as `?settings=` names it (host.js moduleSettings). */
 const SECTION_ID = /^[a-z][a-z0-9-]{0,40}$/;
 
 /**
  * The modules or the calendar turned on or off: this page's rail and Linked rows ask again
  * (shell.js, links.js), and so does the page that frames it, when one does (Cronum Work's shell
- * with a module in a frame, the split view). `answer` is what the modules are now, as GET
- * /api/modules says them: the server's, or this device's own while there is no signal (the change
- * kept for later), in the event's `detail.answer`, so a rail follows at once without asking, as
- * the theme does (it waited for the signal to come back).
+ * with a module in a frame). `answer` is what the modules are now, as GET /api/modules says them:
+ * the server's, or this device's own while there is no signal (the change kept for later), in the
+ * event's `detail.answer`, so a rail follows at once without asking, as the theme does (it waited
+ * for the signal to come back).
  */
 function modulesChanged(answer = null) {
   const detail = answer && Array.isArray(answer.modules) ? { answer } : null;
@@ -498,7 +520,7 @@ export function openSettings(options) {
     modules.data ? { group: app.name, id: 'data', iconName: 'box', label: t('kit.data.title'),
       hint: () => t('kit.settings.dataHint', { app: app.name }), render: () => needsConnection(data({ account: false })) } : null,
     options.aboutExtra ? { group: app.name, id: 'about-extra', iconName: 'info', label: t('kit.about.title', { app: app.name }), unlisted: true,
-      hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [options.aboutExtra()] } : null,
+      hint: () => t('kit.settings.moduleAboutHint', { app: app.name }), render: () => [aboutOf(options.aboutExtra)] } : null,
   ];
 
   /**
@@ -528,8 +550,8 @@ export function openSettings(options) {
 
   /**
    * To another module's section: there, with Settings open on it (`?settings=`, settingsAsked()).
-   * In a frame of the host's split view, the view opens it in the frame that shows that module, if
-   * one does (`kit:settings-goto`), so the view stays; otherwise the whole window goes. In Work's
+   * In a frame of a host's page, that page opens it in the frame that shows that module, if
+   * one does (`kit:settings-goto`), so the page stays; otherwise the whole window goes. In Work's
    * shell, the same event on this window: the shell opens it in that module's window, and the page
    * stays.
    */
@@ -605,7 +627,7 @@ export function openSettings(options) {
       page.style.minHeight = on ? `${scroller.scrollTop + scroller.clientHeight}px` : '';
     },
   } : { moving: overlay })));
-  // In a frame of the host's split view, the view gives this module's section the whole space while they are open.
+  // In a frame of a host's page, that page gives this module's section the whole space while they are open.
   const shown = (open) => {
     if (!FRAMED) return;
     try {
@@ -1811,7 +1833,7 @@ export function openSettings(options) {
     const link = (url, iconName, text) => {
       const shell = hostInfo.shell && !workRegistry();
       return el('a', {
-        class: 'kit-btn kit-btn--small kit-day__see', href: shell ? `/?open=${encodeURIComponent(url)}` : url,
+        class: 'kit-btn kit-btn--small kit-day__see', href: shell ? openAddress(url) : url,
         onClick: (ev) => { if (openInWork(ev)) close(); },
       }, icon(iconName), el('span', { text }));
     };
@@ -2471,7 +2493,7 @@ export function openSettings(options) {
       block(null, facts),
       // In a host, a card for each module in use, with its version: the whole app updates as one.
       ...(host ? [block(t('kit.about.modulesTitle'), hint(t('kit.about.modulesHint', { app: host.name })), cards)] : []),
-      ...(options.aboutExtra && !host ? [options.aboutExtra()] : []),
+      ...(options.aboutExtra && !host ? [aboutOf(options.aboutExtra)] : []),
       block(t('kit.about.keys'), shortcuts()),
       block(null, el('div', { class: 'kit-signature' }, signature())),
     ];

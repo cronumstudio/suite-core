@@ -43,7 +43,7 @@ const STRAIGHT = 'suite.signInStraight';
 /**
  * Whether the provider's sign-in can open at once, without this site's card and its button first
  * (Martin, 5/11: a card of the app, then the provider's page of another colour, read as one
- * redirection too many). Not in a frame (the host's split view signs the whole window in), not
+ * redirection too many). Not in a frame (a host's page signs the whole window in), not
  * inside the suite's app (its button hands off to the phone's browser), not just after signing out
  * here (`leave` leaves a mark: whoever left sees the card, not the provider's page), and not twice
  * in a minute in this tab, so a session that never takes (cookies blocked) or Back from the
@@ -182,7 +182,7 @@ export async function leave({ answer = null, local = null } = {}) {
   nativeSignOut();
   // Back on this site, the card and not the provider's page at once (straightToProvider).
   try { sessionStorage.setItem(SIGNED_OUT, '1'); } catch { /* private mode */ }
-  // From a frame of the host's split view the whole window signs out, not the frame alone.
+  // From a frame of a host's page the whole window signs out, not the frame alone.
   const page = FRAMED ? window.top : window;
   if (answer?.logout_url && !inApp()) page.location.href = answer.logout_url;
   else page.location.reload();

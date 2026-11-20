@@ -10,6 +10,7 @@ import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, 
 import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
+import { dayKey } from './days.js';
 
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
@@ -2029,7 +2030,8 @@ function payoutDialog(code) {
   const amount = el('input', { inputmode: 'decimal', autocomplete: 'off', value: String(Math.max(0, code.figures.balance) / 100) });
   const method = el('input', { maxlength: '80', autocomplete: 'off', placeholder: t('admin.affiliates.methodHint') });
   const reference = el('input', { maxlength: '120', autocomplete: 'off' });
-  const day = el('input', { type: 'date', value: new Date().toISOString().slice(0, 10) });
+  // Today where the person noting it is: UTC's day is still yesterday in Madrid after midnight.
+  const day = el('input', { type: 'date', value: dayKey(new Date()) });
   const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
   formDialog({
     title: t('admin.affiliates.recordPayout'),

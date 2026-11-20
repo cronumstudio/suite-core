@@ -686,12 +686,9 @@ function moduleListErrors(modules) {
  * @param {string} [options.publicDir]  the host's own files at the root; without an index.html there, / goes to
  *   the first module
  * @param {Function} [options.routes]   (router) => { … }: the host's own routes at /api/
- * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
- *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
- *   framed by the host's own pages (never by another site's)
  * @param {boolean} [options.framedModules]  the modules' pages may be framed by the host's own pages
- *   (never by another site's) without a split view: a page holding several modules that opens one
- *   in a frame when it can't mount it (Cronum Work's shell). `split` implies it.
+ *   (never by another site's): a page holding several modules that opens one in a frame when it
+ *   can't mount it (Cronum Work's shell)
  * @param {string} [options.calendar]   the host's page that shows what has a date in each module
  *   (`/calendar/`, in its publicDir; calendar.js): the rail offers it, `GET /api/calendar` answers
  *   it at the root and the host's MCP adds `<id>_calendar`, from the modules' `createModule().calendar`
@@ -758,7 +755,7 @@ function moduleListErrors(modules) {
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
   aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null, doors = [], moduleHints = null,
 }) {
@@ -792,11 +789,7 @@ export async function createHost({
   };
 
   const listErrors = moduleListErrors(modules);
-  // The split view is a page of the host's own: a path of this site, never an address elsewhere.
-  if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
-    listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
-  }
-  // So is the calendar.
+  // The calendar is a page of the host's own: a path of this site, never an address elsewhere.
   if (calendar !== null && !(typeof calendar === 'string' && /^\/[a-z0-9-]+\/$/.test(calendar))) {
     listErrors.push(`calendar: "${calendar}" is not a page of the host (such as /calendar/)`);
   }
@@ -806,8 +799,8 @@ export async function createHost({
   // And the daily summary's, a page of its own.
   if (day !== null && !(typeof day === 'string' && /^\/[a-z0-9-]+\/$/.test(day))) {
     listErrors.push(`day: "${day}" is not a page of the host (such as /today/)`);
-  } else if (day !== null && (day === calendar || day === split)) {
-    listErrors.push(`day: ${day} is the host's ${day === calendar ? 'calendar' : 'split view'} already`);
+  } else if (day !== null && day === calendar) {
+    listErrors.push(`day: ${day} is the host's calendar already`);
   }
   // The prompt is one of the host's own routes, under /api/.
   if (aiInstruction !== null && !(typeof aiInstruction === 'string' && /^\/api\/[a-z0-9-]+$/.test(aiInstruction))) {
@@ -822,7 +815,7 @@ export async function createHost({
   for (const [i, page] of pageList.entries()) {
     const at = page?.at;
     if (!(typeof at === 'string' && /^\/[a-z0-9-]+\/$/.test(at))) listErrors.push(`pages[${i}].at: "${at}" is not a path of the host (such as /w/)`);
-    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at || calendar === at || day === at) {
+    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || calendar === at || day === at) {
       listErrors.push(`pages[${i}].at: ${at} is the host's already, or a module's`);
     } else if (pageList.findIndex((other) => other?.at === at) !== i) listErrors.push(`pages[${i}].at: ${at} twice`);
     if (!page?.dir || typeof page.dir !== 'string') listErrors.push(`pages[${i}].dir: the folder of its files is needed`);
@@ -1158,9 +1151,9 @@ export async function createHost({
       // deeper one drew nothing, its files asked for under it. One that has some names them.
       clientRoutes: parts.clientRoutes ?? ['/'],
       portable: parts.portable ?? null, handleSignals: false, log,
-      // In the split view (or a page of the host's that frames a module, framedModules) each module
-      // is a frame of the host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
-      frames: split || framedModules ? 'self' : 'none', embeds: parts.embeds ?? [],
+      // In a page of the host's that frames a module (framedModules) each module is a frame of the
+      // host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
+      frames: framedModules ? 'self' : 'none', embeds: parts.embeds ?? [],
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
@@ -1241,7 +1234,7 @@ export async function createHost({
     const dayShown = Boolean(day) && (!user || (suite.database.get('SELECT shown FROM host_day WHERE user_id = ?', user.id)?.shown ?? 1) === 1);
     return {
       host: {
-        name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendarShown ? { calendar } : {}),
+        name: config.app.name, icon: config.app.icon, ...(calendarShown ? { calendar } : {}),
         // The host's app opens on a page of its own (`pages[].root`, Work's one-document shell): a
         // module's page installed as an app is then that module on its own, never the host's app.
         ...(pageList.some((p) => p?.root) ? { shell: true } : {}),

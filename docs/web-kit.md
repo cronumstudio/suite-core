@@ -270,16 +270,16 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `svg(tag, props, …children)`, `$`, `$$`, `append`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings; `style` and `dataset` may be objects, children may come in nested arrays |
-| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
+| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `reportLanguage(user, lang, { send })` (the browser's resolved language into `prefs.lang_seen` while the person follows it, once per change), `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
 | `palette.js` | `KIT_COLORS` (twelve `{ name, hex, dark }`: the hex a module stores, the name's `--kit-color-<name>` token, lighter in the dark), `KIT_COLOR_NAMES`, `kitColor(nameOrHex)`, `suggestedColor(used, { as, except })` (the first free one, five apart around the wheel; `except`, names a module leaves out), `KIT_ICONS` (twenty in view), `KIT_MORE_ICONS` (behind «Más…»). No DOM: a server loads it too |
 | `pickers.js` | `colorPicker({ value, as: 'hex' \| 'name', label, none, paint, nameOf, except, onPick })` and `iconPicker({ value, label, typed, none, frequent, more, onPick })` → `{ node, value() }`: the palette as swatches named in words, the icons with «Más…»; what it has from before kept first |
 | `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `stamps({ author, created, editor, updated, completed, createdVia, updatedVia }, { format })` and `stampTime(value)` (who made an item and who changed it, in kit.stamps.* words), `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank({ iconName, glyph, title, text, action, note, page, loading })`, `addBar({ placeholder, label, tools, onAdd, className, id, input })`, `inkOn(color)` (white or the dark ink, whichever reads on a colour), `avatar(person | name, { color, size, title })` (a person's initials in the colour they chose, `avatar_color`), `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
-| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)` |
+| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`; `createPlace({ hash, active, reload, own })` → `{ place, placeIn, placeOut, route, navigate, onRoute, lateCode }`, a module's place.js: the window's ctx in Work, the page's address on its own (its hash with `hash`; else its address after its base, which only a replace writes), `place.embedded`, `root`, `mounted`, `services`, `active` (`active(said)` reads what the shell says), `signal`, `retitle()`, `lateCode()`, `reload({ fresh })`, and the module's `own` members |
 | `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes, `emoji`, `shared`, `marks`, `title`, `under`, `countTitle` and `menu`/`onMenu`), `sharedMark({ owner })`, `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash), `setMark(n)` (a dot on ☰ while `n` invitations wait in the drawer) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted; the screen itself is `signin-form.js`, which `signIn` loads when it draws it (0.285.0): a page with a session never evaluates it |
-| `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
+| `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()`; `summaryOf(parts)` (what a copy holds, its parts joined as every module joins them) |
 | `signal.js` | `watchSignal({ ask, answered, onBack, active, again, firstMs, maxMs, url, patienceMs })`: the one question «is there a signal again?» every module asks while it has none (`/version`, from 3 s up to 30 s apart): `lost()`, `check()` → whether the server answered, `found()`, `stop()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
@@ -291,9 +291,11 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT`; `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, all a frame's start needs (shell.js), so plan.js comes only with Settings (0.285.0) |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
-| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses |
+| `app-start.js` | What every module's page does as it starts: `applyAppTheme(app, theme, place)` (on its own page `<html data-theme>` and `<app>.theme`; in a window of Cronum Work, told to the shell, `ifOther` only when it differs), `followSystemTheme(app, { theme, signal })`, `savedTheme(app)`, `THEMES`; `watchAppVersion({ app, show })`, the notice of a new version; `askedSettings({ ready, open })` → `{ ask, open, fromAddress }`, Settings at the section another module asked for, once the module is ready; `markCroppedCanvas()`, an iPhone's Home Screen app drawn short of the screen (`data-canvas="cropped"`); `rgbOf(color, { transparent })` and `PAINT_ATTRIBUTES`, for a status bar in a page's ground |
+| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses; `paintLive(node, state)`, the live dot in words |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
-| `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
+| `days.js` | `dayKey(date)`: the day a moment falls on on this device's clock, `YYYY-MM-DD` (today is `dayKey(new Date())`, not UTC's day); `addDays(day, n)` and `daysBetween(a, b)`, counted in UTC as the server's, so a summer time change never shifts a day. No DOM and no imports: a module's offline model and Work's calendar run it in Node |
+| `local.js` | `openLocal(appId, stores, { patience })`: IndexedDB stores of key → value; `memoryLocal()`; for a start that draws from the copy, `deviceLocal(appId, stores)`, `inTime(promise)` and `LOCAL_PATIENCE_MS`; whose the copy is, `createDeviceCopy({ local, stores, account, owner, outbox })` (`local.deviceCopy()`), `drawableFor(id, host)` and `sameAccount(a, b)` (Offline, below) |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
@@ -305,7 +307,7 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `swipe.js` | `rowSwipe(row, { content, left, right, ignore })`: a finger across a row, to the trash to the left and the module's quick toggle to the right (v0.248.0); `keepSwipe(row)`, a row with nothing to do that keeps the finger; `trashAction(run)`; `swipeAction`, `swipeStretch`, `SWIPE_IGNORE` |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter; `rideKeyboard(dialog, field)`: a sheet that goes up and down with the keyboard in the iPhone app (formDialog's `typing`) |
-| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app; `hostShellAddress(host)` (in the app, a browser's tab or the host's installed app, a module's page alone goes to the shell, unless `?alone`), `markShellWindow()`, `aloneAddress(path)` |
+| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app; `hostShellAddress(host)` (in the app, a browser's tab or the host's installed app, a module's page alone goes to the shell, unless `?alone`), `markShellWindow()`, `aloneAddress(path)`; `openAddress(url, { hash })`, the shell's `/?open=` address of a page |
 
 ### Components in the sheet alone
 
@@ -355,7 +357,8 @@ import { createShell, navItem, navSection } from '/suite/shell.js';
 import { signIn, signOut, confirmEmailFromLink } from '/suite/signin.js';
 import { openSettings } from '/suite/settings.js';
 import { connectLive } from '/suite/live.js';
-import { watchUpdates, applyUpdate, tidyAddress } from '/suite/update.js';
+import { applyUpdate, tidyAddress } from '/suite/update.js';
+import { watchAppVersion } from '/suite/app-start.js';
 import { openLocal } from '/suite/local.js';
 import { createOutbox } from '/suite/outbox.js';
 
@@ -376,20 +379,13 @@ const shell = createShell({
   panes: 'split', app,
   create: { label: t('notes.new'), onClick: newNote },
   foot: { create: { items: () => [newNotebookItem, newGroupItem] }, trash: { href: '#/trash' } },
-  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
+  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; },
     onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
-  onSignOut: () => signOut({ local }),
 });
-shell.setUser(user);
 shell.nav.append(navItem({ label: t('notes.all'), iconName: 'notes', current: true }), navSection(t('notes.notebooks')));
 
 const live = connectLive({ onChange: reload, onResync: reloadAll, onAccount: refreshUser, onState: shell.setLive });
-const updates = watchUpdates({
-  onUpdate: () => shell.showBanner('update', {
-    kind: 'accent', iconName: 'refresh', text: t('kit.update.availableNamed', { app: app.name }),
-    action: { label: t('kit.update.apply'), onClick: applyUpdate }, onClose: () => updates.dismiss(),
-  }),
-});
+const updates = watchAppVersion({ app, show: (id, options) => shell.showBanner(id, options) });
 const outbox = createOutbox({ local, onCount: (n) => …, onConflict: keepConflictCopy, onDropped: tell });
 ```
 
@@ -415,9 +411,7 @@ the focus goes to the current entry. With `panes: 'single'` there is one view in
 `shell.list`. There is no button for the person at the sidebar's foot (v0.224.0): on its own, the
 app's icon and name at the sidebar's head are a button, with Settings' icon in place of an arrow,
 that opens Settings (`onSettings`), where the account is and Sign out closes the profile.
-Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
-Settings, Administration (for admins, at `/admin`) and Sign out. `setUser()` keeps who is signed
-in for that menu.
+`onSignOut` and `shell.setUser()` are still accepted, and do nothing.
 As a module of a host (a page under `/<mount>/`, Cronum Work), from
 640 px a rail at the sidebar's start has the host's mark (not a link, v0.104.0), the modules the person uses (one too) and
 Settings at its foot, and the app's icon is only its mark. On a phone the drawer has no rail: the
@@ -428,7 +422,9 @@ kept on the device (`host.modules`): the rail is drawn with the frame, and again
 answers. From one module to another one page fades into the next (`@view-transition` in kit.css,
 200 ms, the rail standing still), in browsers that
 have view transitions and not for whoever asks for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
-`setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
+`setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id. Given
+as a function that writes its options, a banner shown again with the same words stays as it is, and
+`keptBanners()` gives those still on screen for a frame drawn again in a new language to show anew.
 
 **The module's search** (`search: { label, onSearch?(text), wait?, min?, onInput?(text), onSubmit?(text) }`) is the sidebar's
 first line, the same in every module (rule 9, v0.249.0). Its field reads the kit's «Buscar»
@@ -630,7 +626,7 @@ sign-in (two-step verification, sessions), the AI (MCP address, connected apps, 
 notifications (`push: true`), plan (`plan: true`; with `{ billing: true }` it also sells, below), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
-everything else is the suite's. `aboutExtra()` adds a block (what the app is), and `standing` its
+everything else is the suite's. `aboutExtra` adds a block (what the app is: `{ text, tips }`, keys the kit draws, or a function that draws it), and `standing` its
 instruction for an assistant, in Your AI. Your data ends with what goes for good: erasing what one has in the
 app (with `data`) and deleting the account (when the install offers it, `deletion_days`), each
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
@@ -646,8 +642,8 @@ The module open draws its own sections; another's are named from the host's `/ap
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
 section once it has started: `const asked = settingsAsked(); if (asked) settings(asked);`. In a
-frame of the split view, the view opens it in the frame that shows that module
-(`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
+frame of a host's page (Work's shell, for a module it can't mount), that page opens it in that
+module's window (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
 change. A host with a daily summary and push (`app.host.day`, v0.231.0, architecture §21.3.2) has
 its section in the host's group, «Daily summary» (`id: 'day'`): the morning's and the evening's
 notice, each a switch, a time in steps of five minutes and a link to its page (in Work's shell, a
@@ -794,7 +790,7 @@ it) or the app injected, before the page loaded,
 `inApp()`, `nativeInfo()` (`{ v, platform, version, capabilities }`, frozen, or null) and
 `can(capability)` say so; the capabilities are `push`, `reminders`, `badge`, `purchase`,
 `biometrics` and `share`. Known from the user agent alone, the app can do nothing. In a frame of
-a host's split view the bridge is the top window's.
+a host's page the bridge is the top window's.
 
 ```js
 import { can, setBadge, setReminders, onNative } from '../suite/native.js';
@@ -887,6 +883,19 @@ that ended, then someone else on the same browser) leaves the queue unsent (`rep
 Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
 a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
 queued offline cost no read to add and one record each to send.
+
+A module that draws itself from its copy before the server answers opens it with
+`deviceLocal(appId, stores)`: IndexedDB with `patience: LOCAL_PATIENCE_MS` (1.5 s), or memory where
+the browser has none. IndexedDB can hang (an upgrade another tab blocks, a browser's bug): past the
+patience, what waits for the database to open gives up (`local_store_slow`) and the start goes on
+as if the device kept nothing; `inTime(promise)` does the same for one read (null past it). Whose
+the copy is follows one set of rules in every module: `createDeviceCopy({ local, stores, account,
+owner, outbox })`, or `local.deviceCopy({ … })`. `kept()` is the account the copy is of. `claim(user)`
+once the server says who is signed in: someone else's changes waiting go, and everything with them;
+someone else's copy goes, and the changes stay. `forget()` when a session is gone, and
+`forget({ outbox: true })` on signing out. In Work's shell, before the server answers,
+`drawableFor(id, host)` says whether the copy kept for `id` may be drawn while the shell's account
+is `host` (a window's `services.user()`): never someone else's.
 
 ### Drag and drop
 
@@ -1118,8 +1127,8 @@ every module's worker the device still has, carrying their push subscriptions ov
 server told: the new address kept, the old ones forgotten). Where the browser won't subscribe
 without a tap, `noticesToRenew()` is true and Settings › Notifications asks to turn them on again.
 `watchUpdates()` then compares the host's /version with the host's /js/app-version.js: one notice
-for the whole app, named after the host (`theirs.name`), and none in a frame of the split view,
-whose page shows it once.
+for the whole app, named after the host (`theirs.name`), and none in a frame of a host's page,
+which shows it once.
 
 ### Notices on a device with no account
 

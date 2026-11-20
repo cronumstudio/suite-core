@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.314.0 — 2026-11-20
+## 0.315.0 — 2026-11-20
 
 - **A module turned on or off without a signal leaves or joins the rail at once** (`web/settings.js`,
   `web/shell.js`): Settings › Modules kept the change for later and said so, but the rail kept the
@@ -37,6 +37,65 @@ change an interface and a patch never does. Apps pin a version through the submo
   bars' shares and `readPlaces(storage, shape)` reads: each module still offered goes back to its
   place, the focused window stays (in a place nobody has back, else the last one), and the rest fill
   as before. `createWindows().columns()` passes them.
+
+## 0.314.0 — 2026-11-20
+
+What every module wrote again, written once in the kit; what the kit still carried and nobody used; and
+a payout's date on the person's own day.
+
+### Pieces the modules share now
+- **`createPlace({ hash, active, reload, own, base })`** (`web/mount.js`): a module's place in Cronum Work's
+  window or on its own page, the contract each `place.js` wrote by hand. Where modules read the shell
+  differently, an option (`active`, an opt-in `reload`); what is only the module's goes in `own`.
+- **`web/app-start.js`**: what a module's page does as it starts: `applyAppTheme` (with `ifOther`) and
+  `followSystemTheme`, `savedTheme`, `watchAppVersion`, `askedSettings`, `markCroppedCanvas` (as it was), and
+  for Cronum Work's shell `rgbOf` and `PAINT_ATTRIBUTES`. In the worker's copy of the kit.
+- **`web/days.js`**: `dayKey(date)`, the day a moment falls on on this device's clock (`YYYY-MM-DD`; today is
+  `dayKey(new Date())`, not UTC's day), and `addDays(day, n)` and `daysBetween(a, b)`, counted in UTC as the
+  server does. No DOM and no imports, so an offline model can use it. The kit's stamps and usage view count
+  their days with it.
+- **`i18n.js reportLanguage(user, lang, { send })`**: the browser's language into `prefs.lang_seen`, once per
+  change. **`live.js paintLive`**, **`native.js openAddress(url, { hash })`** (the one builder of `/?open=`
+  but the worker's), and **`links.js mountOf`** reads a base with `mount.js ownerOf`, as the shell now does.
+- **The frame's `showBanner`** also takes a function; the same words leave a banner as it is, and
+  `keptBanners()` lets a frame drawn again in another language show it again. Options as an object work as
+  before.
+- **Settings**: `aboutExtra` takes `{ text, tips }`, catalog keys the kit draws as every module drew them (a
+  function still works), and **`summaryOf(parts)`** joins what a copy holds by Intl's list of units («2
+  proyectos y 8 tareas»), leaving out the empty ones.
+
+### One's people wait for an answer, in every module
+`createSharing`'s `peopleOf` counts whoever offered the person something only once the person accepted it:
+an offer not answered makes nobody known to anybody. The `inviters` option goes (a module that still passes
+it changes nothing); `knownTo` is as it was.
+
+### What nobody used goes
+- **createShell has no account menu**: the app's icon and the rail's Settings open Settings, as they did in
+  every app. `accountItems` is ignored; `onSignOut` and `shell.setUser()` are still accepted and do nothing;
+  `kit.account.menu` and `kit.account.admin` go.
+- **The split view's last pieces**: createHost's `split` option (ignored if given), the rail's split button
+  (`SPLIT_LAYOUTS`, `.kit-rail__split`), the icons `layout-2`…`layout-4` and `kit.split.*`. `layout-1` and
+  `framedModules` stay; the comments and docs say "a frame of a host's page" where they said the split view.
+- **Six texts nothing read**: `admin.actions.mcp_token_create`, `admin.actions.mcp_token_revoke`,
+  `kit.update.available`, `kit.plan.until`, `errors.device_not_allowed`, `$meta.locale`.
+- `web/oauth.css` drops `--yolk-600`, `--cream` and `--ink`.
+- A notice that names no address opens the app at its path, not at `?app`, which means nothing any more.
+
+### Fixes
+- **Admin › Affiliates**: a payout's date starts on the person's day, not UTC's (from midnight to one or two in
+  the morning in Madrid it said the day before).
+
+### Tools and tests
+- **`tools/i18n.mjs unused`** lists a catalog's keys that no code reads, naming each prefix the code builds keys
+  from (`unusedKeys()` is exported). A module's keys are read by its own code and by the kit: pass both.
+- **`tools/dup-check.mjs`**: the code two modules or more both wrote. Every run of 8 significant lines
+  (comments, blank lines, imports and lone brackets left out, spaces collapsed) that two modules have counts once,
+  and the runs are joined into blocks. `duplicates(roots)` is for a host's test to keep that count from growing;
+  the command takes `name=folder` pairs and `--max`, and fails over it.
+- Two tests that failed now and then give the same answer every run: the offers compared in inherit-and-offers
+  keep a clock of their own, and the 413 test no longer races the server's close with bytes still unread.
+- `docs/web-kit.md` says what `local.js` gives a module that draws from its copy (`deviceLocal`, the patience,
+  `inTime`, `createDeviceCopy`, `drawableFor`), and lists `days.js` and `app-start.js`.
 
 ## 0.312.0 — 2026-11-20
 

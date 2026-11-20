@@ -28,10 +28,21 @@
  */
 import { at } from './base.js';
 import { workRegistry, ownerOf } from './mount.js';
+import { t } from './i18n.js';
 
 const GROUP_MS = 300;
 const FIRST_WAIT = 2000;
 const MAX_WAIT = 60000;
+
+/**
+ * The dot that says the channel's state ('open', 'connecting' or 'closed', as `onState` tells it):
+ * the frame's, next to the app's name (shell.js `setLive`), and Cronum Work's rail's, in words too.
+ */
+export function paintLive(node, state) {
+  node.dataset.state = state;
+  node.title = t(`kit.live.${state}`);
+  node.setAttribute('aria-label', node.title);
+}
 
 /**
  * @param {object} handlers

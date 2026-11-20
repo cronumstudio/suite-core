@@ -187,6 +187,21 @@ export function shareLanguage(lang = language) {
   return true;
 }
 
+/**
+ * With the browser's language in charge ('auto'), the server is told which one it resolved
+ * (`prefs.lang_seen`): what it writes in where no browser takes part (the notices, the daily
+ * summary, a list an assistant creates). Once per change, and never if they chose a language:
+ * kept in `user.prefs`, so the next call sends nothing. `send` is how the app writes
+ * `PATCH /api/me`; it is only a hint, so a failure is not an error for anyone.
+ * @returns {string|null} the language sent, or null when nothing went
+ */
+export function reportLanguage(user, lang, { send }) {
+  if (!user || !lang || (user.prefs?.lang ?? 'auto') !== 'auto' || user.prefs?.lang_seen === lang) return null;
+  user.prefs = { ...user.prefs, lang_seen: lang };
+  Promise.resolve().then(() => send({ prefs: { lang_seen: lang } })).catch(() => { /* it is only a hint */ });
+  return lang;
+}
+
 export const currentLanguage = () => language;
 
 /** The text of a key, with its placeholders filled (numbers written by Intl); plurals picked with `n`. */
