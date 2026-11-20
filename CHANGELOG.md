@@ -3,6 +3,45 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.313.0 — 2026-11-20
+
+- **Breaking for installs: the two catalogs besides `cronum-work` are named by how their plans are
+  held** (`plans.js`). `cronum-per-group`: Free and Pro, which belong to a group: granted to an
+  organization (bought by its owner or an admin, or a trial, a grant with an end) and reaching
+  every member. `cronum-per-seat`: Free, Pro for one person, and `org`, an organization's plan
+  whose quantity is its seats (`organizations.seatRoles`), now shown as Team, which the suite's
+  catalogs translate. Their plan ids, keys and values don't change, so the grants already kept
+  match as before. An install whose `PLANS` gives a catalog by an earlier name doesn't start until
+  it gives the new one: there is no alias, as with the variables renamed in 0.28.0. An app that
+  names one of them changes `PLANS` in the same deployment that moves its submodule up.
+  `PLANS=cronum-work` and its installs are as they were.
+- **A `PLANS` that names no catalog says that alone** (`entitlements.js`): `PLANS "…" is no catalog
+  of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON`, without the second
+  message about the plans' shape it brought when the app had no plans of its own. The start stops
+  as before, in an app and in a host.
+- **`app.accent`** (`config.js`, `brand.js`, `oauth-page.js`): the accent's measured steps for the
+  pages the suite draws itself, `{ light, on, dark, onDark }`, each `#RRGGBB`. Next to `app.color`
+  they are written on the page's `<html>` as `--app-accent`, `--app-on`, `--app-accent-dark` and
+  `--app-on-dark`, so an app that tokens.css doesn't list wears the same accent on the admin panel,
+  affiliates, the connect page and the not-found page as on its own pages. Left out, those pages
+  are exactly as before; a misspelt key, a colour that isn't `#RRGGBB` or an accent without
+  `app.color` stops the start.
+- **tokens.css lists the suite's own apps** (Tasks, Projects, Next, Notes and Cronum Work, inside
+  Work's windows too): the `--cr-product-*` colours and the `:root[data-app]` accents are theirs
+  only. Any other app sets the five `--app*` variables under `:root[data-app="<its id>"]` in its
+  own sheet and gives `app.accent` for the suite's pages; one that read an accent or a
+  `--cr-product-*` colour this file no longer has moves it into its own sheet.
+- **`tools/i18n.mjs`**: `BRAND_WORDS` holds the brand, the suite's own apps and the protocols. An
+  app passes its own name in `allow`, which `app` now takes as `--allow <word>` (once per word), or
+  marks the line that writes it `i18n-exempt`; otherwise a name the list doesn't have is flagged
+  where the app's pages write it.
+- **Comments and tests say what each mechanism does**: a group's own plan, seats by role, a device
+  that belongs to the app, the phone's connect page, one row per group. The tests' apps are `demo`,
+  `acme` and `fam`, and the seat role in the examples is `agent`, also in the start message of
+  `organizations.seatRoles`. New tests: the catalogs' and their plans' names are fixed, since
+  installs and grants hold them; an app or a host whose `PLANS` names no catalog stops with that
+  one message; `app.accent` on each page the suite draws; `--allow`.
+
 ## 0.312.0 — 2026-11-20
 
 - **The look's sizes, one scale said by name** (audit of 6/11: dup-css-13, phase 1 of 2: the kit
