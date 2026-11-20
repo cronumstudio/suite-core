@@ -127,7 +127,8 @@ export function sharedPage({
    */
   const permissionChoice = (roles, value, onChange) => {
     if (!roles) {
-      return segmented([{ value: 'view', label: t('kit.shared.view') }, { value: 'edit', label: t('kit.shared.edit') }], value, onChange);
+      // The share dialog's order: can edit first, then read only.
+      return segmented([{ value: 'edit', label: t('kit.shared.edit') }, { value: 'view', label: t('kit.shared.view') }], value, onChange);
     }
     const offered = roles.filter((role) => role.offered !== false);
     if (roles.length <= 2) return segmented(offered, value, onChange);
@@ -147,7 +148,7 @@ export function sharedPage({
       const role = roles?.find((r) => r.value === person.permission);
       const kept = role?.offered === false;
       return el('div', { class: 'kit-shared__person' },
-        avatar(who),
+        avatar(person.user || who),
         el('span', { class: 'kit-shared__who' }, el('span', { text: who }), email ? el('small', { text: email }) : null),
         person.accepted ? null : el('span', { class: 'kit-badge kit-badge--warn', text: t('kit.shared.pending') }),
         kept ? el('span', { class: 'kit-share__role', text: role.label })
