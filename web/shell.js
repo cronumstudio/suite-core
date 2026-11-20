@@ -57,6 +57,7 @@ import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
 import { paintLive } from './live.js';
+import { ownerOf } from './mount.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -774,8 +775,8 @@ export function createShell({
 
   /* --------------------------------- modules -------------------------------- */
 
-  // This page's module, when it is one of a host's: its path's single segment.
-  const mount = /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(BASE)?.[1] || null;
+  // This page's module, when it is one of a host's: its path's single segment (mount.js ownerOf).
+  const mount = ownerOf(BASE);
   let rail = null;
   let switcher = null;
   let switcherIcon = null;   // its arrow, or Settings' icon where it opens them
