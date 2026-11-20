@@ -3,6 +3,34 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.316.0 — 2026-11-20
+
+Offers by email kept by the sharing engine for every module, with one rule that never tells the owner whose an
+address is; and grouped notices written once.
+
+### Sharing
+- **`createAddressOffers({ db, table, kinds, … })`** writes a module's offers by email once: kept under the address
+  whether an account has it or not, listed to the owner by the address (whole to whoever typed it, masked to anyone
+  else) under the offer's negative id, changed and taken back by that row with the account waiting behind it, and
+  claimed by whoever signs up with the address once it is confirmed (a read first, a write only when something
+  waits).
+- **A kind with `addressOffers`** lets the engine do this itself: the same notices for the owner either way, the
+  offers in `list()` and `sharesOf(…, { viewer })`, `PATCH`/`DELETE …/-<id>` (and `setPermission`/`remove` with a
+  negative id), `accept()` claiming first, and `claimAddressOffers(userId)`.
+- **One rule for every kind**: an offer under an address goes only when the invitation it brought is accepted or
+  declined, or its owner takes it back. Nothing else the account does moves it (answering an offer made by name,
+  leaving, a permission given by name), so the owner's list never tells whose an address is. Kinds without
+  `addressOffers`, and every earlier signature, are unchanged.
+- **`share-mail.js shareNotices({ suite, get, texts, url, kinds })`**: createSharing's `notify` as every module wrote
+  it: the email, the email to an address without an account, and the push in the kit's words, tagged by the thing.
+  Each module's own parts are options (mail kind, tag, address, no emoji for strangers).
+
+### Grouped notices
+- **`notice-groups.js createNoticeGroups({ send, delayMs, failed })`**: notices grouped by key for a few seconds (25 s
+  by default, `NOTICE_DELAY_MS`) and sent as one once the key goes quiet; each change restarts the wait, `flush(key)`
+  sends one now and `flushAll()` sends what waits when a module stops. A send the timer started that fails goes to
+  `failed` (by default the log) instead of becoming an unhandled rejection.
+
 ## 0.315.0 — 2026-11-20
 
 - **A module turned on or off without a signal leaves or joins the rail at once** (`web/settings.js`,
