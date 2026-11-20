@@ -78,7 +78,7 @@ async function start(t, { earlyAccess = null } = {}) {
   // Connected apps: a stand-in for the OAuth server with one grant per person.
   const grants = new Map();
   const oauth = { enabled: true, grantsOf: (id) => grants.get(id) || [], revokeGrant: (grant, id) => grant === 1 && grants.delete(id) };
-  registerProfileApi(router, { accounts, sessions, tokens, entitlements, oauth, audit, idp, alsoAt: { tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' } });
+  registerProfileApi(router, { accounts, sessions, tokens, entitlements, oauth, audit, idp });
 
   // Who is asking comes in a header: signing in is not what is tested here.
   const server = http.createServer(async (req, res) => {
@@ -337,8 +337,8 @@ test('each person’s own: sessions, plan, tokens, connected apps and password',
   assert.equal(plan.body.plan.id, 'free');
   assert.deepEqual(plan.body.plans.map((p) => p.id), ['free', 'pro'], 'there is a choice');
 
-  // Tokens, at the suite's path and at the one the app always had.
-  const made = await call('POST', '/api/mcp-tokens', { as: ada, body: { name: 'Claude' } });
+  // Tokens.
+  const made = await call('POST', '/api/me/tokens', { as: ada, body: { name: 'Claude' } });
   assert.equal(made.status, 201);
   assert.match(made.body.token, /^mcp_/);
   assert.equal(made.body.token_hash, undefined);
@@ -346,13 +346,12 @@ test('each person’s own: sessions, plan, tokens, connected apps and password',
   assert.deepEqual((await call('GET', '/api/me/tokens', { as: ada })).body.map((r) => r.name), ['Claude']);
   assert.deepEqual((await call('GET', '/api/me/tokens', { as: bob })).body, []);
   assert.equal((await call('DELETE', `/api/me/tokens/${made.body.id}`, { as: bob })).body.error, 'token_not_found');
-  assert.deepEqual((await call('DELETE', `/api/mcp-tokens/${made.body.id}`, { as: ada })).body, { ok: true });
+  assert.deepEqual((await call('DELETE', `/api/me/tokens/${made.body.id}`, { as: ada })).body, { ok: true });
   assert.equal(tokens.authenticate(made.body.token), null);
 
   grants.set(ada, [{ id: 1, client_name: 'Claude' }]);
   const unchanged = await call('GET', '/api/me/apps', { as: ada });
   assert.deepEqual(unchanged.body, { enabled: true, grants: [{ id: 1, client_name: 'Claude' }] }, 'nothing from the provider when it has none');
-  assert.deepEqual((await call('GET', '/api/oauth-grants', { as: ada })).body, { enabled: true, grants: [{ id: 1, client_name: 'Claude' }] });
   assert.equal((await call('DELETE', '/api/me/apps/2', { as: ada })).body.error, 'app_not_found');
   assert.deepEqual((await call('DELETE', '/api/me/apps/1', { as: ada })).body, { ok: true });
 

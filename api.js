@@ -416,12 +416,10 @@ export function registerAccountMailApi(router, {
  * @param {Function} [deps.providerPassword]  (ctx, user, password) → the password at the identity
  *   provider checked, when the account has one there (identityCheck)
  * @param {object} [deps.deletion]      from createAccountDeletion(): deleting one's own account
- * @param {object} [deps.alsoAt]        older paths an app keeps answering:
- *   `{ tokens: '/api/mcp-tokens', apps: '/api/oauth-grants' }`
  */
 export function registerProfileApi(router, {
   accounts = null, sessions = null, tokens = null, entitlements = null, oauth = null, audit = null,
-  limiter = null, twoFactor = null, localPasswords = true, alsoAt = {}, idp = null, deletion = null, push = null,
+  limiter = null, twoFactor = null, localPasswords = true, idp = null, deletion = null, push = null,
   providerPassword = null,
 }) {
   const requireUser = (ctx) => {
@@ -430,7 +428,6 @@ export function registerProfileApi(router, {
   };
   const record = (ctx, action, targetType, targetId, meta) =>
     audit?.record({ action, actor: ctx.user, req: ctx.req, targetType, targetId, meta });
-  const at = (path, legacy, add) => [path, ...(legacy ? [legacy] : [])].forEach(add);
 
   if (deletion && sessions) {
     const sure = identityCheck({ limiter, twoFactor, localPasswords, providerPassword });
@@ -503,29 +500,28 @@ export function registerProfileApi(router, {
   }
 
   if (tokens) {
-    at('/api/me/tokens', alsoAt.tokens, (path) => {
-      router.get(path, (ctx) => {
-        const user = requireUser(ctx);
-        sendJson(ctx.res, 200, tokens.list(user.id));
+    const path = '/api/me/tokens';
+    router.get(path, (ctx) => {
+      const user = requireUser(ctx);
+      sendJson(ctx.res, 200, tokens.list(user.id));
+    });
+    router.post(path, answeredOnce(async (ctx) => {
+      const user = requireUser(ctx);
+      const body = await readJson(ctx.req);
+      const { token, row } = tokens.create(user.id, {
+        name: str(body.name ?? 'MCP', { field: 'name', max: 60, min: 1 }),
+        scopes: body.scopes ?? ['mcp'], expiresAt: body.expires_at ?? null,
       });
-      router.post(path, answeredOnce(async (ctx) => {
-        const user = requireUser(ctx);
-        const body = await readJson(ctx.req);
-        const { token, row } = tokens.create(user.id, {
-          name: str(body.name ?? 'MCP', { field: 'name', max: 60, min: 1 }),
-          scopes: body.scopes ?? ['mcp'], expiresAt: body.expires_at ?? null,
-        });
-        record(ctx, 'token.create', 'token', row.id, { scopes: row.scopes });
-        // The value travels once, here. After that only its hash remains.
-        sendJson(ctx.res, 201, { ...row, token });
-      }));
-      router.delete(`${path}/:id`, (ctx) => {
-        const user = requireUser(ctx);
-        const id = idOf(ctx.params.id);
-        if (!tokens.revoke(user.id, id)) throw notFound('token_not_found');
-        record(ctx, 'token.revoke', 'token', id);
-        sendJson(ctx.res, 200, { ok: true });
-      });
+      record(ctx, 'token.create', 'token', row.id, { scopes: row.scopes });
+      // The value travels once, here. After that only its hash remains.
+      sendJson(ctx.res, 201, { ...row, token });
+    }));
+    router.delete(`${path}/:id`, (ctx) => {
+      const user = requireUser(ctx);
+      const id = idOf(ctx.params.id);
+      if (!tokens.revoke(user.id, id)) throw notFound('token_not_found');
+      record(ctx, 'token.revoke', 'token', id);
+      sendJson(ctx.res, 200, { ok: true });
     });
   }
 
@@ -538,44 +534,43 @@ export function registerProfileApi(router, {
      * (Claude, ChatGPT…); `enabled` says whether pasting the URL is enough,
      * `unavailable` that the provider couldn't be asked just now.
      */
-    at('/api/me/apps', alsoAt.apps, (path) => {
-      router.get(path, async (ctx) => {
-        const user = requireUser(ctx);
-        const grants = oauth?.enabled ? [...oauth.grantsOf(user.id)] : [];
-        let unavailable = false;
-        if (viaProvider) {
-          try {
-            for (const c of await idp.connectionsOf(user.id)) {
-              grants.push({ id: `${providerPrefix}${c.id}`, client_name: c.client_name, last_used_at: c.last_used_at, provider: idp.id });
-            }
-          } catch (err) {
-            console.error(`[auth] the apps connected through ${idp.name} can't be listed: ${err.message}`);
-            unavailable = true;
+    const path = '/api/me/apps';
+    router.get(path, async (ctx) => {
+      const user = requireUser(ctx);
+      const grants = oauth?.enabled ? [...oauth.grantsOf(user.id)] : [];
+      let unavailable = false;
+      if (viaProvider) {
+        try {
+          for (const c of await idp.connectionsOf(user.id)) {
+            grants.push({ id: `${providerPrefix}${c.id}`, client_name: c.client_name, last_used_at: c.last_used_at, provider: idp.id });
           }
+        } catch (err) {
+          console.error(`[auth] the apps connected through ${idp.name} can't be listed: ${err.message}`);
+          unavailable = true;
         }
-        sendJson(ctx.res, 200, { enabled: Boolean(oauth?.enabled || viaProvider), grants, ...(unavailable ? { unavailable } : {}) });
-      });
-      router.delete(`${path}/:id`, async (ctx) => {
-        const user = requireUser(ctx);
-        if (viaProvider && ctx.params.id.startsWith(providerPrefix)) {
-          let done;
-          try {
-            done = await idp.revokeConnection(user.id, ctx.params.id.slice(providerPrefix.length));
-          } catch (err) {
-            console.error(`[auth] an app connected through ${idp.name} could not be disconnected: ${err.message}`);
-            throw new HttpError(503, 'provider_unavailable');
-          }
-          if (!done) throw notFound('app_not_found');
-          record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name, ...(done.everywhere === false ? { everywhere: false } : {}) });
-          sendJson(ctx.res, 200, { ok: true });
-          return;
+      }
+      sendJson(ctx.res, 200, { enabled: Boolean(oauth?.enabled || viaProvider), grants, ...(unavailable ? { unavailable } : {}) });
+    });
+    router.delete(`${path}/:id`, async (ctx) => {
+      const user = requireUser(ctx);
+      if (viaProvider && ctx.params.id.startsWith(providerPrefix)) {
+        let done;
+        try {
+          done = await idp.revokeConnection(user.id, ctx.params.id.slice(providerPrefix.length));
+        } catch (err) {
+          console.error(`[auth] an app connected through ${idp.name} could not be disconnected: ${err.message}`);
+          throw new HttpError(503, 'provider_unavailable');
         }
-        if (!oauth) throw notFound('app_not_found');
-        const id = idOf(ctx.params.id);
-        if (!oauth.revokeGrant(id, user.id)) throw notFound('app_not_found');
-        record(ctx, 'oauth.grant.revoke', 'oauth_grant', id);
+        if (!done) throw notFound('app_not_found');
+        record(ctx, 'oauth.connection.revoke', 'user', user.id, { provider: idp.id, client: done.client_name, ...(done.everywhere === false ? { everywhere: false } : {}) });
         sendJson(ctx.res, 200, { ok: true });
-      });
+        return;
+      }
+      if (!oauth) throw notFound('app_not_found');
+      const id = idOf(ctx.params.id);
+      if (!oauth.revokeGrant(id, user.id)) throw notFound('app_not_found');
+      record(ctx, 'oauth.grant.revoke', 'oauth_grant', id);
+      sendJson(ctx.res, 200, { ok: true });
     });
   }
 

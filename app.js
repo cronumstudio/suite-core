@@ -766,7 +766,6 @@ export function clientTexts(flat) {
  *   view, store }`): with them the suite serves `GET`/`PATCH /api/me` (api.js registerMeApi), and
  *   without a `serializeUser` the account is `userSerializer`'s (public fields, `auth_provider`,
  *   `prefs`). Without them the app's own `/api/me` answers, as before
- * @param {object} [options.profile]      { alsoAt: { tokens, apps } }: older paths the app keeps
  * @param {string} [options.version]      the app's version, for /health and the MCP
  * @param {string[]} [options.clientRoutes]  the paths its page answers that are no file (`['/']`): any
  *   other path without an extension is a 404 page with a link to `/`, and a folder with an
@@ -821,7 +820,7 @@ export function healthOf(database, versionOf) {
 }
 
 export function createApp({
-  suite, publicDir = null, routes = null, mcp = null, serializeUser = null, profile = {}, prefs = null,
+  suite, publicDir = null, routes = null, mcp = null, serializeUser = null, prefs = null,
   clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
@@ -900,7 +899,7 @@ export function createApp({
     ? (ctx, user, password) => workosSecurity?.confirmIdentity?.(ctx, user, password) : null;
   registerProfileApi(api, {
     accounts, sessions, tokens, entitlements, oauth, audit, limiter, twoFactor, idp, deletion, push,
-    localPasswords, alsoAt: profile.alsoAt || {}, providerPassword,
+    localPasswords, providerPassword,
   });
   if (install.authProvider === 'workos') {
     workosSecurity = registerWorkosSecurityApi(api, {

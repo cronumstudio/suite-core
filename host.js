@@ -1134,7 +1134,7 @@ export async function createHost({
     if (actionsProblem) stop([`${entry.mount}: ${actionsProblem}`]);
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
-      serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
+      serializeUser: parts.serializeUser ?? null, version: parts.version ?? '0.0.0',
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
       // Its page answers its own path alone; any other there is a 404 page (audit prod-9): no module
