@@ -558,6 +558,13 @@ export function idOrNull(value, field) {
   return n;
 }
 
+/** The id a route names (`/api/notes/:id`, or the param `name`): 400 `field_invalid` when it is no id, 404 when there is none. */
+export function idParam(ctx, name = 'id') {
+  const id = idOrNull(ctx.params[name], name);
+  if (!id) throw notFound();
+  return id;
+}
+
 /** An integer within bounds. */
 export function int(value, { field, min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
   const n = typeof value === 'number' ? value : Number(value);
@@ -589,6 +596,9 @@ export function color(value, { fallback = null, code = 'field_invalid', field } 
   if (typeof value !== 'string' || !HEX_COLOR.test(value)) throw badRequest(code, field === undefined ? undefined : { field });
   return value.toLowerCase();
 }
+
+/** An object as JSON has them: not null, not an array. */
+export const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * A calendar date as `YYYY-MM-DD` that exists and falls in a sensible range:

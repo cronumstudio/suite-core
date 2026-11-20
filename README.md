@@ -47,7 +47,7 @@ Today's modules are below; the planned ones, and their order, are in the archite
 | `crypto.js` | Passwords in the scrypt format every app stores, token hashes, HMAC, constant-time comparison, and AES-256-GCM for what must be read back (a second step's secret) |
 | `db.js` | `openDatabase()` / `wrapDatabase()`: WAL, foreign keys, `all/get/run/exec` (statements kept prepared), nested transactions, `app_meta`, `optimize()`; `inBatches()`, many ids asked 500 to a statement, and `personId()` |
 | `migrate.js` | Numbered migrations per scope (`suite`, `app`), each in its own transaction; refuses gaps and newer databases |
-| `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`) |
+| `http.js` | `HttpError` with codes, router, `readJson`, cookies, static files, security headers, and the check against cross-site requests (`checkOrigin`); the checks of a field the modules share (`str`, `int`, `intInRange`, `isoDate`, `dateOnly`, `color`, `idParam`, `isObject`), each answering the code its caller gives |
 | `sessions.js` | Browser sessions that live while used (with a maximum), rotated at sign-in, listed and closed per device; the session secret, never an example value |
 | `rate-limit.js` | The brute-force brake kept in the database: per account, per address, the second step's codes per account, tokens, client registrations and failed device codes |
 | `schema.js` | The suite's own tables as numbered migrations (scope `suite`), which bring an app's older tables to the suite's shape |

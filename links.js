@@ -50,7 +50,7 @@
  * able to change both sides; adding something new from a side, that side; unlinking, to have made
  * the link or to be able to change one of its sides.
  */
-import { HttpError, badRequest, notFound, forbidden, unauthorized, sendJson, readJson } from './http.js';
+import { HttpError, badRequest, notFound, forbidden, unauthorized, sendJson, readJson, isObject } from './http.js';
 
 /** The host's table of links (host.js HOST_MIGRATIONS): each pair once, in a fixed order. */
 export function linksSchema(d) {
@@ -477,8 +477,6 @@ export function createLinks({
 
   return { of, canLink, link, connect, create, update, remove, search, changed, done, prune };
 }
-
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** The host's routes for links, at its root: the modules' pages ask them there. */
 export function registerLinksApi(api, { links }) {

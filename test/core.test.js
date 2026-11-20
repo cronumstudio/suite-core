@@ -18,7 +18,7 @@ import { openDatabase, inBatches, personId } from '../db.js';
 import { migrate, ensureColumn } from '../migrate.js';
 import {
   HttpError, createRouter, readJson, serveStatic, securityHeaders, checkOrigin, sendError,
-  parseCookies, serializeCookie, str, clientIp, isoDate, dateOnly, color, intInRange,
+  parseCookies, serializeCookie, str, clientIp, isoDate, dateOnly, color, intInRange, idParam, isObject,
 } from '../http.js';
 import { createKeySet } from '../jwt.js';
 
@@ -337,6 +337,19 @@ test('intInRange: an integer that may be left out, refused with the caller’s c
     [400, 'field_out_of_range', { field: 'progress', min: 0, max: 100 }]);
   assert.deepEqual(refusal(() => intInRange(0, { field: 'days', min: 1, max: 365 })),
     [400, 'field_invalid', { field: 'days', min: 1, max: 365 }], 'out of bounds: the code, unless another is given');
+});
+
+test('idParam: the id a route names; 400 for what is no id, 404 for none', () => {
+  assert.equal(idParam({ params: { id: '12' } }), 12);
+  assert.equal(idParam({ params: { noteId: '7' } }, 'noteId'), 7);
+  assert.deepEqual(refusal(() => idParam({ params: { id: 'abc' } })), [400, 'field_invalid', { field: 'id' }]);
+  assert.deepEqual(refusal(() => idParam({ params: { id: '0' } })), [400, 'field_invalid', { field: 'id' }]);
+  assert.deepEqual(refusal(() => idParam({ params: {} })), [404, 'not_found', {}]);
+});
+
+test('isObject: an object as JSON has them', () => {
+  for (const yes of [{}, { a: 1 }, Object.create(null)]) assert.equal(isObject(yes), true);
+  for (const no of [null, undefined, [], [1], 'x', '', 0, 1, true, false]) assert.equal(isObject(no), false, String(no));
 });
 
 test('client address: X-Forwarded-For only as far as the trusted proxies go', () => {

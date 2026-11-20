@@ -34,7 +34,7 @@
  * of group a copy carries, a list, where these are the rules of each kind.
  */
 import { randomToken, sha256 } from './crypto.js';
-import { HttpError, badRequest, notFound, forbidden, conflict } from './http.js';
+import { HttpError, badRequest, notFound, forbidden, conflict, isObject } from './http.js';
 import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
@@ -61,7 +61,6 @@ export const KIND_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
  */
 export const MEMBER_REASONS = Object.freeze(['left', 'removed', 'account_deleted', 'handed_over']);
 const PLAIN_KIND = Object.freeze({ managed: false, maxPerUser: null, onEmpty: 'archive' });
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * The kinds of suite.config.js `organizations.kinds`, checked and filled in:
