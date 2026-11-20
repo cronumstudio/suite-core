@@ -142,8 +142,8 @@ test('a shared login with the MCP on does not start without WORKOS_MCP_AUDIENCE;
 test('a shared login: noted at WorkOS, asked about when the person uses another app, deleted with the account only so', async (t) => {
   const workos = await fakeWorkos(t);
   workos.add('user_ana');
-  workos.add('user_bea', { app_focus: 'Focus' });
-  workos.add('user_cai', { app_focus: 'Focus', app_tracker: 'Tracker' });
+  workos.add('user_bea', { app_acme: 'Acme' });
+  workos.add('user_cai', { app_acme: 'Acme', app_globex: 'Globex' });
   workos.add('user_root');
   const { suite, person, signIn } = await serve(t, workos);
   const admin = person('root', 'user_root', 'admin');
@@ -157,14 +157,14 @@ test('a shared login: noted at WorkOS, asked about when the person uses another 
   // Whoever was here before this app noted itself is noted once, by its name in ASCII.
   assert.equal(await suite.workos.markAll(), 4);
   assert.equal(workos.users.get('user_bea').metadata.app_demo, 'Demo');
-  assert.equal(workos.users.get('user_bea').metadata.app_focus, 'Focus', 'what other apps noted stays');
+  assert.equal(workos.users.get('user_bea').metadata.app_acme, 'Acme', 'what other apps noted stays');
   assert.equal(await suite.workos.markAll(), 0, 'and never again');
 
   assert.equal((await ana.call('GET', '/api/auth/config')).data.deletion_identity, true);
   assert.deepEqual((await ana.call('GET', '/api/me/deletion')).data, { other_apps: [] });
-  assert.deepEqual((await bea.call('GET', '/api/me/deletion')).data, { other_apps: ['Focus'] }, 'its own name is not another app');
+  assert.deepEqual((await bea.call('GET', '/api/me/deletion')).data, { other_apps: ['Acme'] }, 'its own name is not another app');
 
-  // Ana uses only this app: not asked. Bea keeps her login for Focus. Cai lets it go.
+  // Ana uses only this app: not asked. Bea keeps her login for Acme. Cai lets it go.
   assert.equal((await ana.call('POST', '/api/me/deletion', { confirm: true })).status, 200);
   assert.equal((await bea.call('POST', '/api/me/deletion', { confirm: true, identity: false })).status, 200);
   assert.equal((await cai.call('POST', '/api/me/deletion', { confirm: true, identity: 'yes' })).status, 400, 'true or false only');
@@ -176,18 +176,18 @@ test('a shared login: noted at WorkOS, asked about when the person uses another 
   assert.equal(await suite.deletion.sweep(), 3);
   assert.equal(workos.users.has('user_ana'), false);
   assert.equal(workos.users.has('user_cai'), false);
-  assert.deepEqual(workos.users.get('user_bea').metadata, { app_focus: 'Focus' });
+  assert.deepEqual(workos.users.get('user_bea').metadata, { app_acme: 'Acme' });
 
   // The admin: the login stays unless ticked.
-  workos.add('user_dan', { app_focus: 'Focus' });
+  workos.add('user_dan', { app_acme: 'Acme' });
   workos.add('user_eve');
   const dan = person('dan', 'user_dan');
   const eve = person('eve', 'user_eve');
   await suite.workos.markAll();
-  assert.deepEqual((await admin.call('GET', `/api/admin/users/${dan.user.id}/other-apps`)).data, { other_apps: ['Focus'] });
+  assert.deepEqual((await admin.call('GET', `/api/admin/users/${dan.user.id}/other-apps`)).data, { other_apps: ['Acme'] });
   assert.equal((await admin.call('DELETE', `/api/admin/users/${dan.user.id}`)).status, 200);
   assert.equal(suite.accounts.byId(dan.user.id), null);
-  assert.deepEqual(workos.users.get('user_dan').metadata, { app_focus: 'Focus' }, 'unticked: their login stays, without this app');
+  assert.deepEqual(workos.users.get('user_dan').metadata, { app_acme: 'Acme' }, 'unticked: their login stays, without this app');
   workos.setDown(true);
   assert.equal((await admin.call('DELETE', `/api/admin/users/${eve.user.id}?identity=1`)).status, 503, 'WorkOS down: nothing goes');
   assert.ok(suite.accounts.byId(eve.user.id));
@@ -277,7 +277,7 @@ test('the deletion on its own: auto asks again when the account goes, and waits 
   await deletion.request(gus, { identity: 'all' });
 
   // Fay started using another app in her days: her login stays. WorkOS down: everyone with a question waits.
-  others.set(fay.id, ['Focus']);
+  others.set(fay.id, ['Acme']);
   now += 31 * DAY;
   down = true;
   assert.equal(await deletion.sweep(), 2, 'Fay waits: whether another app is hers can’t be known');

@@ -870,12 +870,12 @@ test('a dialog without actions has no footer, and no "null" where it would have 
   for (const actions of [undefined, [], null]) {
     let closed = 0;
     const { dialog, close } = openDialog({
-      title: 'About', content: el('p', { text: 'Tracker 0.14.1' }), onClose: () => { closed += 1; },
+      title: 'About', content: el('p', { text: 'Demo 1.0.0' }), onClose: () => { closed += 1; },
       ...(actions === undefined ? {} : { actions }),
     });
     assert.equal(dialog.open, true);
     assert.equal(dialog.find('footer').length, 0, `actions: ${actions}`);
-    assert.equal(dialog.textContent, 'AboutTracker 0.14.1', `actions: ${actions}`);
+    assert.equal(dialog.textContent, 'AboutDemo 1.0.0', `actions: ${actions}`);
     close();
     assert.equal(closed, 1);
     assert.ok(!document.body.childNodes.includes(dialog), 'gone once closed');
@@ -923,7 +923,9 @@ test('every product’s accent reads: 4.5:1 with its text, light and dark', () =
   // A product's own page and, for a module of Cronum Work, its windows and pieces in Work's shell (audit of 6/11, work-web-3).
   const products = [...css.matchAll(/:root\[data-app="(\w+)"\](?:, :root\[data-app="work"\] :is\(\[data-module="(\w+)"\], \[data-owner="(\w+)"\]\))?\s*\{([^}]*)\}/g)]
     .map(([, id, inWork, owner, body]) => [id, inWork ?? null, owner ?? null, body]);
-  assert.deepEqual(products.map(([id]) => id), ['tasks', 'projects', 'next', 'focus', 'notes', 'tracker', 'work']);
+  assert.deepEqual(products.map(([id]) => id), ['tasks', 'projects', 'next', 'notes', 'work']);
+  assert.deepEqual([...css.matchAll(/--cr-product-(\w+):/g)].map(([, id]) => id).sort(), products.map(([id]) => id).sort(),
+    'every app colour has its accent block, and no block lacks its colour');
   assert.deepEqual(products.filter(([, inWork]) => inWork).map(([id, inWork, owner]) => [id, inWork, owner]),
     ['tasks', 'projects', 'next', 'notes'].map((id) => [id, id, id]), 'each module of Work in its own accent inside Work');
   for (const [id, , , body] of products) {
@@ -2336,7 +2338,7 @@ async function settingsAt(start, config, answers) {
 }
 const shape = (node) => node.childNodes.map((child) => child.tagName || `text "${child.textContent}"`);
 
-test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with no "null" in their place (Tracker\'s review)', async () => {
+test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with no "null" in their place', async () => {
   const { t } = await import('../web/i18n.js');
   const copy = { created_at: '2026-10-12T09:30:00.000Z', applied_at: null, tables: { notes: 4 } };
   const planOf = async (answer) => {

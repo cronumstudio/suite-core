@@ -815,7 +815,7 @@ test('a copy that isn’t right is refused, and says why', async (t) => {
   fs.writeFileSync(text, 'not a zip at all, just words');
   await rejectsWith(plan(text), 'zip_invalid');
   await rejectsWith(plan(await tamper(own, path.join(dir, 'a.zip'), (n, b) => (n === 'manifest.json' ? null : b))), 'import_not_export');
-  await rejectsWith(plan(await tamper(own, path.join(dir, 'b.zip'), editJson('manifest.json', (m) => ({ ...m, app: { id: 'tracker', name: 'Tracker' } })))), 'import_other_app');
+  await rejectsWith(plan(await tamper(own, path.join(dir, 'b.zip'), editJson('manifest.json', (m) => ({ ...m, app: { id: 'acme', name: 'Acme' } })))), 'import_other_app');
   await rejectsWith(plan(await tamper(own, path.join(dir, 'c.zip'), editJson('manifest.json', (m) => ({ ...m, schema: { app: 1, suite: 99 } })))), 'import_newer_version');
   await rejectsWith(plan(await tamper(own, path.join(dir, 'd.zip'), editJson('data/lists.json', (rows) => rows.map((r) => ({ ...r, owner_is_admin: 1 }))))), 'import_invalid_data');
   await rejectsWith(plan(await tamper(own, path.join(dir, 'e.zip'), editJson('data/tasks.json', (rows) => [...rows, rows[0]]))), 'import_invalid_data');

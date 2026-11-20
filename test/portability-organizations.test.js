@@ -33,11 +33,11 @@ const PRODUCT = {
   plans: { free: { name: 'Free', features: { 'routines.max': 3 } }, pro: { name: 'Pro', features: {} } },
   defaultPlan: 'free',
 };
-/** Tracker's shape: drivers take a seat, viewers don't. */
-const FLEET = { ...PRODUCT, organizations: { roles: ['owner', 'admin', 'member', 'driver', 'viewer'], seatRoles: ['driver'] } };
+/** A help desk's shape: agents take a seat, viewers don't. */
+const DESK = { ...PRODUCT, organizations: { roles: ['owner', 'admin', 'member', 'agent', 'viewer'], seatRoles: ['agent'] } };
 
 /**
- * A family app shaped as Focus is: a family per organization (one row each, with the account
+ * A family app: a family per organization (one row each, with the account
  * that anchors it), its people (children without an account), routines, paired devices; and
  * notes of one's own.
  */
@@ -379,7 +379,7 @@ test('someone’s own copy makes the family theirs in a fresh install, as its ow
   assert.deepEqual([...checked[0].organizations.mapped], []);
 });
 
-test('a family of that kind they own or run here takes the copy, and its one row is the copy’s (Focus’ case)', async (t) => {
+test('a family of that kind they own or run here takes the copy, and its one row is the copy’s', async (t) => {
   const source = install(t);
   const s = seedSource(source);
   const file = path.join(source.dir, 'ben.zip');
@@ -955,31 +955,31 @@ test('a kind is written by one rule: a group can’t be made with another, and a
   assert.equal(target.db.get("SELECT kind FROM organizations WHERE name = 'Ok'").kind, 'team_2');
 });
 
-test('a group whose owners are left out gets its heir by the one rule: drivers last; a role this install lacks becomes member', async (t) => {
-  const source = install(t, { config: FLEET });
+test('a group whose owners are left out gets its heir by the one rule: agents last; a role this install lacks becomes member', async (t) => {
+  const source = install(t, { config: DESK });
   const make = (username) => source.suite.accounts.create({ username, displayName: username, email: `${username}@example.com` }, { quiet: true });
   const [olga, dave, vic] = ['olga', 'dave', 'vic'].map(make);
-  const fleet = source.organizations.create({ name: 'Fleet', kind: 'fleet', ownerId: olga.id });
-  source.organizations.addMember(fleet.id, dave.id, 'driver');
-  source.organizations.addMember(fleet.id, vic.id, 'viewer');
+  const desk = source.organizations.create({ name: 'Help desk', kind: 'desk', ownerId: olga.id });
+  source.organizations.addMember(desk.id, dave.id, 'agent');
+  source.organizations.addMember(desk.id, vic.id, 'viewer');
   source.db.run("UPDATE memberships SET joined_at = '2026-01-02T00:00:00.000Z' WHERE user_id = ?", dave.id);
   source.db.run("UPDATE memberships SET joined_at = '2026-01-03T00:00:00.000Z' WHERE user_id = ?", vic.id);
   const file = path.join(source.dir, 'install.zip');
   await exportTo(source, file, { scope: 'install' });
 
-  // The same product: the viewer inherits, though the driver joined first —a driver made owner would stop driving.
-  const same = install(t, { config: FLEET });
+  // The same product: the viewer inherits, though the agent joined first —an agent made owner would leave the role.
+  const same = install(t, { config: DESK });
   await same.portability.applyFile(file, { mode: 'install', decisions: [{ source: 'olga', skip: true }] });
-  const here = same.db.get("SELECT id FROM organizations WHERE name = 'Fleet'").id;
-  assert.deepEqual(membersOf(same, here), [['dave', 'driver'], ['vic', 'owner']]);
+  const here = same.db.get("SELECT id FROM organizations WHERE name = 'Help desk'").id;
+  assert.deepEqual(membersOf(same, here), [['dave', 'agent'], ['vic', 'owner']]);
   const id = (box, username) => box.suite.accounts.byUsername(username).id;
-  assert.equal(same.organizations.heirOf(here, id(same, 'vic')), id(same, 'dave'), 'a driver inherits only when nobody else is left');
+  assert.equal(same.organizations.heirOf(here, id(same, 'vic')), id(same, 'dave'), 'an agent inherits only when nobody else is left');
 
   // An install without those roles: they come in as members.
   const plain = install(t);
   const result = await plain.portability.applyFile(file, { mode: 'install' });
   assert.equal(result.imported.memberships, 3);
-  const there = plain.db.get("SELECT id FROM organizations WHERE name = 'Fleet'").id;
+  const there = plain.db.get("SELECT id FROM organizations WHERE name = 'Help desk'").id;
   assert.deepEqual(membersOf(plain, there), [['dave', 'member'], ['olga', 'owner'], ['vic', 'member']]);
 });
 
@@ -1133,7 +1133,7 @@ test('a copy never puts someone in more groups of a kind than this install allow
     (err) => err.status === 409 && err.code === 'organization_limit' && err.extra?.kind === 'family');
   assert.deepEqual(['organizations', 'memberships', 'fam_families', 'fam_people'].map((table) => count(target.db, table)), before,
     'before, the copy made him a second family, past the install’s one per person');
-  // Into the family he has (mapOntoOwn, as Focus declares it): it comes in.
+  // Into the family he has (mapOntoOwn, as a family app declares it): it comes in.
   const mapped = install(t, { config: capped });
   const ben = mapped.suite.accounts.create({ username: 'ben', displayName: 'Ben' });
   const home = mapped.organizations.create({ name: 'Ben home', kind: 'family', ownerId: ben.id });

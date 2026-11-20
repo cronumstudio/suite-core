@@ -87,6 +87,9 @@ const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
 /** suite.config.js `devices`: how an app on a phone connects (devices.js, device-pages.js). */
 const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays', 'connectPage', 'webSessions']);
 
+/** suite.config.js `app.accent`: the accent's steps, as tokens.css names them (brand.js appStyle). */
+const ACCENT_KEYS = Object.freeze(['light', 'on', 'dark', 'onDark']);
+
 /**
  * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
  * finding one stops the start and names its replacement. HOST_PORT only matters to docker compose,
@@ -122,6 +125,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     languages: Array.isArray(a.languages) && a.languages.length ? [...a.languages] : ['en'],
     // The product's colour and icon: the accent and the picture of the OAuth consent screen.
     color: a.color ?? null,
+    // The accent's measured steps, { light, on, dark, onDark }, for the pages the suite draws
+    // itself (brand.js appStyle): an app that tokens.css doesn't list wears them there too.
+    accent: a.accent == null ? null : (isObject(a.accent) ? { ...a.accent } : a.accent),
     icon: a.icon ?? '/icons/favicon.svg',
     // How its emails are signed (mail-layout.js): its icon as a PNG at its own address (mail
     // clients don't show SVG), a lighter colour for dark mode, a line under its name, and what
@@ -140,6 +146,16 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (unknownLanguages.length) errors.push(`app.languages: ${unknownLanguages.join(', ')} not among ${LANGUAGES.join(', ')}`);
   if (app.languages[0] !== 'en') errors.push('app.languages: English goes first, it is the fallback');
   if (app.color !== null && !/^#[0-9a-fA-F]{6}$/.test(String(app.color))) errors.push('app.color: a colour as #RRGGBB, e.g. #3A4660');
+  if (app.accent !== null) {
+    if (!isObject(app.accent)) errors.push('app.accent: an object ({ light, on, dark, onDark }), each a colour as #RRGGBB');
+    else {
+      for (const [key, value] of Object.entries(app.accent)) {
+        if (!ACCENT_KEYS.includes(key)) errors.push(`app.accent.${key} is not a setting (${ACCENT_KEYS.join(', ')})`);
+        else if (value != null && !/^#[0-9a-fA-F]{6}$/.test(String(value))) errors.push(`app.accent.${key}: a colour as #RRGGBB`);
+      }
+      if (app.color === null) errors.push('app.accent needs app.color: the pages the suite draws write them together');
+    }
+  }
   // The consent screen's CSP only loads images from the app itself.
   if (!/^\/(?!\/)[^\s"'<>\\]*$/.test(String(app.icon))) errors.push('app.icon: a path on the app itself, starting with /');
   if (a.mail !== undefined && !isObject(a.mail)) errors.push('app.mail: an object ({ icon, colorOnDark, signature, about })');
@@ -212,7 +228,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const organizations = {
     roles: Array.isArray(og.roles) ? [...og.roles] : ['owner', 'admin', 'member'],
     invitationDays: og.invitationDays ?? 7,
-    // The roles that take a seat a subscription pays for (Tracker's drivers); null, every member.
+    // The roles that take a seat a subscription pays for (a help desk's agents, say); null, every member.
     seatRoles: Array.isArray(og.seatRoles) ? [...og.seatRoles] : (og.seatRoles ?? null),
     // The kinds the app manages, caps per person, or deletes when empty (organizations.js); none, as before.
     kinds: {},
@@ -229,7 +245,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   if (organizations.seatRoles !== null && !(Array.isArray(organizations.seatRoles) && organizations.seatRoles.length
     && organizations.seatRoles.every((r) => organizations.roles.includes(r)))) {
-    errors.push("organizations.seatRoles: some of organizations.roles, such as ['driver'], or left out for every member");
+    errors.push("organizations.seatRoles: some of organizations.roles, such as ['agent'], or left out for every member");
   }
 
   const tk = isObject(p.tokens) ? p.tokens : {};
@@ -346,8 +362,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // a person gave to another app of the suite. A warning and not an error: an install that
     // starts requiring it must first have its Resource Indicator set in WorkOS.
     // With the login shared by the suite's products (accounts.sharedIdentity: one WorkOS
-    // environment for Work, Focus, Tracker…), that is not an install that might not have it yet but
-    // the very case it is for: a token someone gave a client for another product would open this
+    // environment for several apps), that is not an install that might not have it yet but the
+    // very case it is for: a token someone gave a client for another app would open this
     // MCP, and make them an account here. It doesn't start without it (audit sc-mcp-2); the
     // variable workos.js reads, as production sets it.
     if (modules.mcp && accounts.sharedIdentity && !String(env.WORKOS_MCP_AUDIENCE || '').trim()) {

@@ -1016,13 +1016,13 @@ test('a module that manages a kind of group: the host declares it the same way, 
   t.after(() => { host?.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' };
   const hostWith = (kinds) => ({ ...HOST, modules: { ...HOST.modules, organizations: true }, organizations: { kinds } });
-  const entry = (n) => ({ mount: 'focus', entry: fixture('plain', `?id=focus&uses=organizations&kinds=family&n=${n}`) });
+  const entry = (n) => ({ mount: 'fam', entry: fixture('plain', `?id=fam&uses=organizations&kinds=family&n=${n}`) });
   for (const [kinds, why] of [[{}, 'not declared'], [{ family: { managed: true } }, 'declared otherwise']]) {
     fresh += 1;
     await assert.rejects(
       createHost({ config: hostWith(kinds), modules: [entry(`${fresh}x`)], env, handleSignals: false, exitOnError: false, log: () => {} }),
       (err) => err instanceof SuiteConfigError
-        && err.errors.includes("focus: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
+        && err.errors.includes("fam: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
       why,
     );
   }
@@ -1077,6 +1077,19 @@ test('a PLANS JSON names the features of any module; one that none declares stop
   const someone = { id: 999, role: 'user' };
   assert.equal(host.modules[0].suite.entitlements.limit(someone, 'items.max'), 2);
   assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
+});
+
+test('a PLANS that names no catalog stops the host, with that one message', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: 'no-such-catalog' };
+  const refused = await createHost({ config: HOST, modules: modules(), env, handleSignals: false, exitOnError: false, log: () => {} })
+    .then(() => null, (err) => err);
+  assert.ok(refused instanceof SuiteConfigError, String(refused));
+  // The host's own catalog is read first, so the message is the host's, before any module's.
+  assert.deepEqual(refused.errors, [
+    'The plan catalog (PLANS) has errors: PLANS "no-such-catalog" is no catalog of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON',
+  ]);
 });
 
 test('a module’s ofOrganization reads the group’s own plan, and an archived group has the default one', async (t) => {

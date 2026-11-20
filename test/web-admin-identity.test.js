@@ -27,7 +27,7 @@ test('deleting someone whose login other apps share: they are named, and the log
   document.querySelectorAll = () => [];
   globalThis.window = { location: { hash: '#/users' }, addEventListener: () => {}, matchMedia: () => ({ matches: false }) };
   const sent = [];
-  let others = ['Focus'];
+  let others = ['Acme'];
   let lastBody = null;
   const server = {
     'GET /api/auth/config': { provider: 'workos', name: 'WorkOS', deletion_identity: true, app: { name: 'Work', languages: ['en'], modules: {} } },
@@ -73,7 +73,7 @@ test('deleting someone whose login other apps share: they are named, and the log
   const kept = await deleteAda(false);
   assert.ok(kept.box, 'the choice is there');
   assert.ok(kept.said.includes(t('admin.users.identityGoes', { provider: 'WorkOS' })));
-  assert.ok(kept.said.includes(t('admin.users.identityUsed', { apps: 'Focus' })), 'it names the other app');
+  assert.ok(kept.said.includes(t('admin.users.identityUsed', { apps: 'Acme' })), 'it names the other app');
   assert.equal(kept.deleted, 'DELETE /api/admin/users/1', 'unticked: the account here only');
 
   others = [];

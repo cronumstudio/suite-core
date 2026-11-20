@@ -1,6 +1,6 @@
 /**
  * Notices on a device that belongs to the app rather than to a signed-in
- * person: a child's tablet paired to a profile (Focus), a kiosk. Settings'
+ * person: a tablet paired to a profile, a kiosk. Settings'
  * subscribePush() is for a person: it asks /api/push/config and posts to
  * /api/push/subscribe, both behind a session, so a device without one can't
  * use it. Nothing here talks to the server: the app hands the device the

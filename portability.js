@@ -47,7 +47,7 @@
  *   which are its own (`users.prefs`) changes only those.
  * · **Organizations** (an app that declares `organizations`, or a table that
  *   points at them). A table can belong to a group instead of a person (a
- *   family's routines, a fleet's vehicles). Someone's copy takes the groups
+ *   household's lists, a team's projects). Someone's copy takes the groups
  *   they are in, with their own membership and the group's rows; the whole
  *   install's takes every group, membership, waiting invitation, and the
  *   groups' plans and payments. What is someone's alone, which "replace" and
@@ -220,7 +220,7 @@ export function dataImportsSchema(d) {
  * how whose rows they are is told.
  *
  * **A group's tables.** A reference to `organizations` makes a table a group's
- * (`focus_families: { refs: { organization_id: 'organizations' } }`), and the
+ * (`fam_families: { refs: { organization_id: 'organizations' } }`), and the
  * tables that point at it are the group's too. Organizations then travel in
  * copies, which `organizations` tunes (every key may be left out):
  *
@@ -244,10 +244,10 @@ export function dataImportsSchema(d) {
  * for them. Without either, nothing of organizations travels, as before.
  *
  * **One row per group** (`onePerOrganization: true`, on a table whose NOT NULL
- * reference to organizations is UNIQUE: Focus' families): when the group a row
- * goes into has its row already —someone's copy put into their own family, a
- * family a whole install's copy brought before— the copy's row isn't written
- * again: it is that row, and what points at it comes into it.
+ * reference to organizations is UNIQUE, such as one row per family): when the
+ * group a row goes into has its row already —someone's copy put into their own
+ * family, a family a whole install's copy brought before— the copy's row isn't
+ * written again: it is that row, and what points at it comes into it.
  *
  * **Columns that never travel**: `omit: ['token_hash', 'push_endpoint']` leaves
  * them out of every copy, and an import writes the column's default (or NULL).
@@ -257,8 +257,8 @@ export function dataImportsSchema(d) {
  * column's own default, never a NULL written over it. A column omitted must
  * allow NULL or have a default of either kind, and is never a reference, a
  * file's or the key. A column the app fills itself and never points at by a
- * declared reference (Focus' `owner_user_id`, the family's oldest owner) can be
- * omitted with a function that finds it here.
+ * declared reference (say, an `owner_user_id` the app keeps as the group's
+ * oldest owner) can be omitted with a function that finds it here.
  *
  * A public page's link (`public_token` and `public_since`, public-page.js) is
  * omitted from every table that has it without saying so: the token is the

@@ -23,7 +23,7 @@ import { randomToken, sha256 } from '../crypto.js';
 
 const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
-const BACK = 'com.example.tracker:/auth';
+const BACK = 'com.example.demo:/auth';
 
 /** A PKCE pair, as the app makes it: a random verifier and its SHA-256. */
 const pkce = () => {
@@ -42,7 +42,7 @@ function setup(t, options = {}) {
   const accounts = createAccounts({ database, clock });
   const audit = createAudit({ database, clock });
   const devices = createDevices({
-    database, prefix: 'trackerdev_', redirectUris: [BACK], idleDays: 90, audit, clock, ...options,
+    database, prefix: 'demodev_', redirectUris: [BACK], idleDays: 90, audit, clock, ...options,
   });
   const ana = accounts.create({ username: 'ana', displayName: 'Ana' });
   const bea = accounts.create({ username: 'bea', displayName: 'Bea' });
@@ -52,24 +52,24 @@ function setup(t, options = {}) {
     const issued = devices.issueCode(user, { codeChallenge: pair.challenge, redirectUri: BACK, name, platform });
     return devices.exchange({ code: issued.code, verifier: pair.verifier, redirectUri: BACK, appVersion });
   };
-  return { database, accounts, audit, devices, ana, bea, now, connect, tokens: createTokens({ database, prefix: 'tracker_', clock }) };
+  return { database, accounts, audit, devices, ana, bea, now, connect, tokens: createTokens({ database, prefix: 'demo_', clock }) };
 }
 
 const bearer = (token) => ({ headers: { authorization: `Bearer ${token}` } });
 
 test('the configuration: off by default, and with the module on, its own prefix and return addresses', () => {
-  const app = { id: 'tracker', name: 'Tracker' };
+  const app = { id: 'demo', name: 'Demo' };
   const off = resolveConfig({ app }, {});
   assert.deepEqual(off.errors, []);
   assert.equal(off.modules.devices, false);
   assert.equal(off.rateLimits.devices, 30);
 
   const on = resolveConfig({
-    app, modules: { devices: true }, tokens: { prefix: 'tracker_' },
-    devices: { prefix: 'trackerdev_', redirectUris: ['com.cronumstudio.tracker:/auth', 'com.cronumstudio.tracker:/auth'] },
+    app, modules: { devices: true }, tokens: { prefix: 'demo_' },
+    devices: { prefix: 'demodev_', redirectUris: ['com.example.phone:/auth', 'com.example.phone:/auth'] },
   }, {});
   assert.deepEqual(on.errors, []);
-  assert.deepEqual(on.devices, { prefix: 'trackerdev_', redirectUris: ['com.cronumstudio.tracker:/auth'], idleDays: 90 });
+  assert.deepEqual(on.devices, { prefix: 'demodev_', redirectUris: ['com.example.phone:/auth'], idleDays: 90 });
 
   assert.deepEqual(resolveConfig({ app, modules: { devices: true } }, {}).errors, [
     'modules.devices needs devices.prefix: how the app’s device tokens start ("appdev_")',
@@ -81,7 +81,7 @@ test('the configuration: off by default, and with the module on, its own prefix 
   assert.deepEqual(Object.values(OAUTH_PREFIXES), ['mcpat_', 'mcprt_', 'oc_', 'ocs_']);
   for (const taken of Object.values(OAUTH_PREFIXES)) {
     assert.deepEqual(resolveConfig({
-      app, modules: { devices: true }, tokens: { prefix: 'tracker_' }, devices: { prefix: taken, redirectUris: [BACK] },
+      app, modules: { devices: true }, tokens: { prefix: 'demo_' }, devices: { prefix: taken, redirectUris: [BACK] },
     }, {}).errors, [`devices.prefix can't be "${taken}": the built-in OAuth's values start with "${taken}", and the MCP would refuse them`]);
   }
   const wrong = resolveConfig({
@@ -97,13 +97,13 @@ test('the configuration: off by default, and with the module on, its own prefix 
     'devices.idleDays: a whole number of days from 1 to 3650',
   ]);
   assert.equal(redirectUriProblem('http://127.0.0.1:8123/auth'), null, 'a desktop app on loopback');
-  assert.equal(redirectUriProblem('https://tracker.example.com/app/auth'), null);
+  assert.equal(redirectUriProblem('https://demo.example.com/app/auth'), null);
   assert.deepEqual(resolveConfig({ app, rateLimits: { devices: 5 } }, {}).rateLimits.devices, 5);
 });
 
-test('the tables: migration 22, beside a table of an app’s own called devices (Focus’s)', (t) => {
+test('the tables: migration 22, beside a table of an app’s own called devices', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-devices-'));
-  const database = openDatabase({ dataDir: dir, name: 'focus' });
+  const database = openDatabase({ dataDir: dir, name: 'demo' });
   t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   database.exec("CREATE TABLE devices (id INTEGER PRIMARY KEY, household_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('kiosk')))");
   assert.ok(migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} }).includes(22));
@@ -117,7 +117,7 @@ test('the tables: migration 22, beside a table of an app’s own called devices 
 test('a code with the right verifier becomes a token: shown once, kept as a hash, of its own kind', (t) => {
   const { database, devices, ana, connect, tokens } = setup(t);
   const { token, device, user } = connect();
-  assert.match(token, /^trackerdev_[A-Za-z0-9_-]{43}$/);
+  assert.match(token, /^demodev_[A-Za-z0-9_-]{43}$/);
   assert.equal(user.id, ana.id);
   assert.deepEqual(Object.keys(device), ['id', 'name', 'platform', 'app_version', 'created_at', 'last_used_at', 'expires_at']);
   assert.equal(device.platform, 'ios');
@@ -125,7 +125,7 @@ test('a code with the right verifier becomes a token: shown once, kept as a hash
   assert.equal(device.expires_at, new Date(Date.parse(device.created_at) + 90 * DAY).toISOString());
   const row = database.get('SELECT * FROM device_tokens WHERE id = ?', device.id);
   assert.equal(row.token_hash, sha256(token));
-  assert.equal(row.prefix, 'trackerdev_');
+  assert.equal(row.prefix, 'demodev_');
   assert.ok(!JSON.stringify(database.all('SELECT * FROM device_tokens')).includes(token), 'only the hash is kept');
 
   const who = devices.authenticate(bearer(token));
@@ -139,8 +139,8 @@ test('a code with the right verifier becomes a token: shown once, kept as a hash
   assert.equal(tokens.authenticate(token, { scope: 'mcp' }), null, 'a device token is not an API token');
   const api = tokens.create(ana.id, { name: 'Claude' }).token;
   assert.equal(devices.authenticate(bearer(api)), null, 'nor an API token a device’s');
-  assert.equal(devices.authenticate(bearer(token.replace('trackerdev_', 'otherdev_'))), null);
-  assert.equal(devices.authenticate(bearer(`trackerdev_${randomToken(32)}`)), null, 'made up');
+  assert.equal(devices.authenticate(bearer(token.replace('demodev_', 'otherdev_'))), null);
+  assert.equal(devices.authenticate(bearer(`demodev_${randomToken(32)}`)), null, 'made up');
   assert.equal(devices.authenticate({ headers: { authorization: `Basic ${token}` } }), null);
   assert.equal(devices.authenticate({ headers: {} }), null);
 });
@@ -302,7 +302,7 @@ async function startApp(t, { product = {}, appOptions = {} } = {}) {
   const lines = [];
   const suite = createSuite({
     config: {
-      app: { id: 'tracker', name: 'Tracker', languages: ['en'] }, tokens: { prefix: 'tracker_' }, ...product,
+      app: { id: 'demo', name: 'Demo', languages: ['en'] }, tokens: { prefix: 'demo_' }, ...product,
     },
     env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' },
     log: (line) => lines.push(line), exitOnError: false,
@@ -321,7 +321,7 @@ async function startApp(t, { product = {}, appOptions = {} } = {}) {
       headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('tracker_sid='));
+    const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('demo_sid='));
     if (set) cookie = set.split(';')[0];
     const text = await res.text();
     let data = text;
@@ -335,7 +335,7 @@ async function startApp(t, { product = {}, appOptions = {} } = {}) {
 
 const DEVICES_ON = {
   modules: { devices: true },
-  devices: { prefix: 'trackerdev_', redirectUris: [BACK] },
+  devices: { prefix: 'demodev_', redirectUris: [BACK] },
   rateLimits: { devices: 3 },
 };
 
@@ -345,7 +345,7 @@ test('module off: no routes, and nothing of it in the suite', async (t) => {
   assert.equal((await web('POST', '/api/devices/codes', { code_challenge: pkce().challenge, redirect_uri: BACK, name: 'x' })).status, 404);
   assert.equal((await call('POST', '/api/devices/token', { code: 'x', code_verifier: 'y', redirect_uri: BACK })).status, 404);
   assert.equal((await web('GET', '/api/me/devices')).status, 404);
-  assert.equal((await call('DELETE', '/api/devices/current', undefined, { Authorization: 'Bearer trackerdev_x' })).status, 404);
+  assert.equal((await call('DELETE', '/api/devices/current', undefined, { Authorization: 'Bearer demodev_x' })).status, 404);
   // The admin's list of accounts counts no devices where there are none to connect.
   assert.equal((await web('GET', '/api/admin/users')).data.users.some((u) => 'devices' in u), false);
   assert.equal((await web('GET', '/api/admin/users/1/devices')).status, 404);

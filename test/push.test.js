@@ -726,7 +726,7 @@ test('over HTTP: an app’s own route keeps a device’s subscription with no se
   const kept = new Map();
   const { suite, browser } = await start(t, { push: true }, {}, (s) => ({
     routes: (api) => {
-      // The app's route and its storage (Focus: its paired device, by its own token); the suite only checks.
+      // The app's route and its storage (the app's: its paired device, by its own token); the suite only checks.
       api.post('/api/demo/devices/:id/push', async (ctx) => {
         const body = await readJson(ctx.req);
         kept.set(ctx.params.id, s.push.checkSubscription(body.subscription));
