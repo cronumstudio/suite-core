@@ -28,7 +28,7 @@
  *     whoever they only offered something to by email, or naming them by id would
  *     tell the address has an account (audit sc-data-1);
  *   · by username, only with `byUsername` (an install whose directory is open,
- *     where everyone sees everyone anyway).
+ *     where everyone sees everyone anyway: `!directoryClosed(suite)`).
  *
  * A kind that keeps its offers by email under their address (the module's
  * `*_address_offers`) says where (`addresses`). Then its owner sees an address
@@ -60,6 +60,21 @@ import { createShareBrake } from './share-brake.js';
 import { bareAddress } from './mail.js';
 
 export const PERMISSIONS = ['view', 'edit'];
+
+/**
+ * Whether the install's directory is closed, the same rule in every module: whoever has an account
+ * is a stranger to most of the rest, so each person sees only themselves and the people they share
+ * something with, and someone new is offered things by their exact email. So it is in a host
+ * (Cronum Work), with an identity provider (WorkOS, OIDC: whoever has an account there may sign in)
+ * and with sign-up open to others (`invite`, `open`). With local accounts the administrator makes,
+ * the install is one household or team: everybody knows each other, the full list of people is
+ * what makes choosing whom to share with easy, and an offer may name someone by username
+ * (createSharing's `byUsername`).
+ */
+export function directoryClosed(suite) {
+  const config = suite?.config ?? {};
+  return Boolean(config.host || suite?.idp || (config.accounts?.signup ?? 'admin') !== 'admin');
+}
 
 /**
  * An address as whoever didn't type it sees it: its first letter, then dots, then its domain
@@ -148,7 +163,12 @@ export function auditShare(audit, { step, actor, req = null, kind, id, targetId 
  * @param {Function} [options.hasPush]  (userId) → whether a push reaches them; overrides `push`.
  * @param {object} [options.brake]  { offer(actorId), notice(actorId, targetId) }; default createShareBrake().
  * @param {Function} [options.requirePlan]  (userId) → throws when the person's plan doesn't share.
- * @param {boolean} [options.byUsername]  also by `username`, for an open directory.
+ * @param {boolean} [options.byUsername]  also by `username`, for an open directory (directoryClosed).
+ * @param {'offered'|'accepted'} [options.inviters]  since when whoever offered the person something
+ *   is one of their people in the share dialog's chips (peopleOf): from the offer, as its
+ *   invitation shows them by name ('offered', the default), or once the person accepted it
+ *   ('accepted': an offer not answered makes nobody known to anybody). Naming them by id takes them
+ *   from the offer either way (knownTo).
  * @param {object} [options.codes]  { unknown: 'email_not_found', noTarget: null }: the codes of
  *   a person not found and of an offer that names nobody (null: the email is required).
  * @param {Function} [options.log]
@@ -159,9 +179,10 @@ export function auditShare(audit, { step, actor, req = null, kind, id, targetId 
  */
 export function createSharing({
   db, kinds, notify = null, push = null, hasPush = null, brake = createShareBrake(), requirePlan = null,
-  byUsername = false, codes = {}, clock = () => new Date().toISOString(), log = console.error,
+  byUsername = false, inviters = 'offered', codes = {}, clock = () => new Date().toISOString(), log = console.error,
   audit = null, module = null,
 }) {
+  if (!['offered', 'accepted'].includes(inviters)) throw new TypeError(`sharing: inviters is 'offered' or 'accepted', not "${inviters}"`);
   const noted = (step, details) => auditShare(audit, { ...details, step, module });
   const { get, all, run } = db;
   const UNKNOWN = codes.unknown || 'email_not_found';
@@ -259,9 +280,10 @@ export function createSharing({
    * and whoever else has what they accepted, of every kind; never themselves. Not
    * whoever they only offered something to: an offer by email makes a share for an
    * account and none for an address without one, so naming that account by its id
-   * told which addresses have one (audit sc-data-1). → a Set of ids.
+   * told which addresses have one (audit sc-data-1). With `offered: false`, whoever
+   * offered them something only once they accepted it (`inviters`). → a Set of ids.
    */
-  function knownTo(userId) {
+  function knownTo(userId, { offered = true } = {}) {
     const parts = [];
     const params = [];
     for (const { table, key, owner } of Object.values(KINDS)) {
@@ -270,7 +292,7 @@ export function createSharing({
         // Whoever accepted something of theirs.
         `SELECT s.user_id AS id FROM ${table} s ${owner.join} WHERE ${owner.column} = ? AND s.accepted = 1`,
         // Whoever offered them something.
-        `SELECT ${owner.column} FROM ${table} s ${owner.join} WHERE s.user_id = ?`,
+        `SELECT ${owner.column} FROM ${table} s ${owner.join} WHERE s.user_id = ?${offered ? '' : ' AND s.accepted = 1'}`,
         // Whoever else has what they accepted (as the dialog shows them).
         `SELECT o.user_id FROM ${table} s JOIN ${table} o ON o.${key} = s.${key} WHERE s.user_id = ? AND s.accepted = 1 AND o.accepted = 1`,
       );
@@ -284,10 +306,11 @@ export function createSharing({
    * The person's people, for the share dialog's chips: those they may name by id
    * (knownTo), each once, by name, never by email. Whoever they only offered
    * something to is none of them, as in Projects: the name an account gave itself
-   * is for it to show by accepting (#693). → [{ id, name }].
+   * is for it to show by accepting (#693). Whoever offered them something, from
+   * the offer or once accepted, as `inviters` says. → [{ id, name }].
    */
   function peopleOf(userId) {
-    return [...knownTo(userId)].map((id) => personOf(id)).filter(Boolean)
+    return [...knownTo(userId, { offered: inviters === 'offered' })].map((id) => personOf(id)).filter(Boolean)
       .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' }) || a.id - b.id);
   }
 

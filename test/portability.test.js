@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSuite, createApp } from '../app.js';
 import { createZipWriter, openZip } from '../zip.js';
-import { describeData, selectRows, ownership, jsonOfRows, withImportCeiling } from '../portability.js';
+import { describeData, selectRows, ownership, jsonOfRows, withImportCeiling, importedPrefs } from '../portability.js';
 import { resolveConfig, CLOUDFLARE_IMPORT_MB } from '../config.js';
 import { Readable } from 'node:stream';
 import { openDatabase } from '../db.js';
@@ -90,11 +90,11 @@ const PDF = Buffer.from('%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n');
 const HTML = Buffer.from('<!DOCTYPE html><script>alert(document.cookie)</script>');
 
 /** An install of the demo app in its own folder; every new account gets a "Welcome" group, like Tasks' first lists. */
-function install(t, env = {}, migrations = MIGRATIONS) {
+function install(t, env = {}, migrations = MIGRATIONS, config = PRODUCT) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-data-'));
   let suite = null;
   suite = createSuite({
-    config: PRODUCT, migrations, log: () => {}, exitOnError: false,
+    config, migrations, log: () => {}, exitOnError: false,
     env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', ...env },
     hooks: { onUserCreated: (user) => suite.database.run('INSERT INTO groups (user_id, name) VALUES (?, ?)', user.id, 'Welcome') },
   });
@@ -1320,3 +1320,215 @@ async function rewrite(from, to, edits) {
   await zip.close();
   return to;
 }
+
+/* --------------------------- one row of preferences, the plan --------------------------- */
+
+/**
+ * Two modules of one host on the demo's tables, each with its keys of the one users.prefs: the
+ * first keeps a list's id among them (`default_list`), the second a word (`sort`). `day` stands for
+ * the host's own keys (its daily summary), `lang` and `tz` are the whole account's.
+ */
+const LISTS_DATA = {
+  tables: { groups: DATA.tables.groups, lists: DATA.tables.lists },
+  users: {
+    prefs: { defaults: { default_list: null, view: 'list' } },
+    remap: (prefs, { ids }) => ({ ...prefs, default_list: prefs.default_list ? ids('lists', prefs.default_list) : null }),
+  },
+};
+const SORT_DATA = { tables: { groups: DATA.tables.groups }, users: { prefs: { defaults: { sort: 'updated' } } } };
+
+test('one row of preferences for every module: a copy changes only its app’s keys, the ids among them translated', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const row = { default_list: s.l1, view: 'board', sort: 'name', day: { morning: true }, lang: 'es', tz: 'Europe/Madrid' };
+  source.db.run('UPDATE users SET prefs = ? WHERE id = ?', JSON.stringify(row), s.ana.id);
+  const lists = path.join(source.dir, 'lists.zip');
+  const sorts = path.join(source.dir, 'sorts.zip');
+  await exportTo({ ...source, portability: source.suite.portabilityFor(LISTS_DATA, { version: '1.0.0' }) }, lists, { scope: 'account', userId: s.ana.id });
+  await exportTo({ ...source, portability: source.suite.portabilityFor(SORT_DATA, { version: '1.0.0' }) }, sorts, { scope: 'account', userId: s.ana.id });
+
+  const target = install(t);
+  const me = target.suite.accounts.create({ username: 'me', displayName: 'Me' });
+  const mine = target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Mine')", me.id).lastInsertRowid;
+  const here = { default_list: mine, sort: 'manual', day: { evening: true }, lang: 'it', tz: 'Europe/Rome', other: 1 };
+  target.db.run('UPDATE users SET prefs = ? WHERE id = ?', JSON.stringify(here), me.id);
+  const prefsOf = () => JSON.parse(target.db.get('SELECT prefs FROM users WHERE id = ?', me.id).prefs);
+
+  await target.suite.portabilityFor(LISTS_DATA, { version: '1.0.0' }).applyFile(lists, { mode: 'account', user: me });
+  const shopping = target.db.get("SELECT id FROM lists WHERE name = 'Shopping' AND owner_id = ?", me.id).id;
+  assert.deepEqual(prefsOf(), { ...here, default_list: shopping, view: 'board' },
+    'its keys, the list’s id translated; another module’s, the host’s and the account’s stay as they are here');
+  await target.suite.portabilityFor(SORT_DATA, { version: '1.0.0' }).applyFile(sorts, { mode: 'account', user: me });
+  assert.deepEqual(prefsOf(), { ...here, default_list: shopping, view: 'board', sort: 'name' },
+    'the second module’s copy, which carries the first one’s keys too, leaves them as that import translated them');
+});
+
+test('an account a copy makes starts from the copy’s row of preferences, its app’s keys as `remap` gives them', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const row = { default_list: s.l1, view: 'board', sort: 'name', day: { morning: true }, lang: 'es', tz: 'Europe/Madrid' };
+  source.db.run('UPDATE users SET prefs = ? WHERE id = ?', JSON.stringify(row), s.ana.id);
+  const file = path.join(source.dir, 'install.zip');
+  await exportTo({ ...source, portability: source.suite.portabilityFor(LISTS_DATA, { version: '1.0.0' }) }, file, { scope: 'install' });
+
+  const target = install(t);
+  const seen = [];
+  const remap = (prefs, context) => {
+    seen.push({ current: context.current, created: context.created });
+    return LISTS_DATA.users.remap(prefs, context);
+  };
+  const declared = { ...LISTS_DATA, users: { ...LISTS_DATA.users, remap } };
+  await target.suite.portabilityFor(declared, { version: '1.0.0' }).applyFile(file, { mode: 'install' });
+  const shopping = target.db.get("SELECT id FROM lists WHERE name = 'Shopping'").id;
+  assert.deepEqual(JSON.parse(target.db.get("SELECT prefs FROM users WHERE username = 'ana'").prefs), { ...row, default_list: shopping });
+  assert.ok(seen.length && seen.every((c) => c.current === null && c.created === true), 'nothing of theirs is here yet');
+});
+
+test('users.prefs is the app’s preferences or a function of the copy’s, remap goes with the first; planLimit says a feature and a count', () => {
+  const database = openDatabase({ path: ':memory:' });
+  MIGRATIONS[0].up(database);
+  const tables = { groups: { refs: { user_id: 'users' } } };
+  const own = (prefs) => [...describeData(database, { tables, users: { prefs } }).ownPrefs].sort();
+  assert.deepEqual(own({ defaults: { sort: 'updated', lang: 'auto', tz: null } }), ['sort'], 'never the account’s language or zone');
+  assert.deepEqual(own({ parts: [{ defaults: { a: 1 } }, { defaults: { b: 2 }, normalize: () => ({}) }] }), ['a', 'b'], 'a combined hook, each part’s');
+  assert.deepEqual(own({ defaults: {}, normalize: () => ({}) }), [], 'none of its own');
+  assert.doesNotThrow(() => describeData(database, { tables, users: { prefs: { defaults: { sort: 'x' } }, remap: (p) => p } }));
+  assert.equal(describeData(database, { tables, users: { prefs: (p) => p } }).ownPrefs, null, 'a function, as before');
+  assert.throws(() => describeData(database, { tables, users: { prefs: 'sort' } }), /users\.prefs: the app's preferences/);
+  assert.throws(() => describeData(database, { tables, users: { remap: (p) => p } }), /users\.remap: with users\.prefs/);
+  assert.throws(() => describeData(database, { tables, users: { prefs: (p) => p, remap: (p) => p } }), /users\.remap: .*not a function/);
+  assert.throws(() => describeData(database, { tables, planLimit: { feature: 'lists.max' } }), /planLimit: \{ feature/);
+  assert.doesNotThrow(() => describeData(database, { tables, planLimit: { feature: 'lists.max', count: () => 0 } }));
+
+  // What an import writes, on its own: the app's keys over the row here, or over the copy's for an account it makes.
+  const model = describeData(database, { tables, users: { prefs: { defaults: { sort: 'x' } }, remap: (p) => ({ ...p, sort: `${p.sort}!` }) } });
+  const copy = JSON.stringify({ sort: 'name', other: 1, lang: 'es' });
+  assert.deepEqual(JSON.parse(importedPrefs(model, { copy, current: '{"sort":"x","mine":2,"lang":"it"}' })), { sort: 'name!', mine: 2, lang: 'it' });
+  assert.deepEqual(JSON.parse(importedPrefs(model, { copy, created: true })), { sort: 'name!', other: 1, lang: 'es' });
+  assert.equal(importedPrefs(describeData(database, { tables }), { copy }), null, 'without either, they don’t travel');
+  const asBefore = describeData(database, { tables, users: { prefs: (p, { current }) => ({ ...current, ...p }) } });
+  assert.deepEqual(JSON.parse(importedPrefs(asBefore, { copy, current: { mine: 2, lang: 'it' } })), { sort: 'name', other: 1, mine: 2, lang: 'it' }, 'a function, as before');
+});
+
+/**
+ * The demo's product with plans that limit lists and storage, attachments on in each: by default no
+ * room for a file and one list, and a grant gives more (the most generous of the plans one has).
+ */
+const LIMITED = {
+  ...PRODUCT,
+  features: {
+    ...PRODUCT.features,
+    'lists.max': { type: 'limit', default: null, label: 'lists' },
+    'storage.mb': { type: 'limit', default: null, label: 'storage (MB)' },
+  },
+  plans: {
+    tight: { name: 'Tight', features: { 'storage.mb': 0, 'lists.max': 1 } },
+    roomy: { name: 'Roomy', features: { 'storage.mb': 100, 'lists.max': 1 } },
+    full: { name: 'Full', features: {} },
+  },
+  defaultPlan: 'tight',
+};
+
+test('someone’s own import keeps to their plan: its storage, the app’s check, then planLimit; the admin’s, to none', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  const own = path.join(source.dir, 'ana.zip');
+  const whole = path.join(source.dir, 'install.zip');
+  await exportTo(source, own, { scope: 'account', userId: s.ana.id });
+
+  const target = install(t, {}, MIGRATIONS, LIMITED);
+  const steps = [];
+  target.suite.countStorage((userId) => {
+    steps.push('storage');
+    return target.db.get('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE user_id = ?', userId).n;
+  });
+  const count = (userId) => {
+    steps.push('count');
+    return target.db.get('SELECT COUNT(*) AS n FROM lists WHERE owner_id = ?', userId).n;
+  };
+  const declared = { ...DATA, planLimit: { feature: 'lists.max', count }, check: () => { steps.push('check'); } };
+  const portability = target.suite.portabilityFor(declared, { version: '1.0.0' });
+  const person = (name, plan, email = null) => {
+    const user = target.suite.accounts.create({ username: name, displayName: name, email });
+    if (plan) target.suite.entitlements.grant({ subjectId: user.id, plan });
+    return target.suite.accounts.byId(user.id);
+  };
+  const listsOf = (user) => target.db.get('SELECT COUNT(*) AS n FROM lists WHERE owner_id = ?', user.id).n;
+  const refusal = (user) => portability.applyFile(own, { mode: 'account', user }).then(() => null, (err) => err);
+
+  const tight = person('tight', null);
+  const full = await refusal(tight);
+  assert.equal(full?.code, 'plan_limit');
+  assert.deepEqual([full.status, full.extra.feature, full.extra.plan], [402, 'storage.mb', 'tight'], 'the copy’s photo counted');
+  assert.equal(listsOf(tight), 0, 'nothing of it came in');
+
+  const roomy = person('roomy', 'roomy');
+  target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Had')", roomy.id);
+  steps.length = 0;
+  const many = await refusal(roomy);
+  assert.deepEqual([many?.status, many?.code, many?.extra], [402, 'plan_limit', { feature: 'lists.max', limit: 1, current: 2, plan: 'roomy', plan_name: 'Roomy' }],
+    'their lists counted with the copy’s, as the app’s screens answer it');
+  assert.equal(listsOf(roomy), 1);
+  assert.deepEqual(steps, ['storage', 'check', 'count'], 'the storage, then what the app checks, then the count');
+  steps.length = 0;
+  assert.equal(await refusal(person('free', 'full')), null, 'a plan without limits lets it in');
+  assert.deepEqual(steps, ['check'], 'nothing to count against');
+
+  // An app without files asks nothing of the storage, whatever the plan allows.
+  const noFiles = { tables: { groups: DATA.tables.groups, lists: DATA.tables.lists }, planLimit: { feature: 'lists.max', count } };
+  const listsFile = path.join(source.dir, 'lists.zip');
+  await exportTo({ ...source, portability: source.suite.portabilityFor(noFiles, { version: '1.0.0' }) }, listsFile, { scope: 'account', userId: s.ana.id });
+  steps.length = 0;
+  await target.suite.portabilityFor(noFiles, { version: '1.0.0' }).applyFile(listsFile, { mode: 'account', user: person('tight2', null) });
+  assert.deepEqual(steps, ['count']);
+
+  // The administrator's import of the whole install keeps to no one's plan, as before.
+  await exportTo(source, whole, { scope: 'install' });
+  const anaHere = person('ana.here', 'roomy', 'ana@example.com');
+  target.db.run("INSERT INTO lists (owner_id, name) VALUES (?, 'Had')", anaHere.id);
+  steps.length = 0;
+  await portability.applyFile(whole, { mode: 'install' });
+  assert.equal(listsOf(anaHere), 2);
+  assert.deepEqual(steps, []);
+});
+
+test('a public page’s link never travels, without the app saying so: copies made before come in with the page off', async (t) => {
+  const PAGES = [...MIGRATIONS, {
+    version: 2,
+    name: 'pages',
+    up: (d) => d.exec(`CREATE TABLE pages (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, public_token TEXT UNIQUE, public_since TEXT)`),
+  }];
+  const declared = { tables: { pages: { refs: { owner_id: 'users' } } } };
+  const source = install(t, {}, PAGES);
+  const ana = source.suite.accounts.create({ username: 'ana', displayName: 'Ana' }, { quiet: true });
+  const token = 'tok-0123456789abcdef';
+  source.db.run("INSERT INTO pages (owner_id, title, public_token, public_since) VALUES (?, 'Open', ?, '2026-11-01T00:00:00.000Z')", ana.id, token);
+  const file = path.join(source.dir, 'pages.zip');
+  await exportTo({ ...source, portability: source.suite.portabilityFor(declared, { version: '1.0.0' }) }, file, { scope: 'account', userId: ana.id });
+  const { json } = await readZip(t, file);
+  assert.deepEqual(Object.keys((await json('data/pages.json'))[0]).sort(), ['id', 'owner_id', 'title'], 'neither the token nor since when');
+
+  // A copy made before, with the link in it, comes in twice into one install: off, and without a clash.
+  const old = await rewrite(file, path.join(source.dir, 'old.zip'), {
+    'data/pages.json': (rows) => rows.map((r) => ({ ...r, public_token: token, public_since: '2026-11-01T00:00:00.000Z' })),
+  });
+  const target = install(t, {}, PAGES);
+  const here = target.suite.portabilityFor(declared, { version: '1.0.0' });
+  for (const name of ['one', 'two']) {
+    await here.applyFile(old, { mode: 'account', user: target.suite.accounts.create({ username: name, displayName: name }) });
+  }
+  assert.deepEqual(target.db.all('SELECT title, public_token, public_since FROM pages').map((r) => ({ ...r })),
+    [{ title: 'Open', public_token: null, public_since: null }, { title: 'Open', public_token: null, public_since: null }]);
+
+  // Said as well, it is the same; with other columns of its own, added to them.
+  const omitted = (spec) => [...describeData(target.db, { tables: { pages: { refs: { owner_id: 'users' }, ...spec } } }).byName.get('pages').omit.keys()].sort();
+  assert.deepEqual(omitted({}), ['public_since', 'public_token']);
+  assert.deepEqual(omitted({ omit: ['public_token'] }), ['public_since', 'public_token']);
+  assert.deepEqual(omitted({ omit: { title: 'Untitled' } }), ['public_since', 'public_token', 'title']);
+  // A link that can't be left out (NOT NULL without a default) is the app's mistake, said at the start.
+  const database = openDatabase({ path: ':memory:' });
+  MIGRATIONS[0].up(database);
+  database.exec('CREATE TABLE locked (id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), public_token TEXT NOT NULL)');
+  assert.throws(() => describeData(database, { tables: { locked: { refs: { owner_id: 'users' } } } }), /locked\.omit: public_token is NOT NULL without a default/);
+});

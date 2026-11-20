@@ -10,11 +10,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
-import { createSharing, auditShare } from '../sharing.js';
+import { createSharing, auditShare, directoryClosed } from '../sharing.js';
 import { createShareBrake, OFFERS_PER_HOUR } from '../share-brake.js';
 import { createRouter, HttpError, notFound, forbidden } from '../http.js';
 
-function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, codes, addresses = false, clock = () => '2026-10-25T10:00:00.000Z', audit = null } = {}) {
+function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false, inviters, codes, addresses = false, clock = () => '2026-10-25T10:00:00.000Z', audit = null } = {}) {
   const database = new DatabaseSync(':memory:');
   database.exec(`
     CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, display_name TEXT, email TEXT);
@@ -89,7 +89,7 @@ function setup({ brake = createShareBrake(), notify, hasPush, byUsername = false
     },
   };
   const sharing = createSharing({
-    db, brake, byUsername, codes, hasPush,
+    db, brake, byUsername, inviters, codes, hasPush,
     clock, audit, module: 'demo',
     notify: notify ?? {
       push: (n) => notices.push(['push', n.kind, n.name, n.actorId, n.targetId, n.permission]),
@@ -383,6 +383,30 @@ test('who has it, and one\'s people of every kind', () => {
   assert.deepEqual(sharing.peopleOf(4), []);
   assert.deepEqual(sharing.setPermission('board', 1, 10, 2, 'view').permission, 'view');
   assert.equal(codeOf(() => sharing.setPermission('board', 1, 10, 4, 'view')), '404 not_found');
+});
+
+test('whoever offered something is one’s people from the offer, its invitation names them; with inviters: \'accepted\', once accepted', () => {
+  const usual = setup().sharing;
+  usual.share('board', 2, 20, { email: 'ana@example.com' });
+  assert.deepEqual(usual.peopleOf(1), [{ id: 2, name: 'Ben' }], 'by default, from the offer');
+
+  const { sharing } = setup({ inviters: 'accepted' });
+  sharing.share('board', 2, 20, { email: 'ana@example.com' });
+  assert.deepEqual(sharing.peopleOf(1), [], 'an offer not answered makes nobody known');
+  assert.deepEqual([...sharing.knownTo(1)], [2], 'named by id, as by default');
+  assert.equal(sharing.share('board', 1, 10, { user_id: 2 }).invited, true);
+  sharing.accept('board', 1, 20);
+  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben' }], 'once accepted');
+  assert.throws(() => setup({ inviters: 'later' }), /inviters is 'offered' or 'accepted'/);
+});
+
+test('the directory is closed in a host, with an identity provider or with sign-up open to others', () => {
+  const local = { config: { accounts: { signup: 'admin' } }, idp: null };
+  assert.equal(directoryClosed(local), false, 'local accounts the administrator makes: one household');
+  assert.equal(directoryClosed({ config: {} }), false, 'sign-up is the administrator’s unless said');
+  assert.equal(directoryClosed({ ...local, config: { ...local.config, host: { id: 'work', mount: 'tasks' } } }), true, 'a module of a host');
+  assert.equal(directoryClosed({ ...local, idp: { handle() {} } }), true, 'WorkOS, OIDC');
+  for (const signup of ['invite', 'open']) assert.equal(directoryClosed({ config: { accounts: { signup } } }), true, signup);
 });
 
 test('what waits for someone, newest first, of the kinds that say how', () => {

@@ -264,8 +264,10 @@ export const DATA = {
                   file: { path: 'path', folder: 'user_id', feature: 'attachments' } },
   },
   users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
-           prefs: (prefs, { ids, current }) => ({ … }) },
-  check({ user, counts, replaced }) { … },   // the plan's limits, for someone's own import
+           prefs: PREFS,                                    // the app's preferences, as createApp takes them
+           remap: (prefs, { ids, current }) => ({ … }) },   // the ids its own keys hold, translated
+  planLimit: { feature: 'lists.max', count: ownLists },    // the plan's limit, for someone's own import
+  check({ user, counts, replaced }) { … },   // the app's other limits, for someone's own import
 };
 ```
 
@@ -277,10 +279,18 @@ export const DATA = {
   `organizations` or to an earlier table.
 - Importing gives every row a new id and translates every reference; accounts go where the
   admin says (the one here with the same email, a new one, or none), and an existing one takes
-  the copy's preferences but keeps its username, email and role. `prefs` translates the ids the
-  app keeps in its preferences. `clean(values, { mode, organizations })` may change a row as it
-  comes in. Passwords, second steps, sessions, tokens, OAuth grants and push subscriptions never
-  travel.
+  the copy's preferences but keeps its username, email and role. `users.prefs`, the app's
+  preferences, says which keys of the one `users.prefs` row are the app's (those of its
+  `defaults`): in a host the row is every module's and the host's, so a copy brings in only those,
+  and `remap` translates the ids the app keeps in them. An existing account keeps every other key,
+  and its language and zone; one the import makes starts from the copy's row. `users.prefs` may
+  still be a function of the copy's row, as before. `clean(values, { mode, organizations })` may
+  change a row as it comes in. Passwords, second steps, sessions, tokens, OAuth grants and push
+  subscriptions never travel.
+- Someone's own import keeps to their plan, with the rows already in: the storage it allows
+  (`storage.mb`, the copy's files counted) when the app has a table of files, then the app's
+  `check`, then the most of `planLimit.feature` as `count(userId)` counts it (402 `plan_limit`).
+  The admin's import of the whole install keeps to none.
 - A copy is not trusted: only columns this install has, plain values, references inside the
   file, attachments that are images or PDF by their first bytes, one apply per copy
   (`data_imports`), and ceilings by who imports it. Someone's own copy has at most 64 MB of data,
@@ -300,7 +310,8 @@ export const DATA = {
   or a function of the row instead, its references already translated. `null` there, or a function
   that answers `undefined` or `null`, means the column's own default, never a NULL written over it.
   A copy that brings an omitted column anyway has it dropped. The start refuses an omitted column
-  that is NOT NULL without a default of either kind, a reference, a file's or the key.
+  that is NOT NULL without a default of either kind, a reference, a file's or the key. A public
+  page's link (`public_token`, `public_since`) is omitted from every table that has it, unsaid.
 
 **A group's data** (with `modules.organizations`, v0.84.0): a table that points at `organizations`
 belongs to a group, and so does every table that chains to it. Focus' shape:

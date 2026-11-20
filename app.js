@@ -664,6 +664,8 @@ export function createSuite({
    */
   const portabilityFor = (declaration, { version = null, limits = {}, onErased = null } = {}) => createPortability({
     database, accounts, uploads, entitlements, live, audit,
+    // What someone keeps against storage.mb, once the app says it (countStorage, createApp's `storage`).
+    storage: () => made?.storage,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
     baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, onErased,
     // What stands before the server may take less than the app would (IMPORT_MAX_MB, config.js).
