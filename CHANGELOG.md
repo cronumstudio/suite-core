@@ -3,6 +3,66 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.310.0 — 2026-11-20
+
+What the modules each wrote on their own, written once here, and two fixes that came with it: an
+import no longer overwrites another module's preferences, and no page waits for ever on a hung
+IndexedDB.
+
+### The person's time zone
+- **A tool runs in the time zone of the person it acts for**, as each module did on its own:
+  createApp runs each of the app's MCP tools inside `inZoneOf`, and a host does the same for each
+  module's (`hostMcp`). The host's own tools read the day as before: hostMcp says `zoned: true`.
+- **`zonedRoutes: true`** (a createApp option, and `createModule().zonedRoutes`, which the host passes
+  on): the app's own routes run in the zone of whoever asks. The suite's routes, and modules that
+  don't ask, answer as before. A handler's `answeredOnce`/`keyedByRoute` stays.
+
+### Ownership
+- **`suite.ownership` is the one every module uses**: `createOwnership({ suite: () => suite })` reads
+  the suite's `push`, `shareMail` and `goneBrake` each time a notice goes, so a module's suite in a
+  host, or a test's stand-ins, are what it uses. Its words are the app's `hooks.texts`. Its failures
+  are logged with the suite's log.
+
+### Sharing
+- **`directoryClosed(suite)`**: whether an install's people are strangers to one another (in a host,
+  with an identity provider, or with sign-up open to others). One rule for every module.
+- **`createSharing({ inviters: 'accepted' })`**: whoever offered someone something joins their people
+  (the share dialog's chips) once they accept it. The default is `'offered'`, as before. Naming them
+  by id is unchanged.
+
+### Copies
+- **`users.prefs` may be the app's preferences**, as createApp takes them: a copy then changes only
+  the app's own keys of the one `users.prefs` row (`users.remap` translates their ids). An existing
+  account keeps every other key (another module's, the host's) and its language and zone; an
+  account the import makes starts from the copy's row. A function there works as before.
+- **`planLimit: { feature, count }`** makes someone's own import past the plan answer 402
+  `plan_limit`. Any app with a table of files also gets its plan's storage (`storage.mb`) checked,
+  first, then the app's `check`.
+- **`public_token` and `public_since` never travel**; copies made before still come in, with the page
+  off. `importedPrefs()` exposes what an import writes in the preferences, for apps' tests.
+
+### The device's copy (web kit)
+- **A patience for IndexedDB** (`web/local.js`): `openLocal(app, stores, { patience })`. Past it,
+  what waits for a database that hasn't opened gives up (`local_store_slow`) and isn't done; until
+  that open answers, whatever comes next gives up at once; once it opens, all as before.
+  `LOCAL_PATIENCE_MS` (1500), `deviceLocal(app, stores)` and `inTime(promise, ms)`. Without
+  `patience`, nothing changes.
+- **`update(reads, decide)`** on both stores: records read and the stores changed in one transaction,
+  done once the database opens even when its caller stopped waiting, before anything asked after it.
+- **Whose the copy is**: `createDeviceCopy({ local, stores, account, owner, outbox })` (also
+  `store.deviceCopy()`), with `kept`, `account`, `outboxOwner`, `read`, `claim` and `forget`: the
+  rules Notes, Next and Projects each wrote their own way. `drawableFor(id, host)`: the copy only for
+  whoever Cronum Work's shell says is signed in; also `sameAccount(a, b)`.
+
+### Small helpers written once
+- `db.js`: `inBatches(ids, query, { unique })` asks many ids 500 to a statement, and `personId(id)`
+  binds what is no id as 0.
+- `http.js`: `idParam(ctx, name)`, the id a route names; the field checks `color`, `dateOnly` (on
+  `isoDate`) and `intInRange`, each answering the codes its caller gives; `isObject`, instead of
+  seven copies. `isoDate` reads a year under 100 as that year when `minYear` allows it; with its
+  default years nothing changes.
+- `public-page.js`: `publicPageUrl(baseUrl, token)`, a public page's address.
+
 ## 0.309.0 — 2026-11-20
 
 What nothing calls any more goes, and a few helpers are written once. Nothing a person, a page or
