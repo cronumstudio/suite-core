@@ -25,8 +25,7 @@ next to what is saved.
 ## Same in every module
 
 Martin's rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
-(v0.248.0), for the search (v0.249.0), for deleting and dialogs (v0.245.0, v0.246.0), and for the
-sidebar's entries and the keys (v0.302.0), so that
+(v0.248.0), for the search (v0.249.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that
 going from one module to the next in Cronum Work nothing moves:
 
 1. **An item is never created from the sidebar.** A note, a step: the floating + button over the
@@ -82,7 +81,7 @@ going from one module to the next in Cronum Work nothing moves:
    them, and the order a drop makes is the kit's (`orderAfterDrop()`, drag.js). The collection
    open shows its emoji loose before the head's title, with no box (`head({ icon })`), in every
    module that has one.
-11. **The same keys in every module**: «/» to the search, «n» for a new item (`createShell({ onNew })`:
+11. **The same keys in every module** (v0.302.0): «/» to the search, «n» for a new item (`createShell({ onNew })`:
    a task, a note, a step), Escape to close what is open. Settings › About lists them, and words
    that tell a shortcut with a letter say ⌘ on a Mac and Ctrl elsewhere (`modKey()`, keyboard.js).
 
