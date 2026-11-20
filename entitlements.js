@@ -31,8 +31,8 @@
  * product that covers the whole suite— they carry the app's id
  * (`tasks.attachments`); grants for other apps are ignored here.
  *
- * Some things act for a group with nobody behind them: a child's paired device
- * in Focus, the hourly sweep of a family's History. They ask for the group's
+ * Some things act for a group with nobody behind them: a device paired to the
+ * group, a sweep the app runs over each group's data. They ask for the group's
  * own plan, `ofOrganization(id)`: its grants only, never a member's own nor the
  * instance admin's "no limits", and the default plan when it has none.
  */
@@ -186,11 +186,15 @@ export function createEntitlements({
 
   let source = plans;
   const named = String(plansJson || '').trim();
+  // A name that is no catalog says so alone: no second message about the plans' shape.
+  let unknownCatalog = false;
   if (/^[a-z0-9-]+$/.test(named)) {
     // A catalog of the suite, read for the features this app has: the rest is other apps'.
     // Every feature the app declares must have its value there, or it would be left unlimited.
-    if (!PLAN_CATALOGS[named]) errors.push(`PLANS "${named}" is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')}) and no JSON`);
-    else {
+    if (!PLAN_CATALOGS[named]) {
+      errors.push(`PLANS "${named}" is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')}) and no JSON`);
+      unknownCatalog = true;
+    } else {
       source = {};
       for (const [id, plan] of Object.entries(PLAN_CATALOGS[named])) {
         const values = {};
@@ -209,7 +213,7 @@ export function createEntitlements({
     }
   }
   if (!source || typeof source !== 'object' || Array.isArray(source) || !Object.keys(source).length) {
-    if (plansJson) errors.push('PLANS must be an object with at least one plan: {"free": {…}, "pro": {…}}');
+    if (plansJson && !unknownCatalog) errors.push('PLANS must be an object with at least one plan: {"free": {…}, "pro": {…}}');
     source = { free: { name: 'Free', features: {} } };
   }
   if (plansJson) {
@@ -383,13 +387,13 @@ export function createEntitlements({
   }
 
   /**
-   * An organization's own plan, for what acts for it with no person behind (a child's paired
-   * device, a family's sweep): the same shape as `of()`, from the organization's active grants
+   * An organization's own plan, for what acts for it with no person behind (a device paired to
+   * it, a sweep of its data): the same shape as `of()`, from the organization's active grants
    * alone. Never a member's own grants nor the instance admin's "no limits", which belong to a
    * person and would leak to whatever acts for the group; and never `of(null)`'s declared
    * defaults, which are no limit at all where nobody is asking. With no grant, or for a group
-   * that isn't there or is archived, the default plan: never more than a family of its own would
-   * have, and never an error, so a sweep over every family goes on past one that went.
+   * that isn't there or is archived, the default plan: never more than a group with no grant has,
+   * and never an error, so a sweep over every group goes on past one that went.
    */
   function ofOrganization(organizationId) {
     const subjects = organizationSubjects(organizationId);
@@ -400,8 +404,8 @@ export function createEntitlements({
    * The default plan with the given active grants on it, the most generous of each feature. The
    * plan shown is the highest one granted, and `ends` is when it lapses: among the active grants
    * of that plan, never if one has no end, else the latest end. Not the last grant's: a person with
-   * Pro for good who joins a family on a trial keeps Pro after the trial, and must not read "Pro
-   * until" its end (Settings, Focus's last-days notice).
+   * Pro for good who joins a group on a trial keeps Pro after the trial, and must not read "Pro
+   * until" its end (Settings, an app's notice of a trial's last days).
    */
   function entitledBy(grants) {
     return shownBy(grants).entitled;
@@ -499,7 +503,7 @@ export function createEntitlements({
   /**
    * `cutoff()` by an organization's own plan (`ofOrganization()`): the days count from the end of
    * the group's last grant that kept things longer —its trial, its subscription—, never a
-   * member's. What a family's sweep asks, with no adult behind it.
+   * member's. What a sweep for a group asks, with nobody behind it.
    */
   function cutoffOrganization(organizationId, feature) {
     if (known(feature).type !== 'limit') throw new Error(`cutoffOrganization: "${feature}" is not a limit`);

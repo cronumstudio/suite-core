@@ -1079,6 +1079,19 @@ test('a PLANS JSON names the features of any module; one that none declares stop
   assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
 });
 
+test('a PLANS that names no catalog stops the host, with that one message', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: 'no-such-catalog' };
+  const refused = await createHost({ config: HOST, modules: modules(), env, handleSignals: false, exitOnError: false, log: () => {} })
+    .then(() => null, (err) => err);
+  assert.ok(refused instanceof SuiteConfigError, String(refused));
+  // The host's own catalog is read first, so the message is the host's, before any module's.
+  assert.deepEqual(refused.errors, [
+    'The plan catalog (PLANS) has errors: PLANS "no-such-catalog" is no catalog of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON',
+  ]);
+});
+
 test('a module’s ofOrganization reads the group’s own plan, and an archived group has the default one', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
   fresh += 1;

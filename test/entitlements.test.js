@@ -159,41 +159,57 @@ test('PLANS=cronum-work: the suite’s catalog, read for the features the app ha
   // A feature the catalog doesn't set would be left unlimited: the start stops instead.
   const loose = createEntitlements({ database, appId: 'x', features: { ...features, 'boards.max': { type: 'limit' } }, plansJson: 'cronum-work' });
   assert.ok(loose.errors.some((m) => /plan "free" says nothing of "boards.max"/.test(m)));
-  // The message names every catalog there is, whichever products have one.
-  assert.ok(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-play' }).errors[0]
+  // The message names every catalog there is.
+  assert.ok(createEntitlements({ database, appId: 'x', features, plansJson: 'no-such-catalog' }).errors[0]
     .includes(`is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')})`));
   assert.match(createEntitlements({ database, appId: 'x', features, plansJson: 'cronum-work', defaultPlanOverride: 'gratis' }).errors[0],
     /DEFAULT_PLAN=free/, 'an old DEFAULT_PLAN stops the start, naming the new one');
 });
 
-/** The features Tracker declares (its suite.config.js, from its step T18). */
-const TRACKER_FEATURES = {
+test('the catalogs an install names, and their plans, keep their names', () => {
+  assert.deepEqual(Object.keys(PLAN_CATALOGS), ['cronum-work', 'cronum-per-group', 'cronum-per-seat'],
+    'installs set these in PLANS: renaming one stops them');
+  const named = (catalog) => Object.entries(PLAN_CATALOGS[catalog]).map(([id, plan]) => [id, plan.name]);
+  assert.deepEqual(named('cronum-work'), [['free', 'Free'], ['pro', 'Pro'], ['team', 'Team']], 'grants keep the plan ids');
+  assert.deepEqual(named('cronum-per-group'), [['free', 'Free'], ['pro', 'Pro']], 'grants keep the plan ids');
+  assert.deepEqual(named('cronum-per-seat'), [['free', 'Free'], ['org', 'Team'], ['pro', 'Pro']], 'grants keep the plan ids');
+});
+
+test('a PLANS that names no catalog says that alone', (t) => {
+  const database = setup(t);
+  // With no plans of the app's own, it used to add a second message, about the plans' shape.
+  assert.deepEqual(createEntitlements({ database, appId: 'x', features: { 'lists.max': FEATURES['lists.max'] }, plansJson: 'no-such-catalog' }).errors,
+    ['PLANS "no-such-catalog" is no catalog of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON']);
+});
+
+/** The features an app on this catalog declares (labels and defaults are the app's). */
+const PER_SEAT_FEATURES = {
   ...pick(COMMON_FEATURES, ['mcp']),
-  'capture.native': { type: 'flag', default: false, label: 'GPS from the app in the background' },
-  'links.max': { type: 'limit', default: 0, label: 'lasting links' },
-  'track.days': { type: 'limit', default: 30, label: 'days a track is kept' },
-  'viewers.max': { type: 'limit', default: null, label: 'people watching at once' },
+  'capture.native': { type: 'flag', default: false },
+  'links.max': { type: 'limit', default: 0 },
+  'track.days': { type: 'limit', default: 30 },
+  'viewers.max': { type: 'limit', default: null },
 };
 
-test('PLANS=cronum-tracker: a product of its own, with Free, Fleet for organizations and Pro', (t) => {
+test('PLANS=cronum-per-seat: Free, Team for an organization paid per seat, and Pro for one person', (t) => {
   const database = setup(t);
-  const e = createEntitlements({ database, appId: 'tracker', features: TRACKER_FEATURES, plansJson: 'cronum-tracker',
+  const e = createEntitlements({ database, appId: 'demo', features: PER_SEAT_FEATURES, plansJson: 'cronum-per-seat',
     organizationsOf: (user) => (user.id === 3 ? [7] : []) });
   assert.deepEqual(e.errors, []);
-  assert.deepEqual(e.describe().plans.map((p) => [p.id, p.name]), [['free', 'Free'], ['org', 'Fleet'], ['pro', 'Pro']]);
+  assert.deepEqual(e.describe().plans.map((p) => [p.id, p.name]), [['free', 'Free'], ['org', 'Team'], ['pro', 'Pro']]);
   assert.equal(e.describe().defaultPlan, 'free');
   const free = { mcp: false, 'capture.native': false, 'links.max': 0, 'track.days': 1, 'viewers.max': 0 };
   const pro = { mcp: false, 'capture.native': true, 'links.max': 1, 'track.days': 30, 'viewers.max': 30 };
   assert.deepEqual(e.of(ada).features, free);
-  assert.equal(e.can(ada, 'capture.native'), false, 'background GPS is Pro’s');
+  assert.equal(e.can(ada, 'capture.native'), false, 'Pro’s only');
   assert.equal(e.can(root, 'capture.native'), true, 'the admin is never limited');
 
-  // Fleet reaches every member, viewers too: each person gets what Free gives, the plan shown is Fleet,
-  // and the seats are the grant's.
-  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'org', quantity: 4, source: 'paddle', externalRef: 'sub_fleet' });
+  // The organization's plan reaches every member, viewers too: each person gets what Free gives,
+  // the plan shown is Team, and the seats are the grant's.
+  e.grant({ subjectType: 'organization', subjectId: 7, plan: 'org', quantity: 4, source: 'paddle', externalRef: 'sub_team' });
   const member = { id: 3, role: 'user' };
   assert.deepEqual(e.of(member).features, free);
-  assert.equal(e.of(member).plan.name, 'Fleet');
+  assert.equal(e.of(member).plan.name, 'Team');
   assert.equal(e.seatsOf(7), 4);
 
   // Pro on top: the more generous plan, shown as such; MCP stays off in every plan.
@@ -203,15 +219,15 @@ test('PLANS=cronum-tracker: a product of its own, with Free, Fleet for organizat
   assert.equal(e.can(member, 'mcp'), false);
 
   // The two catalogs know nothing of each other's keys: no plan of one gives anything in the other.
-  const work = createEntitlements({ database, appId: 'tracker', features: TRACKER_FEATURES, plansJson: 'cronum-work' });
+  const work = createEntitlements({ database, appId: 'demo', features: PER_SEAT_FEATURES, plansJson: 'cronum-work' });
   assert.ok(work.errors.some((m) => /plan "free" says nothing of "capture.native"/.test(m)));
-  const lists = createEntitlements({ database, appId: 'tasks', features: { 'lists.max': FEATURES['lists.max'] }, plansJson: 'cronum-tracker' });
-  assert.ok(lists.errors.some((m) => /PLANS "cronum-tracker": plan "free" says nothing of "lists.max"/.test(m)));
+  const lists = createEntitlements({ database, appId: 'tasks', features: { 'lists.max': FEATURES['lists.max'] }, plansJson: 'cronum-per-seat' });
+  assert.ok(lists.errors.some((m) => /PLANS "cronum-per-seat": plan "free" says nothing of "lists.max"/.test(m)));
   assert.ok(lists.errors.some((m) => /plan "pro" says nothing of "lists.max"/.test(m)));
 });
 
 test('the suite’s catalog: every plan sets every feature, and each one gives at least what the one before it', () => {
-  // Cronum Work's apps share every common feature; a product of its own sets the ones its app declares.
+  // Cronum Work's apps share every common feature; another catalog sets the ones its app declares.
   for (const key of Object.keys(COMMON_FEATURES)) assert.ok(key in PLAN_CATALOGS['cronum-work'].free.features, `cronum-work: ${key}`);
   for (const [name, plans] of Object.entries(PLAN_CATALOGS)) {
     const ids = Object.keys(plans);
@@ -236,102 +252,102 @@ test('the suite’s catalog: every plan sets every feature, and each one gives a
   assert.throws(() => pick(COMMON_FEATURES, ['nope']), /not a common feature/);
 });
 
-/** The features Focus declares (its suite.config.js, from its step P1). */
-const FOCUS_FEATURES = {
+/** The features an app on this catalog declares (labels and defaults are the app's). */
+const PER_GROUP_FEATURES = {
   ...pick(COMMON_FEATURES, ['mcp', 'mcp.calls_per_day']),
-  'routines.max': { type: 'limit', default: null, label: 'saved routines' },
-  'history.days': { type: 'limit', default: null, label: 'keeping unsaved routines in History' },
-  'devices.per_child': { type: 'limit', default: null, label: 'paired devices per child' },
-  live: { type: 'flag', default: true, label: 'the live view and remote launch' },
-  'summary.days': { type: 'limit', default: null, label: 'days of the adult summary' },
-  'runner.views': { type: 'flag', default: true, label: 'more runner and home views' },
+  'routines.max': { type: 'limit', default: null },
+  'history.days': { type: 'limit', default: null },
+  'devices.per_child': { type: 'limit', default: null },
+  live: { type: 'flag', default: true },
+  'summary.days': { type: 'limit', default: null },
+  'runner.views': { type: 'flag', default: true },
 };
-const FOCUS_FREE = {
+const PER_GROUP_FREE = {
   mcp: true, 'mcp.calls_per_day': 100, 'routines.max': 5, 'history.days': 7, 'devices.per_child': 1,
   live: false, 'summary.days': 0, 'runner.views': false,
 };
-const FOCUS_PRO = {
+const PER_GROUP_PRO = {
   mcp: true, 'mcp.calls_per_day': 1000, 'routines.max': null, 'history.days': null, 'devices.per_child': null,
   live: true, 'summary.days': 14, 'runner.views': true,
 };
 
-test('PLANS=cronum-focus: a product of its own, with Free and Pro for a family', (t) => {
+test('PLANS=cronum-per-group: Free and Pro, granted to a group and reaching its members', (t) => {
   const database = setup(t);
   let now = Date.parse('2026-11-02T09:00:00Z');
-  const family = 7;
-  const eve = { id: 3, role: 'user' };   // an adult of the family
-  const e = createEntitlements({ database, appId: 'focus', features: FOCUS_FEATURES, plansJson: 'cronum-focus',
-    organizationsOf: (user) => (user.id === eve.id ? [family] : []), clock: () => now });
+  const group = 7;
+  const eve = { id: 3, role: 'user' };   // a member of the group
+  const e = createEntitlements({ database, appId: 'demo', features: PER_GROUP_FEATURES, plansJson: 'cronum-per-group',
+    organizationsOf: (user) => (user.id === eve.id ? [group] : []), clock: () => now });
   assert.deepEqual(e.errors, []);
   assert.deepEqual(e.describe().plans.map((p) => [p.id, p.name]), [['free', 'Free'], ['pro', 'Pro']]);
   assert.equal(e.describe().defaultPlan, 'free');
-  assert.deepEqual(e.of(ada).features, FOCUS_FREE);
+  assert.deepEqual(e.of(ada).features, PER_GROUP_FREE);
   assert.throws(() => e.require(ada, 'routines.max', { current: 5 }), (err) => err.status === 402 && err.code === 'plan_limit');
-  assert.equal(e.limit(ada, 'summary.days'), 0, 'Free’s summary is the last run of each routine (read with limit(), never can())');
-  assert.equal(e.can(ada, 'mcp'), true, 'the AI connector is everyone’s');
+  assert.equal(e.limit(ada, 'summary.days'), 0, '0 is read with limit(), never can()');
+  assert.equal(e.can(ada, 'mcp'), true, 'the assistant’s connector is everyone’s');
 
-  // Pro is the family's: granted to its organization, it reaches the adults who are its members.
-  // The 14-day trial is that grant with an end; past it, the family is on Free again.
+  // Pro is the group's: granted to its organization, it reaches its members. A trial is that
+  // grant with an end; past it, the group is on Free again.
   const trialEnds = new Date(now + 14 * DAY).toISOString();
-  e.grant({ subjectType: 'organization', subjectId: family, plan: 'pro', source: 'trial', endsAt: trialEnds });
-  assert.deepEqual(e.of(eve).features, FOCUS_PRO);
-  assert.deepEqual([e.of(eve).plan.id, e.of(eve).ends], ['pro', trialEnds], 'what the last days’ notice reads');
-  assert.deepEqual(e.of(ada).features, FOCUS_FREE, 'nobody outside the family');
+  e.grant({ subjectType: 'organization', subjectId: group, plan: 'pro', source: 'trial', endsAt: trialEnds });
+  assert.deepEqual(e.of(eve).features, PER_GROUP_PRO);
+  assert.deepEqual([e.of(eve).plan.id, e.of(eve).ends], ['pro', trialEnds], 'what a notice of the trial’s last days reads');
+  assert.deepEqual(e.of(ada).features, PER_GROUP_FREE, 'nobody outside the group');
   now += 15 * DAY;
-  assert.deepEqual(e.of(eve).features, FOCUS_FREE);
-  assert.equal(e.cutoff(eve, 'history.days'), null, 'Free’s 7 days of History count from the end of the trial');
+  assert.deepEqual(e.of(eve).features, PER_GROUP_FREE);
+  assert.equal(e.cutoff(eve, 'history.days'), null, 'Free’s 7 days count from the end of the trial');
   now += 7 * DAY;
   assert.equal(e.cutoff(eve, 'history.days'), new Date(now - 7 * DAY).toISOString());
 
-  // Another product's catalog knows nothing of Focus's keys, nor this one of theirs: `history.days`,
+  // cronum-work knows nothing of this catalog's keys, nor this one of Notes': `history.days`,
   // Notes' too with another meaning, never meets it, since an install reads the catalog it names.
-  const work = createEntitlements({ database, appId: 'focus', features: FOCUS_FEATURES, plansJson: 'cronum-work' });
+  const work = createEntitlements({ database, appId: 'demo', features: PER_GROUP_FEATURES, plansJson: 'cronum-work' });
   assert.ok(work.errors.some((m) => /PLANS "cronum-work": plan "free" says nothing of "routines.max"/.test(m)));
   const notes = { 'notebooks.max': { type: 'limit' }, 'history.days': { type: 'limit' } };
-  assert.ok(createEntitlements({ database, appId: 'notes', features: notes, plansJson: 'cronum-focus' }).errors
-    .some((m) => /PLANS "cronum-focus": plan "free" says nothing of "notebooks.max"/.test(m)));
+  assert.ok(createEntitlements({ database, appId: 'notes', features: notes, plansJson: 'cronum-per-group' }).errors
+    .some((m) => /PLANS "cronum-per-group": plan "free" says nothing of "notebooks.max"/.test(m)));
 });
 
-test('PLANS=cronum-focus: an app with exactly Focus’s keys starts, and one more stops it', (t) => {
-  const dirs = [fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-focus-')), fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-focus-'))];
+test('PLANS=cronum-per-group: an app with exactly the catalog’s keys starts, and one more stops it', (t) => {
+  const dirs = [fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-per-group-')), fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-per-group-'))];
   let suite = null;
   t.after(() => { suite?.database.close(); for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true }); });
-  const product = { app: { id: 'focus', name: 'Focus' }, modules: { organizations: true }, features: FOCUS_FEATURES };
-  const env = (dir) => ({ DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-focus' });
+  const product = { app: { id: 'demo', name: 'Demo' }, modules: { organizations: true }, features: PER_GROUP_FEATURES };
+  const env = (dir) => ({ DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-per-group' });
   suite = createSuite({ config: product, env: env(dirs[0]), log: () => {}, exitOnError: false });
 
-  // With the suite's own organizations: a family's Pro reaches its owner and the adult invited in.
-  const [owner, adult] = ['ada', 'bob'].map((username) => suite.accounts.create({ username }));
+  // With the suite's own organizations: the group's Pro reaches its owner and the member invited in.
+  const [owner, member] = ['ada', 'bob'].map((username) => suite.accounts.create({ username }));
   const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: owner.id });
-  suite.organizations.addMember(home.id, adult.id, 'admin');
-  assert.deepEqual(suite.entitlements.of(adult).features, FOCUS_FREE);
+  suite.organizations.addMember(home.id, member.id, 'admin');
+  assert.deepEqual(suite.entitlements.of(member).features, PER_GROUP_FREE);
   suite.entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'pro', source: 'paddle', externalRef: 'sub_1' });
-  assert.deepEqual(suite.entitlements.of(owner).features, FOCUS_PRO);
-  assert.deepEqual(suite.entitlements.of(adult).features, FOCUS_PRO);
+  assert.deepEqual(suite.entitlements.of(owner).features, PER_GROUP_PRO);
+  assert.deepEqual(suite.entitlements.of(member).features, PER_GROUP_PRO);
 
   // A key the catalog doesn't set would be left unlimited: the start stops, naming it.
-  const more = { ...product, features: { ...FOCUS_FEATURES, 'kiosks.max': { type: 'limit', default: null } } };
+  const more = { ...product, features: { ...PER_GROUP_FEATURES, 'extras.max': { type: 'limit', default: null } } };
   assert.throws(() => createSuite({ config: more, env: env(dirs[1]), log: () => {}, exitOnError: false }),
-    (err) => err instanceof SuiteConfigError && /PLANS "cronum-focus": plan "free" says nothing of "kiosks\.max"/.test(err.message));
+    (err) => err instanceof SuiteConfigError && /PLANS "cronum-per-group": plan "free" says nothing of "extras\.max"/.test(err.message));
 });
 
-test('PLANS=cronum-focus: what acts for a family with nobody behind it reads the family’s own plan', (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-focus-'));
+test('PLANS=cronum-per-group: what acts for a group with nobody behind it reads the group’s own plan', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-per-group-'));
   const suite = createSuite({
-    config: { app: { id: 'focus', name: 'Focus' }, modules: { organizations: true }, features: FOCUS_FEATURES },
-    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-focus' }, log: () => {}, exitOnError: false,
+    config: { app: { id: 'demo', name: 'Demo' }, modules: { organizations: true }, features: PER_GROUP_FEATURES },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'cronum-per-group' }, log: () => {}, exitOnError: false,
   });
   t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  // The family's owner administers the install and has Pro of their own: neither is the family's.
+  // The group's owner administers the install and has Pro of their own: neither is the group's.
   const owner = suite.accounts.create({ username: 'ada', role: 'admin' });
   const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: owner.id });
   suite.entitlements.grant({ subjectId: owner.id, plan: 'pro', source: 'admin' });
-  assert.deepEqual(suite.entitlements.ofOrganization(home.id).features, FOCUS_FREE, 'a child’s device, before any trial');
-  assert.notEqual(suite.entitlements.cutoffOrganization(home.id, 'history.days'), null, 'Free’s 7 days of History, not the owner’s Pro');
+  assert.deepEqual(suite.entitlements.ofOrganization(home.id).features, PER_GROUP_FREE, 'what acts for the group, before any trial');
+  assert.notEqual(suite.entitlements.cutoffOrganization(home.id, 'history.days'), null, 'Free’s 7 days, not the owner’s Pro');
 
   const ends = new Date(Date.now() + 14 * DAY).toISOString();
   suite.entitlements.grant({ subjectType: 'organization', subjectId: home.id, plan: 'pro', source: 'trial', endsAt: ends });
-  assert.deepEqual(suite.entitlements.ofOrganization(home.id), { plan: { id: 'pro', name: 'Pro' }, ends, features: FOCUS_PRO, unlimited: false });
+  assert.deepEqual(suite.entitlements.ofOrganization(home.id), { plan: { id: 'pro', name: 'Pro' }, ends, features: PER_GROUP_PRO, unlimited: false });
   assert.equal(suite.entitlements.cutoffOrganization(home.id, 'history.days'), null);
 });
 
@@ -481,7 +497,7 @@ test('ends: when the shown plan lapses, never while one of its grants has no end
   assert.deepEqual([e.of(eve).plan.id, e.of(eve).ends], ['pro', at(5)]);
 });
 
-/** A family's catalog, shaped like Focus's (the test's own: the suite's may come in another version). */
+/** A family's catalog (the test's own: the suite's may come in another version). */
 const FAMILY_FEATURES = {
   'routines.max': { type: 'limit', default: null },
   'history.days': { type: 'limit', default: null },
@@ -497,7 +513,7 @@ test('ofOrganization: a family’s own plan by its own grants, for what acts wit
   const eve = { id: 3, role: 'user' };
   // Family 7: Eve and the instance admin. Family 8: Ada. Family 9 was archived.
   const e = createEntitlements({
-    database, appId: 'focus', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
+    database, appId: 'demo', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
     plans: { free: { name: 'Free', features: FAMILY_FREE }, pro: { name: 'Pro', features: FAMILY_PRO } },
     organizationsOf: (user) => ({ [eve.id]: [7], [root.id]: [7], [ada.id]: [8] }[user.id] || []),
     organizationExists: (id) => [7, 8].includes(id),
@@ -515,7 +531,7 @@ test('ofOrganization: a family’s own plan by its own grants, for what acts wit
   assert.deepEqual(e.ofOrganization(7), free, 'nor another family’s');
   assert.equal(e.ofOrganization(8).plan.id, 'pro');
 
-  // The 14-day trial: Pro until its end, and then Free, nothing kept from it but what cutoff counts.
+  // A trial: Pro until its end, and then Free, nothing kept from it but what cutoff counts.
   e.grant({ subjectType: 'organization', subjectId: 7, plan: 'pro', source: 'trial', endsAt: at(14) });
   const trialEnds = at(14);
   assert.deepEqual(e.ofOrganization(7), { plan: { id: 'pro', name: 'Pro' }, ends: trialEnds, features: FAMILY_PRO, unlimited: false });
@@ -543,7 +559,7 @@ test('ofOrganization: a family’s own plan by its own grants, for what acts wit
   assert.equal(e.ofOrganization('7').plan.id, 'pro', 'the digits of a route’s parameter');
 
   // Left out, organizationExists checks nothing: every id's grants count (createSuite gives one).
-  const unchecked = createEntitlements({ database, appId: 'focus', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
+  const unchecked = createEntitlements({ database, appId: 'demo', features: FAMILY_FEATURES, plansJson: '', clock: () => now,
     plans: { free: { name: 'Free', features: FAMILY_FREE }, pro: { name: 'Pro', features: FAMILY_PRO } } });
   assert.equal(unchecked.ofOrganization(9).plan.id, 'pro');
 
